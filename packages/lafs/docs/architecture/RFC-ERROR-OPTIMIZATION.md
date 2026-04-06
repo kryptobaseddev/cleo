@@ -1,9 +1,16 @@
 # RFC: LAFS Error Response Optimization
 
-**Status:** DRAFT
+**Status:** HISTORICAL (implemented, see code for current state)
 **Author:** System Architect
 **Date:** 2026-03-15
 **Spec Version Impact:** v1.7.0 (additive), v2.0.0 (breaking changes deferred)
+
+> **Note:** This RFC describes the design as proposed in March 2026. The implementation
+> has since evolved. Notable post-RFC changes:
+> - `src/mcpAdapter.ts` was removed when MCP support was eliminated.
+> - `src/validateEnvelope.ts` now uses a native Rust validator (`lafs-napi`) with
+>   AJV as a fallback. Schema is embedded at compile time, not loaded from disk.
+> - See `PLAN-LAFS-RUST.md` for the napi-rs migration plan and current architecture.
 
 ---
 

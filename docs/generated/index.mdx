@@ -1,11 +1,12 @@
 ---
-title: "cleocode"
+title: cleocode
 ---
+
 **cleocode** is a TypeScript documentation toolkit that performs a single AST traversal of your project and produces API docs, OpenAPI specs, executable doctests, and AI context files in one pass.
 
 ## Features
 
-- 4 packages with full TypeScript support
+- 9 packages with full TypeScript support
 - Auto-generated API reference from source code
 - Executable `@example` blocks as doctests
 - AI-ready context files from a single build pass
@@ -19,21 +20,27 @@ npm install -D @cleocode/monorepo
 ## Quick Example
 
 ```typescript
-const pipeline = await initializePipeline('T4800', {
-  startStage: 'research',
-  assignedAgent: 'agent-001'
-});
-console.log(`Pipeline initialized: ${pipeline.id}`);
+import { checkStatuslineIntegration } from './statusline.js';
+
+const status = checkStatuslineIntegration();
+if (status === 'not_configured') {
+  console.log('Run cleo install to set up context monitoring');
+}
 ```
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`adapters`](/packages/adapters/index) | 26 exported symbol(s). |
-| [`cleo`](/packages/cleo/index) | 659 exported symbol(s). |
-| [`core`](/packages/core/index) | 2696 exported symbol(s). |
-| [`contracts`](/packages/contracts/index) | 475 exported symbol(s). |
+| Package                                  | Description              |
+| ---------------------------------------- | ------------------------ |
+| [`.`](/packages/./index)                 | 2 exported symbol(s).    |
+| [`adapters`](/packages/adapters/index)   | 80 exported symbol(s).   |
+| [`caamp`](/packages/caamp/index)         | 498 exported symbol(s).  |
+| [`cant`](/packages/cant/index)           | 56 exported symbol(s).   |
+| [`core`](/packages/core/index)           | 3524 exported symbol(s). |
+| [`cleo`](/packages/cleo/index)           | 768 exported symbol(s).  |
+| [`contracts`](/packages/contracts/index) | 583 exported symbol(s).  |
+| [`lafs`](/packages/lafs/index)           | 289 exported symbol(s).  |
+| [`runtime`](/packages/runtime/index)     | 20 exported symbol(s).   |
 
 ## Next Steps
 

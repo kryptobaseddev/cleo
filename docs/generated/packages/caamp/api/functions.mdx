@@ -1,0 +1,6004 @@
+---
+title: caamp — Functions
+description: Functions and classes for the caamp package
+---
+
+Functions and classes exported by this package.
+
+## getPlatformPaths()
+
+Get OS-appropriate paths for CAAMP's global directories.
+
+**Signature**
+
+```typescript
+() => PlatformPaths
+```
+
+**Returns** — Resolved platform paths
+
+**Example**
+
+```typescript
+const paths = getPlatformPaths();
+console.log(paths.data); // e.g. "/home/user/.local/share/agents"
+```
+
+## getSystemInfo()
+
+Get a cached system information snapshot.
+
+**Signature**
+
+```typescript
+() => SystemInfo
+```
+
+**Returns** — Cached system info object
+
+**Example**
+
+```typescript
+const info = getSystemInfo();
+console.log(`Running on ${info.platform}/${info.arch}`);
+```
+
+## \_resetPlatformPathsCache()
+
+Invalidate the path and system info caches. Use in tests after mutating AGENTS\_HOME env var.
+
+**Signature**
+
+```typescript
+() => void
+```
+
+## getPlatformLocations()
+
+Resolves platform-specific directory locations for the current OS.
+
+**Signature**
+
+```typescript
+() => PlatformLocations
+```
+
+**Returns** — Platform-specific directory locations
+
+**Example**
+
+```typescript
+const locations = getPlatformLocations();
+console.log(locations.config); // e.g., "/home/user/.config"
+```
+
+## getAgentsHome()
+
+Returns the global agents home directory path.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The absolute path to the global agents home directory
+
+**Example**
+
+```typescript
+const home = getAgentsHome();
+// e.g., "/home/user/.local/share/caamp"
+```
+
+## getProjectAgentsDir(projectRoot)
+
+Returns the project-local `.agents` directory path.
+
+**Signature**
+
+```typescript
+(projectRoot?: string) => string
+```
+
+**Parameters**
+
+| Name          | Type       | Description                                             |
+| ------------- | ---------- | ------------------------------------------------------- |
+| `projectRoot` | `: string` | The project root directory, defaults to `process.cwd()` |
+
+**Returns** — The absolute path to the project's `.agents` directory
+
+**Example**
+
+```typescript
+const dir = getProjectAgentsDir("/home/user/my-project");
+// returns "/home/user/my-project/.agents"
+```
+
+## resolveProjectPath(relativePath, projectDir)
+
+Resolves a relative path against a project directory.
+
+**Signature**
+
+```typescript
+(relativePath: string, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name           | Type       | Description                                             |
+| -------------- | ---------- | ------------------------------------------------------- |
+| `relativePath` | `string`   | The relative path to resolve                            |
+| `projectDir`   | `: string` | The project root directory, defaults to `process.cwd()` |
+
+**Returns** — The resolved absolute path
+
+**Example**
+
+```typescript
+const path = resolveProjectPath(".agents/config.toml", "/home/user/project");
+// returns "/home/user/project/.agents/config.toml"
+```
+
+## getCanonicalSkillsDir()
+
+Returns the canonical skills storage directory path.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The absolute path to the canonical skills directory
+
+**Example**
+
+```typescript
+const dir = getCanonicalSkillsDir();
+// e.g., "/home/user/.local/share/caamp/skills"
+```
+
+## getLockFilePath()
+
+Returns the path to the CAAMP lock file.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The absolute path to the `.caamp-lock.json` file
+
+**Example**
+
+```typescript
+const lockPath = getLockFilePath();
+// e.g., "/home/user/.local/share/caamp/.caamp-lock.json"
+```
+
+## getAgentsMcpDir(scope, projectDir)
+
+Gets the MCP directory within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                                               |
+| ------------ | ------------- | ------------------------------------------------------------------------- |
+| `scope`      | `: PathScope` | `"global"` for `~/.agents/mcp/`, `"project"` for `<project>/.agents/mcp/` |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`)                                |
+
+**Returns** — The absolute path to the MCP directory
+
+**Example**
+
+```typescript
+const globalMcp = getAgentsMcpDir("global");
+const projectMcp = getAgentsMcpDir("project", "/home/user/project");
+```
+
+## getAgentsMcpServersPath(scope, projectDir)
+
+Gets the MCP servers.json path within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                                                                       |
+| ------------ | ------------- | ------------------------------------------------------------------------------------------------- |
+| `scope`      | `: PathScope` | `"global"` for `~/.agents/mcp/servers.json`, `"project"` for `<project>/.agents/mcp/servers.json` |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`)                                                        |
+
+**Returns** — The absolute path to the `servers.json` file
+
+**Example**
+
+```typescript
+const serversPath = getAgentsMcpServersPath("global");
+// e.g., "/home/user/.agents/mcp/servers.json"
+```
+
+## getAgentsInstructFile(scope, projectDir)
+
+Gets the primary AGENTS.md instruction file path within `.agents/`.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                                                         |
+| ------------ | ------------- | ----------------------------------------------------------------------------------- |
+| `scope`      | `: PathScope` | `"global"` for `~/.agents/AGENTS.md`, `"project"` for `<project>/.agents/AGENTS.md` |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`)                                          |
+
+**Returns** — The absolute path to the AGENTS.md file
+
+**Example**
+
+```typescript
+const agentsFile = getAgentsInstructFile("project", "/home/user/project");
+// returns "/home/user/project/.agents/AGENTS.md"
+```
+
+## getAgentsConfigPath(scope, projectDir)
+
+Gets the config.toml path within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                                                             |
+| ------------ | ------------- | --------------------------------------------------------------------------------------- |
+| `scope`      | `: PathScope` | `"global"` for `~/.agents/config.toml`, `"project"` for `<project>/.agents/config.toml` |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`)                                              |
+
+**Returns** — The absolute path to the config.toml file
+
+**Example**
+
+```typescript
+const configPath = getAgentsConfigPath("global");
+// e.g., "/home/user/.agents/config.toml"
+```
+
+## getAgentsWikiDir(scope, projectDir)
+
+Gets the wiki directory within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                |
+| ------------ | ------------- | ------------------------------------------ |
+| `scope`      | `: PathScope` | `"global"` or `"project"`                  |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`) |
+
+**Returns** — The absolute path to the wiki directory
+
+**Example**
+
+```typescript
+const wikiDir = getAgentsWikiDir("project", "/home/user/project");
+// returns "/home/user/project/.agents/wiki"
+```
+
+## getAgentsSpecDir(scope, projectDir)
+
+Gets the spec directory within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                |
+| ------------ | ------------- | ------------------------------------------ |
+| `scope`      | `: PathScope` | `"global"` or `"project"`                  |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`) |
+
+**Returns** — The absolute path to the spec directory
+
+**Example**
+
+```typescript
+const specDir = getAgentsSpecDir("global");
+// e.g., "/home/user/.agents/spec"
+```
+
+## getAgentsLinksDir(scope, projectDir)
+
+Gets the links directory within the `.agents/` standard structure.
+
+**Signature**
+
+```typescript
+(scope?: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type          | Description                                |
+| ------------ | ------------- | ------------------------------------------ |
+| `scope`      | `: PathScope` | `"global"` or `"project"`                  |
+| `projectDir` | `: string`    | Project root (defaults to `process.cwd()`) |
+
+**Returns** — The absolute path to the links directory
+
+**Example**
+
+```typescript
+const linksDir = getAgentsLinksDir("project", "/home/user/project");
+// returns "/home/user/project/.agents/links"
+```
+
+## resolveRegistryTemplatePath(template)
+
+Resolves a registry template path by substituting platform variables.
+
+**Signature**
+
+```typescript
+(template: string) => string
+```
+
+**Parameters**
+
+| Name       | Type     | Description                                             |
+| ---------- | -------- | ------------------------------------------------------- |
+| `template` | `string` | The template string containing `$VARIABLE` placeholders |
+
+**Returns** — The resolved absolute path with all variables expanded
+
+**Example**
+
+```typescript
+const path = resolveRegistryTemplatePath("$HOME/.config/claude/settings.json");
+// e.g., "/home/user/.config/claude/settings.json"
+```
+
+## resolveProviderConfigPath(provider, scope, projectDir)
+
+Resolves the configuration file path for a provider at the given scope.
+
+**Signature**
+
+```typescript
+(provider: Provider, scope: PathScope, projectDir?: string) => string | null
+```
+
+**Parameters**
+
+| Name         | Type        | Description                                             |
+| ------------ | ----------- | ------------------------------------------------------- |
+| `provider`   | `Provider`  | The provider whose config path to resolve               |
+| `scope`      | `PathScope` | Whether to resolve global or project config path        |
+| `projectDir` | `: string`  | The project root directory, defaults to `process.cwd()` |
+
+**Returns** — The resolved config file path, or null if unavailable for the given scope
+
+**Example**
+
+```typescript
+const configPath = resolveProviderConfigPath(provider, "project", "/home/user/project");
+if (configPath) {
+  console.log("Config at:", configPath);
+}
+```
+
+## resolvePreferredConfigScope(provider, useGlobalFlag)
+
+Determines the preferred configuration scope for a provider.
+
+**Signature**
+
+```typescript
+(provider: Provider, useGlobalFlag?: boolean) => PathScope
+```
+
+**Parameters**
+
+| Name            | Type        | Description                         |
+| --------------- | ----------- | ----------------------------------- |
+| `provider`      | `Provider`  | The provider to determine scope for |
+| `useGlobalFlag` | `: boolean` | Optional flag to force global scope |
+
+**Returns** — The preferred path scope for configuration
+
+**Example**
+
+```typescript
+const scope = resolvePreferredConfigScope(provider, false);
+// returns "project" if provider has configPathProject, otherwise "global"
+```
+
+## resolveProviderSkillsDir(provider, scope, projectDir)
+
+Resolves the skills directory path for a provider at the given scope.
+
+**Signature**
+
+```typescript
+(provider: Provider, scope: PathScope, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type        | Description                                             |
+| ------------ | ----------- | ------------------------------------------------------- |
+| `provider`   | `Provider`  | The provider whose skills directory to resolve          |
+| `scope`      | `PathScope` | Whether to resolve global or project skills path        |
+| `projectDir` | `: string`  | The project root directory, defaults to `process.cwd()` |
+
+**Returns** — The resolved skills directory path
+
+**Example**
+
+```typescript
+const skillsDir = resolveProviderSkillsDir(provider, "global");
+// e.g., "/home/user/.claude/skills"
+```
+
+## resolveProviderSkillsDirs(provider, scope, projectDir)
+
+Gets all target directories for skill installation based on provider precedence.
+
+**Signature**
+
+```typescript
+(provider: Provider, scope: PathScope, projectDir?: string) => string[]
+```
+
+**Parameters**
+
+| Name         | Type        | Description                                    |
+| ------------ | ----------- | ---------------------------------------------- |
+| `provider`   | `Provider`  | Provider to resolve paths for                  |
+| `scope`      | `PathScope` | Whether to resolve global or project paths     |
+| `projectDir` | `: string`  | Project directory for project-scope resolution |
+
+**Returns** — Array of target directories for symlink creation
+
+**Example**
+
+```typescript
+const dirs = resolveProviderSkillsDirs(provider, "project", "/home/user/project");
+for (const dir of dirs) {
+  console.log("Install skill to:", dir);
+}
+```
+
+## resolveProviderProjectPath(provider, projectDir)
+
+Resolves a provider's project-level path against a project directory.
+
+**Signature**
+
+```typescript
+(provider: Provider, projectDir?: string) => string
+```
+
+**Parameters**
+
+| Name         | Type       | Description                                             |
+| ------------ | ---------- | ------------------------------------------------------- |
+| `provider`   | `Provider` | The provider whose project path to resolve              |
+| `projectDir` | `: string` | The project root directory, defaults to `process.cwd()` |
+
+**Returns** — The resolved absolute path for the provider's project directory
+
+**Example**
+
+```typescript
+const projectPath = resolveProviderProjectPath(provider, "/home/user/project");
+// e.g., "/home/user/project/.claude"
+```
+
+## resolveProvidersRegistryPath(startDir)
+
+Locates the providers registry.json file by searching up from a start directory.
+
+**Signature**
+
+```typescript
+(startDir: string) => string
+```
+
+**Parameters**
+
+| Name       | Type     | Description                           |
+| ---------- | -------- | ------------------------------------- |
+| `startDir` | `string` | The directory to start searching from |
+
+**Returns** — The absolute path to the found `providers/registry.json` file
+
+**Throws**
+
+- Error if `providers/registry.json` cannot be found within 8 parent levels
+
+**Example**
+
+```typescript
+const registryPath = resolveProvidersRegistryPath(__dirname);
+// e.g., "/home/user/caamp/providers/registry.json"
+```
+
+## normalizeSkillSubPath(path)
+
+Normalizes a skill sub-path by cleaning separators and removing SKILL.md suffix.
+
+**Signature**
+
+```typescript
+(path: string | undefined) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type                  | Description                         |
+| ------ | --------------------- | ----------------------------------- |
+| `path` | `string \| undefined` | The raw skill sub-path to normalize |
+
+**Returns** — The normalized path, or undefined if the input is empty or falsy
+
+**Example**
+
+```typescript
+const normalized = normalizeSkillSubPath("skills/my-skill/SKILL.md");
+// returns "skills/my-skill"
+```
+
+## buildSkillSubPathCandidates(marketplacePath, parsedPath)
+
+Builds a list of candidate sub-paths for skill file resolution.
+
+**Signature**
+
+```typescript
+(marketplacePath: string | undefined, parsedPath: string | undefined) => (string | undefined)[]
+```
+
+**Parameters**
+
+| Name              | Type                  | Description                               |
+| ----------------- | --------------------- | ----------------------------------------- |
+| `marketplacePath` | `string \| undefined` | The sub-path from the marketplace listing |
+| `parsedPath`      | `string \| undefined` | The sub-path parsed from the source URL   |
+
+**Returns** — A deduplicated array of candidate sub-paths
+
+**Example**
+
+```typescript
+const candidates = buildSkillSubPathCandidates("skills/my-skill", undefined);
+// returns ["skills/my-skill", ".agents/skills/my-skill", ".claude/skills/my-skill"]
+```
+
+## getAllProviders()
+
+Retrieve all registered providers with resolved platform paths.  Providers are lazily loaded from `providers/registry.json` on first call and cached for subsequent calls.
+
+**Signature**
+
+```typescript
+() => Provider[]
+```
+
+**Returns** — Array of all provider definitions
+
+**Example**
+
+```typescript
+const providers = getAllProviders();
+console.log(`${providers.length} providers registered`);
+```
+
+## getProvider(idOrAlias)
+
+Look up a provider by its ID or any of its aliases.
+
+**Signature**
+
+```typescript
+(idOrAlias: string) => Provider | undefined
+```
+
+**Parameters**
+
+| Name        | Type     | Description                                                   |
+| ----------- | -------- | ------------------------------------------------------------- |
+| `idOrAlias` | `string` | Provider ID (e.g. `"claude-code"`) or alias (e.g. `"claude"`) |
+
+**Returns** — The matching provider, or `undefined` if not found
+
+**Example**
+
+```typescript
+const provider = getProvider("claude");
+// Returns the claude-code provider via alias resolution
+```
+
+## resolveAlias(idOrAlias)
+
+Resolve an alias to its canonical provider ID.  If the input is already a canonical ID (or unrecognized), it is returned as-is.
+
+**Signature**
+
+```typescript
+(idOrAlias: string) => string
+```
+
+**Parameters**
+
+| Name        | Type     | Description                     |
+| ----------- | -------- | ------------------------------- |
+| `idOrAlias` | `string` | Provider ID or alias to resolve |
+
+**Returns** — The canonical provider ID
+
+**Example**
+
+```typescript
+resolveAlias("claude"); // "claude-code"
+resolveAlias("claude-code"); // "claude-code"
+resolveAlias("unknown"); // "unknown"
+```
+
+## getProvidersByPriority(priority)
+
+Filter providers by their priority tier.
+
+**Signature**
+
+```typescript
+(priority: ProviderPriority) => Provider[]
+```
+
+**Parameters**
+
+| Name       | Type               | Description                                                    |
+| ---------- | ------------------ | -------------------------------------------------------------- |
+| `priority` | `ProviderPriority` | Priority level to filter by (`"high"`, `"medium"`, or `"low"`) |
+
+**Returns** — Array of providers matching the given priority
+
+**Example**
+
+```typescript
+const highPriority = getProvidersByPriority("high");
+console.log(highPriority.map(p => p.toolName));
+```
+
+## getProvidersByStatus(status)
+
+Filter providers by their lifecycle status.
+
+**Signature**
+
+```typescript
+(status: ProviderStatus) => Provider[]
+```
+
+**Parameters**
+
+| Name     | Type             | Description                                                                |
+| -------- | ---------------- | -------------------------------------------------------------------------- |
+| `status` | `ProviderStatus` | Status to filter by (`"active"`, `"beta"`, `"deprecated"`, or `"planned"`) |
+
+**Returns** — Array of providers matching the given status
+
+**Example**
+
+```typescript
+const active = getProvidersByStatus("active");
+console.log(`${active.length} active providers`);
+```
+
+## getProvidersByInstructFile(file)
+
+Filter providers that use a specific instruction file.  Multiple providers often share the same instruction file (e.g. many use `"AGENTS.md"`).
+
+**Signature**
+
+```typescript
+(file: string) => Provider[]
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                               |
+| ------ | -------- | --------------------------------------------------------- |
+| `file` | `string` | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`) |
+
+**Returns** — Array of providers that use the given instruction file
+
+**Example**
+
+```typescript
+const claudeProviders = getProvidersByInstructFile("CLAUDE.md");
+console.log(claudeProviders.map(p => p.id));
+```
+
+## getInstructionFiles()
+
+Get the set of all unique instruction file names across all providers.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — Array of unique instruction file names (e.g. `["CLAUDE.md", "AGENTS.md", "GEMINI.md"]`)
+
+**Example**
+
+```typescript
+const files = getInstructionFiles();
+// ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]
+```
+
+## getProviderCount()
+
+Get the total number of registered providers.
+
+**Signature**
+
+```typescript
+() => number
+```
+
+**Returns** — Count of providers in the registry
+
+**Example**
+
+```typescript
+console.log(`Registry has ${getProviderCount()} providers`);
+```
+
+## getRegistryVersion()
+
+Get the semantic version string of the provider registry.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Version string from `providers/registry.json` (e.g. `"1.0.0"`)
+
+**Example**
+
+```typescript
+console.log(`Registry version: ${getRegistryVersion()}`);
+```
+
+## getProvidersByHookEvent(event)
+
+Filter providers that support a specific hook event.
+
+**Signature**
+
+```typescript
+(event: HookEvent) => Provider[]
+```
+
+**Parameters**
+
+| Name    | Type        | Description                                       |
+| ------- | ----------- | ------------------------------------------------- |
+| `event` | `HookEvent` | Hook event to filter by (e.g. `"onToolComplete"`) |
+
+**Returns** — Array of providers whose hooks capability includes the given event
+
+**Example**
+
+```typescript
+const providers = getProvidersByHookEvent("onToolComplete");
+console.log(providers.map(p => p.id));
+```
+
+## getCommonHookEvents(providerIds)
+
+Get hook events common to all specified providers.  If providerIds is provided, returns the intersection of their supported events. If providerIds is undefined or empty, uses all providers.
+
+**Signature**
+
+```typescript
+(providerIds?: string[]) => HookEvent[]
+```
+
+**Parameters**
+
+| Name          | Type         | Description                                 |
+| ------------- | ------------ | ------------------------------------------- |
+| `providerIds` | `: string[]` | Optional array of provider IDs to intersect |
+
+**Returns** — Array of hook events supported by ALL specified providers
+
+**Example**
+
+```typescript
+const common = getCommonHookEvents(["claude-code", "gemini-cli"]);
+console.log(`${common.length} common hook events`);
+```
+
+## providerSupports(provider, dotPath)
+
+Check whether a provider supports a specific capability via dot-path query.  The dot-path addresses a value inside `provider.capabilities`. For boolean fields the provider "supports" the capability when the value is `true`. For non-boolean fields the provider "supports" it when the value is neither `null` nor `undefined` (and, for arrays, non-empty).
+
+**Signature**
+
+```typescript
+(provider: Provider, dotPath: string) => boolean
+```
+
+**Parameters**
+
+| Name       | Type       | Description                                                                           |
+| ---------- | ---------- | ------------------------------------------------------------------------------------- |
+| `provider` | `Provider` | Provider to inspect                                                                   |
+| `dotPath`  | `string`   | Dot-delimited capability path (e.g. `"spawn.supportsSubagents"`, `"hooks.supported"`) |
+
+**Returns** — `true` when the provider has the specified capability
+
+**Example**
+
+```typescript
+const claude = getProvider("claude-code");
+providerSupports(claude!, "spawn.supportsSubagents"); // true
+providerSupports(claude!, "hooks.supported"); // true (non-empty array)
+```
+
+## getSpawnCapableProviders()
+
+Filter providers that support spawning subagents.
+
+**Signature**
+
+```typescript
+() => Provider[]
+```
+
+**Returns** — Array of providers where `capabilities.spawn.supportsSubagents === true`
+
+**Example**
+
+```typescript
+const spawnCapable = getSpawnCapableProviders();
+console.log(spawnCapable.map(p => p.id));
+```
+
+## getProvidersBySpawnCapability(flag)
+
+Filter providers by a specific boolean spawn capability flag.
+
+**Signature**
+
+```typescript
+(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism">) => Provider[]
+```
+
+**Parameters**
+
+| Name   | Type                                 | Description                                                                                                                                                                                          |
+| ------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flag` | `keyof Omit<ProviderSpawnCapability` | One of the four boolean flags on `ProviderSpawnCapability`              (`"supportsSubagents"`, `"supportsProgrammaticSpawn"`,               `"supportsInterAgentComms"`, `"supportsParallelSpawn"`) |
+
+**Returns** — Array of providers where the specified flag is `true`
+
+**Example**
+
+```typescript
+const parallel = getProvidersBySpawnCapability("supportsParallelSpawn");
+console.log(parallel.map(p => p.id));
+```
+
+## resetRegistry()
+
+Reset cached registry data, forcing a reload on next access.
+
+**Signature**
+
+```typescript
+() => void
+```
+
+**Example**
+
+```typescript
+resetRegistry();
+// Next call to getAllProviders() will re-read registry.json
+```
+
+## getProvidersBySkillsPrecedence(precedence)
+
+Filter providers by their skills precedence value.
+
+**Signature**
+
+```typescript
+(precedence: SkillsPrecedence) => Provider[]
+```
+
+**Parameters**
+
+| Name         | Type               | Description                    |
+| ------------ | ------------------ | ------------------------------ |
+| `precedence` | `SkillsPrecedence` | Skills precedence to filter by |
+
+**Returns** — Array of providers matching the given precedence
+
+**Example**
+
+```typescript
+const vendorOnly = getProvidersBySkillsPrecedence("vendor-only");
+console.log(vendorOnly.map(p => p.id));
+```
+
+## getEffectiveSkillsPaths(provider, scope, projectDir)
+
+Get the effective skills paths for a provider, ordered by precedence.
+
+**Signature**
+
+```typescript
+(provider: Provider, scope: PathScope, projectDir?: string) => Array<{ path: string; source: string; scope: string; }>
+```
+
+**Parameters**
+
+| Name         | Type        | Description                                    |
+| ------------ | ----------- | ---------------------------------------------- |
+| `provider`   | `Provider`  | Provider to resolve paths for                  |
+| `scope`      | `PathScope` | Whether to resolve global or project paths     |
+| `projectDir` | `: string`  | Project directory for project-scope resolution |
+
+**Returns** — Ordered array of paths with source and scope metadata
+
+**Example**
+
+```typescript
+const provider = getProvider("claude-code")!;
+const paths = getEffectiveSkillsPaths(provider, "global");
+for (const p of paths) {
+  console.log(`${p.source} (${p.scope}): ${p.path}`);
+}
+```
+
+## buildSkillsMap()
+
+Build a full skills map for all providers.
+
+**Signature**
+
+```typescript
+() => Array<{ providerId: string; toolName: string; precedence: SkillsPrecedence; paths: { global: string | null; project: string | null; }; }>
+```
+
+**Returns** — Array of skills map entries with provider ID, tool name, precedence, and paths
+
+**Example**
+
+```typescript
+const skillsMap = buildSkillsMap();
+for (const entry of skillsMap) {
+  console.log(`${entry.providerId}: ${entry.precedence}`);
+}
+```
+
+## getProviderCapabilities(idOrAlias)
+
+Get capabilities for a provider by ID or alias.
+
+**Signature**
+
+```typescript
+(idOrAlias: string) => ProviderCapabilities | undefined
+```
+
+**Parameters**
+
+| Name        | Type     | Description          |
+| ----------- | -------- | -------------------- |
+| `idOrAlias` | `string` | Provider ID or alias |
+
+**Returns** — The provider's capabilities, or undefined if not found
+
+**Example**
+
+```typescript
+const caps = getProviderCapabilities("claude-code");
+if (caps?.spawn.supportsSubagents) {
+  console.log("Supports subagent spawning");
+}
+```
+
+## providerSupportsById(idOrAlias, capabilityPath)
+
+Check if a provider supports a capability using ID/alias lookup.  Convenience wrapper that resolves the provider first, then delegates to the provider-level `providerSupports`.
+
+**Signature**
+
+```typescript
+(idOrAlias: string, capabilityPath: string) => boolean
+```
+
+**Parameters**
+
+| Name             | Type     | Description                                                 |
+| ---------------- | -------- | ----------------------------------------------------------- |
+| `idOrAlias`      | `string` | Provider ID or alias                                        |
+| `capabilityPath` | `string` | Dot-path into capabilities (e.g. "spawn.supportsSubagents") |
+
+**Returns** — true if the provider supports the capability, false otherwise
+
+**Example**
+
+```typescript
+if (providerSupportsById("claude-code", "spawn.supportsSubagents")) {
+  console.log("Claude Code supports subagent spawning");
+}
+```
+
+## buildInjectionContent(template)
+
+Build injection content from a structured template.  Produces a string suitable for injection between CAAMP markers. References are output as `@` lines, content blocks are appended as-is.
+
+**Signature**
+
+```typescript
+(template: InjectionTemplate) => string
+```
+
+**Parameters**
+
+| Name       | Type                | Description                              |
+| ---------- | ------------------- | ---------------------------------------- |
+| `template` | `InjectionTemplate` | Template defining references and content |
+
+**Returns** — Formatted injection content string
+
+**Example**
+
+```typescript
+const content = buildInjectionContent({
+  references: ["\@AGENTS.md"],
+});
+```
+
+## parseInjectionContent(content)
+
+Parse injection content back into template form.  Lines starting with `@` are treated as references. All other non-empty lines are treated as content blocks.
+
+**Signature**
+
+```typescript
+(content: string) => InjectionTemplate
+```
+
+**Parameters**
+
+| Name      | Type     | Description                  |
+| --------- | -------- | ---------------------------- |
+| `content` | `string` | Raw injection content string |
+
+**Returns** — Parsed InjectionTemplate
+
+**Example**
+
+```typescript
+const template = parseInjectionContent("\@AGENTS.md\n\@.cleo/config.json");
+```
+
+## generateInjectionContent(options)
+
+Generate a standard CAAMP injection block for instruction files.  Produces markdown content suitable for injection between CAAMP markers. Optionally includes MCP server and custom content sections.
+
+**Signature**
+
+```typescript
+(options?: { mcpServerName?: string; customContent?: string; }) => string
+```
+
+**Parameters**
+
+| Name      | Type                                                    | Description                                      |
+| --------- | ------------------------------------------------------- | ------------------------------------------------ |
+| `options` | `: { mcpServerName?: string; customContent?: string; }` | Optional configuration for the generated content |
+
+**Returns** — Generated markdown string
+
+**Example**
+
+```typescript
+const content = generateInjectionContent({ mcpServerName: "filesystem" });
+```
+
+## generateSkillsSection(skillNames)
+
+Generate a skills discovery section for instruction files.
+
+**Signature**
+
+```typescript
+(skillNames: string[]) => string
+```
+
+**Parameters**
+
+| Name         | Type       | Description                  |
+| ------------ | ---------- | ---------------------------- |
+| `skillNames` | `string[]` | Array of skill names to list |
+
+**Returns** — Markdown string listing installed skills
+
+**Example**
+
+```typescript
+const section = generateSkillsSection(["code-review", "testing"]);
+```
+
+## getInstructFile(provider)
+
+Get the correct instruction file name for a provider.
+
+**Signature**
+
+```typescript
+(provider: Provider) => string
+```
+
+**Parameters**
+
+| Name       | Type       | Description             |
+| ---------- | ---------- | ----------------------- |
+| `provider` | `Provider` | Provider registry entry |
+
+**Returns** — Instruction file name
+
+**Example**
+
+```typescript
+const fileName = getInstructFile(provider);
+// "CLAUDE.md"
+```
+
+## groupByInstructFile(providers)
+
+Group providers by their instruction file name.  Useful for determining which providers share the same instruction file (e.g. multiple providers using `AGENTS.md`).
+
+**Signature**
+
+```typescript
+(providers: Provider[]) => Map<string, Provider[]>
+```
+
+**Parameters**
+
+| Name        | Type         | Description                 |
+| ----------- | ------------ | --------------------------- |
+| `providers` | `Provider[]` | Array of providers to group |
+
+**Returns** — Map from instruction file name to array of providers using that file
+
+**Example**
+
+```typescript
+const groups = groupByInstructFile(getAllProviders());
+for (const [file, providers] of groups) {
+  console.log(`${file}: ${providers.map(p => p.id).join(", ")}`);
+}
+```
+
+## checkInjection(filePath, expectedContent)
+
+Check the status of a CAAMP injection block in an instruction file.  Returns the injection status: - `"missing"` - File does not exist - `"none"` - File exists but has no CAAMP markers - `"current"` - CAAMP block exists and matches expected content (or no expected content given) - `"outdated"` - CAAMP block exists but differs from expected content
+
+**Signature**
+
+```typescript
+(filePath: string, expectedContent?: string) => Promise<InjectionStatus>
+```
+
+**Parameters**
+
+| Name              | Type       | Description                                  |
+| ----------------- | ---------- | -------------------------------------------- |
+| `filePath`        | `string`   | Absolute path to the instruction file        |
+| `expectedContent` | `: string` | Optional expected content to compare against |
+
+**Returns** — The injection status
+
+**Example**
+
+```typescript
+const status = await checkInjection("/project/CLAUDE.md", expectedContent);
+if (status === "outdated") {
+  console.log("CAAMP injection needs updating");
+}
+```
+
+## inject(filePath, content)
+
+Inject content into an instruction file between CAAMP markers.  Behavior depends on the file state: - File does not exist: creates the file with the injection block → `"created"` - File exists without markers: prepends the injection block → `"added"` - File exists with multiple markers (duplicates): consolidates into single block → `"consolidated"` - File exists with markers, content differs: replaces the block → `"updated"` - File exists with markers, content matches: no-op → `"intact"`  This function is **idempotent** — calling it multiple times with the same content will not modify the file after the first write.
+
+**Signature**
+
+```typescript
+(filePath: string, content: string) => Promise<"created" | "added" | "consolidated" | "updated" | "intact">
+```
+
+**Parameters**
+
+| Name       | Type     | Description                             |
+| ---------- | -------- | --------------------------------------- |
+| `filePath` | `string` | Absolute path to the instruction file   |
+| `content`  | `string` | Content to inject between CAAMP markers |
+
+**Returns** — Action taken: `"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`
+
+**Example**
+
+```typescript
+const action = await inject("/project/CLAUDE.md", "## My Config\nSome content");
+console.log(`File ${action}`); // "created" on first call, "intact" on subsequent
+```
+
+## removeInjection(filePath)
+
+Remove the CAAMP injection block from an instruction file.  If removing the block would leave the file empty, the file is deleted entirely.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                           |
+| ---------- | -------- | ------------------------------------- |
+| `filePath` | `string` | Absolute path to the instruction file |
+
+**Returns** — `true` if a CAAMP block was found and removed, `false` otherwise
+
+**Example**
+
+```typescript
+const removed = await removeInjection("/project/CLAUDE.md");
+```
+
+## checkAllInjections(providers, projectDir, scope, expectedContent)
+
+Check injection status across all providers' instruction files.  Deduplicates by file path since multiple providers may share the same instruction file (e.g. many providers use `AGENTS.md`).
+
+**Signature**
+
+```typescript
+(providers: Provider[], projectDir: string, scope: "project" | "global", expectedContent?: string) => Promise<InjectionCheckResult[]>
+```
+
+**Parameters**
+
+| Name              | Type                    | Description                                          |
+| ----------------- | ----------------------- | ---------------------------------------------------- |
+| `providers`       | `Provider[]`            | Array of providers to check                          |
+| `projectDir`      | `string`                | Absolute path to the project directory               |
+| `scope`           | `"project" \| "global"` | Whether to check project or global instruction files |
+| `expectedContent` | `: string`              | Optional expected content to compare against         |
+
+**Returns** — Array of injection check results, one per unique instruction file
+
+**Example**
+
+```typescript
+const results = await checkAllInjections(providers, "/project", "project", expected);
+const outdated = results.filter(r => r.status === "outdated");
+```
+
+## injectAll(providers, projectDir, scope, content)
+
+Inject content into all providers' instruction files.  Deduplicates by file path to avoid injecting the same file multiple times.
+
+**Signature**
+
+```typescript
+(providers: Provider[], projectDir: string, scope: "project" | "global", content: string) => Promise<Map<string, "created" | "added" | "consolidated" | "updated" | "intact">>
+```
+
+**Parameters**
+
+| Name         | Type                    | Description                                           |
+| ------------ | ----------------------- | ----------------------------------------------------- |
+| `providers`  | `Provider[]`            | Array of providers to inject into                     |
+| `projectDir` | `string`                | Absolute path to the project directory                |
+| `scope`      | `"project" \| "global"` | Whether to target project or global instruction files |
+| `content`    | `string`                | Content to inject between CAAMP markers               |
+
+**Returns** — Map of file path to action taken (`"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`)
+
+**Example**
+
+```typescript
+const results = await injectAll(providers, "/project", "project", content);
+for (const [file, action] of results) {
+  console.log(`${file}: ${action}`);
+}
+```
+
+## ensureProviderInstructionFile(providerId, projectDir, options)
+
+Ensure a provider's instruction file exists with the correct CAAMP block.  This is the canonical API for adapters and external packages to manage provider instruction files. Instead of directly creating/modifying CLAUDE.md, GEMINI.md, etc., callers should use this function to delegate instruction file management to CAAMP.  The instruction file name is resolved from CAAMP's provider registry (single source of truth), not hardcoded by the caller.
+
+**Signature**
+
+```typescript
+(providerId: string, projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult>
+```
+
+**Parameters**
+
+| Name         | Type                                   | Description                                                          |
+| ------------ | -------------------------------------- | -------------------------------------------------------------------- |
+| `providerId` | `string`                               | Provider ID from the registry (e.g. `"claude-code"`, `"gemini-cli"`) |
+| `projectDir` | `string`                               | Absolute path to the project directory                               |
+| `options`    | `EnsureProviderInstructionFileOptions` | References, content, and scope configuration                         |
+
+**Returns** — Result with file path, action taken, and provider metadata
+
+**Throws**
+
+- Error if the provider ID is not found in the registry
+
+**Example**
+
+```typescript
+const result = await ensureProviderInstructionFile("claude-code", "/project", {
+  references: ["\@AGENTS.md"],
+});
+```
+
+## ensureAllProviderInstructionFiles(providerIds, projectDir, options)
+
+Ensure instruction files for multiple providers at once.  Deduplicates by file path — providers sharing the same instruction file (e.g. many providers use AGENTS.md) are only written once.
+
+**Signature**
+
+```typescript
+(providerIds: string[], projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult[]>
+```
+
+**Parameters**
+
+| Name          | Type                                   | Description                                  |
+| ------------- | -------------------------------------- | -------------------------------------------- |
+| `providerIds` | `string[]`                             | Array of provider IDs from the registry      |
+| `projectDir`  | `string`                               | Absolute path to the project directory       |
+| `options`     | `EnsureProviderInstructionFileOptions` | References, content, and scope configuration |
+
+**Returns** — Array of results, one per unique instruction file
+
+**Throws**
+
+- Error if any provider ID is not found in the registry
+
+**Example**
+
+```typescript
+const results = await ensureAllProviderInstructionFiles(
+  ["claude-code", "cursor", "gemini-cli"],
+  "/project",
+  { references: ["\@AGENTS.md"] },
+);
+```
+
+## setVerbose(v)
+
+Enable or disable verbose (debug) logging mode.  When enabled, debug messages are written to stderr.
+
+**Signature**
+
+```typescript
+(v: boolean) => void
+```
+
+**Parameters**
+
+| Name | Type      | Description                                       |
+| ---- | --------- | ------------------------------------------------- |
+| `v`  | `boolean` | `true` to enable verbose mode, `false` to disable |
+
+**Example**
+
+```typescript
+setVerbose(true);
+```
+
+## setQuiet(q)
+
+Enable or disable quiet mode.  When enabled, info and warning messages are suppressed. Errors are always shown.
+
+**Signature**
+
+```typescript
+(q: boolean) => void
+```
+
+**Parameters**
+
+| Name | Type      | Description                                     |
+| ---- | --------- | ----------------------------------------------- |
+| `q`  | `boolean` | `true` to enable quiet mode, `false` to disable |
+
+**Example**
+
+```typescript
+setQuiet(true);
+```
+
+## debug(args)
+
+Log a debug message to stderr when verbose mode is enabled.
+
+**Signature**
+
+```typescript
+(...args: unknown[]) => void
+```
+
+**Parameters**
+
+| Name   | Type        | Description                                  |
+| ------ | ----------- | -------------------------------------------- |
+| `args` | `unknown[]` | Values to log (forwarded to `console.error`) |
+
+**Example**
+
+```typescript
+debug("Loading config from", filePath);
+```
+
+## info(args)
+
+Log an informational message to stdout.
+
+**Signature**
+
+```typescript
+(...args: unknown[]) => void
+```
+
+**Parameters**
+
+| Name   | Type        | Description                                |
+| ------ | ----------- | ------------------------------------------ |
+| `args` | `unknown[]` | Values to log (forwarded to `console.log`) |
+
+**Example**
+
+```typescript
+info("Installed 3 skills");
+```
+
+## warn(args)
+
+Log a warning message to stderr.
+
+**Signature**
+
+```typescript
+(...args: unknown[]) => void
+```
+
+**Parameters**
+
+| Name   | Type        | Description                                 |
+| ------ | ----------- | ------------------------------------------- |
+| `args` | `unknown[]` | Values to log (forwarded to `console.warn`) |
+
+**Example**
+
+```typescript
+warn("Deprecated option used");
+```
+
+## error(args)
+
+Log an error message to stderr.
+
+**Signature**
+
+```typescript
+(...args: unknown[]) => void
+```
+
+**Parameters**
+
+| Name   | Type        | Description                                  |
+| ------ | ----------- | -------------------------------------------- |
+| `args` | `unknown[]` | Values to log (forwarded to `console.error`) |
+
+**Example**
+
+```typescript
+error("Failed to install skill:", err.message);
+```
+
+## isVerbose()
+
+Check if verbose (debug) logging is currently enabled.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — `true` if verbose mode is active
+
+**Example**
+
+```typescript
+if (isVerbose()) {
+  console.error("Extra debug info");
+}
+```
+
+## isQuiet()
+
+Check if quiet mode is currently enabled.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — `true` if quiet mode is active
+
+**Example**
+
+```typescript
+if (!isQuiet()) {
+  console.log("Status message");
+}
+```
+
+## setHuman(h)
+
+Enable or disable human-readable output mode.  When enabled, commands output human-readable format instead of JSON.
+
+**Signature**
+
+```typescript
+(h: boolean) => void
+```
+
+**Parameters**
+
+| Name | Type      | Description                                     |
+| ---- | --------- | ----------------------------------------------- |
+| `h`  | `boolean` | `true` to enable human mode, `false` to disable |
+
+**Example**
+
+```typescript
+setHuman(true);
+```
+
+## isHuman()
+
+Check if human-readable output mode is currently enabled.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — `true` if human mode is active
+
+**Example**
+
+```typescript
+if (isHuman()) {
+  console.log("Human readable output");
+} else {
+  console.log(JSON.stringify(data));
+}
+```
+
+## detectProvider(provider)
+
+Detect if a single provider is installed on the system.  Checks each detection method configured for the provider (binary, directory, appBundle, flatpak) and returns which methods matched.
+
+**Signature**
+
+```typescript
+(provider: Provider) => DetectionResult
+```
+
+**Parameters**
+
+| Name       | Type       | Description            |
+| ---------- | ---------- | ---------------------- |
+| `provider` | `Provider` | The provider to detect |
+
+**Returns** — Detection result with installation status and matched methods
+
+**Example**
+
+```typescript
+const provider = getProvider("claude-code")!;
+const result = detectProvider(provider);
+if (result.installed) {
+  console.log(`Claude Code found via: ${result.methods.join(", ")}`);
+}
+```
+
+## detectProjectProvider(provider, projectDir)
+
+Detect if a provider has project-level config in the given directory.
+
+**Signature**
+
+```typescript
+(provider: Provider, projectDir: string) => boolean
+```
+
+**Parameters**
+
+| Name         | Type       | Description                                |
+| ------------ | ---------- | ------------------------------------------ |
+| `provider`   | `Provider` | Provider to check for project-level config |
+| `projectDir` | `string`   | Absolute path to the project directory     |
+
+**Returns** — `true` if the provider has a config file in the project directory
+
+**Example**
+
+```typescript
+const provider = getProvider("claude-code")!;
+const hasProjectConfig = detectProjectProvider(provider, "/home/user/my-project");
+```
+
+## detectAllProviders(options)
+
+Detect all registered providers and return their installation status.  Runs detection for every provider in the registry.
+
+**Signature**
+
+```typescript
+(options?: DetectionCacheOptions) => DetectionResult[]
+```
+
+**Parameters**
+
+| Name      | Type                      | Description           |
+| --------- | ------------------------- | --------------------- |
+| `options` | `: DetectionCacheOptions` | Cache control options |
+
+**Returns** — Array of detection results for all providers
+
+**Example**
+
+```typescript
+const results = detectAllProviders({ forceRefresh: true });
+const installed = results.filter(r => r.installed);
+console.log(`${installed.length} agents detected`);
+```
+
+## getInstalledProviders(options)
+
+Get only providers that are currently installed on the system.  Convenience wrapper that filters `detectAllProviders` results to only those with `installed === true`.
+
+**Signature**
+
+```typescript
+(options?: DetectionCacheOptions) => Provider[]
+```
+
+**Parameters**
+
+| Name      | Type                      | Description                                       |
+| --------- | ------------------------- | ------------------------------------------------- |
+| `options` | `: DetectionCacheOptions` | Cache control options passed through to detection |
+
+**Returns** — Array of installed provider definitions
+
+**Example**
+
+```typescript
+const installed = getInstalledProviders({ forceRefresh: true });
+console.log(installed.map(p => p.toolName).join(", "));
+```
+
+## detectProjectProviders(projectDir, options)
+
+Detect all providers and enrich results with project-level presence.  Extends `detectAllProviders` by also checking whether each provider has a project-level config file in the given directory.
+
+**Signature**
+
+```typescript
+(projectDir: string, options?: DetectionCacheOptions) => DetectionResult[]
+```
+
+**Parameters**
+
+| Name         | Type                      | Description                                       |
+| ------------ | ------------------------- | ------------------------------------------------- |
+| `projectDir` | `string`                  | Absolute path to the project directory to check   |
+| `options`    | `: DetectionCacheOptions` | Cache control options passed through to detection |
+
+**Returns** — Array of detection results with `projectDetected` populated
+
+**Example**
+
+```typescript
+const results = detectProjectProviders("/home/user/my-project", { forceRefresh: true });
+for (const r of results) {
+  if (r.projectDetected) {
+    console.log(`${r.provider.toolName} has project config`);
+  }
+}
+```
+
+## resetDetectionCache()
+
+Reset the detection result cache, forcing fresh detection on next call.
+
+**Signature**
+
+```typescript
+() => void
+```
+
+**Example**
+
+```typescript
+resetDetectionCache();
+// Next detectAllProviders() call will bypass cache
+const fresh = detectAllProviders();
+```
+
+## installToCanonical(sourcePath, skillName)
+
+Copy skill files to the canonical location.
+
+**Signature**
+
+```typescript
+(sourcePath: string, skillName: string) => Promise<string>
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                         |
+| ------------ | -------- | --------------------------------------------------- |
+| `sourcePath` | `string` | Absolute path to the source skill directory to copy |
+| `skillName`  | `string` | Name for the skill (used as the subdirectory name)  |
+
+**Returns** — Absolute path to the canonical installation directory
+
+**Example**
+
+```typescript
+const canonicalPath = await installToCanonical("/tmp/my-skill", "my-skill");
+console.log(`Installed to: ${canonicalPath}`);
+```
+
+## installSkill(sourcePath, skillName, providers, isGlobal, projectDir)
+
+Install a skill from a local path to the canonical location and link to agents.
+
+**Signature**
+
+```typescript
+(sourcePath: string, skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<SkillInstallResult>
+```
+
+**Parameters**
+
+| Name         | Type         | Description                                            |
+| ------------ | ------------ | ------------------------------------------------------ |
+| `sourcePath` | `string`     | Local path to the skill directory to install           |
+| `skillName`  | `string`     | Name for the installed skill                           |
+| `providers`  | `Provider[]` | Target providers to link the skill to                  |
+| `isGlobal`   | `boolean`    | Whether to link to global or project skill directories |
+| `projectDir` | `: string`   | Project directory (defaults to `process.cwd()`)        |
+
+**Returns** — Install result with linked agents and any errors
+
+**Example**
+
+```typescript
+const result = await installSkill("/tmp/my-skill", "my-skill", providers, true, "/my/project");
+if (result.success) {
+  console.log(`Linked to: ${result.linkedAgents.join(", ")}`);
+}
+```
+
+## removeSkill(skillName, providers, isGlobal, projectDir)
+
+Remove a skill from the canonical location and all agent symlinks.
+
+**Signature**
+
+```typescript
+(skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<{ removed: string[]; errors: string[]; }>
+```
+
+**Parameters**
+
+| Name         | Type         | Description                                           |
+| ------------ | ------------ | ----------------------------------------------------- |
+| `skillName`  | `string`     | Name of the skill to remove                           |
+| `providers`  | `Provider[]` | Providers to unlink the skill from                    |
+| `isGlobal`   | `boolean`    | Whether to target global or project skill directories |
+| `projectDir` | `: string`   | Project directory (defaults to `process.cwd()`)       |
+
+**Returns** — Object with arrays of successfully removed provider IDs and error messages
+
+**Example**
+
+```typescript
+const { removed, errors } = await removeSkill("my-skill", providers, true, "/my/project");
+console.log(`Removed from: ${removed.join(", ")}`);
+```
+
+## listCanonicalSkills()
+
+List all skills installed in the canonical skills directory.
+
+**Signature**
+
+```typescript
+() => Promise<string[]>
+```
+
+**Returns** — Array of skill names
+
+**Example**
+
+```typescript
+const skills = await listCanonicalSkills();
+// ["my-skill", "another-skill"]
+```
+
+## selectProvidersByMinimumPriority(providers, minimumPriority)
+
+Filters providers by minimum priority and returns them in deterministic tier order.
+
+**Signature**
+
+```typescript
+(providers: Provider[], minimumPriority?: ProviderPriority) => Provider[]
+```
+
+**Parameters**
+
+| Name              | Type                 | Description                                                       |
+| ----------------- | -------------------- | ----------------------------------------------------------------- |
+| `providers`       | `Provider[]`         | The full list of providers to filter                              |
+| `minimumPriority` | `: ProviderPriority` | The minimum priority threshold, defaults to `"low"` (include all) |
+
+**Returns** — A filtered and sorted array of providers meeting the priority threshold
+
+**Example**
+
+```typescript
+const highPriority = selectProvidersByMinimumPriority(allProviders, "high");
+// returns only providers with priority "high"
+```
+
+## installBatchWithRollback(options)
+
+Installs multiple skills across filtered providers with rollback.
+
+**Signature**
+
+```typescript
+(options: BatchInstallOptions) => Promise<BatchInstallResult>
+```
+
+**Parameters**
+
+| Name      | Type                  | Description                                                               |
+| --------- | --------------------- | ------------------------------------------------------------------------- |
+| `options` | `BatchInstallOptions` | The batch installation options including providers, operations, and scope |
+
+**Returns** — A result object indicating success, applied counts, and any rollback information
+
+**Example**
+
+```typescript
+const result = await installBatchWithRollback({
+  minimumPriority: "high",
+  skills: [{ sourcePath: "/path/to/skill", skillName: "my-skill" }],
+});
+if (!result.success) {
+  console.error("Failed:", result.error);
+}
+```
+
+## updateInstructionsSingleOperation(providers, content, scope, projectDir)
+
+Updates instruction files across providers as a single operation.
+
+**Signature**
+
+```typescript
+(providers: Provider[], content: string, scope?: Scope, projectDir?: string) => Promise<InstructionUpdateSummary>
+```
+
+**Parameters**
+
+| Name         | Type         | Description                                                |
+| ------------ | ------------ | ---------------------------------------------------------- |
+| `providers`  | `Provider[]` | The providers whose instruction files to update            |
+| `content`    | `string`     | The instruction content to inject                          |
+| `scope`      | `: Scope`    | The scope for instruction updates, defaults to `"project"` |
+| `projectDir` | `: string`   | The project root directory, defaults to `process.cwd()`    |
+
+**Returns** — A summary of updated files and actions taken per file
+
+**Example**
+
+```typescript
+const summary = await updateInstructionsSingleOperation(
+  providers,
+  "## CAAMP Config\nUse these MCP servers...",
+  "project",
+);
+console.log(`Updated ${summary.updatedFiles} files`);
+```
+
+## resolveFormat(options)
+
+Resolves output format based on flags and defaults.
+
+**Signature**
+
+```typescript
+(options: FormatOptions) => "json" | "human"
+```
+
+**Parameters**
+
+| Name      | Type            | Description               |
+| --------- | --------------- | ------------------------- |
+| `options` | `FormatOptions` | Format resolution options |
+
+**Returns** — `"json"` or `"human"`
+
+**Throws**
+
+- Error if format flags conflict
+
+**Example**
+
+```typescript
+const format = resolveFormat({ jsonFlag: true });
+```
+
+## buildEnvelope(operation, mvi, result, error, page, sessionId, warnings)
+
+Builds a standard LAFS envelope.
+
+**Signature**
+
+```typescript
+<T>(operation: string, mvi: MVILevel, result: T | null, error: LAFSErrorShape | null, page?: LAFSPage | null, sessionId?: string, warnings?: LAFSWarning[]) => LAFSEnvelope<T>
+```
+
+**Parameters**
+
+| Name        | Type                     | Description                                                    |
+| ----------- | ------------------------ | -------------------------------------------------------------- |
+| `operation` | `string`                 | Operation identifier (e.g., `"skills.list"`, `"doctor.check"`) |
+| `mvi`       | `MVILevel`               | Machine-Verified Instruction disclosure level                  |
+| `result`    | `T \| null`              | Operation result data (`null` if error)                        |
+| `error`     | `LAFSErrorShape \| null` | Error details (`null` if success)                              |
+| `page`      | `: LAFSPage \| null`     | Pagination info (`null` if not applicable)                     |
+| `sessionId` | `: string`               | Optional session identifier                                    |
+| `warnings`  | `: LAFSWarning[]`        | Optional array of warnings to attach                           |
+
+**Returns** — LAFS-compliant envelope
+
+**Example**
+
+```typescript
+const envelope = buildEnvelope(
+  "skills.list",
+  "full",
+  { skills: [], count: 0 },
+  null,
+);
+```
+
+## emitError(operation, mvi, code, message, category, details, exitCode)
+
+Emits a JSON error envelope to stderr and exits the process.
+
+**Signature**
+
+```typescript
+(operation: string, mvi: MVILevel, code: string, message: string, category: LAFSErrorCategory, details?: Record<string, unknown>, exitCode?: number) => never
+```
+
+**Parameters**
+
+| Name        | Type                | Description                                   |
+| ----------- | ------------------- | --------------------------------------------- |
+| `operation` | `string`            | Operation identifier                          |
+| `mvi`       | `MVILevel`          | Machine-Verified Instruction disclosure level |
+| `code`      | `string`            | Error code                                    |
+| `message`   | `string`            | Error message                                 |
+| `category`  | `LAFSErrorCategory` | Error category from LAFS protocol             |
+| `details`   | `: Record<string`   | Additional error details                      |
+| `exitCode`  | `: number`          | Process exit code (default: 1)                |
+
+**Example**
+
+```typescript
+emitError(
+  "skills.install",
+  "full",
+  "E_SKILL_NOT_FOUND",
+  "Skill not found",
+  "NOT_FOUND",
+  { skillName: "my-skill" },
+  1,
+);
+```
+
+## emitJsonError(operation, mvi, code, message, category, details)
+
+Emits a JSON error envelope without exiting (for catch blocks).
+
+**Signature**
+
+```typescript
+(operation: string, mvi: MVILevel, code: string, message: string, category: LAFSErrorCategory, details?: Record<string, unknown>) => void
+```
+
+**Parameters**
+
+| Name        | Type                | Description                                   |
+| ----------- | ------------------- | --------------------------------------------- |
+| `operation` | `string`            | Operation identifier                          |
+| `mvi`       | `MVILevel`          | Machine-Verified Instruction disclosure level |
+| `code`      | `string`            | Error code                                    |
+| `message`   | `string`            | Error message                                 |
+| `category`  | `LAFSErrorCategory` | Error category from LAFS protocol             |
+| `details`   | `: Record<string`   | Additional error details                      |
+
+**Example**
+
+```typescript
+try {
+  await riskyOperation();
+} catch (err) {
+  emitJsonError("operation", "full", "E_FAILED", "Operation failed", "INTERNAL", {});
+  process.exit(1);
+}
+```
+
+## outputSuccess(operation, mvi, result, page, sessionId, warnings)
+
+Outputs a successful LAFS envelope to stdout.
+
+**Signature**
+
+```typescript
+<T>(operation: string, mvi: MVILevel, result: T, page?: LAFSPage, sessionId?: string, warnings?: LAFSWarning[]) => void
+```
+
+**Parameters**
+
+| Name        | Type              | Description                                   |
+| ----------- | ----------------- | --------------------------------------------- |
+| `operation` | `string`          | Operation identifier                          |
+| `mvi`       | `MVILevel`        | Machine-Verified Instruction disclosure level |
+| `result`    | `T`               | Operation result data                         |
+| `page`      | `: LAFSPage`      | Optional pagination info                      |
+| `sessionId` | `: string`        | Optional session identifier                   |
+| `warnings`  | `: LAFSWarning[]` | Optional warnings to attach                   |
+
+**Example**
+
+```typescript
+outputSuccess("skills.list", "full", { skills: [], count: 0 });
+```
+
+## handleFormatError(error, operation, mvi, jsonFlag)
+
+Handles format resolution errors consistently.
+
+**Signature**
+
+```typescript
+(error: unknown, operation: string, mvi: MVILevel, jsonFlag: boolean | undefined) => never
+```
+
+**Parameters**
+
+| Name        | Type                   | Description                                      |
+| ----------- | ---------------------- | ------------------------------------------------ |
+| `error`     | `unknown`              | The error that occurred during format resolution |
+| `operation` | `string`               | Operation identifier                             |
+| `mvi`       | `MVILevel`             | Machine-Verified Instruction disclosure level    |
+| `jsonFlag`  | `boolean \| undefined` | Whether `--json` flag was explicitly set         |
+
+**Returns** — never (exits process)
+
+**Example**
+
+```typescript
+try {
+  format = resolveFormat({ jsonFlag: opts.json, humanFlag: opts.human });
+} catch (error) {
+  handleFormatError(error, "skills.list", "full", opts.json);
+}
+```
+
+## LAFSCommandError
+
+Structured error class for LAFS-compliant command failures with error codes and recovery hints.
+
+**Signature**
+
+```typescript
+typeof LAFSCommandError
+```
+
+## emitSuccess(operation, result, mvi)
+
+Emits a successful LAFS result envelope to stdout.
+
+**Signature**
+
+```typescript
+<T>(operation: string, result: T, mvi?: MVILevel) => void
+```
+
+**Parameters**
+
+| Name        | Type         | Description                                                  |
+| ----------- | ------------ | ------------------------------------------------------------ |
+| `operation` | `string`     | The LAFS operation identifier                                |
+| `result`    | `T`          | The result payload to include in the envelope                |
+| `mvi`       | `: MVILevel` | The minimum viable information level, defaults to "standard" |
+
+**Example**
+
+```typescript
+emitSuccess("advanced.providers", { providers: [...] });
+```
+
+## emitError(operation, error, mvi)
+
+Emits a failed LAFS error envelope to stderr.
+
+**Signature**
+
+```typescript
+(operation: string, error: unknown, mvi?: MVILevel) => void
+```
+
+**Parameters**
+
+| Name        | Type         | Description                                                                |
+| ----------- | ------------ | -------------------------------------------------------------------------- |
+| `operation` | `string`     | The LAFS operation identifier                                              |
+| `error`     | `unknown`    | The error to serialize, either a LAFSCommandError or generic Error/unknown |
+| `mvi`       | `: MVILevel` | The minimum viable information level, defaults to "standard"               |
+
+**Example**
+
+```typescript
+emitError("advanced.apply", new LAFSCommandError("E_VALIDATION", "bad input", "fix it"));
+```
+
+## runLafsCommand(command, mvi, action)
+
+Runs an async action and emits the result as a LAFS success or error envelope.
+
+**Signature**
+
+```typescript
+<T>(command: string, mvi: MVILevel, action: () => Promise<T>) => Promise<void>
+```
+
+**Parameters**
+
+| Name      | Type       | Description                          |
+| --------- | ---------- | ------------------------------------ |
+| `command` | `string`   | The LAFS operation identifier        |
+| `mvi`     | `MVILevel` | The minimum viable information level |
+| `action`  | `(`        | The async function to execute        |
+
+**Returns** — Resolves when the action completes and output is emitted
+
+**Example**
+
+```typescript
+await runLafsCommand("advanced.batch", "standard", async () => {
+  return { installed: 3 };
+});
+```
+
+## parsePriority(value)
+
+Parses and validates a provider priority tier string.
+
+**Signature**
+
+```typescript
+(value: string) => ProviderPriority
+```
+
+**Parameters**
+
+| Name    | Type     | Description                  |
+| ------- | -------- | ---------------------------- |
+| `value` | `string` | The priority string to parse |
+
+**Returns** — The validated ProviderPriority value
+
+**Example**
+
+```typescript
+const tier = parsePriority("high"); // "high"
+```
+
+## resolveProviders(options)
+
+Resolves the set of target providers from CLI targeting options.
+
+**Signature**
+
+```typescript
+(options: ProviderTargetOptions) => Provider[]
+```
+
+**Parameters**
+
+| Name      | Type                    | Description                                 |
+| --------- | ----------------------- | ------------------------------------------- |
+| `options` | `ProviderTargetOptions` | The provider targeting options from the CLI |
+
+**Returns** — An array of resolved Provider objects
+
+**Example**
+
+```typescript
+const providers = resolveProviders({ all: true });
+```
+
+## readJsonFile(path)
+
+Reads and parses a JSON file from disk.
+
+**Signature**
+
+```typescript
+(path: string) => Promise<unknown>
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                |
+| ------ | -------- | ------------------------------------------ |
+| `path` | `string` | Absolute or relative path to the JSON file |
+
+**Returns** — The parsed JSON value
+
+**Example**
+
+```typescript
+const data = await readJsonFile("./operations.json");
+```
+
+## readSkillOperations(path)
+
+Reads and validates a JSON file containing skill batch operations.
+
+**Signature**
+
+```typescript
+(path: string) => Promise<SkillBatchOperation[]>
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                                   |
+| ------ | -------- | ------------------------------------------------------------- |
+| `path` | `string` | Path to the JSON file containing an array of skill operations |
+
+**Returns** — An array of validated SkillBatchOperation objects
+
+**Example**
+
+```typescript
+const ops = await readSkillOperations("./skill-ops.json");
+```
+
+## readTextInput(inlineContent, filePath)
+
+Reads text input from either inline content or a file path, enforcing mutual exclusivity.
+
+**Signature**
+
+```typescript
+(inlineContent: string | undefined, filePath: string | undefined) => Promise<string | undefined>
+```
+
+**Parameters**
+
+| Name            | Type                  | Description                                                       |
+| --------------- | --------------------- | ----------------------------------------------------------------- |
+| `inlineContent` | `string \| undefined` | Inline text content from the --content flag, or undefined         |
+| `filePath`      | `string \| undefined` | Path to a content file from the --content-file flag, or undefined |
+
+**Returns** — The text content string, or undefined if no input was provided
+
+**Example**
+
+```typescript
+const content = await readTextInput(undefined, "./content.txt");
+```
+
+## registerAdvancedBatch(parent)
+
+Registers the `advanced batch` subcommand for rollback-capable batch install of skills.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                     |
+| -------- | --------- | --------------------------------------------------------------- |
+| `parent` | `Command` | The parent `advanced` Command to attach the batch subcommand to |
+
+**Example**
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced batch --skills-file skills.json --min-tier medium
+```
+
+## registerAdvancedInstructions(parent)
+
+Registers the `advanced instructions` subcommand for single-operation instruction updates.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                            |
+| -------- | --------- | ---------------------------------------------------------------------- |
+| `parent` | `Command` | The parent `advanced` Command to attach the instructions subcommand to |
+
+**Example**
+
+```bash
+caamp advanced instructions --content "Custom block" --all
+caamp advanced instructions --content-file block.md --min-tier high
+```
+
+## registerAdvancedProviders(parent)
+
+Registers the `advanced providers` subcommand for selecting providers by priority tier.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                         |
+| -------- | --------- | ------------------------------------------------------------------- |
+| `parent` | `Command` | The parent `advanced` Command to attach the providers subcommand to |
+
+**Example**
+
+```bash
+caamp advanced providers --min-tier high
+caamp advanced providers --all --details
+```
+
+## registerAdvancedCommands(program)
+
+Registers the `advanced` command group with providers, batch, and instructions subcommands.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                        |
+| --------- | --------- | ------------------------------------------------------------------ |
+| `program` | `Command` | The root Commander program to attach the advanced command group to |
+
+**Example**
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced instructions --content "## Setup" --all
+```
+
+## deepMerge(target, source)
+
+Deep merge two objects, with `source` values winning on conflict.  Recursively merges nested plain objects. Arrays and non-object values from `source` overwrite `target` values.
+
+**Signature**
+
+```typescript
+(target: Record<string, unknown>, source: Record<string, unknown>) => Record<string, unknown>
+```
+
+**Parameters**
+
+| Name     | Type            | Description                             |
+| -------- | --------------- | --------------------------------------- |
+| `target` | `Record<string` | Base object to merge into               |
+| `source` | `Record<string` | Object with values that take precedence |
+
+**Returns** — A new merged object (does not mutate inputs)
+
+**Example**
+
+```typescript
+const merged = deepMerge({ a: 1, b: { c: 2 } }, { b: { d: 3 } });
+// { a: 1, b: { c: 2, d: 3 } }
+```
+
+## setNestedValue(obj, keyPath, key, value)
+
+Set a nested value using a dot-notation key path.
+
+**Signature**
+
+```typescript
+(obj: Record<string, unknown>, keyPath: string, key: string, value: unknown) => Record<string, unknown>
+```
+
+**Parameters**
+
+| Name      | Type            | Description                                                |
+| --------- | --------------- | ---------------------------------------------------------- |
+| `obj`     | `Record<string` | Root object to modify                                      |
+| `keyPath` | `string`        | Dot-separated path to the parent key (e.g. `"mcpServers"`) |
+| `key`     | `string`        | Final key name for the value                               |
+| `value`   | `unknown`       | Value to set at the nested location                        |
+
+**Returns** — A new object with the value set at the specified path
+
+**Example**
+
+```typescript
+const result = setNestedValue({}, "a.b", "c", 42);
+// { a: { b: { c: 42 } } }
+```
+
+## getNestedValue(obj, keyPath)
+
+Get a nested value from an object using a dot-notation key path.
+
+**Signature**
+
+```typescript
+(obj: Record<string, unknown>, keyPath: string) => unknown
+```
+
+**Parameters**
+
+| Name      | Type            | Description                                               |
+| --------- | --------------- | --------------------------------------------------------- |
+| `obj`     | `Record<string` | Object to traverse                                        |
+| `keyPath` | `string`        | Dot-separated key path (e.g. `"mcpServers"` or `"a.b.c"`) |
+
+**Returns** — The value at the key path, or `undefined` if not found
+
+**Example**
+
+```typescript
+getNestedValue({ a: { b: { c: 42 } } }, "a.b.c"); // 42
+getNestedValue({ a: 1 }, "a.b"); // undefined
+```
+
+## ensureDir(filePath)
+
+Ensure that the parent directories of a file path exist.  Creates directories recursively if they do not exist.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<void>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                                                  |
+| ---------- | -------- | ------------------------------------------------------------ |
+| `filePath` | `string` | Absolute path to a file (parent directories will be created) |
+
+**Example**
+
+```typescript
+await ensureDir("/path/to/new/dir/file.json");
+// /path/to/new/dir/ now exists
+```
+
+## readJsonConfig(filePath)
+
+Read and parse a JSON or JSONC config file.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<Record<string, unknown>>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                          |
+| ---------- | -------- | ------------------------------------ |
+| `filePath` | `string` | Absolute path to the JSON/JSONC file |
+
+**Returns** — Parsed config object
+
+**Example**
+
+```typescript
+const config = await readJsonConfig("/home/user/.config/claude/settings.json");
+```
+
+## writeJsonConfig(filePath, configKey, serverName, serverConfig)
+
+Write a server config entry to a JSON/JSONC file, preserving comments.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Parameters**
+
+| Name           | Type      | Description                                                        |
+| -------------- | --------- | ------------------------------------------------------------------ |
+| `filePath`     | `string`  | Absolute path to the JSON/JSONC file                               |
+| `configKey`    | `string`  | Dot-notation key path to the servers section (e.g. `"mcpServers"`) |
+| `serverName`   | `string`  | Name/key for the server entry                                      |
+| `serverConfig` | `unknown` | Server configuration object to write                               |
+
+**Example**
+
+```typescript
+await writeJsonConfig("/path/to/config.json", "mcpServers", "my-server", { command: "node" });
+```
+
+## removeJsonConfig(filePath, configKey, serverName)
+
+Remove a server entry from a JSON/JSONC config file.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                  |
+| ------------ | -------- | -------------------------------------------- |
+| `filePath`   | `string` | Absolute path to the JSON/JSONC file         |
+| `configKey`  | `string` | Dot-notation key path to the servers section |
+| `serverName` | `string` | Name/key of the server entry to remove       |
+
+**Returns** — `true` if the entry was removed, `false` if the file or entry was not found
+
+**Example**
+
+```typescript
+const removed = await removeJsonConfig("/path/to/config.json", "mcpServers", "old-server");
+```
+
+## readTomlConfig(filePath)
+
+Read and parse a TOML config file.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<Record<string, unknown>>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                    |
+| ---------- | -------- | ------------------------------ |
+| `filePath` | `string` | Absolute path to the TOML file |
+
+**Returns** — Parsed config object
+
+**Example**
+
+```typescript
+const config = await readTomlConfig("/path/to/config.toml");
+```
+
+## writeTomlConfig(filePath, configKey, serverName, serverConfig)
+
+Write a server config entry to a TOML file.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Parameters**
+
+| Name           | Type      | Description                                  |
+| -------------- | --------- | -------------------------------------------- |
+| `filePath`     | `string`  | Absolute path to the TOML file               |
+| `configKey`    | `string`  | Dot-notation key path to the servers section |
+| `serverName`   | `string`  | Name/key for the server entry                |
+| `serverConfig` | `unknown` | Server configuration object to write         |
+
+**Example**
+
+```typescript
+await writeTomlConfig("/path/to/config.toml", "mcpServers", "my-server", { command: "node" });
+```
+
+## removeTomlConfig(filePath, configKey, serverName)
+
+Remove a server entry from a TOML config file.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                  |
+| ------------ | -------- | -------------------------------------------- |
+| `filePath`   | `string` | Absolute path to the TOML file               |
+| `configKey`  | `string` | Dot-notation key path to the servers section |
+| `serverName` | `string` | Name/key of the server entry to remove       |
+
+**Returns** — `true` if the entry was removed, `false` if the file or entry was not found
+
+**Example**
+
+```typescript
+const removed = await removeTomlConfig("/path/to/config.toml", "mcpServers", "old-server");
+```
+
+## readYamlConfig(filePath)
+
+Read and parse a YAML config file.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<Record<string, unknown>>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                    |
+| ---------- | -------- | ------------------------------ |
+| `filePath` | `string` | Absolute path to the YAML file |
+
+**Returns** — Parsed config object
+
+**Example**
+
+```typescript
+const config = await readYamlConfig("/path/to/config.yaml");
+```
+
+## writeYamlConfig(filePath, configKey, serverName, serverConfig)
+
+Write a server config entry to a YAML file.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Parameters**
+
+| Name           | Type      | Description                                  |
+| -------------- | --------- | -------------------------------------------- |
+| `filePath`     | `string`  | Absolute path to the YAML file               |
+| `configKey`    | `string`  | Dot-notation key path to the servers section |
+| `serverName`   | `string`  | Name/key for the server entry                |
+| `serverConfig` | `unknown` | Server configuration object to write         |
+
+**Example**
+
+```typescript
+await writeYamlConfig("/path/to/config.yaml", "mcpServers", "my-server", { command: "node" });
+```
+
+## removeYamlConfig(filePath, configKey, serverName)
+
+Remove a server entry from a YAML config file.
+
+**Signature**
+
+```typescript
+(filePath: string, configKey: string, serverName: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                  |
+| ------------ | -------- | -------------------------------------------- |
+| `filePath`   | `string` | Absolute path to the YAML file               |
+| `configKey`  | `string` | Dot-notation key path to the servers section |
+| `serverName` | `string` | Name/key of the server entry to remove       |
+
+**Returns** — `true` if the entry was removed, `false` if the file or entry was not found
+
+**Example**
+
+```typescript
+const removed = await removeYamlConfig("/path/to/config.yaml", "mcpServers", "old-server");
+```
+
+## readConfig(filePath, format)
+
+Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).
+
+**Signature**
+
+```typescript
+(filePath: string, format: ConfigFormat) => Promise<Record<string, unknown>>
+```
+
+**Parameters**
+
+| Name       | Type           | Description                      |
+| ---------- | -------------- | -------------------------------- |
+| `filePath` | `string`       | Absolute path to the config file |
+| `format`   | `ConfigFormat` | Config file format               |
+
+**Returns** — Parsed config object
+
+**Throws**
+
+- If the file cannot be read or the format is unsupported
+
+**Example**
+
+```typescript
+const config = await readConfig("/path/to/config.json", "jsonc");
+```
+
+## writeConfig(filePath, format, key, serverName, serverConfig)
+
+Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.
+
+**Signature**
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Parameters**
+
+| Name           | Type           | Description                                                        |
+| -------------- | -------------- | ------------------------------------------------------------------ |
+| `filePath`     | `string`       | Absolute path to the config file                                   |
+| `format`       | `ConfigFormat` | Config file format                                                 |
+| `key`          | `string`       | Dot-notation key path to the servers section (e.g. `"mcpServers"`) |
+| `serverName`   | `string`       | Name/key for the server entry                                      |
+| `serverConfig` | `unknown`      | Server configuration object to write                               |
+
+**Throws**
+
+- If the format is unsupported
+
+**Example**
+
+```typescript
+await writeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server", config);
+```
+
+## removeConfig(filePath, format, key, serverName)
+
+Remove a server entry from a config file in the specified format.
+
+**Signature**
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name         | Type           | Description                                  |
+| ------------ | -------------- | -------------------------------------------- |
+| `filePath`   | `string`       | Absolute path to the config file             |
+| `format`     | `ConfigFormat` | Config file format                           |
+| `key`        | `string`       | Dot-notation key path to the servers section |
+| `serverName` | `string`       | Name/key of the server entry to remove       |
+
+**Returns** — `true` if the entry was removed, `false` otherwise
+
+**Throws**
+
+- If the format is unsupported
+
+**Example**
+
+```typescript
+const removed = await removeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server");
+```
+
+## registerConfigCommand(program)
+
+Registers the `config` command group with show and path subcommands for viewing provider configurations.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                      |
+| --------- | --------- | ---------------------------------------------------------------- |
+| `program` | `Command` | The root Commander program to attach the config command group to |
+
+**Example**
+
+```bash
+caamp config show claude-code --global
+caamp config path cursor project
+```
+
+## getCaampVersion()
+
+Retrieve the current CAAMP package version from the nearest `package.json`.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The semver version string (e.g. `"1.8.1"`)
+
+**Example**
+
+```typescript
+const version = getCaampVersion();
+console.log(`CAAMP v${version}`);
+```
+
+## registerDoctorCommand(program)
+
+Registers the `doctor` command for diagnosing configuration issues and overall system health.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                |
+| --------- | --------- | ---------------------------------------------------------- |
+| `program` | `Command` | The root Commander program to attach the doctor command to |
+
+**Example**
+
+```bash
+caamp doctor --human
+caamp doctor --json
+```
+
+## registerInstructionsCheck(parent)
+
+Registers the `instructions check` subcommand for verifying injection status across providers.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                         |
+| -------- | --------- | ------------------------------------------------------------------- |
+| `parent` | `Command` | The parent `instructions` Command to attach the check subcommand to |
+
+**Example**
+
+```bash
+caamp instructions check --human
+caamp instructions check --agent claude-code
+```
+
+## registerInstructionsInject(parent)
+
+Registers the `instructions inject` subcommand for injecting instruction blocks into provider files.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                          |
+| -------- | --------- | -------------------------------------------------------------------- |
+| `parent` | `Command` | The parent `instructions` Command to attach the inject subcommand to |
+
+**Example**
+
+```bash
+caamp instructions inject --all --global
+caamp instructions inject --agent claude-code --dry-run
+```
+
+## registerInstructionsUpdate(parent)
+
+Registers the `instructions update` subcommand for refreshing all instruction file injections.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                          |
+| -------- | --------- | -------------------------------------------------------------------- |
+| `parent` | `Command` | The parent `instructions` Command to attach the update subcommand to |
+
+**Example**
+
+```bash
+caamp instructions update --yes
+caamp instructions update --global --json
+```
+
+## registerInstructionsCommands(program)
+
+Registers the `instructions` command group with inject, check, and update subcommands.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                            |
+| --------- | --------- | ---------------------------------------------------------------------- |
+| `program` | `Command` | The root Commander program to attach the instructions command group to |
+
+**Example**
+
+```bash
+caamp instructions inject --all
+caamp instructions check --human
+caamp instructions update --yes
+```
+
+## resetHookMappings()
+
+Reset the cached hook mappings data.
+
+**Signature**
+
+```typescript
+() => void
+```
+
+**Example**
+
+```typescript
+import { resetHookMappings, getHookMappingsVersion } from "./normalizer.js";
+
+// Force a fresh load from disk
+resetHookMappings();
+const version = getHookMappingsVersion();
+```
+
+## getCanonicalEvent(event)
+
+Get the canonical event definition (category, description, canBlock).
+
+**Signature**
+
+```typescript
+(event: CanonicalHookEvent) => CanonicalEventDefinition
+```
+
+**Parameters**
+
+| Name    | Type                 | Description                          |
+| ------- | -------------------- | ------------------------------------ |
+| `event` | `CanonicalHookEvent` | The canonical event name to look up. |
+
+**Returns** — The event definition containing category, description, and canBlock flag.
+
+**Example**
+
+```typescript
+import { getCanonicalEvent } from "./normalizer.js";
+
+const def = getCanonicalEvent("PreToolUse");
+console.log(def.category);  // "tool"
+console.log(def.canBlock);  // true
+```
+
+## getAllCanonicalEvents()
+
+Get all canonical event definitions.
+
+**Signature**
+
+```typescript
+() => Record<CanonicalHookEvent, CanonicalEventDefinition>
+```
+
+**Returns** — A record mapping every canonical event name to its definition.
+
+**Example**
+
+```typescript
+import { getAllCanonicalEvents } from "./normalizer.js";
+
+const events = getAllCanonicalEvents();
+for (const [name, def] of Object.entries(events)) {
+  console.log(`${name}: ${def.description}`);
+}
+```
+
+## getCanonicalEventsByCategory(category)
+
+Get canonical events filtered by category.
+
+**Signature**
+
+```typescript
+(category: HookCategory) => CanonicalHookEvent[]
+```
+
+**Parameters**
+
+| Name       | Type           | Description                                                  |
+| ---------- | -------------- | ------------------------------------------------------------ |
+| `category` | `HookCategory` | The hook category to filter by (e.g. `"session"`, `"tool"`). |
+
+**Returns** — Array of canonical event names that belong to the specified category.
+
+**Example**
+
+```typescript
+import { getCanonicalEventsByCategory } from "./normalizer.js";
+
+const toolEvents = getCanonicalEventsByCategory("tool");
+// ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
+```
+
+## getProviderHookProfile(providerId)
+
+Get the full hook profile for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => ProviderHookProfile | undefined
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                                     |
+| ------------ | -------- | --------------------------------------------------------------- |
+| `providerId` | `string` | The provider identifier (e.g. `"claude-code"`, `"gemini-cli"`). |
+
+**Returns** — The provider's hook profile, or `undefined` if not found.
+
+**Example**
+
+```typescript
+import { getProviderHookProfile } from "./normalizer.js";
+
+const profile = getProviderHookProfile("claude-code");
+if (profile) {
+  console.log(profile.hookSystem); // "config"
+  console.log(profile.experimental); // false
+}
+```
+
+## getMappedProviderIds()
+
+Get all provider IDs that have hook mappings.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — Array of provider ID strings.
+
+**Example**
+
+```typescript
+import { getMappedProviderIds } from "./normalizer.js";
+
+const ids = getMappedProviderIds();
+// ["claude-code", "gemini-cli", "cursor", "kimi", ...]
+```
+
+## toNative(canonical, providerId)
+
+Translate a CAAMP canonical event name to the provider's native name.
+
+**Signature**
+
+```typescript
+(canonical: CanonicalHookEvent, providerId: string) => string | null
+```
+
+**Parameters**
+
+| Name         | Type                 | Description                                  |
+| ------------ | -------------------- | -------------------------------------------- |
+| `canonical`  | `CanonicalHookEvent` | The CAAMP canonical event name to translate. |
+| `providerId` | `string`             | The target provider identifier.              |
+
+**Returns** — The native event name, or `null` if unsupported.
+
+**Example**
+
+```typescript
+import { toNative } from "./normalizer.js";
+
+toNative("PreToolUse", "claude-code");   // "PreToolUse"
+toNative("PreToolUse", "gemini-cli");    // "BeforeTool"
+toNative("PreToolUse", "cursor");        // "preToolUse"
+toNative("PreToolUse", "kimi");          // null
+```
+
+## toCanonical(nativeName, providerId)
+
+Translate a provider-native event name to the CAAMP canonical name.
+
+**Signature**
+
+```typescript
+(nativeName: string, providerId: string) => CanonicalHookEvent | null
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                |
+| ------------ | -------- | ------------------------------------------ |
+| `nativeName` | `string` | The provider-native event name to look up. |
+| `providerId` | `string` | The provider identifier to search within.  |
+
+**Returns** — The canonical event name, or `null` if no mapping exists.
+
+**Example**
+
+```typescript
+import { toCanonical } from "./normalizer.js";
+
+toCanonical("BeforeTool", "gemini-cli");     // "PreToolUse"
+toCanonical("stop", "cursor");               // "ResponseComplete"
+toCanonical("UserPromptSubmit", "claude-code"); // "PromptSubmit"
+```
+
+## toNativeBatch(canonicals, providerId)
+
+Batch-translate multiple canonical events to native names for a provider.
+
+**Signature**
+
+```typescript
+(canonicals: CanonicalHookEvent[], providerId: string) => NormalizedHookEvent[]
+```
+
+**Parameters**
+
+| Name         | Type                   | Description                                  |
+| ------------ | ---------------------- | -------------------------------------------- |
+| `canonicals` | `CanonicalHookEvent[]` | Array of canonical event names to translate. |
+| `providerId` | `string`               | The target provider identifier.              |
+
+**Returns** — Array of normalized events (only supported ones included).
+
+**Example**
+
+```typescript
+import { toNativeBatch } from "./normalizer.js";
+
+const events = toNativeBatch(
+  ["PreToolUse", "PostToolUse", "ConfigChange"],
+  "claude-code",
+);
+// Returns NormalizedHookEvent[] for supported events only
+```
+
+## supportsHook(canonical, providerId)
+
+Check if a provider supports a specific canonical hook event.
+
+**Signature**
+
+```typescript
+(canonical: CanonicalHookEvent, providerId: string) => boolean
+```
+
+**Parameters**
+
+| Name         | Type                 | Description                               |
+| ------------ | -------------------- | ----------------------------------------- |
+| `canonical`  | `CanonicalHookEvent` | The canonical event name to check.        |
+| `providerId` | `string`             | The provider identifier to check against. |
+
+**Returns** — `true` if the provider supports this canonical event, `false` otherwise.
+
+**Example**
+
+```typescript
+import { supportsHook } from "./normalizer.js";
+
+supportsHook("PreToolUse", "claude-code"); // true
+supportsHook("PreToolUse", "kimi");        // false
+```
+
+## getHookSupport(canonical, providerId)
+
+Get full hook support details for a canonical event on a provider.
+
+**Signature**
+
+```typescript
+(canonical: CanonicalHookEvent, providerId: string) => HookSupportResult
+```
+
+**Parameters**
+
+| Name         | Type                 | Description                               |
+| ------------ | -------------------- | ----------------------------------------- |
+| `canonical`  | `CanonicalHookEvent` | The canonical event name to query.        |
+| `providerId` | `string`             | The provider identifier to query against. |
+
+**Returns** — Support result including native name and optional notes.
+
+**Example**
+
+```typescript
+import { getHookSupport } from "./normalizer.js";
+
+const result = getHookSupport("PreToolUse", "claude-code");
+console.log(result.supported); // true
+console.log(result.native);    // "PreToolUse"
+```
+
+## getSupportedEvents(providerId)
+
+Get all supported canonical events for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => CanonicalHookEvent[]
+```
+
+**Parameters**
+
+| Name         | Type     | Description                       |
+| ------------ | -------- | --------------------------------- |
+| `providerId` | `string` | The provider identifier to query. |
+
+**Returns** — Array of canonical event names the provider supports.
+
+**Example**
+
+```typescript
+import { getSupportedEvents } from "./normalizer.js";
+
+const events = getSupportedEvents("claude-code");
+// ["SessionStart", "SessionEnd", "PreToolUse", ...]
+```
+
+## getUnsupportedEvents(providerId)
+
+Get all unsupported canonical events for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => CanonicalHookEvent[]
+```
+
+**Parameters**
+
+| Name         | Type     | Description                       |
+| ------------ | -------- | --------------------------------- |
+| `providerId` | `string` | The provider identifier to query. |
+
+**Returns** — Array of canonical event names the provider does not support.
+
+**Example**
+
+```typescript
+import { getUnsupportedEvents } from "./normalizer.js";
+
+const missing = getUnsupportedEvents("kimi");
+// Returns all canonical events (kimi has no hook support)
+```
+
+## getProvidersForEvent(canonical)
+
+Get providers that support a specific canonical event.
+
+**Signature**
+
+```typescript
+(canonical: CanonicalHookEvent) => string[]
+```
+
+**Parameters**
+
+| Name        | Type                 | Description                             |
+| ----------- | -------------------- | --------------------------------------- |
+| `canonical` | `CanonicalHookEvent` | The canonical event name to search for. |
+
+**Returns** — Array of provider IDs that support this event.
+
+**Example**
+
+```typescript
+import { getProvidersForEvent } from "./normalizer.js";
+
+const providers = getProvidersForEvent("PreToolUse");
+// ["claude-code", "gemini-cli", "cursor"]
+```
+
+## getCommonEvents(providerIds)
+
+Get canonical events common to all specified providers.
+
+**Signature**
+
+```typescript
+(providerIds: string[]) => CanonicalHookEvent[]
+```
+
+**Parameters**
+
+| Name          | Type       | Description                         |
+| ------------- | ---------- | ----------------------------------- |
+| `providerIds` | `string[]` | Array of provider IDs to intersect. |
+
+**Returns** — Array of canonical events supported by all specified providers.
+
+**Example**
+
+```typescript
+import { getCommonEvents } from "./normalizer.js";
+
+const common = getCommonEvents(["claude-code", "gemini-cli"]);
+// Returns only events both providers support
+```
+
+## getProviderSummary(providerId)
+
+Get a summary of hook support for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => ProviderHookSummary | undefined
+```
+
+**Parameters**
+
+| Name         | Type     | Description                           |
+| ------------ | -------- | ------------------------------------- |
+| `providerId` | `string` | The provider identifier to summarize. |
+
+**Returns** — The hook support summary, or `undefined` if the provider is not found.
+
+**Example**
+
+```typescript
+import { getProviderSummary } from "./normalizer.js";
+
+const summary = getProviderSummary("claude-code");
+if (summary) {
+  console.log(`${summary.coverage}% coverage`);
+  console.log(`${summary.supportedCount}/${summary.totalCanonical} events`);
+}
+```
+
+## buildHookMatrix(providerIds)
+
+Build a cross-provider hook support matrix.
+
+**Signature**
+
+```typescript
+(providerIds?: string[]) => CrossProviderMatrix
+```
+
+**Parameters**
+
+| Name          | Type         | Description                                                                  |
+| ------------- | ------------ | ---------------------------------------------------------------------------- |
+| `providerIds` | `: string[]` | Optional array of provider IDs to include. Defaults to all mapped providers. |
+
+**Returns** — The cross-provider matrix with events, providers, and mapping data.
+
+**Example**
+
+```typescript
+import { buildHookMatrix } from "./normalizer.js";
+
+const matrix = buildHookMatrix(["claude-code", "gemini-cli"]);
+for (const event of matrix.events) {
+  for (const provider of matrix.providers) {
+    console.log(`${event} @ ${provider}: ${matrix.matrix[event][provider].supported}`);
+  }
+}
+```
+
+## getHookSystemType(providerId)
+
+Get the hook system type for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => HookSystemType
+```
+
+**Parameters**
+
+| Name         | Type     | Description                       |
+| ------------ | -------- | --------------------------------- |
+| `providerId` | `string` | The provider identifier to query. |
+
+**Returns** — The hook system type (`"config"`, `"plugin"`, or `"none"`).
+
+**Example**
+
+```typescript
+import { getHookSystemType } from "./normalizer.js";
+
+getHookSystemType("claude-code"); // "config"
+getHookSystemType("unknown");     // "none"
+```
+
+## getHookConfigPath(providerId)
+
+Get the resolved hook config path for a provider.
+
+**Signature**
+
+```typescript
+(providerId: string) => string | null
+```
+
+**Parameters**
+
+| Name         | Type     | Description                       |
+| ------------ | -------- | --------------------------------- |
+| `providerId` | `string` | The provider identifier to query. |
+
+**Returns** — The resolved filesystem path, or `null` if not available.
+
+**Example**
+
+```typescript
+import { getHookConfigPath } from "./normalizer.js";
+
+const path = getHookConfigPath("claude-code");
+// "/home/user/.claude/settings.json" (resolved from template)
+```
+
+## getProviderOnlyEvents(providerId)
+
+Get provider-only events (native events with no canonical mapping).
+
+**Signature**
+
+```typescript
+(providerId: string) => string[]
+```
+
+**Parameters**
+
+| Name         | Type     | Description                       |
+| ------------ | -------- | --------------------------------- |
+| `providerId` | `string` | The provider identifier to query. |
+
+**Returns** — Array of native event names unique to this provider.
+
+**Example**
+
+```typescript
+import { getProviderOnlyEvents } from "./normalizer.js";
+
+const extras = getProviderOnlyEvents("claude-code");
+// Returns any events specific to Claude Code with no canonical equivalent
+```
+
+## translateToAll(canonical, providerIds)
+
+Translate a canonical event to native names across multiple providers.
+
+**Signature**
+
+```typescript
+(canonical: CanonicalHookEvent, providerIds: string[]) => Record<string, string>
+```
+
+**Parameters**
+
+| Name          | Type                 | Description                             |
+| ------------- | -------------------- | --------------------------------------- |
+| `canonical`   | `CanonicalHookEvent` | The canonical event name to translate.  |
+| `providerIds` | `string[]`           | Array of provider IDs to translate for. |
+
+**Returns** — Record mapping provider IDs to their native event names (supported only).
+
+**Example**
+
+```typescript
+import { translateToAll } from "./normalizer.js";
+
+const result = translateToAll("PreToolUse", ["claude-code", "gemini-cli", "kimi"]);
+// { "claude-code": "PreToolUse", "gemini-cli": "BeforeTool" }
+// (kimi excluded — unsupported)
+```
+
+## resolveNativeEvent(nativeName)
+
+Find the best canonical match for a native event name across all providers.
+
+**Signature**
+
+```typescript
+(nativeName: string) => Array<{ providerId: string; canonical: CanonicalHookEvent; }>
+```
+
+**Parameters**
+
+| Name         | Type     | Description                                |
+| ------------ | -------- | ------------------------------------------ |
+| `nativeName` | `string` | The provider-native event name to resolve. |
+
+**Returns** — Array of matches, each containing the provider ID and canonical event name.
+
+**Example**
+
+```typescript
+import { resolveNativeEvent } from "./normalizer.js";
+
+const matches = resolveNativeEvent("BeforeTool");
+// [{ providerId: "gemini-cli", canonical: "PreToolUse" }]
+```
+
+## getHookMappingsVersion()
+
+Get the version of the hook mappings data.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The semver version string of the loaded hook mappings data.
+
+**Example**
+
+```typescript
+import { getHookMappingsVersion } from "./normalizer.js";
+
+const version = getHookMappingsVersion();
+console.log(`Hook mappings v${version}`);
+```
+
+## registerProvidersCommand(program)
+
+Registers the `providers` command group with list, detect, show, skills-map, hooks, and capabilities subcommands.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                         |
+| --------- | --------- | ------------------------------------------------------------------- |
+| `program` | `Command` | The root Commander program to attach the providers command group to |
+
+**Example**
+
+```bash
+caamp providers list --tier high
+caamp providers detect --project
+caamp providers show claude-code
+```
+
+## getRulesByCategory(category)
+
+Get audit rules filtered by category.
+
+**Signature**
+
+```typescript
+(category: string) => AuditRule[]
+```
+
+**Parameters**
+
+| Name       | Type     | Description                |
+| ---------- | -------- | -------------------------- |
+| `category` | `string` | Category name to filter by |
+
+**Returns** — Array of rules matching the given category
+
+**Example**
+
+```typescript
+const piRules = getRulesByCategory("prompt-injection");
+console.log(`${piRules.length} prompt injection rules`);
+```
+
+## getRulesBySeverity(severity)
+
+Get audit rules filtered by severity level.
+
+**Signature**
+
+```typescript
+(severity: AuditSeverity) => AuditRule[]
+```
+
+**Parameters**
+
+| Name       | Type            | Description                 |
+| ---------- | --------------- | --------------------------- |
+| `severity` | `AuditSeverity` | Severity level to filter by |
+
+**Returns** — Array of rules matching the given severity
+
+**Example**
+
+```typescript
+const criticalRules = getRulesBySeverity("critical");
+console.log(`${criticalRules.length} critical rules`);
+```
+
+## getCategories()
+
+Get all unique rule categories.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — Array of unique category name strings
+
+**Example**
+
+```typescript
+const categories = getCategories();
+// ["prompt-injection", "command-injection", "data-exfiltration", ...]
+```
+
+## scanFile(filePath, rules)
+
+Scan a single file against security audit rules.
+
+**Signature**
+
+```typescript
+(filePath: string, rules?: AuditRule[]) => Promise<AuditResult>
+```
+
+**Parameters**
+
+| Name       | Type            | Description                                                       |
+| ---------- | --------------- | ----------------------------------------------------------------- |
+| `filePath` | `string`        | Absolute path to the file to scan                                 |
+| `rules`    | `: AuditRule[]` | Custom rules to scan against (defaults to the built-in 46+ rules) |
+
+**Returns** — Audit result with findings, score, and pass/fail status
+
+**Example**
+
+```typescript
+const result = await scanFile("/path/to/SKILL.md");
+console.log(`Score: ${result.score}/100, Passed: ${result.passed}`);
+```
+
+## scanDirectory(dirPath)
+
+Scan a directory of skills for security issues.
+
+**Signature**
+
+```typescript
+(dirPath: string) => Promise<AuditResult[]>
+```
+
+**Parameters**
+
+| Name      | Type     | Description                                   |
+| --------- | -------- | --------------------------------------------- |
+| `dirPath` | `string` | Absolute path to the skills directory to scan |
+
+**Returns** — Array of audit results, one per scanned SKILL.md
+
+**Example**
+
+```typescript
+import { getCanonicalSkillsDir } from "../../paths/standard.js";
+
+const results = await scanDirectory(getCanonicalSkillsDir());
+const failing = results.filter(r => !r.passed);
+```
+
+## toSarif(results)
+
+Convert audit results to SARIF 2.1.0 format (Static Analysis Results Interchange Format).
+
+**Signature**
+
+```typescript
+(results: AuditResult[]) => object
+```
+
+**Parameters**
+
+| Name      | Type            | Description                       |
+| --------- | --------------- | --------------------------------- |
+| `results` | `AuditResult[]` | Array of audit results to convert |
+
+**Returns** — SARIF 2.1.0 JSON object
+
+**Example**
+
+```typescript
+const results = await scanDirectory("/path/to/skills");
+const sarif = toSarif(results);
+writeFileSync("audit.sarif", JSON.stringify(sarif, null, 2));
+```
+
+## registerSkillsAudit(parent)
+
+Registers the `skills audit` subcommand for security scanning skill files.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                   |
+| -------- | --------- | ------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the audit subcommand to |
+
+**Example**
+
+```bash
+caamp skills audit ./my-skill/SKILL.md
+caamp skills audit ./skills-dir --sarif
+```
+
+## readLockFile()
+
+Read and parse the CAAMP lock file from disk.
+
+**Signature**
+
+```typescript
+() => Promise<CaampLockFile>
+```
+
+**Returns** — Parsed lock file contents
+
+**Example**
+
+```typescript
+const lock = await readLockFile();
+console.log(Object.keys(lock.mcpServers));
+```
+
+## writeLockFile(lock)
+
+Write the lock file atomically under a process lock guard.
+
+**Signature**
+
+```typescript
+(lock: CaampLockFile) => Promise<void>
+```
+
+**Parameters**
+
+| Name   | Type            | Description               |
+| ------ | --------------- | ------------------------- |
+| `lock` | `CaampLockFile` | Lock file data to persist |
+
+**Example**
+
+```typescript
+const lock = await readLockFile();
+lock.mcpServers["my-server"] = entry;
+await writeLockFile(lock);
+```
+
+## updateLockFile(updater)
+
+Safely read-modify-write the lock file under a process lock guard.
+
+**Signature**
+
+```typescript
+(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile>
+```
+
+**Parameters**
+
+| Name      | Type                   | Description                                           |
+| --------- | ---------------------- | ----------------------------------------------------- |
+| `updater` | `(lock: CaampLockFile` | Callback that modifies the lock object (may be async) |
+
+**Returns** — The updated lock file contents after the write
+
+**Example**
+
+```typescript
+const updated = await updateLockFile((lock) => {
+  lock.mcpServers["new-server"] = entry;
+});
+```
+
+## parseSource(input)
+
+Parse and classify a source string into a typed `ParsedSource`.
+
+**Signature**
+
+```typescript
+(input: string) => ParsedSource
+```
+
+**Parameters**
+
+| Name    | Type     | Description                   |
+| ------- | -------- | ----------------------------- |
+| `input` | `string` | Raw source string to classify |
+
+**Returns** — Parsed source with type, value, and inferred name
+
+**Example**
+
+```typescript
+parseSource("owner/repo");
+// { type: "github", value: "https://github.com/owner/repo", inferredName: "repo", ... }
+
+parseSource("https://mcp.example.com/sse");
+// { type: "remote", value: "https://mcp.example.com/sse", inferredName: "example" }
+
+parseSource("@modelcontextprotocol/server-filesystem");
+// { type: "package", value: "@modelcontextprotocol/server-filesystem", inferredName: "filesystem" }
+```
+
+## isMarketplaceScoped(input)
+
+Check if a source string looks like a marketplace scoped name (`@author/name`).
+
+**Signature**
+
+```typescript
+(input: string) => boolean
+```
+
+**Parameters**
+
+| Name    | Type     | Description            |
+| ------- | -------- | ---------------------- |
+| `input` | `string` | Source string to check |
+
+**Returns** — `true` if the input matches the `@scope/name` pattern
+
+**Example**
+
+```typescript
+isMarketplaceScoped("@anthropic/my-skill"); // true
+isMarketplaceScoped("my-skill");             // false
+isMarketplaceScoped("owner/repo");           // false
+```
+
+## recordSkillInstall(skillName, scopedName, source, sourceType, agents, canonicalPath, isGlobal, projectDir, version)
+
+Record a skill installation in the lock file.
+
+**Signature**
+
+```typescript
+(skillName: string, scopedName: string, source: string, sourceType: SourceType, agents: string[], canonicalPath: string, isGlobal: boolean, projectDir?: string, version?: string) => Promise<void>
+```
+
+**Parameters**
+
+| Name            | Type         | Description                                     |
+| --------------- | ------------ | ----------------------------------------------- |
+| `skillName`     | `string`     | Skill name                                      |
+| `scopedName`    | `string`     | Scoped name (may include marketplace scope)     |
+| `source`        | `string`     | Original source string                          |
+| `sourceType`    | `SourceType` | Classified source type                          |
+| `agents`        | `string[]`   | Provider IDs the skill was linked to            |
+| `canonicalPath` | `string`     | Absolute path to the canonical installation     |
+| `isGlobal`      | `boolean`    | Whether this is a global installation           |
+| `projectDir`    | `: string`   | Project directory (for project-scoped installs) |
+| `version`       | `: string`   | Version string or commit SHA                    |
+
+**Example**
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+import { join } from "node:path";
+
+await recordSkillInstall(
+  "my-skill", "my-skill", "owner/repo", "github",
+  ["claude-code"], join(getCanonicalSkillsDir(), "my-skill"), true,
+);
+```
+
+## removeSkillFromLock(skillName)
+
+Remove a skill entry from the lock file.
+
+**Signature**
+
+```typescript
+(skillName: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name        | Type     | Description                 |
+| ----------- | -------- | --------------------------- |
+| `skillName` | `string` | Name of the skill to remove |
+
+**Returns** — `true` if the entry was found and removed, `false` if not found
+
+**Example**
+
+```typescript
+const removed = await removeSkillFromLock("my-skill");
+console.log(removed ? "Removed" : "Not found");
+```
+
+## getTrackedSkills()
+
+Get all skills tracked in the lock file.
+
+**Signature**
+
+```typescript
+() => Promise<Record<string, LockEntry>>
+```
+
+**Returns** — Record of skill name to lock entry
+
+**Example**
+
+```typescript
+const skills = await getTrackedSkills();
+for (const [name, entry] of Object.entries(skills)) {
+  console.log(`${name}: ${entry.source}`);
+}
+```
+
+## checkSkillUpdate(skillName)
+
+Check if a skill has updates available by comparing the installed version against the latest remote commit SHA.
+
+**Signature**
+
+```typescript
+(skillName: string) => Promise<{ hasUpdate: boolean; currentVersion?: string; latestVersion?: string; status: "up-to-date" | "update-available" | "unknown"; }>
+```
+
+**Parameters**
+
+| Name        | Type     | Description                          |
+| ----------- | -------- | ------------------------------------ |
+| `skillName` | `string` | Name of the installed skill to check |
+
+**Returns** — Object with update status, current version, and latest version
+
+**Example**
+
+```typescript
+const update = await checkSkillUpdate("my-skill");
+if (update.hasUpdate) {
+  console.log(`Update available: ${update.currentVersion} -> ${update.latestVersion}`);
+}
+```
+
+## checkAllSkillUpdates()
+
+Check for updates across all tracked skills.
+
+**Signature**
+
+```typescript
+() => Promise<Record<string, { hasUpdate: boolean; currentVersion?: string; latestVersion?: string; status: "up-to-date" | "update-available" | "unknown"; }>>
+```
+
+**Returns** — Object mapping skill names to their update status
+
+**Example**
+
+```typescript
+const updates = await checkAllSkillUpdates();
+for (const [name, status] of Object.entries(updates)) {
+  if (status.hasUpdate) {
+    console.log(`${name}: ${status.currentVersion} -> ${status.latestVersion}`);
+  }
+}
+```
+
+## registerSkillsCheck(parent)
+
+Registers the `skills check` subcommand for checking available skill updates.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                   |
+| -------- | --------- | ------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the check subcommand to |
+
+**Example**
+
+```bash
+caamp skills check --human
+caamp skills check --json
+```
+
+## NetworkError
+
+Structured error for network failures with categorized kind.
+
+**Signature**
+
+```typescript
+typeof NetworkError
+```
+
+## fetchWithTimeout(url, init, timeoutMs)
+
+Fetch a URL with an automatic timeout via `AbortSignal.timeout`.
+
+**Signature**
+
+```typescript
+(url: string, init?: RequestInit, timeoutMs?: number) => Promise<Response>
+```
+
+**Parameters**
+
+| Name        | Type            | Description                                                      |
+| ----------- | --------------- | ---------------------------------------------------------------- |
+| `url`       | `string`        | URL to fetch                                                     |
+| `init`      | `: RequestInit` | Optional `RequestInit` options forwarded to `fetch`              |
+| `timeoutMs` | `: number`      | Timeout in milliseconds (defaults to `DEFAULT_FETCH_TIMEOUT_MS`) |
+
+**Returns** — The `Response` object from the fetch call
+
+**Throws**
+
+- `NetworkError` on timeout or network failure
+
+**Example**
+
+```typescript
+const response = await fetchWithTimeout("https://api.example.com/data", undefined, 5000);
+```
+
+## ensureOkResponse(response, url)
+
+Assert that a `Response` has an OK status, throwing on failure.
+
+**Signature**
+
+```typescript
+(response: Response, url: string) => Response
+```
+
+**Parameters**
+
+| Name       | Type       | Description                                  |
+| ---------- | ---------- | -------------------------------------------- |
+| `response` | `Response` | Fetch `Response` to validate                 |
+| `url`      | `string`   | Original request URL (included in the error) |
+
+**Returns** — The same `Response` if status is OK
+
+**Throws**
+
+- `NetworkError` when `response.ok` is `false`
+
+**Example**
+
+```typescript
+const res = await fetchWithTimeout(url);
+ensureOkResponse(res, url);
+```
+
+## formatNetworkError(error)
+
+Format a network error into a user-friendly message string.
+
+**Signature**
+
+```typescript
+(error: unknown) => string
+```
+
+**Parameters**
+
+| Name    | Type      | Description            |
+| ------- | --------- | ---------------------- |
+| `error` | `unknown` | The caught error value |
+
+**Returns** — Human-readable error description
+
+**Example**
+
+```typescript
+try {
+  await fetchWithTimeout(url);
+} catch (err) {
+  console.error(formatNetworkError(err));
+}
+```
+
+## SkillsMPAdapter
+
+Marketplace adapter for the agentskills.in API.
+
+**Signature**
+
+```typescript
+typeof SkillsMPAdapter
+```
+
+**Methods**
+
+### search()
+
+Search for skills by query string.
+
+```typescript
+(query: string, limit?: number) => Promise<MarketplaceResult[]>
+```
+
+### getSkill()
+
+Look up a specific skill by its scoped name.
+
+```typescript
+(scopedName: string) => Promise<MarketplaceResult | null>
+```
+
+## SkillsShAdapter
+
+Marketplace adapter for the skills.sh API.
+
+**Signature**
+
+```typescript
+typeof SkillsShAdapter
+```
+
+**Methods**
+
+### search()
+
+Search for skills by query string.
+
+```typescript
+(query: string, limit?: number) => Promise<MarketplaceResult[]>
+```
+
+### getSkill()
+
+Look up a specific skill by its scoped name.
+
+```typescript
+(scopedName: string) => Promise<MarketplaceResult | null>
+```
+
+## MarketplaceUnavailableError
+
+Error thrown when all marketplace sources fail to respond.
+
+**Signature**
+
+```typescript
+typeof MarketplaceUnavailableError
+```
+
+## MarketplaceClient
+
+Unified marketplace client that aggregates results from multiple marketplace adapters.  Queries all configured marketplaces in parallel, deduplicates results by scoped name, and sorts by star count.
+
+**Signature**
+
+```typescript
+typeof MarketplaceClient
+```
+
+**Example**
+
+```typescript
+const client = new MarketplaceClient();
+const results = await client.search("filesystem");
+for (const r of results) {
+  console.log(`${r.scopedName} (${r.stars} stars)`);
+}
+```
+
+**Methods**
+
+### search()
+
+Search all marketplaces and return deduplicated, sorted results.  Queries all adapters in parallel and deduplicates by `scopedName`, keeping the entry with the highest star count. Results are sorted by stars descending.
+
+```typescript
+(query: string, limit?: number) => Promise<MarketplaceResult[]>
+```
+
+### getSkill()
+
+Get a specific skill by its scoped name from any marketplace.  Tries each adapter in order and returns the first match.
+
+```typescript
+(scopedName: string) => Promise<MarketplaceResult | null>
+```
+
+## tokenizeCriteriaValue(value)
+
+Splits a comma-separated criteria string into normalized tokens.
+
+**Signature**
+
+```typescript
+(value: string) => string[]
+```
+
+**Parameters**
+
+| Name    | Type     | Description                            |
+| ------- | -------- | -------------------------------------- |
+| `value` | `string` | The comma-separated string to tokenize |
+
+**Returns** — An array of trimmed, lowercased, non-empty tokens
+
+**Example**
+
+```typescript
+const tokens = tokenizeCriteriaValue("React, TypeScript, svelte");
+// returns ["react", "typescript", "svelte"]
+```
+
+## validateRecommendationCriteria(input)
+
+Validates recommendation criteria input for correctness and consistency.
+
+**Signature**
+
+```typescript
+(input: RecommendationCriteriaInput) => RecommendationValidationResult
+```
+
+**Parameters**
+
+| Name    | Type                          | Description                                 |
+| ------- | ----------------------------- | ------------------------------------------- |
+| `input` | `RecommendationCriteriaInput` | The raw recommendation criteria to validate |
+
+**Returns** — A validation result indicating success or listing all issues
+
+**Example**
+
+```typescript
+const result = validateRecommendationCriteria({
+  query: "gitbook",
+  mustHave: "api",
+  exclude: "legacy",
+});
+if (!result.valid) {
+  console.error(result.issues);
+}
+```
+
+## normalizeRecommendationCriteria(input)
+
+Normalizes raw recommendation criteria into a consistent tokenized form.
+
+**Signature**
+
+```typescript
+(input: RecommendationCriteriaInput) => NormalizedRecommendationCriteria
+```
+
+**Parameters**
+
+| Name    | Type                          | Description                                  |
+| ------- | ----------------------------- | -------------------------------------------- |
+| `input` | `RecommendationCriteriaInput` | The raw recommendation criteria to normalize |
+
+**Returns** — Normalized criteria with tokenized, sorted, deduplicated terms
+
+**Example**
+
+```typescript
+const criteria = normalizeRecommendationCriteria({
+  query: "GitBook API",
+  mustHave: "sync, api",
+  prefer: ["modern"],
+});
+// criteria.queryTokens => ["api", "gitbook"]
+// criteria.mustHave => ["api", "sync"]
+```
+
+## scoreSkillRecommendation(skill, criteria, options)
+
+Computes a recommendation score for a single skill against normalized criteria.
+
+**Signature**
+
+```typescript
+(skill: MarketplaceResult, criteria: NormalizedRecommendationCriteria, options?: RecommendationOptions) => RankedSkillRecommendation
+```
+
+**Parameters**
+
+| Name       | Type                               | Description                                                  |
+| ---------- | ---------------------------------- | ------------------------------------------------------------ |
+| `skill`    | `MarketplaceResult`                | The marketplace skill result to score                        |
+| `criteria` | `NormalizedRecommendationCriteria` | The normalized recommendation criteria to score against      |
+| `options`  | `: RecommendationOptions`          | Optional scoring configuration including weights and markers |
+
+**Returns** — A ranked recommendation with score, reasons, and tradeoffs
+
+**Example**
+
+```typescript
+const criteria = normalizeRecommendationCriteria({ query: "gitbook" });
+const ranked = scoreSkillRecommendation(marketplaceSkill, criteria, {
+  includeDetails: true,
+});
+console.log(ranked.score, ranked.reasons);
+```
+
+## recommendSkills(skills, criteriaInput, options)
+
+Validates, normalizes, scores, and ranks a list of skills against criteria.
+
+**Signature**
+
+```typescript
+(skills: MarketplaceResult[], criteriaInput: RecommendationCriteriaInput, options?: RecommendationOptions) => RecommendSkillsResult
+```
+
+**Parameters**
+
+| Name            | Type                          | Description                                            |
+| --------------- | ----------------------------- | ------------------------------------------------------ |
+| `skills`        | `MarketplaceResult[]`         | The array of marketplace skill results to rank         |
+| `criteriaInput` | `RecommendationCriteriaInput` | The raw recommendation criteria from the user          |
+| `options`       | `: RecommendationOptions`     | Optional configuration for scoring and result limiting |
+
+**Returns** — The normalized criteria and ranked skill recommendations
+
+**Throws**
+
+- Error with `code` and `issues` properties when criteria are invalid
+
+**Example**
+
+```typescript
+const result = recommendSkills(
+  marketplaceResults,
+  { query: "gitbook", mustHave: "api", exclude: "legacy" },
+  { top: 5, includeDetails: true },
+);
+for (const rec of result.ranking) {
+  console.log(rec.skill.name, rec.score);
+}
+```
+
+## formatSkillRecommendations(result, opts)
+
+Format skill recommendation results for display or serialization.
+
+**Signature**
+
+```typescript
+(result: RecommendSkillsResult, opts: { mode: "human" | "json"; details?: boolean; }) => string | Record<string, unknown>
+```
+
+**Parameters**
+
+| Name     | Type                                              | Description                                               |
+| -------- | ------------------------------------------------- | --------------------------------------------------------- |
+| `result` | `RecommendSkillsResult`                           | The recommendation result to format                       |
+| `opts`   | `{ mode: "human" \| "json"; details?: boolean; }` | Formatting options including output mode and detail level |
+
+**Returns** — Formatted string for human mode, or a structured object for JSON mode
+
+**Example**
+
+```typescript
+const result = await recommendSkills("testing", { taskType: "test-writing" });
+const output = formatSkillRecommendations(result, { mode: "human" });
+console.log(output);
+```
+
+## searchSkills(query, options)
+
+Search for skills via marketplace APIs.
+
+**Signature**
+
+```typescript
+(query: string, options?: SearchSkillsOptions) => Promise<import("/mnt/projects/cleocode/packages/caamp/src/index").MarketplaceResult[]>
+```
+
+**Parameters**
+
+| Name      | Type                    | Description                             |
+| --------- | ----------------------- | --------------------------------------- |
+| `query`   | `string`                | Search query string (must be non-empty) |
+| `options` | `: SearchSkillsOptions` | Search options including result limit   |
+
+**Returns** — Array of marketplace skill entries matching the query
+
+**Example**
+
+```typescript
+const results = await searchSkills("test runner", { limit: 10 });
+console.log(`Found ${results.length} skills`);
+```
+
+## recommendSkills(query, criteria, options)
+
+Search and rank skills based on query and recommendation criteria.
+
+**Signature**
+
+```typescript
+(query: string, criteria: Omit<RecommendationCriteriaInput, "query">, options?: RecommendSkillsQueryOptions) => Promise<RecommendSkillsResult>
+```
+
+**Parameters**
+
+| Name       | Type                               | Description                                               |
+| ---------- | ---------------------------------- | --------------------------------------------------------- |
+| `query`    | `string`                           | Search query string                                       |
+| `criteria` | `Omit<RecommendationCriteriaInput` | Recommendation criteria (task type, context, preferences) |
+| `options`  | `: RecommendSkillsQueryOptions`    | Options for limiting and tuning results                   |
+
+**Returns** — Ranked recommendation results with scores and reasons
+
+**Example**
+
+```typescript
+const result = await recommendSkills("testing", { taskType: "test-writing" });
+const best = result.ranking[0];
+console.log(`Top pick: ${best.skill.scopedName} (score: ${best.score})`);
+```
+
+## registerSkillsFind(parent)
+
+Registers the `skills find` subcommand for searching marketplaces and recommending skills.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                  |
+| -------- | --------- | ------------------------------------------------------------ |
+| `parent` | `Command` | The parent `skills` Command to attach the find subcommand to |
+
+**Example**
+
+```bash
+caamp skills find "testing framework"
+caamp skills find --recommend --must-have typescript --prefer vitest
+```
+
+## registerSkillsInit(parent)
+
+Registers the `skills init` subcommand for scaffolding new SKILL.md templates.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                  |
+| -------- | --------- | ------------------------------------------------------------ |
+| `parent` | `Command` | The parent `skills` Command to attach the init subcommand to |
+
+**Example**
+
+```bash
+caamp skills init my-skill
+caamp skills init --dir ./skills/new-skill
+```
+
+## loadLibraryFromModule(root)
+
+Load a SkillLibrary from a module (index.js) at the given root directory.
+
+**Signature**
+
+```typescript
+(root: string) => SkillLibrary
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                                                         |
+| ------ | -------- | ----------------------------------------------------------------------------------- |
+| `root` | `string` | Absolute path to the library root (must contain index.js or package.json with main) |
+
+**Returns** — A validated SkillLibrary instance
+
+**Throws**
+
+- If the module cannot be loaded or does not implement SkillLibrary
+
+**Example**
+
+```typescript
+const library = loadLibraryFromModule("/home/user/.agents/libraries/ct-skills");
+console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
+```
+
+## buildLibraryFromFiles(root)
+
+Build a SkillLibrary from raw files in a directory.
+
+**Signature**
+
+```typescript
+(root: string) => SkillLibrary
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                 |
+| ------ | -------- | ------------------------------------------- |
+| `root` | `string` | Absolute path to the library root directory |
+
+**Returns** — A SkillLibrary instance backed by filesystem reads
+
+**Throws**
+
+- If skills.json is not found at the root
+
+**Example**
+
+```typescript
+const library = buildLibraryFromFiles("/home/user/.agents/libraries/ct-skills");
+const coreSkills = library.getCoreSkills();
+console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
+```
+
+## registerSkillLibrary(library)
+
+Registers a SkillLibrary instance directly as the active catalog.
+
+**Signature**
+
+```typescript
+(library: SkillLibrary) => void
+```
+
+**Parameters**
+
+| Name      | Type           | Description                                         |
+| --------- | -------------- | --------------------------------------------------- |
+| `library` | `SkillLibrary` | A SkillLibrary implementation to use as the catalog |
+
+**Example**
+
+```typescript
+const library = buildLibraryFromFiles("/path/to/skills");
+registerSkillLibrary(library);
+```
+
+## registerSkillLibraryFromPath(root)
+
+Registers a skill library by loading it from a directory path.
+
+**Signature**
+
+```typescript
+(root: string) => void
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                       |
+| ------ | -------- | ------------------------------------------------- |
+| `root` | `string` | Absolute path to the skill library root directory |
+
+**Throws**
+
+- Error if the library cannot be loaded from the given path
+
+**Example**
+
+```typescript
+registerSkillLibraryFromPath("/home/user/.agents/skill-library");
+const skills = listSkills();
+```
+
+## clearRegisteredLibrary()
+
+Clears the registered skill library instance.
+
+**Signature**
+
+```typescript
+() => void
+```
+
+**Example**
+
+```typescript
+clearRegisteredLibrary();
+// isCatalogAvailable() will now return false unless auto-discovery succeeds
+```
+
+## isCatalogAvailable()
+
+Checks whether a skill library is available for use.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — True if a skill library is registered or discoverable, false otherwise
+
+**Example**
+
+```typescript
+if (isCatalogAvailable()) {
+  const skills = listSkills();
+}
+```
+
+## getSkills()
+
+Returns all skill entries from the catalog.
+
+**Signature**
+
+```typescript
+() => SkillLibraryEntry[]
+```
+
+**Returns** — An array of all skill library entries
+
+**Example**
+
+```typescript
+const allSkills = getSkills();
+console.log(`Found ${allSkills.length} skills`);
+```
+
+## getManifest()
+
+Returns the parsed skill library manifest.
+
+**Signature**
+
+```typescript
+() => SkillLibraryManifest
+```
+
+**Returns** — The skill library manifest object
+
+**Example**
+
+```typescript
+const manifest = getManifest();
+console.log(manifest.version);
+```
+
+## listSkills()
+
+Lists all available skill names in the catalog.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — An array of skill name strings
+
+**Example**
+
+```typescript
+const names = listSkills();
+// e.g., ["ct-orchestrator", "ct-dev-workflow", "ct-validator"]
+```
+
+## getSkill(name)
+
+Gets skill metadata by name from the catalog.
+
+**Signature**
+
+```typescript
+(name: string) => SkillLibraryEntry | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                      |
+| ------ | -------- | -------------------------------- |
+| `name` | `string` | The unique skill name to look up |
+
+**Returns** — The skill entry if found, or undefined
+
+**Example**
+
+```typescript
+const skill = getSkill("ct-orchestrator");
+if (skill) {
+  console.log(skill.category);
+}
+```
+
+## getSkillPath(name)
+
+Resolves the absolute path to a skill's SKILL.md file.
+
+**Signature**
+
+```typescript
+(name: string) => string
+```
+
+**Parameters**
+
+| Name   | Type     | Description                      |
+| ------ | -------- | -------------------------------- |
+| `name` | `string` | The unique skill name to resolve |
+
+**Returns** — The absolute path to the skill's SKILL.md file
+
+**Example**
+
+```typescript
+const path = getSkillPath("ct-orchestrator");
+// e.g., "/home/user/.agents/skill-library/skills/ct-orchestrator/SKILL.md"
+```
+
+## getSkillDir(name)
+
+Resolves the absolute path to a skill's directory.
+
+**Signature**
+
+```typescript
+(name: string) => string
+```
+
+**Parameters**
+
+| Name   | Type     | Description                      |
+| ------ | -------- | -------------------------------- |
+| `name` | `string` | The unique skill name to resolve |
+
+**Returns** — The absolute path to the skill's directory
+
+**Example**
+
+```typescript
+const dir = getSkillDir("ct-orchestrator");
+// e.g., "/home/user/.agents/skill-library/skills/ct-orchestrator"
+```
+
+## readSkillContent(name)
+
+Reads a skill's SKILL.md content as a string.
+
+**Signature**
+
+```typescript
+(name: string) => string
+```
+
+**Parameters**
+
+| Name   | Type     | Description                   |
+| ------ | -------- | ----------------------------- |
+| `name` | `string` | The unique skill name to read |
+
+**Returns** — The full text content of the skill's SKILL.md file
+
+**Example**
+
+```typescript
+const content = readSkillContent("ct-orchestrator");
+console.log(content.substring(0, 100));
+```
+
+## getCoreSkills()
+
+Returns all skills marked as core in the catalog.
+
+**Signature**
+
+```typescript
+() => SkillLibraryEntry[]
+```
+
+**Returns** — An array of core skill entries
+
+**Example**
+
+```typescript
+const coreSkills = getCoreSkills();
+console.log(`${coreSkills.length} core skills available`);
+```
+
+## getSkillsByCategory(category)
+
+Returns skills filtered by category.
+
+**Signature**
+
+```typescript
+(category: SkillLibraryEntry["category"]) => SkillLibraryEntry[]
+```
+
+**Parameters**
+
+| Name       | Type                            | Description               |
+| ---------- | ------------------------------- | ------------------------- |
+| `category` | `SkillLibraryEntry["category"]` | The category to filter by |
+
+**Returns** — An array of skill entries in the specified category
+
+**Example**
+
+```typescript
+const planningSkills = getSkillsByCategory("planning");
+```
+
+## getSkillDependencies(name)
+
+Gets the direct dependency names for a skill.
+
+**Signature**
+
+```typescript
+(name: string) => string[]
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                     |
+| ------ | -------- | ----------------------------------------------- |
+| `name` | `string` | The unique skill name to query dependencies for |
+
+**Returns** — An array of direct dependency skill names
+
+**Example**
+
+```typescript
+const deps = getSkillDependencies("ct-task-executor");
+// e.g., ["ct-orchestrator"]
+```
+
+## resolveDependencyTree(names)
+
+Resolves the full dependency tree for a set of skill names.
+
+**Signature**
+
+```typescript
+(names: string[]) => string[]
+```
+
+**Parameters**
+
+| Name    | Type       | Description                                 |
+| ------- | ---------- | ------------------------------------------- |
+| `names` | `string[]` | The skill names to resolve dependencies for |
+
+**Returns** — A deduplicated array of all required skill names including transitive dependencies
+
+**Example**
+
+```typescript
+const allDeps = resolveDependencyTree(["ct-task-executor", "ct-validator"]);
+// includes all transitive dependencies
+```
+
+## listProfiles()
+
+Lists all available profile names in the catalog.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — An array of profile name strings
+
+**Example**
+
+```typescript
+const profiles = listProfiles();
+// e.g., ["default", "minimal", "full"]
+```
+
+## getProfile(name)
+
+Gets a profile definition by name from the catalog.
+
+**Signature**
+
+```typescript
+(name: string) => SkillLibraryProfile | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                        |
+| ------ | -------- | ---------------------------------- |
+| `name` | `string` | The unique profile name to look up |
+
+**Returns** — The profile definition if found, or undefined
+
+**Example**
+
+```typescript
+const profile = getProfile("default");
+if (profile) {
+  console.log(profile.skills);
+}
+```
+
+## resolveProfile(name)
+
+Resolves a profile to its full skill list including inherited skills.
+
+**Signature**
+
+```typescript
+(name: string) => string[]
+```
+
+**Parameters**
+
+| Name   | Type     | Description                 |
+| ------ | -------- | --------------------------- |
+| `name` | `string` | The profile name to resolve |
+
+**Returns** — A deduplicated array of all skill names required by the profile
+
+**Example**
+
+```typescript
+const skills = resolveProfile("default");
+// includes all skills from extended profiles and their dependencies
+```
+
+## listSharedResources()
+
+Lists all available shared resource names in the catalog.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — An array of shared resource name strings
+
+**Example**
+
+```typescript
+const resources = listSharedResources();
+// e.g., ["testing-framework-config.md", "error-handling.md"]
+```
+
+## getSharedResourcePath(name)
+
+Gets the absolute path to a shared resource file.
+
+**Signature**
+
+```typescript
+(name: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                         |
+| ------ | -------- | ----------------------------------- |
+| `name` | `string` | The shared resource name to resolve |
+
+**Returns** — The absolute path to the resource file, or undefined if not found
+
+**Example**
+
+```typescript
+const path = getSharedResourcePath("testing-framework-config.md");
+```
+
+## readSharedResource(name)
+
+Reads a shared resource file's content as a string.
+
+**Signature**
+
+```typescript
+(name: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                      |
+| ------ | -------- | -------------------------------- |
+| `name` | `string` | The shared resource name to read |
+
+**Returns** — The text content of the resource, or undefined if not found
+
+**Example**
+
+```typescript
+const content = readSharedResource("testing-framework-config.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## listProtocols()
+
+Lists all available protocol names in the catalog.
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+**Returns** — An array of protocol name strings
+
+**Example**
+
+```typescript
+const protocols = listProtocols();
+// e.g., ["research", "implementation", "contribution"]
+```
+
+## getProtocolPath(name)
+
+Gets the absolute path to a protocol file.
+
+**Signature**
+
+```typescript
+(name: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                  |
+| ------ | -------- | ---------------------------- |
+| `name` | `string` | The protocol name to resolve |
+
+**Returns** — The absolute path to the protocol file, or undefined if not found
+
+**Example**
+
+```typescript
+const path = getProtocolPath("research");
+```
+
+## readProtocol(name)
+
+Reads a protocol file's content as a string.
+
+**Signature**
+
+```typescript
+(name: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description               |
+| ------ | -------- | ------------------------- |
+| `name` | `string` | The protocol name to read |
+
+**Returns** — The text content of the protocol, or undefined if not found
+
+**Example**
+
+```typescript
+const content = readProtocol("research");
+if (content) {
+  console.log(content);
+}
+```
+
+## validateSkillFrontmatter(name)
+
+Validates a single skill's frontmatter against the schema.
+
+**Signature**
+
+```typescript
+(name: string) => SkillLibraryValidationResult
+```
+
+**Parameters**
+
+| Name   | Type     | Description                |
+| ------ | -------- | -------------------------- |
+| `name` | `string` | The skill name to validate |
+
+**Returns** — A validation result indicating success or listing errors
+
+**Example**
+
+```typescript
+const result = validateSkillFrontmatter("ct-orchestrator");
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## validateAll()
+
+Validates all skills in the catalog and returns results per skill.
+
+**Signature**
+
+```typescript
+() => Map<string, SkillLibraryValidationResult>
+```
+
+**Returns** — A map of skill names to their validation results
+
+**Example**
+
+```typescript
+const results = validateAll();
+for (const [name, result] of results) {
+  if (!result.valid) console.error(`${name}: invalid`);
+}
+```
+
+## getDispatchMatrix()
+
+Gets the dispatch matrix from the skill library manifest.
+
+**Signature**
+
+```typescript
+() => SkillLibraryDispatchMatrix
+```
+
+**Returns** — The dispatch matrix object from the manifest
+
+**Example**
+
+```typescript
+const matrix = getDispatchMatrix();
+console.log(matrix);
+```
+
+## getVersion()
+
+Returns the skill library version string.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The library version string
+
+**Example**
+
+```typescript
+const version = getVersion();
+// e.g., "1.0.0"
+```
+
+## getLibraryRoot()
+
+Returns the absolute path to the skill library root directory.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — The absolute path to the library root
+
+**Example**
+
+```typescript
+const root = getLibraryRoot();
+// e.g., "/home/user/.agents/skill-library"
+```
+
+## parseSkillFile(filePath)
+
+Parse a SKILL.md file and extract its frontmatter metadata.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<SkillMetadata | null>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                        |
+| ---------- | -------- | ---------------------------------- |
+| `filePath` | `string` | Absolute path to the SKILL.md file |
+
+**Returns** — Parsed metadata, or `null` if invalid
+
+**Example**
+
+```typescript
+const meta = await parseSkillFile("/path/to/SKILL.md");
+if (meta) {
+  console.log(`${meta.name}: ${meta.description}`);
+}
+```
+
+## discoverSkill(skillDir)
+
+Discover a single skill at a given directory path.
+
+**Signature**
+
+```typescript
+(skillDir: string) => Promise<SkillEntry | null>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                                              |
+| ---------- | -------- | -------------------------------------------------------- |
+| `skillDir` | `string` | Absolute path to a skill directory (containing SKILL.md) |
+
+**Returns** — Skill entry with metadata, or `null` if no valid SKILL.md exists
+
+**Example**
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+import { join } from "node:path";
+
+const skill = await discoverSkill(join(getCanonicalSkillsDir(), "my-skill"));
+if (skill) {
+  console.log(`Found: ${skill.name}`);
+}
+```
+
+## discoverSkills(rootDir)
+
+Scan a directory for skill subdirectories, each containing a SKILL.md file.
+
+**Signature**
+
+```typescript
+(rootDir: string) => Promise<SkillEntry[]>
+```
+
+**Parameters**
+
+| Name      | Type     | Description                                      |
+| --------- | -------- | ------------------------------------------------ |
+| `rootDir` | `string` | Absolute path to a skills root directory to scan |
+
+**Returns** — Array of discovered skill entries
+
+**Example**
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+
+const skills = await discoverSkills(getCanonicalSkillsDir());
+console.log(`Found ${skills.length} skills`);
+```
+
+## discoverSkillsMulti(dirs)
+
+Discover skills across multiple directories.
+
+**Signature**
+
+```typescript
+(dirs: string[]) => Promise<SkillEntry[]>
+```
+
+**Parameters**
+
+| Name   | Type       | Description                                           |
+| ------ | ---------- | ----------------------------------------------------- |
+| `dirs` | `string[]` | Array of absolute paths to skills directories to scan |
+
+**Returns** — Deduplicated array of discovered skill entries
+
+**Example**
+
+```typescript
+const skills = await discoverSkillsMulti(["/home/user/.agents/skills", "./project-skills"]);
+console.log(`Found ${skills.length} unique skills`);
+```
+
+## cloneRepo(owner, repo, ref, subPath)
+
+Clone a GitHub repo to a temp directory.
+
+**Signature**
+
+```typescript
+(owner: string, repo: string, ref?: string, subPath?: string) => Promise<GitFetchResult>
+```
+
+**Parameters**
+
+| Name      | Type       | Description                                                    |
+| --------- | ---------- | -------------------------------------------------------------- |
+| `owner`   | `string`   | GitHub repository owner (user or organization)                 |
+| `repo`    | `string`   | GitHub repository name                                         |
+| `ref`     | `: string` | Branch or tag to clone (defaults to the repo's default branch) |
+| `subPath` | `: string` | Subdirectory within the repo to target                         |
+
+**Returns** — Object with local path and cleanup function
+
+**Example**
+
+```typescript
+const { localPath, cleanup } = await cloneRepo("anthropics", "courses", "main", "skills");
+try {
+  console.log(`Cloned to: ${localPath}`);
+} finally {
+  await cleanup();
+}
+```
+
+## fetchRawFile(owner, repo, path, ref)
+
+Fetch a specific file from GitHub using the raw API.
+
+**Signature**
+
+```typescript
+(owner: string, repo: string, path: string, ref?: string) => Promise<string | null>
+```
+
+**Parameters**
+
+| Name    | Type       | Description                                        |
+| ------- | ---------- | -------------------------------------------------- |
+| `owner` | `string`   | GitHub repository owner                            |
+| `repo`  | `string`   | GitHub repository name                             |
+| `path`  | `string`   | File path within the repository                    |
+| `ref`   | `: string` | Branch or tag to fetch from (defaults to `"main"`) |
+
+**Returns** — File content as a string, or `null` if the file cannot be fetched
+
+**Example**
+
+```typescript
+const content = await fetchRawFile("owner", "repo", "skills/my-skill/SKILL.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## repoExists(owner, repo)
+
+Check if a GitHub repo exists.
+
+**Signature**
+
+```typescript
+(owner: string, repo: string) => Promise<boolean>
+```
+
+**Parameters**
+
+| Name    | Type     | Description             |
+| ------- | -------- | ----------------------- |
+| `owner` | `string` | GitHub repository owner |
+| `repo`  | `string` | GitHub repository name  |
+
+**Returns** — `true` if the repository exists and is accessible
+
+**Example**
+
+```typescript
+const exists = await repoExists("anthropics", "courses");
+console.log(exists ? "Repo found" : "Repo not found");
+```
+
+## cloneGitLabRepo(owner, repo, ref, subPath)
+
+Clone a GitLab repo to a temp directory.
+
+**Signature**
+
+```typescript
+(owner: string, repo: string, ref?: string, subPath?: string) => Promise<GitFetchResult>
+```
+
+**Parameters**
+
+| Name      | Type       | Description                                                    |
+| --------- | ---------- | -------------------------------------------------------------- |
+| `owner`   | `string`   | GitLab repository owner (user or group)                        |
+| `repo`    | `string`   | GitLab repository name                                         |
+| `ref`     | `: string` | Branch or tag to clone (defaults to the repo's default branch) |
+| `subPath` | `: string` | Subdirectory within the repo to target                         |
+
+**Returns** — Object with local path and cleanup function
+
+**Example**
+
+```typescript
+const { localPath, cleanup } = await cloneGitLabRepo("mygroup", "skills-repo");
+try {
+  console.log(`Cloned to: ${localPath}`);
+} finally {
+  await cleanup();
+}
+```
+
+## fetchGitLabRawFile(owner, repo, path, ref)
+
+Fetch a specific file from GitLab using the raw API.
+
+**Signature**
+
+```typescript
+(owner: string, repo: string, path: string, ref?: string) => Promise<string | null>
+```
+
+**Parameters**
+
+| Name    | Type       | Description                                        |
+| ------- | ---------- | -------------------------------------------------- |
+| `owner` | `string`   | GitLab repository owner (user or group)            |
+| `repo`  | `string`   | GitLab repository name                             |
+| `path`  | `string`   | File path within the repository                    |
+| `ref`   | `: string` | Branch or tag to fetch from (defaults to `"main"`) |
+
+**Returns** — File content as a string, or `null` if the file cannot be fetched
+
+**Example**
+
+```typescript
+const content = await fetchGitLabRawFile("mygroup", "skills", "my-skill/SKILL.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## registerSkillsInstall(parent)
+
+Registers the `skills install` subcommand for installing skills from various sources.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                     |
+| -------- | --------- | --------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the install subcommand to |
+
+**Example**
+
+```bash
+caamp skills install owner/repo
+caamp skills install @author/skill-name --agent claude-code
+caamp skills install --profile recommended --all
+```
+
+## registerSkillsList(parent)
+
+Registers the `skills list` subcommand for listing installed skills.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                  |
+| -------- | --------- | ------------------------------------------------------------ |
+| `parent` | `Command` | The parent `skills` Command to attach the list subcommand to |
+
+**Example**
+
+```bash
+caamp skills list --human
+caamp skills list --agent claude-code --global
+```
+
+## registerSkillsRemove(parent)
+
+Registers the `skills remove` subcommand for removing installed skills.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                    |
+| -------- | --------- | -------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the remove subcommand to |
+
+**Example**
+
+```bash
+caamp skills remove my-skill
+caamp skills remove --yes
+```
+
+## registerSkillsUpdate(parent)
+
+Registers the `skills update` subcommand for updating all outdated skills.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                    |
+| -------- | --------- | -------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the update subcommand to |
+
+**Example**
+
+```bash
+caamp skills update --yes
+caamp skills update --json
+```
+
+## validateSkill(filePath)
+
+Validate a SKILL.md file against the Agent Skills standard.
+
+**Signature**
+
+```typescript
+(filePath: string) => Promise<ValidationResult>
+```
+
+**Parameters**
+
+| Name       | Type     | Description                                    |
+| ---------- | -------- | ---------------------------------------------- |
+| `filePath` | `string` | Absolute path to the SKILL.md file to validate |
+
+**Returns** — Validation result with issues and parsed metadata
+
+**Example**
+
+```typescript
+const result = await validateSkill("/path/to/SKILL.md");
+console.log(result.valid ? "Valid" : `${result.issues.length} issues found`);
+```
+
+## registerSkillsValidate(parent)
+
+Registers the `skills validate` subcommand for validating SKILL.md file format.
+
+**Signature**
+
+```typescript
+(parent: Command) => void
+```
+
+**Parameters**
+
+| Name     | Type      | Description                                                      |
+| -------- | --------- | ---------------------------------------------------------------- |
+| `parent` | `Command` | The parent `skills` Command to attach the validate subcommand to |
+
+**Example**
+
+```bash
+caamp skills validate ./my-skill/SKILL.md
+caamp skills validate --json
+```
+
+## registerSkillsCommands(program)
+
+Registers the `skills` command group with all skill management subcommands.
+
+**Signature**
+
+```typescript
+(program: Command) => void
+```
+
+**Parameters**
+
+| Name      | Type      | Description                                                      |
+| --------- | --------- | ---------------------------------------------------------------- |
+| `program` | `Command` | The root Commander program to attach the skills command group to |
+
+**Example**
+
+```bash
+caamp skills install owner/repo
+caamp skills list --human
+caamp skills find "testing"
+```
+
+## isCaampOwnedSkill(skillName)
+
+Check whether a skill name is reserved by CAAMP (ct-\* prefix).
+
+**Signature**
+
+```typescript
+(skillName: string) => boolean
+```
+
+**Parameters**
+
+| Name        | Type     | Description         |
+| ----------- | -------- | ------------------- |
+| `skillName` | `string` | Skill name to check |
+
+**Returns** — `true` if the skill name starts with `ct-`
+
+**Example**
+
+```typescript
+isCaampOwnedSkill("ct-research-agent"); // true
+isCaampOwnedSkill("my-custom-skill");   // false
+```
+
+## checkSkillIntegrity(skillName, providers, scope, projectDir)
+
+Check the integrity of a single installed skill.
+
+**Signature**
+
+```typescript
+(skillName: string, providers: Provider[], scope?: "global" | "project", projectDir?: string) => Promise<SkillIntegrityResult>
+```
+
+**Parameters**
+
+| Name         | Type                      | Description                              |
+| ------------ | ------------------------- | ---------------------------------------- |
+| `skillName`  | `string`                  | Name of the skill to check               |
+| `providers`  | `Provider[]`              | Providers to check symlinks for          |
+| `scope`      | `: "global" \| "project"` | Whether to check global or project links |
+| `projectDir` | `: string`                | Project directory (for project scope)    |
+
+**Returns** — Integrity check result
+
+**Example**
+
+```typescript
+const result = await checkSkillIntegrity("ct-research-agent", providers, "global");
+if (result.status !== "intact") {
+  console.log(`Issue: ${result.issue}`);
+}
+```
+
+## checkAllSkillIntegrity(providers, scope, projectDir)
+
+Check integrity of all tracked skills.
+
+**Signature**
+
+```typescript
+(providers: Provider[], scope?: "global" | "project", projectDir?: string) => Promise<Map<string, SkillIntegrityResult>>
+```
+
+**Parameters**
+
+| Name         | Type                      | Description                              |
+| ------------ | ------------------------- | ---------------------------------------- |
+| `providers`  | `Provider[]`              | Providers to check symlinks for          |
+| `scope`      | `: "global" \| "project"` | Whether to check global or project links |
+| `projectDir` | `: string`                | Project directory (for project scope)    |
+
+**Returns** — Map of skill name to integrity result
+
+**Example**
+
+```typescript
+const results = await checkAllSkillIntegrity(providers);
+for (const [name, result] of results) {
+  console.log(`${name}: ${result.status}`);
+}
+```
+
+## shouldOverrideSkill(skillName, incomingSource, existingEntry)
+
+Resolve a skill name conflict where a user-installed skill collides with a CAAMP-owned (ct-\*) skill.
+
+**Signature**
+
+```typescript
+(skillName: string, incomingSource: string, existingEntry: LockEntry | undefined) => boolean
+```
+
+**Parameters**
+
+| Name             | Type                     | Description                               |
+| ---------------- | ------------------------ | ----------------------------------------- |
+| `skillName`      | `string`                 | Skill name to check                       |
+| `incomingSource` | `string`                 | Source of the incoming skill installation |
+| `existingEntry`  | `LockEntry \| undefined` | Existing lock entry, if any               |
+
+**Returns** — `true` if the incoming installation should proceed
+
+**Example**
+
+```typescript
+const proceed = shouldOverrideSkill("ct-research-agent", "library", existingEntry);
+if (proceed) {
+  // Safe to install/override
+}
+```
+
+## validateInstructionIntegrity(providers, projectDir, scope, expectedContent)
+
+Validate instruction file injection status across all providers.
+
+**Signature**
+
+```typescript
+(providers: Provider[], projectDir: string, scope: "project" | "global", expectedContent?: string) => Promise<Array<{ file: string; providerId: string; issue: string; }>>
+```
+
+**Parameters**
+
+| Name              | Type                    | Description                              |
+| ----------------- | ----------------------- | ---------------------------------------- |
+| `providers`       | `Provider[]`            | Providers to check                       |
+| `projectDir`      | `string`                | Project directory                        |
+| `scope`           | `"project" \| "global"` | Whether to check global or project files |
+| `expectedContent` | `: string`              | Expected CAAMP block content             |
+
+**Returns** — Array of file paths with issues
+
+**Example**
+
+```typescript
+const issues = await validateInstructionIntegrity(providers, process.cwd(), "project");
+for (const issue of issues) {
+  console.log(`${issue.providerId}: ${issue.issue} (${issue.file})`);
+}
+```
+
+## resolveCantImports(content, projectRoot)
+
+Resolve  \*.cant references in instruction file content.  Scans each line for  directives pointing to .cant files. For each match, reads and parses the .cant file, converts its definitions to markdown, and replaces the  line with the generated content.  Lines that don't match the .cant import pattern are left unchanged.
+
+**Signature**
+
+```typescript
+(content: string, projectRoot: string) => ResolvedImports
+```
+
+**Parameters**
+
+| Name          | Type     | Description                                 |
+| ------------- | -------- | ------------------------------------------- |
+| `content`     | `string` | Raw instruction file content                |
+| `projectRoot` | `string` | Absolute path to the project root directory |
+
+**Returns** — Resolved content, imported file list, and any errors
+
+**Example**
+
+```typescript
+const result = resolveCantImports(
+  '@import .cleo/agents/core-agent.cant',
+  '/home/user/project',
+);
+console.log(result.resolvedContent);
+// ## Agent: core-agent
+// - **Model**: opus
+// ...
+```
+
+## cantToMarkdown(cantContent)
+
+Convert a .cant file's content to markdown equivalent.  Parses the frontmatter to determine the document kind, then converts the body into structured markdown that providers can consume (headings, bullet lists, code blocks).
+
+**Signature**
+
+```typescript
+(cantContent: string) => string
+```
+
+**Parameters**
+
+| Name          | Type     | Description            |
+| ------------- | -------- | ---------------------- |
+| `cantContent` | `string` | Raw .cant file content |
+
+**Returns** — Markdown representation of the .cant definitions
+
+**Example**
+
+```typescript
+const md = cantToMarkdown(`---
+kind: agent
+version: 1
+---
+
+agent ops-lead:
+  model: opus
+  prompt: "Coordinate operations"
+`);
+// Returns markdown with ## Agent: ops-lead heading
+```
+
+## discoverWellKnown(domain)
+
+Discover skills from a well-known URL.
+
+**Signature**
+
+```typescript
+(domain: string) => Promise<WellKnownSkill[]>
+```
+
+**Parameters**
+
+| Name     | Type     | Description                                 |
+| -------- | -------- | ------------------------------------------- |
+| `domain` | `string` | Domain name to query (e.g. `"example.com"`) |
+
+**Returns** — Array of discovered skill entries
+
+**Example**
+
+```typescript
+const skills = await discoverWellKnown("example.com");
+for (const skill of skills) {
+  console.log(`${skill.name}: ${skill.url}`);
+}
+```

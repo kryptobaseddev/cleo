@@ -1,0 +1,1427 @@
+---
+title: lafs — Examples
+description: Usage examples for the lafs package
+---
+
+All usage examples from the package, aggregated for quick reference.
+
+## `parseExtensionsHeader()`
+
+*Parse A2A-Extensions header value into URI array.*
+
+[View in API reference](/packages/lafs/api/functions#parseextensionsheader)
+
+```typescript
+const uris = parseExtensionsHeader('https://lafs.dev/ext/v1, https://example.com/ext');
+// => ['https://lafs.dev/ext/v1', 'https://example.com/ext']
+```
+
+## `negotiateExtensions()`
+
+*Negotiate extensions between client-requested and agent-declared sets.*
+
+[View in API reference](/packages/lafs/api/functions#negotiateextensions)
+
+```typescript
+const result = negotiateExtensions(
+  ['https://lafs.dev/extensions/envelope/v1'],
+  agentCard.capabilities.extensions,
+);
+if (result.missingRequired.length > 0) {
+  throw new ExtensionSupportRequiredError(result.missingRequired);
+}
+```
+
+## `formatExtensionsHeader()`
+
+*Format activated extension URIs into header value.*
+
+[View in API reference](/packages/lafs/api/functions#formatextensionsheader)
+
+```typescript
+res.setHeader('A2A-Extensions', formatExtensionsHeader(result.activated));
+```
+
+## `buildLafsExtension()`
+
+*Build an A2A AgentExtension object declaring LAFS support.*
+
+[View in API reference](/packages/lafs/api/functions#buildlafsextension)
+
+```typescript
+const ext = buildLafsExtension({ required: true, supportsTokenBudgets: true });
+agentCard.capabilities.extensions.push(ext);
+```
+
+## `buildExtension()`
+
+*Build a generic A2A AgentExtension object.*
+
+[View in API reference](/packages/lafs/api/functions#buildextension)
+
+```typescript
+const ext = buildExtension({
+  uri: 'https://example.com/ext/v1',
+  description: 'Custom extension',
+  kind: 'data-only',
+});
+```
+
+## `isValidExtensionKind()`
+
+*Check whether a string is a valid extension kind.*
+
+[View in API reference](/packages/lafs/api/functions#isvalidextensionkind)
+
+```typescript
+if (isValidExtensionKind(userInput)) {
+  // userInput is now typed as ExtensionKind
+}
+```
+
+## `validateExtensionDeclaration()`
+
+*Validate an A2A extension declaration for correctness.*
+
+[View in API reference](/packages/lafs/api/functions#validateextensiondeclaration)
+
+```typescript
+const { valid, error } = validateExtensionDeclaration(ext);
+if (!valid) {
+  console.error('Invalid extension:', error);
+}
+```
+
+## `extensionNegotiationMiddleware()`
+
+*Express middleware for A2A extension negotiation.*
+
+[View in API reference](/packages/lafs/api/functions#extensionnegotiationmiddleware)
+
+```typescript
+app.use(extensionNegotiationMiddleware({
+  extensions: agentCard.capabilities.extensions,
+  enforceRequired: true,
+}));
+```
+
+## `AgentProvider`
+
+*A2A Agent Provider information.*
+
+[View in API reference](/packages/lafs/api/functions#agentprovider)
+
+```typescript
+const provider: AgentProvider = {
+  url: "https://example.com",
+  organization: "Acme Corp"
+};
+```
+
+## `AgentCapabilities`
+
+*A2A Agent Capabilities.*
+
+[View in API reference](/packages/lafs/api/functions#agentcapabilities)
+
+```typescript
+const caps: AgentCapabilities = {
+  streaming: true,
+  pushNotifications: false,
+  extendedAgentCard: false,
+  extensions: []
+};
+```
+
+## `AgentExtension`
+
+*A2A Agent Extension declaration.*
+
+[View in API reference](/packages/lafs/api/functions#agentextension)
+
+```typescript
+const ext: AgentExtension = {
+  uri: "https://lafs.dev/extensions/v1/lafs",
+  description: "LAFS envelope protocol",
+  required: false,
+  params: { supportsContextLedger: true }
+};
+```
+
+## `AgentSkill`
+
+*A2A Agent Skill.*
+
+[View in API reference](/packages/lafs/api/functions#agentskill)
+
+```typescript
+const skill: AgentSkill = {
+  id: "envelope-processor",
+  name: "Envelope Processor",
+  description: "Validates and processes LAFS envelopes",
+  tags: ["lafs", "envelope"],
+  examples: ["Validate this envelope"],
+};
+```
+
+## `SecurityScheme`
+
+*Security scheme for authentication (OpenAPI 3.0 style).*
+
+[View in API reference](/packages/lafs/api/functions#securityscheme)
+
+```typescript
+const scheme: SecurityScheme = {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "JWT",
+};
+```
+
+## `AgentCard`
+
+*A2A v1.0 Agent Card - Standard format for agent discovery.*
+
+[View in API reference](/packages/lafs/api/functions#agentcard)
+
+```typescript
+const card: AgentCard = {
+  name: "my-agent",
+  description: "A LAFS-compliant agent",
+  version: "1.0.0",
+  url: "https://api.example.com",
+  capabilities: { streaming: false },
+  defaultInputModes: ["application/json"],
+  defaultOutputModes: ["application/json"],
+  skills: [],
+};
+```
+
+## `DiscoveryConfig`
+
+*Configuration for the discovery middleware (A2A v1.0 format).*
+
+[View in API reference](/packages/lafs/api/functions#discoveryconfig)
+
+```typescript
+const config: DiscoveryConfig = {
+  agent: {
+    name: "my-agent",
+    description: "Example",
+    version: "1.0.0",
+    url: "https://api.example.com",
+    capabilities: { streaming: false },
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: [],
+  },
+  cacheMaxAge: 3600,
+};
+```
+
+## `DiscoveryMiddlewareOptions`
+
+*Discovery middleware options.*
+
+[View in API reference](/packages/lafs/api/functions#discoverymiddlewareoptions)
+
+```typescript
+const options: DiscoveryMiddlewareOptions = {
+  path: "/.well-known/agent-card.json",
+  enableEtag: true,
+};
+```
+
+## `discoveryMiddleware()`
+
+*Create Express middleware for serving A2A Agent Card.*
+
+[View in API reference](/packages/lafs/api/functions#discoverymiddleware)
+
+```typescript
+import express from "express";
+import { discoveryMiddleware } from "@cleocode/lafs/discovery";
+
+const app = express();
+
+app.use(discoveryMiddleware({
+  agent: {
+    name: "my-lafs-agent",
+    description: "A LAFS-compliant agent with A2A support",
+    version: "1.0.0",
+    url: "https://api.example.com",
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      extensions: []
+    },
+    defaultInputModes: ["application/json", "text/plain"],
+    defaultOutputModes: ["application/json"],
+    skills: [
+      {
+        id: "envelope-processor",
+        name: "Envelope Processor",
+        description: "Process LAFS envelopes",
+        tags: ["lafs", "envelope", "validation"],
+        examples: ["Validate this envelope", "Process envelope data"]
+      }
+    ]
+  }
+}));
+```
+
+## `discoveryFastifyPlugin()`
+
+*Fastify plugin for A2A Agent Card discovery.*
+
+[View in API reference](/packages/lafs/api/functions#discoveryfastifyplugin)
+
+```typescript
+import Fastify from "fastify";
+import { discoveryFastifyPlugin } from "@cleocode/lafs/discovery";
+
+const app = Fastify();
+app.register(discoveryFastifyPlugin, {
+  config: { agent: { name: "my-agent", ... } },
+});
+```
+
+## `TokenEstimatorOptions`
+
+*Configuration options for the token estimator.*
+
+[View in API reference](/packages/lafs/api/functions#tokenestimatoroptions)
+
+```typescript
+const opts: TokenEstimatorOptions = {
+  charsPerToken: 3.5,
+  maxDepth: 50,
+};
+```
+
+## `TokenEstimator`
+
+*Character-based token estimator for JSON payloads.*
+
+[View in API reference](/packages/lafs/api/functions#tokenestimator)
+
+```typescript
+const estimator = new TokenEstimator({ charsPerToken: 4 });
+const tokens = estimator.estimate({ name: "hello", items: [1, 2, 3] });
+```
+
+## `estimateTokens()`
+
+*Convenience function to estimate tokens for a value.*
+
+[View in API reference](/packages/lafs/api/functions#estimatetokens)
+
+```typescript
+const tokens = estimateTokens({ data: [1, 2, 3] });
+```
+
+## `estimateTokensJSON()`
+
+*Convenience function to estimate tokens from a JSON string.*
+
+[View in API reference](/packages/lafs/api/functions#estimatetokensjson)
+
+```typescript
+const tokens = estimateTokensJSON('{"key": "value"}');
+```
+
+## `MVI_LEVELS`
+
+*Immutable set of all valid `MVILevel` values.*
+
+[View in API reference](/packages/lafs/api/functions#mvilevels)
+
+```ts
+if (MVI_LEVELS.has(input)) {
+  // input is a valid MVILevel
+}
+```
+
+## `isMVILevel()`
+
+*Type guard that checks whether an unknown value is a valid `MVILevel`.*
+
+[View in API reference](/packages/lafs/api/functions#ismvilevel)
+
+```ts
+const level: unknown = 'minimal';
+if (isMVILevel(level)) {
+  // level is narrowed to MVILevel
+}
+```
+
+## `AGENT_ACTIONS`
+
+*Immutable set of all valid `LAFSAgentAction` values.*
+
+[View in API reference](/packages/lafs/api/functions#agentactions)
+
+```ts
+if (AGENT_ACTIONS.has(action)) {
+  // action is a valid LAFSAgentAction
+}
+```
+
+## `isAgentAction()`
+
+*Type guard that checks whether an unknown value is a valid `LAFSAgentAction`.*
+
+[View in API reference](/packages/lafs/api/functions#isagentaction)
+
+```ts
+const action: unknown = 'retry';
+if (isAgentAction(action)) {
+  // action is narrowed to LAFSAgentAction
+}
+```
+
+## `applyBudgetEnforcement()`
+
+*Apply budget enforcement to an envelope.*
+
+[View in API reference](/packages/lafs/api/functions#applybudgetenforcement)
+
+```typescript
+const result = applyBudgetEnforcement(envelope, 1000, { truncateOnExceed: true });
+if (!result.withinBudget) {
+  console.warn("Budget exceeded:", result.estimatedTokens);
+}
+```
+
+## `withBudget()`
+
+*Create a budget enforcement middleware function.*
+
+[View in API reference](/packages/lafs/api/functions#withbudget)
+
+```typescript
+const middleware = withBudget(1000, { truncateOnExceed: true });
+const result = await middleware(envelope, async () => nextEnvelope);
+```
+
+## `checkBudget()`
+
+*Check if an envelope has exceeded its budget without modifying it.*
+
+[View in API reference](/packages/lafs/api/functions#checkbudget)
+
+```typescript
+const { exceeded, estimated, remaining } = checkBudget(envelope, 500);
+if (exceeded) {
+  console.warn(`Over budget by ${estimated - 500} tokens`);
+}
+```
+
+## `withBudgetSync()`
+
+*Synchronous version of withBudget for non-async contexts.*
+
+[View in API reference](/packages/lafs/api/functions#withbudgetsync)
+
+```typescript
+const middleware = withBudgetSync(500);
+const result = middleware(envelope, () => nextEnvelope);
+```
+
+## `wrapWithBudget()`
+
+*Higher-order function that wraps a handler with budget enforcement.*
+
+[View in API reference](/packages/lafs/api/functions#wrapwithbudget)
+
+```typescript
+const myHandler = async (request: Request) => ({ success: true, result: { data } });
+const budgetedHandler = wrapWithBudget(myHandler, 1000, { truncateOnExceed: true });
+const result = await budgetedHandler(request);
+```
+
+## `composeMiddleware()`
+
+*Compose multiple middleware functions into a single middleware.*
+
+[View in API reference](/packages/lafs/api/functions#composemiddleware)
+
+```typescript
+const pipeline = composeMiddleware(
+  withBudget(1000),
+  loggingMiddleware,
+);
+const result = await pipeline(envelope, () => finalEnvelope);
+```
+
+## `getConformanceProfiles()`
+
+*Loads the conformance profiles from the bundled JSON schema.*
+
+[View in API reference](/packages/lafs/api/functions#getconformanceprofiles)
+
+```ts
+const profiles = getConformanceProfiles();
+console.log(profiles.tiers.core);
+```
+
+## `getChecksForTier()`
+
+*Returns the list of check names that belong to the given conformance tier.*
+
+[View in API reference](/packages/lafs/api/functions#getchecksfortier)
+
+```ts
+const coreChecks = getChecksForTier('core');
+```
+
+## `validateConformanceProfiles()`
+
+*Validates that the conformance profiles are internally consistent and reference only known checks.*
+
+[View in API reference](/packages/lafs/api/functions#validateconformanceprofiles)
+
+```ts
+const result = validateConformanceProfiles(['envelope_schema_valid', 'envelope_invariants']);
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## `getErrorRegistry()`
+
+*Loads the full LAFS error registry from the bundled JSON.*
+
+[View in API reference](/packages/lafs/api/functions#geterrorregistry)
+
+```ts
+const registry = getErrorRegistry();
+console.log(registry.version, registry.codes.length);
+```
+
+## `isRegisteredErrorCode()`
+
+*Checks whether a given error code exists in the LAFS error registry.*
+
+[View in API reference](/packages/lafs/api/functions#isregisterederrorcode)
+
+```ts
+isRegisteredErrorCode('E_FORMAT_CONFLICT'); // true
+isRegisteredErrorCode('E_UNKNOWN');         // false
+```
+
+## `getRegistryCode()`
+
+*Retrieves the full registry entry for a given error code.*
+
+[View in API reference](/packages/lafs/api/functions#getregistrycode)
+
+```ts
+const entry = getRegistryCode('E_FORMAT_CONFLICT');
+if (entry) {
+  console.log(entry.httpStatus); // 409
+}
+```
+
+## `getAgentAction()`
+
+*Returns the default agent action for a given error code.*
+
+[View in API reference](/packages/lafs/api/functions#getagentaction)
+
+```ts
+const action = getAgentAction('E_RATE_LIMIT');
+console.log(action); // "retry"
+```
+
+## `getTypeUri()`
+
+*Returns the RFC 9457 type URI for a given error code.*
+
+[View in API reference](/packages/lafs/api/functions#gettypeuri)
+
+```ts
+const uri = getTypeUri('E_VALIDATION');
+// "https://lafs.dev/errors/E_VALIDATION"
+```
+
+## `getDocUrl()`
+
+*Returns the documentation URL for a given error code.*
+
+[View in API reference](/packages/lafs/api/functions#getdocurl)
+
+```ts
+const url = getDocUrl('E_VALIDATION');
+// "https://lafs.dev/docs/errors/E_VALIDATION"
+```
+
+## `getTransportMapping()`
+
+*Resolves the transport-specific status value for a given error code and transport.*
+
+[View in API reference](/packages/lafs/api/functions#gettransportmapping)
+
+```ts
+const mapping = getTransportMapping('E_NOT_FOUND', 'http');
+console.log(mapping); // { transport: 'http', value: 404 }
+```
+
+## `resolveOutputFormat()`
+
+*Resolve the output format from flag inputs using the LAFS precedence chain.*
+
+[View in API reference](/packages/lafs/api/functions#resolveoutputformat)
+
+```ts
+const resolution = resolveOutputFormat({ humanFlag: true });
+// => { format: 'human', source: 'flag', quiet: false }
+```
+
+## `validateEnvelope()`
+
+*Validates an unknown input against the LAFS envelope JSON Schema (Draft-07).*
+
+[View in API reference](/packages/lafs/api/functions#validateenvelope)
+
+```ts
+const result = validateEnvelope(JSON.parse(rawJson));
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## `assertEnvelope()`
+
+*Validates input and throws on schema failure, returning a typed envelope on success.*
+
+[View in API reference](/packages/lafs/api/functions#assertenvelope)
+
+```ts
+const envelope = assertEnvelope(parsed);
+console.log(envelope.success);
+```
+
+## `runEnvelopeConformance()`
+
+*Runs the full suite of LAFS envelope conformance checks.*
+
+[View in API reference](/packages/lafs/api/functions#runenvelopeconformance)
+
+```ts
+const report = runEnvelopeConformance(parsedJson, { tier: 'core' });
+if (!report.ok) {
+  console.error(report.checks.filter(c => !c.pass));
+}
+```
+
+## `runFlagConformance()`
+
+*Runs LAFS flag-semantics conformance checks against a set of flag inputs.*
+
+[View in API reference](/packages/lafs/api/functions#runflagconformance)
+
+```ts
+const report = runFlagConformance({ humanFlag: true, jsonFlag: false });
+console.log(report.ok); // true
+```
+
+## `ComplianceError`
+
+*Error thrown when `assertCompliance` or `withCompliance` detects failures.*
+
+[View in API reference](/packages/lafs/api/functions#complianceerror)
+
+```ts
+try {
+  assertCompliance(envelope);
+} catch (err) {
+  if (err instanceof ComplianceError) {
+    console.log(err.issues);
+  }
+}
+```
+
+## `enforceCompliance()`
+
+*Runs the full LAFS compliance pipeline against an unknown input value.*
+
+[View in API reference](/packages/lafs/api/functions#enforcecompliance)
+
+```ts
+const result = enforceCompliance(rawJson, { checkFlags: true, flags: { jsonFlag: true } });
+if (!result.ok) {
+  console.error(result.issues);
+}
+```
+
+## `assertCompliance()`
+
+*Validates input and throws `ComplianceError` on any failure.*
+
+[View in API reference](/packages/lafs/api/functions#assertcompliance)
+
+```ts
+const envelope = assertCompliance(rawJson);
+```
+
+## `withCompliance()`
+
+*Wraps an envelope-producing function with automatic compliance enforcement.*
+
+[View in API reference](/packages/lafs/api/functions#withcompliance)
+
+```ts
+const safeFetch = withCompliance(fetchEnvelope, { checkConformance: true });
+const envelope = await safeFetch('/api/data');
+```
+
+## `createComplianceMiddleware()`
+
+*Creates a `ComplianceMiddleware` that enforces LAFS compliance on the next handler's output.*
+
+[View in API reference](/packages/lafs/api/functions#createcompliancemiddleware)
+
+```ts
+const mw = createComplianceMiddleware({ checkConformance: true });
+const result = await mw(currentEnvelope, () => produceEnvelope());
+```
+
+## `DeprecationEntry`
+
+*A single deprecation rule in the registry.*
+
+[View in API reference](/packages/lafs/api/functions#deprecationentry)
+
+```typescript
+const entry: DeprecationEntry = {
+  id: "meta-mvi-boolean",
+  code: "W_DEPRECATED_META_MVI_BOOLEAN",
+  message: "_meta.mvi boolean values are deprecated",
+  deprecated: "1.0.0",
+  replacement: "Use _meta.mvi as one of: minimal|standard|full|custom",
+  removeBy: "2.0.0",
+  detector: (env) => typeof env._meta.mvi === "boolean",
+};
+```
+
+## `getDeprecationRegistry()`
+
+*Retrieve all registered deprecation entries.*
+
+[View in API reference](/packages/lafs/api/functions#getdeprecationregistry)
+
+```typescript
+const entries = getDeprecationRegistry();
+console.log(entries.length); // number of registered deprecations
+```
+
+## `detectDeprecatedEnvelopeFields()`
+
+*Detect deprecated field usage in a LAFS envelope.*
+
+[View in API reference](/packages/lafs/api/functions#detectdeprecatedenvelopefields)
+
+```typescript
+const warnings = detectDeprecatedEnvelopeFields(envelope);
+for (const w of warnings) {
+  console.warn(`${w.code}: ${w.message}`);
+}
+```
+
+## `emitDeprecationWarnings()`
+
+*Emit deprecation warnings by attaching them to the envelope metadata.*
+
+[View in API reference](/packages/lafs/api/functions#emitdeprecationwarnings)
+
+```typescript
+const enriched = emitDeprecationWarnings(envelope);
+console.log(enriched._meta.warnings); // includes any deprecation warnings
+```
+
+## `LAFS_SCHEMA_URL`
+
+*Canonical JSON Schema URL for the LAFS v1 envelope.*
+
+[View in API reference](/packages/lafs/api/functions#lafsschemaurl)
+
+```ts
+import { LAFS_SCHEMA_URL } from '@cleocode/lafs';
+console.log(LAFS_SCHEMA_URL);
+// => 'https://lafs.dev/schemas/v1/envelope.schema.json'
+```
+
+## `CATEGORY_ACTION_MAP`
+
+*Default agent action for each error category.*
+
+[View in API reference](/packages/lafs/api/functions#categoryactionmap)
+
+```ts
+import { CATEGORY_ACTION_MAP } from '@cleocode/lafs';
+const action = CATEGORY_ACTION_MAP['RATE_LIMIT']; // => 'wait'
+```
+
+## `createEnvelope()`
+
+*Create a fully validated LAFS envelope from a success or error input.*
+
+[View in API reference](/packages/lafs/api/functions#createenvelope)
+
+```ts
+import { createEnvelope } from '@cleocode/lafs';
+
+const envelope = createEnvelope({
+  success: true,
+  result: { items: [] },
+  meta: { operation: 'tasks.list', requestId: 'req-1' },
+});
+```
+
+## `LafsError`
+
+*Error subclass that carries the full `LAFSError` payload.*
+
+[View in API reference](/packages/lafs/api/functions#lafserror)
+
+```ts
+try {
+  parseLafsResponse(envelope);
+} catch (err) {
+  if (err instanceof LafsError) {
+    console.log(err.code, err.agentAction);
+  }
+}
+```
+
+## `parseLafsResponse()`
+
+*Parse and unwrap a raw LAFS envelope, returning the result or throwing on error.*
+
+[View in API reference](/packages/lafs/api/functions#parselafsresponse)
+
+```ts
+import { parseLafsResponse } from '@cleocode/lafs';
+
+interface TaskList { items: Task[] }
+const tasks = parseLafsResponse<TaskList>(rawEnvelope);
+```
+
+## `resolveFieldExtraction()`
+
+*Resolve field extraction flags into a validated configuration.*
+
+[View in API reference](/packages/lafs/api/functions#resolvefieldextraction)
+
+```ts
+const resolution = resolveFieldExtraction({ fieldsFlag: 'id,title' });
+// => { fields: ['id', 'title'], mvi: 'minimal', mviSource: 'default', expectsCustomMvi: true }
+```
+
+## `extractFieldFromResult()`
+
+*Extract a named field from a LAFS result object.*
+
+[View in API reference](/packages/lafs/api/functions#extractfieldfromresult)
+
+```ts
+const result = { task: { id: 'T1', title: 'Fix bug' } };
+extractFieldFromResult(result, 'title'); // => 'Fix bug'
+```
+
+## `extractFieldFromEnvelope()`
+
+*Extract a named field from an envelope's result.*
+
+[View in API reference](/packages/lafs/api/functions#extractfieldfromenvelope)
+
+```ts
+const value = extractFieldFromEnvelope(envelope, 'title');
+```
+
+## `applyFieldFilter()`
+
+*Filter result fields in a LAFS envelope to the requested subset.*
+
+[View in API reference](/packages/lafs/api/functions#applyfieldfilter)
+
+```ts
+const filtered = applyFieldFilter(envelope, ['id', 'title']);
+// filtered.result contains only 'id' and 'title' fields
+// filtered._meta.mvi === 'custom'
+```
+
+## `resolveFlags()`
+
+*Resolve all flags across both layers and validate cross-layer semantics.*
+
+[View in API reference](/packages/lafs/api/functions#resolveflags)
+
+```ts
+const result = resolveFlags({ human: true, field: 'title' });
+// result.format => { format: 'human', source: 'flag', quiet: false }
+// result.fields => { field: 'title', mvi: 'minimal', ... }
+// result.warnings => ['Cross-layer: --human + --field "title". ...']
+```
+
+## `createLafsArtifact()`
+
+*Create a LAFS envelope artifact for A2A.*
+
+[View in API reference](/packages/lafs/api/functions#createlafsartifact)
+
+```typescript
+const envelope = createEnvelope({
+  success: true,
+  result: { data: '...' },
+  meta: { operation: 'analysis.run' }
+});
+
+const artifact = createLafsArtifact(envelope);
+task.artifacts.push(artifact);
+```
+
+## `createTextArtifact()`
+
+*Create a text artifact.*
+
+[View in API reference](/packages/lafs/api/functions#createtextartifact)
+
+```typescript
+const artifact = createTextArtifact('Hello, world!', 'greeting');
+```
+
+## `createFileArtifact()`
+
+*Create a file artifact.*
+
+[View in API reference](/packages/lafs/api/functions#createfileartifact)
+
+```typescript
+const artifact = createFileArtifact(
+  'https://example.com/report.pdf',
+  'application/pdf',
+  'report.pdf',
+);
+```
+
+## `isExtensionRequired()`
+
+*Check if an extension is required in an Agent Card.*
+
+[View in API reference](/packages/lafs/api/functions#isextensionrequired)
+
+```typescript
+if (isExtensionRequired(agentCard, LAFS_EXTENSION_URI)) {
+  console.log('LAFS extension is mandatory for this agent');
+}
+```
+
+## `getExtensionParams()`
+
+*Get extension parameters from an Agent Card.*
+
+[View in API reference](/packages/lafs/api/functions#getextensionparams)
+
+```typescript
+const params = getExtensionParams(agentCard, LAFS_EXTENSION_URI);
+if (params?.supportsTokenBudgets) {
+  // Enable budget tracking
+}
+```
+
+## `isValidTransition()`
+
+*Check if a transition from one state to another is valid.*
+
+[View in API reference](/packages/lafs/api/functions#isvalidtransition)
+
+```typescript
+if (!isValidTransition('submitted', 'completed')) {
+  throw new Error('Cannot go directly from submitted to completed');
+}
+```
+
+## `isTerminalState()`
+
+*Check if a state is terminal (no further transitions allowed).*
+
+[View in API reference](/packages/lafs/api/functions#isterminalstate)
+
+```typescript
+if (isTerminalState(task.status.state)) {
+  console.log('Task has reached a final state');
+}
+```
+
+## `isInterruptedState()`
+
+*Check if a state is interrupted (paused awaiting input).*
+
+[View in API reference](/packages/lafs/api/functions#isinterruptedstate)
+
+```typescript
+if (isInterruptedState(task.status.state)) {
+  promptUserForInput(task);
+}
+```
+
+## `attachLafsEnvelope()`
+
+*Attach a LAFS envelope as an artifact to an A2A task.*
+
+[View in API reference](/packages/lafs/api/functions#attachlafsenvelope)
+
+```typescript
+const envelope: LAFSEnvelope = { success: true, result: { data: 'ok' }, error: null, _meta: meta };
+const updated = attachLafsEnvelope(manager, 'task-1', envelope);
+```
+
+## `streamTaskEvents()`
+
+*Build an async iterator for real-time task stream events.*
+
+[View in API reference](/packages/lafs/api/functions#streamtaskevents)
+
+```typescript
+for await (const event of streamTaskEvents(bus, 'task-1', { timeoutMs: 5000 })) {
+  console.log('Received:', event);
+}
+```
+
+## `createJsonRpcRequest()`
+
+*Create a JSON-RPC 2.0 request object.*
+
+[View in API reference](/packages/lafs/api/functions#createjsonrpcrequest)
+
+```ts
+const req = createJsonRpcRequest(1, 'tasks/get', { id: 'abc' });
+// { jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { id: 'abc' } }
+```
+
+## `createJsonRpcResponse()`
+
+*Create a JSON-RPC 2.0 success response.*
+
+[View in API reference](/packages/lafs/api/functions#createjsonrpcresponse)
+
+```ts
+const res = createJsonRpcResponse(1, { status: 'ok' });
+// { jsonrpc: '2.0', id: 1, result: { status: 'ok' } }
+```
+
+## `createJsonRpcErrorResponse()`
+
+*Create a JSON-RPC 2.0 error response.*
+
+[View in API reference](/packages/lafs/api/functions#createjsonrpcerrorresponse)
+
+```ts
+const err = createJsonRpcErrorResponse(1, -32001, 'Task not found');
+// { jsonrpc: '2.0', id: 1, error: { code: -32001, message: 'Task not found' } }
+```
+
+## `createA2AErrorResponse()`
+
+*Create an A2A-specific JSON-RPC error response by error type name.*
+
+[View in API reference](/packages/lafs/api/functions#createa2aerrorresponse)
+
+```ts
+const err = createA2AErrorResponse(1, 'TaskNotFound', 'No task with id xyz');
+// error.code === -32001
+```
+
+## `validateJsonRpcRequest()`
+
+*Validate the structure of a JSON-RPC request.*
+
+[View in API reference](/packages/lafs/api/functions#validatejsonrpcrequest)
+
+```ts
+const { valid, errors } = validateJsonRpcRequest({ jsonrpc: '2.0', id: 1, method: 'tasks/get' });
+// valid === true, errors === []
+```
+
+## `isA2AError()`
+
+*Check if a numeric error code is an A2A-specific error.*
+
+[View in API reference](/packages/lafs/api/functions#isa2aerror)
+
+```ts
+isA2AError(-32001); // true  (TaskNotFound)
+isA2AError(-32700); // false (standard ParseError)
+```
+
+## `createGrpcStatus()`
+
+*Create a gRPC Status object for an A2A error type.*
+
+[View in API reference](/packages/lafs/api/functions#creategrpcstatus)
+
+```ts
+const status = createGrpcStatus('TaskNotFound', 'No task with id xyz');
+// { code: 5, message: '...', details: [{ reason: 'TASK_NOT_FOUND', domain: 'a2a-protocol.org' }] }
+```
+
+## `createProblemDetails()`
+
+*Create an RFC 9457 Problem Details object for an A2A error.*
+
+[View in API reference](/packages/lafs/api/functions#createproblemdetails)
+
+```ts
+const problem = createProblemDetails('TaskNotFound', 'No task with id xyz');
+// { type: 'https://a2a-protocol.org/errors/task-not-found', title: 'Task Not Found', status: 404, detail: '...' }
+```
+
+## `createLafsProblemDetails()`
+
+*Create an RFC 9457 Problem Details object bridging A2A error types with LAFS error data.*
+
+[View in API reference](/packages/lafs/api/functions#createlafsproblemdetails)
+
+```ts
+const problem = createLafsProblemDetails('InvalidAgentResponse', {
+  code: 'E_AGENT_RESPONSE',
+  message: 'Upstream agent returned invalid JSON',
+  retryable: true,
+  retryAfterMs: 5000,
+}, 'req-123');
+```
+
+## `buildUrl()`
+
+*Build a URL by substituting path parameters.*
+
+[View in API reference](/packages/lafs/api/functions#buildurl)
+
+```ts
+const url = buildUrl(HTTP_ENDPOINTS.GetTask, { id: 'task-42' });
+// '/tasks/task-42'
+```
+
+## `parseListTasksQuery()`
+
+*Parse camelCase query parameters for the ListTasks endpoint.*
+
+[View in API reference](/packages/lafs/api/functions#parselisttasksquery)
+
+```ts
+const params = parseListTasksQuery({ contextId: 'ctx-1', limit: '10' });
+// { contextId: 'ctx-1', limit: 10 }
+```
+
+## `getErrorCodeMapping()`
+
+*Get the complete error code mapping for a given A2A error type.*
+
+[View in API reference](/packages/lafs/api/functions#geterrorcodemapping)
+
+```ts
+const mapping = getErrorCodeMapping('TaskNotFound');
+// { jsonRpcCode: -32001, httpStatus: 404, httpTypeUri: '...', grpcStatus: 'NOT_FOUND', grpcCode: 5 }
+```
+
+## `parseA2AVersionHeader()`
+
+*Parse the `a2a-version` header into an array of version strings.*
+
+[View in API reference](/packages/lafs/api/functions#parsea2aversionheader)
+
+```ts
+parseA2AVersionHeader('1.0, 2.0'); // ['1.0', '2.0']
+parseA2AVersionHeader(undefined);   // []
+```
+
+## `negotiateA2AVersion()`
+
+*Negotiate an A2A protocol version from the client's requested versions.*
+
+[View in API reference](/packages/lafs/api/functions#negotiatea2aversion)
+
+```ts
+negotiateA2AVersion(['1.0', '2.0']); // '1.0'
+negotiateA2AVersion([]);              // '1.0' (default)
+negotiateA2AVersion(['3.0']);          // null
+```
+
+## `CircuitBreakerError`
+
+*Error thrown when a circuit breaker rejects a call.*
+
+[View in API reference](/packages/lafs/api/functions#circuitbreakererror)
+
+```typescript
+try {
+  await breaker.execute(() => fetch('/api'));
+} catch (err) {
+  if (err instanceof CircuitBreakerError) {
+    console.log('Circuit open, using fallback');
+  }
+}
+```
+
+## `CircuitBreaker`
+
+*Circuit breaker for protecting against cascading failures.*
+
+[View in API reference](/packages/lafs/api/functions#circuitbreaker)
+
+```typescript
+import { CircuitBreaker } from '@cleocode/lafs/circuit-breaker';
+
+const breaker = new CircuitBreaker({
+  name: 'external-api',
+  failureThreshold: 5,
+  resetTimeout: 30000
+});
+
+try {
+  const result = await breaker.execute(async () => {
+    return await externalApi.call();
+  });
+} catch (error) {
+  if (error instanceof CircuitBreakerError) {
+    console.log('Circuit breaker is open');
+  }
+}
+```
+
+## `CircuitBreakerRegistry`
+
+*Registry for managing multiple named circuit breakers.*
+
+[View in API reference](/packages/lafs/api/functions#circuitbreakerregistry)
+
+```typescript
+const registry = new CircuitBreakerRegistry();
+
+registry.add('payment-api', {
+  failureThreshold: 3,
+  resetTimeout: 60000
+});
+
+const paymentBreaker = registry.get('payment-api');
+```
+
+## `circuitBreakerMiddleware()`
+
+*Create an Express middleware that wraps downstream handlers with a circuit breaker.*
+
+[View in API reference](/packages/lafs/api/functions#circuitbreakermiddleware)
+
+```typescript
+app.use('/external-api', circuitBreakerMiddleware({
+  name: 'external-api',
+  failureThreshold: 5
+}));
+```
+
+## `healthCheck()`
+
+*Health check middleware for Express applications.*
+
+[View in API reference](/packages/lafs/api/functions#healthcheck)
+
+```typescript
+import express from 'express';
+import { healthCheck } from '@cleocode/lafs/health';
+
+const app = express();
+
+// Basic health check
+app.use('/health', healthCheck());
+
+// Custom health checks
+app.use('/health', healthCheck({
+  checks: [
+    async () => ({
+      name: 'database',
+      status: await checkDatabase() ? 'ok' : 'error'
+    })
+  ]
+}));
+```
+
+## `createDatabaseHealthCheck()`
+
+*Create a health check function that verifies database connectivity.*
+
+[View in API reference](/packages/lafs/api/functions#createdatabasehealthcheck)
+
+```typescript
+const dbCheck = createDatabaseHealthCheck({
+  checkConnection: async () => await db.ping()
+});
+
+app.use('/health', healthCheck({
+  checks: [dbCheck]
+}));
+```
+
+## `createExternalServiceHealthCheck()`
+
+*Create a health check function that probes an external HTTP service.*
+
+[View in API reference](/packages/lafs/api/functions#createexternalservicehealthcheck)
+
+```typescript
+const apiCheck = createExternalServiceHealthCheck({
+  name: 'payment-api',
+  url: 'https://api.payment.com/health',
+  timeout: 5000
+});
+```
+
+## `livenessProbe()`
+
+*Liveness probe -- a minimal check confirming the process is running.*
+
+[View in API reference](/packages/lafs/api/functions#livenessprobe)
+
+```typescript
+app.get('/health/live', livenessProbe());
+```
+
+## `readinessProbe()`
+
+*Readiness probe -- verifies the service can accept traffic.*
+
+[View in API reference](/packages/lafs/api/functions#readinessprobe)
+
+```typescript
+app.get('/health/ready', readinessProbe({
+  checks: [dbCheck, cacheCheck]
+}));
+```
+
+## `projectEnvelope()`
+
+*Project an envelope to the declared MVI verbosity level.*
+
+[View in API reference](/packages/lafs/api/functions#projectenvelope)
+
+```ts
+const minimal = projectEnvelope(envelope, 'minimal');
+// minimal contains only: success, _meta (requestId, contextVersion), result/error
+```
+
+## `estimateProjectedTokens()`
+
+*Estimate token count for a projected envelope.*
+
+[View in API reference](/packages/lafs/api/functions#estimateprojectedtokens)
+
+```ts
+const tokens = estimateProjectedTokens(projectEnvelope(envelope, 'minimal'));
+// tokens ~= Math.ceil(JSON.stringify(projected).length / 4)
+```
+
+## `LafsProblemDetails`
+
+*RFC 9457 Problem Details with LAFS extensions.*
+
+[View in API reference](/packages/lafs/api/functions#lafsproblemdetails)
+
+```typescript
+const pd: LafsProblemDetails = {
+  type: "https://lafs.dev/errors/v1/E_VALIDATION",
+  title: "E_VALIDATION",
+  status: 400,
+  detail: "Invalid input",
+  retryable: false,
+};
+```
+
+## `lafsErrorToProblemDetails()`
+
+*Convert a LAFSError to an RFC 9457 Problem Details object.*
+
+[View in API reference](/packages/lafs/api/functions#lafserrortoproblemdetails)
+
+```typescript
+import { lafsErrorToProblemDetails } from "@cleocode/lafs";
+
+const pd = lafsErrorToProblemDetails(envelope.error!, envelope._meta.requestId);
+// pd.status === 400, pd.type === "https://lafs.dev/errors/v1/E_VALIDATION"
+```
+
+## `gracefulShutdown()`
+
+*Enable graceful shutdown for an HTTP server.*
+
+[View in API reference](/packages/lafs/api/functions#gracefulshutdown)
+
+```typescript
+import express from 'express';
+import { gracefulShutdown } from '@cleocode/lafs/shutdown';
+
+const app = express();
+const server = app.listen(3000);
+
+gracefulShutdown(server, {
+  timeout: 30000,
+  signals: ['SIGTERM', 'SIGINT'],
+  onShutdown: async () => {
+    console.log('Shutting down...');
+    await db.close();
+  }
+});
+```
+
+## `isShuttingDown()`
+
+*Check whether a shutdown sequence is currently in progress.*
+
+[View in API reference](/packages/lafs/api/functions#isshuttingdown)
+
+```typescript
+if (isShuttingDown()) {
+  return; // skip expensive work
+}
+```
+
+## `getShutdownState()`
+
+*Get a snapshot of the current shutdown state.*
+
+[View in API reference](/packages/lafs/api/functions#getshutdownstate)
+
+```typescript
+const state = getShutdownState();
+console.log(`Connections: ${state.activeConnections}`);
+```
+
+## `forceShutdown()`
+
+*Terminate the process immediately without waiting for connections to drain.*
+
+[View in API reference](/packages/lafs/api/functions#forceshutdown)
+
+```typescript
+forceShutdown(1);
+```
+
+## `shutdownMiddleware()`
+
+*Express middleware that rejects requests with 503 while the server is shutting down.*
+
+[View in API reference](/packages/lafs/api/functions#shutdownmiddleware)
+
+```typescript
+app.use(shutdownMiddleware());
+```
+
+## `waitForShutdown()`
+
+*Wait until a shutdown sequence begins.*
+
+[View in API reference](/packages/lafs/api/functions#waitforshutdown)
+
+```typescript
+await waitForShutdown();
+```

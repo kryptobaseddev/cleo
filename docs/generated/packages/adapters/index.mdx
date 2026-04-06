@@ -1,39 +1,99 @@
 ---
-title: "adapters"
-description: "adapters package overview"
+title: adapters
+description: adapters package overview
 ---
+
 ## Functions & Classes
 
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| [`ClaudeCodePathProvider`](/packages/adapters/api/index#claudecodepathprovider) | class | Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard... |
-| [`ClaudeCodeContextMonitorProvider`](/packages/adapters/api/index#claudecodecontextmonitorprovider) | class | Context monitor provider for Claude Code.  Processes context window JSON from... |
-| [`ClaudeCodeHookProvider`](/packages/adapters/api/index#claudecodehookprovider) | class | Hook provider for Claude Code.  Claude Code registers hooks via a plugin dire... |
-| [`ClaudeCodeInstallProvider`](/packages/adapters/api/index#claudecodeinstallprovider) | class | Install provider for Claude Code.  Manages CLEO's integration with Claude Cod... |
-| [`ClaudeCodeSpawnProvider`](/packages/adapters/api/index#claudecodespawnprovider) | class | Spawn provider for Claude Code.  Spawns detached Claude CLI processes for sub... |
-| [`ClaudeCodeTaskSyncProvider`](/packages/adapters/api/index#claudecodetasksyncprovider) | class | Claude Code TaskSyncProvider.  Reads Claude's TodoWrite JSON state, parses [T... |
-| [`ClaudeCodeTransportProvider`](/packages/adapters/api/index#claudecodetransportprovider) | class |  |
-| [`ClaudeCodeAdapter`](/packages/adapters/api/index#claudecodeadapter) | class | CLEO provider adapter for Anthropic Claude Code CLI.  Bridges CLEO's adapter ... |
-| [`checkStatuslineIntegration()`](/packages/adapters/api/index#checkstatuslineintegration) | function | Check if statusline integration is configured. Returns the current integratio... |
-| [`getStatuslineConfig()`](/packages/adapters/api/index#getstatuslineconfig) | function | Get the statusline setup command for Claude Code settings. |
-| [`getSetupInstructions()`](/packages/adapters/api/index#getsetupinstructions) | function | Get human-readable setup instructions. |
-| [`createAdapter()`](/packages/adapters/api/index#createadapter) | function | Factory function for creating adapter instances. Used by AdapterManager's dyn... |
-| [`CursorHookProvider`](/packages/adapters/api/index#cursorhookprovider) | class | Hook provider for Cursor (stub).  Cursor lacks a hook-based lifecycle event s... |
-| [`CursorInstallProvider`](/packages/adapters/api/index#cursorinstallprovider) | class | Install provider for Cursor.  Manages CLEO's integration with Cursor by: 1. R... |
-| [`CursorAdapter`](/packages/adapters/api/index#cursoradapter) | class | CLEO provider adapter for Cursor AI code editor.  Bridges CLEO's adapter syst... |
-| [`createAdapter()`](/packages/adapters/api/index#createadapter) | function | Factory function for creating adapter instances. Used by AdapterManager's dyn... |
-| [`OpenCodeHookProvider`](/packages/adapters/api/index#opencodehookprovider) | class | Hook provider for OpenCode.  OpenCode registers hooks via its configuration s... |
-| [`OpenCodeInstallProvider`](/packages/adapters/api/index#opencodeinstallprovider) | class | Install provider for OpenCode.  Manages CLEO's integration with OpenCode by: ... |
-| [`buildOpenCodeAgentMarkdown()`](/packages/adapters/api/index#buildopencodeagentmarkdown) | function | Build the markdown content for an OpenCode agent definition file.  OpenCode a... |
-| [`OpenCodeSpawnProvider`](/packages/adapters/api/index#opencodespawnprovider) | class | Spawn provider for OpenCode.  Spawns detached OpenCode CLI processes for suba... |
-| [`OpenCodeAdapter`](/packages/adapters/api/index#opencodeadapter) | class | CLEO provider adapter for OpenCode AI coding assistant.  Bridges CLEO's adapt... |
-| [`createAdapter()`](/packages/adapters/api/index#createadapter) | function | Factory function for creating adapter instances. Used by AdapterManager's dyn... |
-| [`getProviderManifests()`](/packages/adapters/api/index#getprovidermanifests) | function | Get the manifests for all bundled provider adapters. |
-| [`discoverProviders()`](/packages/adapters/api/index#discoverproviders) | function | Discover all available provider adapters.  Returns a map of provider ID to ad... |
-| [`CursorSpawnProvider`](/packages/adapters/api/index#cursorspawnprovider) | class | Spawn provider for Cursor.  Cursor does not support subagent spawning via CLI... |
+| Symbol                                                                                              | Kind     | Description                                                                       |
+| --------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
+| [`ClaudeCodePathProvider`](/packages/adapters/api/index#claudecodepathprovider)                     | class    | Path provider for Anthropic Claude Code CLI.  Resolves Claude Code's standard...  |
+| [`ClaudeCodeContextMonitorProvider`](/packages/adapters/api/index#claudecodecontextmonitorprovider) | class    | Context monitor provider for Claude Code.  Processes context window JSON from...  |
+| [`ClaudeCodeHookProvider`](/packages/adapters/api/index#claudecodehookprovider)                     | class    | Hook provider for Claude Code.  Claude Code registers hooks via its global co...  |
+| [`ClaudeCodeInstallProvider`](/packages/adapters/api/index#claudecodeinstallprovider)               | class    | Install provider for Claude Code.  Manages CLEO's integration with Claude Cod...  |
+| [`ClaudeCodeSpawnProvider`](/packages/adapters/api/index#claudecodespawnprovider)                   | class    | Spawn provider for Claude Code.  Spawns detached Claude CLI processes for sub...  |
+| [`ClaudeCodeTaskSyncProvider`](/packages/adapters/api/index#claudecodetasksyncprovider)             | class    | Claude Code TaskSyncProvider.  Reads Claude's TodoWrite JSON state, parses \[T... |
+| [`ClaudeCodeTransportProvider`](/packages/adapters/api/index#claudecodetransportprovider)           | class    | Transport provider for Claude Code inter-agent communication.                     |
+| [`ClaudeCodeAdapter`](/packages/adapters/api/index#claudecodeadapter)                               | class    | CLEO provider adapter for Anthropic Claude Code CLI.  Bridges CLEO's adapter...   |
+| [`checkStatuslineIntegration()`](/packages/adapters/api/index#checkstatuslineintegration)           | function | Check if statusline integration is configured. Returns the current integratio...  |
+| [`getStatuslineConfig()`](/packages/adapters/api/index#getstatuslineconfig)                         | function | Get the statusline setup command for Claude Code settings.                        |
+| [`getSetupInstructions()`](/packages/adapters/api/index#getsetupinstructions)                       | function | Get human-readable setup instructions.                                            |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`readLatestTranscript()`](/packages/adapters/api/index#readlatesttranscript)                       | function | Read the most recent JSON or JSONL session file from `providerDir` and return...  |
+| [`CodexHookProvider`](/packages/adapters/api/index#codexhookprovider)                               | class    | Hook provider for Codex CLI.  Codex CLI registers hooks via its configuration...  |
+| [`CodexInstallProvider`](/packages/adapters/api/index#codexinstallprovider)                         | class    | Install provider for Codex CLI.  Manages CLEO's integration with Codex CLI by...  |
+| [`CodexAdapter`](/packages/adapters/api/index#codexadapter)                                         | class    | CLEO provider adapter for OpenAI Codex CLI.  Bridges CLEO's adapter system wi...  |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`CursorHookProvider`](/packages/adapters/api/index#cursorhookprovider)                             | class    | Hook provider for Cursor.  Cursor registers hooks via its config system at...     |
+| [`CursorInstallProvider`](/packages/adapters/api/index#cursorinstallprovider)                       | class    | Install provider for Cursor.  Manages CLEO's integration with Cursor by: 1. C...  |
+| [`CursorAdapter`](/packages/adapters/api/index#cursoradapter)                                       | class    | CLEO provider adapter for Cursor AI code editor.  Bridges CLEO's adapter syst...  |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`GeminiCliHookProvider`](/packages/adapters/api/index#geminiclihookprovider)                       | class    | Hook provider for Gemini CLI.  Gemini CLI registers hooks via its configurati...  |
+| [`GeminiCliInstallProvider`](/packages/adapters/api/index#geminicliinstallprovider)                 | class    | Install provider for Gemini CLI.  Manages CLEO's integration with Gemini CLI...   |
+| [`GeminiCliAdapter`](/packages/adapters/api/index#geminicliadapter)                                 | class    | CLEO provider adapter for Google Gemini CLI.  Bridges CLEO's adapter system w\... |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`KimiHookProvider`](/packages/adapters/api/index#kimihookprovider)                                 | class    | Hook provider for Kimi.  Kimi does not expose a native hook or event system....   |
+| [`KimiInstallProvider`](/packages/adapters/api/index#kimiinstallprovider)                           | class    | Install provider for Kimi.  Manages CLEO's integration with Kimi by: 1. Ensur...  |
+| [`KimiAdapter`](/packages/adapters/api/index#kimiadapter)                                           | class    | CLEO provider adapter for Moonshot AI Kimi.  Bridges CLEO's adapter system wi...  |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`OpenCodeHookProvider`](/packages/adapters/api/index#opencodehookprovider)                         | class    | Hook provider for OpenCode.  OpenCode registers hooks via its JavaScript plug...  |
+| [`OpenCodeInstallProvider`](/packages/adapters/api/index#opencodeinstallprovider)                   | class    | Install provider for OpenCode.  Manages CLEO's integration with OpenCode by:...   |
+| [`buildOpenCodeAgentMarkdown()`](/packages/adapters/api/index#buildopencodeagentmarkdown)           | function | Build the markdown content for an OpenCode agent definition file.  OpenCode a...  |
+| [`OpenCodeSpawnProvider`](/packages/adapters/api/index#opencodespawnprovider)                       | class    | Spawn provider for OpenCode.  Spawns detached OpenCode CLI processes for suba...  |
+| [`OpenCodeAdapter`](/packages/adapters/api/index#opencodeadapter)                                   | class    | CLEO provider adapter for OpenCode AI coding assistant.  Bridges CLEO's adapt...  |
+| [`createAdapter()`](/packages/adapters/api/index#createadapter)                                     | function | Factory function for creating adapter instances. Used by AdapterManager's dyn...  |
+| [`getProviderManifests()`](/packages/adapters/api/index#getprovidermanifests)                       | function | Get the manifests for all bundled provider adapters.                              |
+| [`discoverProviders()`](/packages/adapters/api/index#discoverproviders)                             | function | Discover all available provider adapters.  Returns a map of provider ID to ad...  |
+| [`CursorSpawnProvider`](/packages/adapters/api/index#cursorspawnprovider)                           | class    | Spawn provider for Cursor.  Cursor does not support subagent spawning via CLI...  |
 
 ## Types & Interfaces
 
-| Symbol | Kind | Description |
-|--------|------|-------------|
+| Symbol                                                            | Kind      | Description                                    |
+| ----------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [`AdapterManifest`](/packages/adapters/api/index#adaptermanifest) | interface | Minimal manifest shape for provider discovery. |
+
+## Other Exports
+
+| Symbol                                                                                  | Kind | Description                                                                      |
+| --------------------------------------------------------------------------------------- | ---- | -------------------------------------------------------------------------------- |
+| [`paths.ts`](/packages/adapters/api/index#pathsts)                                      | file |                                                                                  |
+| [`context-monitor.ts`](/packages/adapters/api/index#context-monitorts)                  | file |                                                                                  |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`spawn.ts`](/packages/adapters/api/index#spawnts)                                      | file |                                                                                  |
+| [`task-sync.ts`](/packages/adapters/api/index#task-syncts)                              | file |                                                                                  |
+| [`transport.ts`](/packages/adapters/api/index#transportts)                              | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`statusline.ts`](/packages/adapters/api/index#statuslinets)                            | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for Anthropic Claude Code CLI. Default export is the ad... |
+| [`transcript-reader.ts`](/packages/adapters/api/index#transcript-readerts)              | file |                                                                                  |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for OpenAI Codex CLI. Default export is the adapter cla... |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for Cursor AI code editor. Default export is the adapte... |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for Google Gemini CLI. Default export is the adapter cl... |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for Moonshot AI Kimi. Default export is the adapter cla... |
+| [`hooks.ts`](/packages/adapters/api/index#hooksts)                                      | file |                                                                                  |
+| [`install.ts`](/packages/adapters/api/index#installts)                                  | file |                                                                                  |
+| [`spawn.ts`](/packages/adapters/api/index#spawnts)                                      | file |                                                                                  |
+| [`adapter.ts`](/packages/adapters/api/index#adapterts)                                  | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file | CLEO provider adapter for OpenCode AI coding assistant. Default export is the... |
+| [`registry.ts`](/packages/adapters/api/index#registryts)                                | file |                                                                                  |
+| [`index.ts`](/packages/adapters/api/index#indexts)                                      | file |                                                                                  |
+| [`claude-code-adapter.test.ts`](/packages/adapters/api/index#claude-code-adaptertestts) | file |                                                                                  |
+| [`cursor-adapter.test.ts`](/packages/adapters/api/index#cursor-adaptertestts)           | file |                                                                                  |
+| [`opencode-adapter.test.ts`](/packages/adapters/api/index#opencode-adaptertestts)       | file |                                                                                  |
+| [`adapter.test.ts`](/packages/adapters/api/index#adaptertestts)                         | file |                                                                                  |
+| [`spawn.ts`](/packages/adapters/api/index#spawnts)                                      | file |                                                                                  |
+| [`adapter.test.ts`](/packages/adapters/api/index#adaptertestts)                         | file |                                                                                  |
+| [`adapter.test.ts`](/packages/adapters/api/index#adaptertestts)                         | file |                                                                                  |

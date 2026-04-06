@@ -1,0 +1,1765 @@
+---
+title: Configuration Guide
+description: How to configure the project using its exported configuration interfaces.
+---
+
+How to configure the project using its exported configuration interfaces.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-configuration */}
+
+## Configuration Interfaces
+
+### `ConfigFormat`
+
+Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+
+**Example**
+
+```typescript
+const format: ConfigFormat = "jsonc";
+```
+
+### `DetectionConfig`
+
+Configuration for detecting whether a provider is installed.
+
+| Property      | Type                    | Description                                                    |
+| ------------- | ----------------------- | -------------------------------------------------------------- |
+| `methods`     | `DetectionMethod[]`     | Detection methods to try, in order.                            |
+| `binary`      | `string \| undefined`   | Binary name to look up on PATH (for `"binary"` method).        |
+| `directories` | `string[] \| undefined` | Directories to check for existence (for `"directory"` method). |
+| `appBundle`   | `string \| undefined`   | macOS .app bundle name (for `"appBundle"` method).             |
+| `flatpakId`   | `string \| undefined`   | Flatpak application ID (for `"flatpak"` method).               |
+
+**Example**
+
+```typescript
+const config: DetectionConfig = {
+  methods: ["binary", "directory"],
+  binary: "claude",
+  directories: ["~/.config/claude"],
+};
+```
+
+### `McpServerConfig`
+
+Canonical MCP server configuration.
+
+| Property  | Type                                  | Description                                       |
+| --------- | ------------------------------------- | ------------------------------------------------- |
+| `type`    | `TransportType \| undefined`          | Transport type (`"stdio"`, `"sse"`, or `"http"`). |
+| `url`     | `string \| undefined`                 | URL for remote MCP servers.                       |
+| `headers` | `Record<string, string> \| undefined` | HTTP headers for remote MCP servers.              |
+| `command` | `string \| undefined`                 | Command to run for stdio MCP servers.             |
+| `args`    | `string[] \| undefined`               | Arguments for the stdio command.                  |
+| `env`     | `Record<string, string> \| undefined` | Environment variables for the stdio process.      |
+
+**Example**
+
+```typescript
+// Remote server
+const remote: McpServerConfig = {
+  type: "http",
+  url: "https://mcp.example.com/sse",
+};
+
+// Local stdio server
+const local: McpServerConfig = {
+  command: "npx",
+  args: ["-y", "@modelcontextprotocol/server-filesystem"],
+};
+```
+
+### `GlobalOptions`
+
+Global CLI options shared across all CAAMP commands.
+
+| Property  | Type                    | Description                                  |
+| --------- | ----------------------- | -------------------------------------------- |
+| `agent`   | `string[] \| undefined` | Target agent IDs (repeatable).               |
+| `global`  | `boolean \| undefined`  | Operate on global config instead of project. |
+| `yes`     | `boolean \| undefined`  | Skip confirmation prompts.                   |
+| `all`     | `boolean \| undefined`  | Target all detected agents.                  |
+| `json`    | `boolean \| undefined`  | Output as JSON.                              |
+| `dryRun`  | `boolean \| undefined`  | Preview changes without writing.             |
+| `verbose` | `boolean \| undefined`  | Enable debug logging.                        |
+| `quiet`   | `boolean \| undefined`  | Suppress non-error output.                   |
+
+**Example**
+
+```typescript
+const opts: GlobalOptions = {
+  agent: ["claude-code", "cursor"],
+  global: true,
+  json: true,
+};
+```
+
+### `EnsureProviderInstructionFileOptions`
+
+Options for ensuring a provider instruction file.
+
+| Property     | Type                                 | Description                                         |
+| ------------ | ------------------------------------ | --------------------------------------------------- |
+| `references` | `string[]`                           | `\@` references to inject (e.g. `["\@AGENTS.md"]`). |
+| `content`    | `string[] \| undefined`              | Optional inline content blocks.                     |
+| `scope`      | `"project" \| "global" \| undefined` | Whether this is a global or project-level file.     |
+
+### `DetectionCacheOptions`
+
+Options for controlling the detection result cache.
+
+| Property       | Type                   | Description                                                   |
+| -------------- | ---------------------- | ------------------------------------------------------------- |
+| `forceRefresh` | `boolean \| undefined` | Whether to bypass the cache and force a fresh detection scan. |
+| `ttlMs`        | `number \| undefined`  | Time-to-live for cached results in milliseconds.              |
+
+### `BatchInstallOptions`
+
+Options for rollback-capable batch installation.
+
+| Property          | Type                                 | Description                                                     |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------- |
+| `providers`       | `Provider[] \| undefined`            | Explicit list of providers to target, auto-detected if omitted. |
+| `minimumPriority` | `ProviderPriority \| undefined`      | Minimum provider priority threshold for filtering.              |
+| `skills`          | `SkillBatchOperation[] \| undefined` | Skill operations to apply in the batch.                         |
+| `projectDir`      | `string \| undefined`                | Project root directory, defaults to `process.cwd()`.            |
+
+### `FormatOptions`
+
+Format resolution options.
+
+| Property         | Type                             | Description                                         |
+| ---------------- | -------------------------------- | --------------------------------------------------- |
+| `jsonFlag`       | `boolean \| undefined`           | Whether `--json` was explicitly passed.             |
+| `humanFlag`      | `boolean \| undefined`           | Whether `--human` was explicitly passed.            |
+| `projectDefault` | `"json" \| "human" \| undefined` | Project-level default format when no flag is given. |
+
+### `LAFSCommandOptions`
+
+Standard command options interface for LAFS-compliant commands.
+
+| Property | Type                   | Description                             |
+| -------- | ---------------------- | --------------------------------------- |
+| `json`   | `boolean \| undefined` | Whether to force JSON output.           |
+| `human`  | `boolean \| undefined` | Whether to force human-readable output. |
+
+### `ProviderTargetOptions`
+
+Options for resolving which providers to target in advanced commands.
+
+| Property | Type                    | Description                                                         |
+| -------- | ----------------------- | ------------------------------------------------------------------- |
+| `all`    | `boolean \| undefined`  | When true, target all registry providers including undetected ones. |
+| `agent`  | `string[] \| undefined` | Specific provider IDs or aliases to target.                         |
+
+### `SearchOptions`
+
+Options for marketplace search requests.
+
+| Property   | Type                                         | Description                |
+| ---------- | -------------------------------------------- | -------------------------- |
+| `query`    | `string`                                     | Free-text search query.    |
+| `limit`    | `number \| undefined`                        | Maximum number of results. |
+| `offset`   | `number \| undefined`                        | Pagination offset.         |
+| `sortBy`   | `"stars" \| "recent" \| "name" \| undefined` | Sort order for results.    |
+| `category` | `string \| undefined`                        | Filter by skill category.  |
+| `author`   | `string \| undefined`                        | Filter by author name.     |
+
+### `RecommendationOptions`
+
+Configuration options for the skill recommendation engine.
+
+| Property         | Type                                          | Description                                                    |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `top`            | `number \| undefined`                         | Maximum number of results to return from the ranked list.      |
+| `includeDetails` | `boolean \| undefined`                        | Whether to include detailed score breakdown in each result.    |
+| `weights`        | `Partial<RecommendationWeights> \| undefined` | Partial weight overrides for individual scoring factors.       |
+| `modernMarkers`  | `string[] \| undefined`                       | Custom modern technology marker strings for modernity scoring. |
+| `legacyMarkers`  | `string[] \| undefined`                       | Custom legacy technology marker strings for modernity scoring. |
+
+### `SearchSkillsOptions`
+
+Options for searching skills via marketplace APIs.
+
+| Property | Type                  | Description                          |
+| -------- | --------------------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | Maximum number of results to return. |
+
+### `RecommendSkillsQueryOptions`
+
+Options for the recommendation query combining ranking options with a result limit.
+
+| Property | Type                  | Description                          |
+| -------- | --------------------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | Maximum number of results to return. |
+
+### `SpawnOptions`
+
+Options for spawning a subagent.
+
+| Property  | Type                    | Description                                                |
+| --------- | ----------------------- | ---------------------------------------------------------- |
+| `prompt`  | `string`                | The prompt or instruction to give the spawned agent.       |
+| `model`   | `string \| undefined`   | Model to use for the spawned agent.                        |
+| `tools`   | `string[] \| undefined` | Tools to make available to the spawned agent.              |
+| `timeout` | `number \| undefined`   | Timeout in milliseconds for the spawned agent.             |
+| `isolate` | `boolean \| undefined`  | Whether to isolate the spawned agent (e.g. in a worktree). |
+
+### `MigrationOptions`
+
+Options controlling migration behavior.
+
+| Property    | Type                  | Description                                          |
+| ----------- | --------------------- | ---------------------------------------------------- |
+| `write`     | `boolean`             | Write .cant files to disk (false = dry-run preview). |
+| `verbose`   | `boolean`             | Show detailed conversion log during migration.       |
+| `outputDir` | `string \| undefined` | Where to write .cant files (default: .cleo/agents/). |
+
+### `LoggerConfig`
+
+| Property      | Type     | Description |
+| ------------- | -------- | ----------- |
+| `level`       | `string` | level       |
+| `filePath`    | `string` | filePath    |
+| `maxFileSize` | `number` | maxFileSize |
+| `maxFiles`    | `number` | maxFiles    |
+
+### `VacuumOptions`
+
+| Property | Type                   | Description |
+| -------- | ---------------------- | ----------- |
+| `cwd`    | `string \| undefined`  | cwd         |
+| `force`  | `boolean \| undefined` | force       |
+
+### `RegisterAgentOptions`
+
+Options for registering a new agent instance.
+
+| Property        | Type                                                                                                     | Description   |
+| --------------- | -------------------------------------------------------------------------------------------------------- | ------------- |
+| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | agentType     |
+| `sessionId`     | `string \| undefined`                                                                                    | sessionId     |
+| `taskId`        | `string \| undefined`                                                                                    | taskId        |
+| `parentAgentId` | `string \| undefined`                                                                                    | parentAgentId |
+| `metadata`      | `Record<string, unknown> \| undefined`                                                                   | metadata      |
+
+### `UpdateStatusOptions`
+
+Options for updating agent status.
+
+| Property | Type                                                                    | Description |
+| -------- | ----------------------------------------------------------------------- | ----------- |
+| `status` | `"error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped"` | status      |
+| `error`  | `string \| undefined`                                                   | error       |
+| `taskId` | `string \| undefined`                                                   | taskId      |
+
+### `HookConfig`
+
+Configuration for the hook system Controls which events are enabled/disabled
+
+| Property  | Type                         | Description                            |
+| --------- | ---------------------------- | -------------------------------------- |
+| `enabled` | `boolean`                    | Master switch for hook system          |
+| `events`  | `Record<HookEvent, boolean>` | Per-event enable/disable configuration |
+
+### `ConfigChangePayload`
+
+Payload for ConfigChange hook Fired when configuration is updated
+
+| Property        | Type      | Description                    |
+| --------------- | --------- | ------------------------------ |
+| `key`           | `string`  | Configuration key that changed |
+| `previousValue` | `unknown` | Previous value                 |
+| `newValue`      | `unknown` | New value                      |
+
+### `SaveJsonOptions`
+
+Options for saveJson.
+
+| Property     | Type                                                      | Description                                               |
+| ------------ | --------------------------------------------------------- | --------------------------------------------------------- |
+| `backupDir`  | `string \| undefined`                                     | Directory for backups. If omitted, no backup is created.  |
+| `maxBackups` | `number \| undefined`                                     | Maximum number of backups to retain. Default: 5.          |
+| `indent`     | `number \| undefined`                                     | JSON indentation. Default: 2.                             |
+| `validate`   | `((data: unknown) => void \| Promise<void>) \| undefined` | Validation function. Called before write; throw to abort. |
+
+### `CheckpointConfig`
+
+Checkpoint configuration.
+
+| Property          | Type      | Description     |
+| ----------------- | --------- | --------------- |
+| `enabled`         | `boolean` | enabled         |
+| `debounceMinutes` | `number`  | debounceMinutes |
+| `messagePrefix`   | `string`  | messagePrefix   |
+| `noVerify`        | `boolean` | noVerify        |
+
+### `SafetyOptions`
+
+Safety configuration - can be overridden per-operation
+
+| Property           | Type      | Description                                      |
+| ------------------ | --------- | ------------------------------------------------ |
+| `verify`           | `boolean` | Verify data was written (default: true)          |
+| `checkpoint`       | `boolean` | Create git checkpoint (default: true)            |
+| `validateSequence` | `boolean` | Validate sequence (default: true)                |
+| `strict`           | `boolean` | Strict mode - throw on any issue (default: true) |
+
+### `SafetyConfig`
+
+Safety configuration options.
+
+| Property           | Type      | Description                                |
+| ------------------ | --------- | ------------------------------------------ |
+| `verifyWrites`     | `boolean` | Enable write verification (default: true)  |
+| `detectCollisions` | `boolean` | Enable collision detection (default: true) |
+| `validateSequence` | `boolean` | Enable sequence validation (default: true) |
+| `autoCheckpoint`   | `boolean` | Enable auto-checkpoint (default: true)     |
+| `strictMode`       | `boolean` | Throw on safety violations (default: true) |
+
+### `ListTasksOptions`
+
+Filter options for listing tasks.
+
+| Property   | Type                                                                                     | Description |
+| ---------- | ---------------------------------------------------------------------------------------- | ----------- |
+| `status`   | `"active" \| "pending" \| "cancelled" \| "blocked" \| "done" \| "archived" \| undefined` | status      |
+| `priority` | `TaskPriority \| undefined`                                                              | priority    |
+| `type`     | `TaskType \| undefined`                                                                  | type        |
+| `parentId` | `string \| undefined`                                                                    | parentId    |
+| `phase`    | `string \| undefined`                                                                    | phase       |
+| `label`    | `string \| undefined`                                                                    | label       |
+| `children` | `boolean \| undefined`                                                                   | children    |
+| `limit`    | `number \| undefined`                                                                    | limit       |
+| `offset`   | `number \| undefined`                                                                    | offset      |
+
+### `FindTasksOptions`
+
+Options for finding tasks.
+
+| Property         | Type                                                                                     | Description    |
+| ---------------- | ---------------------------------------------------------------------------------------- | -------------- |
+| `query`          | `string \| undefined`                                                                    | query          |
+| `id`             | `string \| undefined`                                                                    | id             |
+| `exact`          | `boolean \| undefined`                                                                   | exact          |
+| `status`         | `"active" \| "pending" \| "cancelled" \| "blocked" \| "done" \| "archived" \| undefined` | status         |
+| `field`          | `string \| undefined`                                                                    | field          |
+| `includeArchive` | `boolean \| undefined`                                                                   | includeArchive |
+| `limit`          | `number \| undefined`                                                                    | limit          |
+| `offset`         | `number \| undefined`                                                                    | offset         |
+
+### `FormatOptions`
+
+Options for envelope formatting.   T4668  T4670  T4663
+
+| Property     | Type                                                                                  | Description                                                               |
+| ------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `operation`  | `string \| undefined`                                                                 | operation                                                                 |
+| `page`       | `LAFSPage \| undefined`                                                               | page                                                                      |
+| `extensions` | `Record<string, unknown> \| undefined`                                                | extensions                                                                |
+| `mvi`        | `import("/mnt/projects/cleocode/packages/lafs/dist/src/types").MVILevel \| undefined` | MVI level to embed in the envelope \_meta. Defaults to 'standard'.  T4957 |
+
+### `ComputeHandoffOptions`
+
+Options for computing handoff data.
+
+| Property     | Type                  | Description                         |
+| ------------ | --------------------- | ----------------------------------- |
+| `sessionId`  | `string`              | sessionId                           |
+| `note`       | `string \| undefined` | Optional human note override        |
+| `nextAction` | `string \| undefined` | Optional human next action override |
+
+### `ComputeDebriefOptions`
+
+Options for computing debrief data.
+
+| Property          | Type                          | Description                    |
+| ----------------- | ----------------------------- | ------------------------------ |
+| `agentIdentifier` | `string \| null \| undefined` | Agent/conversation identifier. |
+| `startedAt`       | `string \| undefined`         | Session start time.            |
+| `endedAt`         | `string \| undefined`         | Session end time.              |
+
+### `BrainSearchOptions`
+
+Search options.
+
+| Property | Type                                                                          | Description                                |
+| -------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| `limit`  | `number \| undefined`                                                         | Max results per table. Default 10.         |
+| `tables` | `("decisions" \| "patterns" \| "learnings" \| "observations")[] \| undefined` | Which tables to search. Default: all four. |
+
+### `HybridSearchOptions`
+
+Options for hybridSearch weighting and limits.
+
+| Property      | Type                  | Description |
+| ------------- | --------------------- | ----------- |
+| `ftsWeight`   | `number \| undefined` | ftsWeight   |
+| `vecWeight`   | `number \| undefined` | vecWeight   |
+| `graphWeight` | `number \| undefined` | graphWeight |
+| `limit`       | `number \| undefined` | limit       |
+
+### `MemoryBridgeConfig`
+
+Configuration for memory bridge content generation.
+
+| Property              | Type      | Description         |
+| --------------------- | --------- | ------------------- |
+| `maxObservations`     | `number`  | maxObservations     |
+| `maxLearnings`        | `number`  | maxLearnings        |
+| `maxPatterns`         | `number`  | maxPatterns         |
+| `maxDecisions`        | `number`  | maxDecisions        |
+| `includeHandoff`      | `boolean` | includeHandoff      |
+| `includeAntiPatterns` | `boolean` | includeAntiPatterns |
+
+### `PopulateEmbeddingsOptions`
+
+Options for the embedding backfill pipeline.
+
+| Property     | Type                                                      | Description                                                                                                                                                                                     |
+| ------------ | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `batchSize`  | `number \| undefined`                                     | Maximum items processed per batch cycle. Defaults to 50.                                                                                                                                        |
+| `onProgress` | `((current: number, total: number) => void) \| undefined` | Progress callback invoked after each observation is attempted. `current` is the 1-based count of observations attempted so far; `total` is the full count of observations that need embeddings. |
+
+**Example**
+
+```ts
+await populateEmbeddings(root, {
+  batchSize: 25,
+  onProgress: (current, total) => console.log(`${current}/${total}`),
+});
+```
+
+### `InitializePipelineOptions`
+
+Options for initializing a pipeline.   T4800
+
+| Property        | Type                                                                                                                                                                    | Description                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `startStage`    | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | Starting stage (defaults to 'research') |
+| `initialStatus` | `"active" \| "completed" \| "failed" \| "cancelled" \| "blocked" \| "aborted" \| undefined`                                                                             | Initial status (defaults to 'active')   |
+| `assignedAgent` | `string \| undefined`                                                                                                                                                   | Assigning agent                         |
+
+### `AdvanceStageOptions`
+
+Options for advancing pipeline stage.   T4800
+
+| Property            | Type                                                                                                                                                       | Description                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `toStage`           | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Target stage to advance to                          |
+| `reason`            | `string \| undefined`                                                                                                                                      | Reason for the advancement                          |
+| `initiatedBy`       | `string`                                                                                                                                                   | Agent/user initiating the transition                |
+| `skipPrerequisites` | `boolean \| undefined`                                                                                                                                     | Whether to skip prerequisite check (emergency only) |
+| `force`             | `boolean \| undefined`                                                                                                                                     | Whether to force transition even if blocked         |
+
+### `PipelineQueryOptions`
+
+Pipeline query options.   T4800
+
+| Property       | Type                                                                                                                                                                    | Description                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `status`       | `"active" \| "completed" \| "failed" \| "cancelled" \| "blocked" \| "aborted" \| undefined`                                                                             | Filter by status                   |
+| `currentStage` | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release" \| undefined` | Filter by current stage            |
+| `isActive`     | `boolean \| undefined`                                                                                                                                                  | Filter by active state             |
+| `limit`        | `number \| undefined`                                                                                                                                                   | Limit results                      |
+| `offset`       | `number \| undefined`                                                                                                                                                   | Offset for pagination              |
+| `orderBy`      | `"createdAt" \| "updatedAt" \| "currentStage" \| undefined`                                                                                                             | Order by (default: createdAt desc) |
+| `order`        | `"asc" \| "desc" \| undefined`                                                                                                                                          | Order direction                    |
+
+### `BriefingOptions`
+
+Options for computing session briefing.
+
+| Property       | Type                  | Description                                              |
+| -------------- | --------------------- | -------------------------------------------------------- |
+| `maxNextTasks` | `number \| undefined` | Maximum number of next tasks to include (default: 5)     |
+| `maxBugs`      | `number \| undefined` | Maximum number of bugs to include (default: 10)          |
+| `maxBlocked`   | `number \| undefined` | Maximum number of blocked tasks to include (default: 10) |
+| `maxEpics`     | `number \| undefined` | Maximum number of active epics to include (default: 5)   |
+| `scope`        | `string \| undefined` | Scope filter: 'global' or 'epic:T###'                    |
+
+### `StartSessionOptions`
+
+Options for starting a session.
+
+| Property     | Type                   | Description                                                                     |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------- |
+| `name`       | `string`               | name                                                                            |
+| `scope`      | `string`               | scope                                                                           |
+| `autoStart`  | `boolean \| undefined` | autoStart                                                                       |
+| `startTask`  | `string \| undefined`  | startTask                                                                       |
+| `focus`      | `string \| undefined`  | focus                                                                           |
+| `agent`      | `string \| undefined`  | agent                                                                           |
+| `grade`      | `boolean \| undefined` | Enable full query+mutation audit logging for this session (behavioral grading). |
+| `providerId` | `string \| undefined`  | Provider adapter ID active for this session (T5240).                            |
+
+### `EndSessionOptions`
+
+Options for ending a session.
+
+| Property    | Type                  | Description |
+| ----------- | --------------------- | ----------- |
+| `sessionId` | `string \| undefined` | sessionId   |
+| `note`      | `string \| undefined` | note        |
+
+### `ListSessionsOptions`
+
+Options for listing sessions.
+
+| Property | Type                  | Description |
+| -------- | --------------------- | ----------- |
+| `status` | `string \| undefined` | status      |
+| `limit`  | `number \| undefined` | limit       |
+
+### `AddTaskEnforcementOptions`
+
+| Property     | Type                    | Description |
+| ------------ | ----------------------- | ----------- |
+| `acceptance` | `string[] \| undefined` | acceptance  |
+| `priority`   | `string \| undefined`   | priority    |
+
+### `UpdateTaskEnforcementOptions`
+
+| Property     | Type                    | Description |
+| ------------ | ----------------------- | ----------- |
+| `acceptance` | `string[] \| undefined` | acceptance  |
+
+### `AddTaskOptions`
+
+Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
+
+| Property        | Type                                                                                     | Description                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `title`         | `string`                                                                                 | title                                                                       |
+| `description`   | `string`                                                                                 | description                                                                 |
+| `status`        | `"active" \| "pending" \| "cancelled" \| "blocked" \| "done" \| "archived" \| undefined` | status                                                                      |
+| `priority`      | `TaskPriority \| undefined`                                                              | priority                                                                    |
+| `type`          | `TaskType \| undefined`                                                                  | type                                                                        |
+| `parentId`      | `string \| null \| undefined`                                                            | parentId                                                                    |
+| `size`          | `TaskSize \| undefined`                                                                  | size                                                                        |
+| `phase`         | `string \| undefined`                                                                    | phase                                                                       |
+| `labels`        | `string[] \| undefined`                                                                  | labels                                                                      |
+| `files`         | `string[] \| undefined`                                                                  | files                                                                       |
+| `acceptance`    | `string[] \| undefined`                                                                  | acceptance                                                                  |
+| `depends`       | `string[] \| undefined`                                                                  | depends                                                                     |
+| `notes`         | `string \| undefined`                                                                    | notes                                                                       |
+| `position`      | `number \| undefined`                                                                    | position                                                                    |
+| `addPhase`      | `boolean \| undefined`                                                                   | addPhase                                                                    |
+| `dryRun`        | `boolean \| undefined`                                                                   | dryRun                                                                      |
+| `pipelineStage` | `string \| undefined`                                                                    | RCASD-IVTR+C pipeline stage to assign. Auto-resolved if not provided.  T060 |
+
+### `SetPhaseOptions`
+
+Options for setting current phase.
+
+| Property   | Type                   | Description |
+| ---------- | ---------------------- | ----------- |
+| `slug`     | `string`               | slug        |
+| `rollback` | `boolean \| undefined` | rollback    |
+| `force`    | `boolean \| undefined` | force       |
+| `dryRun`   | `boolean \| undefined` | dryRun      |
+
+### `EnsureGitHooksOptions`
+
+| Property | Type                   | Description |
+| -------- | ---------------------- | ----------- |
+| `force`  | `boolean \| undefined` | force       |
+
+### `MapCodebaseOptions`
+
+| Property       | Type                                                                                                                  | Description  |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `focus`        | `"stack" \| "testing" \| "architecture" \| "structure" \| "conventions" \| "integrations" \| "concerns" \| undefined` | focus        |
+| `storeToBrain` | `boolean \| undefined`                                                                                                | storeToBrain |
+
+### `InitOptions`
+
+Options for the init operation.
+
+| Property      | Type                   | Description                                           |
+| ------------- | ---------------------- | ----------------------------------------------------- |
+| `name`        | `string \| undefined`  | Project name override.                                |
+| `force`       | `boolean \| undefined` | Overwrite existing files.                             |
+| `detect`      | `boolean \| undefined` | Auto-detect project configuration.                    |
+| `mapCodebase` | `boolean \| undefined` | Run codebase analysis and store findings to brain.db. |
+
+### `BootstrapOptions`
+
+Options for bootstrapGlobalCleo.
+
+| Property      | Type                   | Description                                         |
+| ------------- | ---------------------- | --------------------------------------------------- |
+| `dryRun`      | `boolean \| undefined` | Preview changes without applying.                   |
+| `packageRoot` | `string \| undefined`  | Override package root for template/skill discovery. |
+
+### `PatternExtractionOptions`
+
+Options for pattern extraction from historical data.
+
+| Property        | Type                                                                               | Description                                                                |
+| --------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `minFrequency`  | `number \| undefined`                                                              | Minimum number of occurrences to consider something a pattern. Default: 2. |
+| `minConfidence` | `number \| undefined`                                                              | Minimum confidence threshold (0-1). Default: 0.3.                          |
+| `limit`         | `number \| undefined`                                                              | Maximum number of patterns to return. Default: 50.                         |
+| `type`          | `"workflow" \| "success" \| "failure" \| "blocker" \| "optimization" \| undefined` | Filter by pattern type.                                                    |
+
+### `StorePredictionOptions`
+
+Parameters for storing a quality prediction as a brain observation.
+
+| Property    | Type                   | Description                                                            |
+| ----------- | ---------------------- | ---------------------------------------------------------------------- |
+| `dryRun`    | `boolean \| undefined` | Whether to skip persisting to brain (useful in tests). Default: false. |
+| `sessionId` | `string \| undefined`  | Session ID to attach to the observation (optional).                    |
+| `project`   | `string \| undefined`  | Project identifier to attach to the observation (optional).            |
+
+### `CompleteTaskOptions`
+
+Options for completing a task.
+
+| Property    | Type                  | Description |
+| ----------- | --------------------- | ----------- |
+| `taskId`    | `string`              | taskId      |
+| `notes`     | `string \| undefined` | notes       |
+| `changeset` | `string \| undefined` | changeset   |
+
+### `UpdateTaskOptions`
+
+Options for updating a task.
+
+| Property         | Type                                                                                     | Description                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `taskId`         | `string`                                                                                 | taskId                                                                        |
+| `title`          | `string \| undefined`                                                                    | title                                                                         |
+| `status`         | `"active" \| "pending" \| "cancelled" \| "blocked" \| "done" \| "archived" \| undefined` | status                                                                        |
+| `priority`       | `TaskPriority \| undefined`                                                              | priority                                                                      |
+| `type`           | `TaskType \| undefined`                                                                  | type                                                                          |
+| `size`           | `TaskSize \| undefined`                                                                  | size                                                                          |
+| `phase`          | `string \| undefined`                                                                    | phase                                                                         |
+| `description`    | `string \| undefined`                                                                    | description                                                                   |
+| `labels`         | `string[] \| undefined`                                                                  | labels                                                                        |
+| `addLabels`      | `string[] \| undefined`                                                                  | addLabels                                                                     |
+| `removeLabels`   | `string[] \| undefined`                                                                  | removeLabels                                                                  |
+| `depends`        | `string[] \| undefined`                                                                  | depends                                                                       |
+| `addDepends`     | `string[] \| undefined`                                                                  | addDepends                                                                    |
+| `removeDepends`  | `string[] \| undefined`                                                                  | removeDepends                                                                 |
+| `notes`          | `string \| undefined`                                                                    | notes                                                                         |
+| `acceptance`     | `string[] \| undefined`                                                                  | acceptance                                                                    |
+| `files`          | `string[] \| undefined`                                                                  | files                                                                         |
+| `blockedBy`      | `string \| undefined`                                                                    | blockedBy                                                                     |
+| `parentId`       | `string \| null \| undefined`                                                            | parentId                                                                      |
+| `noAutoComplete` | `boolean \| undefined`                                                                   | noAutoComplete                                                                |
+| `pipelineStage`  | `string \| undefined`                                                                    | RCASD-IVTR+C pipeline stage transition target. Must be = current stage.  T060 |
+
+### `ArtifactConfig`
+
+Artifact configuration from release config.
+
+| Property         | Type                                                                                                                    | Description    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `type`           | `ArtifactType`                                                                                                          | type           |
+| `buildCommand`   | `string \| undefined`                                                                                                   | buildCommand   |
+| `publishCommand` | `string \| undefined`                                                                                                   | publishCommand |
+| `package`        | `string \| undefined`                                                                                                   | package        |
+| `registry`       | `string \| undefined`                                                                                                   | registry       |
+| `options`        | `{ [key: string]: unknown; provenance?: boolean; access?: string; tag?: string; attestations?: boolean; } \| undefined` | options        |
+
+### `ReleaseConfig`
+
+Release configuration shape.
+
+| Property           | Type                                                                               | Description      |
+| ------------------ | ---------------------------------------------------------------------------------- | ---------------- |
+| `versioningScheme` | `string`                                                                           | versioningScheme |
+| `tagPrefix`        | `string`                                                                           | tagPrefix        |
+| `changelogFormat`  | `string`                                                                           | changelogFormat  |
+| `changelogFile`    | `string`                                                                           | changelogFile    |
+| `artifactType`     | `string`                                                                           | artifactType     |
+| `gates`            | `ReleaseGate[]`                                                                    | gates            |
+| `versionBump`      | `{ files: Array<{ file: string; strategy: string; field?: string; }>; }`           | versionBump      |
+| `security`         | `{ enableProvenance: boolean; slsaLevel: number; requireSignedCommits: boolean; }` | security         |
+| `gitflow`          | `GitFlowConfig \| undefined`                                                       | gitflow          |
+| `channels`         | `ChannelConfig \| undefined`                                                       | channels         |
+| `push`             | `{ mode?: PushMode; } \| undefined`                                                | push             |
+
+### `GitFlowConfig`
+
+GitFlow branch configuration.
+
+| Property   | Type                                                                                                     | Description |
+| ---------- | -------------------------------------------------------------------------------------------------------- | ----------- |
+| `enabled`  | `boolean`                                                                                                | enabled     |
+| `branches` | `{ main: string; develop: string; featurePrefix: string; hotfixPrefix: string; releasePrefix: string; }` | branches    |
+
+### `ChannelConfig`
+
+Channel-to-branch mapping for npm dist-tag resolution.
+
+| Property  | Type                                  | Description |
+| --------- | ------------------------------------- | ----------- |
+| `main`    | `string`                              | main        |
+| `develop` | `string`                              | develop     |
+| `feature` | `string`                              | feature     |
+| `custom`  | `Record<string, string> \| undefined` | custom      |
+
+### `PRCreateOptions`
+
+| Property      | Type                    | Description |
+| ------------- | ----------------------- | ----------- |
+| `base`        | `string`                | base        |
+| `head`        | `string`                | head        |
+| `title`       | `string`                | title       |
+| `body`        | `string`                | body        |
+| `labels`      | `string[] \| undefined` | labels      |
+| `version`     | `string`                | version     |
+| `epicId`      | `string \| undefined`   | epicId      |
+| `projectRoot` | `string \| undefined`   | projectRoot |
+
+### `ReleaseListOptions`
+
+| Property | Type                                                                                         | Description |
+| -------- | -------------------------------------------------------------------------------------------- | ----------- |
+| `status` | `"draft" \| "prepared" \| "committed" \| "tagged" \| "pushed" \| "rolled_back" \| undefined` | status      |
+| `limit`  | `number \| undefined`                                                                        | limit       |
+| `offset` | `number \| undefined`                                                                        | offset      |
+
+### `SerializeOptions`
+
+Options for serializing a session.
+
+| Property               | Type                  | Description                                                   |
+| ---------------------- | --------------------- | ------------------------------------------------------------- |
+| `sessionId`            | `string \| undefined` | Session ID to serialize. If omitted, uses the active session. |
+| `maxObservations`      | `number \| undefined` | Maximum number of brain observations to include. Default: 10. |
+| `maxDescriptionLength` | `number \| undefined` | Maximum description length for active task. Default: 500.     |
+
+### `RestoreOptions`
+
+Options for restoring a session.
+
+| Property   | Type                   | Description                                                          |
+| ---------- | ---------------------- | -------------------------------------------------------------------- |
+| `agent`    | `string \| undefined`  | Agent identifier for the new agent taking over.                      |
+| `activate` | `boolean \| undefined` | Whether to resume the session (set status to active). Default: true. |
+
+### `ArchiveTasksOptions`
+
+Options for archiving tasks.
+
+| Property           | Type                    | Description                                                 |
+| ------------------ | ----------------------- | ----------------------------------------------------------- |
+| `before`           | `string \| undefined`   | Only archive tasks completed before this date (ISO string). |
+| `taskIds`          | `string[] \| undefined` | Specific task IDs to archive.                               |
+| `includeCancelled` | `boolean \| undefined`  | Archive cancelled tasks too. Default: true.                 |
+| `dryRun`           | `boolean \| undefined`  | Dry run mode.                                               |
+
+### `DeleteTaskOptions`
+
+Options for deleting a task.
+
+| Property  | Type                   | Description |
+| --------- | ---------------------- | ----------- |
+| `taskId`  | `string`               | taskId      |
+| `force`   | `boolean \| undefined` | force       |
+| `cascade` | `boolean \| undefined` | cascade     |
+
+### `ImportFromPackageOptions`
+
+Options passed to importFromPackage (extracted from importTasksPackage).
+
+| Property       | Type                                                                                     | Description                               |
+| -------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `cwd`          | `string \| undefined`                                                                    | Working directory for the target project. |
+| `dryRun`       | `boolean \| undefined`                                                                   | Dry run: preview without writing.         |
+| `parent`       | `string \| undefined`                                                                    | Parent task ID in target.                 |
+| `phase`        | `string \| undefined`                                                                    | Phase override.                           |
+| `addLabel`     | `string \| undefined`                                                                    | Label to add to imported tasks.           |
+| `provenance`   | `boolean \| undefined`                                                                   | Whether to add provenance notes.          |
+| `resetStatus`  | `"active" \| "pending" \| "cancelled" \| "blocked" \| "done" \| "archived" \| undefined` | Status to reset imported tasks to.        |
+| `onConflict`   | `TransferOnConflict \| undefined`                                                        | Conflict resolution strategy.             |
+| `onMissingDep` | `TransferOnMissingDep \| undefined`                                                      | Missing dependency strategy.              |
+| `force`        | `boolean \| undefined`                                                                   | Force import (skip duplicate checks).     |
+
+### `SmartSearchOptions`
+
+Options for smart\_search.
+
+| Property      | Type                              | Description                                               |
+| ------------- | --------------------------------- | --------------------------------------------------------- |
+| `maxResults`  | `number \| undefined`             | Maximum results to return (default: 20).                  |
+| `filePattern` | `string \| undefined`             | Glob-like file pattern filter (e.g. "\*.ts", "src/\*\*"). |
+| `language`    | `TreeSitterLanguage \| undefined` | Restrict to specific language.                            |
+| `rootDir`     | `string \| undefined`             | Root directory to search (default: cwd).                  |
+
+### `BuildConfig`
+
+### `RepositoryConfig`
+
+### `RetryOptions`
+
+Options that control retry behavior for `withRetry`.
+
+| Property          | Type                                         | Description                                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxAttempts`     | `number \| undefined`                        | Maximum total number of attempts (initial + retries).   3                                                                                                                                                                                                                             |
+| `baseDelayMs`     | `number \| undefined`                        | Delay before the second attempt in milliseconds. Each subsequent delay is `baseDelayMs * 2^(attempt - 1)`.   2000                                                                                                                                                                     |
+| `maxDelayMs`      | `number \| undefined`                        | Upper bound on computed delay in milliseconds. Prevents unbounded growth with many retries.   30000                                                                                                                                                                                   |
+| `retryableErrors` | `readonly RetryablePredicate[] \| undefined` | Explicit list of patterns or predicates that identify retryable errors.  When provided, ONLY errors matching at least one entry are retried. Errors that match none of the entries cause immediate failure.  When omitted, all errors are treated as retryable (up to `maxAttempts`). |
+
+### `AddResearchOptions`
+
+Options for adding research.
+
+| Property   | Type                    | Description                        |
+| ---------- | ----------------------- | ---------------------------------- |
+| `taskId`   | `string`                | Task ID to attach the research to. |
+| `topic`    | `string`                | Research topic or question.        |
+| `findings` | `string[] \| undefined` | Initial findings (if any).         |
+| `sources`  | `string[] \| undefined` | Source URLs or references.         |
+
+### `ListResearchOptions`
+
+Options for listing research.
+
+| Property | Type                                                | Description                |
+| -------- | --------------------------------------------------- | -------------------------- |
+| `taskId` | `string \| undefined`                               | Filter by linked task ID.  |
+| `status` | `"pending" \| "partial" \| "complete" \| undefined` | Filter by research status. |
+
+### `ManifestQueryOptions`
+
+Manifest query options.
+
+| Property    | Type                  | Description                  |
+| ----------- | --------------------- | ---------------------------- |
+| `status`    | `string \| undefined` | Filter by completion status. |
+| `agentType` | `string \| undefined` | Filter by agent type.        |
+| `topic`     | `string \| undefined` | Filter by topic tag.         |
+| `taskId`    | `string \| undefined` | Filter by linked task ID.    |
+| `limit`     | `number \| undefined` | Maximum entries to return.   |
+
+### `MigrationLoggerConfig`
+
+Migration logger configuration
+
+| Property        | Type                    | Description                                       |
+| --------------- | ----------------------- | ------------------------------------------------- |
+| `maxLogFiles`   | `number \| undefined`   | Maximum number of log files to retain             |
+| `minLevel`      | `LogLevel \| undefined` | Minimum log level to record                       |
+| `consoleOutput` | `boolean \| undefined`  | Enable console output in addition to file logging |
+
+### `LogDiscoveryOptions`
+
+Options for discovering log files.
+
+| Property           | Type                                           | Description                                                                      |
+| ------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `scope`            | `"project" \| "global" \| "both" \| undefined` | Which log directory to scan: 'project', 'global', or 'both' (default: 'project') |
+| `since`            | `string \| undefined`                          | Only include files modified after this date (ISO 8601)                           |
+| `includeMigration` | `boolean \| undefined`                         | Include migration log files (default: false)                                     |
+
+### `RemoteConfig`
+
+Remote configuration.
+
+| Property | Type     | Description |
+| -------- | -------- | ----------- |
+| `name`   | `string` | name        |
+| `url`    | `string` | url         |
+
+### `RateLimitConfig`
+
+Rate limiter configuration
+
+| Property      | Type     | Description |
+| ------------- | -------- | ----------- |
+| `maxRequests` | `number` | maxRequests |
+| `windowMs`    | `number` | windowMs    |
+
+### `AgentConfig`
+
+Agent configuration from AGENT.md or agent definition.
+
+| Property             | Type                    | Description        |
+| -------------------- | ----------------------- | ------------------ |
+| `name`               | `string`                | name               |
+| `description`        | `string`                | description        |
+| `model`              | `string \| undefined`   | model              |
+| `allowedTools`       | `string[] \| undefined` | allowedTools       |
+| `customInstructions` | `string \| undefined`   | customInstructions |
+
+### `SkillsMpConfig`
+
+SkillsMP configuration.
+
+| Property   | Type      | Description |
+| ---------- | --------- | ----------- |
+| `enabled`  | `boolean` | enabled     |
+| `cacheDir` | `string`  | cacheDir    |
+
+### `AnalyzeArchiveOptions`
+
+Options for analyzeArchive.
+
+| Property | Type                             | Description |
+| -------- | -------------------------------- | ----------- |
+| `report` | `ArchiveReportType \| undefined` | report      |
+| `since`  | `string \| undefined`            | since       |
+| `until`  | `string \| undefined`            | until       |
+| `cwd`    | `string \| undefined`            | cwd         |
+
+### `TemplateConfig`
+
+The full template config output.
+
+| Property      | Type              | Description |
+| ------------- | ----------------- | ----------- |
+| `templates`   | `IssueTemplate[]` | templates   |
+| `generatedAt` | `string`          | generatedAt |
+| `sourceDir`   | `string`          | sourceDir   |
+
+### `BackfillOptions`
+
+Options for backfillTasks().
+
+| Property   | Type                    | Description                                                                           |
+| ---------- | ----------------------- | ------------------------------------------------------------------------------------- |
+| `dryRun`   | `boolean \| undefined`  | Preview changes only — do not modify the database. Default: false.                    |
+| `rollback` | `boolean \| undefined`  | Revert a previous backfill (remove auto-generated AC + verification). Default: false. |
+| `taskIds`  | `string[] \| undefined` | Restrict backfill to specific task IDs. Default: all tasks.                           |
+
+### `BrainMaintenanceOptions`
+
+Options for `runBrainMaintenance`.  All `skip*` flags default to `false` — the full maintenance pass runs unless specific steps are disabled.
+
+| Property             | Type                                                                    | Description                                                                              |
+| -------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `skipDecay`          | `boolean \| undefined`                                                  | Skip the temporal decay step. Default: false.                                            |
+| `skipConsolidation`  | `boolean \| undefined`                                                  | Skip the memory consolidation step. Default: false.                                      |
+| `skipReconciliation` | `boolean \| undefined`                                                  | Skip the cross-DB orphaned reference reconciliation step. Default: false.                |
+| `skipEmbeddings`     | `boolean \| undefined`                                                  | Skip the embedding backfill step. Default: false.                                        |
+| `onProgress`         | `((step: string, current: number, total: number) => void) \| undefined` | Progress callback invoked before each step starts and after completion of each sub-item. |
+
+### `ClaudeMemMigrationOptions`
+
+Options for the claude-mem migration.
+
+| Property     | Type                   | Description                                                   |
+| ------------ | ---------------------- | ------------------------------------------------------------- |
+| `sourcePath` | `string \| undefined`  | Path to claude-mem.db. Default: \~/.claude-mem/claude-mem.db  |
+| `project`    | `string \| undefined`  | Project tag for imported entries.                             |
+| `dryRun`     | `boolean \| undefined` | If true, count what would be imported without inserting.      |
+| `batchSize`  | `number \| undefined`  | Number of rows to insert per transaction batch. Default: 100. |
+
+### `MigrationOptions`
+
+Options for migration.
+
+| Property | Type                   | Description |
+| -------- | ---------------------- | ----------- |
+| `force`  | `boolean \| undefined` | force       |
+| `dryRun` | `boolean \| undefined` | dryRun      |
+
+### `SkillsPrecedenceConfig`
+
+Configuration for skill precedence resolution across providers.
+
+| Property            | Type                                            | Description                                                        |
+| ------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| `defaultPrecedence` | `SkillsPrecedence \| undefined`                 | Default precedence mode when no provider-specific override exists. |
+| `providerOverrides` | `Record<string, SkillsPrecedence> \| undefined` | Per-provider precedence overrides (provider ID - precedence).      |
+
+### `WorkflowExecutorConfig`
+
+Configuration options for the workflow executor.
+
+| Property                   | Type                  | Description                                                               |
+| -------------------------- | --------------------- | ------------------------------------------------------------------------- |
+| `maxDiscretionEvaluations` | `number \| undefined` | Maximum number of discretion evaluations per workflow run (default: 100). |
+| `sessionId`                | `string \| undefined` | The session ID for this execution.                                        |
+| `agentId`                  | `string \| undefined` | The agent ID performing the execution.                                    |
+
+### `FindResumableOptions`
+
+Options for finding resumable pipelines.   T4805
+
+| Property         | Type                                                                                                                                                                        | Description                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `taskIds`        | `string[] \| undefined`                                                                                                                                                     | Filter by specific task IDs                   |
+| `stages`         | `("research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release")[] \| undefined` | Filter by stages                              |
+| `includeBlocked` | `boolean \| undefined`                                                                                                                                                      | Include blocked pipelines                     |
+| `includeAborted` | `boolean \| undefined`                                                                                                                                                      | Include aborted pipelines                     |
+| `limit`          | `number \| undefined`                                                                                                                                                       | Maximum results                               |
+| `minPriority`    | `"high" \| "medium" \| "low" \| "critical" \| undefined`                                                                                                                    | Minimum priority (tasks with priority = this) |
+
+### `SessionResumeCheckOptions`
+
+Options for session start with resume check.   T4805
+
+| Property         | Type                                                          | Description                                  |
+| ---------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| `autoResume`     | `boolean \| undefined`                                        | Whether to auto-resume if only one candidate |
+| `scope`          | `{ type: "epic" \| "global"; epicId?: string; } \| undefined` | Scope to filter resumable pipelines          |
+| `minPriority`    | `"high" \| "medium" \| "low" \| "critical" \| undefined`      | Minimum priority to consider                 |
+| `includeBlocked` | `boolean \| undefined`                                        | Whether to include blocked pipelines         |
+
+### `ImportOptions`
+
+Import options for logging context.
+
+| Property      | Type                   | Description |
+| ------------- | ---------------------- | ----------- |
+| `parent`      | `string \| undefined`  | parent      |
+| `phase`       | `string \| undefined`  | phase       |
+| `resetStatus` | `boolean \| undefined` | resetStatus |
+
+### `CliOutputOptions`
+
+| Property     | Type                                                                                  | Description                                             |
+| ------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `command`    | `string`                                                                              | Command name (used to pick the correct human renderer). |
+| `message`    | `string \| undefined`                                                                 | Optional success message for JSON envelope.             |
+| `operation`  | `string \| undefined`                                                                 | Operation name for LAFS \_meta.                         |
+| `page`       | `import("/mnt/projects/cleocode/packages/lafs/dist/src/types").LAFSPage \| undefined` | Pagination for LAFS envelope.                           |
+| `extensions` | `Record<string, unknown> \| undefined`                                                | Extra LAFS extensions.                                  |
+
+### `DispatcherConfig`
+
+| Property      | Type                         | Description |
+| ------------- | ---------------------------- | ----------- |
+| `handlers`    | `Map<string, DomainHandler>` | handlers    |
+| `middlewares` | `Middleware[] \| undefined`  | middlewares |
+
+### `BackgroundJobManagerConfig`
+
+Configuration for BackgroundJobManager
+
+| Property      | Type                  | Description |
+| ------------- | --------------------- | ----------- |
+| `maxJobs`     | `number \| undefined` | maxJobs     |
+| `retentionMs` | `number \| undefined` | retentionMs |
+
+### `RateLimitConfig`
+
+Per-category rate limit thresholds.
+
+| Property      | Type     | Description                                           |
+| ------------- | -------- | ----------------------------------------------------- |
+| `maxRequests` | `number` | Maximum number of requests allowed within the window. |
+| `windowMs`    | `number` | Sliding window duration in milliseconds.              |
+
+### `RateLimitingConfig`
+
+Full rate limiting configuration across all categories.
+
+| Property  | Type              | Description                                    |
+| --------- | ----------------- | ---------------------------------------------- |
+| `enabled` | `boolean`         | Whether rate limiting is active.               |
+| `query`   | `RateLimitConfig` | Limits for read-only query operations.         |
+| `mutate`  | `RateLimitConfig` | Limits for mutate (write) operations.          |
+| `spawn`   | `RateLimitConfig` | Limits for spawn (subagent launch) operations. |
+
+### `LifecycleEnforcementConfig`
+
+Lifecycle enforcement configuration (Section 12.2)
+
+| Property          | Type                              | Description                                                |
+| ----------------- | --------------------------------- | ---------------------------------------------------------- |
+| `mode`            | `"strict" \| "advisory" \| "off"` | Enforcement mode: strict blocks, advisory warns, off skips |
+| `allowSkip`       | `string[]`                        | Stages that may be skipped without failing gates           |
+| `emergencyBypass` | `boolean`                         | Emergency bypass flag - disables all gate checks           |
+
+### `ProtocolValidationConfig`
+
+Protocol validation configuration (Section 12.3)
+
+| Property           | Type      | Description                             |
+| ------------------ | --------- | --------------------------------------- |
+| `strictMode`       | `boolean` | Enable strict protocol validation       |
+| `blockOnViolation` | `boolean` | Block operations on protocol violations |
+| `logViolations`    | `boolean` | Log protocol violations to audit trail  |
+
+### `DispatchConfig`
+
+| Property               | Type                                     | Description                                        |
+| ---------------------- | ---------------------------------------- | -------------------------------------------------- |
+| `cliPath`              | `string`                                 | Path to CLEO CLI binary (default: 'cleo')          |
+| `timeout`              | `number`                                 | Operation timeout in milliseconds (default: 30000) |
+| `logLevel`             | `"error" \| "warn" \| "info" \| "debug"` | Logging verbosity level (default: 'info')          |
+| `enableMetrics`        | `boolean`                                | Enable token tracking metrics (default: false)     |
+| `maxRetries`           | `number`                                 | Retry count for failed operations (default: 3)     |
+| `queryCache`           | `boolean`                                | Enable query cache (default: true)                 |
+| `queryCacheTtl`        | `number`                                 | Query cache TTL in milliseconds (default: 30000)   |
+| `auditLog`             | `boolean`                                | Enable audit logging (default: true)               |
+| `strictValidation`     | `boolean`                                | Strict validation mode (default: true)             |
+| `lifecycleEnforcement` | `LifecycleEnforcementConfig`             | Lifecycle enforcement configuration (Section 12.2) |
+| `protocolValidation`   | `ProtocolValidationConfig`               | Protocol validation configuration (Section 12.3)   |
+| `rateLimiting`         | `RateLimitingConfig`                     | Rate limiting configuration (Section 13.3)         |
+
+### `MCPConfig`
+
+Alias for DispatchConfig.
+
+### `ProgressOptions`
+
+| Property  | Type                  | Description                                                         |
+| --------- | --------------------- | ------------------------------------------------------------------- |
+| `enabled` | `boolean`             | Whether to show progress (true for human mode, false for JSON mode) |
+| `prefix`  | `string \| undefined` | Prefix for progress messages                                        |
+
+### `ProjectionConfig`
+
+Configuration for a single MVI projection tier.
+
+| Property         | Type                    | Description                      |
+| ---------------- | ----------------------- | -------------------------------- |
+| `allowedDomains` | `string[]`              | Operations allowed at this tier  |
+| `excludeFields`  | `string[] \| undefined` | Fields to exclude from responses |
+| `maxDepth`       | `number \| undefined`   | Maximum depth for nested objects |
+
+### `InstallOptions`
+
+| Property     | Type                   | Description |
+| ------------ | ---------------------- | ----------- |
+| `projectDir` | `string`               | projectDir  |
+| `global`     | `boolean \| undefined` | global      |
+
+### `ReconcileOptions`
+
+Options for the reconciliation engine.
+
+| Property         | Type                          | Description                                          |
+| ---------------- | ----------------------------- | ---------------------------------------------------- |
+| `providerId`     | `string`                      | Provider ID (e.g. 'linear', 'jira', 'github').       |
+| `cwd`            | `string \| undefined`         | Working directory (project root).                    |
+| `dryRun`         | `boolean \| undefined`        | If true, compute actions without applying them.      |
+| `conflictPolicy` | `ConflictPolicy \| undefined` | Conflict resolution policy. Defaults to 'cleo-wins'. |
+| `defaultPhase`   | `string \| undefined`         | Default phase for newly created tasks.               |
+| `defaultLabels`  | `string[] \| undefined`       | Default labels for newly created tasks.              |
+
+### `TransportConfig`
+
+Transport-specific configuration stored per agent credential.
+
+| Property             | Type                  | Description                                                          |
+| -------------------- | --------------------- | -------------------------------------------------------------------- |
+| `pollIntervalMs`     | `number \| undefined` | Polling interval in milliseconds (for HTTP polling transport).       |
+| `sseEndpoint`        | `string \| undefined` | SSE endpoint URL (for Server-Sent Events transport).                 |
+| `wsUrl`              | `string \| undefined` | WebSocket URL (for WebSocket transport).                             |
+| `pollEndpoint`       | `string \| undefined` | HTTP polling endpoint path (for HTTP polling transport).             |
+| `apiBaseUrlFallback` | `string \| undefined` | Fallback API base URL (used when primary apiBaseUrl is unreachable). |
+
+### `ConduitSendOptions`
+
+Options for sending a message.
+
+| Property   | Type                                   | Description                    |
+| ---------- | -------------------------------------- | ------------------------------ |
+| `tags`     | `string[] \| undefined`                | Tags to attach to the message. |
+| `threadId` | `string \| undefined`                  | Thread ID for threading.       |
+| `groupId`  | `string \| undefined`                  | Group ID to send to a group.   |
+| `metadata` | `Record<string, unknown> \| undefined` | Arbitrary metadata.            |
+
+### `ConduitConfig`
+
+Configuration for creating a Conduit instance.
+
+| Property         | Type                  | Description                                                                 |
+| ---------------- | --------------------- | --------------------------------------------------------------------------- |
+| `agentId`        | `string`              | Agent ID to connect as.                                                     |
+| `apiBaseUrl`     | `string \| undefined` | API base URL (for cloud implementations).                                   |
+| `apiKey`         | `string \| undefined` | API key for authentication.                                                 |
+| `pollIntervalMs` | `number \| undefined` | Poll interval in milliseconds (for polling implementations). Default: 5000. |
+| `wsUrl`          | `string \| undefined` | WebSocket URL (for local SignalDock implementations).                       |
+
+### `TransportConnectConfig`
+
+Configuration passed to Transport.connect().
+
+| Property     | Type     | Description                    |
+| ------------ | -------- | ------------------------------ |
+| `agentId`    | `string` | Agent ID to connect as.        |
+| `apiKey`     | `string` | API key for authentication.    |
+| `apiBaseUrl` | `string` | Base URL of the messaging API. |
+
+### `OutputConfig`
+
+Output configuration.
+
+| Property           | Type           | Description                                                    |
+| ------------------ | -------------- | -------------------------------------------------------------- |
+| `defaultFormat`    | `OutputFormat` | Default output format for CLI responses.                       |
+| `showColor`        | `boolean`      | Whether to use ANSI color codes in terminal output.            |
+| `showUnicode`      | `boolean`      | Whether to use Unicode symbols (checkmarks, arrows) in output. |
+| `showProgressBars` | `boolean`      | Whether to display progress bars for long-running operations.  |
+| `dateFormat`       | `DateFormat`   | Date display format for timestamps in output.                  |
+
+### `BackupConfig`
+
+Backup configuration.
+
+| Property                | Type      | Description                                                               |
+| ----------------------- | --------- | ------------------------------------------------------------------------- |
+| `maxOperationalBackups` | `number`  | Maximum number of operational backups to retain during normal operations. |
+| `maxSafetyBackups`      | `number`  | Maximum number of safety backups to retain for disaster recovery.         |
+| `compressionEnabled`    | `boolean` | Whether to compress backup files to reduce disk usage.                    |
+
+### `HierarchyConfig`
+
+Hierarchy configuration.
+
+| Property             | Type                 | Description                                                         |
+| -------------------- | -------------------- | ------------------------------------------------------------------- |
+| `maxDepth`           | `number`             | Maximum nesting depth for task hierarchy (epic  task  subtask).     |
+| `maxSiblings`        | `number`             | Maximum number of sibling tasks under a single parent.              |
+| `cascadeDelete`      | `boolean`            | Whether deleting a parent cascades to all descendant tasks.         |
+| `maxActiveSiblings`  | `number`             | Maximum number of active (non-done) siblings. 0 = disabled.         |
+| `countDoneInLimit`   | `boolean`            | Whether done tasks count toward the sibling limit.                  |
+| `enforcementProfile` | `EnforcementProfile` | Enforcement profile preset. Explicit fields override preset values. |
+
+### `SessionConfig`
+
+Session configuration.
+
+| Property       | Type      | Description                                                |
+| -------------- | --------- | ---------------------------------------------------------- |
+| `autoStart`    | `boolean` | Whether to auto-start a session on first mutate operation. |
+| `requireNotes` | `boolean` | Whether session end requires at least one note.            |
+| `multiSession` | `boolean` | Whether multiple concurrent sessions are allowed.          |
+
+### `LoggingConfig`
+
+Logging configuration.
+
+| Property             | Type       | Description                                                                        |
+| -------------------- | ---------- | ---------------------------------------------------------------------------------- |
+| `level`              | `LogLevel` | Minimum log level to record (default: 'info')                                      |
+| `filePath`           | `string`   | Log file path relative to .cleo/ (default: 'logs/cleo.log')                        |
+| `maxFileSize`        | `number`   | Max log file size in bytes before rotation (default: 10MB)                         |
+| `maxFiles`           | `number`   | Number of rotated log files to retain (default: 5)                                 |
+| `auditRetentionDays` | `number`   | Days to retain audit\_log rows before pruning (default: 90)                        |
+| `archiveBeforePrune` | `boolean`  | Whether to archive pruned rows to compressed JSONL before deletion (default: true) |
+
+### `AcceptanceEnforcementConfig`
+
+Acceptance criteria enforcement settings.
+
+| Property                | Type                        | Description                        |
+| ----------------------- | --------------------------- | ---------------------------------- |
+| `mode`                  | `AcceptanceEnforcementMode` | Enforcement mode.                  |
+| `requiredForPriorities` | `string[]`                  | Task priorities that require AC.   |
+| `minimumCriteria`       | `number`                    | Minimum acceptance criteria count. |
+
+### `SessionEnforcementConfig`
+
+Session enforcement settings.
+
+| Property            | Type      | Description                                          |
+| ------------------- | --------- | ---------------------------------------------------- |
+| `requiredForMutate` | `boolean` | Whether mutate operations require an active session. |
+
+### `EnforcementConfig`
+
+Top-level enforcement configuration.
+
+| Property     | Type                          | Description                      |
+| ------------ | ----------------------------- | -------------------------------- |
+| `acceptance` | `AcceptanceEnforcementConfig` | Acceptance criteria enforcement. |
+| `session`    | `SessionEnforcementConfig`    | Session enforcement.             |
+
+### `VerificationConfig`
+
+Verification gate configuration.
+
+| Property        | Type       | Description                             |
+| --------------- | ---------- | --------------------------------------- |
+| `enabled`       | `boolean`  | Whether verification gates are enabled. |
+| `maxRounds`     | `number`   | Maximum verification rounds.            |
+| `requiredGates` | `string[]` | Gate names required for completion.     |
+
+### `LifecycleConfig`
+
+Lifecycle enforcement configuration.
+
+| Property | Type                       | Description                                                   |
+| -------- | -------------------------- | ------------------------------------------------------------- |
+| `mode`   | `LifecycleEnforcementMode` | Enforcement mode controlling how lifecycle rules are applied. |
+
+### `SharingConfig`
+
+Sharing configuration for multi-contributor .cleo/ state management.
+
+| Property          | Type          | Description                                                             |
+| ----------------- | ------------- | ----------------------------------------------------------------------- |
+| `mode`            | `SharingMode` | Sharing mode (default: 'none').                                         |
+| `commitAllowlist` | `string[]`    | Files/patterns in .cleo/ to commit to project git (relative to .cleo/). |
+| `denylist`        | `string[]`    | Files/patterns to always exclude, even if in commitAllowlist.           |
+
+### `BrainMemoryBridgeConfig`
+
+Brain memory bridge refresh configuration. Controls when `.cleo/memory-bridge.md` is automatically regenerated.   T134  T135
+
+| Property       | Type      | Description                                                                               |
+| -------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `autoRefresh`  | `boolean` | Whether to automatically regenerate memory-bridge.md on lifecycle events (default: true). |
+| `contextAware` | `boolean` | Whether to include scope-aware memory context in generated bridge (default: false).       |
+| `maxTokens`    | `number`  | Maximum token budget for memory bridge content (default: 2000).                           |
+
+### `BrainEmbeddingConfig`
+
+Brain embedding provider configuration.   T134  T136
+
+| Property   | Type                  | Description                                             |
+| ---------- | --------------------- | ------------------------------------------------------- |
+| `enabled`  | `boolean`             | Whether semantic embedding is enabled (default: false). |
+| `provider` | `"local" \| "openai"` | Embedding provider to use (default: 'local').           |
+
+### `BrainSummarizationConfig`
+
+Brain session summarization configuration.   T134  T140
+
+| Property  | Type      | Description                                                |
+| --------- | --------- | ---------------------------------------------------------- |
+| `enabled` | `boolean` | Whether session summarization is enabled (default: false). |
+
+### `BrainConfig`
+
+Brain (BRAIN memory system) configuration. Controls automated memory capture, embedding generation, memory bridge refresh behavior, and session summarization.   T134  T135
+
+| Property        | Type                       | Description                                                                                   |
+| --------------- | -------------------------- | --------------------------------------------------------------------------------------------- |
+| `autoCapture`   | `boolean`                  | Whether to automatically capture observations from lifecycle events (default: true).          |
+| `captureFiles`  | `boolean`                  | Whether to capture file change events (default: false).                                       |
+| `captureMcp`    | `boolean`                  | Unused. CLI dispatch only.                                                                    |
+| `captureWork`   | `boolean`                  | Whether to capture active-work dispatch mutations (tasks.add, tasks.update) (default: false). |
+| `embedding`     | `BrainEmbeddingConfig`     | Embedding provider settings.                                                                  |
+| `memoryBridge`  | `BrainMemoryBridgeConfig`  | Memory bridge auto-refresh settings.                                                          |
+| `summarization` | `BrainSummarizationConfig` | Session summarization settings.                                                               |
+
+### `SignalDockConfig`
+
+SignalDock integration configuration.
+
+| Property      | Type                                      | Description                                                                                  |
+| ------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `enabled`     | `boolean`                                 | Whether SignalDock transport is enabled (default: false).                                    |
+| `mode`        | `SignalDockMode`                          | Transport mode: 'http' for REST API client, 'native' for napi-rs bindings (default: 'http'). |
+| `endpoint`    | `string`                                  | SignalDock API server endpoint (default: '<http://localhost:4000>').                         |
+| `agentPrefix` | `string`                                  | Prefix for CLEO agent names in SignalDock registry (default: 'cleo-').                       |
+| `privacyTier` | `"public" \| "discoverable" \| "private"` | Default privacy tier for registered agents (default: 'private').                             |
+
+### `CleoConfig`
+
+CLEO project configuration (config.json).
+
+| Property       | Type                            | Description                                                              |
+| -------------- | ------------------------------- | ------------------------------------------------------------------------ |
+| `version`      | `string`                        | Configuration schema version string.                                     |
+| `output`       | `OutputConfig`                  | Output formatting preferences.                                           |
+| `backup`       | `BackupConfig`                  | Database backup retention and compression settings.                      |
+| `hierarchy`    | `HierarchyConfig`               | Task hierarchy depth and sibling constraints.                            |
+| `session`      | `SessionConfig`                 | Session auto-start and multi-session policies.                           |
+| `enforcement`  | `EnforcementConfig`             | Acceptance criteria and session enforcement rules.                       |
+| `verification` | `VerificationConfig`            | Verification gate pipeline settings.                                     |
+| `lifecycle`    | `LifecycleConfig`               | Task lifecycle enforcement mode.                                         |
+| `logging`      | `LoggingConfig`                 | Log level, rotation, and audit retention settings.                       |
+| `sharing`      | `SharingConfig`                 | Multi-contributor `.cleo/` state sharing settings.                       |
+| `signaldock`   | `SignalDockConfig \| undefined` | SignalDock inter-agent transport (optional, disabled by default).        |
+| `brain`        | `BrainConfig \| undefined`      | Brain memory system configuration (optional, uses defaults when absent). |
+
+### `ConfigSource`
+
+Configuration resolution priority.
+
+### `MemoryBridgeConfig`
+
+Memory bridge types for CLEO provider adapters. Defines the shape of .cleo/memory-bridge.md content for cross-provider memory sharing.   T5240
+
+| Property              | Type      | Description                                                     |
+| --------------------- | --------- | --------------------------------------------------------------- |
+| `maxObservations`     | `number`  | Maximum number of recent observations to include in the bridge. |
+| `maxLearnings`        | `number`  | Maximum number of key learnings to include.                     |
+| `maxPatterns`         | `number`  | Maximum number of patterns (follow/avoid) to include.           |
+| `maxDecisions`        | `number`  | Maximum number of recent decisions to include.                  |
+| `includeHandoff`      | `boolean` | Whether to include the last session handoff summary.            |
+| `includeAntiPatterns` | `boolean` | Whether to include anti-patterns alongside follow-patterns.     |
+
+### `SkillsConfigureParams`
+
+| Property | Type                      | Description |
+| -------- | ------------------------- | ----------- |
+| `name`   | `string`                  | name        |
+| `config` | `Record<string, unknown>` | config      |
+
+### `SkillsConfigureResult`
+
+| Property     | Type                      | Description |
+| ------------ | ------------------------- | ----------- |
+| `name`       | `string`                  | name        |
+| `configured` | `boolean`                 | configured  |
+| `config`     | `Record<string, unknown>` | config      |
+
+### `SystemConfigGetParams`
+
+| Property | Type     | Description |
+| -------- | -------- | ----------- |
+| `key`    | `string` | key         |
+
+### `SystemConfigGetResult`
+
+| Property | Type      | Description |
+| -------- | --------- | ----------- |
+| `key`    | `string`  | key         |
+| `value`  | `unknown` | value       |
+| `type`   | `string`  | type        |
+
+### `SystemConfigSetParams`
+
+| Property | Type      | Description |
+| -------- | --------- | ----------- |
+| `key`    | `string`  | key         |
+| `value`  | `unknown` | value       |
+
+### `SystemConfigSetResult`
+
+| Property        | Type      | Description   |
+| --------------- | --------- | ------------- |
+| `key`           | `string`  | key           |
+| `value`         | `unknown` | value         |
+| `previousValue` | `unknown` | previousValue |
+
+### `CAAMPSpawnOptions`
+
+CAAMP-compatible spawn options (inlined for zero-dep contracts).
+
+### `HybridSearchOptions`
+
+Options for hybrid (FTS + vector + graph) brain search.
+
+| Property      | Type                  | Description                                 |
+| ------------- | --------------------- | ------------------------------------------- |
+| `ftsWeight`   | `number \| undefined` | Weight for full-text search results (0-1).  |
+| `vecWeight`   | `number \| undefined` | Weight for vector similarity results (0-1). |
+| `graphWeight` | `number \| undefined` | Weight for graph-based results (0-1).       |
+| `limit`       | `number \| undefined` | Maximum number of results to return.        |
+
+### `RegisterAgentOptions`
+
+Options for registering a new agent instance.
+
+| Property        | Type                                                                                                     | Description                                     |
+| --------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Agent type classification.                      |
+| `sessionId`     | `string \| undefined`                                                                                    | Session to associate with.                      |
+| `taskId`        | `string \| undefined`                                                                                    | Task to associate with.                         |
+| `parentAgentId` | `string \| undefined`                                                                                    | Parent agent ID for hierarchical orchestration. |
+| `metadata`      | `Record<string, unknown> \| undefined`                                                                   | Arbitrary metadata.                             |
+
+### `CleoInitOptions`
+
+Options for initializing the Cleo facade.
+
+| Property | Type                        | Description                           |
+| -------- | --------------------------- | ------------------------------------- |
+| `store`  | `DataAccessor \| undefined` | Custom data accessor (store backend). |
+| `caamp`  | `boolean \| undefined`      | Enable CAAMP injection.               |
+
+### `BuildLafsExtensionOptions`
+
+Options for building the LAFS extension declaration
+
+| Property                | Type                   | Description                                              |
+| ----------------------- | ---------------------- | -------------------------------------------------------- |
+| `required`              | `boolean \| undefined` | Whether the LAFS extension is required for all requests. |
+| `supportsContextLedger` | `boolean \| undefined` | Whether the agent supports context ledger tracking.      |
+| `supportsTokenBudgets`  | `boolean \| undefined` | Whether the agent supports token budget enforcement.     |
+| `envelopeSchema`        | `string \| undefined`  | URL of the JSON Schema for the LAFS envelope.            |
+
+### `BuildExtensionOptions`
+
+Options for building a generic A2A extension declaration
+
+| Property      | Type                                   | Description                                                    |
+| ------------- | -------------------------------------- | -------------------------------------------------------------- |
+| `uri`         | `string`                               | Canonical URI identifying the extension                        |
+| `description` | `string`                               | Human-readable description of what the extension provides      |
+| `required`    | `boolean \| undefined`                 | Whether the extension is required for all requests.            |
+| `kind`        | `ExtensionKind`                        | Classification of the extension's behavior                     |
+| `params`      | `Record<string, unknown> \| undefined` | Additional parameters to include in the extension declaration. |
+
+### `ExtensionNegotiationMiddlewareOptions`
+
+Options for the extension negotiation middleware
+
+| Property          | Type                   | Description                                    |
+| ----------------- | ---------------------- | ---------------------------------------------- |
+| `extensions`      | `AgentExtension[]`     | Agent-declared extensions to negotiate against |
+| `enforceRequired` | `boolean \| undefined` | Return 400 if required extensions are missing. |
+
+### `ServiceConfig`
+
+Legacy service configuration.
+
+| Property      | Type                  | Description                 |
+| ------------- | --------------------- | --------------------------- |
+| `name`        | `string`              | Service name                |
+| `version`     | `string`              | Service version             |
+| `description` | `string \| undefined` | Human-readable description. |
+
+### `EndpointConfig`
+
+Legacy endpoint configuration.
+
+| Property    | Type                  | Description            |
+| ----------- | --------------------- | ---------------------- |
+| `envelope`  | `string`              | Envelope endpoint URL  |
+| `context`   | `string \| undefined` | Context endpoint URL.  |
+| `discovery` | `string`              | Discovery endpoint URL |
+
+### `DiscoveryConfig`
+
+Configuration for the discovery middleware (A2A v1.0 format).
+
+| Property                   | Type                                                                                                               | Description                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `agent`                    | `Omit<AgentCard, "$schema"> \| undefined`                                                                          | Agent information (required for A2A v1.0; omit only with legacy `service`).                                                   |
+| `baseUrl`                  | `string \| undefined`                                                                                              | Base URL for constructing absolute URLs.                                                                                      |
+| `cacheMaxAge`              | `number \| undefined`                                                                                              | Cache duration in seconds.                                                                                                    |
+| `schemaUrl`                | `string \| undefined`                                                                                              | Schema URL override.                                                                                                          |
+| `headers`                  | `Record<string, string> \| undefined`                                                                              | Optional custom response headers.                                                                                             |
+| `autoIncludeLafsExtension` | `boolean \| { required?: boolean; supportsContextLedger?: boolean; supportsTokenBudgets?: boolean; } \| undefined` | Automatically include LAFS as an A2A extension in Agent Card. Pass `true` for defaults, or an object to customize parameters. |
+| `service`                  | `ServiceConfig \| undefined`                                                                                       | Legacy service configuration.                                                                                                 |
+| `capabilities`             | `Capability[] \| undefined`                                                                                        | Legacy capabilities list.                                                                                                     |
+| `endpoints`                | `{ envelope: string; context?: string; discovery?: string; } \| undefined`                                         | Legacy endpoint URLs.                                                                                                         |
+| `lafsVersion`              | `string \| undefined`                                                                                              | Legacy LAFS version override.                                                                                                 |
+
+**Example**
+
+```typescript
+const config: DiscoveryConfig = {
+  agent: {
+    name: "my-agent",
+    description: "Example",
+    version: "1.0.0",
+    url: "https://api.example.com",
+    capabilities: { streaming: false },
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: [],
+  },
+  cacheMaxAge: 3600,
+};
+```
+
+### `DiscoveryMiddlewareOptions`
+
+Discovery middleware options.
+
+| Property           | Type                   | Description                             |
+| ------------------ | ---------------------- | --------------------------------------- |
+| `path`             | `string \| undefined`  | Primary path to serve Agent Card.       |
+| `legacyPath`       | `string \| undefined`  | Legacy path for backward compatibility. |
+| `enableLegacyPath` | `boolean \| undefined` | Enable legacy path support.             |
+| `enableHead`       | `boolean \| undefined` | Enable HEAD requests.                   |
+| `enableEtag`       | `boolean \| undefined` | Enable ETag caching.                    |
+
+**Example**
+
+```typescript
+const options: DiscoveryMiddlewareOptions = {
+  path: "/.well-known/agent-card.json",
+  enableEtag: true,
+};
+```
+
+### `TokenEstimatorOptions`
+
+Configuration options for the token estimator.
+
+| Property          | Type                  | Description                                                     |
+| ----------------- | --------------------- | --------------------------------------------------------------- |
+| `charsPerToken`   | `number \| undefined` | Characters per token ratio.                                     |
+| `maxDepth`        | `number \| undefined` | Maximum depth to traverse for circular reference detection.     |
+| `maxStringLength` | `number \| undefined` | Maximum string length to process for Unicode grapheme counting. |
+
+**Example**
+
+```typescript
+const opts: TokenEstimatorOptions = {
+  charsPerToken: 3.5,
+  maxDepth: 50,
+};
+```
+
+### `BudgetEnforcementOptions`
+
+Options controlling token-budget enforcement behaviour.
+
+### `EnvelopeConformanceOptions`
+
+Options for configuring envelope conformance checking.
+
+| Property | Type                           | Description                               |
+| -------- | ------------------------------ | ----------------------------------------- |
+| `tier`   | `ConformanceTier \| undefined` | The conformance tier to filter checks by. |
+
+### `EnforceComplianceOptions`
+
+Options controlling which compliance stages are executed.
+
+| Property            | Type                     | Description                                                         |
+| ------------------- | ------------------------ | ------------------------------------------------------------------- |
+| `checkConformance`  | `boolean \| undefined`   | Whether to run envelope conformance checks after schema validation. |
+| `checkFlags`        | `boolean \| undefined`   | Whether to run flag conformance checks.                             |
+| `flags`             | `FlagInput \| undefined` | Flag input to validate when `checkFlags` is enabled.                |
+| `requireJsonOutput` | `boolean \| undefined`   | When true, asserts that the resolved output format is JSON.         |
+
+### `ParseLafsResponseOptions`
+
+Options for `parseLafsResponse`.
+
+| Property                     | Type                   | Description                                                                                                       |
+| ---------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `requireRegisteredErrorCode` | `boolean \| undefined` | When `true`, unregistered error codes cause an additional `Error` to be thrown instead of the normal `LafsError`. |
+
+### `LafsA2AConfig`
+
+Configuration for LAFS A2A integration.
+
+| Property            | Type                                                                         | Description                                                |
+| ------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `defaultBudget`     | `{ maxTokens?: number; maxItems?: number; maxBytes?: number; } \| undefined` | Default token budget for all operations.                   |
+| `envelopeResponses` | `boolean \| undefined`                                                       | Whether to automatically wrap responses in LAFS envelopes. |
+| `protocolVersion`   | `string \| undefined`                                                        | A2A protocol version to use.                               |
+| `defaultExtensions` | `string[] \| undefined`                                                      | Extension URIs to activate for all requests.               |
+
+### `CreateTaskOptions`
+
+Options for creating a new task
+
+| Property           | Type                                   | Description                                                     |
+| ------------------ | -------------------------------------- | --------------------------------------------------------------- |
+| `contextId`        | `string \| undefined`                  | Context ID for grouping related tasks.                          |
+| `metadata`         | `Record<string, unknown> \| undefined` | Arbitrary metadata to attach to the task.                       |
+| `referenceTaskIds` | `string[] \| undefined`                | IDs of parent tasks this task refines or follows up on.         |
+| `parallelFollowUp` | `boolean \| undefined`                 | Whether this follow-up can run in parallel with its references. |
+
+### `ListTasksOptions`
+
+Options for listing tasks
+
+| Property    | Type                     | Description                                      |
+| ----------- | ------------------------ | ------------------------------------------------ |
+| `contextId` | `string \| undefined`    | Filter tasks by context ID.                      |
+| `state`     | `TaskState \| undefined` | Filter tasks by current state.                   |
+| `limit`     | `number \| undefined`    | Maximum number of tasks to return.               |
+| `pageToken` | `string \| undefined`    | Cursor token for pagination (last seen task ID). |
+
+### `StreamIteratorOptions`
+
+Options for the stream task events async iterator
+
+| Property    | Type                  | Description                                                 |
+| ----------- | --------------------- | ----------------------------------------------------------- |
+| `timeoutMs` | `number \| undefined` | Timeout in milliseconds before the iterator yields control. |
+
+### `CircuitBreakerConfig`
+
+Configuration options for a `CircuitBreaker` instance.
+
+| Property           | Type                  | Description                                                                   |
+| ------------------ | --------------------- | ----------------------------------------------------------------------------- |
+| `name`             | `string`              | Unique identifier for this circuit breaker, used in log messages and metrics. |
+| `failureThreshold` | `number \| undefined` | Number of failures required to trip the circuit from CLOSED to OPEN.          |
+| `resetTimeout`     | `number \| undefined` | Milliseconds to wait before transitioning from OPEN to HALF\_OPEN.            |
+| `halfOpenMaxCalls` | `number \| undefined` | Maximum number of trial calls allowed while in the HALF\_OPEN state.          |
+| `successThreshold` | `number \| undefined` | Consecutive successes required in HALF\_OPEN to close the circuit.            |
+
+### `HealthCheckConfig`
+
+Configuration for the `healthCheck` middleware.
+
+| Property | Type                                 | Description                                                    |
+| -------- | ------------------------------------ | -------------------------------------------------------------- |
+| `path`   | `string \| undefined`                | URL path at which the health endpoint is mounted.              |
+| `checks` | `HealthCheckFunction[] \| undefined` | Array of custom health check functions to run on each request. |
+
+### `GracefulShutdownConfig`
+
+Configuration for the `gracefulShutdown` handler.
+
+| Property     | Type                                         | Description                                                                               |
+| ------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `timeout`    | `number \| undefined`                        | Maximum time in milliseconds to wait for in-flight requests before forcing exit.          |
+| `signals`    | `NodeJS.Signals[] \| undefined`              | POSIX signals that trigger a graceful shutdown.                                           |
+| `onShutdown` | `(() => Promise<void> \| void) \| undefined` | Callback invoked at the start of shutdown, before the server stops accepting connections. |
+| `onClose`    | `(() => Promise<void> \| void) \| undefined` | Callback invoked after all connections have closed (or the timeout elapsed).              |
+
+### `AgentPollerConfig`
+
+Poller configuration.
+
+| Property               | Type                     | Description                                                                                                                                                                              |
+| ---------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentId`              | `string`                 | Agent ID to poll as.                                                                                                                                                                     |
+| `apiKey`               | `string`                 | API key for authentication.                                                                                                                                                              |
+| `apiBaseUrl`           | `string`                 | API base URL.                                                                                                                                                                            |
+| `pollIntervalMs`       | `number \| undefined`    | Poll interval in milliseconds. Default: 5000.                                                                                                                                            |
+| `groupConversationIds` | `string[] \| undefined`  | Known group conversation IDs to monitor for mentions.                                                                                                                                    |
+| `groupPollLimit`       | `number \| undefined`    | Max messages to fetch per group conversation poll. Default: 15.                                                                                                                          |
+| `transport`            | `Transport \| undefined` | Transport instance for polling messages. When provided, poll() delegates to transport.poll() instead of raw HTTP. The transport must already be connected before passing to AgentPoller. |
+
+### `HeartbeatConfig`
+
+Heartbeat service configuration.
+
+| Property     | Type                  | Description                                               |
+| ------------ | --------------------- | --------------------------------------------------------- |
+| `agentId`    | `string`              | Agent ID to send heartbeats for.                          |
+| `apiKey`     | `string`              | API key for authentication.                               |
+| `apiBaseUrl` | `string`              | API base URL.                                             |
+| `intervalMs` | `number \| undefined` | Heartbeat interval in milliseconds. Default: 30000 (30s). |
+
+### `KeyRotationConfig`
+
+Key rotation service configuration.
+
+| Property          | Type                  | Description                                                                 |
+| ----------------- | --------------------- | --------------------------------------------------------------------------- |
+| `agentId`         | `string`              | Agent ID to monitor.                                                        |
+| `registry`        | `AgentRegistryAPI`    | AgentRegistryAPI instance for credential lookup and rotation.               |
+| `checkIntervalMs` | `number \| undefined` | Check interval in milliseconds. Default: 3600000 (1 hour).                  |
+| `maxKeyAgeMs`     | `number \| undefined` | Max key age in milliseconds before rotation. Default: 2592000000 (30 days). |
+
+### `SseConnectionConfig`
+
+SSE connection service configuration.
+
+| Property      | Type                  | Description                                           |
+| ------------- | --------------------- | ----------------------------------------------------- |
+| `agentId`     | `string`              | Agent ID to connect as.                               |
+| `apiKey`      | `string`              | API key for authentication.                           |
+| `apiBaseUrl`  | `string`              | API base URL.                                         |
+| `sseEndpoint` | `string \| undefined` | SSE endpoint URL. If omitted, uses apiBaseUrl + /sse. |
+| `transport`   | `Transport`           | Transport instance to use. Injected by createRuntime. |
+
+### `RuntimeConfig`
+
+Configuration for createRuntime().
+
+| Property               | Type                                                           | Description                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentId`              | `string \| undefined`                                          | Agent ID to run as. If omitted, uses the most recently used active agent.                                                                            |
+| `pollIntervalMs`       | `number \| undefined`                                          | Poll interval in milliseconds. Default: 5000.                                                                                                        |
+| `groupConversationIds` | `string[] \| undefined`                                        | Known group conversation IDs to monitor for mentions.                                                                                                |
+| `groupPollLimit`       | `number \| undefined`                                          | Max messages per group conversation poll. Default: 15.                                                                                               |
+| `heartbeatIntervalMs`  | `number \| undefined`                                          | Heartbeat interval in milliseconds. Default: 30000. Set to 0 to disable.                                                                             |
+| `maxKeyAgeMs`          | `number \| undefined`                                          | Max key age in milliseconds before rotation. Default: 30 days. Set to 0 to disable.                                                                  |
+| `sseEndpoint`          | `string \| undefined`                                          | SSE endpoint URL. If set, enables persistent SSE connection.                                                                                         |
+| `createSseTransport`   | `(() => import("@cleocode/contracts").Transport) \| undefined` | Transport factory for SSE connection. Caller provides to avoid circular deps.                                                                        |
+| `transport`            | `Transport \| undefined`                                       | Pre-created transport instance. When provided, bypasses auto-resolution. The transport must NOT be connected yet — createRuntime handles connection. |
+
+{/* FORGE:AUTO-END guide-configuration */}

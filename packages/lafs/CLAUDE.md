@@ -46,7 +46,8 @@ All modules are re-exported from `src/index.ts`:
 | **Core** | |
 | `types.ts` | Core types: `LAFSEnvelope`, `LAFSError`, `LAFSMeta`, `LAFSTransport`, `LAFSErrorCategory`, `MVILevel`, `LAFSAgentAction`, `LAFSPage`, `ContextLedger`, `Warning`, budget types |
 | `envelope.ts` | Envelope builder: `createEnvelope()`, `createSuccessEnvelope()`, `createErrorEnvelope()`, `CATEGORY_ACTION_MAP`, error normalization with registry lookup |
-| `validateEnvelope.ts` | AJV-based schema validation: `validateEnvelope()`, `assertEnvelope()` |
+| `validateEnvelope.ts` | Schema validation: `validateEnvelope()`, `assertEnvelope()`. Native Rust validator (lafs-napi) with AJV fallback. |
+| `native-loader.ts` | Lazy loader for the napi-rs native validator binary with graceful AJV fallback |
 | `errorRegistry.ts` | Error code lookup: `getErrorRegistry()`, `isRegisteredErrorCode()`, `getRegistryCode()`, `getTransportMapping()`, `getAgentAction()`, `getDocUrl()` |
 | **Flags and Format Resolution** | |
 | `flagSemantics.ts` | Single-layer format resolver (section 5.1-5.3): `resolveOutputFormat()`, `LAFSFlagError`, precedence: explicit flag > project config > user config > TTY detection > default (json) |
@@ -63,7 +64,6 @@ All modules are re-exported from `src/index.ts`:
 | `deprecationRegistry.ts` | Deprecation detector: `detectDeprecatedEnvelopeFields()`, `getDeprecationRegistry()` |
 | **Interoperability** | |
 | `problemDetails.ts` | RFC 9457 Problem Details bridge: `lafsErrorToProblemDetails()`, converts LAFSError to RFC 9457 objects |
-| ~~`mcpAdapter.ts`~~ | _(removed — MCP adapter eliminated in Phase 2 production readiness)_ |
 | `discovery.ts` | Express middleware for A2A Agent Card at `/.well-known/agent-card.json` with `autoIncludeLafsExtension`, backward compat with `/.well-known/lafs.json` |
 | `cli.ts` | CLI entry point (`lafs-conformance` binary) |
 | **Operations and Reliability** | |
@@ -122,7 +122,8 @@ All modules are re-exported from `src/index.ts`:
 
 ### Dependencies
 
-- **Runtime**: `ajv`, `ajv-formats` (schema validation), `@a2a-js/sdk` (A2A protocol), `express` (middleware)
+- **Runtime**: `ajv`, `ajv-formats` (schema validation fallback when native binding unavailable), `@a2a-js/sdk` (A2A protocol), `express` (middleware)
+- **Native (optional)**: `lafs-napi` Rust crate provides native schema validation via napi-rs. Built with `cargo build --release -p lafs-napi`. The TypeScript layer falls back to AJV when the binary isn't present.
 - **Dev**: `typescript`, `vitest`, `tsx`, `supertest`, `@types/node`, `@types/express`, `@types/supertest`
 
 ## Tests

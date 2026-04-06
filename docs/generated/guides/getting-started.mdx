@@ -1,0 +1,1685 @@
+---
+title: Getting Started
+description: Key entry-point functions to get started with the library.
+---
+
+Key entry-point functions to get started with the library.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-getting-started */}
+
+## Key Functions
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => ClaudeCodeAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/claude-code';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => CodexAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/codex';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => CursorAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/cursor';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => GeminiCliAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/gemini-cli';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => KimiAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/kimi';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### createAdapter()
+
+Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.
+
+```typescript
+() => OpenCodeAdapter
+```
+
+**Example**
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/opencode';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+### registerAdvancedCommands(program)
+
+Registers the `advanced` command group with providers, batch, and instructions subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced instructions --content "## Setup" --all
+```
+
+### readConfig(filePath, format)
+
+Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).
+
+```typescript
+(filePath: string, format: ConfigFormat) => Promise<Record<string, unknown>>
+```
+
+**Example**
+
+```typescript
+const config = await readConfig("/path/to/config.json", "jsonc");
+```
+
+### writeConfig(filePath, format, key, serverName, serverConfig)
+
+Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Example**
+
+```typescript
+await writeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server", config);
+```
+
+### removeConfig(filePath, format, key, serverName)
+
+Remove a server entry from a config file in the specified format.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string) => Promise<boolean>
+```
+
+**Example**
+
+```typescript
+const removed = await removeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server");
+```
+
+### registerInstructionsCommands(program)
+
+Registers the `instructions` command group with inject, check, and update subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp instructions inject --all
+caamp instructions check --human
+caamp instructions update --yes
+```
+
+### registerSkillsCommands(program)
+
+Registers the `skills` command group with all skill management subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp skills install owner/repo
+caamp skills list --human
+caamp skills find "testing"
+```
+
+### showSequence()
+
+Show current sequence state.
+
+```typescript
+(cwd?: string) => Promise<Record<string, unknown>>
+```
+
+### checkSequence()
+
+Check sequence integrity.
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<Record<string, unknown>>
+```
+
+### repairSequence()
+
+Repair sequence if behind.
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<RepairResult>
+```
+
+### allocateNextTaskId()
+
+Atomically allocate the next task ID via SQLite.  Uses BEGIN IMMEDIATE to guarantee no two concurrent callers receive the same ID, even across processes (WAL mode).  Falls back to repair+retry if the sequence counter is behind the actual max task ID (e.g., stale counter from installations that never incremented it).   T5184
+
+```typescript
+(cwd?: string, retryCount?: number) => Promise<string>
+```
+
+### getLifecycleState()
+
+Get the current lifecycle state for an epic.  T4467
+
+```typescript
+(epicId: string, cwd?: string) => Promise<RcasdManifest>
+```
+
+### startStage()
+
+Start a lifecycle stage.  T4467
+
+```typescript
+(epicId: string, stage: string, cwd?: string) => Promise<StageTransitionResult>
+```
+
+### completeStage()
+
+Complete a lifecycle stage.  T4467
+
+```typescript
+(epicId: string, stage: string, artifacts?: string[], cwd?: string) => Promise<StageTransitionResult>
+```
+
+### skipStage()
+
+Skip a lifecycle stage.  T4467
+
+```typescript
+(epicId: string, stage: string, reason: string, cwd?: string) => Promise<StageTransitionResult>
+```
+
+### checkGate()
+
+Check lifecycle gate before starting a stage.  T4467
+
+```typescript
+(epicId: string, targetStage: string, cwd?: string) => Promise<GateCheckResult>
+```
+
+### getLifecycleStatus()
+
+Get lifecycle status for an epic from SQLite. Returns stage progress, current/next stage, and blockers.  T4801 - SQLite-native implementation
+
+```typescript
+(epicId: string, cwd?: string) => Promise<{ epicId: string; title?: string; currentStage: Stage | null; stages: Array<{ stage: string; status: string; completedAt?: string; notes?: string; outputFile?: string; provenanceChain?: Record<string, unknown>; }>; nextStage: Stage | null; blockedOn: string[]; initialized: boolean; }>
+```
+
+### getLifecycleHistory()
+
+Get lifecycle history for an epic. Returns stage transitions and gate events sorted by timestamp. SQLite-native implementation - queries lifecycle\_stages and lifecycle\_gate\_results tables.  T4785  T4801
+
+```typescript
+(epicId: string, cwd?: string) => Promise<{ epicId: string; history: LifecycleHistoryEntry[]; }>
+```
+
+### getLifecycleGates()
+
+Get all gate statuses for an epic.  T4785
+
+```typescript
+(epicId: string, cwd?: string) => Promise<Record<string, Record<string, GateData>>>
+```
+
+### getStagePrerequisites()
+
+Get prerequisites for a target stage. Pure data function, no I/O.  T4785
+
+```typescript
+(targetStage: string) => { prerequisites: string[]; stageInfo: { stage: string; name: string; description: string; order: number; } | undefined; }
+```
+
+### checkStagePrerequisites()
+
+Check if a stage's prerequisites are met for an epic.  T4785
+
+```typescript
+(epicId: string, targetStage: string, cwd?: string) => Promise<{ epicId: string; targetStage: string; valid: boolean; canProgress: boolean; missingPrerequisites: string[]; issues: Array<{ stage: string; severity: string; message: string; }>; }>
+```
+
+### recordStageProgress()
+
+Record a stage status transition (progress/record). SQLite-native implementation - T4801  T4785  T4801
+
+```typescript
+(epicId: string, stage: string, status: string, notes?: string, cwd?: string) => Promise<{ epicId: string; stage: string; status: string; timestamp: string; }>
+```
+
+### skipStageWithReason()
+
+Skip a stage with a reason (engine-compatible).  T4785
+
+```typescript
+(epicId: string, stage: string, reason: string, cwd?: string) => Promise<{ epicId: string; stage: string; reason: string; timestamp: string; }>
+```
+
+### resetStage()
+
+Reset a stage to pending (emergency).  T4785
+
+```typescript
+(epicId: string, stage: string, reason: string, cwd?: string) => Promise<{ epicId: string; stage: string; reason: string; }>
+```
+
+### passGate()
+
+Mark a gate as passed. SQLite-native implementation - T4801  T4785  T4801
+
+```typescript
+(epicId: string, gateName: string, agent?: string, notes?: string, cwd?: string) => Promise<{ epicId: string; gateName: string; timestamp: string; }>
+```
+
+### failGate()
+
+Mark a gate as failed. SQLite-native implementation - T4801  T4785  T4801
+
+```typescript
+(epicId: string, gateName: string, reason?: string, cwd?: string) => Promise<{ epicId: string; gateName: string; reason?: string; timestamp: string; }>
+```
+
+### listEpicsWithLifecycle()
+
+List all epic IDs that have lifecycle data.  T4785
+
+```typescript
+(cwd?: string) => Promise<string[]>
+```
+
+### parseScope()
+
+Parse a scope string into a SessionScope.  T4463
+
+```typescript
+(scopeStr: string) => SessionScope
+```
+
+### readSessions()
+
+Read sessions from accessor or JSON file.  T4463
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<Session[]>
+```
+
+### saveSessions()
+
+Save sessions via accessor or JSON file.  T4463
+
+```typescript
+(sessions: Session[], cwd?: string, accessor?: DataAccessor) => Promise<void>
+```
+
+### startSession()
+
+Start a new session.  T4463
+
+```typescript
+(options: StartSessionOptions, cwd?: string, accessor?: DataAccessor) => Promise<Session>
+```
+
+### endSession()
+
+End a session.  T4463
+
+```typescript
+(options?: EndSessionOptions, cwd?: string, accessor?: DataAccessor) => Promise<Session>
+```
+
+### sessionStatus()
+
+Get current session status.  T4463
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<Session | null>
+```
+
+### resumeSession()
+
+Resume an existing session.  T4463
+
+```typescript
+(sessionId: string, cwd?: string, accessor?: DataAccessor) => Promise<Session>
+```
+
+### listSessions()
+
+List sessions with optional filtering.  T4463
+
+```typescript
+(options?: ListSessionsOptions, cwd?: string, accessor?: DataAccessor) => Promise<Session[]>
+```
+
+### gcSessions()
+
+Garbage collect old sessions. Marks orphaned sessions that have been active too long.  T4463
+
+```typescript
+(maxAgeHours?: number, cwd?: string, accessor?: DataAccessor) => Promise<{ orphaned: string[]; removed: string[]; }>
+```
+
+### listPhases()
+
+List all phases with status summaries.  T4464
+
+```typescript
+(_cwd?: string, accessor?: DataAccessor) => Promise<ListPhasesResult>
+```
+
+### showPhase()
+
+Show the current phase details.  T4464
+
+```typescript
+(slug?: string, _cwd?: string, accessor?: DataAccessor) => Promise<ShowPhaseResult>
+```
+
+### setPhase()
+
+Set the current project phase.  T4464
+
+```typescript
+(options: SetPhaseOptions, _cwd?: string, accessor?: DataAccessor) => Promise<SetPhaseResult>
+```
+
+### startPhase()
+
+Start a phase (pending - active).  T4464
+
+```typescript
+(slug: string, _cwd?: string, accessor?: DataAccessor) => Promise<{ phase: string; startedAt: string; }>
+```
+
+### completePhase()
+
+Complete a phase (active - completed).  T4464
+
+```typescript
+(slug: string, _cwd?: string, accessor?: DataAccessor) => Promise<{ phase: string; completedAt: string; }>
+```
+
+### advancePhase()
+
+Advance to the next phase.  T4464
+
+```typescript
+(force?: boolean, _cwd?: string, accessor?: DataAccessor) => Promise<AdvancePhaseResult>
+```
+
+### renamePhase()
+
+Rename a phase and update all task references.  T4464
+
+```typescript
+(oldName: string, newName: string, _cwd?: string, accessor?: DataAccessor) => Promise<RenamePhaseResult>
+```
+
+### deletePhase()
+
+Delete a phase with optional task reassignment.  T4464
+
+```typescript
+(slug: string, options?: { reassignTo?: string; force?: boolean; }, _cwd?: string, accessor?: DataAccessor) => Promise<DeletePhaseResult>
+```
+
+### mapCodebase()
+
+```typescript
+(projectRoot: string, options?: MapCodebaseOptions) => Promise<CodebaseMapResult>
+```
+
+### matchesPattern()
+
+Match a file path against a glob-like pattern. Supports: '\*' (single segment wildcard), '\*\*' (recursive wildcard), and trailing '/' for directory matching.  T4883
+
+```typescript
+(filePath: string, pattern: string) => boolean
+```
+
+### getSharingStatus()
+
+Get the sharing status: which .cleo/ files are tracked vs ignored, plus git sync state for Nexus multi-project visibility.
+
+```typescript
+(cwd?: string) => Promise<SharingStatus>
+```
+
+**Example**
+
+```typescript
+const status = await getSharingStatus('/path/to/project');
+console.log(status.mode);           // 'project'
+console.log(status.hasGit);         // true
+console.log(status.remotes);        // ['origin']
+console.log(status.pendingChanges); // false
+console.log(status.lastSync);       // '2026-03-21T18:00:00.000Z'
+```
+
+### syncGitignore()
+
+Sync the project .gitignore to match the sharing config. Adds/updates a managed section between CLEO markers.  T4883
+
+```typescript
+(cwd?: string) => Promise<{ updated: boolean; entriesCount: number; }>
+```
+
+### currentTask()
+
+Show current task work state.  T4462  T4750
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<TaskCurrentResult>
+```
+
+### startTask()
+
+Start working on a specific task.  T4462  T4750
+
+```typescript
+(taskId: string, cwd?: string, accessor?: DataAccessor) => Promise<TaskStartResult>
+```
+
+### stopTask()
+
+Stop working on the current task.  T4462  T4750
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<{ previousTask: string | null; }>
+```
+
+### getWorkHistory()
+
+Get task work history from session notes.  T4462  T4750
+
+```typescript
+(cwd?: string, accessor?: DataAccessor) => Promise<TaskWorkHistoryEntry[]>
+```
+
+### startOrchestration()
+
+Start an orchestrator session for an epic.  T4466
+
+```typescript
+(epicId: string, _cwd?: string, accessor?: DataAccessor) => Promise<OrchestratorSession>
+```
+
+### analyzeEpic()
+
+Analyze an epic's dependency structure.  T4466
+
+```typescript
+(epicId: string, cwd?: string, accessor?: DataAccessor) => Promise<AnalysisResult>
+```
+
+### getReadyTasks()
+
+Get parallel-safe ready tasks for an epic.  T4466
+
+```typescript
+(epicId: string, _cwd?: string, accessor?: DataAccessor) => Promise<TaskReadiness[]>
+```
+
+### getNextTask()
+
+Get the next task to work on for an epic.  T4466
+
+```typescript
+(epicId: string, cwd?: string, accessor?: DataAccessor) => Promise<TaskReadiness | null>
+```
+
+### prepareSpawn()
+
+Prepare a spawn context for a subagent.  T4466
+
+```typescript
+(taskId: string, _cwd?: string, accessor?: DataAccessor) => Promise<SpawnContext>
+```
+
+### validateSpawnOutput()
+
+Validate a subagent's output.  T4466
+
+```typescript
+(_taskId: string, output: { file?: string; manifestEntry?: boolean; }) => Promise<{ valid: boolean; errors: string[]; }>
+```
+
+### getOrchestratorContext()
+
+Get orchestrator context summary.  T4466
+
+```typescript
+(epicId: string, _cwd?: string, accessor?: DataAccessor) => Promise<{ epicId: string; epicTitle: string; totalTasks: number; completed: number; inProgress: number; blocked: number; pending: number; completionPercent: number; }>
+```
+
+### autoDispatch()
+
+Auto-dispatch: determine the protocol for a task based on metadata.  T4466
+
+```typescript
+(task: Task) => string
+```
+
+### resolveTokens()
+
+Resolve tokens in a prompt string.  T4466
+
+```typescript
+(prompt: string, context: Record<string, string>) => { resolved: string; unresolved: string[]; }
+```
+
+### getComplianceSummary()
+
+Get compliance summary.
+
+```typescript
+(opts: { since?: string; agent?: string; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### listComplianceViolations()
+
+List compliance violations.
+
+```typescript
+(opts: { severity?: string; since?: string; agent?: string; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### getComplianceTrend()
+
+Get compliance trend.
+
+```typescript
+(days?: number, cwd?: string) => Promise<Record<string, unknown>>
+```
+
+### auditEpicCompliance()
+
+Audit epic compliance.
+
+```typescript
+(epicId: string, opts: { since?: string; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### syncComplianceMetrics()
+
+Sync compliance metrics to a summary file.
+
+```typescript
+(opts: { force?: boolean; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### getSkillReliability()
+
+Get skill reliability stats.
+
+```typescript
+(opts: { global?: boolean; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### getValueMetrics()
+
+Get value metrics (T2833).
+
+```typescript
+(days?: number, cwd?: string) => Promise<Record<string, unknown>>
+```
+
+### getContextStatus()
+
+Get context status.
+
+```typescript
+(opts: { session?: string; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### checkContextThreshold()
+
+Check context threshold (returns exit code info).
+
+```typescript
+(opts: { session?: string; cwd?: string; }) => Promise<Record<string, unknown> & { exitCode?: number; }>
+```
+
+### listContextSessions()
+
+List all context state files.
+
+```typescript
+(cwd?: string) => Promise<Record<string, unknown>>
+```
+
+### injectTasks()
+
+Inject tasks for external consumption.
+
+```typescript
+(opts: { maxTasks?: number; focusedOnly?: boolean; phase?: string; output?: string; saveState?: boolean; dryRun?: boolean; cwd?: string; }, accessor?: DataAccessor) => Promise<Record<string, unknown>>
+```
+
+### addResearch(options, cwd, accessor)
+
+Add a research entry.
+
+```typescript
+(options: AddResearchOptions, cwd?: string, accessor?: DataAccessor) => Promise<ResearchEntry>
+```
+
+**Example**
+
+```typescript
+const entry = await addResearch({ taskId: 'T042', topic: 'Auth patterns' }, '/project', accessor);
+```
+
+### showResearch(researchId, cwd)
+
+Show a specific research entry.
+
+```typescript
+(researchId: string, cwd?: string) => Promise<ResearchEntry>
+```
+
+**Example**
+
+```typescript
+const entry = await showResearch('Rlk1abc2', '/project');
+```
+
+### listResearch(options, cwd)
+
+List research entries with optional filtering.
+
+```typescript
+(options?: ListResearchOptions, cwd?: string) => Promise<ResearchEntry[]>
+```
+
+**Example**
+
+```typescript
+const entries = await listResearch({ status: 'pending' }, '/project');
+```
+
+### pendingResearch(cwd)
+
+List pending research entries.
+
+```typescript
+(cwd?: string) => Promise<ResearchEntry[]>
+```
+
+**Example**
+
+```typescript
+const pending = await pendingResearch('/project');
+```
+
+### linkResearch(researchId, taskId, cwd, accessor)
+
+Link a research entry to a task.
+
+```typescript
+(researchId: string, taskId: string, cwd?: string, accessor?: DataAccessor) => Promise<{ researchId: string; taskId: string; }>
+```
+
+**Example**
+
+```typescript
+await linkResearch('Rlk1abc2', 'T050', '/project', accessor);
+```
+
+### updateResearch(researchId, updates, cwd)
+
+Update research findings.
+
+```typescript
+(researchId: string, updates: { findings?: string[]; sources?: string[]; status?: "pending" | "complete" | "partial"; }, cwd?: string) => Promise<ResearchEntry>
+```
+
+**Example**
+
+```typescript
+const entry = await updateResearch('Rlk1abc2', { status: 'complete', findings: ['JWT is used'] });
+```
+
+### statsResearch(cwd)
+
+Get research statistics.
+
+```typescript
+(cwd?: string) => Promise<{ total: number; byStatus: Record<string, number>; byTopic: Record<string, number>; }>
+```
+
+**Example**
+
+```typescript
+const stats = await statsResearch('/project');
+console.log(`${stats.total} entries, ${stats.byStatus.pending ?? 0} pending`);
+```
+
+### linksResearch(taskId, cwd)
+
+Get research entries linked to a specific task.
+
+```typescript
+(taskId: string, cwd?: string) => Promise<ResearchEntry[]>
+```
+
+**Example**
+
+```typescript
+const linked = await linksResearch('T042', '/project');
+```
+
+### archiveResearch(cwd)
+
+Archive old research entries by status. Moves 'complete' entries to an archive and keeps non-complete ones.
+
+```typescript
+(cwd?: string) => Promise<{ action: string; entriesArchived: number; entriesRemaining: number; }>
+```
+
+**Example**
+
+```typescript
+const result = await archiveResearch('/project');
+console.log(`Archived ${result.entriesArchived} entries`);
+```
+
+### readManifest(cwd)
+
+Read manifest entries from MANIFEST.jsonl.
+
+```typescript
+(cwd?: string) => Promise<ManifestEntry[]>
+```
+
+**Example**
+
+```typescript
+const entries = await readManifest('/project');
+```
+
+### appendManifest(entry, cwd)
+
+Append a manifest entry.
+
+```typescript
+(entry: ManifestEntry, cwd?: string) => Promise<void>
+```
+
+**Example**
+
+```typescript
+await appendManifest({ id: 'M001', file: 'report.md', ... }, '/project');
+```
+
+### queryManifest(options, cwd)
+
+Query manifest entries with filtering.
+
+```typescript
+(options?: ManifestQueryOptions, cwd?: string) => Promise<ManifestEntry[]>
+```
+
+**Example**
+
+```typescript
+const entries = await queryManifest({ status: 'completed', limit: 5 }, '/project');
+```
+
+### readExtendedManifest(cwd)
+
+Read all manifest entries as extended entries.
+
+```typescript
+(cwd?: string) => Promise<ExtendedManifestEntry[]>
+```
+
+**Example**
+
+```typescript
+const entries = await readExtendedManifest('/project');
+```
+
+### filterManifestEntries(entries, filter)
+
+Filter manifest entries by criteria.
+
+```typescript
+(entries: ExtendedManifestEntry[], filter: ResearchFilter) => ExtendedManifestEntry[]
+```
+
+**Example**
+
+```typescript
+const filtered = filterManifestEntries(entries, { status: 'completed', limit: 10 });
+```
+
+### showManifestEntry(researchId, cwd)
+
+Show a manifest entry by ID with optional file content.
+
+```typescript
+(researchId: string, cwd?: string) => Promise<ExtendedManifestEntry & { fileContent: string | null; fileExists: boolean; }>
+```
+
+**Example**
+
+```typescript
+const entry = await showManifestEntry('T042-auth-research', '/project');
+if (entry.fileExists) console.log(entry.fileContent);
+```
+
+### searchManifest(query, options, cwd)
+
+Search manifest entries by text with relevance scoring.
+
+```typescript
+(query: string, options?: { confidence?: number; limit?: number; }, cwd?: string) => Promise<Array<ExtendedManifestEntry & { relevanceScore: number; }>>
+```
+
+**Example**
+
+```typescript
+const results = await searchManifest('authentication', { limit: 5 }, '/project');
+```
+
+### pendingManifestEntries(epicId, cwd)
+
+Get pending manifest entries (partial, blocked, or needing followup).
+
+```typescript
+(epicId?: string, cwd?: string) => Promise<{ entries: ExtendedManifestEntry[]; total: number; byStatus: { partial: number; blocked: number; needsFollowup: number; }; }>
+```
+
+**Example**
+
+```typescript
+const { entries, total } = await pendingManifestEntries('T001', '/project');
+```
+
+### manifestStats(epicId, cwd)
+
+Get manifest-based research statistics.
+
+```typescript
+(epicId?: string, cwd?: string) => Promise<{ total: number; byStatus: Record<string, number>; byType: Record<string, number>; actionable: number; needsFollowup: number; averageFindings: number; }>
+```
+
+**Example**
+
+```typescript
+const stats = await manifestStats(undefined, '/project');
+console.log(`${stats.total} entries, ${stats.actionable} actionable`);
+```
+
+### linkManifestEntry(taskId, researchId, cwd)
+
+Link a manifest entry to a task (adds taskId to linked\_tasks array).
+
+```typescript
+(taskId: string, researchId: string, cwd?: string) => Promise<{ taskId: string; researchId: string; alreadyLinked: boolean; }>
+```
+
+**Example**
+
+```typescript
+const result = await linkManifestEntry('T042', 'M001', '/project');
+```
+
+### appendExtendedManifest(entry, cwd)
+
+Append an extended manifest entry. Validates required fields before appending.
+
+```typescript
+(entry: ExtendedManifestEntry, cwd?: string) => Promise<{ entryId: string; file: string; }>
+```
+
+**Example**
+
+```typescript
+const result = await appendExtendedManifest({ id: 'M002', ... }, '/project');
+```
+
+### archiveManifestEntries(beforeDate, cwd)
+
+Archive manifest entries older than a date.
+
+```typescript
+(beforeDate: string, cwd?: string) => Promise<{ archived: number; remaining: number; archiveFile: string; }>
+```
+
+**Example**
+
+```typescript
+const result = await archiveManifestEntries('2026-01-01', '/project');
+console.log(`Archived ${result.archived} entries`);
+```
+
+### findContradictions(cwd, params)
+
+Find manifest entries with overlapping topics but conflicting key\_findings.
+
+```typescript
+(cwd?: string, params?: { topic?: string; }) => Promise<ContradictionDetail[]>
+```
+
+**Example**
+
+```typescript
+const contradictions = await findContradictions('/project', { topic: 'auth' });
+```
+
+### findSuperseded(cwd, params)
+
+Identify research entries replaced by newer work on same topic.
+
+```typescript
+(cwd?: string, params?: { topic?: string; }) => Promise<SupersededDetail[]>
+```
+
+**Example**
+
+```typescript
+const superseded = await findSuperseded('/project');
+```
+
+### readProtocolInjection(protocolType, params, cwd)
+
+Read protocol injection content for a given protocol type.
+
+```typescript
+(protocolType: string, params?: { taskId?: string; variant?: string; }, cwd?: string) => Promise<{ protocolType: string; content: string; path: string; contentLength: number; estimatedTokens: number; taskId: string | null; variant: string | null; }>
+```
+
+**Example**
+
+```typescript
+const result = await readProtocolInjection('consensus', { taskId: 'T042' }, '/project');
+console.log(result.content);
+```
+
+### compactManifest(cwd)
+
+Compact MANIFEST.jsonl by removing duplicate/stale entries.
+
+```typescript
+(cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }>
+```
+
+**Example**
+
+```typescript
+const result = await compactManifest('/project');
+console.log(`Removed ${result.duplicatesRemoved} duplicates`);
+```
+
+### validateManifestEntries(taskId, cwd)
+
+Validate research entries for a task.
+
+```typescript
+(taskId: string, cwd?: string) => Promise<{ taskId: string; valid: boolean; entriesFound: number; issues: Array<{ entryId: string; issue: string; severity: "error" | "warning"; }>; errorCount: number; warningCount: number; }>
+```
+
+**Example**
+
+```typescript
+const result = await validateManifestEntries('T042', '/project');
+if (!result.valid) console.log(result.issues);
+```
+
+### detectVersion()
+
+Detect schema version from a data file.  T4468
+
+```typescript
+(data: unknown) => string
+```
+
+### compareSemver()
+
+Compare two version strings (X.Y.Z format, works for both semver and CalVer). Returns -1 if a  b, 0 if equal, 1 if a  b.  T4468
+
+```typescript
+(a: string, b: string) => number
+```
+
+### getMigrationStatus()
+
+Get migration status for all data files.  T4468
+
+```typescript
+(cwd?: string) => Promise<MigrationStatus>
+```
+
+### runMigration()
+
+Run migrations on a data file.  T4468
+
+```typescript
+(fileType: string, options?: { dryRun?: boolean; }, cwd?: string) => Promise<MigrationResult>
+```
+
+### runAllMigrations()
+
+Run all pending migrations.  T4468
+
+```typescript
+(options?: { dryRun?: boolean; }, cwd?: string) => Promise<MigrationResult[]>
+```
+
+### queryLogs()
+
+High-level query: discover files, parse, filter, paginate. Convenience wrapper combining all three layers.
+
+```typescript
+(filter?: LogFilter, options?: LogDiscoveryOptions, cwd?: string) => LogQueryResult
+```
+
+### streamLogs()
+
+Stream-based query for large log datasets. Yields matching entries one at a time. Respects limit. Does not support offset (streaming is forward-only).
+
+```typescript
+(filter?: LogFilter, options?: LogDiscoveryOptions, cwd?: string) => AsyncGenerator<PinoLogEntry>
+```
+
+### getLogSummary()
+
+Get a summary of log activity (counts by level, date range, subsystems). Reads all discovered files but does not return individual entries.
+
+```typescript
+(options?: LogDiscoveryOptions, cwd?: string) => LogSummary
+```
+
+### getOtelStatus()
+
+Get token tracking status.
+
+```typescript
+() => Promise<Record<string, unknown>>
+```
+
+### getOtelSummary()
+
+Get combined token usage summary.
+
+```typescript
+() => Promise<Record<string, unknown>>
+```
+
+### getOtelSessions()
+
+Get session-level token data.
+
+```typescript
+(opts: { session?: string; task?: string; }) => Promise<Record<string, unknown>>
+```
+
+### getOtelSpawns()
+
+Get spawn-level token data.
+
+```typescript
+(opts: { task?: string; epic?: string; }) => Promise<Record<string, unknown>>
+```
+
+### getRealTokenUsage()
+
+Get real token usage from Claude Code API.
+
+```typescript
+(opts: { session?: string; since?: string; }) => Promise<Record<string, unknown>>
+```
+
+### clearOtelData()
+
+Clear token tracking data with backup.
+
+```typescript
+() => Promise<Record<string, unknown>>
+```
+
+### getCurrentBranch()
+
+Get the current branch name in .cleo/.git.  T4884
+
+```typescript
+(cwd?: string) => Promise<string>
+```
+
+### addRemote()
+
+Add a git remote to .cleo/.git.  T4884
+
+```typescript
+(url: string, name?: string, cwd?: string) => Promise<void>
+```
+
+### removeRemote()
+
+Remove a git remote from .cleo/.git.  T4884
+
+```typescript
+(name?: string, cwd?: string) => Promise<void>
+```
+
+### listRemotes()
+
+List configured remotes in .cleo/.git.  T4884
+
+```typescript
+(cwd?: string) => Promise<RemoteInfo[]>
+```
+
+### push()
+
+Push .cleo/.git to a remote.  T4884
+
+```typescript
+(remote?: string, options?: { force?: boolean; setUpstream?: boolean; }, cwd?: string) => Promise<PushResult>
+```
+
+### pull()
+
+Pull from a remote into .cleo/.git. Uses rebase strategy to maintain clean history.  T4884
+
+```typescript
+(remote?: string, cwd?: string) => Promise<PullResult>
+```
+
+### getSyncStatus()
+
+Get the sync status between local .cleo/.git and remote.  T4884
+
+```typescript
+(remote?: string, cwd?: string) => Promise<{ ahead: number; behind: number; branch: string; remote: string; }>
+```
+
+### getRoadmap()
+
+Get roadmap from pending epics and CHANGELOG history.
+
+```typescript
+(opts: { includeHistory?: boolean; upcomingOnly?: boolean; cwd?: string; }, accessor?: DataAccessor) => Promise<Record<string, unknown>>
+```
+
+### exportSnapshot()
+
+Export current task state to a snapshot.  T4882
+
+```typescript
+(cwd?: string) => Promise<Snapshot>
+```
+
+### writeSnapshot()
+
+Write a snapshot to a file.  T4882
+
+```typescript
+(snapshot: Snapshot, outputPath: string) => Promise<void>
+```
+
+### readSnapshot()
+
+Read a snapshot from a file.  T4882
+
+```typescript
+(inputPath: string) => Promise<Snapshot>
+```
+
+### getDefaultSnapshotPath()
+
+Generate a default snapshot file path.  T4882
+
+```typescript
+(cwd?: string) => string
+```
+
+### importSnapshot()
+
+Import a snapshot into the local task database. Uses last-write-wins strategy: if a task exists locally and in the snapshot, the snapshot version wins only if its updatedAt is newer.  T4882
+
+```typescript
+(snapshot: Snapshot, cwd?: string) => Promise<ImportResult>
+```
+
+### getProjectStats()
+
+Get project statistics.
+
+```typescript
+(opts: { period?: string; verbose?: boolean; cwd?: string; }, accessor?: DataAccessor) => Promise<Record<string, unknown>>
+```
+
+### rankBlockedTask()
+
+Compute a ranking score for a blocked task. Higher score = more urgent = sort first.
+
+```typescript
+(task: Task, allTasks: Task[], focusTask: Task | null) => number
+```
+
+### getDashboard()
+
+Get project dashboard data.
+
+```typescript
+(opts: { compact?: boolean; period?: number; showCharts?: boolean; sections?: string[]; verbose?: boolean; quiet?: boolean; cwd?: string; blockedTasksLimit?: number; }, accessor?: DataAccessor) => Promise<Record<string, unknown>>
+```
+
+### getCompletionHistory()
+
+Get completion history data.
+
+```typescript
+(opts: { days?: number; since?: string; until?: string; cwd?: string; }) => Promise<Record<string, unknown>>
+```
+
+### generateAcFromDescription(title, description)
+
+Generate 3 baseline acceptance criteria from a task description. Uses simple text analysis — no LLM required.
+
+```typescript
+(title: string, description: string) => string[]
+```
+
+**Example**
+
+```ts
+generateAcFromDescription('Fix login bug', 'Users cannot log in');
+// => ['The defect is resolved...', 'No breaking changes...', 'Changes verified...']
+```
+
+### backfillTasks(projectRoot, options)
+
+Retroactively populate AC and verification metadata for tasks that lack them.
+
+```typescript
+(projectRoot: string, options?: BackfillOptions) => Promise<BackfillResult>
+```
+
+**Example**
+
+```ts
+const result = await backfillTasks('/my/project', { dryRun: true });
+console.log(result.changed); // number of tasks that would be modified
+```
+
+### getStore()
+
+Get a StoreProvider instance for the given working directory. Convenience wrapper around createStoreProvider with auto-detection.   T4645  T4638
+
+```typescript
+(cwd?: string) => Promise<import("./provider.js").StoreProvider>
+```
+
+### cliOutput()
+
+Output data to stdout in the resolved format (JSON or human-readable).  Replaces `console.log(formatSuccess(data))` in all V2 commands. When format is 'human', normalizes the data shape then dispatches to the appropriate renderer. When format is 'json', delegates to existing formatSuccess().   T4665  T4666  T4813
+
+```typescript
+(data: unknown, opts: CliOutputOptions) => void
+```
+
+### cliError()
+
+Output an error in the resolved format. For JSON: delegates to formatError (already handled in command catch blocks). For human: prints a plain error message to stderr.   T4666  T4813
+
+```typescript
+(message: string, code?: number | string, _details?: CliErrorDetails) => void
+```
+
+### createDomainHandlers()
+
+Create a Map of all canonical domain handlers.
+
+```typescript
+() => Map<string, DomainHandler>
+```
+
+### getErrorCodeMapping(errorType)
+
+Get the complete error code mapping for a given A2A error type.
+
+```typescript
+(errorType: A2AErrorType) => ErrorCodeMapping
+```
+
+**Example**
+
+```ts
+const mapping = getErrorCodeMapping('TaskNotFound');
+// { jsonRpcCode: -32001, httpStatus: 404, httpTypeUri: '...', grpcStatus: 'NOT_FOUND', grpcCode: 5 }
+```
+
+### parseA2AVersionHeader(headerValue)
+
+Parse the `a2a-version` header into an array of version strings.
+
+```typescript
+(headerValue: string | undefined) => string[]
+```
+
+**Example**
+
+```ts
+parseA2AVersionHeader('1.0, 2.0'); // ['1.0', '2.0']
+parseA2AVersionHeader(undefined);   // []
+```
+
+### negotiateA2AVersion(requestedVersions)
+
+Negotiate an A2A protocol version from the client's requested versions.
+
+```typescript
+(requestedVersions: string[]) => string | null
+```
+
+**Example**
+
+```ts
+negotiateA2AVersion(['1.0', '2.0']); // '1.0'
+negotiateA2AVersion([]);              // '1.0' (default)
+negotiateA2AVersion(['3.0']);          // null
+```
+
+### circuitBreakerMiddleware(config)
+
+Create an Express middleware that wraps downstream handlers with a circuit breaker.
+
+```typescript
+(config: CircuitBreakerConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => Promise<void>
+```
+
+**Example**
+
+```typescript
+app.use('/external-api', circuitBreakerMiddleware({
+  name: 'external-api',
+  failureThreshold: 5
+}));
+```
+
+### healthCheck(config)
+
+Health check middleware for Express applications.
+
+```typescript
+(config?: HealthCheckConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Example**
+
+```typescript
+import express from 'express';
+import { healthCheck } from '@cleocode/lafs/health';
+
+const app = express();
+
+// Basic health check
+app.use('/health', healthCheck());
+
+// Custom health checks
+app.use('/health', healthCheck({
+  checks: [
+    async () => ({
+      name: 'database',
+      status: await checkDatabase() ? 'ok' : 'error'
+    })
+  ]
+}));
+```
+
+### createDatabaseHealthCheck(config, , )
+
+Create a health check function that verifies database connectivity.
+
+```typescript
+(config: { checkConnection: () => Promise<boolean>; name?: string; }) => HealthCheckFunction
+```
+
+**Example**
+
+```typescript
+const dbCheck = createDatabaseHealthCheck({
+  checkConnection: async () => await db.ping()
+});
+
+app.use('/health', healthCheck({
+  checks: [dbCheck]
+}));
+```
+
+### createExternalServiceHealthCheck(config, , , )
+
+Create a health check function that probes an external HTTP service.
+
+```typescript
+(config: { name: string; url: string; timeout?: number; }) => HealthCheckFunction
+```
+
+**Example**
+
+```typescript
+const apiCheck = createExternalServiceHealthCheck({
+  name: 'payment-api',
+  url: 'https://api.payment.com/health',
+  timeout: 5000
+});
+```
+
+### livenessProbe()
+
+Liveness probe -- a minimal check confirming the process is running.
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => void
+```
+
+**Example**
+
+```typescript
+app.get('/health/live', livenessProbe());
+```
+
+### readinessProbe(config)
+
+Readiness probe -- verifies the service can accept traffic.
+
+```typescript
+(config?: { checks?: HealthCheckFunction[]; }) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Example**
+
+```typescript
+app.get('/health/ready', readinessProbe({
+  checks: [dbCheck, cacheCheck]
+}));
+```
+
+### gracefulShutdown(server, config)
+
+Enable graceful shutdown for an HTTP server.
+
+```typescript
+(server: Server, config?: GracefulShutdownConfig) => void
+```
+
+**Example**
+
+```typescript
+import express from 'express';
+import { gracefulShutdown } from '@cleocode/lafs/shutdown';
+
+const app = express();
+const server = app.listen(3000);
+
+gracefulShutdown(server, {
+  timeout: 30000,
+  signals: ['SIGTERM', 'SIGINT'],
+  onShutdown: async () => {
+    console.log('Shutting down...');
+    await db.close();
+  }
+});
+```
+
+### isShuttingDown()
+
+Check whether a shutdown sequence is currently in progress.
+
+```typescript
+() => boolean
+```
+
+**Example**
+
+```typescript
+if (isShuttingDown()) {
+  return; // skip expensive work
+}
+```
+
+### getShutdownState()
+
+Get a snapshot of the current shutdown state.
+
+```typescript
+() => ShutdownState
+```
+
+**Example**
+
+```typescript
+const state = getShutdownState();
+console.log(`Connections: ${state.activeConnections}`);
+```
+
+### forceShutdown(exitCode)
+
+Terminate the process immediately without waiting for connections to drain.
+
+```typescript
+(exitCode?: number) => void
+```
+
+**Example**
+
+```typescript
+forceShutdown(1);
+```
+
+### shutdownMiddleware()
+
+Express middleware that rejects requests with 503 while the server is shutting down.
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => void
+```
+
+**Example**
+
+```typescript
+app.use(shutdownMiddleware());
+```
+
+### waitForShutdown()
+
+Wait until a shutdown sequence begins.
+
+```typescript
+() => Promise<void>
+```
+
+**Example**
+
+```typescript
+await waitForShutdown();
+```
+
+### createRuntime(registry, config)
+
+Create and start a runtime from the agent registry.  Resolves the agent credential, configures the poller, and starts polling. Returns a handle to register message handlers and stop the runtime.
+
+```typescript
+(registry: AgentRegistryAPI, config?: RuntimeConfig) => Promise<RuntimeHandle>
+```
+
+{/* FORGE:AUTO-END guide-getting-started */}

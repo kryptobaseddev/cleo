@@ -1,7 +1,8 @@
 ---
-title: "Configuration"
-description: "Configuration reference for cleocode"
+title: Configuration
+description: Configuration reference for cleocode
 ---
+
 Configuration reference for **cleocode**.
 
 ## forge-ts.config.ts
@@ -17,9 +18,6 @@ export default defineConfig({
 });
 ```
 
-## `DispatcherConfig`
+## `ConfigFormat`
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `handlers` | `Map&lt;string, DomainHandler&gt;` | Yes | handlers |
-| `middlewares` | `Middleware[] \| undefined` | No | middlewares |
+Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)

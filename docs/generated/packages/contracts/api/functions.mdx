@@ -1,7 +1,8 @@
 ---
-title: "contracts — Functions"
-description: "Functions and classes for the contracts package"
+title: contracts — Functions
+description: Functions and classes for the contracts package
 ---
+
 Functions and classes exported by this package.
 
 ## isValidStatus()
@@ -14,7 +15,7 @@ Functions and classes exported by this package.
 
 ## SessionView
 
-SessionView — typed wrapper over Session[] with collection helpers.  Provides discoverable query methods for common session lookups. Does NOT change the DataAccessor interface — consumers create views from Session[].
+SessionView — typed wrapper over Session\[] with collection helpers.  Provides discoverable query methods for common session lookups. Does NOT change the DataAccessor interface — consumers create views from Session\[].
 
 **Signature**
 
@@ -53,7 +54,7 @@ Find a session by ID.
 Filter sessions by one or more statuses.
 
 ```typescript
-(...statuses: ("active" | "ended" | "orphaned" | "suspended")[]) => Session[]
+(...statuses: SessionStatus[]) => Session[]
 ```
 
 ### findByScope()
@@ -61,7 +62,7 @@ Filter sessions by one or more statuses.
 Find sessions matching a scope type and optional rootTaskId.
 
 ```typescript
-(type: string, rootTaskId?: string | undefined) => Session[]
+(type: string, rootTaskId?: string) => Session[]
 ```
 
 ### sortByDate()
@@ -88,12 +89,12 @@ Convert back to a plain Session array (shallow copy).
 () => Session[]
 ```
 
-### [Symbol.iterator]()
+### \[Symbol.iterator]\()
 
 Support for-of iteration.
 
 ```typescript
-() => Iterator<Session, any, any>
+() => Iterator<Session>
 ```
 
 ## normalizeError(error, fallbackMessage)
@@ -108,9 +109,9 @@ Normalize any thrown value into a standardized error object.  Handles: - Error i
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `error` | `unknown` | The thrown value to normalize |
+| Name              | Type       | Description                           |
+| ----------------- | ---------- | ------------------------------------- |
+| `error`           | `unknown`  | The thrown value to normalize         |
 | `fallbackMessage` | `: string` | Message to use if error provides none |
 
 **Returns** — Normalized error with consistent shape
@@ -138,9 +139,9 @@ Extract a human-readable message from any error value.  Safe to use on unknown t
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `error` | `unknown` | The error value |
+| Name       | Type       | Description                          |
+| ---------- | ---------- | ------------------------------------ |
+| `error`    | `unknown`  | The error value                      |
 | `fallback` | `: string` | Fallback message if extraction fails |
 
 **Returns** — The error message string
@@ -158,15 +159,15 @@ Format error details for logging or display.  Includes stack trace for Error ins
 **Signature**
 
 ```typescript
-(error: unknown, context?: string | undefined, includeStack?: boolean) => string
+(error: unknown, context?: string, includeStack?: boolean) => string
 ```
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `error` | `unknown` | The error to format |
-| `context` | `: string \| undefined` | Optional context to prepend |
+| Name           | Type        | Description                                      |
+| -------------- | ----------- | ------------------------------------------------ |
+| `error`        | `unknown`   | The error to format                              |
+| `context`      | `: string`  | Optional context to prepend                      |
 | `includeStack` | `: boolean` | Whether to include stack traces (default: false) |
 
 **Returns** — Formatted error string
@@ -190,10 +191,10 @@ Check if an error represents a specific error type by code or name.  Useful for 
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `error` | `unknown` | The error to check |
-| `codeOrName` | `string` | The error code or name to match |
+| Name         | Type      | Description                     |
+| ------------ | --------- | ------------------------------- |
+| `error`      | `unknown` | The error to check              |
+| `codeOrName` | `string`  | The error code or name to match |
 
 **Returns** — True if the error matches
 
@@ -217,8 +218,8 @@ Create a standardized error result object.  Common pattern for operations that r
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name    | Type      | Description     |
+| ------- | --------- | --------------- |
 | `error` | `unknown` | The error value |
 
 **Returns** — Error result object
@@ -256,14 +257,14 @@ Type guard for error results.
 **Signature**
 
 ```typescript
-(result: { success: boolean; error?: string | undefined; }) => result is { success: false; error: string; }
+(result: { success: boolean; error?: string; }) => result is { success: false; error: string; }
 ```
 
 **Parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `result` | `\{ success: boolean; error?: string \| undefined; \}` | The result to check |
+| Name     | Type                                    | Description         |
+| -------- | --------------------------------------- | ------------------- |
+| `result` | `{ success: boolean; error?: string; }` | The result to check |
 
 **Returns** — True if the result is an error result
 
@@ -326,7 +327,7 @@ Human-readable name for an exit code.
 (code: ExitCode) => string
 ```
 
-## isLafsSuccess()
+## isLafsSuccess(envelope)
 
 Type guard for success responses.
 
@@ -336,7 +337,24 @@ Type guard for success responses.
 <T>(envelope: LafsEnvelope<T>) => envelope is LafsSuccess<T>
 ```
 
-## isLafsError()
+**Parameters**
+
+| Name       | Type              | Description            |
+| ---------- | ----------------- | ---------------------- |
+| `envelope` | `LafsEnvelope<T>` | The envelope to check. |
+
+**Returns** — `true` if the envelope represents a successful operation.
+
+**Example**
+
+```ts
+const result: LafsEnvelope<Task[]> = await fetchTasks();
+if (isLafsSuccess(result)) {
+  console.log(result.data); // Task[]
+}
+```
+
+## isLafsError(envelope)
 
 Type guard for error responses.
 
@@ -346,12 +364,46 @@ Type guard for error responses.
 <T>(envelope: LafsEnvelope<T>) => envelope is LafsError
 ```
 
-## isGatewayEnvelope()
+**Parameters**
 
-Type guard for MCP gateway responses (has _meta).
+| Name       | Type              | Description            |
+| ---------- | ----------------- | ---------------------- |
+| `envelope` | `LafsEnvelope<T>` | The envelope to check. |
+
+**Returns** — `true` if the envelope represents a failed operation.
+
+**Example**
+
+```ts
+const result: LafsEnvelope<Task[]> = await fetchTasks();
+if (isLafsError(result)) {
+  console.error(result.error.message);
+}
+```
+
+## isGatewayEnvelope(envelope)
+
+Type guard for gateway responses (has \_meta).
 
 **Signature**
 
 ```typescript
 <T>(envelope: CleoResponse<T>) => envelope is GatewayEnvelope<T>
+```
+
+**Parameters**
+
+| Name       | Type              | Description            |
+| ---------- | ----------------- | ---------------------- |
+| `envelope` | `CleoResponse<T>` | The response to check. |
+
+**Returns** — `true` if the response includes gateway metadata.
+
+**Example**
+
+```ts
+const response: CleoResponse<Task> = await handleRequest();
+if (isGatewayEnvelope(response)) {
+  console.log(response._meta.gateway);
+}
 ```

@@ -1,12 +1,354 @@
 ---
-title: "core — Examples"
-description: "Usage examples for the core package"
+title: core — Examples
+description: Usage examples for the core package
 ---
+
 All usage examples from the package, aggregated for quick reference.
+
+## `isProjectInitialized()`
+
+*Check if a CLEO project is initialized at the given root. Checks for tasks.db.*
+
+[View in API reference](/packages/core/api/functions#isprojectinitialized)
+
+```typescript
+if (isProjectInitialized('/my/project')) {
+  console.log('CLEO project found');
+}
+```
+
+## `getCleoHome()`
+
+*Get the global CLEO home directory. Respects CLEO\_HOME env var; otherwise uses the OS-appropriate data path via env-paths (XDG\_DATA\_HOME on Linux, Library/Application Support on macOS, %LOCALAPPDATA% on Windows).*
+
+[View in API reference](/packages/core/api/functions#getcleohome)
+
+```typescript
+const home = getCleoHome(); // e.g. "/home/user/.local/share/cleo"
+```
+
+## `getCleoTemplatesDir()`
+
+*Get the global CLEO templates directory.*
+
+[View in API reference](/packages/core/api/functions#getcleotemplatesdir)
+
+```typescript
+const dir = getCleoTemplatesDir(); // e.g. "/home/user/.local/share/cleo/templates"
+```
+
+## `getCleoSchemasDir()`
+
+*Get the global CLEO schemas directory.*
+
+[View in API reference](/packages/core/api/functions#getcleoschemasdir)
+
+```typescript
+const dir = getCleoSchemasDir();
+```
+
+## `getCleoDocsDir()`
+
+*Get the global CLEO docs directory.*
+
+[View in API reference](/packages/core/api/functions#getcleodocsdir)
+
+```typescript
+const dir = getCleoDocsDir();
+```
+
+## `getCleoDir()`
+
+*Get the project CLEO data directory (relative). Respects CLEO\_DIR env var, defaults to ".cleo".*
+
+[View in API reference](/packages/core/api/functions#getcleodir)
+
+```typescript
+const rel = getCleoDir();           // ".cleo"
+const abs = getCleoDir('/project'); // "/project/.cleo"
+```
+
+## `getCleoDirAbsolute()`
+
+*Get the absolute path to the project CLEO directory.*
+
+[View in API reference](/packages/core/api/functions#getcleodirabsolute)
+
+```typescript
+const dir = getCleoDirAbsolute('/my/project'); // "/my/project/.cleo"
+```
+
+## `getProjectRoot()`
+
+*Get the project root from the CLEO directory. Respects CLEO\_ROOT env var, then derives from CLEO\_DIR. If CLEO\_DIR is ".cleo", the project root is its parent.*
+
+[View in API reference](/packages/core/api/functions#getprojectroot)
+
+```typescript
+const root = getProjectRoot(); // "/home/user/projects/myapp"
+```
+
+## `resolveProjectPath()`
+
+*Resolve a project-relative path to an absolute path.*
+
+[View in API reference](/packages/core/api/functions#resolveprojectpath)
+
+```typescript
+resolveProjectPath('src/index.ts');     // "/project/src/index.ts"
+resolveProjectPath('~/notes.md');       // "/home/user/notes.md"
+resolveProjectPath('/absolute/path');   // "/absolute/path"
+```
+
+## `getTaskPath()`
+
+*Get the path to the project's tasks.db file (SQLite database).*
+
+[View in API reference](/packages/core/api/functions#gettaskpath)
+
+```typescript
+const dbPath = getTaskPath('/project');
+```
+
+## `getConfigPath()`
+
+*Get the path to the project's config.json file.*
+
+[View in API reference](/packages/core/api/functions#getconfigpath)
+
+```typescript
+const configPath = getConfigPath('/project');
+```
+
+## `getSessionsPath()`
+
+*Get the path to the project's sessions.json file.*
+
+[View in API reference](/packages/core/api/functions#getsessionspath)
+
+```typescript
+const sessionsPath = getSessionsPath('/project');
+```
+
+## `getArchivePath()`
+
+*Get the path to the project's archive file.*
+
+[View in API reference](/packages/core/api/functions#getarchivepath)
+
+```typescript
+const archivePath = getArchivePath('/project');
+```
+
+## `getLogPath()`
+
+*Get the path to the project's log file. Canonical structured runtime log path (pino).*
+
+[View in API reference](/packages/core/api/functions#getlogpath)
+
+```typescript
+const logPath = getLogPath('/project');
+```
+
+## `getBackupDir()`
+
+*Get the backup directory for operational backups.*
+
+[View in API reference](/packages/core/api/functions#getbackupdir)
+
+```typescript
+const backupDir = getBackupDir('/project');
+```
+
+## `getGlobalConfigPath()`
+
+*Get the global config file path.*
+
+[View in API reference](/packages/core/api/functions#getglobalconfigpath)
+
+```typescript
+const globalConfig = getGlobalConfigPath();
+```
+
+## `getAgentOutputsDir()`
+
+*Get the agent outputs directory (relative path) from config or default.  Config lookup priority:   1. config.agentOutputs.directory   2. config.research.outputDir (deprecated)   3. config.directories.agentOutputs (deprecated)   4. Default: '.cleo/agent-outputs'*
+
+[View in API reference](/packages/core/api/functions#getagentoutputsdir)
+
+```typescript
+const dir = getAgentOutputsDir('/project');
+```
+
+## `getAgentOutputsAbsolute()`
+
+*Get the absolute path to the agent outputs directory.*
+
+[View in API reference](/packages/core/api/functions#getagentoutputsabsolute)
+
+```typescript
+const absDir = getAgentOutputsAbsolute('/project');
+```
+
+## `getManifestPath()`
+
+*Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs.manifestFile for custom filename, defaults to 'MANIFEST.jsonl'.*
+
+[View in API reference](/packages/core/api/functions#getmanifestpath)
+
+```typescript
+const manifestPath = getManifestPath('/project');
+```
+
+## `getManifestArchivePath()`
+
+*Get the absolute path to the MANIFEST.archive.jsonl file.*
+
+[View in API reference](/packages/core/api/functions#getmanifestarchivepath)
+
+```typescript
+const archivePath = getManifestArchivePath('/project');
+```
+
+## `isAbsolutePath()`
+
+*Check if a path is absolute (POSIX or Windows).*
+
+[View in API reference](/packages/core/api/functions#isabsolutepath)
+
+```typescript
+isAbsolutePath('/usr/bin');    // true
+isAbsolutePath('C:\\Users');   // true
+isAbsolutePath('./relative'); // false
+```
+
+## `getCleoLogDir()`
+
+*Get the OS log directory for CLEO global logs. Linux: \~/.local/state/cleo | macOS: \~/Library/Logs/cleo | Windows: %LOCALAPPDATA%cleoLog*
+
+[View in API reference](/packages/core/api/functions#getcleologdir)
+
+```typescript
+const logDir = getCleoLogDir();
+```
+
+## `getCleoCacheDir()`
+
+*Get the OS cache directory for CLEO. Linux: \~/.cache/cleo | macOS: \~/Library/Caches/cleo | Windows: %LOCALAPPDATA%cleoCache*
+
+[View in API reference](/packages/core/api/functions#getcleocachedir)
+
+```typescript
+const cacheDir = getCleoCacheDir();
+```
+
+## `getCleoTempDir()`
+
+*Get the OS temp directory for CLEO ephemeral files.*
+
+[View in API reference](/packages/core/api/functions#getcleotempdir)
+
+```typescript
+const tempDir = getCleoTempDir();
+```
+
+## `getCleoConfigDir()`
+
+*Get the OS config directory for CLEO. Linux: \~/.config/cleo | macOS: \~/Library/Preferences/cleo | Windows: %APPDATA%cleoConfig*
+
+[View in API reference](/packages/core/api/functions#getcleoconfigdir)
+
+```typescript
+const configDir = getCleoConfigDir();
+```
+
+## `getCleoTemplatesTildePath()`
+
+*Get the CLEO templates directory as a tilde-prefixed path for use in `@` references (AGENTS.md, CLAUDE.md, etc.). Cross-platform: replaces the user's home directory with `~` so the reference works when loaded by LLM providers that resolve `~` at runtime.  Linux:   \~/.local/share/cleo/templates macOS:   \~/Library/Application Support/cleo/templates Windows: \~/AppData/Local/cleo/Data/templates (approximate)*
+
+[View in API reference](/packages/core/api/functions#getcleotemplatestildepath)
+
+```typescript
+const tildePath = getCleoTemplatesTildePath();
+// "~/.local/share/cleo/templates"
+```
+
+## `getAgentsHome()`
+
+*Get the global agents hub directory. Respects AGENTS\_HOME env var, defaults to \~/.agents.*
+
+[View in API reference](/packages/core/api/functions#getagentshome)
+
+```typescript
+const agentsHome = getAgentsHome(); // "/home/user/.agents"
+```
+
+## `getClaudeAgentsDir()`
+
+*Get the Claude Code agents directory (\~/.claude/agents by default).*
+
+[View in API reference](/packages/core/api/functions#getclaudeagentsdir)
+
+```typescript
+const dir = getClaudeAgentsDir();
+```
+
+## `getClaudeMemDbPath()`
+
+*Get the claude-mem SQLite database path.*
+
+[View in API reference](/packages/core/api/functions#getclaudememdbpath)
+
+```typescript
+const dbPath = getClaudeMemDbPath();
+```
+
+## `cleanupBrainRefsOnTaskDelete()`
+
+*Clean up brain.db references after a task is deleted from tasks.db.  Handles: - XFKB-001/002: Nullify brain\_decisions.context\_epic\_id / context\_task\_id - XFKB-003: Delete brain\_memory\_links rows where task\_id matches - XFKB-005: Delete brain\_page\_nodes with id='task:' and cascade brain\_page\_edges  This is a best-effort cleanup — brain.db is a cognitive store and minor staleness is preferable to failing task deletions due to brain.db errors.*
+
+[View in API reference](/packages/core/api/functions#cleanupbrainrefsontaskdelete)
+
+```ts
+await cleanupBrainRefsOnTaskDelete('T042');
+```
+
+## `cleanupBrainRefsOnSessionDelete()`
+
+*Clean up brain.db references after a session is deleted from tasks.db.  Handles: - XFKB-004: Nullify brain\_observations.source\_session\_id where it matches*
+
+[View in API reference](/packages/core/api/functions#cleanupbrainrefsonsessiondelete)
+
+```ts
+await cleanupBrainRefsOnSessionDelete('ses_20260321_abc');
+```
+
+## `taskExistsInTasksDb()`
+
+*Verify a task ID exists in tasks.db before writing a cross-DB reference to brain.db. Returns true if the task exists, false otherwise.  Provides write-guard for XFKB-001/002/003 on brain.db insert.*
+
+[View in API reference](/packages/core/api/functions#taskexistsintasksdb)
+
+```ts
+if (await taskExistsInTasksDb('T042', db)) { /* safe to reference *\/ }
+```
+
+## `PopulateEmbeddingsOptions`
+
+*Options for the embedding backfill pipeline.*
+
+[View in API reference](/packages/core/api/functions#populateembeddingsoptions)
+
+```ts
+await populateEmbeddings(root, {
+  batchSize: 25,
+  onProgress: (current, total) => console.log(`${current}/${total}`),
+});
+```
 
 ## `initializePipeline()`
 
-_Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not_started' status. The pipeline starts at the research stage by default._
+*Initialize a new pipeline for a task.  Creates a new pipeline record in the database with all 9 stages initialized to 'not\_started' status. The pipeline starts at the research stage by default.*
 
 [View in API reference](/packages/core/api/functions#initializepipeline)
 
@@ -20,7 +362,7 @@ console.log(`Pipeline initialized: ${pipeline.id}`);
 
 ## `getPipeline()`
 
-_Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID._
+*Retrieve a pipeline by task ID.  Returns the complete pipeline state including current stage and status. Returns null if no pipeline exists for the given task ID.*
 
 [View in API reference](/packages/core/api/functions#getpipeline)
 
@@ -33,7 +375,7 @@ if (pipeline) {
 
 ## `advanceStage()`
 
-_Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail._
+*Advance a pipeline to the next stage.  Performs atomic stage transition with prerequisite checking and audit logging. Validates the transition is allowed, updates stage statuses, and records the transition in the audit trail.*
 
 [View in API reference](/packages/core/api/functions#advancestage)
 
@@ -47,7 +389,7 @@ await advanceStage('T4800', {
 
 ## `getCurrentStage()`
 
-_Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in._
+*Get the current stage of a pipeline.  Convenience method to quickly check which stage a task is currently in.*
 
 [View in API reference](/packages/core/api/functions#getcurrentstage)
 
@@ -60,7 +402,7 @@ if (currentStage === 'validation') {
 
 ## `listPipelines()`
 
-_List pipelines with optional filtering._
+*List pipelines with optional filtering.*
 
 [View in API reference](/packages/core/api/functions#listpipelines)
 
@@ -71,9 +413,1574 @@ const activePipelines = await listPipelines({
 });
 ```
 
+## `isValidPipelineStage()`
+
+*Check whether a string is a valid pipeline stage name.*
+
+[View in API reference](/packages/core/api/functions#isvalidpipelinestage)
+
+```ts
+isValidPipelineStage('research');       // => true
+isValidPipelineStage('not_a_stage');    // => false
+```
+
+## `validatePipelineStage()`
+
+*Validate a pipeline stage name and throw a CleoError on failure.*
+
+[View in API reference](/packages/core/api/functions#validatepipelinestage)
+
+```ts
+validatePipelineStage('implementation'); // passes
+validatePipelineStage('invalid');        // throws CleoError
+```
+
+## `resolveDefaultPipelineStage()`
+
+*Determine the default pipeline stage for a new task.  Rules (in priority order): 1. If an explicit stage is provided and valid, use it. 2. If the task has a parent, inherit the parent's pipelineStage. 3. If the task type is 'epic', default to 'research'. 4. Otherwise default to 'implementation'.*
+
+[View in API reference](/packages/core/api/functions#resolvedefaultpipelinestage)
+
+```ts
+resolveDefaultPipelineStage({ taskType: 'epic' });
+// => 'research'
+
+resolveDefaultPipelineStage({ taskType: 'task' });
+// => 'implementation'
+```
+
+## `getPipelineStageOrder()`
+
+*Get the numeric order of a pipeline stage (1-based).*
+
+[View in API reference](/packages/core/api/functions#getpipelinestageorder)
+
+```ts
+getPipelineStageOrder('research');       // => 1
+getPipelineStageOrder('implementation'); // => 6
+getPipelineStageOrder('unknown');        // => -1
+```
+
+## `isPipelineTransitionForward()`
+
+*Check whether transitioning from `currentStage` to `newStage` is forward-only.  "Forward" means the new stage's order is greater than or equal to the current stage's order (same stage is a no-op and is considered valid).*
+
+[View in API reference](/packages/core/api/functions#ispipelinetransitionforward)
+
+```ts
+isPipelineTransitionForward('research', 'implementation'); // => true
+isPipelineTransitionForward('testing', 'research');        // => false
+```
+
+## `validatePipelineTransition()`
+
+*Validate a pipeline stage transition and throw if it would move backward.*
+
+[View in API reference](/packages/core/api/functions#validatepipelinetransition)
+
+```ts
+validatePipelineTransition(null, 'research');              // passes (first assignment)
+validatePipelineTransition('research', 'implementation');   // passes (forward)
+validatePipelineTransition('testing', 'research');          // throws (backward)
+```
+
+## `getLifecycleMode()`
+
+*Read `lifecycle.mode` from config.  Falls back to "strict" when unset (matches the DEFAULTS in config.ts).*
+
+[View in API reference](/packages/core/api/functions#getlifecyclemode)
+
+```ts
+const mode = await getLifecycleMode();
+// => 'strict' | 'advisory' | 'off'
+```
+
+## `validateEpicCreation()`
+
+*Validate that a new epic satisfies creation requirements.  In **strict** mode:   - At least `EPIC_MIN_AC` acceptance criteria must be provided.   - `description` must be non-empty (treated as completion criteria).  In **advisory** mode the same checks are run but violations do not block — they are returned as `warning` text for the caller to surface.  In **off** mode this function is a no-op.*
+
+[View in API reference](/packages/core/api/functions#validateepiccreation)
+
+```ts
+await validateEpicCreation({ acceptance: ['AC1','AC2','AC3','AC4','AC5'] });
+// => { valid: true }
+```
+
+## `validateChildStageCeiling()`
+
+*Validate that a child task's pipeline stage does not exceed its epic's stage.  Call this when:   - A child task is **created** under an epic parent.   - A child task's `pipelineStage` is **updated** and it has an epic ancestor.  The check walks the task's ancestor chain to find the nearest epic ancestor. If none exists, the check is skipped.*
+
+[View in API reference](/packages/core/api/functions#validatechildstageceiling)
+
+```ts
+await validateChildStageCeiling(
+  { childStage: 'testing', epicId: 'T001' },
+  accessor,
+);
+```
+
+## `findEpicAncestor()`
+
+*Find the nearest epic ancestor for a given task.  Walks the ancestor chain (root-first) and returns the first task whose type is "epic", or null if no epic ancestor exists.*
+
+[View in API reference](/packages/core/api/functions#findepicancestor)
+
+```ts
+const epic = await findEpicAncestor('T042', accessor);
+if (epic) console.log(epic.id); // e.g. 'T029'
+```
+
+## `validateEpicStageAdvancement()`
+
+*Validate that an epic can advance its pipeline stage.  An epic is **blocked** from advancing to a later stage when it has at least one child that:   - Has a pipeline stage **equal to the epic's current stage**, AND   - Has a status that is **not** "done" (i.e., is still in-flight).  Rationale: the epic stage represents the stage the team is actively working in.  Moving the epic forward while children are unfinished at the current stage violates the pipeline discipline.*
+
+[View in API reference](/packages/core/api/functions#validateepicstageadvancement)
+
+```ts
+await validateEpicStageAdvancement(
+  { epicId: 'T029', currentStage: 'research', newStage: 'consensus' },
+  accessor,
+);
+```
+
+## `fileExists()`
+
+*Check if a file exists and is readable.*
+
+[View in API reference](/packages/core/api/functions#fileexists)
+
+```typescript
+if (await fileExists('/project/.cleo/config.json')) {
+  // safe to read
+}
+```
+
+## `stripCLEOBlocks()`
+
+*Strip legacy CLEO:START/CLEO:END blocks from a file. Called before CAAMP injection to prevent competing blocks.*
+
+[View in API reference](/packages/core/api/functions#stripcleoblocks)
+
+```typescript
+await stripCLEOBlocks('/project/CLAUDE.md');
+```
+
+## `removeCleoFromRootGitignore()`
+
+*Remove .cleo/ or .cleo entries from the project root .gitignore.*
+
+[View in API reference](/packages/core/api/functions#removecleofromrootgitignore)
+
+```typescript
+const { removed } = await removeCleoFromRootGitignore('/project');
+if (removed) console.log('.cleo entries cleaned from .gitignore');
+```
+
+## `getPackageRoot()`
+
+*Resolve the package root directory (where schemas/ and templates/ live). scaffold.ts lives in packages/core/src/, so 1 level up reaches the package root.*
+
+[View in API reference](/packages/core/api/functions#getpackageroot)
+
+```typescript
+const root = getPackageRoot();
+const schemaPath = join(root, 'schemas', 'config.schema.json');
+```
+
+## `getGitignoreContent()`
+
+*Load the gitignore template from the package's templates/ directory. Falls back to embedded content if file not found.*
+
+[View in API reference](/packages/core/api/functions#getgitignorecontent)
+
+```typescript
+const content = getGitignoreContent();
+await writeFile('.cleo/.gitignore', content);
+```
+
+## `getCleoVersion()`
+
+*Read CLEO version from package.json.*
+
+[View in API reference](/packages/core/api/functions#getcleoversion)
+
+```typescript
+const version = getCleoVersion(); // "2026.4.0"
+```
+
+## `createDefaultConfig()`
+
+*Create default config.json content.*
+
+[View in API reference](/packages/core/api/functions#createdefaultconfig)
+
+```typescript
+const config = createDefaultConfig();
+await saveJson(configPath, config);
+```
+
+## `ensureCleoStructure()`
+
+*Create .cleo/ directory and all required subdirectories. Idempotent: skips directories that already exist.*
+
+[View in API reference](/packages/core/api/functions#ensurecleostructure)
+
+```typescript
+const result = await ensureCleoStructure('/my/project');
+console.log(result.action); // "created" or "skipped"
+```
+
+## `ensureGitignore()`
+
+*Create or repair .cleo/.gitignore from template. Idempotent: skips if file already exists with correct content.*
+
+[View in API reference](/packages/core/api/functions#ensuregitignore)
+
+```typescript
+const result = await ensureGitignore('/my/project');
+if (result.action === 'repaired') console.log('Gitignore updated');
+```
+
+## `ensureConfig()`
+
+*Create default config.json if missing. Idempotent: skips if file already exists.*
+
+[View in API reference](/packages/core/api/functions#ensureconfig)
+
+```typescript
+const result = await ensureConfig('/my/project', { force: true });
+console.log(result.path);
+```
+
+## `ensureProjectInfo()`
+
+*Create or refresh project-info.json. Idempotent: skips if file already exists (unless force).*
+
+[View in API reference](/packages/core/api/functions#ensureprojectinfo)
+
+```typescript
+const result = await ensureProjectInfo('/my/project');
+console.log(result.action); // "created", "repaired", or "skipped"
+```
+
+## `ensureContributorMcp()`
+
+*No-op. Kept for API compatibility.*
+
+[View in API reference](/packages/core/api/functions#ensurecontributormcp)
+
+```typescript
+const result = await ensureContributorMcp('/my/project');
+// result.action === 'skipped'
+```
+
+## `ensureProjectContext()`
+
+*Detect and write project-context.json. Idempotent: skips if file exists and is less than staleDays old (default: 30).*
+
+[View in API reference](/packages/core/api/functions#ensureprojectcontext)
+
+```typescript
+const result = await ensureProjectContext('/my/project', { staleDays: 7 });
+if (result.action === 'repaired') console.log('Context refreshed');
+```
+
+## `ensureCleoGitRepo()`
+
+*Initialize isolated .cleo/.git checkpoint repository. Idempotent: skips if .cleo/.git already exists.*
+
+[View in API reference](/packages/core/api/functions#ensurecleogitrepo)
+
+```typescript
+const result = await ensureCleoGitRepo('/my/project');
+console.log(result.action); // "created" or "skipped"
+```
+
+## `ensureSqliteDb()`
+
+*Create SQLite database if missing. Idempotent: skips if tasks.db already exists.*
+
+[View in API reference](/packages/core/api/functions#ensuresqlitedb)
+
+```typescript
+const result = await ensureSqliteDb('/my/project');
+if (result.action === 'created') console.log('Database ready');
+```
+
+## `checkCleoStructure()`
+
+*Verify all required .cleo/ subdirectories exist.*
+
+[View in API reference](/packages/core/api/functions#checkcleostructure)
+
+```typescript
+const check = checkCleoStructure('/my/project');
+if (check.status === 'failed') console.log(check.fix);
+```
+
+## `checkGitignore()`
+
+*Verify .cleo/.gitignore exists and matches template.*
+
+[View in API reference](/packages/core/api/functions#checkgitignore)
+
+```typescript
+const check = checkGitignore('/my/project');
+if (check.status === 'warning') console.log('Gitignore drifted');
+```
+
+## `checkConfig()`
+
+*Verify config.json exists and is valid JSON.*
+
+[View in API reference](/packages/core/api/functions#checkconfig)
+
+```typescript
+const check = checkConfig('/my/project');
+if (check.status === 'passed') console.log('Config OK');
+```
+
+## `checkProjectInfo()`
+
+*Verify project-info.json exists with required fields.*
+
+[View in API reference](/packages/core/api/functions#checkprojectinfo)
+
+```typescript
+const check = checkProjectInfo('/my/project');
+if (check.status !== 'passed') console.log(check.fix);
+```
+
+## `checkProjectContext()`
+
+*Verify project-context.json exists and is not stale (default: 30 days).*
+
+[View in API reference](/packages/core/api/functions#checkprojectcontext)
+
+```typescript
+const check = checkProjectContext('/my/project', 14);
+if (check.status === 'warning') console.log('Context is stale');
+```
+
+## `checkCleoGitRepo()`
+
+*Verify .cleo/.git checkpoint repository exists.*
+
+[View in API reference](/packages/core/api/functions#checkcleogitrepo)
+
+```typescript
+const check = checkCleoGitRepo('/my/project');
+console.log(check.status); // "passed" or "warning"
+```
+
+## `checkSqliteDb()`
+
+*Verify .cleo/tasks.db exists and is non-empty.*
+
+[View in API reference](/packages/core/api/functions#checksqlitedb)
+
+```typescript
+const check = checkSqliteDb('/my/project');
+if (check.status === 'failed') console.log('No database:', check.fix);
+```
+
+## `ensureBrainDb()`
+
+*Create brain.db if missing. Idempotent: skips if brain.db already exists.*
+
+[View in API reference](/packages/core/api/functions#ensurebraindb)
+
+```typescript
+const result = await ensureBrainDb('/my/project');
+if (result.action === 'created') console.log('Brain database ready');
+```
+
+## `checkBrainDb()`
+
+*Verify .cleo/brain.db exists and is non-empty.*
+
+[View in API reference](/packages/core/api/functions#checkbraindb)
+
+```typescript
+const check = checkBrainDb('/my/project');
+console.log(check.status);
+```
+
+## `checkMemoryBridge()`
+
+*Verify .cleo/memory-bridge.md exists. Warning level if missing (not failure) -- it is auto-generated.*
+
+[View in API reference](/packages/core/api/functions#checkmemorybridge)
+
+```typescript
+const check = checkMemoryBridge('/my/project');
+if (check.status === 'warning') console.log('Run: cleo refresh-memory');
+```
+
+## `ensureGlobalHome()`
+
+*Ensure the global \~/.cleo/ home directory and its required subdirectories exist. Idempotent: skips directories that already exist.  Also removes known stale project-level entries that old CLEO versions incorrectly placed at the global level (see STALE\_GLOBAL\_ENTRIES).  This is the SSoT for global home scaffolding, replacing raw mkdirSync calls that were previously scattered across global-bootstrap.ts.*
+
+[View in API reference](/packages/core/api/functions#ensureglobalhome)
+
+```typescript
+const result = await ensureGlobalHome();
+console.log(result.action); // "created" or "skipped"
+```
+
+## `ensureGlobalTemplates()`
+
+*Ensure the global CLEO injection template is installed. Delegates to injection.ts for the template content, but owns the filesystem write to maintain SSoT for scaffolding.  Idempotent: skips if the template already exists with correct content.*
+
+[View in API reference](/packages/core/api/functions#ensureglobaltemplates)
+
+```typescript
+const result = await ensureGlobalTemplates();
+if (result.action === 'repaired') console.log('Template updated');
+```
+
+## `ensureGlobalScaffold()`
+
+*Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - CLI startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)*
+
+[View in API reference](/packages/core/api/functions#ensureglobalscaffold)
+
+```typescript
+const { home, templates } = await ensureGlobalScaffold();
+console.log(home.action, templates.action);
+```
+
+## `checkGlobalHome()`
+
+*Check that the global \~/.cleo/ home and its required subdirectories exist. Read-only: no side effects.*
+
+[View in API reference](/packages/core/api/functions#checkglobalhome)
+
+```typescript
+const check = checkGlobalHome();
+if (check.status !== 'passed') console.log(check.fix);
+```
+
+## `checkGlobalTemplates()`
+
+*Check that the global injection template is present and current. Read-only: no side effects.*
+
+[View in API reference](/packages/core/api/functions#checkglobaltemplates)
+
+```typescript
+const check = checkGlobalTemplates();
+console.log(check.details.version);
+```
+
+## `checkLogDir()`
+
+*Check that the project log directory exists. Read-only: no side effects.*
+
+[View in API reference](/packages/core/api/functions#checklogdir)
+
+```typescript
+const check = checkLogDir('/my/project');
+console.log(check.status);
+```
+
+## `getAgentCapacity()`
+
+*Get task-count-based remaining capacity for an agent.  Remaining capacity = `MAX_TASKS_PER_AGENT` minus the number of tasks currently routed to this agent instance (tracked via the `task_id` column on `agent_instances` — each instance handles one task at a time; child agents spawned by an orchestrator appear as sibling rows referencing the same `parent_agent_id`).  For capacity purposes the "active tasks" count is derived from the number of non-terminal sibling rows that share the same `parent_agent_id` as this agent, plus 1 for the agent's own current task when `task_id` is set.*
+
+[View in API reference](/packages/core/api/functions#getagentcapacity)
+
+```ts
+const cap = await getAgentCapacity('agt_20260321120000_ab12cd', '/project');
+if (cap && cap.available) {
+  console.log(`Agent can take ${cap.remainingCapacity} more tasks`);
+}
+```
+
+## `getAgentsByCapacity()`
+
+*List all non-terminal agents sorted by remaining task capacity (descending).  Returns agents with the most available slots first, enabling callers to select the least-loaded agent for new work assignment.*
+
+[View in API reference](/packages/core/api/functions#getagentsbycapacity)
+
+```ts
+const agents = await getAgentsByCapacity('executor', '/project');
+const best = agents[0]; // most available slots
+if (best && best.available) {
+  await assignTask(best.agentId, taskId);
+}
+```
+
+## `getAgentSpecializations()`
+
+*Get the specialization/skills list for an agent.  Specializations are stored as a string array under the `specializations` key in the agent's `metadata_json` column. An empty array is returned when the field is absent or the agent is not found.*
+
+[View in API reference](/packages/core/api/functions#getagentspecializations)
+
+```ts
+const skills = await getAgentSpecializations('agt_20260321120000_ab12cd', '/project');
+// ['typescript', 'testing', 'documentation']
+if (skills.includes('typescript')) {
+  console.log('Agent can handle TypeScript tasks');
+}
+```
+
+## `updateAgentSpecializations()`
+
+*Update the specializations list stored in an agent's metadata.  Merges the new list into the existing `metadata_json` object, preserving any other keys already present. Returns the updated specializations list, or null if the agent was not found.*
+
+[View in API reference](/packages/core/api/functions#updateagentspecializations)
+
+```ts
+await updateAgentSpecializations(
+  'agt_20260321120000_ab12cd',
+  ['typescript', 'testing'],
+  '/project',
+);
+```
+
+## `recordAgentPerformance()`
+
+*Record agent performance metrics to the BRAIN execution history.  Translates a simplified `AgentPerformanceMetrics` object into the `AgentExecutionEvent` format expected by `execution-learning.ts` and delegates to `recordAgentExecution`. The agent type is resolved from the `agent_instances` table so callers only need to supply the agent ID.*
+
+[View in API reference](/packages/core/api/functions#recordagentperformance)
+
+```ts
+const decisionId = await recordAgentPerformance('agt_20260321120000_ab12cd', {
+  taskId: 'T041',
+  taskType: 'task',
+  outcome: 'success',
+  durationMs: 4200,
+  sessionId: 'ses_20260321_abc',
+}, '/project');
+```
+
+## `recordHeartbeat()`
+
+*Record a heartbeat for an agent instance.  Updates `last_heartbeat` to the current time and returns the agent's current `AgentInstanceStatus`. Returns `null` if the agent does not exist or is already in a terminal state (`stopped` / `crashed`).  This is the primary mechanism by which long-running agents signal liveness. Call this every `HEARTBEAT_INTERVAL_MS` (30 s) from the agent loop.*
+
+[View in API reference](/packages/core/api/functions#recordheartbeat)
+
+```ts
+// Inside the agent's main loop:
+const heartbeatTimer = setInterval(async () => {
+  const status = await recordHeartbeat(agentId);
+  if (status === 'stopped' || status === null) {
+    // Orchestrator shut us down — exit cleanly
+    clearInterval(heartbeatTimer);
+    process.exit(0);
+  }
+}, HEARTBEAT_INTERVAL_MS);
+```
+
+## `checkAgentHealth()`
+
+*Check the health of a specific agent instance by ID.  Queries the agent's current record and returns a structured `AgentHealthStatus` describing staleness, heartbeat age, and whether the agent is considered healthy relative to `thresholdMs`.  Returns `null` if the agent ID is not found in the database.*
+
+[View in API reference](/packages/core/api/functions#checkagenthealth)
+
+```ts
+const health = await checkAgentHealth('agt_20260322120000_a1b2c3');
+if (health && health.stale) {
+  console.log(`Agent stale for ${health.heartbeatAgeMs}ms — presumed crashed`);
+}
+```
+
+## `detectStaleAgents()`
+
+*Find all non-terminal agents whose last heartbeat is older than `thresholdMs`.  "Stale" means an agent with status `starting`, `active`, or `idle` has not sent a heartbeat within the threshold window. This is a precursor to crash detection — a stale agent may still recover if it is under heavy load.  Agents with status `stopped` or `crashed` are excluded — they are already in a terminal state and do not participate in the heartbeat protocol.*
+
+[View in API reference](/packages/core/api/functions#detectstaleagents)
+
+```ts
+const stale = await detectStaleAgents();
+for (const s of stale) {
+  console.log(`${s.agentId} has been stale for ${s.heartbeatAgeMs / 1000}s`);
+}
+```
+
+## `detectCrashedAgents()`
+
+*Find agents with status `active` whose heartbeat has been silent for longer than `thresholdMs`, and mark them as `crashed` in the database.  An agent is considered crashed when it: 1. Has status `active` (not `idle`, `starting`, `stopped`, or `crashed`) 2. Has not sent a heartbeat for longer than `thresholdMs`  Each detected agent is immediately marked `crashed` via `markCrashed`, incrementing its error count and writing a reason to `agent_error_log`.*
+
+[View in API reference](/packages/core/api/functions#detectcrashedagents)
+
+```ts
+// Inside an orchestrator health watchdog:
+const crashed = await detectCrashedAgents();
+if (crashed.length > 0) {
+  logger.warn({ crashed: crashed.map(a => a.id) }, 'Agents marked crashed');
+}
+```
+
+## `createRetryPolicy()`
+
+*Create a retry policy by merging overrides with the default policy.*
+
+[View in API reference](/packages/core/api/functions#createretrypolicy)
+
+```ts
+const policy = createRetryPolicy({ maxRetries: 5 });
+```
+
+## `calculateDelay()`
+
+*Calculate the delay for a given retry attempt using exponential backoff.*
+
+[View in API reference](/packages/core/api/functions#calculatedelay)
+
+```ts
+const delay = calculateDelay(1, createRetryPolicy());
+// => ~2000ms (with jitter)
+```
+
+## `shouldRetry()`
+
+*Determine whether an error should be retried based on its classification and the retry policy.*
+
+[View in API reference](/packages/core/api/functions#shouldretry)
+
+```ts
+if (shouldRetry(err, attempt, policy)) { /* retry *\/ }
+```
+
+## `withRetry()`
+
+*Wrap an async function with retry logic using configurable exponential backoff.*
+
+[View in API reference](/packages/core/api/functions#withretry)
+
+```ts
+const result = await withRetry(() => fetchAgentTask(agentId));
+if (!result.success) console.error(result.error);
+```
+
+## `recoverCrashedAgents()`
+
+*Attempt to recover crashed agents.  Finds all agents with status 'crashed' and determines if they can be restarted based on their error history. Agents whose last error was classified as 'permanent' are abandoned. Agents with retriable errors are reset to 'starting' for the orchestration layer to re-assign.*
+
+[View in API reference](/packages/core/api/functions#recovercrashedagents)
+
+```ts
+const results = await recoverCrashedAgents(60_000);
+results.filter(r => r.recovered).forEach(r => console.log(r.agentId));
+```
+
+## `predictImpact()`
+
+*Predict the downstream impact of a free-text change description.  Uses fuzzy keyword matching to identify candidate tasks that relate to the change, then walks the reverse dependency graph to enumerate all downstream tasks that may be affected.*
+
+[View in API reference](/packages/core/api/functions#predictimpact)
+
+```ts
+import { predictImpact } from '@cleocode/core';
+
+const report = await predictImpact('Modify authentication flow', process.cwd());
+console.log(report.summary);
+// "3 tasks matched 'Modify authentication flow'; 7 downstream tasks affected."
+for (const task of report.affectedTasks) {
+  console.log(`${task.id} (${task.exposure}): ${task.reason}`);
+}
+```
+
+## `SharingStatus`
+
+*Result of a sharing status check.*
+
+[View in API reference](/packages/core/api/functions#sharingstatus)
+
+```typescript
+const status = await getSharingStatus();
+if (status.hasGit && status.pendingChanges) {
+  console.log('Uncommitted changes in .cleo/ — run: cleo checkpoint');
+}
+```
+
+## `getSharingStatus()`
+
+*Get the sharing status: which .cleo/ files are tracked vs ignored, plus git sync state for Nexus multi-project visibility.*
+
+[View in API reference](/packages/core/api/functions#getsharingstatus)
+
+```typescript
+const status = await getSharingStatus('/path/to/project');
+console.log(status.mode);           // 'project'
+console.log(status.hasGit);         // true
+console.log(status.remotes);        // ['origin']
+console.log(status.pendingChanges); // false
+console.log(status.lastSync);       // '2026-03-21T18:00:00.000Z'
+```
+
+## `withRetry()`
+
+*Execute an async function with automatic retry and exponential backoff.*
+
+[View in API reference](/packages/core/api/functions#withretry)
+
+```ts
+// Basic usage — 3 attempts with 0 ms / 2 000 ms / 4 000 ms delays
+const data = await withRetry(() => fetchFromApi());
+
+// Custom retry window — only on network errors
+const result = await withRetry(
+  () => db.query(sql),
+  {
+    maxAttempts: 5,
+    baseDelayMs: 500,
+    retryableErrors: [/SQLITE_BUSY/, /database is locked/i],
+  },
+);
+```
+
+## `computeDelay()`
+
+*Compute the wait time before the next attempt.*
+
+[View in API reference](/packages/core/api/functions#computedelay)
+
+```ts
+computeDelay(1, 2000, 30000); // 2000
+computeDelay(2, 2000, 30000); // 4000
+computeDelay(3, 2000, 30000); // 8000
+```
+
+## `addResearch()`
+
+*Add a research entry.*
+
+[View in API reference](/packages/core/api/functions#addresearch)
+
+```typescript
+const entry = await addResearch({ taskId: 'T042', topic: 'Auth patterns' }, '/project', accessor);
+```
+
+## `showResearch()`
+
+*Show a specific research entry.*
+
+[View in API reference](/packages/core/api/functions#showresearch)
+
+```typescript
+const entry = await showResearch('Rlk1abc2', '/project');
+```
+
+## `listResearch()`
+
+*List research entries with optional filtering.*
+
+[View in API reference](/packages/core/api/functions#listresearch)
+
+```typescript
+const entries = await listResearch({ status: 'pending' }, '/project');
+```
+
+## `pendingResearch()`
+
+*List pending research entries.*
+
+[View in API reference](/packages/core/api/functions#pendingresearch)
+
+```typescript
+const pending = await pendingResearch('/project');
+```
+
+## `linkResearch()`
+
+*Link a research entry to a task.*
+
+[View in API reference](/packages/core/api/functions#linkresearch)
+
+```typescript
+await linkResearch('Rlk1abc2', 'T050', '/project', accessor);
+```
+
+## `updateResearch()`
+
+*Update research findings.*
+
+[View in API reference](/packages/core/api/functions#updateresearch)
+
+```typescript
+const entry = await updateResearch('Rlk1abc2', { status: 'complete', findings: ['JWT is used'] });
+```
+
+## `statsResearch()`
+
+*Get research statistics.*
+
+[View in API reference](/packages/core/api/functions#statsresearch)
+
+```typescript
+const stats = await statsResearch('/project');
+console.log(`${stats.total} entries, ${stats.byStatus.pending ?? 0} pending`);
+```
+
+## `linksResearch()`
+
+*Get research entries linked to a specific task.*
+
+[View in API reference](/packages/core/api/functions#linksresearch)
+
+```typescript
+const linked = await linksResearch('T042', '/project');
+```
+
+## `archiveResearch()`
+
+*Archive old research entries by status. Moves 'complete' entries to an archive and keeps non-complete ones.*
+
+[View in API reference](/packages/core/api/functions#archiveresearch)
+
+```typescript
+const result = await archiveResearch('/project');
+console.log(`Archived ${result.entriesArchived} entries`);
+```
+
+## `readManifest()`
+
+*Read manifest entries from MANIFEST.jsonl.*
+
+[View in API reference](/packages/core/api/functions#readmanifest)
+
+```typescript
+const entries = await readManifest('/project');
+```
+
+## `appendManifest()`
+
+*Append a manifest entry.*
+
+[View in API reference](/packages/core/api/functions#appendmanifest)
+
+```typescript
+await appendManifest({ id: 'M001', file: 'report.md', ... }, '/project');
+```
+
+## `queryManifest()`
+
+*Query manifest entries with filtering.*
+
+[View in API reference](/packages/core/api/functions#querymanifest)
+
+```typescript
+const entries = await queryManifest({ status: 'completed', limit: 5 }, '/project');
+```
+
+## `readExtendedManifest()`
+
+*Read all manifest entries as extended entries.*
+
+[View in API reference](/packages/core/api/functions#readextendedmanifest)
+
+```typescript
+const entries = await readExtendedManifest('/project');
+```
+
+## `filterManifestEntries()`
+
+*Filter manifest entries by criteria.*
+
+[View in API reference](/packages/core/api/functions#filtermanifestentries)
+
+```typescript
+const filtered = filterManifestEntries(entries, { status: 'completed', limit: 10 });
+```
+
+## `showManifestEntry()`
+
+*Show a manifest entry by ID with optional file content.*
+
+[View in API reference](/packages/core/api/functions#showmanifestentry)
+
+```typescript
+const entry = await showManifestEntry('T042-auth-research', '/project');
+if (entry.fileExists) console.log(entry.fileContent);
+```
+
+## `searchManifest()`
+
+*Search manifest entries by text with relevance scoring.*
+
+[View in API reference](/packages/core/api/functions#searchmanifest)
+
+```typescript
+const results = await searchManifest('authentication', { limit: 5 }, '/project');
+```
+
+## `pendingManifestEntries()`
+
+*Get pending manifest entries (partial, blocked, or needing followup).*
+
+[View in API reference](/packages/core/api/functions#pendingmanifestentries)
+
+```typescript
+const { entries, total } = await pendingManifestEntries('T001', '/project');
+```
+
+## `manifestStats()`
+
+*Get manifest-based research statistics.*
+
+[View in API reference](/packages/core/api/functions#manifeststats)
+
+```typescript
+const stats = await manifestStats(undefined, '/project');
+console.log(`${stats.total} entries, ${stats.actionable} actionable`);
+```
+
+## `linkManifestEntry()`
+
+*Link a manifest entry to a task (adds taskId to linked\_tasks array).*
+
+[View in API reference](/packages/core/api/functions#linkmanifestentry)
+
+```typescript
+const result = await linkManifestEntry('T042', 'M001', '/project');
+```
+
+## `appendExtendedManifest()`
+
+*Append an extended manifest entry. Validates required fields before appending.*
+
+[View in API reference](/packages/core/api/functions#appendextendedmanifest)
+
+```typescript
+const result = await appendExtendedManifest({ id: 'M002', ... }, '/project');
+```
+
+## `archiveManifestEntries()`
+
+*Archive manifest entries older than a date.*
+
+[View in API reference](/packages/core/api/functions#archivemanifestentries)
+
+```typescript
+const result = await archiveManifestEntries('2026-01-01', '/project');
+console.log(`Archived ${result.archived} entries`);
+```
+
+## `findContradictions()`
+
+*Find manifest entries with overlapping topics but conflicting key\_findings.*
+
+[View in API reference](/packages/core/api/functions#findcontradictions)
+
+```typescript
+const contradictions = await findContradictions('/project', { topic: 'auth' });
+```
+
+## `findSuperseded()`
+
+*Identify research entries replaced by newer work on same topic.*
+
+[View in API reference](/packages/core/api/functions#findsuperseded)
+
+```typescript
+const superseded = await findSuperseded('/project');
+```
+
+## `readProtocolInjection()`
+
+*Read protocol injection content for a given protocol type.*
+
+[View in API reference](/packages/core/api/functions#readprotocolinjection)
+
+```typescript
+const result = await readProtocolInjection('consensus', { taskId: 'T042' }, '/project');
+console.log(result.content);
+```
+
+## `compactManifest()`
+
+*Compact MANIFEST.jsonl by removing duplicate/stale entries.*
+
+[View in API reference](/packages/core/api/functions#compactmanifest)
+
+```typescript
+const result = await compactManifest('/project');
+console.log(`Removed ${result.duplicatesRemoved} duplicates`);
+```
+
+## `validateManifestEntries()`
+
+*Validate research entries for a task.*
+
+[View in API reference](/packages/core/api/functions#validatemanifestentries)
+
+```typescript
+const result = await validateManifestEntries('T042', '/project');
+if (!result.valid) console.log(result.issues);
+```
+
+## `getWorkflowComplianceReport()`
+
+*Compute workflow compliance metrics from existing task, session, and audit data.  Rules evaluated:   WF-001: Tasks MUST have ≥3 acceptance criteria (T058)   WF-002: Task completions MUST occur within an active session (T059)   WF-003: Completed tasks SHOULD have verification gates set (T061)   WF-004: Tasks with verification SHOULD have all 3 gates set   WF-005: Tasks MUST have session binding on creation (non-epic)*
+
+[View in API reference](/packages/core/api/functions#getworkflowcompliancereport)
+
+```ts
+const report = await getWorkflowComplianceReport({ cwd: '/my/project' });
+console.log(report.overall.passRate); // e.g. 0.85
+```
+
+## `generateAcFromDescription()`
+
+*Generate 3 baseline acceptance criteria from a task description. Uses simple text analysis — no LLM required.*
+
+[View in API reference](/packages/core/api/functions#generateacfromdescription)
+
+```ts
+generateAcFromDescription('Fix login bug', 'Users cannot log in');
+// => ['The defect is resolved...', 'No breaking changes...', 'Changes verified...']
+```
+
+## `backfillTasks()`
+
+*Retroactively populate AC and verification metadata for tasks that lack them.*
+
+[View in API reference](/packages/core/api/functions#backfilltasks)
+
+```ts
+const result = await backfillTasks('/my/project', { dryRun: true });
+console.log(result.changed); // number of tasks that would be modified
+```
+
+## `runBrainMaintenance()`
+
+*Run a combined brain maintenance pass: decay, consolidation, and embeddings.  The three steps always run in the same order:   1. `applyTemporalDecay` — decay stale learning confidence values   2. `consolidateMemories` — merge clustered old observations   3. `populateEmbeddings` — backfill missing vectors  Each step is optional via the `skip*` flags. The function is idempotent: re-running it when there is nothing to process returns zero counts.*
+
+[View in API reference](/packages/core/api/functions#runbrainmaintenance)
+
+```ts
+const result = await runBrainMaintenance('/my/project', {
+  onProgress: (step, current, total) => {
+    console.log(`[${step}] ${current}/${total}`);
+  },
+});
+console.log(`Done in ${result.duration}ms`);
+```
+
+## `memoryShow()`
+
+*Look up a brain.db entry by ID.*
+
+[View in API reference](/packages/core/api/functions#memoryshow)
+
+```typescript
+const result = await memoryShow('O-abc123', '/project');
+if (result.success) console.log(result.data.type, result.data.entry);
+```
+
+## `memoryBrainStats()`
+
+*Aggregate stats from brain.db across all tables.*
+
+[View in API reference](/packages/core/api/functions#memorybrainstats)
+
+```typescript
+const result = await memoryBrainStats('/project');
+if (result.success) console.log(result.data.observations);
+```
+
+## `memoryDecisionFind()`
+
+*Search decisions in brain.db.*
+
+[View in API reference](/packages/core/api/functions#memorydecisionfind)
+
+```typescript
+const result = await memoryDecisionFind({ query: 'auth' }, '/project');
+```
+
+## `memoryDecisionStore()`
+
+*Store a decision to brain.db.*
+
+[View in API reference](/packages/core/api/functions#memorydecisionstore)
+
+```typescript
+const result = await memoryDecisionStore({ title: 'Use SQLite', rationale: 'Embedded, fast' }, '/project');
+```
+
+## `memoryFind()`
+
+*Token-efficient brain search returning compact results.*
+
+[View in API reference](/packages/core/api/functions#memoryfind)
+
+```typescript
+const result = await memoryFind({ query: 'authentication', limit: 10 }, '/project');
+```
+
+## `memoryTimeline()`
+
+*Chronological context around a brain entry anchor.*
+
+[View in API reference](/packages/core/api/functions#memorytimeline)
+
+```typescript
+const result = await memoryTimeline({ anchorId: 'O-abc123', window: 5 }, '/project');
+```
+
+## `memoryFetch()`
+
+*Batch fetch brain entries by IDs.*
+
+[View in API reference](/packages/core/api/functions#memoryfetch)
+
+```typescript
+const result = await memoryFetch({ ids: ['O-abc123', 'D-def456'] }, '/project');
+```
+
+## `memoryObserve()`
+
+*Save an observation to brain.db.*
+
+[View in API reference](/packages/core/api/functions#memoryobserve)
+
+```typescript
+const result = await memoryObserve({ text: 'Auth uses JWT', title: 'Auth discovery' }, '/project');
+```
+
+## `memoryPatternStore()`
+
+*Store a pattern to BRAIN memory.*
+
+[View in API reference](/packages/core/api/functions#memorypatternstore)
+
+```typescript
+const result = await memoryPatternStore({ pattern: 'migration', type: 'success' }, '/project');
+```
+
+## `memoryPatternFind()`
+
+*Search patterns in BRAIN memory.*
+
+[View in API reference](/packages/core/api/functions#memorypatternfind)
+
+```typescript
+const result = await memoryPatternFind({ type: 'success', limit: 10 }, '/project');
+```
+
+## `memoryPatternStats()`
+
+*Get pattern memory statistics.*
+
+[View in API reference](/packages/core/api/functions#memorypatternstats)
+
+```typescript
+const result = await memoryPatternStats('/project');
+```
+
+## `memoryLearningStore()`
+
+*Store a learning to BRAIN memory.*
+
+[View in API reference](/packages/core/api/functions#memorylearningstore)
+
+```typescript
+const result = await memoryLearningStore({ text: 'Drizzle v1 requires beta flag' }, '/project');
+```
+
+## `memoryLearningFind()`
+
+*Search learnings in BRAIN memory.*
+
+[View in API reference](/packages/core/api/functions#memorylearningfind)
+
+```typescript
+const result = await memoryLearningFind({ query: 'drizzle' }, '/project');
+```
+
+## `memoryLearningStats()`
+
+*Get learning memory statistics.*
+
+[View in API reference](/packages/core/api/functions#memorylearningstats)
+
+```typescript
+const result = await memoryLearningStats('/project');
+```
+
+## `memoryContradictions()`
+
+*Find contradictory entries in brain.db.*
+
+[View in API reference](/packages/core/api/functions#memorycontradictions)
+
+```typescript
+const result = await memoryContradictions('/project');
+if (result.success) console.log(result.data.contradictions);
+```
+
+## `memorySuperseded()`
+
+*Find superseded entries in brain.db.  Identifies entries that have been superseded by newer entries on the same topic.*
+
+[View in API reference](/packages/core/api/functions#memorysuperseded)
+
+```typescript
+const result = await memorySuperseded({ type: 'decision' }, '/project');
+```
+
+## `memoryLink()`
+
+*Link a brain entry to a task.*
+
+[View in API reference](/packages/core/api/functions#memorylink)
+
+```typescript
+const result = await memoryLink({ entryId: 'O-abc123', taskId: 'T042' }, '/project');
+```
+
+## `memoryUnlink()`
+
+*Remove a link between a brain entry and a task.*
+
+[View in API reference](/packages/core/api/functions#memoryunlink)
+
+```typescript
+const result = await memoryUnlink({ entryId: 'O-abc123', taskId: 'T042' }, '/project');
+```
+
+## `memoryGraphAdd()`
+
+*Add a node or edge to the PageIndex graph.*
+
+[View in API reference](/packages/core/api/functions#memorygraphadd)
+
+```typescript
+const result = await memoryGraphAdd({ type: 'node', label: 'auth', nodeType: 'concept' }, '/project');
+```
+
+## `memoryGraphShow()`
+
+*Get a node and its edges from the PageIndex graph.*
+
+[View in API reference](/packages/core/api/functions#memorygraphshow)
+
+```typescript
+const result = await memoryGraphShow({ nodeId: 'auth' }, '/project');
+```
+
+## `memoryGraphNeighbors()`
+
+*Get neighbor nodes from the PageIndex graph.*
+
+[View in API reference](/packages/core/api/functions#memorygraphneighbors)
+
+```typescript
+const result = await memoryGraphNeighbors({ nodeId: 'auth', depth: 2 }, '/project');
+```
+
+## `memoryReasonWhy()`
+
+*Causal trace through task dependency chains.*
+
+[View in API reference](/packages/core/api/functions#memoryreasonwhy)
+
+```typescript
+const result = await memoryReasonWhy({ id: 'D-abc123' }, '/project');
+```
+
+## `memoryReasonSimilar()`
+
+*Find semantically similar entries.*
+
+[View in API reference](/packages/core/api/functions#memoryreasonsimilar)
+
+```typescript
+const result = await memoryReasonSimilar({ id: 'O-abc123', limit: 5 }, '/project');
+```
+
+## `memorySearchHybrid()`
+
+*Hybrid search across FTS5, vector, and graph.*
+
+[View in API reference](/packages/core/api/functions#memorysearchhybrid)
+
+```typescript
+const result = await memorySearchHybrid({ query: 'authentication flow' }, '/project');
+```
+
+## `memoryGraphRemove()`
+
+*Remove a node or edge from the PageIndex graph.*
+
+[View in API reference](/packages/core/api/functions#memorygraphremove)
+
+```typescript
+const result = await memoryGraphRemove({ type: 'node', nodeId: 'stale-concept' }, '/project');
+```
+
+## `coreTaskNext()`
+
+*Suggest next task to work on based on priority, phase, age, and deps.*
+
+[View in API reference](/packages/core/api/functions#coretasknext)
+
+```typescript
+const { suggestions } = await coreTaskNext('/project', { count: 3, explain: true });
+console.log(suggestions[0].id, suggestions[0].score);
+```
+
+## `coreTaskBlockers()`
+
+*Show blocked tasks and analyze blocking chains.*
+
+[View in API reference](/packages/core/api/functions#coretaskblockers)
+
+```typescript
+const result = await coreTaskBlockers('/project', { analyze: true, limit: 10 });
+console.log(result.summary, result.criticalBlockers);
+```
+
+## `coreTaskTree()`
+
+*Build hierarchy tree for tasks.*
+
+[View in API reference](/packages/core/api/functions#coretasktree)
+
+```typescript
+const { tree, totalNodes } = await coreTaskTree('/project', 'T042');
+console.log(`${totalNodes} nodes in subtree`);
+```
+
+## `coreTaskDeps()`
+
+*Show dependencies for a task.*
+
+[View in API reference](/packages/core/api/functions#coretaskdeps)
+
+```typescript
+const deps = await coreTaskDeps('/project', 'T100');
+if (!deps.allDepsReady) console.log('Blocked by:', deps.unresolvedDeps);
+```
+
+## `coreTaskRelates()`
+
+*Show task relations.*
+
+[View in API reference](/packages/core/api/functions#coretaskrelates)
+
+```typescript
+const { relations, count } = await coreTaskRelates('/project', 'T050');
+console.log(`${count} relations found`);
+```
+
+## `coreTaskRelatesAdd()`
+
+*Add a relation between two tasks.*
+
+[View in API reference](/packages/core/api/functions#coretaskrelatesadd)
+
+```typescript
+const result = await coreTaskRelatesAdd('/project', 'T010', 'T020', 'related-to', 'Shared scope');
+console.log(result.added); // true
+```
+
+## `coreTaskAnalyze()`
+
+*Analyze tasks for priority and leverage.*
+
+[View in API reference](/packages/core/api/functions#coretaskanalyze)
+
+```typescript
+const analysis = await coreTaskAnalyze('/project', undefined, { tierLimit: 5 });
+if (analysis.recommended) console.log('Work on:', analysis.recommended.id);
+```
+
+## `coreTaskRestore()`
+
+*Restore a cancelled task back to pending.*
+
+[View in API reference](/packages/core/api/functions#coretaskrestore)
+
+```typescript
+const { restored, count } = await coreTaskRestore('/project', 'T099', { cascade: true });
+console.log(`Restored ${count} tasks:`, restored);
+```
+
+## `coreTaskCancel()`
+
+*Cancel a task (sets status to 'cancelled', a soft terminal state). Use restore to reverse. Use delete for permanent removal.*
+
+[View in API reference](/packages/core/api/functions#coretaskcancel)
+
+```typescript
+const result = await coreTaskCancel('/project', 'T077', { reason: 'Superseded by T080' });
+console.log(result.cancelledAt);
+```
+
+## `coreTaskUnarchive()`
+
+*Move an archived task back to active tasks.*
+
+[View in API reference](/packages/core/api/functions#coretaskunarchive)
+
+```typescript
+const result = await coreTaskUnarchive('/project', 'T055', { status: 'active' });
+console.log(`${result.title} is now ${result.status}`);
+```
+
+## `coreTaskReorder()`
+
+*Change task position within its sibling group.*
+
+[View in API reference](/packages/core/api/functions#coretaskreorder)
+
+```typescript
+const result = await coreTaskReorder('/project', 'T012', 1);
+console.log(`Moved to position ${result.newPosition} of ${result.totalSiblings}`);
+```
+
+## `coreTaskReparent()`
+
+*Move task under a different parent.*
+
+[View in API reference](/packages/core/api/functions#coretaskreparent)
+
+```typescript
+const result = await coreTaskReparent('/project', 'T015', 'T010');
+console.log(`Moved from ${result.oldParent} to ${result.newParent}`);
+```
+
+## `coreTaskPromote()`
+
+*Promote a subtask to task or task to root.*
+
+[View in API reference](/packages/core/api/functions#coretaskpromote)
+
+```typescript
+const result = await coreTaskPromote('/project', 'T025');
+if (result.promoted) console.log('Detached from', result.previousParent);
+```
+
+## `coreTaskReopen()`
+
+*Reopen a completed task.*
+
+[View in API reference](/packages/core/api/functions#coretaskreopen)
+
+```typescript
+const result = await coreTaskReopen('/project', 'T033', { status: 'active', reason: 'Tests failed' });
+console.log(`${result.previousStatus} -> ${result.newStatus}`);
+```
+
+## `coreTaskComplexityEstimate()`
+
+*Deterministic complexity scoring from task metadata.*
+
+[View in API reference](/packages/core/api/functions#coretaskcomplexityestimate)
+
+```typescript
+const est = await coreTaskComplexityEstimate('/project', { taskId: 'T042' });
+console.log(`${est.size} (score: ${est.score})`);
+```
+
+## `coreTaskDepsOverview()`
+
+*Overview of all dependencies across the project.*
+
+[View in API reference](/packages/core/api/functions#coretaskdepsoverview)
+
+```typescript
+const overview = await coreTaskDepsOverview('/project');
+console.log(`${overview.blockedTasks.length} blocked, ${overview.readyTasks.length} ready`);
+```
+
+## `coreTaskDepsCycles()`
+
+*Detect circular dependencies across the project.*
+
+[View in API reference](/packages/core/api/functions#coretaskdepscycles)
+
+```typescript
+const { hasCycles, cycles } = await coreTaskDepsCycles('/project');
+if (hasCycles) console.log('Circular deps:', cycles.map(c => c.path.join(' -> ')));
+```
+
+## `coreTaskDepends()`
+
+*List dependencies for a task in a given direction.*
+
+[View in API reference](/packages/core/api/functions#coretaskdepends)
+
+```typescript
+const deps = await coreTaskDepends('/project', 'T100', 'both', { tree: true });
+console.log('Leaf blockers:', deps.leafBlockers.map(b => b.id));
+```
+
+## `coreTaskStats()`
+
+*Compute task statistics.*
+
+[View in API reference](/packages/core/api/functions#coretaskstats)
+
+```typescript
+const stats = await coreTaskStats('/project', 'T001');
+console.log(`${stats.done}/${stats.total} complete`);
+```
+
+## `coreTaskExport()`
+
+*Export tasks as JSON or CSV.*
+
+[View in API reference](/packages/core/api/functions#coretaskexport)
+
+```typescript
+const result = await coreTaskExport('/project', { format: 'csv', status: 'done' });
+console.log(result.content); // CSV string
+```
+
+## `coreTaskHistory()`
+
+*Get task history from the audit log.*
+
+[View in API reference](/packages/core/api/functions#coretaskhistory)
+
+```typescript
+const history = await coreTaskHistory('/project', 'T042', 10);
+for (const entry of history) console.log(entry.timestamp, entry.operation);
+```
+
+## `coreTaskLint()`
+
+*Lint tasks for common issues.*
+
+[View in API reference](/packages/core/api/functions#coretasklint)
+
+```typescript
+const issues = await coreTaskLint('/project');
+const errors = issues.filter(i => i.severity === 'error');
+console.log(`${errors.length} errors found`);
+```
+
+## `coreTaskBatchValidate()`
+
+*Validate multiple tasks at once.*
+
+[View in API reference](/packages/core/api/functions#coretaskbatchvalidate)
+
+```typescript
+const { summary } = await coreTaskBatchValidate('/project', ['T001', 'T002'], 'full');
+console.log(`${summary.validTasks}/${summary.totalTasks} valid`);
+```
+
+## `coreTaskImport()`
+
+*Import tasks from a JSON source string.*
+
+[View in API reference](/packages/core/api/functions#coretaskimport)
+
+```typescript
+const json = JSON.stringify([{ id: 'T500', title: 'New task', status: 'pending', priority: 'medium' }]);
+const result = await coreTaskImport('/project', json, false);
+console.log(`Imported ${result.imported}, skipped ${result.skipped}`);
+```
+
 ## `findResumablePipelines()`
 
-_Query active pipelines that can be resumed.  Searches the lifecycle_pipelines table for pipelines with status 'active' and joins with lifecycle_stages to determine current stage status. Also joins with tasks table to get task metadata._
+*Query active pipelines that can be resumed.  Searches the lifecycle\_pipelines table for pipelines with status 'active' and joins with lifecycle\_stages to determine current stage status. Also joins with tasks table to get task metadata.*
 
 [View in API reference](/packages/core/api/functions#findresumablepipelines)
 
@@ -94,7 +2001,7 @@ const withBlocked = await findResumablePipelines({
 
 ## `loadPipelineContext()`
 
-_Load complete pipeline context for session resume.  Uses SQL JOINs to efficiently load all related data: - Pipeline and current stage - All stages with their status - Gate results for current stage - Evidence linked to current stage - Recent transitions - Task details_
+*Load complete pipeline context for session resume.  Uses SQL JOINs to efficiently load all related data: - Pipeline and current stage - All stages with their status - Gate results for current stage - Evidence linked to current stage - Recent transitions - Task details*
 
 [View in API reference](/packages/core/api/functions#loadpipelinecontext)
 
@@ -106,7 +2013,7 @@ console.log(`Stage status: ${context.stages.find(s => s.stage === context.curren
 
 ## `resumeStage()`
 
-_Resume a specific stage in a pipeline.  Updates the stage status from 'blocked' or 'not_started' to 'in_progress', records the transition, and returns the resume result._
+*Resume a specific stage in a pipeline.  Updates the stage status from 'blocked' or 'not\_started' to 'in\_progress', records the transition, and returns the resume result.*
 
 [View in API reference](/packages/core/api/functions#resumestage)
 
@@ -119,7 +2026,7 @@ if (result.success) {
 
 ## `autoResume()`
 
-_Auto-detect where to resume across all active pipelines.  Finds the best candidate for resuming work based on: 1. Active stages (currently in progress) 2. Blocked stages (can be unblocked) 3. Failed stages (can be retried) 4. Priority ordering_
+*Auto-detect where to resume across all active pipelines.  Finds the best candidate for resuming work based on: 1. Active stages (currently in progress) 2. Blocked stages (can be unblocked) 3. Failed stages (can be retried) 4. Priority ordering*
 
 [View in API reference](/packages/core/api/functions#autoresume)
 
@@ -134,7 +2041,7 @@ if (result.canResume) {
 
 ## `checkSessionResume()`
 
-_Check for resumable work on session start.  Integrates with session initialization to check for active pipelines and present resumable work to the user. Can auto-resume if there's a clear single candidate._
+*Check for resumable work on session start.  Integrates with session initialization to check for active pipelines and present resumable work to the user. Can auto-resume if there's a clear single candidate.*
 
 [View in API reference](/packages/core/api/functions#checksessionresume)
 
@@ -150,7 +2057,7 @@ if (resumeCheck.didResume) {
 
 ## `checkPrerequisites()`
 
-_Check if prerequisites are met for a stage.  Validates that all prerequisite stages are in an acceptable state (completed or skipped) for the target stage to proceed._
+*Check if prerequisites are met for a stage.  Validates that all prerequisite stages are in an acceptable state (completed or skipped) for the target stage to proceed.*
 
 [View in API reference](/packages/core/api/functions#checkprerequisites)
 
@@ -168,7 +2075,7 @@ if (check.met) {
 
 ## `validateTransition()`
 
-_Validate a stage transition.  Comprehensive validation that checks both transition rules and prerequisites. This is the core state machine validation logic._
+*Validate a stage transition.  Comprehensive validation that checks both transition rules and prerequisites. This is the core state machine validation logic.*
 
 [View in API reference](/packages/core/api/functions#validatetransition)
 
@@ -184,7 +2091,7 @@ if (!validation.valid) {
 
 ## `executeTransition()`
 
-_Execute a state transition.  Applies the transition to the state machine context, updating stage statuses and returning the new state. This function does NOT persist to database - that is handled by the pipeline module._
+*Execute a state transition.  Applies the transition to the state machine context, updating stage statuses and returning the new state. This function does NOT persist to database - that is handled by the pipeline module.*
 
 [View in API reference](/packages/core/api/functions#executetransition)
 

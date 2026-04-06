@@ -7,93 +7,151 @@ This page explains the core concepts behind **cleocode**.
 > This is a stub page. Edit this file to add your project's conceptual documentation.
 > Auto-generated sections below (inside FORGE:AUTO markers) update on every build.
 
-{/*  FORGE:AUTO-START how-it-works  */}
+{/* FORGE:AUTO-START how-it-works */}
+
 ## How It Works
 
 cleocode processes your TypeScript source with a single AST traversal, extracting TSDoc comments and type information to generate documentation.
 
-{/*  FORGE:AUTO-END how-it-works  */}
+{/* FORGE:AUTO-END how-it-works */}
 
-{/*  FORGE:AUTO-START key-abstractions  */}
+{/* FORGE:AUTO-START key-abstractions */}
+
 ## Key Abstractions
 
 - **`AdapterManifest`** — Minimal manifest shape for provider discovery.
-- **`CliOutputOptions`** — The `CliOutputOptions` interface.
-- **`CliErrorDetails`** — Error details for structured error output.
-- **`Gateway`** — CQRS gateway: read-only queries vs state-modifying mutations.
-- **`Source`** — Where the request originated.
-- **`Tier`** — Progressive disclosure tier. 0 = tasks + session (80% of agents) 1 = + memory + check (15% of agents) 2 = + pipeline + orchestrate + tools + admin + nexus (5%)
-- **`ParamType`** — The concrete value types a parameter can carry at runtime. Drives JSON Schema `type` and Commander argument/option parsing.
-- **`ParamCliDef`** — CLI-specific decoration for a parameter. All fields are optional — omit the entire `cli` key for MCP-only params.
-- **`ParamMcpDef`** — MCP-specific decoration for a parameter. All fields are optional — omit the entire `mcp` key for CLI-only params.
-- **`ParamDef`** — A fully-described parameter definition.  One `ParamDef` entry drives:  - Commander: `.argument()` (positional) or `.option()` (flag)  - MCP: a JSON Schema property with `type`, `description`, and optionally `enum`
-- **`CanonicalDomain`** — The `CanonicalDomain` type.
-- **`DispatchRequest`** — Canonical request shape that both CLI and MCP adapters produce.  The dispatcher validates this against the OperationRegistry before passing it through the middleware pipeline and into a DomainHandler.
-- **`RateLimitMeta`** — Rate limit metadata attached to every response.
-- **`DispatchError`** — Structured error shape (LAFS-compatible).
-- **`DispatchResponse`** — Canonical response shape returned by the dispatcher.  Adapters translate this into their wire format: - CLI adapter → cliOutput() / cliError() + process.exit() - MCP adapter → MCP SDK JSON envelope
-- **`DomainHandler`** — Contract for domain handlers.  Each of the 9 target domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus) implements this interface.
-- **`DispatchNext`** — Async function that produces a DispatchResponse.
-- **`Middleware`** — Middleware function signature.  Receives the request and a `next` continuation. Can short-circuit by returning early (e.g., rate-limit exceeded) or modify the request/response.
-- **`OperationDef`** — Definition of a single dispatchable operation.
-- **`Resolution`** — Resolution output for a dispatch request.
-- **`DispatcherConfig`** — The `DispatcherConfig` interface.
-- **`TaskRecord`** — Task object as stored in task data.
-- **`MinimalTaskRecord`** — Minimal task representation for find results
-- **`RuntimeData`** — The `RuntimeData` type.
-- **`DashboardData`** — The `DashboardData` interface.
-- **`StatsData`** — The `StatsData` interface.
-- **`LogQueryData`** — The `LogQueryData` interface.
-- **`ContextData`** — The `ContextData` interface.
-- **`SequenceData`** — The `SequenceData` interface.
-- **`RoadmapData`** — The `RoadmapData` interface.
-- **`ComplianceData`** — The `ComplianceData` interface.
-- **`HelpData`** — The `HelpData` interface.
-- **`SyncData`** — The `SyncData` interface.
-- **`EngineResult`** — Engine result shape accepted by wrapResult. Matches the union of what all engine functions return.
-- **`JobStatus`** — Background job status
-- **`BackgroundJob`** — Background job representation
-- **`BackgroundJobManagerConfig`** — Configuration for BackgroundJobManager
-- **`SessionContext`** — Immutable snapshot of the bound session context.
-- **`RateLimitConfig`** — Rate limit configuration for a single category
-- **`RateLimitingConfig`** — Complete rate limiting configuration
-- **`RateLimitResult`** — Rate limit check result
-- **`LifecycleEnforcementConfig`** — Lifecycle enforcement configuration (Section 12.2)
-- **`ProtocolValidationConfig`** — Protocol validation configuration (Section 12.3)
-- **`MCPConfig`** — The `MCPConfig` interface.
-- **`MviTier`** — MVI (Minimum Viable Information) projection configurations. Maps disclosure tiers to operation access and field filtering rules.   T4820  T5096
-- **`ProjectionConfig`** — The `ProjectionConfig` interface.
-- **`ProjectionContext`** — The `ProjectionContext` interface.
-- **`RateLimitConfig`** — Rate Limit Configuration
-- **`RateLimitingConfig`** — The `RateLimitingConfig` interface.
-- **`McpDispatcherConfig`** — The `McpDispatcherConfig` interface.
-- **`GatewayMetaRecord`** — GatewayMeta with an index signature for DomainResponse._meta compatibility.  All domain handlers receive this from createGatewayMeta().   T4655
-- **`ShimOption`** — Parsed option definition.
-- **`ShimArg`** — Positional argument definition.
-- **`CommanderCompatOption`** — Commander-compatible option view for tests.
-- **`ActionHandler`** — Type for the action handler function - flexible to support various signatures
-- **`ProgressOptions`** — The `ProgressOptions` interface.
-- **`DomainRequest`** — Request from MCP gateway (inline — replaces legacy router.ts import)
-- **`DomainResponse`** — Response from domain handler (inline — replaces legacy router.ts import)
-- **`MutateRequest`** — Mutate request interface
-- **`MutateResponse`** — Mutate response interface (aliases DomainResponse)
-- **`DomainRequest`** — Request from MCP gateway (inline — replaces legacy router.ts import)
-- **`DomainResponse`** — Response from domain handler (inline — replaces legacy router.ts import)
-- **`QueryRequest`** — Query request interface
-- **`QueryResponse`** — Query response interface (aliases DomainResponse)
-- **`CacheStats`** — Cache statistics
-- **`McpResource`** — MCP Resource definition.
-- **`McpResourceContent`** — MCP Resource content response.
-- **`TestEnvironment`** — The `TestEnvironment` interface.
-- **`IntegrationTestContext`** — Test context for integration tests
-- **`DomainRequest`** — Request from MCP gateway
-- **`DomainResponse`** — Response from domain handler
-- **`DomainHandler`** — Domain handler interface (legacy - retained for type compatibility)
-- **`RateLimitConfig`** — Rate limiter configuration
-- **`RateLimitResult`** — Rate limit check result
+- **`SkillLibraryEntry`** — A single skill entry in a library catalog.
+- **`SkillLibraryValidationResult`** — Validation result from skill frontmatter validation.
+- **`SkillLibraryValidationIssue`** — A single validation issue.
+- **`SkillLibraryProfile`** — Profile definition for grouped skill installation.
+- **`SkillLibraryDispatchMatrix`** — Dispatch matrix for task routing to skills.
+- **`SkillLibraryManifestSkill`** — Skill entry within the library manifest.
+- **`SkillLibraryManifest`** — Full manifest structure for a skill library.
+- **`SkillLibrary`** — Standard interface for a skill library.  Any directory or module providing skills must implement this contract. CAAMP uses it to discover, resolve, and install skills from any source.
+- **`RegistryDetection`** — Raw detection configuration as stored in registry.json.
+- **`RegistryProvider`** — Raw provider definition as stored in registry.json before path resolution.
+- **`SkillsPrecedence`** — How a provider resolves skill file precedence between vendor and agents directories.
+- **`RegistrySkillsCapability`** — Raw skills capability definition as stored in registry.json.
+- **`HookEvent`** — Hook lifecycle event identifier from registry.json.
+- **`RegistryHooksCapability`** — Raw hooks capability definition as stored in registry.json.
+- **`SpawnMechanism`** — Mechanism a provider uses to spawn subagents.
+- **`RegistrySpawnCapability`** — Raw spawn capability definition as stored in registry.json.
+- **`RegistryCapabilities`** — Aggregate capability block for a provider in registry.json.
+- **`ProviderRegistry`** — Top-level structure of the provider registry JSON file.
+- **`CtSkillEntry`** — Backward-compatible alias for `SkillLibraryEntry`.
+- **`CtValidationResult`** — Backward-compatible alias for `SkillLibraryValidationResult`.
+- **`CtValidationIssue`** — Backward-compatible alias for `SkillLibraryValidationIssue`.
+- **`CtProfileDefinition`** — Backward-compatible alias for `SkillLibraryProfile`.
+- **`CtDispatchMatrix`** — Backward-compatible alias for `SkillLibraryDispatchMatrix`.
+- **`CtManifest`** — Backward-compatible alias for `SkillLibraryManifest`.
+- **`CtManifestSkill`** — Backward-compatible alias for `SkillLibraryManifestSkill`.
+- **`ConfigFormat`** — Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+- **`TransportType`** — MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote)
+- **`DetectionMethod`** — Method used to detect whether an AI agent is installed on the system.  - `"binary"` - Check if a CLI binary exists on PATH - `"directory"` - Check if known config/data directories exist - `"appBundle"` - Check for macOS .app bundle in standard app directories - `"flatpak"` - Check for Flatpak installation on Linux
+- **`DetectionConfig`** — Configuration for detecting whether a provider is installed.
+- **`ProviderSkillsCapability`** — Resolved skills capability for a provider at runtime.
+- **`ProviderHooksCapability`** — Resolved hooks capability for a provider at runtime.
+- **`ProviderSpawnCapability`** — Resolved spawn capability for a provider at runtime.
+- **`ProviderCapabilities`** — Aggregate provider capabilities for skills, hooks, and spawn.
+- **`ProviderPriority`** — Priority tier for a provider, used for sorting and default selection.  - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
+- **`ProviderStatus`** — Lifecycle status of a provider in the registry.  - `"active"` - Fully supported - `"beta"` - Supported but may have rough edges - `"deprecated"` - Still present but no longer recommended - `"planned"` - Not yet implemented
+- **`Provider`** — A resolved AI agent provider definition with platform-specific paths.
+- **`McpServerConfig`** — Canonical MCP server configuration.
+- **`SourceType`** — Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS URL to a remote MCP server - `"package"` - npm package name - `"command"` - Shell command string - `"github"` - GitHub repository (URL or shorthand) - `"gitlab"` - GitLab repository URL - `"local"` - Local filesystem path - `"library"` - Built-in skill library reference
+- **`ParsedSource`** — Result of parsing a source string into its typed components.
+- **`SkillMetadata`** — Metadata extracted from a SKILL.md frontmatter.
+- **`SkillEntry`** — A discovered skill entry with its location and metadata.
+- **`LockEntry`** — A single entry in the CAAMP lock file tracking an installed skill or MCP server.
+- **`CaampLockFile`** — The CAAMP lock file structure, stored at the resolved canonical lock path.
+- **`MarketplaceSkill`** — A skill listing from a marketplace search result.
+- **`MarketplaceSearchResult`** — Paginated search results from a marketplace API.
+- **`AuditSeverity`** — Severity level for a security audit finding.  Ordered from most to least severe: `"critical"`  `"high"`  `"medium"`  `"low"`  `"info"`.
+- **`AuditRule`** — A security audit rule definition with a regex pattern to match against skill content.
+- **`AuditFinding`** — A single finding from a security audit scan, with line-level location.
+- **`AuditResult`** — Aggregate audit result for a single file.
+- **`InjectionStatus`** — Status of a CAAMP injection block in an instruction file.  - `"current"` - Injection block exists and matches expected content - `"outdated"` - Injection block exists but content differs - `"missing"` - Instruction file does not exist - `"none"` - File exists but has no CAAMP injection block
+- **`InjectionCheckResult`** — Result of checking a single instruction file for CAAMP injection status.
+- **`McpServerEntry`** — An MCP server entry read from a provider's config file.
+- **`GlobalOptions`** — Global CLI options shared across all CAAMP commands.
+- **`PlatformPaths`** — OS-appropriate directory paths for CAAMP's global storage.
+- **`SystemInfo`** — Snapshot of the current system environment and resolved platform paths.
+- **`PathScope`** — Scope for path resolution, either global (user home) or project-local.
+- **`PlatformLocations`** — Platform-specific directory locations for agent configuration.
+- **`InjectionTemplate`** — Structured template for injection content.
+- **`EnsureProviderInstructionFileOptions`** — Options for ensuring a provider instruction file.
+- **`EnsureProviderInstructionFileResult`** — Result of ensuring a provider instruction file.
+- **`DetectionResult`** — Result of detecting whether a provider is installed on the system.
+- **`DetectionCacheOptions`** — Options for controlling the detection result cache.
+- **`SkillInstallResult`** — Result of installing a skill to the canonical location and linking to agents.
+- **`SkillBatchOperation`** — Single skill operation entry used by batch orchestration.
+- **`BatchInstallOptions`** — Options for rollback-capable batch installation.
+- **`BatchInstallResult`** — Result of rollback-capable batch installation.
+- **`InstructionUpdateSummary`** — Result of a single-operation instruction update across providers.
+- **`MVILevel`** — LAFS MVI disclosure level - defined locally to avoid CI module resolution issues with re-exported types.
+- **`LAFSErrorShape`** — LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP compatibility.
+- **`LAFSWarning`** — LAFS Warning structure - re-exported from protocol.
+- **`LAFSEnvelope`** — Generic LAFS Envelope structure for type-safe command results.
+- **`FormatOptions`** — Format resolution options.
+- **`LAFSCommandOptions`** — Standard command options interface for LAFS-compliant commands.
+- **`ProviderTargetOptions`** — Options for resolving which providers to target in advanced commands.
+- **`HookCategory`** — Union type of valid hook category strings.
+- **`EventSource`** — Union type of valid event source types.
+- **`CanonicalHookEvent`** — Union type of all canonical hook event names.
+- **`CanonicalEventDefinition`** — Definition of a canonical hook event including its category and behavior.
+- **`HookSystemType`** — The type of hook system a provider uses.
+- **`HookHandlerType`** — The mechanism a provider uses to execute hook handlers.
+- **`HookMapping`** — Mapping of a single canonical event to a provider's native representation.
+- **`ProviderHookProfile`** — Complete hook profile for a single provider.
+- **`NormalizedHookEvent`** — A fully resolved hook event with both canonical and native names.
+- **`HookSupportResult`** — Result of querying whether a provider supports a specific canonical event.
+- **`ProviderHookSummary`** — Aggregated hook support summary for a single provider.
+- **`CrossProviderMatrix`** — Cross-provider hook support matrix comparing multiple providers.
+- **`HookMappingsFile`** — Schema for the `providers/hook-mappings.json` data file.
+- **`MarketplaceAdapter`** — Contract that each marketplace backend adapter must implement.
+- **`MarketplaceResult`** — Normalized marketplace record returned by all adapters.
+- **`SearchOptions`** — Options for marketplace search requests.
+- **`RecommendationErrorCode`** — Union type of all recommendation error code string literals.
+- **`RecommendationValidationIssue`** — Describes a single validation issue found in recommendation criteria.
+- **`RecommendationValidationResult`** — Result of validating recommendation criteria input.
+- **`RecommendationCriteriaInput`** — Raw user-provided criteria for skill recommendations.
+- **`NormalizedRecommendationCriteria`** — Normalized and tokenized form of recommendation criteria.
+- **`RecommendationReasonCode`** — String literal union of all reason codes emitted during skill scoring.
+- **`RecommendationReason`** — A single reason contributing to a skill's recommendation score.
+- **`RecommendationScoreBreakdown`** — Detailed breakdown of a skill's recommendation score by category.
+- **`RankedSkillRecommendation`** — A single skill recommendation with its computed score and explanations.
+- **`RecommendationOptions`** — Configuration options for the skill recommendation engine.
+- **`RecommendationWeights`** — Numeric weights controlling the recommendation scoring algorithm.
+- **`RecommendSkillsResult`** — The complete result of a skill recommendation operation.
+- **`SearchSkillsOptions`** — Options for searching skills via marketplace APIs.
+- **`RecommendSkillsQueryOptions`** — Options for the recommendation query combining ranking options with a result limit.
+- **`GitFetchResult`** — Result of fetching a Git repository to a local temporary directory.
+- **`ValidationIssue`** — A single validation issue found during SKILL.md validation.
+- **`ValidationResult`** — Result of validating a SKILL.md file against the Agent Skills standard.
+- **`SpawnOptions`** — Options for spawning a subagent.
+- **`SpawnResult`** — Result from a spawn operation.
+- **`SpawnAdapter`** — Provider-neutral interface for spawning and managing subagents.  Concrete implementations will be provider-specific (e.g. ClaudeCodeSpawnAdapter, CodexSpawnAdapter) and registered by CLEO's orchestration layer.
+- **`SkillIntegrityStatus`** — Status of a single skill's integrity check.
+- **`SkillIntegrityResult`** — Result of checking a single skill's integrity.
+- **`ResolvedImports`** — Result of resolving  lines in content.
+- **`WellKnownSkill`** — A skill entry discovered via the RFC 8615 well-known endpoint.
+- **`MigrationOptions`** — Options controlling migration behavior.
+- **`MigrationResult`** — Result of migrating a single markdown file.
+- **`ConvertedFile`** — A single converted .cant output file.
+- **`UnconvertedSection`** — A section of markdown that was not converted.
+- **`MarkdownSection`** — A parsed markdown section identified by heading.  Used internally by the markdown parser to structure the input before classification and conversion.
+- **`SectionClassification`** — Classification of a markdown section for conversion purposes.
+- **`ExtractedProperty`** — A key-value property extracted from a markdown bullet list.  Matches patterns like `- **Key**: value` or `- Key: value`.
+- **`ExtractedPermission`** — A permission entry extracted from markdown.  Matches patterns like `- Tasks: read, write` or `- Read and write tasks`.
+- **`CantDocumentIR`** — Intermediate representation of a CANT document for serialization.  This is the bridge between the converter's output and the final .cant file text. Each field maps to a CANT construct.
+- **`CantBlockIR`** — A CANT block (agent, skill, hook, or workflow).
+- **`CantPropertyIR`** — A single property key-value pair.
+- **`NativeParseResult`** — Shape returned by the native Rust WASM cantParse function.
+- **`DirectiveType`** — The `DirectiveType` type.
+- **`ParsedCANTMessage`** — The `ParsedCANTMessage` interface.
 - **`LoggerConfig`** — The `LoggerConfig` interface.
 - **`PlatformPaths`** — OS-appropriate paths for CLEO's global directories.
 - **`SystemInfo`** — Immutable system information snapshot, captured once per process.
+- **`RequiredColumn`** — Required column definition for ensureColumns().
 - **`VacuumOptions`** — The `VacuumOptions` interface.
 - **`AgentInstanceRow`** — The `AgentInstanceRow` type.
 - **`NewAgentInstanceRow`** — The `NewAgentInstanceRow` type.
@@ -165,25 +223,42 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`NexusSchemaMetaRow`** — The `NexusSchemaMetaRow` type.
 - **`NewNexusSchemaMetaRow`** — The `NewNexusSchemaMetaRow` type.
 - **`ErrorDefinition`** — A single entry in the unified error catalog.
-- **`ProblemDetails`** — RFC 9457 Problem Details object. Structured error representation for API/MCP responses.   T5240
+- **`ProblemDetails`** — RFC 9457 Problem Details object. Structured error representation for API responses.   T5240
 - **`ArchiveFields`** — Archive-specific fields for task upsert.
+- **`RegisterAgentOptions`** — Options for registering a new agent instance.
+- **`UpdateStatusOptions`** — Options for updating agent status.
+- **`ListAgentFilters`** — Filters for listing agent instances.
+- **`AgentHealthReport`** — Agent health report summary.
 - **`AtomicMigrationResult`** — Atomic database migration result.
 - **`ReleaseFn`** — A release function returned by acquireLock.
-- **`ProviderHookEvent`** — CAAMP-defined hook events supported by provider capability discovery.
+- **`ProviderHookEvent`** — CAAMP canonical hook event type.  This is the normalized 16-event taxonomy from CAAMP 1.9.1.
 - **`InternalHookEvent`** — The `InternalHookEvent` type.
-- **`HookEvent`** — Full CLEO hook event union.  CAAMP defines provider-facing events; CLEO extends the registry with local coordination events for autonomous execution.
+- **`HookEvent`** — Full CLEO hook event union.  CAAMP defines provider-facing canonical events; CLEO extends the registry with local coordination events for autonomous execution.
 - **`HookPayload`** — Base interface for all hook payloads Provides common fields available across all hook events
-- **`OnSessionStartPayload`** — Payload for onSessionStart hook Fired when a CLEO session begins
-- **`OnSessionEndPayload`** — Payload for onSessionEnd hook Fired when a CLEO session ends
-- **`OnToolStartPayload`** — Payload for onToolStart hook Fired when a task/tool operation begins
-- **`OnToolCompletePayload`** — Payload for onToolComplete hook Fired when a task/tool operation completes
+- **`SessionStartPayload`** — Payload for SessionStart hook (canonical: was onSessionStart) Fired when a CLEO session begins
+- **`OnSessionStartPayload`** — The `OnSessionStartPayload` type.
+- **`SessionEndPayload`** — Payload for SessionEnd hook (canonical: was onSessionEnd) Fired when a CLEO session ends
+- **`OnSessionEndPayload`** — The `OnSessionEndPayload` type.
+- **`PreToolUsePayload`** — Payload for PreToolUse hook (canonical: was onToolStart) Fired when a task/tool operation begins
+- **`OnToolStartPayload`** — The `OnToolStartPayload` type.
+- **`PostToolUsePayload`** — Payload for PostToolUse hook (canonical: was onToolComplete) Fired when a task/tool operation completes
+- **`OnToolCompletePayload`** — The `OnToolCompletePayload` type.
 - **`HookHandler`** — Handler function type for hook events Handlers receive project root and typed payload
 - **`HookRegistration`** — Hook registration metadata Tracks registered handlers with priority and event binding
 - **`HookConfig`** — Configuration for the hook system Controls which events are enabled/disabled
-- **`OnFileChangePayload`** — Payload for onFileChange hook Fired when a tracked file is written, created, or deleted
-- **`OnErrorPayload`** — Payload for onError hook Fired when an operation fails with a structured error
-- **`OnPromptSubmitPayload`** — Payload for onPromptSubmit hook Fired when an agent submits a prompt through a gateway
-- **`OnResponseCompletePayload`** — Payload for onResponseComplete hook Fired when a gateway operation finishes (success or failure)
+- **`NotificationPayload`** — Payload for Notification hook (canonical: was onFileChange) Fired when a tracked file is written, created, or deleted, or for general-purpose notifications.
+- **`OnFileChangePayload`** — The `OnFileChangePayload` type.
+- **`PostToolUseFailurePayload`** — Payload for PostToolUseFailure hook (canonical: was onError) Fired when an operation fails with a structured error
+- **`OnErrorPayload`** — The `OnErrorPayload` type.
+- **`PromptSubmitPayload`** — Payload for PromptSubmit hook (canonical: was onPromptSubmit) Fired when an agent submits a prompt through a gateway
+- **`OnPromptSubmitPayload`** — The `OnPromptSubmitPayload` type.
+- **`ResponseCompletePayload`** — Payload for ResponseComplete hook (canonical: was onResponseComplete) Fired when a gateway operation finishes (success or failure)
+- **`OnResponseCompletePayload`** — The `OnResponseCompletePayload` type.
+- **`SubagentStartPayload`** — Payload for SubagentStart hook Fired when a subagent process is launched
+- **`SubagentStopPayload`** — Payload for SubagentStop hook Fired when a subagent process completes
+- **`PreCompactPayload`** — Payload for PreCompact hook Fired before context compaction begins
+- **`PostCompactPayload`** — Payload for PostCompact hook Fired after context compaction completes
+- **`ConfigChangePayload`** — Payload for ConfigChange hook Fired when configuration is updated
 - **`OnWorkAvailablePayload`** — Payload for onWorkAvailable hook Fired when the system detects ready work on a Loom/Tapestry
 - **`OnAgentSpawnPayload`** — Payload for onAgentSpawn hook Fired when a worker session/process is launched
 - **`OnAgentCompletePayload`** — Payload for onAgentComplete hook Fired when a worker finishes its assigned run
@@ -198,9 +273,10 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SafetyOptions`** — Safety configuration - can be overridden per-operation
 - **`RepairResult`** — Repair result with proper typing.
 - **`SafetyConfig`** — Safety configuration options.
+- **`NextDirectives`** — Map of follow-up operation names to CLI command strings.
 - **`TaskDetail`** — Enriched task with hierarchy info.
 - **`PaginateInput`** — Input parameters for paginating a result set.   T4668  T4663
-- **`CompactTask`** — Compact task representation — minimal fields for MCP list responses.
+- **`CompactTask`** — Compact task representation — minimal fields for list responses.
 - **`ListTasksOptions`** — Filter options for listing tasks.
 - **`ListTasksResult`** — Result of listing tasks.
 - **`FindResult`** — Minimal task info for search results.
@@ -225,12 +301,12 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`EnforcementMode`** — Lifecycle enforcement modes.
 - **`GateData`** — Gate data within a stage.
 - **`ManifestStageData`** — Stage data in an on-disk manifest.
-- **`RcasdManifest`** — Canonical RCASD manifest-shaped interface for compatibility payloads. Lifecycle persistence is SQLite-native; this shape is used for API responses that present stage+gate state in a manifest-like structure.  Stage keys use full canonical names matching the DB CHECK constraint: research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release.   T4798
+- **`RcasdManifest`** — Canonical RCASD manifest-shaped interface for compatibility payloads. Lifecycle persistence is SQLite-native; this shape is used for API responses that present stage+gate state in a manifest-like structure.  Stage keys use full canonical names matching the DB CHECK constraint: research, consensus, architecture\_decision, specification, decomposition, implementation, validation, testing, release.   T4798
 - **`GateCheckResult`** — Gate check result.
 - **`StageTransitionResult`** — Stage transition result.
 - **`LifecycleHistoryEntry`** — History entry for stage transitions.
 - **`AlertLevel`** — Alert level names.
-- **`AlertCheckResult`** — Alert result from check_context_alert.
+- **`AlertCheckResult`** — Alert result from check\_context\_alert.
 - **`FormatOptions`** — Options for envelope formatting.   T4668  T4670  T4663
 - **`CleoRegistryEntry`** — Entry in the CLEO-to-LAFS error registry.   T4671  T4663
 - **`TestDbEnv`** — Result of creating a test database environment.
@@ -238,57 +314,9 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`TaskTreeNode`** — Build a tree structure from flat task list.
 - **`HierarchyPolicy`** — The `HierarchyPolicy` interface.
 - **`HierarchyValidationResult`** — The `HierarchyValidationResult` interface.
-- **`ValidationResult`** — The `ValidationResult` interface.
-- **`AddTaskEnforcementOptions`** — The `AddTaskEnforcementOptions` interface.
-- **`UpdateTaskEnforcementOptions`** — The `UpdateTaskEnforcementOptions` interface.
-- **`AcceptanceEnforcement`** — The `AcceptanceEnforcement` interface.
-- **`AddTaskOptions`** — Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
-- **`AddTaskResult`** — Result of adding a task.
-- **`ListPhasesResult`** — Options for listing phases.
-- **`SetPhaseOptions`** — Options for setting current phase.
-- **`SetPhaseResult`** — Result of a phase set operation.
-- **`ShowPhaseResult`** — Phase show result.
-- **`AdvancePhaseResult`** — Phase advance result.
-- **`RenamePhaseResult`** — Phase rename result.
-- **`DeletePhaseResult`** — Phase delete result.
-- **`PruneResult`** — The `PruneResult` interface.
-- **`AuditEntry`** — Audit entry interface. Used by session-grade and system-engine for behavioral analysis.
-- **`SchemaInstallResult`** — The `SchemaInstallResult` interface.
-- **`StalenessReport`** — The `StalenessReport` interface.
-- **`InstalledSchema`** — The `InstalledSchema` interface.
-- **`CheckResult`** — The `CheckResult` interface.
-- **`JsonFileIntegrityResult`** — Result for a single file check.
-- **`SchemaIntegrityReport`** — Full integrity report for all JSON files.
-- **`ProjectType`** — Detected project type.
-- **`TestFramework`** — Test framework.
-- **`FileNamingConvention`** — The `FileNamingConvention` type.
-- **`ImportStyle`** — The `ImportStyle` type.
-- **`ProjectContext`** — Schema-compliant project context for LLM agent consumption.
-- **`BrainFtsRow`** — Row returned by FTS content_hash duplicate check (brain-retrieval.ts observeBrain).
-- **`BrainNarrativeRow`** — Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
-- **`BrainSearchHit`** — Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
-- **`BrainKnnRow`** — Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
-- **`BrainDecisionNode`** — Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
-- **`BrainAnchor`** — Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
-- **`BrainTimelineNeighborRow`** — Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
-- **`BrainConsolidationObservationRow`** — Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake_case column names matching the raw SQLite row shape.
-- **`BrainIdCheckRow`** — Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
-- **`EmbeddingProvider`** — Contract for embedding providers (local models, API services, etc.).
-- **`SimilarityResult`** — The `SimilarityResult` interface.
-- **`BrainSearchResult`** — Search result with BM25 rank.
-- **`BrainSearchOptions`** — Search options.
-- **`HybridResult`** — Result from hybridSearch combining multiple search signals.
-- **`HybridSearchOptions`** — Options for hybridSearch weighting and limits.
-- **`ScaffoldResult`** — The `ScaffoldResult` interface.
-- **`InjectionCheckResult`** — The `InjectionCheckResult` interface.
-- **`ScaffoldResult`** — Result of an ensure* scaffolding operation.
-- **`CheckStatus`** — Status of a check* diagnostic.
-- **`CheckResult`** — Result of a check* diagnostic (compatible with doctor/checks.ts CheckResult).
-- **`McpEnvMode`** — Resolved environment mode for MCP server config.
-- **`ScaffoldResult`** — The `ScaffoldResult` interface.
-- **`HookCheckResult`** — The `HookCheckResult` interface.
-- **`EnsureGitHooksOptions`** — The `EnsureGitHooksOptions` interface.
-- **`ManagedHook`** — The `ManagedHook` type.
+- **`StrictnessPreset`** — Valid preset names.
+- **`PresetDefinition`** — A preset definition: the config keys it sets and a human description.
+- **`ApplyPresetResult`** — Result of applying a preset.
 - **`SessionRecord`** — Session object (engine-compatible).
 - **`TaskWorkStateExt`** — Task work state from the task store.  Extends the strict contracts `TaskWorkState` with required-null fields for session engine compatibility. The engine layer always expects these fields to be present (even if null), whereas the contracts type marks them as optional.
 - **`DecisionRecord`** — Decision record stored in decisions.jsonl.
@@ -301,19 +329,22 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`DebriefDecision`** — Decision summary for debrief output.
 - **`DebriefData`** — Rich debrief data — superset of HandoffData. Captures comprehensive session state for cross-conversation continuity.   T4959
 - **`ComputeDebriefOptions`** — Options for computing debrief data.
+- **`BrainFtsRow`** — Row returned by FTS content\_hash duplicate check (brain-retrieval.ts observeBrain).
+- **`BrainNarrativeRow`** — Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings).
+- **`BrainSearchHit`** — Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch).
+- **`BrainKnnRow`** — Row returned by KNN vector similarity query (brain-similarity.ts searchSimilar).
+- **`BrainDecisionNode`** — Decision node attached to a blocker in causal traces (brain-reasoning.ts reasonWhy).
+- **`BrainAnchor`** — Anchor entry in a timeline result (brain-retrieval.ts timelineBrain).
+- **`BrainTimelineNeighborRow`** — Row returned by timeline UNION ALL neighbor queries (brain-retrieval.ts timelineBrain).  Represents an entry from any of the four brain tables projected to a common id, type, date shape for chronological ordering.
+- **`BrainConsolidationObservationRow`** — Row returned by the consolidation observation query (brain-lifecycle.ts consolidateMemories).  Fetches old observations for keyword-based clustering and archival. Uses snake\_case column names matching the raw SQLite row shape.
+- **`BrainIdCheckRow`** — Row returned by ID existence check queries (claude-mem-migration.ts).  Used by `SELECT id FROM brain_observations WHERE id = ?` and similar single-column lookups for idempotent migration dedup.
+- **`EmbeddingProvider`** — Contract for embedding providers (local models, API services, etc.).
+- **`SimilarityResult`** — The `SimilarityResult` interface.
+- **`BrainSearchResult`** — Search result with BM25 rank.
+- **`BrainSearchOptions`** — Search options.
+- **`HybridResult`** — Result from hybridSearch combining multiple search signals.
+- **`HybridSearchOptions`** — Options for hybridSearch weighting and limits.
 - **`MemoryBridgeConfig`** — Configuration for memory bridge content generation.
-- **`LegacyDetectionResult`** — Result of detecting legacy agent-output directories.
-- **`AgentOutputsMigrationResult`** — Result of running the agent-outputs migration.
-- **`NexusPermissionLevel`** — The `NexusPermissionLevel` type.
-- **`NexusHealthStatus`** — The `NexusHealthStatus` type.
-- **`NexusProject`** — Domain representation of a registered Nexus project.
-- **`NexusRegistryFile`** — Legacy registry file shape (pre-SQLite). Retained for migration compatibility.
-- **`PatternType`** — Pattern types from ADR-009.
-- **`PatternImpact`** — Impact level.
-- **`StorePatternParams`** — Parameters for storing a new pattern.
-- **`SearchPatternParams`** — Parameters for searching patterns.
-- **`StoreLearningParams`** — Parameters for storing a new learning.
-- **`SearchLearningParams`** — Parameters for searching learnings.
 - **`BrainCompactHit`** — Compact search hit — minimal fields for index-level results.
 - **`SearchBrainCompactParams`** — Parameters for searchBrainCompact.
 - **`SearchBrainCompactResult`** — Result from searchBrainCompact.
@@ -328,6 +359,99 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ObserveBrainParams`** — Parameters for observeBrain.
 - **`ObserveBrainResult`** — Result from observeBrain.
 - **`PopulateEmbeddingsResult`** — Result from populateEmbeddings backfill.
+- **`PopulateEmbeddingsOptions`** — Options for the embedding backfill pipeline.
+- **`AuditEntry`** — Audit entry interface. Used by session-grade and system-engine for behavioral analysis.
+- **`StoreLearningParams`** — Parameters for storing a new learning.
+- **`SearchLearningParams`** — Parameters for searching learnings.
+- **`DimensionScore`** — The `DimensionScore` interface.
+- **`GradeResult`** — The `GradeResult` interface.
+- **`AdapterInfo`** — Summary info for an adapter without exposing the full instance.
+- **`SessionBridgeData`** — Session data needed to create a memory bridge observation.
+- **`StoreDecisionParams`** — Parameters for storing a new decision.
+- **`SearchDecisionParams`** — Parameters for searching decisions.
+- **`ListDecisionParams`** — Parameters for listing decisions.
+- **`PatternType`** — Pattern types from ADR-009.
+- **`PatternImpact`** — Impact level.
+- **`StorePatternParams`** — Parameters for storing a new pattern.
+- **`SearchPatternParams`** — Parameters for searching patterns.
+- **`RecordAssumptionParams`** — The `RecordAssumptionParams` interface.
+- **`BulkLinkEntry`** — A link to be created in bulk.
+- **`SessionMemoryResult`** — Result of persisting session memory to brain.db.
+- **`MemoryItem`** — A memory item to be persisted to brain.db.
+- **`SessionMemoryContext`** — Memory context returned for session start/resume enrichment.
+- **`Pipeline`** — Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
+- **`PipelineStageRecord`** — Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline\_stages table
+- **`PipelineTransition`** — Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline\_transitions table
+- **`InitializePipelineOptions`** — Options for initializing a pipeline.   T4800
+- **`AdvanceStageOptions`** — Options for advancing pipeline stage.   T4800
+- **`PipelineQueryOptions`** — Pipeline query options.   T4800
+- **`BriefingTask`** — Task summary for briefing output.
+- **`BriefingBug`** — Bug summary for briefing output.
+- **`BriefingBlockedTask`** — Blocked task summary for briefing output.
+- **`BriefingEpic`** — Active epic summary for briefing output.
+- **`PipelineStageInfo`** — Pipeline stage data for briefing output.
+- **`LastSessionInfo`** — Last session info with handoff data.
+- **`CurrentTaskInfo`** — Currently active task info.
+- **`SessionBriefing`** — Session briefing result.
+- **`BriefingOptions`** — Options for computing session briefing.
+- **`MinimalSessionRecord`** — Minimal session record returned by findSessions().
+- **`FindSessionsParams`** — Parameters for findSessions().
+- **`ContextDriftResult`** — The `ContextDriftResult` interface.
+- **`SessionHistoryEntry`** — The `SessionHistoryEntry` interface.
+- **`SessionHistoryParams`** — The `SessionHistoryParams` interface.
+- **`SessionStatsResult`** — The `SessionStatsResult` interface.
+- **`RuntimeProviderContext`** — The `RuntimeProviderContext` interface.
+- **`RuntimeProviderSnapshot`** — The `RuntimeProviderSnapshot` interface.
+- **`StartSessionOptions`** — Options for starting a session.
+- **`EndSessionOptions`** — Options for ending a session.
+- **`ListSessionsOptions`** — Options for listing sessions.
+- **`EnforcementMode`** — Enforcement modes.
+- **`ActiveSessionInfo`** — Session info for enforcement checks.
+- **`EnforcementResult`** — Enforcement result.
+- **`ValidationResult`** — The `ValidationResult` interface.
+- **`AddTaskEnforcementOptions`** — The `AddTaskEnforcementOptions` interface.
+- **`UpdateTaskEnforcementOptions`** — The `UpdateTaskEnforcementOptions` interface.
+- **`AcceptanceEnforcement`** — The `AcceptanceEnforcement` interface.
+- **`ResolvedParent`** — Minimal parent task shape needed for pipeline stage resolution.  T060
+- **`TaskPipelineStage`** — Union type of all valid pipeline stage names.
+- **`LifecycleMode`** — The resolved enforcement mode (from lifecycle.mode config key).
+- **`EpicEnforcementResult`** — Result of an enforcement check.  `warning` is populated in advisory mode.
+- **`AddTaskOptions`** — Options for creating a task.  `description` is **required** per CLEO's anti-hallucination rules — every task must have both a title and a description, and they must differ.
+- **`AddTaskResult`** — Result of adding a task.
+- **`ListPhasesResult`** — Options for listing phases.
+- **`SetPhaseOptions`** — Options for setting current phase.
+- **`SetPhaseResult`** — Result of a phase set operation.
+- **`ShowPhaseResult`** — Phase show result.
+- **`AdvancePhaseResult`** — Phase advance result.
+- **`RenamePhaseResult`** — Phase rename result.
+- **`DeletePhaseResult`** — Phase delete result.
+- **`PruneResult`** — The `PruneResult` interface.
+- **`SchemaInstallResult`** — The `SchemaInstallResult` interface.
+- **`StalenessReport`** — The `StalenessReport` interface.
+- **`InstalledSchema`** — The `InstalledSchema` interface.
+- **`CheckResult`** — The `CheckResult` interface.
+- **`JsonFileIntegrityResult`** — Result for a single file check.
+- **`SchemaIntegrityReport`** — Full integrity report for all JSON files.
+- **`ProjectType`** — Detected project type.
+- **`TestFramework`** — Test framework.
+- **`FileNamingConvention`** — The `FileNamingConvention` type.
+- **`ImportStyle`** — The `ImportStyle` type.
+- **`ProjectContext`** — Schema-compliant project context for LLM agent consumption.
+- **`ScaffoldResult`** — The `ScaffoldResult` interface.
+- **`InjectionCheckResult`** — The `InjectionCheckResult` interface.
+- **`ScaffoldResult`** — Result of an ensure\* scaffolding operation.
+- **`CheckStatus`** — Status of a check\* diagnostic.
+- **`CheckResult`** — Result of a check\* diagnostic (compatible with doctor/checks.ts CheckResult).
+- **`ScaffoldResult`** — The `ScaffoldResult` interface.
+- **`HookCheckResult`** — The `HookCheckResult` interface.
+- **`EnsureGitHooksOptions`** — The `EnsureGitHooksOptions` interface.
+- **`ManagedHook`** — The `ManagedHook` type.
+- **`LegacyDetectionResult`** — Result of detecting legacy agent-output directories.
+- **`AgentOutputsMigrationResult`** — Result of running the agent-outputs migration.
+- **`NexusPermissionLevel`** — The `NexusPermissionLevel` type.
+- **`NexusHealthStatus`** — The `NexusHealthStatus` type.
+- **`NexusProject`** — Domain representation of a registered Nexus project.
+- **`NexusRegistryFile`** — Legacy registry file shape (pre-SQLite). Retained for migration compatibility.
 - **`StackAnalysis`** — The `StackAnalysis` interface.
 - **`ArchAnalysis`** — The `ArchAnalysis` interface.
 - **`StructureAnalysis`** — The `StructureAnalysis` interface.
@@ -337,7 +461,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ConcernAnalysis`** — The `ConcernAnalysis` interface.
 - **`CodebaseMapResult`** — The `CodebaseMapResult` interface.
 - **`MapCodebaseOptions`** — The `MapCodebaseOptions` interface.
-- **`AdapterInfo`** — Summary info for an adapter without exposing the full instance.
 - **`InitOptions`** — Options for the init operation.
 - **`InitResult`** — Result of the init operation.
 - **`BootstrapContext`** — Result tracking arrays passed through each bootstrap step.
@@ -347,6 +470,41 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ExportResult`** — The `ExportResult` interface.
 - **`ImportParams`** — The `ImportParams` interface.
 - **`ImportResult`** — The `ImportResult` interface.
+- **`AgentExecutionOutcome`** — The outcome of an agent's execution attempt on a task.
+- **`AgentExecutionEvent`** — Context recorded when an agent completes or fails a task.
+- **`AgentPerformanceSummary`** — Summary of an agent type's execution performance on a task type.
+- **`HealingSuggestion`** — A self-healing suggestion derived from failure pattern history.
+- **`AgentCapacity`** — Task-count-based capacity for a single agent instance.
+- **`AgentPerformanceMetrics`** — Metrics provided when recording agent performance.
+- **`CapacitySummary`** — Capacity summary for reporting.
+- **`AgentHealthStatus`** — Health status of a specific agent instance.
+- **`RetryPolicy`** — Configuration for retry behavior.
+- **`RetryResult`** — Result of a retried operation.
+- **`AgentRecoveryResult`** — Result of a recovery attempt for a single agent.
+- **`RiskFactor`** — A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
+- **`RiskAssessment`** — Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
+- **`ValidationPrediction`** — Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
+- **`DetectedPattern`** — A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain\_patterns table if they meet frequency and confidence thresholds.
+- **`PatternMatch`** — Result of matching a task against known patterns from brain\_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
+- **`PatternExtractionOptions`** — Options for pattern extraction from historical data.
+- **`PatternStatsUpdate`** — Result of updating pattern statistics after an outcome.
+- **`LearningContext`** — Summary of applicable learnings for a task, used in prediction.
+- **`ImpactAssessment`** — Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
+- **`ChangeType`** — The type of change being analyzed.
+- **`ChangeImpact`** — Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
+- **`AffectedTask`** — A single task affected by a change, with its predicted new state.
+- **`ImpactedTask`** — A single task predicted to be affected by a free-text change description.  Produced by `predictImpact` after matching candidate tasks against the change description and running downstream dependency analysis.
+- **`ImpactReport`** — Full impact prediction report for a free-text change description.  Returned by `predictImpact`. Combines fuzzy task search with reverse dependency analysis to enumerate which tasks are at risk.
+- **`BlastRadiusSeverity`** — Severity classification for blast radius.
+- **`BlastRadius`** — Quantified scope of a task's impact across the project.
+- **`GateFocusRecommendation`** — A gate-level focus recommendation produced by adaptive validation.
+- **`AdaptiveValidationSuggestion`** — Full adaptive validation suggestion set for a task.
+- **`VerificationConfidenceScore`** — Result of scoring and persisting a completed verification round.
+- **`StorePredictionOptions`** — Parameters for storing a quality prediction as a brain observation.
+- **`DependencyCheckResult`** — Result of a dependency validation check.
+- **`DependencyError`** — A dependency error.
+- **`DependencyWarning`** — A dependency warning.
+- **`DependencyWave`** — A wave of parallelizable tasks.
 - **`NexusParsedQuery`** — The `NexusParsedQuery` interface.
 - **`NexusResolvedTask`** — Task with project context annotation.
 - **`DiscoverResult`** — The `DiscoverResult` interface.
@@ -355,6 +513,20 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`NexusSearchResult`** — The `NexusSearchResult` interface.
 - **`PermissionCheckResult`** — The `PermissionCheckResult` interface.
 - **`SharingStatus`** — Result of a sharing status check.
+- **`TaskCurrentResult`** — Result of getting current task.
+- **`TaskStartResult`** — Result of starting work on a task.
+- **`TaskWorkHistoryEntry`** — Task work history entry.
+- **`CompleteTaskOptions`** — Options for completing a task.
+- **`CompleteTaskResult`** — Result of completing a task.
+- **`RuleViolation`** — Validation error from anti-hallucination checks
+- **`UpdateTaskOptions`** — Options for updating a task.
+- **`UpdateTaskResult`** — Result of updating a task.
+- **`ParsedDirective`** — Parsed directive from a Conduit message.
+- **`RouteResult`** — Result of routing a directive to a project.
+- **`WorkspaceStatus`** — Aggregated task status across all projects.
+- **`WorkspaceProjectSummary`** — Task summary for a single project.
+- **`WorkspaceAgent`** — Agent info aggregated across projects.
+- **`ProjectACL`** — Project-level ACL entry.
 - **`DepNode`** — A node in the dependency graph.
 - **`DepsOverviewResult`** — Dependency overview result.
 - **`TaskDepsResult`** — Single task dependency result.
@@ -377,14 +549,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SpawnContext`** — Spawn context for a subagent.
 - **`TaskReadiness`** — Task readiness assessment.
 - **`AnalysisResult`** — Orchestrator analysis result.
-- **`SessionBridgeData`** — Session data needed to create a memory bridge observation.
-- **`StoreDecisionParams`** — Parameters for storing a new decision.
-- **`SearchDecisionParams`** — Parameters for searching decisions.
-- **`ListDecisionParams`** — Parameters for listing decisions.
-- **`CompleteTaskOptions`** — Options for completing a task.
-- **`CompleteTaskResult`** — Result of completing a task.
-- **`UpdateTaskOptions`** — Options for updating a task.
-- **`UpdateTaskResult`** — Result of updating a task.
 - **`ArtifactType`** — Supported artifact types.
 - **`ArtifactConfig`** — Artifact configuration from release config.
 - **`ArtifactResult`** — Result of an artifact operation.
@@ -411,39 +575,12 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ReleaseTaskRecord`** — Task record shape needed for release operations.
 - **`ReleaseGateMetadata`** — Metadata captured during gate evaluation, returned alongside gate results. Downstream (engine layer) uses this to determine PR vs direct push.
 - **`PushPolicy`** — Push policy configuration from config.release.push.
-- **`DimensionScore`** — The `DimensionScore` interface.
-- **`GradeResult`** — The `GradeResult` interface.
-- **`RecordAssumptionParams`** — The `RecordAssumptionParams` interface.
-- **`BulkLinkEntry`** — A link to be created in bulk.
-- **`SessionMemoryResult`** — Result of persisting session memory to brain.db.
-- **`MemoryItem`** — A memory item to be persisted to brain.db.
-- **`SessionMemoryContext`** — Memory context returned for session start/resume enrichment.
-- **`Pipeline`** — Pipeline entity representing a task's lifecycle state.   T4800  T4799 - Unified pipeline structure replaces scattered manifests
-- **`PipelineStageRecord`** — Pipeline stage record linking pipeline to individual stages.   T4800  T4801 - Requires pipeline_stages table
-- **`PipelineTransition`** — Pipeline transition record for audit trail.   T4800  T4801 - Requires pipeline_transitions table
-- **`InitializePipelineOptions`** — Options for initializing a pipeline.   T4800
-- **`AdvanceStageOptions`** — Options for advancing pipeline stage.   T4800
-- **`PipelineQueryOptions`** — Pipeline query options.   T4800
-- **`BriefingTask`** — Task summary for briefing output.
-- **`BriefingBug`** — Bug summary for briefing output.
-- **`BriefingBlockedTask`** — Blocked task summary for briefing output.
-- **`BriefingEpic`** — Active epic summary for briefing output.
-- **`PipelineStageInfo`** — Pipeline stage data for briefing output.
-- **`LastSessionInfo`** — Last session info with handoff data.
-- **`CurrentTaskInfo`** — Currently active task info.
-- **`SessionBriefing`** — Session briefing result.
-- **`BriefingOptions`** — Options for computing session briefing.
-- **`MinimalSessionRecord`** — Minimal session record returned by findSessions().
-- **`FindSessionsParams`** — Parameters for findSessions().
-- **`ContextDriftResult`** — The `ContextDriftResult` interface.
-- **`SessionHistoryEntry`** — The `SessionHistoryEntry` interface.
-- **`SessionHistoryParams`** — The `SessionHistoryParams` interface.
-- **`SessionStatsResult`** — The `SessionStatsResult` interface.
-- **`RuntimeProviderContext`** — The `RuntimeProviderContext` interface.
-- **`RuntimeProviderSnapshot`** — The `RuntimeProviderSnapshot` interface.
-- **`StartSessionOptions`** — Options for starting a session.
-- **`EndSessionOptions`** — Options for ending a session.
-- **`ListSessionsOptions`** — Options for listing sessions.
+- **`SnapshotDecision`** — A decision recorded during the session.
+- **`SnapshotObservation`** — Brain observation linked to this session.
+- **`SnapshotTaskContext`** — Active task context at snapshot time.
+- **`SessionSnapshot`** — Complete session snapshot — everything needed to resume.  This is the serialization format. It is JSON-safe and can be stored in a file, database column, or transmitted over the network.
+- **`SerializeOptions`** — Options for serializing a session.
+- **`RestoreOptions`** — Options for restoring a session.
 - **`StickyNoteStatus`** — Sticky note status values.
 - **`StickyNoteColor`** — Sticky note color options.
 - **`StickyNotePriority`** — Sticky note priority levels.
@@ -457,17 +594,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ArchiveTasksResult`** — Result of archiving tasks.
 - **`DeleteTaskOptions`** — Options for deleting a task.
 - **`DeleteTaskResult`** — Result of deleting a task.
-- **`TasksAPI`** — The `TasksAPI` interface.
-- **`SessionsAPI`** — The `SessionsAPI` interface.
-- **`MemoryAPI`** — The `MemoryAPI` interface.
-- **`OrchestrationAPI`** — The `OrchestrationAPI` interface.
-- **`LifecycleAPI`** — The `LifecycleAPI` interface.
-- **`ReleaseAPI`** — The `ReleaseAPI` interface.
-- **`AdminAPI`** — The `AdminAPI` interface.
-- **`StickyAPI`** — The `StickyAPI` interface.
-- **`NexusAPI`** — The `NexusAPI` interface.
-- **`SyncAPI`** — The `SyncAPI` interface.
-- **`CleoInitOptions`** — The `CleoInitOptions` interface.
 - **`EngineResult`** — Canonical EngineResult type used by all engines and core engine-compat modules.
 - **`ExportMeta`** — Export package metadata.
 - **`ExportSelection`** — Export selection criteria.
@@ -498,39 +624,22 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidationResult`** — The `ValidationResult` interface.
 - **`AdrValidationError`** — ValidationError — canonical name per ADR-017 spec
 - **`AdrValidationResult`** — ValidationResult — canonical name per ADR-017 spec
-- **`RegisterAgentOptions`** — Options for registering a new agent instance.
-- **`UpdateStatusOptions`** — Options for updating agent status.
-- **`ListAgentFilters`** — Filters for listing agent instances.
-- **`AgentHealthReport`** — Agent health report summary.
-- **`CapacitySummary`** — Capacity summary for reporting.
-- **`RetryPolicy`** — Configuration for retry behavior.
-- **`RetryResult`** — Result of a retried operation.
-- **`AgentRecoveryResult`** — Result of a recovery attempt for a single agent.
+- **`TreeSitterLanguage`** — Supported tree-sitter language identifiers.
+- **`OutlineNode`** — A symbol node in the outline tree, with optional children.
+- **`SmartOutlineResult`** — Result of generating a smart outline for a file.
+- **`SmartSearchResult`** — A search result with relevance score.
+- **`SmartSearchOptions`** — Options for smart\_search.
+- **`SmartUnfoldResult`** — Result of unfolding a single symbol.
 - **`ComplianceJsonlEntry`** — The `ComplianceJsonlEntry` type.
 - **`PayloadValidationResult`** — Result of payload validation.
-- **`DependencyCheckResult`** — Result of a dependency validation check.
-- **`DependencyError`** — A dependency error.
-- **`DependencyWarning`** — A dependency warning.
-- **`DependencyWave`** — A wave of parallelizable tasks.
-- **`RiskFactor`** — A single factor contributing to a task's overall risk score.  Each factor has a weight (how much it matters) and a value (current level, 0-1). The weighted sum of all factors produces the aggregate risk score.
-- **`RiskAssessment`** — Complete risk assessment for a single task.  Returned by `calculateTaskRisk`. The `riskScore` is the weighted aggregate of all `RiskFactor` entries in `factors`.
-- **`ValidationPrediction`** — Predicted outcome for a lifecycle validation gate.  Returned by `predictValidationOutcome`. Combines historical pattern data with the task's current state to estimate pass likelihood.
-- **`DetectedPattern`** — A pattern automatically detected from historical brain/task data.  Detected patterns may be stored in the existing brain_patterns table if they meet frequency and confidence thresholds.
-- **`PatternMatch`** — Result of matching a task against known patterns from brain_patterns.  Includes the original pattern row and a relevance score indicating how strongly the pattern applies to the target task.
-- **`PatternExtractionOptions`** — Options for pattern extraction from historical data.
-- **`PatternStatsUpdate`** — Result of updating pattern statistics after an outcome.
-- **`LearningContext`** — Summary of applicable learnings for a task, used in prediction.
-- **`ImpactAssessment`** — Full impact assessment for a task within its dependency graph.  Captures direct dependents, transitive dependents, lifecycle pipeline effects, blocked work counts, and critical path membership.
-- **`ChangeType`** — The type of change being analyzed.
-- **`ChangeImpact`** — Predicted downstream effects of a specific change to a task.  Models what happens when a task is cancelled, blocked, completed, or reprioritized -- including cascading status changes and recommendations.
-- **`AffectedTask`** — A single task affected by a change, with its predicted new state.
-- **`BlastRadiusSeverity`** — Severity classification for blast radius.
-- **`BlastRadius`** — Quantified scope of a task's impact across the project.
 - **`BuildConfig`** — The `BuildConfig` type.
 - **`RepositoryConfig`** — The `RepositoryConfig` type.
 - **`IssueTemplate`** — Parsed issue template.
 - **`AddIssueParams`** — The `AddIssueParams` interface.
 - **`AddIssueResult`** — The `AddIssueResult` interface.
+- **`RetryablePredicate`** — A predicate or pattern used to decide whether an error is retryable.  - `RegExp` — matched against `error.message` (or `String(error)`) - `(error: unknown) => boolean` — arbitrary predicate function
+- **`RetryOptions`** — Options that control retry behavior for `withRetry`.
+- **`RetryContext`** — Metadata attached to errors thrown after all retry attempts are exhausted.  The last error from the final attempt is augmented with these fields so callers can distinguish a retry-exhausted failure from a first-attempt one.
 - **`DecayResult`** — Result from applying temporal decay.
 - **`ConsolidationResult`** — Result from consolidating memories.
 - **`BrainMigrationResult`** — Result from a migration run.
@@ -598,29 +707,11 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`RemoteInfo`** — Result of a remote list operation.
 - **`ExecutionMode`** — Execution mode for an operation
 - **`GatewayType`** — Gateway type
-- **`PreferredChannel`** — Preferred communication channel for token efficiency. Added for provider-agnostic skill routing (task T5240).
+- **`PreferredChannel`** — Preferred communication channel for token efficiency. CLI is the only dispatch channel.  T5240
 - **`OperationCapability`** — The `OperationCapability` interface.
 - **`CapabilityReport`** — Capability report returned by system.doctor
 - **`RateLimitConfig`** — Rate limiter configuration
 - **`RateLimitResult`** — Rate limit check result
-- **`AgentClass`** — Functional classification of an agent.
-- **`PrivacyTier`** — Visibility tier controlling agent discoverability.
-- **`AgentStatus`** — Current online status of an agent.
-- **`MessageStatus`** — Delivery status of a message.
-- **`ContentType`** — Content type for message payloads.
-- **`ConversationVisibility`** — Visibility setting for a conversation.
-- **`Agent`** — A registered agent.
-- **`NewAgent`** — Payload for registering a new agent.
-- **`Message`** — A message exchanged between two agents.
-- **`NewMessage`** — Payload for creating a new message.
-- **`Conversation`** — A conversation between agents.
-- **`NewConversation`** — Payload for creating a new conversation.
-- **`ApiResponse`** — Standard API response envelope.
-- **`AgentRegistration`** — Result of agent registration.
-- **`MessageResult`** — Result of sending a message.
-- **`AgentTransport`** — Provider-neutral interface for inter-agent communication.  Implementations: - SignalDockTransport: HTTP client for SignalDock REST API (provider-neutral) - ClaudeCodeTransport: Wrapper around Claude Code SDK SendMessage (provider-specific)
-- **`SignalDockTransportConfig`** — Configuration for SignalDockTransport.
-- **`TransportFactoryConfig`** — Configuration for transport selection.
 - **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
 - **`Skill`** — Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
 - **`SkillSummary`** — Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
@@ -632,7 +723,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SkillSearchScope`** — CAAMP search order for skill discovery.
 - **`SkillSearchPath`** — Ordered search path entry.
 - **`DispatchStrategy`** — Dispatch strategy for skill selection.
-- **`DispatchResult`** — Dispatch result from skill_auto_dispatch.
+- **`DispatchResult`** — Dispatch result from skill\_auto\_dispatch.
 - **`TokenDefinition`** — Token definition from placeholders.json.
 - **`TokenValidationResult`** — Token validation result.
 - **`TokenContext`** — Token injection context.
@@ -647,7 +738,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ComplianceResult`** — Compliance verification result.
 - **`InstalledSkill`** — Installed skill tracking.
 - **`InstalledSkillsFile`** — Installed skills file.
-- **`TokenValues`** — Token values map: TOKEN_NAME - value.
+- **`TokenValues`** — Token values map: TOKEN\_NAME - value.
 - **`MultiSkillComposition`** — Result of multi-skill composition.
 - **`ContributionDecision`** — A contribution decision from an agent.
 - **`ContributionConflict`** — Conflict between two agent decisions.
@@ -669,6 +760,8 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`Snapshot`** — Complete snapshot package.
 - **`ImportResult`** — Import result summary.
 - **`SpawnCapability`** — Spawn capability type - subset of provider capabilities related to spawning
+- **`WorkflowRuleMetric`** — Per-rule compliance breakdown.
+- **`WorkflowComplianceReport`** — Full workflow compliance report.
 - **`ArchiveMetadata`** — Archive metadata that may be attached to archived task records.
 - **`AnalyticsTask`** — Archived task shape used internally for analytics.
 - **`ArchiveReportType`** — The `ArchiveReportType` type.
@@ -691,6 +784,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`AuditResult`** — The `AuditResult` interface.
 - **`BackupResult`** — The `BackupResult` interface.
 - **`RestoreResult`** — The `RestoreResult` interface.
+- **`BackupEntry`** — A single backup entry returned by listSystemBackups.
 - **`CleanupResult`** — The `CleanupResult` interface.
 - **`Platform`** — Detected platform.
 - **`SystemInfo`** — Structured snapshot of the host system for diagnostics, error reports, and logging.
@@ -713,9 +807,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`RuntimeDiagnostics`** — The `RuntimeDiagnostics` interface.
 - **`SafestopResult`** — The `SafestopResult` interface.
 - **`UncancelResult`** — The `UncancelResult` interface.
-- **`TaskCurrentResult`** — Result of getting current task.
-- **`TaskStartResult`** — Result of starting work on a task.
-- **`TaskWorkHistoryEntry`** — Task work history entry.
 - **`TemplateSection`** — A single section/field within an issue template.
 - **`IssueTemplate`** — A parsed issue template.
 - **`TemplateConfig`** — The full template config output.
@@ -810,6 +901,9 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`CircularValidationResult`** — The `CircularValidationResult` interface.
 - **`TaskForVerification`** — The `TaskForVerification` interface.
 - **`ProjectInfo`** — Fields consumed by logging, audit, and correlation subsystems.
+- **`BackfillOptions`** — Options for backfillTasks().
+- **`BackfillTaskChange`** — Summary of what was (or would be) changed for a single task.
+- **`BackfillResult`** — Overall result returned by backfillTasks().
 - **`RequirementLevel`** — RFC 2119 requirement levels
 - **`ViolationSeverity`** — Violation severity
 - **`ProtocolRule`** — Protocol rule definition
@@ -817,7 +911,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ProtocolValidationResult`** — Protocol validation result
 - **`ErrorSeverity`** — Error severity levels for protocol/gate validation.
 - **`ErrorCategory`** — Error category for grouping protocol/gate violations.
-- **`ProtocolExitCode`** — Protocol-specific exit codes used by the RCASD-IVTR+C enforcement system.  These map to the protocol violation range (60-70) and lifecycle enforcement range (80-84) defined in the MCP server specification. The values here align with the protocol enforcement layer's own exit code semantics, which differ from the canonical CLI exit codes in src/types/exit-codes.ts.  The canonical CLI ExitCode enum at src/types/exit-codes.ts maps range 60-67 to orchestrator errors, while this enum maps them to protocol violations. Both are valid in their respective contexts — CLI vs protocol enforcement.
+- **`ProtocolExitCode`** — Protocol-specific exit codes used by the RCASD-IVTR+C enforcement system.  These map to the protocol violation range (60-70) and lifecycle enforcement range (80-84) defined in the protocol specification. The values here align with the protocol enforcement layer's own exit code semantics, which differ from the canonical CLI exit codes in src/types/exit-codes.ts.  The canonical CLI ExitCode enum at src/types/exit-codes.ts maps range 60-67 to orchestrator errors, while this enum maps them to protocol violations. Both are valid in their respective contexts — CLI vs protocol enforcement.
 - **`ProtocolRequest`** — Request shape used by the protocol enforcement system. Minimal interface matching the fields needed by ProtocolEnforcer.
 - **`ProtocolResponse`** — Response shape used by the protocol enforcement system.
 - **`ProtocolType`** — Protocol types aligned with RCASD-IVTR+C lifecycle
@@ -828,6 +922,12 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ManifestEntryInput`** — Manifest entry structure for validation.
 - **`ProtocolType`** — The `ProtocolType` type.
 - **`VotingMatrix`** — The `VotingMatrix` interface.
+- **`BrainMaintenanceDecayResult`** — Temporal decay step result subset used in maintenance output.
+- **`BrainMaintenanceConsolidationResult`** — Memory consolidation step result subset used in maintenance output.
+- **`BrainMaintenanceReconciliationResult`** — Orphaned reference reconciliation step result.
+- **`BrainMaintenanceEmbeddingsResult`** — Embedding backfill step result.
+- **`BrainMaintenanceResult`** — Aggregated result from a full brain maintenance run.  All counts are zero when a step is skipped via the corresponding `skip*` option.
+- **`BrainMaintenanceOptions`** — Options for `runBrainMaintenance`.  All `skip*` flags default to `false` — the full maintenance pass runs unless specific steps are disabled.
 - **`ClaudeMemMigrationResult`** — Result from a claude-mem migration run.
 - **`ClaudeMemMigrationOptions`** — Options for the claude-mem migration.
 - **`BlockerNode`** — The `BlockerNode` interface.
@@ -853,7 +953,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ContextInjectionData`** — Data returned by context injection.
 - **`CancelResult`** — Result of a cancel operation.
 - **`FlatTreeNode`** — Tree node representation for task hierarchy.
-- **`ComplexityFactor`** — Complexity factor.
+- **`ComplexityFactor`** — Complexity factor contributing to a task's size estimate.
 - **`AnalysisResult`** — The `AnalysisResult` interface.
 - **`StoreEngine`** — Store engine type. SQLite is the only supported engine (ADR-006).  T4647
 - **`TaskFilters`** — Common task filter options.
@@ -864,13 +964,16 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`RepairAction`** — A single repair action with status.
 - **`UpgradeAction`** — A single upgrade action with status.
 - **`UpgradeResult`** — Full upgrade result.
+- **`UpgradeSummary`** — Counts of what upgrade checked/applied/skipped.
+- **`DiagnoseFinding`** — A single diagnostic finding from --diagnose.
+- **`DiagnoseResult`** — Result from diagnoseUpgrade().
 - **`GateLayer`** — Gate layer enumeration
 - **`GateStatus`** — Gate status for each layer
 - **`GateViolation`** — Violation detail for a specific gate layer
 - **`LayerResult`** — Result from a single gate layer validation
 - **`VerificationResult`** — Complete verification result across all 4 layers
 - **`OperationContext`** — Operation context for gate validation
-- **`WorkflowGateName`** — Workflow gate names per MCP-SERVER-SPECIFICATION.md Section 7.1   T3141
+- **`WorkflowGateName`** — Workflow gate names per protocol specification Section 7.1   T3141
 - **`WorkflowGateStatus`** — Workflow gate status values per Section 7.3
 - **`WorkflowGateAgent`** — Agent responsible for each gate per Section 7.2
 - **`WorkflowGateDefinition`** — Individual workflow gate definition per Section 7.2
@@ -882,7 +985,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidationResult`** — Validation result
 - **`ValidationError`** — Individual validation error
 - **`SchemaType`** — Schema types that can be validated via AJV/JSON Schema. SQLite-backed types (todo, archive, log, sessions) use drizzle-zod validation instead.
-- **`RuleViolation`** — Validation error from anti-hallucination checks
 - **`ComplianceEntry`** — Compliance entry stored in COMPLIANCE.jsonl
 - **`CoherenceIssue`** — Coherence issue found during graph validation.
 - **`ValidateCheckDetail`** — The `ValidateCheckDetail` interface.
@@ -908,6 +1010,19 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`PipelineState`** — Pipeline state.
 - **`PipelineOperation`** — Active pipeline operation.
 - **`ChangeEntry`** — Change entry.
+- **`ExecutionResult`** — The aggregate result of executing a CANT workflow.
+- **`StepResult`** — The result of a single workflow statement execution.
+- **`DiscretionContext`** — Context provided to a discretion evaluator for AI-judged conditions.
+- **`ApprovalTokenStatus`** — Valid states for an approval token.
+- **`ApprovalToken`** — An approval token for human-in-the-loop workflow gates.  Tokens are bound to a specific session and workflow. The `workflowHash` provides TOCTOU protection: if the workflow is modified between token creation and approval, the token is invalidated.  Security invariants: - Token values MUST NOT appear in audit logs, summaries, or error messages. - `approvalTokensJson` is NEVER included in handoff/debrief serialization. - Status transitions use atomic CAS (pending - approved|rejected|expired only).
+- **`TokenValidation`** — Result of validating an approval token.
+- **`JoinStrategy`** — Join strategy for parallel block execution.
+- **`SettleResult`** — Result of a parallel block execution with the settle strategy.
+- **`ExecutionScope`** — Variable scope for workflow execution.
+- **`DiscretionEvaluator`** — Evaluates a discretion condition and returns a boolean judgment.
+- **`ParallelArm`** — A single parallel arm to execute.
+- **`ParallelResult`** — Result of a parallel block execution.
+- **`WorkflowExecutorConfig`** — Configuration options for the workflow executor.
 - **`ResumablePipeline`** — Resumable pipeline information returned to callers.   T4805  T4798
 - **`PipelineContext`** — Pipeline context for session resume.   T4805
 - **`StageContext`** — Stage context within a pipeline.   T4805
@@ -931,9 +1046,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`HITLLevel`** — HITL warning level.
 - **`HITLWarning`** — HITL warning entry.
 - **`HITLWarningsResult`** — HITL warnings result.
-- **`EnforcementMode`** — Enforcement modes.
-- **`ActiveSessionInfo`** — Session info for enforcement checks.
-- **`EnforcementResult`** — Enforcement result.
 - **`StatuslineStatus`** — Statusline integration status.
 - **`RoutingEntry`** — Routing entry describing the preferred channel for an operation.  Derived from OperationCapability in the capability matrix. Use this type when consuming domain-level routing results from getRoutingForDomain() or getOperationsByChannel().
 - **`ProviderContext`** — Provider capability context for dynamic skill generation.
@@ -970,6 +1082,61 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`StalenessLevel`** — Staleness classification.
 - **`StalenessInfo`** — Staleness assessment for a single task.
 - **`StalenessSummary`** — Get staleness summary statistics.
+- **`TaskRecord`** — Task object as stored in task data.
+- **`MinimalTaskRecord`** — Minimal task representation for find results.
+- **`GatewayMetaRecord`** — GatewayMeta with an index signature for DomainResponse.\_meta compatibility.  All domain handlers receive this from createGatewayMeta().   T4655
+- **`ShimOption`** — Parsed option definition.
+- **`ShimArg`** — Positional argument definition.
+- **`CommanderCompatOption`** — Commander-compatible option view for tests.
+- **`ActionHandler`** — Type for the action handler function - flexible to support various signatures
+- **`CliOutputOptions`** — The `CliOutputOptions` interface.
+- **`CliErrorDetails`** — Error details for structured error output.
+- **`Gateway`** — CQRS gateway: read-only queries vs state-modifying mutations.
+- **`Source`** — Where the request originated.
+- **`Tier`** — Progressive disclosure tier. 0 = tasks + session (80% of agents) 1 = + memory + check (15% of agents) 2 = + pipeline + orchestrate + tools + admin + nexus (5%)
+- **`ParamType`** — The concrete value types a parameter can carry at runtime. Drives JSON Schema `type` and Commander argument/option parsing.
+- **`ParamCliDef`** — CLI-specific decoration for a parameter. All fields are optional — omit the entire `cli` key for params with no CLI surface.
+- **`ParamDef`** — A fully-described parameter definition.  One `ParamDef` entry drives Commander: `.argument()` (positional) or `.option()` (flag).
+- **`CanonicalDomain`** — The `CanonicalDomain` type.
+- **`DispatchRequest`** — Canonical request shape that the CLI adapter produces.  The dispatcher validates this against the OperationRegistry before passing it through the middleware pipeline and into a DomainHandler.
+- **`RateLimitMeta`** — Rate limit metadata attached to every response.
+- **`DispatchError`** — Structured error shape (LAFS-compatible).
+- **`DispatchResponse`** — Canonical response shape returned by the dispatcher.  The CLI adapter translates this into cliOutput() / cliError() + process.exit().
+- **`DomainHandler`** — Contract for domain handlers.  Each of the 9 target domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus) implements this interface.
+- **`DispatchNext`** — Async function that produces a DispatchResponse.
+- **`Middleware`** — Middleware function signature.  Receives the request and a `next` continuation. Can short-circuit by returning early (e.g., rate-limit exceeded) or modify the request/response.
+- **`OperationDef`** — Definition of a single dispatchable operation.
+- **`Resolution`** — Resolution output for a dispatch request.
+- **`DispatcherConfig`** — The `DispatcherConfig` interface.
+- **`ProviderMatrixEntry`** — Coverage summary for a single provider in the hook matrix.
+- **`HookMatrixResult`** — Full hook matrix result.
+- **`RuntimeData`** — The `RuntimeData` type.
+- **`DashboardData`** — Dashboard data shape returned by `systemDash`.
+- **`StatsData`** — Project statistics data shape returned by `systemStats`.
+- **`LogQueryData`** — Paginated operation log query result.
+- **`ContextData`** — Context window monitoring data.
+- **`SequenceData`** — Task ID sequence state.
+- **`RoadmapData`** — Project roadmap data with upcoming epics and release history.
+- **`ComplianceData`** — Compliance monitoring data.
+- **`HelpData`** — Help topic content and related commands.
+- **`SyncData`** — The `SyncData` interface.
+- **`SmokeProbe`** — Result for a single domain smoke probe.
+- **`SmokeResult`** — Aggregate smoke test result.
+- **`EngineResult`** — Engine result shape accepted by wrapResult. Matches the union of what all engine functions return.
+- **`JobStatus`** — Background job status
+- **`BackgroundJob`** — Background job representation
+- **`BackgroundJobManagerConfig`** — Configuration for BackgroundJobManager
+- **`SessionContext`** — Immutable snapshot of the bound session context.
+- **`RateLimitConfig`** — Per-category rate limit thresholds.
+- **`RateLimitingConfig`** — Full rate limiting configuration across all categories.
+- **`LifecycleEnforcementConfig`** — Lifecycle enforcement configuration (Section 12.2)
+- **`ProtocolValidationConfig`** — Protocol validation configuration (Section 12.3)
+- **`DispatchConfig`** — The `DispatchConfig` interface.
+- **`MCPConfig`** — Alias for DispatchConfig.
+- **`ProgressOptions`** — The `ProgressOptions` interface.
+- **`MviTier`** — Disclosure tier level for MVI (Minimum Viable Information) filtering.
+- **`ProjectionConfig`** — Configuration for a single MVI projection tier.
+- **`ProjectionContext`** — The `ProjectionContext` interface.
 - **`AdapterCapabilities`** — Adapter capability declarations for CLEO provider adapters.   T5240
 - **`AdapterContextMonitorProvider`** — Context monitor provider interface for CLEO provider adapters. Allows providers to implement context window tracking and statusline integration.  T5240
 - **`AdapterHookProvider`** — Hook provider interface for CLEO provider adapters. Maps provider-specific events to CAAMP hook events.   T5240
@@ -984,16 +1151,30 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ExternalTask`** — A task as reported by an external provider, normalized to a common shape. Provider-specific adapters translate their native format into this.
 - **`ExternalLinkType`** — How an external task link was established.
 - **`SyncDirection`** — Direction of the sync that established the link.
-- **`ExternalTaskLink`** — A link between a CLEO task and an external provider task. Stored in the external_task_links table in tasks.db.
+- **`ExternalTaskLink`** — A link between a CLEO task and an external provider task. Stored in the external\_task\_links table in tasks.db.
 - **`ConflictPolicy`** — Policy for resolving conflicts between CLEO and provider state.  - `cleo-wins`: CLEO state takes precedence (default). - `provider-wins`: Provider state takes precedence. - `latest-wins`: Most recently modified value wins. - `report-only`: Report conflicts without applying changes.
 - **`ReconcileOptions`** — Options for the reconciliation engine.
 - **`ReconcileActionType`** — The type of action the reconciliation engine will take.
 - **`ReconcileAction`** — A single reconciliation action (planned or applied).
 - **`ReconcileResult`** — Result of a full reconciliation run.
 - **`ExternalTaskProvider`** — Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO.
-- **`AdapterTransportProvider`** — Transport provider interface for CLEO provider adapters. Allows providers to supply custom inter-agent transport mechanisms.  T5240
-- **`CLEOProviderAdapter`** — The `CLEOProviderAdapter` interface.
-- **`AdapterHealthStatus`** — The `AdapterHealthStatus` interface.
+- **`TransportConfig`** — Transport-specific configuration stored per agent credential.
+- **`AgentCredential`** — A registered agent's credentials and profile.
+- **`AgentListFilter`** — Filter options for listing agent credentials.
+- **`AgentRegistryAPI`** — CRUD and lifecycle operations for agent credentials.
+- **`ConduitMessage`** — A message received through the Conduit.
+- **`ConduitSendOptions`** — Options for sending a message.
+- **`ConduitSendResult`** — Result of sending a message.
+- **`ConduitUnsubscribe`** — Unsubscribe function returned by event subscriptions.
+- **`ConduitState`** — Conduit connection states.
+- **`ConduitStateChange`** — Connection state change event.
+- **`Conduit`** — The Conduit Protocol interface — high-level agent messaging.  Conduit wraps a Transport adapter, adding messaging semantics.  Implementations: - `ConduitClient` (`@cleocode/core` — wraps any Transport) - `HttpTransport` (HTTP polling to cloud SignalDock API) - `LocalTransport` (napi-rs in-process — embedded SignalDock, future) - `SseTransport` (Server-Sent Events — real-time cloud, future)  Consumers: - `@cleocode/cleo` CLI (`cleo agent watch/poll/send`) - `@cleocode/runtime` (background polling, SSE connections) - CleoOS Electron (embedded SignalDock via LocalTransport) - Agent spawners (deliver task assignments, collect results)
+- **`ConduitConfig`** — Configuration for creating a Conduit instance.
+- **`TransportConnectConfig`** — Configuration passed to Transport.connect().
+- **`Transport`** — Low-level wire transport for agent messaging.
+- **`AdapterTransportProvider`** — The `AdapterTransportProvider` interface.
+- **`CLEOProviderAdapter`** — Core provider adapter interface that every CLEO provider must implement.
+- **`AdapterHealthStatus`** — Health check result returned by `CLEOProviderAdapter.healthCheck`.
 - **`TaskStatus`** — The `TaskStatus` type.
 - **`SessionStatus`** — The `SessionStatus` type.
 - **`PipelineStatus`** — The `PipelineStatus` type.
@@ -1023,7 +1204,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ReleaseStatus`** — Release status.
 - **`Release`** — Release definition.
 - **`ProjectMeta`** — Project metadata.
-- **`FileMeta`** — File metadata (_meta block).
+- **`FileMeta`** — File metadata (\_meta block).
 - **`SessionNote`** — Session note in taskWork block.
 - **`TaskWorkState`** — Task work state.
 - **`ArchiveMetadata`** — Archive metadata attached to archived task records.
@@ -1044,6 +1225,10 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`BrainEntrySummary`** — Brain entry reference with summary, used in superseded analysis.
 - **`ContradictionDetail`** — Contradiction detail between two brain entries.
 - **`SupersededEntry`** — Superseded entry pair showing old and replacement entries.
+- **`CodeSymbolKind`** — Kind of code symbol extracted from AST.
+- **`CodeSymbol`** — A structured code symbol extracted from a source file via tree-sitter.
+- **`ParseResult`** — Result of parsing a single file.
+- **`BatchParseResult`** — Result of batch-parsing multiple files.
 - **`OutputFormat`** — Output format options.
 - **`DateFormat`** — Date format options.
 - **`OutputConfig`** — Output configuration.
@@ -1053,10 +1238,20 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SessionConfig`** — Session configuration.
 - **`LogLevel`** — Pino log levels.
 - **`LoggingConfig`** — Logging configuration.
+- **`AcceptanceEnforcementMode`** — Acceptance criteria enforcement mode.
+- **`AcceptanceEnforcementConfig`** — Acceptance criteria enforcement settings.
+- **`SessionEnforcementConfig`** — Session enforcement settings.
+- **`EnforcementConfig`** — Top-level enforcement configuration.
+- **`VerificationConfig`** — Verification gate configuration.
 - **`LifecycleEnforcementMode`** — Lifecycle enforcement mode.
 - **`LifecycleConfig`** — Lifecycle enforcement configuration.
 - **`SharingMode`** — Sharing mode: whether .cleo/ files are committed to the project git repo.
 - **`SharingConfig`** — Sharing configuration for multi-contributor .cleo/ state management.
+- **`BrainMemoryBridgeConfig`** — Brain memory bridge refresh configuration. Controls when `.cleo/memory-bridge.md` is automatically regenerated.   T134  T135
+- **`BrainEmbeddingConfig`** — Brain embedding provider configuration.   T134  T136
+- **`BrainSummarizationConfig`** — Brain session summarization configuration.   T134  T140
+- **`BrainConfig`** — Brain (BRAIN memory system) configuration. Controls automated memory capture, embedding generation, memory bridge refresh behavior, and session summarization.   T134  T135
+- **`SessionSummaryInput`** — Structured session summary input for ingestStructuredSummary().   T134  T140
 - **`SignalDockMode`** — SignalDock transport mode.
 - **`SignalDockConfig`** — SignalDock integration configuration.
 - **`CleoConfig`** — CLEO project configuration (config.json).
@@ -1067,9 +1262,10 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SessionTaskWork`** — Active task work state within a session.
 - **`Session`** — Session domain type — plain interface aligned with Drizzle sessions table.
 - **`SessionStartResult`** — Result of a session start operation.  The `sessionId` field is a convenience alias for `session.id`, provided for consumers that expect it at the top level of the result.
+- **`DataAccessorAgentInstance`** — Agent instance row shape for DataAccessor methods. Mirrors the agent\_instances Drizzle table in core but avoids Drizzle dependency.
 - **`ArchiveFields`** — Archive-specific fields for task upsert.
 - **`ArchiveFile`** — Archive file structure.
-- **`TaskQueryFilters`** — Filter bag for queryTasks(). Covers ~90% of task query patterns.
+- **`TaskQueryFilters`** — Filter bag for queryTasks(). Covers \~90% of task query patterns.
 - **`QueryTasksResult`** — Result from queryTasks() with pagination support.
 - **`TaskFieldUpdates`** — Partial task row fields for updateTaskFields().
 - **`TransactionAccessor`** — Subset of DataAccessor methods available inside a transaction callback. Write-only — reads use the outer accessor (snapshot isolation).
@@ -1090,22 +1286,22 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`FlagInput`** — Flag input for conformance checks.
 - **`ConformanceReport`** — Conformance report.
 - **`LafsAlternative`** — Actionable alternative the caller can try.
-- **`LafsErrorDetail`** — LAFS error detail shared between CLI and MCP.
+- **`LafsErrorDetail`** — LAFS error detail shared between CLI and gateway.
 - **`LafsSuccess`** — LAFS success envelope (CLI).
 - **`LafsError`** — LAFS error envelope (CLI).
 - **`LafsEnvelope`** — CLI envelope union type.
-- **`GatewayMeta`** — Metadata attached to every MCP gateway response. Extends the canonical LAFSMeta with CLEO gateway-specific fields.   T4655
-- **`GatewaySuccess`** — MCP success envelope (extends CLI base with _meta).
-- **`GatewayError`** — MCP error envelope (extends CLI base with _meta).
-- **`GatewayEnvelope`** — MCP envelope union type.
-- **`CleoResponse`** — Unified CLEO response envelope.  Every CLEO response (CLI or MCP) is a CleoResponse. MCP responses include the _meta field; CLI responses do not.
+- **`GatewayMeta`** — Metadata attached to every gateway response. Extends the canonical LAFSMeta with CLEO gateway-specific fields.   T4655
+- **`GatewaySuccess`** — Gateway success envelope (extends CLI base with \_meta).
+- **`GatewayError`** — Gateway error envelope (extends CLI base with \_meta).
+- **`GatewayEnvelope`** — Gateway envelope union type.
+- **`CleoResponse`** — Unified CLEO response envelope.  Every CLEO response (CLI or Gateway) is a CleoResponse. Gateway responses include the \_meta field; CLI responses do not.
 - **`MemoryBridgeConfig`** — Memory bridge types for CLEO provider adapters. Defines the shape of .cleo/memory-bridge.md content for cross-provider memory sharing.   T5240
-- **`MemoryBridgeContent`** — The `MemoryBridgeContent` interface.
-- **`SessionSummary`** — The `SessionSummary` interface.
-- **`BridgeLearning`** — The `BridgeLearning` interface.
-- **`BridgePattern`** — The `BridgePattern` interface.
-- **`BridgeDecision`** — The `BridgeDecision` interface.
-- **`BridgeObservation`** — The `BridgeObservation` interface.
+- **`MemoryBridgeContent`** — Structured content of the `.cleo/memory-bridge.md` file.
+- **`SessionSummary`** — Summary of a completed session for the memory bridge.
+- **`BridgeLearning`** — A key learning extracted from brain.db for the memory bridge.
+- **`BridgePattern`** — A recurring pattern identified in brain.db entries.
+- **`BridgeDecision`** — A decision recorded in brain.db for the memory bridge.
+- **`BridgeObservation`** — A recent observation from brain.db for the memory bridge.
 - **`IssueSeverity`** — Common issue types
 - **`IssueArea`** — The `IssueArea` type.
 - **`IssueType`** — The `IssueType` type.
@@ -1367,6 +1563,11 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ValidateComplianceRecordResult`** — The `ValidateComplianceRecordResult` interface.
 - **`ValidateTestRunParams`** — The `ValidateTestRunParams` interface.
 - **`ValidateTestRunResult`** — The `ValidateTestRunResult` interface.
+- **`OrchestrationLevel`** — The 5 orchestration levels in order of authority.
+- **`AgentHierarchyEntry`** — An agent's position in the orchestration hierarchy.
+- **`AgentHierarchy`** — The full agent hierarchy tree.
+- **`EscalationChain`** — An escalation path from an agent to its authority chain.
+- **`OrchestrationHierarchyAPI`** — API for querying and managing the agent hierarchy.
 - **`TaskRecordRelation`** — A single task relation entry (string-widened version).
 - **`ValidationHistoryEntry`** — Validation history entry.
 - **`TaskRecord`** — String-widened Task for JSON serialization in dispatch/LAFS layer.
@@ -1413,5 +1614,142 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`TesseraVariable`** — A variable declaration within a Tessera template.
 - **`TesseraTemplate`** — A parameterized WarpChain template with variable bindings.
 - **`TesseraInstantiationInput`** — Input for instantiating a Tessera template into a concrete chain.
+- **`BrainObservationType`** — Brain observation type.
+- **`HybridSearchOptions`** — Options for hybrid (FTS + vector + graph) brain search.
+- **`DuplicateStrategy`** — Strategy for handling duplicate tasks during import.
+- **`ImportParams`** — Parameters for task import operations.
+- **`AgentInstanceStatus`** — Agent instance status type.
+- **`AgentType`** — Agent type classification.
+- **`AgentInstanceRow`** — Row shape for the `agent_instances` table.  Manually defined to avoid Drizzle dependency in contracts. Must stay in sync with `packages/core/src/agents/agent-schema.ts`.
+- **`RegisterAgentOptions`** — Options for registering a new agent instance.
+- **`AgentCapacity`** — Agent capacity information.
+- **`AgentHealthStatus`** — Agent health status from heartbeat monitoring.
+- **`BlastRadiusSeverity`** — Severity classification for blast radius.
+- **`ImpactedTask`** — A single task predicted to be affected by a change.
+- **`ImpactReport`** — Full impact prediction report for a free-text change description.
+- **`BlastRadius`** — Quantified scope of a task's impact across the project.
+- **`TaskStartResult`** — Result of starting work on a task.
+- **`TasksAPI`** — Tasks domain API.
+- **`SessionsAPI`** — Sessions domain API.
+- **`MemoryAPI`** — Memory/Brain domain API.
+- **`OrchestrationAPI`** — Orchestration domain API.
+- **`LifecycleAPI`** — Lifecycle pipeline domain API.
+- **`ReleaseAPI`** — Release management domain API.
+- **`AdminAPI`** — Admin domain API.
+- **`StickyAPI`** — Sticky notes domain API.
+- **`NexusAPI`** — Cross-project Nexus domain API.
+- **`SyncAPI`** — Task reconciliation / sync domain API.
+- **`AgentsAPI`** — Agent registry domain API.
+- **`IntelligenceAPI`** — Intelligence / impact analysis domain API.
+- **`CleoInitOptions`** — Options for initializing the Cleo facade.
+- **`LafsExtensionParams`** — LAFS extension parameters declared in Agent Card
+- **`ExtensionKind`** — Classification of an A2A extension's behavior.
+- **`ExtensionNegotiationResult`** — Result of extension negotiation between client and agent
+- **`BuildLafsExtensionOptions`** — Options for building the LAFS extension declaration
+- **`BuildExtensionOptions`** — Options for building a generic A2A extension declaration
+- **`ExtensionNegotiationMiddlewareOptions`** — Options for the extension negotiation middleware
+- **`AgentProvider`** — A2A Agent Provider information.
+- **`AgentCapabilities`** — A2A Agent Capabilities.
+- **`AgentExtension`** — A2A Agent Extension declaration.
+- **`AgentSkill`** — A2A Agent Skill.
+- **`SecurityScheme`** — Security scheme for authentication (OpenAPI 3.0 style).
+- **`AgentCard`** — A2A v1.0 Agent Card - Standard format for agent discovery.
+- **`Capability`** — Legacy capability descriptor.
+- **`ServiceConfig`** — Legacy service configuration.
+- **`EndpointConfig`** — Legacy endpoint configuration.
+- **`DiscoveryDocument`** — Legacy discovery document format.
+- **`DiscoveryConfig`** — Configuration for the discovery middleware (A2A v1.0 format).
+- **`DiscoveryMiddlewareOptions`** — Discovery middleware options.
+- **`TokenEstimatorOptions`** — Configuration options for the token estimator.
+- **`LAFSTransport`** — Transport protocol used to deliver a LAFS envelope.
+- **`LAFSErrorCategory`** — Classification category for a LAFS error.
+- **`Warning`** — A non-fatal warning attached to a LAFS envelope's `_meta.warnings` array.
+- **`MVILevel`** — Minimum Viable Information level controlling envelope verbosity.
+- **`LAFSMeta`** — Metadata block (`_meta`) embedded in every LAFS envelope.
+- **`LAFSAgentAction`** — Recommended action an LLM agent should take in response to an error.
+- **`LAFSError`** — Structured error payload returned in a failing LAFS envelope.
+- **`LAFSPageCursor`** — Cursor-based pagination metadata.
+- **`LAFSPageOffset`** — Offset-based pagination metadata.
+- **`LAFSPageNone`** — Sentinel pagination mode indicating no pagination is applied.
+- **`LAFSPage`** — Discriminated union of all supported pagination modes.
+- **`ContextLedgerEntry`** — A single entry in the context ledger recording one state mutation.
+- **`ContextLedger`** — Append-only ledger tracking context mutations across agent interactions.
+- **`LAFSEnvelope`** — Top-level LAFS response envelope wrapping every operation result.
+- **`FlagInput`** — Input parameters for resolving the output format via flag semantics.
+- **`ConformanceReport`** — Result of a LAFS conformance test run.
+- **`BudgetEnforcementOptions`** — Options controlling token-budget enforcement behaviour.
+- **`TokenEstimate`** — Token-count estimate attached to a budget-aware envelope.
+- **`LAFSMetaWithBudget`** — Extended metadata block that includes an optional token-budget estimate.
+- **`LAFSEnvelopeWithBudget`** — LAFS envelope variant whose metadata includes token-budget estimates.
+- **`MiddlewareFunction`** — Middleware function that transforms a LAFS envelope.
+- **`NextFunction`** — Continuation function passed to `BudgetMiddleware` to invoke the next middleware in the chain.
+- **`BudgetMiddleware`** — Middleware function for token-budget enforcement with chain delegation.
+- **`BudgetEnforcementResult`** — Outcome of running budget enforcement on a LAFS envelope.
+- **`ConformanceTier`** — Named conformance tier indicating the breadth of checks applied.
+- **`ConformanceProfiles`** — Schema for the conformance-profiles JSON file.
+- **`RegistryCode`** — A single entry in the LAFS error-code registry.
+- **`ErrorRegistry`** — Top-level shape of the LAFS error-registry JSON file.
+- **`TransportMapping`** — A transport-specific status value resolved from the error registry.
+- **`FlagResolution`** — Result of resolving output format flags.
+- **`NativeValidationResult`** — Shape of the validation result from the native binding.
+- **`StructuredValidationError`** — Structured representation of a single schema validation error.
+- **`EnvelopeValidationResult`** — Result of validating a value against the LAFS envelope JSON Schema.
+- **`EnvelopeConformanceOptions`** — Options for configuring envelope conformance checking.
+- **`ComplianceStage`** — Identifies which stage of the compliance pipeline produced an issue.
+- **`ComplianceIssue`** — Describes a single compliance failure detected during enforcement.
+- **`EnforceComplianceOptions`** — Options controlling which compliance stages are executed.
+- **`ComplianceResult`** — Aggregated result of a full LAFS compliance run.
+- **`ComplianceMiddleware`** — Middleware signature for intercepting LAFS envelopes in a pipeline.
+- **`DeprecationEntry`** — A single deprecation rule in the registry.
+- **`CreateEnvelopeMetaInput`** — Input for constructing the `_meta` block of a LAFS envelope.
+- **`CreateEnvelopeSuccessInput`** — Input for creating a successful LAFS envelope.
+- **`CreateEnvelopeErrorInput`** — Input for creating a failing LAFS envelope.
+- **`CreateEnvelopeInput`** — Discriminated union of success and error inputs for `createEnvelope`.
+- **`ParseLafsResponseOptions`** — Options for `parseLafsResponse`.
+- **`FieldExtractionInput`** — Input flags for the field extraction layer.
+- **`FieldExtractionResolution`** — Resolved field extraction configuration.
+- **`UnifiedFlagInput`** — Combined input for both format and field extraction layers.
+- **`UnifiedFlagResolution`** — Combined resolution result with cross-layer warnings.
+- **`LafsA2AConfig`** — Configuration for LAFS A2A integration.
+- **`LafsSendMessageParams`** — Request parameters for sending messages.
+- **`CreateTaskOptions`** — Options for creating a new task
+- **`ListTasksOptions`** — Options for listing tasks
+- **`ListTasksResult`** — Paginated result from listTasks
+- **`TaskStreamEvent`** — Union type of task stream events emitted by the event bus.
+- **`StreamIteratorOptions`** — Options for the stream task events async iterator
+- **`PushNotificationDeliveryResult`** — Result of delivering a push notification to a single webhook
+- **`PushTransport`** — Transport function for sending HTTP requests to push-notification webhooks.
+- **`JsonRpcMethod`** — Union of all valid JSON-RPC method string values from `JSONRPC_METHODS`
+- **`A2AErrorType`** — Union of A2A error type key names from `JSONRPC_A2A_ERROR_CODES`
+- **`JsonRpcRequest`** — A JSON-RPC 2.0 request object.
+- **`JsonRpcResponse`** — A JSON-RPC 2.0 success response object.
+- **`JsonRpcErrorResponse`** — A JSON-RPC 2.0 error response object.
+- **`GrpcStatusCode`** — Numeric gRPC status code value (0-16)
+- **`GrpcStatusName`** — String name of a gRPC status code (e.g. `"OK"`, `"NOT_FOUND"`)
+- **`GrpcServiceMethod`** — Descriptor for a single gRPC service method.
+- **`GrpcStatus`** — gRPC Status object for A2A errors.
+- **`GrpcErrorInfo`** — Equivalent of `google.rpc.ErrorInfo` for structured gRPC error details.
+- **`HttpEndpoint`** — Union of all HTTP endpoint descriptor objects from `HTTP_ENDPOINTS`
+- **`ProblemDetails`** — RFC 9457 Problem Details object.
+- **`ListTasksQueryParams`** — Parsed query parameters for the ListTasks endpoint.
+- **`ErrorCodeMapping`** — Complete error code mapping across all three transports.
+- **`CircuitState`** — Represents the three possible states of a circuit breaker.
+- **`CircuitBreakerConfig`** — Configuration options for a `CircuitBreaker` instance.
+- **`CircuitBreakerMetrics`** — Snapshot of runtime metrics for a `CircuitBreaker`.
+- **`HealthCheckConfig`** — Configuration for the `healthCheck` middleware.
+- **`HealthCheckFunction`** — A function that performs a single health check.
+- **`HealthCheckResult`** — Result of an individual health check.
+- **`HealthStatus`** — Aggregated health status returned by the health endpoint.
+- **`LafsProblemDetails`** — RFC 9457 Problem Details with LAFS extensions.
+- **`GracefulShutdownConfig`** — Configuration for the `gracefulShutdown` handler.
+- **`ShutdownState`** — Snapshot of the current shutdown state.
+- **`MessageHandler`** — Message handler callback.
+- **`AgentPollerConfig`** — Poller configuration.
+- **`HeartbeatConfig`** — Heartbeat service configuration.
+- **`KeyRotationConfig`** — Key rotation service configuration.
+- **`SseConnectionConfig`** — SSE connection service configuration.
+- **`SseMessageHandler`** — Message handler callback.
+- **`RuntimeConfig`** — Configuration for createRuntime().
+- **`RuntimeHandle`** — Handle returned by createRuntime().
 
-{/*  FORGE:AUTO-END key-abstractions  */}
+{/* FORGE:AUTO-END key-abstractions */}

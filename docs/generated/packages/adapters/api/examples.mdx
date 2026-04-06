@@ -1,7 +1,184 @@
 ---
-title: "adapters — Examples"
-description: "Usage examples for the adapters package"
+title: adapters — Examples
+description: Usage examples for the adapters package
 ---
+
 All usage examples from the package, aggregated for quick reference.
 
-_No examples documented yet._
+## `checkStatuslineIntegration()`
+
+*Check if statusline integration is configured. Returns the current integration status.*
+
+[View in API reference](/packages/adapters/api/functions#checkstatuslineintegration)
+
+```typescript
+import { checkStatuslineIntegration } from './statusline.js';
+
+const status = checkStatuslineIntegration();
+if (status === 'not_configured') {
+  console.log('Run cleo install to set up context monitoring');
+}
+```
+
+## `getStatuslineConfig()`
+
+*Get the statusline setup command for Claude Code settings.*
+
+[View in API reference](/packages/adapters/api/functions#getstatuslineconfig)
+
+```typescript
+import { getStatuslineConfig } from './statusline.js';
+
+const config = getStatuslineConfig('/home/user/.cleo');
+```
+
+## `getSetupInstructions()`
+
+*Get human-readable setup instructions.*
+
+[View in API reference](/packages/adapters/api/functions#getsetupinstructions)
+
+```typescript
+import { getSetupInstructions } from './statusline.js';
+
+console.log(getSetupInstructions('/home/user/.cleo'));
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/claude-code';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `readLatestTranscript()`
+
+*Read the most recent JSON or JSONL session file from `providerDir` and return its contents as a flat transcript string.  Files are sorted in descending order by filename — this works naturally for providers that embed timestamps in filenames. The most recently named file is read first.  Returns `null` when: - `providerDir` does not exist or cannot be read - No JSON/JSONL files are present - The most recent file contains no parseable turns*
+
+[View in API reference](/packages/adapters/api/functions#readlatesttranscript)
+
+```typescript
+import { readLatestTranscript } from '../shared/transcript-reader.js';
+
+const transcript = await readLatestTranscript('/home/user/.gemini');
+if (transcript) {
+  console.log(transcript);
+}
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/codex';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/cursor';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/gemini-cli';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/kimi';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `buildOpenCodeAgentMarkdown()`
+
+*Build the markdown content for an OpenCode agent definition file.  OpenCode agents are defined as markdown files with YAML frontmatter in the .opencode/agent/ directory.*
+
+[View in API reference](/packages/adapters/api/functions#buildopencodeagentmarkdown)
+
+```typescript
+import { buildOpenCodeAgentMarkdown } from '@cleocode/adapters/providers/opencode/spawn';
+
+const md = buildOpenCodeAgentMarkdown(
+  'CLEO task executor',
+  '# Subagent\n\nExecute the delegated task.',
+);
+```
+
+## `createAdapter()`
+
+*Factory function for creating adapter instances. Used by AdapterManager's dynamic import fallback.*
+
+[View in API reference](/packages/adapters/api/functions#createadapter)
+
+```typescript
+import { createAdapter } from '@cleocode/adapters/providers/opencode';
+
+const adapter = createAdapter();
+await adapter.initialize('/path/to/project');
+```
+
+## `getProviderManifests()`
+
+*Get the manifests for all bundled provider adapters.*
+
+[View in API reference](/packages/adapters/api/functions#getprovidermanifests)
+
+```typescript
+import { getProviderManifests } from '@cleocode/adapters';
+
+const manifests = getProviderManifests();
+for (const m of manifests) {
+  console.log(`${m.id}: ${m.name} v${m.version}`);
+}
+```
+
+## `discoverProviders()`
+
+*Discover all available provider adapters.  Returns a map of provider ID to adapter factory function.*
+
+[View in API reference](/packages/adapters/api/functions#discoverproviders)
+
+```typescript
+import { discoverProviders } from '@cleocode/adapters';
+
+const providers = await discoverProviders();
+const factory = providers.get('claude-code');
+if (factory) {
+  const adapter = await factory();
+}
+```

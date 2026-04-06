@@ -7,6 +7,7 @@ This guide explains how to add custom operation/message validation while keeping
 - `validateEnvelope` validates against `schemas/v1/envelope.schema.json`.
 - The built-in schema validates envelope structure, meta fields, error contract, pagination rules, and strict-mode top-level behavior.
 - It does not know your domain-specific `result` payload shapes.
+- Internally, `validateEnvelope` uses a native Rust validator (`lafs-napi`) when available, with AJV as a fallback. The example below uses AJV for **your own** operation-specific schemas, which is independent of how LAFS validates the envelope itself.
 
 ## Extension model
 

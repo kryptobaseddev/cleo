@@ -45,6 +45,16 @@
         "tab": "API Reference",
         "groups": [
           {
+            "group": "@forge-ts/.",
+            "pages": [
+              "packages/./index",
+              "packages/./api/index",
+              "packages/./api/functions",
+              "packages/./api/types",
+              "packages/./api/examples"
+            ]
+          },
+          {
             "group": "@forge-ts/adapters",
             "pages": [
               "packages/adapters/index",
@@ -55,13 +65,23 @@
             ]
           },
           {
-            "group": "@forge-ts/cleo",
+            "group": "@forge-ts/caamp",
             "pages": [
-              "packages/cleo/index",
-              "packages/cleo/api/index",
-              "packages/cleo/api/functions",
-              "packages/cleo/api/types",
-              "packages/cleo/api/examples"
+              "packages/caamp/index",
+              "packages/caamp/api/index",
+              "packages/caamp/api/functions",
+              "packages/caamp/api/types",
+              "packages/caamp/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/cant",
+            "pages": [
+              "packages/cant/index",
+              "packages/cant/api/index",
+              "packages/cant/api/functions",
+              "packages/cant/api/types",
+              "packages/cant/api/examples"
             ]
           },
           {
@@ -75,6 +95,16 @@
             ]
           },
           {
+            "group": "@forge-ts/cleo",
+            "pages": [
+              "packages/cleo/index",
+              "packages/cleo/api/index",
+              "packages/cleo/api/functions",
+              "packages/cleo/api/types",
+              "packages/cleo/api/examples"
+            ]
+          },
+          {
             "group": "@forge-ts/contracts",
             "pages": [
               "packages/contracts/index",
@@ -82,6 +112,26 @@
               "packages/contracts/api/functions",
               "packages/contracts/api/types",
               "packages/contracts/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/lafs",
+            "pages": [
+              "packages/lafs/index",
+              "packages/lafs/api/index",
+              "packages/lafs/api/functions",
+              "packages/lafs/api/types",
+              "packages/lafs/api/examples"
+            ]
+          },
+          {
+            "group": "@forge-ts/runtime",
+            "pages": [
+              "packages/runtime/index",
+              "packages/runtime/api/index",
+              "packages/runtime/api/functions",
+              "packages/runtime/api/types",
+              "packages/runtime/api/examples"
             ]
           }
         ]

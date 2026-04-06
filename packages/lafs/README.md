@@ -205,7 +205,7 @@ src/
   index.ts                       # Barrel export (all public API)
   types.ts                       # Core types (LAFSEnvelope, LAFSError, etc.)
   envelope.ts                    # createEnvelope(), parseLafsResponse(), LafsError
-  validateEnvelope.ts            # AJV-based schema validator (validateEnvelope, assertEnvelope)
+  validateEnvelope.ts            # Schema validator (native Rust via napi-rs, AJV fallback)
   conformance.ts                 # Conformance runner (runEnvelopeConformance)
   conformanceProfiles.ts         # Tier-based conformance profile definitions
   compliance.ts                  # Compliance pipeline utilities
@@ -218,7 +218,7 @@ src/
   budgetEnforcement.ts           # Token budget enforcement
   problemDetails.ts              # RFC 9457 Problem Details from LAFS errors
   deprecationRegistry.ts         # Deprecation tracking and warnings
-  mcpAdapter.ts                  # MCP tool response adapter
+  native-loader.ts               # Lazy native Rust validator loader
   discovery.ts                   # A2A Agent Card discovery middleware
   cli.ts                         # CLI diagnostic tool (lafs-conformance)
   health/index.ts                # Health check endpoint

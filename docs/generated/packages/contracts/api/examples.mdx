@@ -1,12 +1,13 @@
 ---
-title: "contracts — Examples"
-description: "Usage examples for the contracts package"
+title: contracts — Examples
+description: Usage examples for the contracts package
 ---
+
 All usage examples from the package, aggregated for quick reference.
 
 ## `ExternalTaskProvider`
 
-_Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO._
+*Interface that provider adapters implement to expose their external task system to the reconciliation engine.  Provider-specific parsing lives in the adapter — core never sees native formats. Consumers implement this interface to integrate their issue tracker with CLEO.*
 
 [View in API reference](/packages/contracts/api/functions#externaltaskprovider)
 
@@ -30,7 +31,7 @@ class LinearAdapter implements ExternalTaskProvider {
 
 ## `normalizeError()`
 
-_Normalize any thrown value into a standardized error object.  Handles: - Error instances (preserves stack trace info) - Strings (wraps in Error) - Objects with message property - null/undefined (provides fallback)_
+*Normalize any thrown value into a standardized error object.  Handles: - Error instances (preserves stack trace info) - Strings (wraps in Error) - Objects with message property - null/undefined (provides fallback)*
 
 [View in API reference](/packages/contracts/api/functions#normalizeerror)
 
@@ -45,7 +46,7 @@ try {
 
 ## `getErrorMessage()`
 
-_Extract a human-readable message from any error value.  Safe to use on unknown thrown values without type guards._
+*Extract a human-readable message from any error value.  Safe to use on unknown thrown values without type guards.*
 
 [View in API reference](/packages/contracts/api/functions#geterrormessage)
 
@@ -55,7 +56,7 @@ const message = getErrorMessage(err, 'Unknown error');
 
 ## `formatError()`
 
-_Format error details for logging or display.  Includes stack trace for Error instances when includeStack is true._
+*Format error details for logging or display.  Includes stack trace for Error instances when includeStack is true.*
 
 [View in API reference](/packages/contracts/api/functions#formaterror)
 
@@ -66,7 +67,7 @@ console.error(formatError(err, 'Database connection'));
 
 ## `isErrorType()`
 
-_Check if an error represents a specific error type by code or name.  Useful for conditional error handling based on error types._
+*Check if an error represents a specific error type by code or name.  Useful for conditional error handling based on error types.*
 
 [View in API reference](/packages/contracts/api/functions#iserrortype)
 
@@ -78,7 +79,7 @@ if (isErrorType(err, 'E_NOT_FOUND')) {
 
 ## `createErrorResult()`
 
-_Create a standardized error result object.  Common pattern for operations that return  success: boolean, error?: string_
+*Create a standardized error result object.  Common pattern for operations that return  success: boolean, error?: string*
 
 [View in API reference](/packages/contracts/api/functions#createerrorresult)
 
@@ -89,7 +90,7 @@ return createErrorResult(err);
 
 ## `createSuccessResult()`
 
-_Create a standardized success result object._
+*Create a standardized success result object.*
 
 [View in API reference](/packages/contracts/api/functions#createsuccessresult)
 
@@ -100,7 +101,7 @@ return createSuccessResult();
 
 ## `isErrorResult()`
 
-_Type guard for error results._
+*Type guard for error results.*
 
 [View in API reference](/packages/contracts/api/functions#iserrorresult)
 
@@ -108,5 +109,44 @@ _Type guard for error results._
 const result = await someOperation();
 if (isErrorResult(result)) {
   console.error(result.error);
+}
+```
+
+## `isLafsSuccess()`
+
+*Type guard for success responses.*
+
+[View in API reference](/packages/contracts/api/functions#islafssuccess)
+
+```ts
+const result: LafsEnvelope<Task[]> = await fetchTasks();
+if (isLafsSuccess(result)) {
+  console.log(result.data); // Task[]
+}
+```
+
+## `isLafsError()`
+
+*Type guard for error responses.*
+
+[View in API reference](/packages/contracts/api/functions#islafserror)
+
+```ts
+const result: LafsEnvelope<Task[]> = await fetchTasks();
+if (isLafsError(result)) {
+  console.error(result.error.message);
+}
+```
+
+## `isGatewayEnvelope()`
+
+*Type guard for gateway responses (has \_meta).*
+
+[View in API reference](/packages/contracts/api/functions#isgatewayenvelope)
+
+```ts
+const response: CleoResponse<Task> = await handleRequest();
+if (isGatewayEnvelope(response)) {
+  console.log(response._meta.gateway);
 }
 ```

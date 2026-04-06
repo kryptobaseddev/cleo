@@ -1,7 +1,523 @@
 ---
-title: "cleo — Examples"
-description: "Usage examples for the cleo package"
+title: cleo — Examples
+description: Usage examples for the cleo package
 ---
+
 All usage examples from the package, aggregated for quick reference.
 
-_No examples documented yet._
+## `engineError()`
+
+*Create a typed engine error result with pino logging and correct exit code.*
+
+[View in API reference](/packages/cleo/api/functions#engineerror)
+
+```typescript
+import { engineError } from './_error.js';
+
+return engineError('E_NOT_FOUND', `Task ${id} not found`, {
+  fix: `cleo show ${id}`,
+  details: { taskId: id },
+});
+```
+
+## `engineSuccess()`
+
+*Create an engine success result.*
+
+[View in API reference](/packages/cleo/api/functions#enginesuccess)
+
+```typescript
+import { engineSuccess } from './_error.js';
+
+return engineSuccess({ tasks: filteredTasks, total: count });
+```
+
+## `taskShow()`
+
+*Get a single task by ID.*
+
+[View in API reference](/packages/cleo/api/functions#taskshow)
+
+```typescript
+const result = await taskShow('/project', 'T42');
+if (result.success) console.log(result.data.task.title);
+```
+
+## `taskList()`
+
+*List tasks with optional filters.*
+
+[View in API reference](/packages/cleo/api/functions#tasklist)
+
+```typescript
+const result = await taskList('/project', { status: 'active', limit: 10 });
+```
+
+## `taskFind()`
+
+*Fuzzy search tasks by title/description/ID.*
+
+[View in API reference](/packages/cleo/api/functions#taskfind)
+
+```typescript
+const result = await taskFind('/project', 'authentication', 10);
+```
+
+## `taskExists()`
+
+*Check if a task exists.*
+
+[View in API reference](/packages/cleo/api/functions#taskexists)
+
+```typescript
+const result = await taskExists('/project', 'T42');
+if (result.success && result.data.exists) { console.log('exists'); }
+```
+
+## `taskCreate()`
+
+*Create a new task.*
+
+[View in API reference](/packages/cleo/api/functions#taskcreate)
+
+```typescript
+const result = await taskCreate('/project', {
+  title: 'Implement auth',
+  description: 'Add JWT-based authentication',
+  priority: 'high',
+});
+```
+
+## `taskUpdate()`
+
+*Update a task's fields.*
+
+[View in API reference](/packages/cleo/api/functions#taskupdate)
+
+```typescript
+const result = await taskUpdate('/project', 'T42', { status: 'active' });
+```
+
+## `taskComplete()`
+
+*Complete a task (set status to done).*
+
+[View in API reference](/packages/cleo/api/functions#taskcomplete)
+
+```typescript
+const result = await taskComplete('/project', 'T42', 'All tests passing');
+```
+
+## `taskDelete()`
+
+*Delete a task.*
+
+[View in API reference](/packages/cleo/api/functions#taskdelete)
+
+```typescript
+const result = await taskDelete('/project', 'T42', true);
+```
+
+## `taskArchive()`
+
+*Archive completed tasks. Moves done/cancelled tasks from active task data to archive.*
+
+[View in API reference](/packages/cleo/api/functions#taskarchive)
+
+```typescript
+const result = await taskArchive('/project', undefined, '2026-01-01');
+```
+
+## `taskNext()`
+
+*Suggest next task to work on based on priority, phase alignment, age, and dependency readiness.*
+
+[View in API reference](/packages/cleo/api/functions#tasknext)
+
+```typescript
+const result = await taskNext('/project', { count: 3, explain: true });
+```
+
+## `taskBlockers()`
+
+*Show blocked tasks and analyze blocking chains.*
+
+[View in API reference](/packages/cleo/api/functions#taskblockers)
+
+```typescript
+const result = await taskBlockers('/project', { analyze: true });
+```
+
+## `taskTree()`
+
+*Build hierarchy tree.*
+
+[View in API reference](/packages/cleo/api/functions#tasktree)
+
+```typescript
+const result = await taskTree('/project', 'T1');
+```
+
+## `taskDeps()`
+
+*Show dependencies for a task - both what it depends on and what depends on it.*
+
+[View in API reference](/packages/cleo/api/functions#taskdeps)
+
+```typescript
+const result = await taskDeps('/project', 'T42');
+```
+
+## `taskRelates()`
+
+*Show task relations (existing relates entries).*
+
+[View in API reference](/packages/cleo/api/functions#taskrelates)
+
+```typescript
+const result = await taskRelates('/project', 'T42');
+```
+
+## `taskRelatesAdd()`
+
+*Add a relation between two tasks.*
+
+[View in API reference](/packages/cleo/api/functions#taskrelatesadd)
+
+```typescript
+const result = await taskRelatesAdd('/project', 'T42', 'T43', 'blocks', 'Needs auth first');
+```
+
+## `taskAnalyze()`
+
+*Analyze a task for description quality, missing fields, and dependency health.*
+
+[View in API reference](/packages/cleo/api/functions#taskanalyze)
+
+```typescript
+const result = await taskAnalyze('/project');
+```
+
+## `taskImpact()`
+
+*Predict downstream impact of a free-text change description.  Delegates to `predictImpact` from the intelligence module. Uses keyword matching against task titles/descriptions, then traces the reverse dependency graph for transitive effects.*
+
+[View in API reference](/packages/cleo/api/functions#taskimpact)
+
+```typescript
+const result = await taskImpact('/project', 'Refactor authentication module');
+```
+
+## `taskRestore()`
+
+*Restore a cancelled task back to pending.*
+
+[View in API reference](/packages/cleo/api/functions#taskrestore)
+
+```typescript
+const result = await taskRestore('/project', 'T42', { cascade: true });
+```
+
+## `taskUnarchive()`
+
+*Move an archived task back to active task data with status 'done' (or specified status).*
+
+[View in API reference](/packages/cleo/api/functions#taskunarchive)
+
+```typescript
+const result = await taskUnarchive('/project', 'T42', { status: 'pending' });
+```
+
+## `taskReorder()`
+
+*Change task position within its sibling group.*
+
+[View in API reference](/packages/cleo/api/functions#taskreorder)
+
+```typescript
+const result = await taskReorder('/project', 'T42', 0); // move to first
+```
+
+## `taskReparent()`
+
+*Move task under a different parent.*
+
+[View in API reference](/packages/cleo/api/functions#taskreparent)
+
+```typescript
+const result = await taskReparent('/project', 'T42', 'T1');
+```
+
+## `taskPromote()`
+
+*Promote a subtask to task or task to root (remove parent).*
+
+[View in API reference](/packages/cleo/api/functions#taskpromote)
+
+```typescript
+const result = await taskPromote('/project', 'T42');
+```
+
+## `taskReopen()`
+
+*Reopen a completed task (set status back to pending).*
+
+[View in API reference](/packages/cleo/api/functions#taskreopen)
+
+```typescript
+const result = await taskReopen('/project', 'T42', { reason: 'Tests regressed' });
+```
+
+## `taskCancel()`
+
+*Cancel a task (soft terminal state -- reversible via restore).*
+
+[View in API reference](/packages/cleo/api/functions#taskcancel)
+
+```typescript
+const result = await taskCancel('/project', 'T42', 'No longer needed');
+```
+
+## `taskComplexityEstimate()`
+
+*Deterministic complexity scoring from task metadata.*
+
+[View in API reference](/packages/cleo/api/functions#taskcomplexityestimate)
+
+```typescript
+const result = await taskComplexityEstimate('/project', { taskId: 'T42' });
+```
+
+## `sessionStatus()`
+
+*Get current session status.*
+
+[View in API reference](/packages/cleo/api/functions#sessionstatus)
+
+```typescript
+const result = await sessionStatus('/project');
+if (result.success && result.data.hasActiveSession) {
+  console.log(result.data.session?.id);
+}
+```
+
+## `sessionList()`
+
+*List sessions with budget enforcement.  When a limit is applied (explicit or default), the response includes `_meta.truncated` and `_meta.total` so agents know the result set was capped.*
+
+[View in API reference](/packages/cleo/api/functions#sessionlist)
+
+```typescript
+const result = await sessionList('/project', { active: true, limit: 5 });
+```
+
+## `sessionFind()`
+
+*Lightweight session discovery -- returns minimal session records.*
+
+[View in API reference](/packages/cleo/api/functions#sessionfind)
+
+```typescript
+const result = await sessionFind('/project', { status: 'active' });
+```
+
+## `sessionShow()`
+
+*Show a specific session by ID.*
+
+[View in API reference](/packages/cleo/api/functions#sessionshow)
+
+```typescript
+const result = await sessionShow('/project', 'ses_20260401_abc123');
+```
+
+## `compose()`
+
+*Composes an array of Middleware functions into a single Middleware function. Execution flows through the array from first to last, and returns bubble back up from last to first.*
+
+[View in API reference](/packages/cleo/api/functions#compose)
+
+```typescript
+import { compose } from './pipeline.js';
+
+const pipeline = compose([sanitizer, rateLimiter, protocolEnforcement]);
+const response = await pipeline(request, handler);
+```
+
+## `mapCodebase()`
+
+*Analyze a codebase and return structured mapping. When storeToBrain is true, findings are persisted to brain.db.*
+
+[View in API reference](/packages/cleo/api/functions#mapcodebase)
+
+```typescript
+const result = await mapCodebase('/path/to/project', { focus: 'architecture' });
+```
+
+## `systemDash()`
+
+*Project dashboard: task counts by status, active session info, current focus, recent completions.*
+
+[View in API reference](/packages/cleo/api/functions#systemdash)
+
+```typescript
+const result = await systemDash('/project', { blockedTasksLimit: 5 });
+```
+
+## `parseIssueTemplates()`
+
+*Parse all templates from the repo's .github/ISSUE\_TEMPLATE/ directory.*
+
+[View in API reference](/packages/cleo/api/functions#parseissuetemplates)
+
+```typescript
+const result = parseIssueTemplates('/path/to/project');
+if (result.success) {
+  console.log(result.data.templates);
+}
+```
+
+## `getTemplateForSubcommand()`
+
+*Get template config for a specific subcommand (bug/feature/help).*
+
+[View in API reference](/packages/cleo/api/functions#gettemplateforsubcommand)
+
+```typescript
+const result = getTemplateForSubcommand('/path/to/project', 'bug');
+```
+
+## `generateTemplateConfig()`
+
+*Generate and cache the config as .cleo/issue-templates.json.*
+
+[View in API reference](/packages/cleo/api/functions#generatetemplateconfig)
+
+```typescript
+const result = await generateTemplateConfig('/path/to/project');
+```
+
+## `validateLabels()`
+
+*Validate that labels exist on a GitHub repo.*
+
+[View in API reference](/packages/cleo/api/functions#validatelabels)
+
+```typescript
+const result = validateLabels(['bug', 'enhancement'], repoLabels);
+```
+
+## `createRateLimiter()`
+
+*Creates a rate limiting middleware for the dispatch pipeline.*
+
+[View in API reference](/packages/cleo/api/functions#createratelimiter)
+
+```typescript
+import { createRateLimiter } from './rate-limiter.js';
+
+const limiter = createRateLimiter({ query: { maxRequests: 50, windowMs: 30_000 } });
+```
+
+## `createSanitizer()`
+
+*Creates a middleware that sanitizes incoming request parameters. Uses the canonical sanitization logic from security.ts to handle Task IDs, paths, string lengths, and enum validation.*
+
+[View in API reference](/packages/cleo/api/functions#createsanitizer)
+
+```typescript
+import { createSanitizer } from './sanitizer.js';
+
+const sanitizer = createSanitizer(() => process.cwd());
+```
+
+## `registerBackfillCommand()`
+
+*Register the `cleo backfill` CLI command.*
+
+[View in API reference](/packages/cleo/api/functions#registerbackfillcommand)
+
+```ts
+registerBackfillCommand(rootCommand);
+// Adds: cleo backfill [--dry-run] [--rollback] [--embeddings]
+```
+
+## `registerBrainCommand()`
+
+*Register the `cleo brain` command group.  Registers a `brain` parent command and a `maintenance` subcommand that combines temporal decay, memory consolidation, and embedding backfill into one idempotent pass.*
+
+[View in API reference](/packages/cleo/api/functions#registerbraincommand)
+
+```ts
+registerBrainCommand(rootCommand);
+// Adds: cleo brain maintenance [--skip-decay] [--skip-consolidation] [--skip-embeddings] [--json]
+```
+
+## `registerCantCommand()`
+
+*Register the `cleo cant` command group.  Registers a `cant` parent command and a `migrate` subcommand that converts markdown instruction files to CANT DSL format.*
+
+[View in API reference](/packages/cleo/api/functions#registercantcommand)
+
+```ts
+registerCantCommand(rootCommand);
+// Adds: cleo cant migrate <file> [--write] [--dry-run] [--output-dir <dir>] [--verbose] [--json]
+```
+
+## `registerExistsCommand()`
+
+*Register the exists command.*
+
+[View in API reference](/packages/cleo/api/functions#registerexistscommand)
+
+```ts
+registerExistsCommand(rootCommand);
+// cleo exists T001 → exit 0 if found, exit 4 if not
+```
+
+## `registerReasonCommand()`
+
+*Register the `cleo reason` command group and its subcommands.*
+
+[View in API reference](/packages/cleo/api/functions#registerreasoncommand)
+
+```ts
+registerReasonCommand(rootCommand);
+// Adds: cleo reason why|similar|impact|timeline
+```
+
+## `createProtocolEnforcement()`
+
+*Creates a middleware that enforces protocol compliance.  Delegates to ProtocolEnforcer.enforceProtocol() which: - Passes through query operations untouched - Passes through mutate operations that don't require validation - Validates protocol compliance on validated mutate operations after execution - In strict mode, blocks operations with protocol violations (exit codes 60-70)*
+
+[View in API reference](/packages/cleo/api/functions#createprotocolenforcement)
+
+```typescript
+import { createProtocolEnforcement } from './protocol-enforcement.js';
+
+const enforcement = createProtocolEnforcement(true);
+```
+
+## `createVerificationGates()`
+
+*Creates a middleware that enforces verification gates on task operations.*
+
+[View in API reference](/packages/cleo/api/functions#createverificationgates)
+
+```typescript
+import { createVerificationGates } from './verification-gates.js';
+
+const gates = createVerificationGates(true);
+```
+
+## `resolveTier()`
+
+*Resolve tier from request params, defaulting to 'standard'.*
+
+[View in API reference](/packages/cleo/api/functions#resolvetier)
+
+```typescript
+import { resolveTier } from './projections.js';
+
+const tier = resolveTier(req.params, currentSession?.scope);
+```

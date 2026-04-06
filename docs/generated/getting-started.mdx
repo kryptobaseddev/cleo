@@ -1,7 +1,8 @@
 ---
-title: "Getting Started"
-description: "Quick start guide for cleocode"
+title: Getting Started
+description: Quick start guide for cleocode
 ---
+
 Get up and running with **cleocode** in minutes.
 
 ## Step 1: Install
@@ -14,7 +15,7 @@ npm install -D @cleocode/monorepo
 
 Add TSDoc comments to your exported functions and types:
 
-```typescript
+````typescript
 /**
  * Adds two numbers together.
  * @param a - First number
@@ -28,7 +29,7 @@ Add TSDoc comments to your exported functions and types:
 export function add(a: number, b: number): number {
   return a + b;
 }
-```
+````
 
 ## Step 3: Run forge-ts check
 
@@ -56,11 +57,12 @@ npx forge-ts build
 Your code examples become live documentation:
 
 ```typescript
-const pipeline = await initializePipeline('T4800', {
-  startStage: 'research',
-  assignedAgent: 'agent-001'
-});
-console.log(`Pipeline initialized: ${pipeline.id}`);
+import { checkStatuslineIntegration } from './statusline.js';
+
+const status = checkStatuslineIntegration();
+if (status === 'not_configured') {
+  console.log('Run cleo install to set up context monitoring');
+}
 ```
 
 ## What's Next?

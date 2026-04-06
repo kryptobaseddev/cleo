@@ -1,0 +1,1294 @@
+---
+title: caamp — Types
+description: Type contracts for the caamp package
+---
+
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## SkillLibraryEntry
+
+A single skill entry in a library catalog.
+
+| Property          | Type                                                                 | Required | Description                              |
+| ----------------- | -------------------------------------------------------------------- | -------- | ---------------------------------------- |
+| `name`            | `string`                                                             | Yes      | Skill name (e.g. `"ct-research-agent"`). |
+| `description`     | `string`                                                             | Yes      | Human-readable description.              |
+| `version`         | `string`                                                             | Yes      | Semantic version string.                 |
+| `path`            | `string`                                                             | Yes      | Relative path within the skills library. |
+| `references`      | `string[]`                                                           | Yes      | File references used by the skill.       |
+| `core`            | `boolean`                                                            | Yes      | Whether this is a core skill.            |
+| `category`        | `"core" \| "recommended" \| "specialist" \| "composition" \| "meta"` | Yes      | Skill category tier.                     |
+| `tier`            | `number`                                                             | Yes      | Numeric tier (0-3).                      |
+| `protocol`        | `string \| null`                                                     | Yes      | Associated protocol name, or `null`.     |
+| `dependencies`    | `string[]`                                                           | Yes      | Direct dependency skill names.           |
+| `sharedResources` | `string[]`                                                           | Yes      | Shared resource names this skill uses.   |
+| `compatibility`   | `string[]`                                                           | Yes      | Compatible agent/context types.          |
+| `license`         | `string`                                                             | Yes      | SPDX license identifier.                 |
+| `metadata`        | `Record<string, unknown>`                                            | Yes      | Arbitrary metadata.                      |
+
+## SkillLibraryValidationResult
+
+Validation result from skill frontmatter validation.
+
+| Property | Type                            | Required | Description                                                  |
+| -------- | ------------------------------- | -------- | ------------------------------------------------------------ |
+| `valid`  | `boolean`                       | Yes      | Whether the skill passed validation (no error-level issues). |
+| `issues` | `SkillLibraryValidationIssue[]` | Yes      | Individual validation issues.                                |
+
+## SkillLibraryValidationIssue
+
+A single validation issue.
+
+| Property  | Type                | Required | Description                     |
+| --------- | ------------------- | -------- | ------------------------------- |
+| `level`   | `"error" \| "warn"` | Yes      | Severity level.                 |
+| `field`   | `string`            | Yes      | Field that triggered the issue. |
+| `message` | `string`            | Yes      | Human-readable message.         |
+
+## SkillLibraryProfile
+
+Profile definition for grouped skill installation.
+
+| Property           | Type                   | Required | Description                                                           |
+| ------------------ | ---------------------- | -------- | --------------------------------------------------------------------- |
+| `name`             | `string`               | Yes      | Profile name (e.g. `"minimal"`, `"core"`, `"recommended"`, `"full"`). |
+| `description`      | `string`               | Yes      | Human-readable description.                                           |
+| `extends`          | `string \| undefined`  | No       | Name of parent profile to extend.                                     |
+| `skills`           | `string[]`             | Yes      | Skill names included in this profile.                                 |
+| `includeShared`    | `boolean \| undefined` | No       | Whether to include \_shared resources.                                |
+| `includeProtocols` | `string[]`             | Yes      | Protocol names to include.                                            |
+
+## SkillLibraryDispatchMatrix
+
+Dispatch matrix for task routing to skills.
+
+| Property       | Type                     | Required | Description                 |
+| -------------- | ------------------------ | -------- | --------------------------- |
+| `by_task_type` | `Record<string, string>` | Yes      | Task type to skill mapping. |
+| `by_keyword`   | `Record<string, string>` | Yes      | Keyword to skill mapping.   |
+| `by_protocol`  | `Record<string, string>` | Yes      | Protocol to skill mapping.  |
+
+## SkillLibraryManifestSkill
+
+Skill entry within the library manifest.
+
+| Property       | Type                                                                                                                                                                                                                      | Required | Description          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------- |
+| `name`         | `string`                                                                                                                                                                                                                  | Yes      | Skill name.          |
+| `version`      | `string`                                                                                                                                                                                                                  | Yes      | Version.             |
+| `description`  | `string`                                                                                                                                                                                                                  | Yes      | Description.         |
+| `path`         | `string`                                                                                                                                                                                                                  | Yes      | Path within library. |
+| `tags`         | `string[]`                                                                                                                                                                                                                | Yes      | Tags.                |
+| `status`       | `string`                                                                                                                                                                                                                  | Yes      | Status.              |
+| `tier`         | `number`                                                                                                                                                                                                                  | Yes      | Tier.                |
+| `token_budget` | `number`                                                                                                                                                                                                                  | Yes      | Token budget.        |
+| `references`   | `string[]`                                                                                                                                                                                                                | Yes      | References.          |
+| `capabilities` | `{ inputs: string[]; outputs: string[]; dependencies: string[]; dispatch_triggers: string[]; compatible_subagent_types: string[]; chains_to: string[]; dispatch_keywords: { primary: string[]; secondary: string[]; }; }` | Yes      | Capabilities.        |
+| `constraints`  | `{ max_context_tokens: number; requires_session: boolean; requires_epic: boolean; }`                                                                                                                                      | Yes      | Constraints.         |
+
+## SkillLibraryManifest
+
+Full manifest structure for a skill library.
+
+| Property          | Type                          | Required | Description                        |
+| ----------------- | ----------------------------- | -------- | ---------------------------------- |
+| `$schema`         | `string`                      | Yes      | JSON schema reference.             |
+| `_meta`           | `Record<string, unknown>`     | Yes      | Metadata.                          |
+| `dispatch_matrix` | `SkillLibraryDispatchMatrix`  | Yes      | Dispatch matrix for skill routing. |
+| `skills`          | `SkillLibraryManifestSkill[]` | Yes      | Manifest skill entries.            |
+
+## SkillLibrary
+
+Standard interface for a skill library.  Any directory or module providing skills must implement this contract. CAAMP uses it to discover, resolve, and install skills from any source.
+
+| Property                   | Type                                                               | Required | Description                                                                       |
+| -------------------------- | ------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------- |
+| `version`                  | `string`                                                           | Yes      | Library version string.                                                           |
+| `libraryRoot`              | `string`                                                           | Yes      | Absolute path to the library root directory.                                      |
+| `skills`                   | `SkillLibraryEntry[]`                                              | Yes      | All skill entries in the catalog.                                                 |
+| `manifest`                 | `SkillLibraryManifest`                                             | Yes      | The parsed manifest.                                                              |
+| `listSkills`               | `() => string[]`                                                   | Yes      | List all skill names.                                                             |
+| `getSkill`                 | `(name: string) => SkillLibraryEntry \| undefined`                 | No       | Get skill metadata by name.                                                       |
+| `getSkillPath`             | `(name: string) => string`                                         | Yes      | Resolve absolute path to a skill's SKILL.md file.                                 |
+| `getSkillDir`              | `(name: string) => string`                                         | Yes      | Resolve absolute path to a skill's directory.                                     |
+| `readSkillContent`         | `(name: string) => string`                                         | Yes      | Read a skill's SKILL.md content as a string.                                      |
+| `getCoreSkills`            | `() => SkillLibraryEntry[]`                                        | Yes      | Get all skills where `core === true`.                                             |
+| `getSkillsByCategory`      | `(category: SkillLibraryEntry["category"]) => SkillLibraryEntry[]` | Yes      | Get skills filtered by category.                                                  |
+| `getSkillDependencies`     | `(name: string) => string[]`                                       | Yes      | Get direct dependency names for a skill.                                          |
+| `resolveDependencyTree`    | `(names: string[]) => string[]`                                    | Yes      | Resolve full dependency tree for a set of skill names (includes transitive deps). |
+| `listProfiles`             | `() => string[]`                                                   | Yes      | List available profile names.                                                     |
+| `getProfile`               | `(name: string) => SkillLibraryProfile \| undefined`               | No       | Get a profile definition by name.                                                 |
+| `resolveProfile`           | `(name: string) => string[]`                                       | Yes      | Resolve a profile to its full skill list (follows extends, resolves deps).        |
+| `listSharedResources`      | `() => string[]`                                                   | Yes      | List available shared resource names.                                             |
+| `getSharedResourcePath`    | `(name: string) => string \| undefined`                            | No       | Get absolute path to a shared resource file.                                      |
+| `readSharedResource`       | `(name: string) => string \| undefined`                            | No       | Read a shared resource file content.                                              |
+| `listProtocols`            | `() => string[]`                                                   | Yes      | List available protocol names.                                                    |
+| `getProtocolPath`          | `(name: string) => string \| undefined`                            | No       | Get absolute path to a protocol file.                                             |
+| `readProtocol`             | `(name: string) => string \| undefined`                            | No       | Read a protocol file content.                                                     |
+| `validateSkillFrontmatter` | `(name: string) => SkillLibraryValidationResult`                   | Yes      | Validate a single skill's frontmatter.                                            |
+| `validateAll`              | `() => Map<string, SkillLibraryValidationResult>`                  | Yes      | Validate all skills.                                                              |
+| `getDispatchMatrix`        | `() => SkillLibraryDispatchMatrix`                                 | Yes      | Get the dispatch matrix from the manifest.                                        |
+
+## RegistryDetection
+
+Raw detection configuration as stored in registry.json.
+
+| Property      | Type                    | Required | Description                                                          |
+| ------------- | ----------------------- | -------- | -------------------------------------------------------------------- |
+| `methods`     | `string[]`              | Yes      | Detection methods to try, in order (e.g. `["binary", "directory"]`). |
+| `binary`      | `string \| undefined`   | No       | Binary name to look up on PATH (for the `"binary"` method).          |
+| `directories` | `string[] \| undefined` | No       | Directories to check for existence (for the `"directory"` method).   |
+| `appBundle`   | `string \| undefined`   | No       | macOS .app bundle name (for the `"appBundle"` method).               |
+| `flatpakId`   | `string \| undefined`   | No       | Flatpak application ID (for the `"flatpak"` method).                 |
+
+## RegistryProvider
+
+Raw provider definition as stored in registry.json before path resolution.
+
+| Property                | Type                                | Required | Description                                                                      |
+| ----------------------- | ----------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `id`                    | `string`                            | Yes      | Unique provider identifier (e.g. `"claude-code"`).                               |
+| `toolName`              | `string`                            | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                 |
+| `vendor`                | `string`                            | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                        |
+| `agentFlag`             | `string`                            | Yes      | CLI flag name for `--agent` selection.                                           |
+| `aliases`               | `string[]`                          | Yes      | Alternative names that resolve to this provider.                                 |
+| `pathGlobal`            | `string`                            | Yes      | Global instruction file directory path (may contain platform variables).         |
+| `pathProject`           | `string`                            | Yes      | Project-relative instruction file directory path.                                |
+| `instructFile`          | `string`                            | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                       |
+| `configKey`             | `string`                            | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).               |
+| `configFormat`          | `string`                            | Yes      | Config file format identifier (e.g. `"json"`, `"jsonc"`, `"yaml"`, `"toml"`).    |
+| `configPathGlobal`      | `string`                            | Yes      | Global config file path (may contain platform variables).                        |
+| `configPathProject`     | `string \| null`                    | Yes      | Project-relative config file path, or `null` if unsupported.                     |
+| `pathSkills`            | `string`                            | Yes      | Global skills directory path (may contain platform variables).                   |
+| `pathProjectSkills`     | `string`                            | Yes      | Project-relative skills directory path.                                          |
+| `detection`             | `RegistryDetection`                 | Yes      | Detection configuration for auto-discovering this provider.                      |
+| `supportedTransports`   | `string[]`                          | Yes      | MCP transport protocol identifiers this provider supports.                       |
+| `supportsHeaders`       | `boolean`                           | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers.        |
+| `priority`              | `string`                            | Yes      | Priority tier identifier (`"high"`, `"medium"`, or `"low"`).                     |
+| `status`                | `string`                            | Yes      | Lifecycle status identifier (`"active"`, `"beta"`, `"deprecated"`, `"planned"`). |
+| `agentSkillsCompatible` | `boolean`                           | Yes      | Whether the provider is compatible with the Agent Skills standard.               |
+| `capabilities`          | `RegistryCapabilities \| undefined` | No       | Optional provider capabilities for skills, hooks, and spawn.                     |
+
+## SkillsPrecedence
+
+How a provider resolves skill file precedence between vendor and agents directories.
+
+```typescript
+SkillsPrecedence
+```
+
+## RegistrySkillsCapability
+
+Raw skills capability definition as stored in registry.json.
+
+| Property            | Type               | Required | Description                                                       |
+| ------------------- | ------------------ | -------- | ----------------------------------------------------------------- |
+| `agentsGlobalPath`  | `string \| null`   | Yes      | Resolved global `.agents/skills` path, or `null` if unsupported.  |
+| `agentsProjectPath` | `string \| null`   | Yes      | Project-relative `.agents/skills` path, or `null` if unsupported. |
+| `precedence`        | `SkillsPrecedence` | Yes      | How this provider resolves skill file precedence.                 |
+
+## HookEvent
+
+> **Deprecated**: Use `CanonicalHookEvent` from `../hooks/types.js` for the normalized CAAMP taxonomy. This type remains for backward compatibility with registry.json's `capabilities.hooks.supported` string arrays.
+
+Hook lifecycle event identifier from registry.json.
+
+```typescript
+string
+```
+
+## RegistryHooksCapability
+
+Raw hooks capability definition as stored in registry.json.
+
+| Property         | Type             | Required | Description                                                          |
+| ---------------- | ---------------- | -------- | -------------------------------------------------------------------- |
+| `supported`      | `string[]`       | Yes      | Hook lifecycle event identifiers this provider supports.             |
+| `hookConfigPath` | `string \| null` | Yes      | Path to the hook configuration file, or `null` if not applicable.    |
+| `hookFormat`     | `string \| null` | Yes      | Format of the hook config file (e.g. `"json"`, `"yaml"`), or `null`. |
+
+## SpawnMechanism
+
+Mechanism a provider uses to spawn subagents.
+
+```typescript
+SpawnMechanism
+```
+
+## RegistrySpawnCapability
+
+Raw spawn capability definition as stored in registry.json.
+
+| Property                    | Type             | Required | Description                                                        |
+| --------------------------- | ---------------- | -------- | ------------------------------------------------------------------ |
+| `supportsSubagents`         | `boolean`        | Yes      | Whether the provider supports spawning subagents.                  |
+| `supportsProgrammaticSpawn` | `boolean`        | Yes      | Whether subagents can be spawned programmatically.                 |
+| `supportsInterAgentComms`   | `boolean`        | Yes      | Whether spawned agents can communicate with each other.            |
+| `supportsParallelSpawn`     | `boolean`        | Yes      | Whether multiple agents can be spawned in parallel.                |
+| `spawnMechanism`            | `string \| null` | Yes      | Mechanism used for spawning, or `null` if spawning is unsupported. |
+
+## RegistryCapabilities
+
+Aggregate capability block for a provider in registry.json.
+
+| Property | Type                                    | Required | Description                                         |
+| -------- | --------------------------------------- | -------- | --------------------------------------------------- |
+| `skills` | `RegistrySkillsCapability \| undefined` | No       | Skills path resolution and precedence capabilities. |
+| `hooks`  | `RegistryHooksCapability \| undefined`  | No       | Hook/lifecycle event capabilities.                  |
+| `spawn`  | `RegistrySpawnCapability \| undefined`  | No       | Subagent spawn capabilities.                        |
+
+## ProviderRegistry
+
+Top-level structure of the provider registry JSON file.
+
+| Property      | Type                               | Required | Description                                     |
+| ------------- | ---------------------------------- | -------- | ----------------------------------------------- |
+| `version`     | `string`                           | Yes      | Schema version of the registry file.            |
+| `lastUpdated` | `string`                           | Yes      | ISO 8601 timestamp of the last registry update. |
+| `providers`   | `Record<string, RegistryProvider>` | Yes      | Provider definitions keyed by provider ID.      |
+
+## CtSkillEntry
+
+> **Deprecated**: Use `SkillLibraryEntry` instead.
+
+Backward-compatible alias for `SkillLibraryEntry`.
+
+```typescript
+SkillLibraryEntry
+```
+
+## CtValidationResult
+
+> **Deprecated**: Use `SkillLibraryValidationResult` instead.
+
+Backward-compatible alias for `SkillLibraryValidationResult`.
+
+```typescript
+SkillLibraryValidationResult
+```
+
+## CtValidationIssue
+
+> **Deprecated**: Use `SkillLibraryValidationIssue` instead.
+
+Backward-compatible alias for `SkillLibraryValidationIssue`.
+
+```typescript
+SkillLibraryValidationIssue
+```
+
+## CtProfileDefinition
+
+> **Deprecated**: Use `SkillLibraryProfile` instead.
+
+Backward-compatible alias for `SkillLibraryProfile`.
+
+```typescript
+SkillLibraryProfile
+```
+
+## CtDispatchMatrix
+
+> **Deprecated**: Use `SkillLibraryDispatchMatrix` instead.
+
+Backward-compatible alias for `SkillLibraryDispatchMatrix`.
+
+```typescript
+SkillLibraryDispatchMatrix
+```
+
+## CtManifest
+
+> **Deprecated**: Use `SkillLibraryManifest` instead.
+
+Backward-compatible alias for `SkillLibraryManifest`.
+
+```typescript
+SkillLibraryManifest
+```
+
+## CtManifestSkill
+
+> **Deprecated**: Use `SkillLibraryManifestSkill` instead.
+
+Backward-compatible alias for `SkillLibraryManifestSkill`.
+
+```typescript
+SkillLibraryManifestSkill
+```
+
+## ConfigFormat
+
+Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+
+```typescript
+ConfigFormat
+```
+
+## TransportType
+
+MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote)
+
+```typescript
+TransportType
+```
+
+## DetectionMethod
+
+Method used to detect whether an AI agent is installed on the system.  - `"binary"` - Check if a CLI binary exists on PATH - `"directory"` - Check if known config/data directories exist - `"appBundle"` - Check for macOS .app bundle in standard app directories - `"flatpak"` - Check for Flatpak installation on Linux
+
+```typescript
+DetectionMethod
+```
+
+## DetectionConfig
+
+Configuration for detecting whether a provider is installed.
+
+| Property      | Type                    | Required | Description                                                    |
+| ------------- | ----------------------- | -------- | -------------------------------------------------------------- |
+| `methods`     | `DetectionMethod[]`     | Yes      | Detection methods to try, in order.                            |
+| `binary`      | `string \| undefined`   | No       | Binary name to look up on PATH (for `"binary"` method).        |
+| `directories` | `string[] \| undefined` | No       | Directories to check for existence (for `"directory"` method). |
+| `appBundle`   | `string \| undefined`   | No       | macOS .app bundle name (for `"appBundle"` method).             |
+| `flatpakId`   | `string \| undefined`   | No       | Flatpak application ID (for `"flatpak"` method).               |
+
+## ProviderSkillsCapability
+
+Resolved skills capability for a provider at runtime.
+
+| Property            | Type                                                                                       | Required | Description                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------ | -------- | ----------------------------------------------------------------- |
+| `agentsGlobalPath`  | `string \| null`                                                                           | Yes      | Resolved global `.agents/skills` path, or `null` if unsupported.  |
+| `agentsProjectPath` | `string \| null`                                                                           | Yes      | Project-relative `.agents/skills` path, or `null` if unsupported. |
+| `precedence`        | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").SkillsPrecedence` | Yes      | How this provider resolves skill file precedence.                 |
+
+## ProviderHooksCapability
+
+Resolved hooks capability for a provider at runtime.
+
+| Property         | Type                                                 | Required | Description                                          |
+| ---------------- | ---------------------------------------------------- | -------- | ---------------------------------------------------- |
+| `supported`      | `string[]`                                           | Yes      | Hook lifecycle events this provider supports.        |
+| `hookConfigPath` | `string \| null`                                     | Yes      | Resolved path to hook configuration file, or `null`. |
+| `hookFormat`     | `"json" \| "yaml" \| "toml" \| "javascript" \| null` | Yes      | Format of the hook config file.                      |
+
+## ProviderSpawnCapability
+
+Resolved spawn capability for a provider at runtime.
+
+| Property                    | Type                                                                                             | Required | Description                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------ | -------- | ------------------------------------------------------- |
+| `supportsSubagents`         | `boolean`                                                                                        | Yes      | Whether the provider supports spawning subagents.       |
+| `supportsProgrammaticSpawn` | `boolean`                                                                                        | Yes      | Whether subagents can be spawned programmatically.      |
+| `supportsInterAgentComms`   | `boolean`                                                                                        | Yes      | Whether spawned agents can communicate with each other. |
+| `supportsParallelSpawn`     | `boolean`                                                                                        | Yes      | Whether multiple agents can be spawned in parallel.     |
+| `spawnMechanism`            | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").SpawnMechanism \| null` | Yes      | Mechanism used for spawning.                            |
+
+## ProviderCapabilities
+
+Aggregate provider capabilities for skills, hooks, and spawn.
+
+| Property | Type                       | Required | Description                            |
+| -------- | -------------------------- | -------- | -------------------------------------- |
+| `skills` | `ProviderSkillsCapability` | Yes      | Skills path resolution and precedence. |
+| `hooks`  | `ProviderHooksCapability`  | Yes      | Hook/lifecycle event support.          |
+| `spawn`  | `ProviderSpawnCapability`  | Yes      | Subagent spawn capabilities.           |
+
+## ProviderPriority
+
+Priority tier for a provider, used for sorting and default selection.  - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
+
+```typescript
+ProviderPriority
+```
+
+## ProviderStatus
+
+Lifecycle status of a provider in the registry.  - `"active"` - Fully supported - `"beta"` - Supported but may have rough edges - `"deprecated"` - Still present but no longer recommended - `"planned"` - Not yet implemented
+
+```typescript
+ProviderStatus
+```
+
+## Provider
+
+A resolved AI agent provider definition with platform-specific paths.
+
+| Property                | Type                   | Required | Description                                                                      |
+| ----------------------- | ---------------------- | -------- | -------------------------------------------------------------------------------- |
+| `id`                    | `string`               | Yes      | Unique provider identifier (e.g. `"claude-code"`).                               |
+| `toolName`              | `string`               | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                 |
+| `vendor`                | `string`               | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                        |
+| `agentFlag`             | `string`               | Yes      | CLI flag name for `--agent` selection.                                           |
+| `aliases`               | `string[]`             | Yes      | Alternative names that resolve to this provider.                                 |
+| `pathGlobal`            | `string`               | Yes      | Resolved global instruction file directory path.                                 |
+| `pathProject`           | `string`               | Yes      | Project-relative instruction file directory path.                                |
+| `instructFile`          | `string`               | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                       |
+| `configKey`             | `string`               | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).               |
+| `configFormat`          | `ConfigFormat`         | Yes      | Config file format used by this provider.                                        |
+| `configPathGlobal`      | `string`               | Yes      | Resolved global config file path.                                                |
+| `configPathProject`     | `string \| null`       | Yes      | Project-relative config file path, or `null` if unsupported.                     |
+| `pathSkills`            | `string`               | Yes      | Resolved global skills directory path.                                           |
+| `pathProjectSkills`     | `string`               | Yes      | Project-relative skills directory path.                                          |
+| `detection`             | `DetectionConfig`      | Yes      | Detection configuration for auto-discovering this provider.                      |
+| `supportedTransports`   | `TransportType[]`      | Yes      | MCP transport protocols this provider supports.                                  |
+| `supportsHeaders`       | `boolean`              | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers.        |
+| `priority`              | `ProviderPriority`     | Yes      | Priority tier for sorting and default selection.                                 |
+| `status`                | `ProviderStatus`       | Yes      | Lifecycle status in the registry.                                                |
+| `agentSkillsCompatible` | `boolean`              | Yes      | Whether the provider is compatible with the Agent Skills standard.               |
+| `capabilities`          | `ProviderCapabilities` | Yes      | Provider capabilities for skills, hooks, and spawn. Always populated at runtime. |
+
+## McpServerConfig
+
+Canonical MCP server configuration.
+
+| Property  | Type                                  | Required | Description                                       |
+| --------- | ------------------------------------- | -------- | ------------------------------------------------- |
+| `type`    | `TransportType \| undefined`          | No       | Transport type (`"stdio"`, `"sse"`, or `"http"`). |
+| `url`     | `string \| undefined`                 | No       | URL for remote MCP servers.                       |
+| `headers` | `Record<string, string> \| undefined` | No       | HTTP headers for remote MCP servers.              |
+| `command` | `string \| undefined`                 | No       | Command to run for stdio MCP servers.             |
+| `args`    | `string[] \| undefined`               | No       | Arguments for the stdio command.                  |
+| `env`     | `Record<string, string> \| undefined` | No       | Environment variables for the stdio process.      |
+
+## SourceType
+
+Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS URL to a remote MCP server - `"package"` - npm package name - `"command"` - Shell command string - `"github"` - GitHub repository (URL or shorthand) - `"gitlab"` - GitLab repository URL - `"local"` - Local filesystem path - `"library"` - Built-in skill library reference
+
+```typescript
+SourceType
+```
+
+## ParsedSource
+
+Result of parsing a source string into its typed components.
+
+| Property       | Type                  | Required | Description                                             |
+| -------------- | --------------------- | -------- | ------------------------------------------------------- |
+| `type`         | `SourceType`          | Yes      | Classified source type.                                 |
+| `value`        | `string`              | Yes      | Original or normalized source value.                    |
+| `inferredName` | `string`              | Yes      | Display name inferred from the source.                  |
+| `owner`        | `string \| undefined` | No       | Repository owner (for GitHub/GitLab sources).           |
+| `repo`         | `string \| undefined` | No       | Repository name (for GitHub/GitLab sources).            |
+| `path`         | `string \| undefined` | No       | Path within the repository (for GitHub/GitLab sources). |
+| `ref`          | `string \| undefined` | No       | Git ref / branch / tag (for GitHub/GitLab sources).     |
+
+## SkillMetadata
+
+Metadata extracted from a SKILL.md frontmatter.
+
+| Property        | Type                                  | Required | Description                                |
+| --------------- | ------------------------------------- | -------- | ------------------------------------------ |
+| `name`          | `string`                              | Yes      | Skill name (lowercase, hyphens only).      |
+| `description`   | `string`                              | Yes      | Human-readable description.                |
+| `license`       | `string \| undefined`                 | No       | SPDX license identifier.                   |
+| `compatibility` | `string \| undefined`                 | No       | Compatibility notes (e.g. agent versions). |
+| `metadata`      | `Record<string, string> \| undefined` | No       | Arbitrary key-value metadata.              |
+| `allowedTools`  | `string[] \| undefined`               | No       | List of tools the skill is allowed to use. |
+| `version`       | `string \| undefined`                 | No       | Semantic version string.                   |
+
+## SkillEntry
+
+A discovered skill entry with its location and metadata.
+
+| Property     | Type                  | Required | Description                                         |
+| ------------ | --------------------- | -------- | --------------------------------------------------- |
+| `name`       | `string`              | Yes      | Skill name.                                         |
+| `scopedName` | `string`              | Yes      | Scoped name (may include marketplace scope).        |
+| `path`       | `string`              | Yes      | Absolute path to the skill directory.               |
+| `metadata`   | `SkillMetadata`       | Yes      | Parsed SKILL.md frontmatter metadata.               |
+| `source`     | `string \| undefined` | No       | Original source from which the skill was installed. |
+
+## LockEntry
+
+A single entry in the CAAMP lock file tracking an installed skill or MCP server.
+
+| Property        | Type                  | Required | Description                                      |
+| --------------- | --------------------- | -------- | ------------------------------------------------ |
+| `name`          | `string`              | Yes      | Skill or server name.                            |
+| `scopedName`    | `string`              | Yes      | Scoped name (may include marketplace scope).     |
+| `source`        | `string`              | Yes      | Original source string.                          |
+| `sourceType`    | `SourceType`          | Yes      | Classified source type.                          |
+| `version`       | `string \| undefined` | No       | Version string or commit SHA.                    |
+| `installedAt`   | `string`              | Yes      | ISO 8601 timestamp of first installation.        |
+| `updatedAt`     | `string \| undefined` | No       | ISO 8601 timestamp of last update.               |
+| `agents`        | `string[]`            | Yes      | Provider IDs this entry is linked to.            |
+| `canonicalPath` | `string`              | Yes      | Absolute path to canonical installation.         |
+| `isGlobal`      | `boolean`             | Yes      | Whether this was installed globally.             |
+| `projectDir`    | `string \| undefined` | No       | Project directory (for project-scoped installs). |
+
+## CaampLockFile
+
+The CAAMP lock file structure, stored at the resolved canonical lock path.
+
+| Property             | Type                        | Required | Description                                 |
+| -------------------- | --------------------------- | -------- | ------------------------------------------- |
+| `version`            | `1`                         | Yes      | Lock file schema version.                   |
+| `skills`             | `Record<string, LockEntry>` | Yes      | Installed skills keyed by name.             |
+| `mcpServers`         | `Record<string, LockEntry>` | Yes      | Installed MCP servers keyed by name.        |
+| `lastSelectedAgents` | `string[] \| undefined`     | No       | Last selected agent IDs for UX persistence. |
+
+## MarketplaceSkill
+
+A skill listing from a marketplace search result.
+
+| Property       | Type                  | Required | Description                              |
+| -------------- | --------------------- | -------- | ---------------------------------------- |
+| `id`           | `string`              | Yes      | Unique marketplace identifier.           |
+| `name`         | `string`              | Yes      | Skill name.                              |
+| `scopedName`   | `string`              | Yes      | Scoped name (e.g. `"@author/my-skill"`). |
+| `description`  | `string`              | Yes      | Short description.                       |
+| `author`       | `string`              | Yes      | Author / publisher name.                 |
+| `stars`        | `number`              | Yes      | GitHub star count.                       |
+| `forks`        | `number`              | Yes      | GitHub fork count.                       |
+| `githubUrl`    | `string`              | Yes      | GitHub repository URL.                   |
+| `repoFullName` | `string`              | Yes      | Full `owner/repo` name.                  |
+| `path`         | `string`              | Yes      | Path within the repository.              |
+| `category`     | `string \| undefined` | No       | Optional category tag.                   |
+| `hasContent`   | `boolean`             | Yes      | Whether SKILL.md content was fetched.    |
+
+## MarketplaceSearchResult
+
+Paginated search results from a marketplace API.
+
+| Property | Type                 | Required | Description                       |
+| -------- | -------------------- | -------- | --------------------------------- |
+| `skills` | `MarketplaceSkill[]` | Yes      | Array of matching skills.         |
+| `total`  | `number`             | Yes      | Total number of matching results. |
+| `limit`  | `number`             | Yes      | Maximum results per page.         |
+| `offset` | `number`             | Yes      | Offset into the result set.       |
+
+## AuditSeverity
+
+Severity level for a security audit finding.  Ordered from most to least severe: `"critical"`  `"high"`  `"medium"`  `"low"`  `"info"`.
+
+```typescript
+AuditSeverity
+```
+
+## AuditRule
+
+A security audit rule definition with a regex pattern to match against skill content.
+
+| Property      | Type            | Required | Description                                               |
+| ------------- | --------------- | -------- | --------------------------------------------------------- |
+| `id`          | `string`        | Yes      | Unique rule identifier (e.g. `"SEC001"`).                 |
+| `name`        | `string`        | Yes      | Rule name.                                                |
+| `description` | `string`        | Yes      | Human-readable description of what the rule detects.      |
+| `severity`    | `AuditSeverity` | Yes      | Severity level of findings from this rule.                |
+| `category`    | `string`        | Yes      | Category grouping (e.g. `"injection"`, `"exfiltration"`). |
+| `pattern`     | `RegExp`        | Yes      | Regex pattern to match against each line of content.      |
+
+## AuditFinding
+
+A single finding from a security audit scan, with line-level location.
+
+| Property  | Type        | Required | Description                           |
+| --------- | ----------- | -------- | ------------------------------------- |
+| `rule`    | `AuditRule` | Yes      | The rule that triggered this finding. |
+| `line`    | `number`    | Yes      | Line number (1-based).                |
+| `column`  | `number`    | Yes      | Column number (1-based).              |
+| `match`   | `string`    | Yes      | The matched text.                     |
+| `context` | `string`    | Yes      | The full line of text for context.    |
+
+## AuditResult
+
+Aggregate audit result for a single file.
+
+| Property   | Type             | Required | Description                                                    |
+| ---------- | ---------------- | -------- | -------------------------------------------------------------- |
+| `file`     | `string`         | Yes      | Path to the scanned file.                                      |
+| `findings` | `AuditFinding[]` | Yes      | All findings for this file.                                    |
+| `score`    | `number`         | Yes      | Security score from 0 (dangerous) to 100 (clean).              |
+| `passed`   | `boolean`        | Yes      | Whether the file passed the audit (no critical/high findings). |
+
+## InjectionStatus
+
+Status of a CAAMP injection block in an instruction file.  - `"current"` - Injection block exists and matches expected content - `"outdated"` - Injection block exists but content differs - `"missing"` - Instruction file does not exist - `"none"` - File exists but has no CAAMP injection block
+
+```typescript
+InjectionStatus
+```
+
+## InjectionCheckResult
+
+Result of checking a single instruction file for CAAMP injection status.
+
+| Property     | Type              | Required | Description                                  |
+| ------------ | ----------------- | -------- | -------------------------------------------- |
+| `file`       | `string`          | Yes      | Absolute path to the instruction file.       |
+| `provider`   | `string`          | Yes      | Provider ID that owns this instruction file. |
+| `status`     | `InjectionStatus` | Yes      | Current injection status.                    |
+| `fileExists` | `boolean`         | Yes      | Whether the instruction file exists on disk. |
+
+## McpServerEntry
+
+An MCP server entry read from a provider's config file.
+
+| Property       | Type                      | Required | Description                               |
+| -------------- | ------------------------- | -------- | ----------------------------------------- |
+| `name`         | `string`                  | Yes      | Server name (the key in the config file). |
+| `providerId`   | `string`                  | Yes      | Provider ID that owns this config file.   |
+| `providerName` | `string`                  | Yes      | Human-readable provider name.             |
+| `scope`        | `"project" \| "global"`   | Yes      | Whether from project or global config.    |
+| `configPath`   | `string`                  | Yes      | Absolute path to the config file.         |
+| `config`       | `Record<string, unknown>` | Yes      | Raw server configuration object.          |
+
+## GlobalOptions
+
+Global CLI options shared across all CAAMP commands.
+
+| Property  | Type                    | Required | Description                                  |
+| --------- | ----------------------- | -------- | -------------------------------------------- |
+| `agent`   | `string[] \| undefined` | No       | Target agent IDs (repeatable).               |
+| `global`  | `boolean \| undefined`  | No       | Operate on global config instead of project. |
+| `yes`     | `boolean \| undefined`  | No       | Skip confirmation prompts.                   |
+| `all`     | `boolean \| undefined`  | No       | Target all detected agents.                  |
+| `json`    | `boolean \| undefined`  | No       | Output as JSON.                              |
+| `dryRun`  | `boolean \| undefined`  | No       | Preview changes without writing.             |
+| `verbose` | `boolean \| undefined`  | No       | Enable debug logging.                        |
+| `quiet`   | `boolean \| undefined`  | No       | Suppress non-error output.                   |
+
+## PlatformPaths
+
+OS-appropriate directory paths for CAAMP's global storage.
+
+| Property | Type     | Required | Description                                                          |
+| -------- | -------- | -------- | -------------------------------------------------------------------- |
+| `data`   | `string` | Yes      | User data dir. Override with AGENTS\_HOME env var.                   |
+| `config` | `string` | Yes      | OS config dir (XDG\_CONFIG\_HOME / Library/Preferences / %APPDATA%). |
+| `cache`  | `string` | Yes      | OS cache dir.                                                        |
+| `log`    | `string` | Yes      | OS log dir.                                                          |
+| `temp`   | `string` | Yes      | OS temp dir.                                                         |
+
+## SystemInfo
+
+Snapshot of the current system environment and resolved platform paths.
+
+| Property      | Type              | Required | Description                                 |
+| ------------- | ----------------- | -------- | ------------------------------------------- |
+| `platform`    | `NodeJS.Platform` | Yes      | Operating system platform identifier.       |
+| `arch`        | `string`          | Yes      | CPU architecture (e.g. `"x64"`, `"arm64"`). |
+| `release`     | `string`          | Yes      | OS kernel release version string.           |
+| `hostname`    | `string`          | Yes      | Machine hostname.                           |
+| `nodeVersion` | `string`          | Yes      | Node.js version string (e.g. `"v20.11.0"`). |
+| `paths`       | `PlatformPaths`   | Yes      | Resolved platform directory paths.          |
+
+## PathScope
+
+Scope for path resolution, either global (user home) or project-local.
+
+```typescript
+PathScope
+```
+
+## PlatformLocations
+
+Platform-specific directory locations for agent configuration.
+
+| Property              | Type       | Required | Description                                             |
+| --------------------- | ---------- | -------- | ------------------------------------------------------- |
+| `home`                | `string`   | Yes      | The user's home directory path.                         |
+| `config`              | `string`   | Yes      | The platform-specific configuration directory.          |
+| `vscodeConfig`        | `string`   | Yes      | The VS Code user settings directory.                    |
+| `zedConfig`           | `string`   | Yes      | The Zed editor configuration directory.                 |
+| `claudeDesktopConfig` | `string`   | Yes      | The Claude Desktop application configuration directory. |
+| `applications`        | `string[]` | Yes      | List of application directories (macOS only).           |
+
+## InjectionTemplate
+
+Structured template for injection content.
+
+| Property     | Type                    | Required | Description                                                                     |
+| ------------ | ----------------------- | -------- | ------------------------------------------------------------------------------- |
+| `references` | `string[]`              | Yes      | References to include (e.g. `"\@AGENTS.md"`, `"\@.cleo/project-context.json"`). |
+| `content`    | `string[] \| undefined` | No       | Inline content blocks (raw markdown/text).                                      |
+
+## EnsureProviderInstructionFileOptions
+
+Options for ensuring a provider instruction file.
+
+| Property     | Type                                 | Required | Description                                         |
+| ------------ | ------------------------------------ | -------- | --------------------------------------------------- |
+| `references` | `string[]`                           | Yes      | `\@` references to inject (e.g. `["\@AGENTS.md"]`). |
+| `content`    | `string[] \| undefined`              | No       | Optional inline content blocks.                     |
+| `scope`      | `"project" \| "global" \| undefined` | No       | Whether this is a global or project-level file.     |
+
+## EnsureProviderInstructionFileResult
+
+Result of ensuring a provider instruction file.
+
+| Property       | Type                                                              | Required | Description                                       |
+| -------------- | ----------------------------------------------------------------- | -------- | ------------------------------------------------- |
+| `filePath`     | `string`                                                          | Yes      | Absolute path to the instruction file.            |
+| `instructFile` | `string`                                                          | Yes      | Instruction file name from the provider registry. |
+| `action`       | `"created" \| "added" \| "consolidated" \| "updated" \| "intact"` | Yes      | Action taken.                                     |
+| `providerId`   | `string`                                                          | Yes      | Provider ID.                                      |
+
+## DetectionResult
+
+Result of detecting whether a provider is installed on the system.
+
+| Property          | Type       | Required | Description                                                             |
+| ----------------- | ---------- | -------- | ----------------------------------------------------------------------- |
+| `provider`        | `Provider` | Yes      | The provider that was checked.                                          |
+| `installed`       | `boolean`  | Yes      | Whether the provider was detected as installed.                         |
+| `methods`         | `string[]` | Yes      | Detection methods that matched (e.g. `["binary", "directory"]`).        |
+| `projectDetected` | `boolean`  | Yes      | Whether the provider has project-level config in the current directory. |
+
+## DetectionCacheOptions
+
+Options for controlling the detection result cache.
+
+| Property       | Type                   | Required | Description                                                   |
+| -------------- | ---------------------- | -------- | ------------------------------------------------------------- |
+| `forceRefresh` | `boolean \| undefined` | No       | Whether to bypass the cache and force a fresh detection scan. |
+| `ttlMs`        | `number \| undefined`  | No       | Time-to-live for cached results in milliseconds.              |
+
+## SkillInstallResult
+
+Result of installing a skill to the canonical location and linking to agents.
+
+| Property        | Type       | Required | Description                                            |
+| --------------- | ---------- | -------- | ------------------------------------------------------ |
+| `name`          | `string`   | Yes      | Skill name.                                            |
+| `canonicalPath` | `string`   | Yes      | Absolute path to the canonical installation directory. |
+| `linkedAgents`  | `string[]` | Yes      | Provider IDs that were successfully linked.            |
+| `errors`        | `string[]` | Yes      | Error messages from failed link operations.            |
+| `success`       | `boolean`  | Yes      | Whether at least one agent was successfully linked.    |
+
+## SkillBatchOperation
+
+Single skill operation entry used by batch orchestration.
+
+| Property     | Type                   | Required | Description                                                      |
+| ------------ | ---------------------- | -------- | ---------------------------------------------------------------- |
+| `sourcePath` | `string`               | Yes      | The filesystem path to the skill source files.                   |
+| `skillName`  | `string`               | Yes      | The unique name for the skill being installed.                   |
+| `isGlobal`   | `boolean \| undefined` | No       | Whether to install globally or project-scoped, defaults to true. |
+
+## BatchInstallOptions
+
+Options for rollback-capable batch installation.
+
+| Property          | Type                                 | Required | Description                                                     |
+| ----------------- | ------------------------------------ | -------- | --------------------------------------------------------------- |
+| `providers`       | `Provider[] \| undefined`            | No       | Explicit list of providers to target, auto-detected if omitted. |
+| `minimumPriority` | `ProviderPriority \| undefined`      | No       | Minimum provider priority threshold for filtering.              |
+| `skills`          | `SkillBatchOperation[] \| undefined` | No       | Skill operations to apply in the batch.                         |
+| `projectDir`      | `string \| undefined`                | No       | Project root directory, defaults to `process.cwd()`.            |
+
+## BatchInstallResult
+
+Result of rollback-capable batch installation.
+
+| Property            | Type                  | Required | Description                                               |
+| ------------------- | --------------------- | -------- | --------------------------------------------------------- |
+| `success`           | `boolean`             | Yes      | Whether all operations completed successfully.            |
+| `providerIds`       | `string[]`            | Yes      | IDs of providers that were targeted.                      |
+| `skillsApplied`     | `number`              | Yes      | Number of skill installations that were applied.          |
+| `rollbackPerformed` | `boolean`             | Yes      | Whether rollback was performed due to a failure.          |
+| `rollbackErrors`    | `string[]`            | Yes      | Error messages from any failures during rollback.         |
+| `error`             | `string \| undefined` | No       | Error message from the operation that triggered rollback. |
+
+## InstructionUpdateSummary
+
+Result of a single-operation instruction update across providers.
+
+| Property       | Type                                                                                                                                               | Required | Description                                               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- |
+| `scope`        | `Scope`                                                                                                                                            | Yes      | The scope at which instructions were updated.             |
+| `updatedFiles` | `number`                                                                                                                                           | Yes      | The total number of instruction files that were modified. |
+| `actions`      | `{ file: string; action: "created" \| "added" \| "consolidated" \| "updated" \| "intact"; providers: string[]; configFormats: ConfigFormat[]; }[]` | Yes      | Detailed action log per instruction file.                 |
+
+## MVILevel
+
+LAFS MVI disclosure level - defined locally to avoid CI module resolution issues with re-exported types.
+
+```typescript
+MVILevel
+```
+
+## LAFSErrorShape
+
+LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP compatibility.
+
+```typescript
+LAFSError
+```
+
+## LAFSWarning
+
+LAFS Warning structure - re-exported from protocol.
+
+```typescript
+Warning
+```
+
+## LAFSEnvelope
+
+Generic LAFS Envelope structure for type-safe command results.
+
+| Property  | Type                                                 | Required | Description                                             |
+| --------- | ---------------------------------------------------- | -------- | ------------------------------------------------------- |
+| `$schema` | `"https://lafs.dev/schemas/v1/envelope.schema.json"` | Yes      | JSON Schema URI for envelope validation.                |
+| `_meta`   | `LAFSMeta`                                           | Yes      | Envelope metadata (timestamps, request IDs, MVI level). |
+| `success` | `boolean`                                            | Yes      | Whether the operation succeeded.                        |
+| `result`  | `T \| null`                                          | Yes      | Operation result payload, or `null` on error.           |
+| `error`   | `LAFSError \| null`                                  | Yes      | Error details, or `null` on success.                    |
+| `page`    | `LAFSPage \| null`                                   | Yes      | Pagination metadata, or `null` when not applicable.     |
+
+## FormatOptions
+
+Format resolution options.
+
+| Property         | Type                             | Required | Description                                         |
+| ---------------- | -------------------------------- | -------- | --------------------------------------------------- |
+| `jsonFlag`       | `boolean \| undefined`           | No       | Whether `--json` was explicitly passed.             |
+| `humanFlag`      | `boolean \| undefined`           | No       | Whether `--human` was explicitly passed.            |
+| `projectDefault` | `"json" \| "human" \| undefined` | No       | Project-level default format when no flag is given. |
+
+## LAFSCommandOptions
+
+Standard command options interface for LAFS-compliant commands.
+
+| Property | Type                   | Required | Description                             |
+| -------- | ---------------------- | -------- | --------------------------------------- |
+| `json`   | `boolean \| undefined` | No       | Whether to force JSON output.           |
+| `human`  | `boolean \| undefined` | No       | Whether to force human-readable output. |
+
+## ProviderTargetOptions
+
+Options for resolving which providers to target in advanced commands.
+
+| Property | Type                    | Required | Description                                                         |
+| -------- | ----------------------- | -------- | ------------------------------------------------------------------- |
+| `all`    | `boolean \| undefined`  | No       | When true, target all registry providers including undetected ones. |
+| `agent`  | `string[] \| undefined` | No       | Specific provider IDs or aliases to target.                         |
+
+## HookCategory
+
+Union type of valid hook category strings.
+
+```typescript
+"agent" | "context" | "memory" | "pipeline" | "prompt" | "session" | "task" | "tool"
+```
+
+## EventSource
+
+Union type of valid event source types.
+
+```typescript
+"domain" | "provider"
+```
+
+## CanonicalHookEvent
+
+Union type of all canonical hook event names.
+
+```typescript
+"ConfigChange" | "Notification" | "PermissionRequest" | "PostCompact" | "PostModel" | "PostToolUse" | "PostToolUseFailure" | "PreCompact" | "PreModel" | "PreToolUse" | "PromptSubmit" | "ResponseComplete" | "SessionEnd" | "SessionStart" | "SubagentStart" | "SubagentStop" | "ApprovalExpired" | "ApprovalGranted" | "ApprovalRequested" | "MemoryDecisionStored" | "MemoryLearningStored" | "MemoryObserved" | "MemoryPatternStored" | "PipelineManifestAppended" | "PipelineStageCompleted" | "SessionEnded" | "SessionStarted" | "TaskBlocked" | "TaskCompleted" | "TaskCreated" | "TaskStarted"
+```
+
+## CanonicalEventDefinition
+
+Definition of a canonical hook event including its category and behavior.
+
+| Property      | Type                                                                                          | Required | Description                                                                |
+| ------------- | --------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------- |
+| `category`    | `"agent" \| "context" \| "memory" \| "pipeline" \| "prompt" \| "session" \| "task" \| "tool"` | Yes      | The lifecycle category this event belongs to (e.g. `"session"`, `"tool"`). |
+| `description` | `string`                                                                                      | Yes      | Human-readable description of when this event fires.                       |
+| `canBlock`    | `boolean`                                                                                     | Yes      | Whether a hook handler can block or cancel the associated action.          |
+
+## HookSystemType
+
+The type of hook system a provider uses.
+
+```typescript
+HookSystemType
+```
+
+## HookHandlerType
+
+The mechanism a provider uses to execute hook handlers.
+
+```typescript
+HookHandlerType
+```
+
+## HookMapping
+
+Mapping of a single canonical event to a provider's native representation.
+
+| Property     | Type                  | Required | Description                                                                      |
+| ------------ | --------------------- | -------- | -------------------------------------------------------------------------------- |
+| `nativeName` | `string \| null`      | Yes      | The provider-native event name, or `null` if the event has no native equivalent. |
+| `supported`  | `boolean`             | Yes      | Whether this canonical event is supported by the provider.                       |
+| `notes`      | `string \| undefined` | No       | Optional notes about support limitations or behavioral differences.              |
+
+## ProviderHookProfile
+
+Complete hook profile for a single provider.
+
+| Property             | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Required | Description                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------- |
+| `hookSystem`         | `HookSystemType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Yes      | The type of hook system the provider uses (`"config"`, `"plugin"`, or `"none"`).  |
+| `hookConfigPath`     | `string \| null`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Yes      | Filesystem path template to the provider's hook configuration file, or `null`.    |
+| `hookFormat`         | `string \| null`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Yes      | The configuration format used for hooks (e.g. `"json"`, `"yaml"`), or `null`.     |
+| `handlerTypes`       | `HookHandlerType[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Yes      | The handler execution mechanisms this provider supports.                          |
+| `experimental`       | `boolean`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes      | Whether the provider's hook system is considered experimental or unstable.        |
+| `mappings`           | `Record<"ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted", HookMapping>` | Yes      | Mapping of every canonical event to this provider's native representation.        |
+| `providerOnlyEvents` | `string[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Yes      | Native event names that exist only in this provider with no canonical equivalent. |
+
+## NormalizedHookEvent
+
+A fully resolved hook event with both canonical and native names.
+
+| Property     | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Required | Description                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------- |
+| `canonical`  | `"ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted"` | Yes      | The CAAMP canonical event name.                                   |
+| `native`     | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Yes      | The provider-native event name.                                   |
+| `providerId` | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Yes      | The provider this event was resolved for.                         |
+| `category`   | `"agent" \| "context" \| "memory" \| "pipeline" \| "prompt" \| "session" \| "task" \| "tool"`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Yes      | The lifecycle category of this event.                             |
+| `canBlock`   | `boolean`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Yes      | Whether a handler for this event can block the associated action. |
+
+## HookSupportResult
+
+Result of querying whether a provider supports a specific canonical event.
+
+| Property    | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Required | Description                                               |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- |
+| `canonical` | `"ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted"` | Yes      | The canonical event that was queried.                     |
+| `supported` | `boolean`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Yes      | Whether the provider supports this event.                 |
+| `native`    | `string \| null`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Yes      | The provider-native event name, or `null` if unsupported. |
+| `notes`     | `string \| undefined`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | No       | Optional notes about support caveats.                     |
+
+## ProviderHookSummary
+
+Aggregated hook support summary for a single provider.
+
+| Property         | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Required | Description                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `providerId`     | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes      | The provider identifier.                                         |
+| `hookSystem`     | `HookSystemType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Yes      | The type of hook system the provider uses.                       |
+| `experimental`   | `boolean`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Yes      | Whether the provider's hook system is experimental.              |
+| `supportedCount` | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes      | Number of canonical events this provider supports.               |
+| `totalCanonical` | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes      | Total number of canonical events in the taxonomy.                |
+| `supported`      | `("ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted")[]` | Yes      | List of canonical events this provider supports.                 |
+| `unsupported`    | `("ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted")[]` | Yes      | List of canonical events this provider does not support.         |
+| `providerOnly`   | `string[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Yes      | Native events unique to this provider with no canonical mapping. |
+| `coverage`       | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes      | Percentage of canonical events supported (0-100).                |
+
+## CrossProviderMatrix
+
+Cross-provider hook support matrix comparing multiple providers.
+
+| Property    | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Required | Description                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
+| `events`    | `("ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted")[]`                                  | Yes      | The canonical events included in this matrix (rows).                        |
+| `providers` | `string[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Yes      | The provider IDs included in this matrix (columns).                         |
+| `matrix`    | `Record<"ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted", Record<string, HookMapping>>` | Yes      | Nested record mapping each canonical event to each provider's hook mapping. |
+
+## HookMappingsFile
+
+Schema for the `providers/hook-mappings.json` data file.
+
+| Property           | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Required | Description                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- |
+| `version`          | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Yes      | Semver version string of the hook mappings schema.        |
+| `lastUpdated`      | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Yes      | ISO 8601 date string of the last update to mappings data. |
+| `description`      | `string`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Yes      | Human-readable description of the mappings file purpose.  |
+| `canonicalEvents`  | `Record<"ConfigChange" \| "Notification" \| "PermissionRequest" \| "PostCompact" \| "PostModel" \| "PostToolUse" \| "PostToolUseFailure" \| "PreCompact" \| "PreModel" \| "PreToolUse" \| "PromptSubmit" \| "ResponseComplete" \| "SessionEnd" \| "SessionStart" \| "SubagentStart" \| "SubagentStop" \| "ApprovalExpired" \| "ApprovalGranted" \| "ApprovalRequested" \| "MemoryDecisionStored" \| "MemoryLearningStored" \| "MemoryObserved" \| "MemoryPatternStored" \| "PipelineManifestAppended" \| "PipelineStageCompleted" \| "SessionEnded" \| "SessionStarted" \| "TaskBlocked" \| "TaskCompleted" \| "TaskCreated" \| "TaskStarted", CanonicalEventDefinition>` | Yes      | Definitions for every canonical event in the taxonomy.    |
+| `providerMappings` | `Record<string, ProviderHookProfile>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Yes      | Hook profiles keyed by provider ID.                       |
+
+## MarketplaceAdapter
+
+Contract that each marketplace backend adapter must implement.
+
+| Property   | Type                                                              | Required | Description                                            |
+| ---------- | ----------------------------------------------------------------- | -------- | ------------------------------------------------------ |
+| `name`     | `string`                                                          | Yes      | Human-readable adapter name (e.g. `"agentskills.in"`). |
+| `search`   | `(query: string, limit?: number) => Promise<MarketplaceResult[]>` | No       | Search the marketplace for skills matching a query.    |
+| `getSkill` | `(scopedName: string) => Promise<MarketplaceResult \| null>`      | Yes      | Retrieve a single skill by its scoped name.            |
+
+## MarketplaceResult
+
+Normalized marketplace record returned by all adapters.
+
+| Property       | Type     | Required | Description                                                        |
+| -------------- | -------- | -------- | ------------------------------------------------------------------ |
+| `name`         | `string` | Yes      | Short skill name (e.g. `"memory"`).                                |
+| `scopedName`   | `string` | Yes      | Scoped name including author prefix (e.g. `"\@anthropic/memory"`). |
+| `description`  | `string` | Yes      | Short description of what the skill does.                          |
+| `author`       | `string` | Yes      | Author or organization name.                                       |
+| `stars`        | `number` | Yes      | GitHub star count.                                                 |
+| `githubUrl`    | `string` | Yes      | Full GitHub repository URL.                                        |
+| `repoFullName` | `string` | Yes      | GitHub `owner/repo` path.                                          |
+| `path`         | `string` | Yes      | Path within the repository to the skill file.                      |
+| `source`       | `string` | Yes      | Name of the marketplace source this result came from.              |
+
+## SearchOptions
+
+Options for marketplace search requests.
+
+| Property   | Type                                         | Required | Description                |
+| ---------- | -------------------------------------------- | -------- | -------------------------- |
+| `query`    | `string`                                     | Yes      | Free-text search query.    |
+| `limit`    | `number \| undefined`                        | No       | Maximum number of results. |
+| `offset`   | `number \| undefined`                        | No       | Pagination offset.         |
+| `sortBy`   | `"stars" \| "recent" \| "name" \| undefined` | No       | Sort order for results.    |
+| `category` | `string \| undefined`                        | No       | Filter by skill category.  |
+| `author`   | `string \| undefined`                        | No       | Filter by author name.     |
+
+## RecommendationErrorCode
+
+Union type of all recommendation error code string literals.
+
+```typescript
+RecommendationErrorCode
+```
+
+## RecommendationValidationIssue
+
+Describes a single validation issue found in recommendation criteria.
+
+| Property  | Type                                             | Required | Description                                                |
+| --------- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
+| `code`    | `RecommendationErrorCode`                        | Yes      | The error code identifying the type of validation failure. |
+| `field`   | `"query" \| "mustHave" \| "prefer" \| "exclude"` | Yes      | The criteria field that caused the validation issue.       |
+| `message` | `string`                                         | Yes      | A human-readable description of the validation issue.      |
+
+## RecommendationValidationResult
+
+Result of validating recommendation criteria input.
+
+| Property | Type                              | Required | Description                                        |
+| -------- | --------------------------------- | -------- | -------------------------------------------------- |
+| `valid`  | `boolean`                         | Yes      | Whether the criteria passed all validation checks. |
+| `issues` | `RecommendationValidationIssue[]` | Yes      | List of validation issues found, empty when valid. |
+
+## RecommendationCriteriaInput
+
+Raw user-provided criteria for skill recommendations.
+
+| Property   | Type                              | Required | Description                                              |
+| ---------- | --------------------------------- | -------- | -------------------------------------------------------- |
+| `query`    | `string \| undefined`             | No       | Free-text search query to match against skill metadata.  |
+| `mustHave` | `string \| string[] \| undefined` | No       | Terms that a skill must match to be considered relevant. |
+| `prefer`   | `string \| string[] \| undefined` | No       | Terms that boost a skill's score when matched.           |
+| `exclude`  | `string \| string[] \| undefined` | No       | Terms that penalize a skill's score when matched.        |
+
+## NormalizedRecommendationCriteria
+
+Normalized and tokenized form of recommendation criteria.
+
+| Property      | Type       | Required | Description                                         |
+| ------------- | ---------- | -------- | --------------------------------------------------- |
+| `query`       | `string`   | Yes      | The lowercased, trimmed query string.               |
+| `queryTokens` | `string[]` | Yes      | Individual tokens extracted from the query string.  |
+| `mustHave`    | `string[]` | Yes      | Sorted, deduplicated list of required match terms.  |
+| `prefer`      | `string[]` | Yes      | Sorted, deduplicated list of preferred match terms. |
+| `exclude`     | `string[]` | Yes      | Sorted, deduplicated list of exclusion terms.       |
+
+## RecommendationReasonCode
+
+String literal union of all reason codes emitted during skill scoring.
+
+```typescript
+RecommendationReasonCode
+```
+
+## RecommendationReason
+
+A single reason contributing to a skill's recommendation score.
+
+| Property | Type                       | Required | Description                                                        |
+| -------- | -------------------------- | -------- | ------------------------------------------------------------------ |
+| `code`   | `RecommendationReasonCode` | Yes      | The reason code identifying the scoring signal.                    |
+| `detail` | `string \| undefined`      | No       | Optional detail providing additional context, such as match count. |
+
+## RecommendationScoreBreakdown
+
+Detailed breakdown of a skill's recommendation score by category.
+
+| Property           | Type     | Required | Description                                                     |
+| ------------------ | -------- | -------- | --------------------------------------------------------------- |
+| `mustHave`         | `number` | Yes      | Score contribution from must-have term matches.                 |
+| `prefer`           | `number` | Yes      | Score contribution from preferred term matches.                 |
+| `query`            | `number` | Yes      | Score contribution from query token matches.                    |
+| `stars`            | `number` | Yes      | Score contribution from repository star count signal.           |
+| `metadata`         | `number` | Yes      | Score contribution from metadata quality and source confidence. |
+| `modernity`        | `number` | Yes      | Score contribution from modern vs legacy marker detection.      |
+| `exclusionPenalty` | `number` | Yes      | Penalty applied for matching excluded terms.                    |
+| `total`            | `number` | Yes      | The final aggregated recommendation score.                      |
+
+## RankedSkillRecommendation
+
+A single skill recommendation with its computed score and explanations.
+
+| Property    | Type                                        | Required | Description                                            |
+| ----------- | ------------------------------------------- | -------- | ------------------------------------------------------ |
+| `skill`     | `MarketplaceResult`                         | Yes      | The marketplace skill result being scored.             |
+| `score`     | `number`                                    | Yes      | The computed recommendation score, higher is better.   |
+| `reasons`   | `RecommendationReason[]`                    | Yes      | List of reasons explaining the score contributions.    |
+| `tradeoffs` | `string[]`                                  | Yes      | Human-readable tradeoff warnings for the skill.        |
+| `excluded`  | `boolean`                                   | Yes      | Whether the skill matched one or more exclusion terms. |
+| `breakdown` | `RecommendationScoreBreakdown \| undefined` | No       | Optional detailed score breakdown by category.         |
+
+## RecommendationOptions
+
+Configuration options for the skill recommendation engine.
+
+| Property         | Type                                          | Required | Description                                                    |
+| ---------------- | --------------------------------------------- | -------- | -------------------------------------------------------------- |
+| `top`            | `number \| undefined`                         | No       | Maximum number of results to return from the ranked list.      |
+| `includeDetails` | `boolean \| undefined`                        | No       | Whether to include detailed score breakdown in each result.    |
+| `weights`        | `Partial<RecommendationWeights> \| undefined` | No       | Partial weight overrides for individual scoring factors.       |
+| `modernMarkers`  | `string[] \| undefined`                       | No       | Custom modern technology marker strings for modernity scoring. |
+| `legacyMarkers`  | `string[] \| undefined`                       | No       | Custom legacy technology marker strings for modernity scoring. |
+
+## RecommendationWeights
+
+Numeric weights controlling the recommendation scoring algorithm.
+
+| Property                 | Type     | Required | Description                                         |
+| ------------------------ | -------- | -------- | --------------------------------------------------- |
+| `mustHaveMatch`          | `number` | Yes      | Weight applied per must-have term match.            |
+| `preferMatch`            | `number` | Yes      | Weight applied per preferred term match.            |
+| `queryTokenMatch`        | `number` | Yes      | Weight applied per query token match.               |
+| `starsFactor`            | `number` | Yes      | Multiplier for the logarithmic star count signal.   |
+| `metadataBoost`          | `number` | Yes      | Boost for metadata quality and source confidence.   |
+| `modernMarkerBoost`      | `number` | Yes      | Boost applied per modern technology marker match.   |
+| `legacyMarkerPenalty`    | `number` | Yes      | Penalty applied per legacy technology marker match. |
+| `excludePenalty`         | `number` | Yes      | Penalty applied per excluded term match.            |
+| `missingMustHavePenalty` | `number` | Yes      | Penalty applied per missing must-have term.         |
+
+## RecommendSkillsResult
+
+The complete result of a skill recommendation operation.
+
+| Property   | Type                               | Required | Description                                           |
+| ---------- | ---------------------------------- | -------- | ----------------------------------------------------- |
+| `criteria` | `NormalizedRecommendationCriteria` | Yes      | The normalized criteria used for scoring.             |
+| `ranking`  | `RankedSkillRecommendation[]`      | Yes      | Skills ranked by recommendation score, highest first. |
+
+## SearchSkillsOptions
+
+Options for searching skills via marketplace APIs.
+
+| Property | Type                  | Required | Description                          |
+| -------- | --------------------- | -------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | No       | Maximum number of results to return. |
+
+## RecommendSkillsQueryOptions
+
+Options for the recommendation query combining ranking options with a result limit.
+
+| Property | Type                  | Required | Description                          |
+| -------- | --------------------- | -------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | No       | Maximum number of results to return. |
+
+## GitFetchResult
+
+Result of fetching a Git repository to a local temporary directory.
+
+| Property    | Type                  | Required | Description                                            |
+| ----------- | --------------------- | -------- | ------------------------------------------------------ |
+| `localPath` | `string`              | Yes      | Absolute path to the fetched content on disk.          |
+| `cleanup`   | `() => Promise<void>` | Yes      | Cleanup function that removes the temporary directory. |
+
+## ValidationIssue
+
+A single validation issue found during SKILL.md validation.
+
+| Property  | Type                   | Required | Description                                                          |
+| --------- | ---------------------- | -------- | -------------------------------------------------------------------- |
+| `level`   | `"error" \| "warning"` | Yes      | Severity: `"error"` causes validation failure, `"warning"` does not. |
+| `field`   | `string`               | Yes      | The field or section that triggered the issue.                       |
+| `message` | `string`               | Yes      | Human-readable description of the issue.                             |
+
+## ValidationResult
+
+Result of validating a SKILL.md file against the Agent Skills standard.
+
+| Property   | Type                              | Required | Description                                                  |
+| ---------- | --------------------------------- | -------- | ------------------------------------------------------------ |
+| `valid`    | `boolean`                         | Yes      | Whether the skill passed validation (no error-level issues). |
+| `issues`   | `ValidationIssue[]`               | Yes      | All issues found during validation.                          |
+| `metadata` | `Record<string, unknown> \| null` | Yes      | Parsed frontmatter metadata, or `null` if parsing failed.    |
+
+## SpawnOptions
+
+Options for spawning a subagent.
+
+| Property  | Type                    | Required | Description                                                |
+| --------- | ----------------------- | -------- | ---------------------------------------------------------- |
+| `prompt`  | `string`                | Yes      | The prompt or instruction to give the spawned agent.       |
+| `model`   | `string \| undefined`   | No       | Model to use for the spawned agent.                        |
+| `tools`   | `string[] \| undefined` | No       | Tools to make available to the spawned agent.              |
+| `timeout` | `number \| undefined`   | No       | Timeout in milliseconds for the spawned agent.             |
+| `isolate` | `boolean \| undefined`  | No       | Whether to isolate the spawned agent (e.g. in a worktree). |
+
+## SpawnResult
+
+Result from a spawn operation.
+
+| Property     | Type                                   | Required | Description                                       |
+| ------------ | -------------------------------------- | -------- | ------------------------------------------------- |
+| `instanceId` | `string`                               | Yes      | Unique identifier for the spawned agent instance. |
+| `status`     | `"running" \| "completed" \| "failed"` | Yes      | Current status of the spawned agent.              |
+| `output`     | `string \| undefined`                  | No       | Output produced by the spawned agent.             |
+
+## SpawnAdapter
+
+Provider-neutral interface for spawning and managing subagents.  Concrete implementations will be provider-specific (e.g. ClaudeCodeSpawnAdapter, CodexSpawnAdapter) and registered by CLEO's orchestration layer.
+
+| Property      | Type                                                                  | Required | Description                                             |
+| ------------- | --------------------------------------------------------------------- | -------- | ------------------------------------------------------- |
+| `canSpawn`    | `(provider: Provider) => boolean`                                     | Yes      | Check if a provider supports spawning via this adapter. |
+| `spawn`       | `(provider: Provider, options: SpawnOptions) => Promise<SpawnResult>` | Yes      | Spawn a new subagent for the given provider.            |
+| `listRunning` | `(provider: Provider) => Promise<SpawnResult[]>`                      | Yes      | List currently running subagent instances.              |
+| `terminate`   | `(provider: Provider, instanceId: string) => Promise<void>`           | Yes      | Terminate a running subagent instance.                  |
+
+## SkillIntegrityStatus
+
+Status of a single skill's integrity check.
+
+```typescript
+SkillIntegrityStatus
+```
+
+## SkillIntegrityResult
+
+Result of checking a single skill's integrity.
+
+| Property          | Type                                                                                                           | Required | Description                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------- |
+| `name`            | `string`                                                                                                       | Yes      | Skill name.                                                |
+| `status`          | `SkillIntegrityStatus`                                                                                         | Yes      | Overall integrity status.                                  |
+| `canonicalExists` | `boolean`                                                                                                      | Yes      | Whether the canonical directory exists.                    |
+| `canonicalPath`   | `string \| null`                                                                                               | Yes      | Expected canonical path from lock file.                    |
+| `linkStatuses`    | `{ providerId: string; linkPath: string; exists: boolean; isSymlink: boolean; pointsToCanonical: boolean; }[]` | Yes      | Provider link statuses — which agents have valid symlinks. |
+| `isCaampOwned`    | `boolean`                                                                                                      | Yes      | Whether this is a CAAMP-reserved (ct-\*) skill.            |
+| `issue`           | `string \| undefined`                                                                                          | No       | Human-readable issue description, if any.                  |
+
+## ResolvedImports
+
+Result of resolving  lines in content.
+
+| Property          | Type       | Required | Description                                              |
+| ----------------- | ---------- | -------- | -------------------------------------------------------- |
+| `resolvedContent` | `string`   | Yes      | Content with  lines replaced by their resolved markdown. |
+| `importedFiles`   | `string[]` | Yes      | Absolute paths of successfully resolved .cant files.     |
+| `errors`          | `string[]` | Yes      | Error messages for failed resolutions.                   |
+
+## WellKnownSkill
+
+A skill entry discovered via the RFC 8615 well-known endpoint.
+
+| Property      | Type     | Required | Description                                 |
+| ------------- | -------- | -------- | ------------------------------------------- |
+| `name`        | `string` | Yes      | Skill name.                                 |
+| `description` | `string` | Yes      | Human-readable description of the skill.    |
+| `url`         | `string` | Yes      | URL where the skill content can be fetched. |

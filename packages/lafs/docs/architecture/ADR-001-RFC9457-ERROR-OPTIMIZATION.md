@@ -115,9 +115,9 @@ Replace flat string arrays with structured objects:
 ```
 interface StructuredValidationError {
   path: string       -- JSON Pointer ("/error/code")
-  keyword: string    -- AJV keyword ("pattern", "required", "enum")
+  keyword: string    -- JSON Schema keyword ("pattern", "required", "enum")
   message: string    -- Human-readable
-  params: object     -- AJV params
+  params: object     -- Keyword-specific parameters
 }
 ```
 

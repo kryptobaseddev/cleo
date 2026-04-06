@@ -80,7 +80,7 @@ export interface ComplianceResult {
    * @defaultValue undefined
    */
   envelope?: LAFSEnvelope;
-  /** Schema validation result from AJV. */
+  /** Schema validation result from the native validator (or AJV fallback). */
   validation: EnvelopeValidationResult;
   /**
    * Envelope conformance report, present when {@link EnforceComplianceOptions.checkConformance} is true.

@@ -1,0 +1,517 @@
+---
+title: caamp
+description: caamp package overview
+---
+
+## Functions & Classes
+
+| Symbol                                                                                               | Kind     | Description                                                                       |
+| ---------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
+| [`getPlatformPaths()`](/packages/caamp/api/index#getplatformpaths)                                   | function | Get OS-appropriate paths for CAAMP's global directories.                          |
+| [`getSystemInfo()`](/packages/caamp/api/index#getsysteminfo)                                         | function | Get a cached system information snapshot.                                         |
+| [`_resetPlatformPathsCache()`](/packages/caamp/api/index#resetplatformpathscache)                    | function | Invalidate the path and system info caches. Use in tests after mutating AGENT...  |
+| [`getPlatformLocations()`](/packages/caamp/api/index#getplatformlocations)                           | function | Resolves platform-specific directory locations for the current OS.                |
+| [`getAgentsHome()`](/packages/caamp/api/index#getagentshome)                                         | function | Returns the global agents home directory path.                                    |
+| [`getProjectAgentsDir()`](/packages/caamp/api/index#getprojectagentsdir)                             | function | Returns the project-local `.agents` directory path.                               |
+| [`resolveProjectPath()`](/packages/caamp/api/index#resolveprojectpath)                               | function | Resolves a relative path against a project directory.                             |
+| [`getCanonicalSkillsDir()`](/packages/caamp/api/index#getcanonicalskillsdir)                         | function | Returns the canonical skills storage directory path.                              |
+| [`getLockFilePath()`](/packages/caamp/api/index#getlockfilepath)                                     | function | Returns the path to the CAAMP lock file.                                          |
+| [`getAgentsMcpDir()`](/packages/caamp/api/index#getagentsmcpdir)                                     | function | Gets the MCP directory within the `.agents/` standard structure.                  |
+| [`getAgentsMcpServersPath()`](/packages/caamp/api/index#getagentsmcpserverspath)                     | function | Gets the MCP servers.json path within the `.agents/` standard structure.          |
+| [`getAgentsInstructFile()`](/packages/caamp/api/index#getagentsinstructfile)                         | function | Gets the primary AGENTS.md instruction file path within `.agents/`.               |
+| [`getAgentsConfigPath()`](/packages/caamp/api/index#getagentsconfigpath)                             | function | Gets the config.toml path within the `.agents/` standard structure.               |
+| [`getAgentsWikiDir()`](/packages/caamp/api/index#getagentswikidir)                                   | function | Gets the wiki directory within the `.agents/` standard structure.                 |
+| [`getAgentsSpecDir()`](/packages/caamp/api/index#getagentsspecdir)                                   | function | Gets the spec directory within the `.agents/` standard structure.                 |
+| [`getAgentsLinksDir()`](/packages/caamp/api/index#getagentslinksdir)                                 | function | Gets the links directory within the `.agents/` standard structure.                |
+| [`resolveRegistryTemplatePath()`](/packages/caamp/api/index#resolveregistrytemplatepath)             | function | Resolves a registry template path by substituting platform variables.             |
+| [`resolveProviderConfigPath()`](/packages/caamp/api/index#resolveproviderconfigpath)                 | function | Resolves the configuration file path for a provider at the given scope.           |
+| [`resolvePreferredConfigScope()`](/packages/caamp/api/index#resolvepreferredconfigscope)             | function | Determines the preferred configuration scope for a provider.                      |
+| [`resolveProviderSkillsDir()`](/packages/caamp/api/index#resolveproviderskillsdir)                   | function | Resolves the skills directory path for a provider at the given scope.             |
+| [`resolveProviderSkillsDirs()`](/packages/caamp/api/index#resolveproviderskillsdirs)                 | function | Gets all target directories for skill installation based on provider precedence.  |
+| [`resolveProviderProjectPath()`](/packages/caamp/api/index#resolveproviderprojectpath)               | function | Resolves a provider's project-level path against a project directory.             |
+| [`resolveProvidersRegistryPath()`](/packages/caamp/api/index#resolveprovidersregistrypath)           | function | Locates the providers registry.json file by searching up from a start directory.  |
+| [`normalizeSkillSubPath()`](/packages/caamp/api/index#normalizeskillsubpath)                         | function | Normalizes a skill sub-path by cleaning separators and removing SKILL.md suffix.  |
+| [`buildSkillSubPathCandidates()`](/packages/caamp/api/index#buildskillsubpathcandidates)             | function | Builds a list of candidate sub-paths for skill file resolution.                   |
+| [`getAllProviders()`](/packages/caamp/api/index#getallproviders)                                     | function | Retrieve all registered providers with resolved platform paths.  Providers ar...  |
+| [`getProvider()`](/packages/caamp/api/index#getprovider)                                             | function | Look up a provider by its ID or any of its aliases.                               |
+| [`resolveAlias()`](/packages/caamp/api/index#resolvealias)                                           | function | Resolve an alias to its canonical provider ID.  If the input is already a can...  |
+| [`getProvidersByPriority()`](/packages/caamp/api/index#getprovidersbypriority)                       | function | Filter providers by their priority tier.                                          |
+| [`getProvidersByStatus()`](/packages/caamp/api/index#getprovidersbystatus)                           | function | Filter providers by their lifecycle status.                                       |
+| [`getProvidersByInstructFile()`](/packages/caamp/api/index#getprovidersbyinstructfile)               | function | Filter providers that use a specific instruction file.  Multiple providers of...  |
+| [`getInstructionFiles()`](/packages/caamp/api/index#getinstructionfiles)                             | function | Get the set of all unique instruction file names across all providers.            |
+| [`getProviderCount()`](/packages/caamp/api/index#getprovidercount)                                   | function | Get the total number of registered providers.                                     |
+| [`getRegistryVersion()`](/packages/caamp/api/index#getregistryversion)                               | function | Get the semantic version string of the provider registry.                         |
+| [`getProvidersByHookEvent()`](/packages/caamp/api/index#getprovidersbyhookevent)                     | function | Filter providers that support a specific hook event.                              |
+| [`getCommonHookEvents()`](/packages/caamp/api/index#getcommonhookevents)                             | function | Get hook events common to all specified providers.  If providerIds is provide...  |
+| [`providerSupports()`](/packages/caamp/api/index#providersupports)                                   | function | Check whether a provider supports a specific capability via dot-path query....    |
+| [`getSpawnCapableProviders()`](/packages/caamp/api/index#getspawncapableproviders)                   | function | Filter providers that support spawning subagents.                                 |
+| [`getProvidersBySpawnCapability()`](/packages/caamp/api/index#getprovidersbyspawncapability)         | function | Filter providers by a specific boolean spawn capability flag.                     |
+| [`resetRegistry()`](/packages/caamp/api/index#resetregistry)                                         | function | Reset cached registry data, forcing a reload on next access.                      |
+| [`getProvidersBySkillsPrecedence()`](/packages/caamp/api/index#getprovidersbyskillsprecedence)       | function | Filter providers by their skills precedence value.                                |
+| [`getEffectiveSkillsPaths()`](/packages/caamp/api/index#geteffectiveskillspaths)                     | function | Get the effective skills paths for a provider, ordered by precedence.             |
+| [`buildSkillsMap()`](/packages/caamp/api/index#buildskillsmap)                                       | function | Build a full skills map for all providers.                                        |
+| [`getProviderCapabilities()`](/packages/caamp/api/index#getprovidercapabilities)                     | function | Get capabilities for a provider by ID or alias.                                   |
+| [`providerSupportsById()`](/packages/caamp/api/index#providersupportsbyid)                           | function | Check if a provider supports a capability using ID/alias lookup.  Convenience...  |
+| [`buildInjectionContent()`](/packages/caamp/api/index#buildinjectioncontent)                         | function | Build injection content from a structured template.  Produces a string suitab...  |
+| [`parseInjectionContent()`](/packages/caamp/api/index#parseinjectioncontent)                         | function | Parse injection content back into template form.  Lines starting with `@` are...  |
+| [`generateInjectionContent()`](/packages/caamp/api/index#generateinjectioncontent)                   | function | Generate a standard CAAMP injection block for instruction files.  Produces ma...  |
+| [`generateSkillsSection()`](/packages/caamp/api/index#generateskillssection)                         | function | Generate a skills discovery section for instruction files.                        |
+| [`getInstructFile()`](/packages/caamp/api/index#getinstructfile)                                     | function | Get the correct instruction file name for a provider.                             |
+| [`groupByInstructFile()`](/packages/caamp/api/index#groupbyinstructfile)                             | function | Group providers by their instruction file name.  Useful for determining which...  |
+| [`checkInjection()`](/packages/caamp/api/index#checkinjection)                                       | function | Check the status of a CAAMP injection block in an instruction file.  Returns...   |
+| [`inject()`](/packages/caamp/api/index#inject)                                                       | function | Inject content into an instruction file between CAAMP markers.  Behavior depe...  |
+| [`removeInjection()`](/packages/caamp/api/index#removeinjection)                                     | function | Remove the CAAMP injection block from an instruction file.  If removing the b...  |
+| [`checkAllInjections()`](/packages/caamp/api/index#checkallinjections)                               | function | Check injection status across all providers' instruction files.  Deduplicates...  |
+| [`injectAll()`](/packages/caamp/api/index#injectall)                                                 | function | Inject content into all providers' instruction files.  Deduplicates by file p...  |
+| [`ensureProviderInstructionFile()`](/packages/caamp/api/index#ensureproviderinstructionfile)         | function | Ensure a provider's instruction file exists with the correct CAAMP block.  Th...  |
+| [`ensureAllProviderInstructionFiles()`](/packages/caamp/api/index#ensureallproviderinstructionfiles) | function | Ensure instruction files for multiple providers at once.  Deduplicates by fil...  |
+| [`setVerbose()`](/packages/caamp/api/index#setverbose)                                               | function | Enable or disable verbose (debug) logging mode.  When enabled, debug messages...  |
+| [`setQuiet()`](/packages/caamp/api/index#setquiet)                                                   | function | Enable or disable quiet mode.  When enabled, info and warning messages are su...  |
+| [`debug()`](/packages/caamp/api/index#debug)                                                         | function | Log a debug message to stderr when verbose mode is enabled.                       |
+| [`info()`](/packages/caamp/api/index#info)                                                           | function | Log an informational message to stdout.                                           |
+| [`warn()`](/packages/caamp/api/index#warn)                                                           | function | Log a warning message to stderr.                                                  |
+| [`error()`](/packages/caamp/api/index#error)                                                         | function | Log an error message to stderr.                                                   |
+| [`isVerbose()`](/packages/caamp/api/index#isverbose)                                                 | function | Check if verbose (debug) logging is currently enabled.                            |
+| [`isQuiet()`](/packages/caamp/api/index#isquiet)                                                     | function | Check if quiet mode is currently enabled.                                         |
+| [`setHuman()`](/packages/caamp/api/index#sethuman)                                                   | function | Enable or disable human-readable output mode.  When enabled, commands output...   |
+| [`isHuman()`](/packages/caamp/api/index#ishuman)                                                     | function | Check if human-readable output mode is currently enabled.                         |
+| [`detectProvider()`](/packages/caamp/api/index#detectprovider)                                       | function | Detect if a single provider is installed on the system.  Checks each detectio...  |
+| [`detectProjectProvider()`](/packages/caamp/api/index#detectprojectprovider)                         | function | Detect if a provider has project-level config in the given directory.             |
+| [`detectAllProviders()`](/packages/caamp/api/index#detectallproviders)                               | function | Detect all registered providers and return their installation status.  Runs d...  |
+| [`getInstalledProviders()`](/packages/caamp/api/index#getinstalledproviders)                         | function | Get only providers that are currently installed on the system.  Convenience w\... |
+| [`detectProjectProviders()`](/packages/caamp/api/index#detectprojectproviders)                       | function | Detect all providers and enrich results with project-level presence.  Extends...  |
+| [`resetDetectionCache()`](/packages/caamp/api/index#resetdetectioncache)                             | function | Reset the detection result cache, forcing fresh detection on next call.           |
+| [`installToCanonical()`](/packages/caamp/api/index#installtocanonical)                               | function | Copy skill files to the canonical location.                                       |
+| [`installSkill()`](/packages/caamp/api/index#installskill)                                           | function | Install a skill from a local path to the canonical location and link to agents.   |
+| [`removeSkill()`](/packages/caamp/api/index#removeskill)                                             | function | Remove a skill from the canonical location and all agent symlinks.                |
+| [`listCanonicalSkills()`](/packages/caamp/api/index#listcanonicalskills)                             | function | List all skills installed in the canonical skills directory.                      |
+| [`selectProvidersByMinimumPriority()`](/packages/caamp/api/index#selectprovidersbyminimumpriority)   | function | Filters providers by minimum priority and returns them in deterministic tier...   |
+| [`installBatchWithRollback()`](/packages/caamp/api/index#installbatchwithrollback)                   | function | Installs multiple skills across filtered providers with rollback.                 |
+| [`updateInstructionsSingleOperation()`](/packages/caamp/api/index#updateinstructionssingleoperation) | function | Updates instruction files across providers as a single operation.                 |
+| [`resolveFormat()`](/packages/caamp/api/index#resolveformat)                                         | function | Resolves output format based on flags and defaults.                               |
+| [`buildEnvelope()`](/packages/caamp/api/index#buildenvelope)                                         | function | Builds a standard LAFS envelope.                                                  |
+| [`emitError()`](/packages/caamp/api/index#emiterror)                                                 | function | Emits a JSON error envelope to stderr and exits the process.                      |
+| [`emitJsonError()`](/packages/caamp/api/index#emitjsonerror)                                         | function | Emits a JSON error envelope without exiting (for catch blocks).                   |
+| [`outputSuccess()`](/packages/caamp/api/index#outputsuccess)                                         | function | Outputs a successful LAFS envelope to stdout.                                     |
+| [`handleFormatError()`](/packages/caamp/api/index#handleformaterror)                                 | function | Handles format resolution errors consistently.                                    |
+| [`LAFSCommandError`](/packages/caamp/api/index#lafscommanderror)                                     | class    | Structured error class for LAFS-compliant command failures with error codes a...  |
+| [`emitSuccess()`](/packages/caamp/api/index#emitsuccess)                                             | function | Emits a successful LAFS result envelope to stdout.                                |
+| [`emitError()`](/packages/caamp/api/index#emiterror)                                                 | function | Emits a failed LAFS error envelope to stderr.                                     |
+| [`runLafsCommand()`](/packages/caamp/api/index#runlafscommand)                                       | function | Runs an async action and emits the result as a LAFS success or error envelope.    |
+| [`parsePriority()`](/packages/caamp/api/index#parsepriority)                                         | function | Parses and validates a provider priority tier string.                             |
+| [`resolveProviders()`](/packages/caamp/api/index#resolveproviders)                                   | function | Resolves the set of target providers from CLI targeting options.                  |
+| [`readJsonFile()`](/packages/caamp/api/index#readjsonfile)                                           | function | Reads and parses a JSON file from disk.                                           |
+| [`readSkillOperations()`](/packages/caamp/api/index#readskilloperations)                             | function | Reads and validates a JSON file containing skill batch operations.                |
+| [`readTextInput()`](/packages/caamp/api/index#readtextinput)                                         | function | Reads text input from either inline content or a file path, enforcing mutual...   |
+| [`registerAdvancedBatch()`](/packages/caamp/api/index#registeradvancedbatch)                         | function | Registers the `advanced batch` subcommand for rollback-capable batch install...   |
+| [`registerAdvancedInstructions()`](/packages/caamp/api/index#registeradvancedinstructions)           | function | Registers the `advanced instructions` subcommand for single-operation instruc...  |
+| [`registerAdvancedProviders()`](/packages/caamp/api/index#registeradvancedproviders)                 | function | Registers the `advanced providers` subcommand for selecting providers by prio...  |
+| [`registerAdvancedCommands()`](/packages/caamp/api/index#registeradvancedcommands)                   | function | Registers the `advanced` command group with providers, batch, and instruction...  |
+| [`deepMerge()`](/packages/caamp/api/index#deepmerge)                                                 | function | Deep merge two objects, with `source` values winning on conflict.  Recursivel...  |
+| [`setNestedValue()`](/packages/caamp/api/index#setnestedvalue)                                       | function | Set a nested value using a dot-notation key path.                                 |
+| [`getNestedValue()`](/packages/caamp/api/index#getnestedvalue)                                       | function | Get a nested value from an object using a dot-notation key path.                  |
+| [`ensureDir()`](/packages/caamp/api/index#ensuredir)                                                 | function | Ensure that the parent directories of a file path exist.  Creates directories...  |
+| [`readJsonConfig()`](/packages/caamp/api/index#readjsonconfig)                                       | function | Read and parse a JSON or JSONC config file.                                       |
+| [`writeJsonConfig()`](/packages/caamp/api/index#writejsonconfig)                                     | function | Write a server config entry to a JSON/JSONC file, preserving comments.            |
+| [`removeJsonConfig()`](/packages/caamp/api/index#removejsonconfig)                                   | function | Remove a server entry from a JSON/JSONC config file.                              |
+| [`readTomlConfig()`](/packages/caamp/api/index#readtomlconfig)                                       | function | Read and parse a TOML config file.                                                |
+| [`writeTomlConfig()`](/packages/caamp/api/index#writetomlconfig)                                     | function | Write a server config entry to a TOML file.                                       |
+| [`removeTomlConfig()`](/packages/caamp/api/index#removetomlconfig)                                   | function | Remove a server entry from a TOML config file.                                    |
+| [`readYamlConfig()`](/packages/caamp/api/index#readyamlconfig)                                       | function | Read and parse a YAML config file.                                                |
+| [`writeYamlConfig()`](/packages/caamp/api/index#writeyamlconfig)                                     | function | Write a server config entry to a YAML file.                                       |
+| [`removeYamlConfig()`](/packages/caamp/api/index#removeyamlconfig)                                   | function | Remove a server entry from a YAML config file.                                    |
+| [`readConfig()`](/packages/caamp/api/index#readconfig)                                               | function | Read and parse a config file in the specified format.  Dispatches to the appr...  |
+| [`writeConfig()`](/packages/caamp/api/index#writeconfig)                                             | function | Write a server entry to a config file, preserving existing content.  Dispatch...  |
+| [`removeConfig()`](/packages/caamp/api/index#removeconfig)                                           | function | Remove a server entry from a config file in the specified format.                 |
+| [`registerConfigCommand()`](/packages/caamp/api/index#registerconfigcommand)                         | function | Registers the `config` command group with show and path subcommands for viewi...  |
+| [`getCaampVersion()`](/packages/caamp/api/index#getcaampversion)                                     | function | Retrieve the current CAAMP package version from the nearest `package.json`.       |
+| [`registerDoctorCommand()`](/packages/caamp/api/index#registerdoctorcommand)                         | function | Registers the `doctor` command for diagnosing configuration issues and overal...  |
+| [`registerInstructionsCheck()`](/packages/caamp/api/index#registerinstructionscheck)                 | function | Registers the `instructions check` subcommand for verifying injection status...   |
+| [`registerInstructionsInject()`](/packages/caamp/api/index#registerinstructionsinject)               | function | Registers the `instructions inject` subcommand for injecting instruction bloc...  |
+| [`registerInstructionsUpdate()`](/packages/caamp/api/index#registerinstructionsupdate)               | function | Registers the `instructions update` subcommand for refreshing all instruction...  |
+| [`registerInstructionsCommands()`](/packages/caamp/api/index#registerinstructionscommands)           | function | Registers the `instructions` command group with inject, check, and update sub...  |
+| [`resetHookMappings()`](/packages/caamp/api/index#resethookmappings)                                 | function | Reset the cached hook mappings data.                                              |
+| [`getCanonicalEvent()`](/packages/caamp/api/index#getcanonicalevent)                                 | function | Get the canonical event definition (category, description, canBlock).             |
+| [`getAllCanonicalEvents()`](/packages/caamp/api/index#getallcanonicalevents)                         | function | Get all canonical event definitions.                                              |
+| [`getCanonicalEventsByCategory()`](/packages/caamp/api/index#getcanonicaleventsbycategory)           | function | Get canonical events filtered by category.                                        |
+| [`getProviderHookProfile()`](/packages/caamp/api/index#getproviderhookprofile)                       | function | Get the full hook profile for a provider.                                         |
+| [`getMappedProviderIds()`](/packages/caamp/api/index#getmappedproviderids)                           | function | Get all provider IDs that have hook mappings.                                     |
+| [`toNative()`](/packages/caamp/api/index#tonative)                                                   | function | Translate a CAAMP canonical event name to the provider's native name.             |
+| [`toCanonical()`](/packages/caamp/api/index#tocanonical)                                             | function | Translate a provider-native event name to the CAAMP canonical name.               |
+| [`toNativeBatch()`](/packages/caamp/api/index#tonativebatch)                                         | function | Batch-translate multiple canonical events to native names for a provider.         |
+| [`supportsHook()`](/packages/caamp/api/index#supportshook)                                           | function | Check if a provider supports a specific canonical hook event.                     |
+| [`getHookSupport()`](/packages/caamp/api/index#gethooksupport)                                       | function | Get full hook support details for a canonical event on a provider.                |
+| [`getSupportedEvents()`](/packages/caamp/api/index#getsupportedevents)                               | function | Get all supported canonical events for a provider.                                |
+| [`getUnsupportedEvents()`](/packages/caamp/api/index#getunsupportedevents)                           | function | Get all unsupported canonical events for a provider.                              |
+| [`getProvidersForEvent()`](/packages/caamp/api/index#getprovidersforevent)                           | function | Get providers that support a specific canonical event.                            |
+| [`getCommonEvents()`](/packages/caamp/api/index#getcommonevents)                                     | function | Get canonical events common to all specified providers.                           |
+| [`getProviderSummary()`](/packages/caamp/api/index#getprovidersummary)                               | function | Get a summary of hook support for a provider.                                     |
+| [`buildHookMatrix()`](/packages/caamp/api/index#buildhookmatrix)                                     | function | Build a cross-provider hook support matrix.                                       |
+| [`getHookSystemType()`](/packages/caamp/api/index#gethooksystemtype)                                 | function | Get the hook system type for a provider.                                          |
+| [`getHookConfigPath()`](/packages/caamp/api/index#gethookconfigpath)                                 | function | Get the resolved hook config path for a provider.                                 |
+| [`getProviderOnlyEvents()`](/packages/caamp/api/index#getprovideronlyevents)                         | function | Get provider-only events (native events with no canonical mapping).               |
+| [`translateToAll()`](/packages/caamp/api/index#translatetoall)                                       | function | Translate a canonical event to native names across multiple providers.            |
+| [`resolveNativeEvent()`](/packages/caamp/api/index#resolvenativeevent)                               | function | Find the best canonical match for a native event name across all providers.       |
+| [`getHookMappingsVersion()`](/packages/caamp/api/index#gethookmappingsversion)                       | function | Get the version of the hook mappings data.                                        |
+| [`registerProvidersCommand()`](/packages/caamp/api/index#registerproviderscommand)                   | function | Registers the `providers` command group with list, detect, show, skills-map,...   |
+| [`getRulesByCategory()`](/packages/caamp/api/index#getrulesbycategory)                               | function | Get audit rules filtered by category.                                             |
+| [`getRulesBySeverity()`](/packages/caamp/api/index#getrulesbyseverity)                               | function | Get audit rules filtered by severity level.                                       |
+| [`getCategories()`](/packages/caamp/api/index#getcategories)                                         | function | Get all unique rule categories.                                                   |
+| [`scanFile()`](/packages/caamp/api/index#scanfile)                                                   | function | Scan a single file against security audit rules.                                  |
+| [`scanDirectory()`](/packages/caamp/api/index#scandirectory)                                         | function | Scan a directory of skills for security issues.                                   |
+| [`toSarif()`](/packages/caamp/api/index#tosarif)                                                     | function | Convert audit results to SARIF 2.1.0 format (Static Analysis Results Intercha...  |
+| [`registerSkillsAudit()`](/packages/caamp/api/index#registerskillsaudit)                             | function | Registers the `skills audit` subcommand for security scanning skill files.        |
+| [`readLockFile()`](/packages/caamp/api/index#readlockfile)                                           | function | Read and parse the CAAMP lock file from disk.                                     |
+| [`writeLockFile()`](/packages/caamp/api/index#writelockfile)                                         | function | Write the lock file atomically under a process lock guard.                        |
+| [`updateLockFile()`](/packages/caamp/api/index#updatelockfile)                                       | function | Safely read-modify-write the lock file under a process lock guard.                |
+| [`parseSource()`](/packages/caamp/api/index#parsesource)                                             | function | Parse and classify a source string into a typed `ParsedSource`.                   |
+| [`isMarketplaceScoped()`](/packages/caamp/api/index#ismarketplacescoped)                             | function | Check if a source string looks like a marketplace scoped name (`@author/name`).   |
+| [`recordSkillInstall()`](/packages/caamp/api/index#recordskillinstall)                               | function | Record a skill installation in the lock file.                                     |
+| [`removeSkillFromLock()`](/packages/caamp/api/index#removeskillfromlock)                             | function | Remove a skill entry from the lock file.                                          |
+| [`getTrackedSkills()`](/packages/caamp/api/index#gettrackedskills)                                   | function | Get all skills tracked in the lock file.                                          |
+| [`checkSkillUpdate()`](/packages/caamp/api/index#checkskillupdate)                                   | function | Check if a skill has updates available by comparing the installed version aga...  |
+| [`checkAllSkillUpdates()`](/packages/caamp/api/index#checkallskillupdates)                           | function | Check for updates across all tracked skills.                                      |
+| [`registerSkillsCheck()`](/packages/caamp/api/index#registerskillscheck)                             | function | Registers the `skills check` subcommand for checking available skill updates.     |
+| [`NetworkError`](/packages/caamp/api/index#networkerror)                                             | class    | Structured error for network failures with categorized kind.                      |
+| [`fetchWithTimeout()`](/packages/caamp/api/index#fetchwithtimeout)                                   | function | Fetch a URL with an automatic timeout via `AbortSignal.timeout`.                  |
+| [`ensureOkResponse()`](/packages/caamp/api/index#ensureokresponse)                                   | function | Assert that a `Response` has an OK status, throwing on failure.                   |
+| [`formatNetworkError()`](/packages/caamp/api/index#formatnetworkerror)                               | function | Format a network error into a user-friendly message string.                       |
+| [`SkillsMPAdapter`](/packages/caamp/api/index#skillsmpadapter)                                       | class    | Marketplace adapter for the agentskills.in API.                                   |
+| [`SkillsShAdapter`](/packages/caamp/api/index#skillsshadapter)                                       | class    | Marketplace adapter for the skills.sh API.                                        |
+| [`MarketplaceUnavailableError`](/packages/caamp/api/index#marketplaceunavailableerror)               | class    | Error thrown when all marketplace sources fail to respond.                        |
+| [`MarketplaceClient`](/packages/caamp/api/index#marketplaceclient)                                   | class    | Unified marketplace client that aggregates results from multiple marketplace...   |
+| [`tokenizeCriteriaValue()`](/packages/caamp/api/index#tokenizecriteriavalue)                         | function | Splits a comma-separated criteria string into normalized tokens.                  |
+| [`validateRecommendationCriteria()`](/packages/caamp/api/index#validaterecommendationcriteria)       | function | Validates recommendation criteria input for correctness and consistency.          |
+| [`normalizeRecommendationCriteria()`](/packages/caamp/api/index#normalizerecommendationcriteria)     | function | Normalizes raw recommendation criteria into a consistent tokenized form.          |
+| [`scoreSkillRecommendation()`](/packages/caamp/api/index#scoreskillrecommendation)                   | function | Computes a recommendation score for a single skill against normalized criteria.   |
+| [`recommendSkills()`](/packages/caamp/api/index#recommendskills)                                     | function | Validates, normalizes, scores, and ranks a list of skills against criteria.       |
+| [`formatSkillRecommendations()`](/packages/caamp/api/index#formatskillrecommendations)               | function | Format skill recommendation results for display or serialization.                 |
+| [`searchSkills()`](/packages/caamp/api/index#searchskills)                                           | function | Search for skills via marketplace APIs.                                           |
+| [`recommendSkills()`](/packages/caamp/api/index#recommendskills)                                     | function | Search and rank skills based on query and recommendation criteria.                |
+| [`registerSkillsFind()`](/packages/caamp/api/index#registerskillsfind)                               | function | Registers the `skills find` subcommand for searching marketplaces and recomme...  |
+| [`registerSkillsInit()`](/packages/caamp/api/index#registerskillsinit)                               | function | Registers the `skills init` subcommand for scaffolding new SKILL.md templates.    |
+| [`loadLibraryFromModule()`](/packages/caamp/api/index#loadlibraryfrommodule)                         | function | Load a SkillLibrary from a module (index.js) at the given root directory.         |
+| [`buildLibraryFromFiles()`](/packages/caamp/api/index#buildlibraryfromfiles)                         | function | Build a SkillLibrary from raw files in a directory.                               |
+| [`registerSkillLibrary()`](/packages/caamp/api/index#registerskilllibrary)                           | function | Registers a SkillLibrary instance directly as the active catalog.                 |
+| [`registerSkillLibraryFromPath()`](/packages/caamp/api/index#registerskilllibraryfrompath)           | function | Registers a skill library by loading it from a directory path.                    |
+| [`clearRegisteredLibrary()`](/packages/caamp/api/index#clearregisteredlibrary)                       | function | Clears the registered skill library instance.                                     |
+| [`isCatalogAvailable()`](/packages/caamp/api/index#iscatalogavailable)                               | function | Checks whether a skill library is available for use.                              |
+| [`getSkills()`](/packages/caamp/api/index#getskills)                                                 | function | Returns all skill entries from the catalog.                                       |
+| [`getManifest()`](/packages/caamp/api/index#getmanifest)                                             | function | Returns the parsed skill library manifest.                                        |
+| [`listSkills()`](/packages/caamp/api/index#listskills)                                               | function | Lists all available skill names in the catalog.                                   |
+| [`getSkill()`](/packages/caamp/api/index#getskill)                                                   | function | Gets skill metadata by name from the catalog.                                     |
+| [`getSkillPath()`](/packages/caamp/api/index#getskillpath)                                           | function | Resolves the absolute path to a skill's SKILL.md file.                            |
+| [`getSkillDir()`](/packages/caamp/api/index#getskilldir)                                             | function | Resolves the absolute path to a skill's directory.                                |
+| [`readSkillContent()`](/packages/caamp/api/index#readskillcontent)                                   | function | Reads a skill's SKILL.md content as a string.                                     |
+| [`getCoreSkills()`](/packages/caamp/api/index#getcoreskills)                                         | function | Returns all skills marked as core in the catalog.                                 |
+| [`getSkillsByCategory()`](/packages/caamp/api/index#getskillsbycategory)                             | function | Returns skills filtered by category.                                              |
+| [`getSkillDependencies()`](/packages/caamp/api/index#getskilldependencies)                           | function | Gets the direct dependency names for a skill.                                     |
+| [`resolveDependencyTree()`](/packages/caamp/api/index#resolvedependencytree)                         | function | Resolves the full dependency tree for a set of skill names.                       |
+| [`listProfiles()`](/packages/caamp/api/index#listprofiles)                                           | function | Lists all available profile names in the catalog.                                 |
+| [`getProfile()`](/packages/caamp/api/index#getprofile)                                               | function | Gets a profile definition by name from the catalog.                               |
+| [`resolveProfile()`](/packages/caamp/api/index#resolveprofile)                                       | function | Resolves a profile to its full skill list including inherited skills.             |
+| [`listSharedResources()`](/packages/caamp/api/index#listsharedresources)                             | function | Lists all available shared resource names in the catalog.                         |
+| [`getSharedResourcePath()`](/packages/caamp/api/index#getsharedresourcepath)                         | function | Gets the absolute path to a shared resource file.                                 |
+| [`readSharedResource()`](/packages/caamp/api/index#readsharedresource)                               | function | Reads a shared resource file's content as a string.                               |
+| [`listProtocols()`](/packages/caamp/api/index#listprotocols)                                         | function | Lists all available protocol names in the catalog.                                |
+| [`getProtocolPath()`](/packages/caamp/api/index#getprotocolpath)                                     | function | Gets the absolute path to a protocol file.                                        |
+| [`readProtocol()`](/packages/caamp/api/index#readprotocol)                                           | function | Reads a protocol file's content as a string.                                      |
+| [`validateSkillFrontmatter()`](/packages/caamp/api/index#validateskillfrontmatter)                   | function | Validates a single skill's frontmatter against the schema.                        |
+| [`validateAll()`](/packages/caamp/api/index#validateall)                                             | function | Validates all skills in the catalog and returns results per skill.                |
+| [`getDispatchMatrix()`](/packages/caamp/api/index#getdispatchmatrix)                                 | function | Gets the dispatch matrix from the skill library manifest.                         |
+| [`getVersion()`](/packages/caamp/api/index#getversion)                                               | function | Returns the skill library version string.                                         |
+| [`getLibraryRoot()`](/packages/caamp/api/index#getlibraryroot)                                       | function | Returns the absolute path to the skill library root directory.                    |
+| [`parseSkillFile()`](/packages/caamp/api/index#parseskillfile)                                       | function | Parse a SKILL.md file and extract its frontmatter metadata.                       |
+| [`discoverSkill()`](/packages/caamp/api/index#discoverskill)                                         | function | Discover a single skill at a given directory path.                                |
+| [`discoverSkills()`](/packages/caamp/api/index#discoverskills)                                       | function | Scan a directory for skill subdirectories, each containing a SKILL.md file.       |
+| [`discoverSkillsMulti()`](/packages/caamp/api/index#discoverskillsmulti)                             | function | Discover skills across multiple directories.                                      |
+| [`cloneRepo()`](/packages/caamp/api/index#clonerepo)                                                 | function | Clone a GitHub repo to a temp directory.                                          |
+| [`fetchRawFile()`](/packages/caamp/api/index#fetchrawfile)                                           | function | Fetch a specific file from GitHub using the raw API.                              |
+| [`repoExists()`](/packages/caamp/api/index#repoexists)                                               | function | Check if a GitHub repo exists.                                                    |
+| [`cloneGitLabRepo()`](/packages/caamp/api/index#clonegitlabrepo)                                     | function | Clone a GitLab repo to a temp directory.                                          |
+| [`fetchGitLabRawFile()`](/packages/caamp/api/index#fetchgitlabrawfile)                               | function | Fetch a specific file from GitLab using the raw API.                              |
+| [`registerSkillsInstall()`](/packages/caamp/api/index#registerskillsinstall)                         | function | Registers the `skills install` subcommand for installing skills from various...   |
+| [`registerSkillsList()`](/packages/caamp/api/index#registerskillslist)                               | function | Registers the `skills list` subcommand for listing installed skills.              |
+| [`registerSkillsRemove()`](/packages/caamp/api/index#registerskillsremove)                           | function | Registers the `skills remove` subcommand for removing installed skills.           |
+| [`registerSkillsUpdate()`](/packages/caamp/api/index#registerskillsupdate)                           | function | Registers the `skills update` subcommand for updating all outdated skills.        |
+| [`validateSkill()`](/packages/caamp/api/index#validateskill)                                         | function | Validate a SKILL.md file against the Agent Skills standard.                       |
+| [`registerSkillsValidate()`](/packages/caamp/api/index#registerskillsvalidate)                       | function | Registers the `skills validate` subcommand for validating SKILL.md file format.   |
+| [`registerSkillsCommands()`](/packages/caamp/api/index#registerskillscommands)                       | function | Registers the `skills` command group with all skill management subcommands.       |
+| [`isCaampOwnedSkill()`](/packages/caamp/api/index#iscaampownedskill)                                 | function | Check whether a skill name is reserved by CAAMP (ct-\* prefix).                   |
+| [`checkSkillIntegrity()`](/packages/caamp/api/index#checkskillintegrity)                             | function | Check the integrity of a single installed skill.                                  |
+| [`checkAllSkillIntegrity()`](/packages/caamp/api/index#checkallskillintegrity)                       | function | Check integrity of all tracked skills.                                            |
+| [`shouldOverrideSkill()`](/packages/caamp/api/index#shouldoverrideskill)                             | function | Resolve a skill name conflict where a user-installed skill collides with a CA...  |
+| [`validateInstructionIntegrity()`](/packages/caamp/api/index#validateinstructionintegrity)           | function | Validate instruction file injection status across all providers.                  |
+| [`resolveCantImports()`](/packages/caamp/api/index#resolvecantimports)                               | function | Resolve  \*.cant references in instruction file content.  Scans each line for...  |
+| [`cantToMarkdown()`](/packages/caamp/api/index#canttomarkdown)                                       | function | Convert a .cant file's content to markdown equivalent.  Parses the frontmatte...  |
+| [`discoverWellKnown()`](/packages/caamp/api/index#discoverwellknown)                                 | function | Discover skills from a well-known URL.                                            |
+
+## Types & Interfaces
+
+| Symbol                                                                                                   | Kind      | Description                                                                      |
+| -------------------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
+| [`SkillLibraryEntry`](/packages/caamp/api/index#skilllibraryentry)                                       | interface | A single skill entry in a library catalog.                                       |
+| [`SkillLibraryValidationResult`](/packages/caamp/api/index#skilllibraryvalidationresult)                 | interface | Validation result from skill frontmatter validation.                             |
+| [`SkillLibraryValidationIssue`](/packages/caamp/api/index#skilllibraryvalidationissue)                   | interface | A single validation issue.                                                       |
+| [`SkillLibraryProfile`](/packages/caamp/api/index#skilllibraryprofile)                                   | interface | Profile definition for grouped skill installation.                               |
+| [`SkillLibraryDispatchMatrix`](/packages/caamp/api/index#skilllibrarydispatchmatrix)                     | interface | Dispatch matrix for task routing to skills.                                      |
+| [`SkillLibraryManifestSkill`](/packages/caamp/api/index#skilllibrarymanifestskill)                       | interface | Skill entry within the library manifest.                                         |
+| [`SkillLibraryManifest`](/packages/caamp/api/index#skilllibrarymanifest)                                 | interface | Full manifest structure for a skill library.                                     |
+| [`SkillLibrary`](/packages/caamp/api/index#skilllibrary)                                                 | interface | Standard interface for a skill library.  Any directory or module providing sk... |
+| [`RegistryDetection`](/packages/caamp/api/index#registrydetection)                                       | interface | Raw detection configuration as stored in registry.json.                          |
+| [`RegistryProvider`](/packages/caamp/api/index#registryprovider)                                         | interface | Raw provider definition as stored in registry.json before path resolution.       |
+| [`SkillsPrecedence`](/packages/caamp/api/index#skillsprecedence)                                         | type      | How a provider resolves skill file precedence between vendor and agents direc... |
+| [`RegistrySkillsCapability`](/packages/caamp/api/index#registryskillscapability)                         | interface | Raw skills capability definition as stored in registry.json.                     |
+| [`HookEvent`](/packages/caamp/api/index#hookevent)                                                       | type      | Hook lifecycle event identifier from registry.json.                              |
+| [`RegistryHooksCapability`](/packages/caamp/api/index#registryhookscapability)                           | interface | Raw hooks capability definition as stored in registry.json.                      |
+| [`SpawnMechanism`](/packages/caamp/api/index#spawnmechanism)                                             | type      | Mechanism a provider uses to spawn subagents.                                    |
+| [`RegistrySpawnCapability`](/packages/caamp/api/index#registryspawncapability)                           | interface | Raw spawn capability definition as stored in registry.json.                      |
+| [`RegistryCapabilities`](/packages/caamp/api/index#registrycapabilities)                                 | interface | Aggregate capability block for a provider in registry.json.                      |
+| [`ProviderRegistry`](/packages/caamp/api/index#providerregistry)                                         | interface | Top-level structure of the provider registry JSON file.                          |
+| [`CtSkillEntry`](/packages/caamp/api/index#ctskillentry)                                                 | type      | Backward-compatible alias for `SkillLibraryEntry`.                               |
+| [`CtValidationResult`](/packages/caamp/api/index#ctvalidationresult)                                     | type      | Backward-compatible alias for `SkillLibraryValidationResult`.                    |
+| [`CtValidationIssue`](/packages/caamp/api/index#ctvalidationissue)                                       | type      | Backward-compatible alias for `SkillLibraryValidationIssue`.                     |
+| [`CtProfileDefinition`](/packages/caamp/api/index#ctprofiledefinition)                                   | type      | Backward-compatible alias for `SkillLibraryProfile`.                             |
+| [`CtDispatchMatrix`](/packages/caamp/api/index#ctdispatchmatrix)                                         | type      | Backward-compatible alias for `SkillLibraryDispatchMatrix`.                      |
+| [`CtManifest`](/packages/caamp/api/index#ctmanifest)                                                     | type      | Backward-compatible alias for `SkillLibraryManifest`.                            |
+| [`CtManifestSkill`](/packages/caamp/api/index#ctmanifestskill)                                           | type      | Backward-compatible alias for `SkillLibraryManifestSkill`.                       |
+| [`ConfigFormat`](/packages/caamp/api/index#configformat)                                                 | type      | Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"`... |
+| [`TransportType`](/packages/caamp/api/index#transporttype)                                               | type      | MCP server transport protocol type.  - `"stdio"` - Standard input/output (loc... |
+| [`DetectionMethod`](/packages/caamp/api/index#detectionmethod)                                           | type      | Method used to detect whether an AI agent is installed on the system.  -...      |
+| [`DetectionConfig`](/packages/caamp/api/index#detectionconfig)                                           | interface | Configuration for detecting whether a provider is installed.                     |
+| [`ProviderSkillsCapability`](/packages/caamp/api/index#providerskillscapability)                         | interface | Resolved skills capability for a provider at runtime.                            |
+| [`ProviderHooksCapability`](/packages/caamp/api/index#providerhookscapability)                           | interface | Resolved hooks capability for a provider at runtime.                             |
+| [`ProviderSpawnCapability`](/packages/caamp/api/index#providerspawncapability)                           | interface | Resolved spawn capability for a provider at runtime.                             |
+| [`ProviderCapabilities`](/packages/caamp/api/index#providercapabilities)                                 | interface | Aggregate provider capabilities for skills, hooks, and spawn.                    |
+| [`ProviderPriority`](/packages/caamp/api/index#providerpriority)                                         | type      | Priority tier for a provider, used for sorting and default selection.  -...      |
+| [`ProviderStatus`](/packages/caamp/api/index#providerstatus)                                             | type      | Lifecycle status of a provider in the registry.  - `"active"` - Fully support... |
+| [`Provider`](/packages/caamp/api/index#provider)                                                         | interface | A resolved AI agent provider definition with platform-specific paths.            |
+| [`McpServerConfig`](/packages/caamp/api/index#mcpserverconfig)                                           | interface | Canonical MCP server configuration.                                              |
+| [`SourceType`](/packages/caamp/api/index#sourcetype)                                                     | type      | Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS...  |
+| [`ParsedSource`](/packages/caamp/api/index#parsedsource)                                                 | interface | Result of parsing a source string into its typed components.                     |
+| [`SkillMetadata`](/packages/caamp/api/index#skillmetadata)                                               | interface | Metadata extracted from a SKILL.md frontmatter.                                  |
+| [`SkillEntry`](/packages/caamp/api/index#skillentry)                                                     | interface | A discovered skill entry with its location and metadata.                         |
+| [`LockEntry`](/packages/caamp/api/index#lockentry)                                                       | interface | A single entry in the CAAMP lock file tracking an installed skill or MCP server. |
+| [`CaampLockFile`](/packages/caamp/api/index#caamplockfile)                                               | interface | The CAAMP lock file structure, stored at the resolved canonical lock path.       |
+| [`MarketplaceSkill`](/packages/caamp/api/index#marketplaceskill)                                         | interface | A skill listing from a marketplace search result.                                |
+| [`MarketplaceSearchResult`](/packages/caamp/api/index#marketplacesearchresult)                           | interface | Paginated search results from a marketplace API.                                 |
+| [`AuditSeverity`](/packages/caamp/api/index#auditseverity)                                               | type      | Severity level for a security audit finding.  Ordered from most to least seve... |
+| [`AuditRule`](/packages/caamp/api/index#auditrule)                                                       | interface | A security audit rule definition with a regex pattern to match against skill...  |
+| [`AuditFinding`](/packages/caamp/api/index#auditfinding)                                                 | interface | A single finding from a security audit scan, with line-level location.           |
+| [`AuditResult`](/packages/caamp/api/index#auditresult)                                                   | interface | Aggregate audit result for a single file.                                        |
+| [`InjectionStatus`](/packages/caamp/api/index#injectionstatus)                                           | type      | Status of a CAAMP injection block in an instruction file.  - `"current"` - In... |
+| [`InjectionCheckResult`](/packages/caamp/api/index#injectioncheckresult)                                 | interface | Result of checking a single instruction file for CAAMP injection status.         |
+| [`McpServerEntry`](/packages/caamp/api/index#mcpserverentry)                                             | interface | An MCP server entry read from a provider's config file.                          |
+| [`GlobalOptions`](/packages/caamp/api/index#globaloptions)                                               | interface | Global CLI options shared across all CAAMP commands.                             |
+| [`PlatformPaths`](/packages/caamp/api/index#platformpaths)                                               | interface | OS-appropriate directory paths for CAAMP's global storage.                       |
+| [`SystemInfo`](/packages/caamp/api/index#systeminfo)                                                     | interface | Snapshot of the current system environment and resolved platform paths.          |
+| [`PathScope`](/packages/caamp/api/index#pathscope)                                                       | type      | Scope for path resolution, either global (user home) or project-local.           |
+| [`PlatformLocations`](/packages/caamp/api/index#platformlocations)                                       | interface | Platform-specific directory locations for agent configuration.                   |
+| [`InjectionTemplate`](/packages/caamp/api/index#injectiontemplate)                                       | interface | Structured template for injection content.                                       |
+| [`EnsureProviderInstructionFileOptions`](/packages/caamp/api/index#ensureproviderinstructionfileoptions) | interface | Options for ensuring a provider instruction file.                                |
+| [`EnsureProviderInstructionFileResult`](/packages/caamp/api/index#ensureproviderinstructionfileresult)   | interface | Result of ensuring a provider instruction file.                                  |
+| [`DetectionResult`](/packages/caamp/api/index#detectionresult)                                           | interface | Result of detecting whether a provider is installed on the system.               |
+| [`DetectionCacheOptions`](/packages/caamp/api/index#detectioncacheoptions)                               | interface | Options for controlling the detection result cache.                              |
+| [`SkillInstallResult`](/packages/caamp/api/index#skillinstallresult)                                     | interface | Result of installing a skill to the canonical location and linking to agents.    |
+| [`SkillBatchOperation`](/packages/caamp/api/index#skillbatchoperation)                                   | interface | Single skill operation entry used by batch orchestration.                        |
+| [`BatchInstallOptions`](/packages/caamp/api/index#batchinstalloptions)                                   | interface | Options for rollback-capable batch installation.                                 |
+| [`BatchInstallResult`](/packages/caamp/api/index#batchinstallresult)                                     | interface | Result of rollback-capable batch installation.                                   |
+| [`InstructionUpdateSummary`](/packages/caamp/api/index#instructionupdatesummary)                         | interface | Result of a single-operation instruction update across providers.                |
+| [`MVILevel`](/packages/caamp/api/index#mvilevel)                                                         | type      | LAFS MVI disclosure level - defined locally to avoid CI module resolution iss... |
+| [`LAFSErrorShape`](/packages/caamp/api/index#lafserrorshape)                                             | type      | LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP...  |
+| [`LAFSWarning`](/packages/caamp/api/index#lafswarning)                                                   | type      | LAFS Warning structure - re-exported from protocol.                              |
+| [`LAFSEnvelope`](/packages/caamp/api/index#lafsenvelope)                                                 | interface | Generic LAFS Envelope structure for type-safe command results.                   |
+| [`FormatOptions`](/packages/caamp/api/index#formatoptions)                                               | interface | Format resolution options.                                                       |
+| [`LAFSCommandOptions`](/packages/caamp/api/index#lafscommandoptions)                                     | interface | Standard command options interface for LAFS-compliant commands.                  |
+| [`ProviderTargetOptions`](/packages/caamp/api/index#providertargetoptions)                               | interface | Options for resolving which providers to target in advanced commands.            |
+| [`HookCategory`](/packages/caamp/api/index#hookcategory)                                                 | type      | Union type of valid hook category strings.                                       |
+| [`EventSource`](/packages/caamp/api/index#eventsource)                                                   | type      | Union type of valid event source types.                                          |
+| [`CanonicalHookEvent`](/packages/caamp/api/index#canonicalhookevent)                                     | type      | Union type of all canonical hook event names.                                    |
+| [`CanonicalEventDefinition`](/packages/caamp/api/index#canonicaleventdefinition)                         | interface | Definition of a canonical hook event including its category and behavior.        |
+| [`HookSystemType`](/packages/caamp/api/index#hooksystemtype)                                             | type      | The type of hook system a provider uses.                                         |
+| [`HookHandlerType`](/packages/caamp/api/index#hookhandlertype)                                           | type      | The mechanism a provider uses to execute hook handlers.                          |
+| [`HookMapping`](/packages/caamp/api/index#hookmapping)                                                   | interface | Mapping of a single canonical event to a provider's native representation.       |
+| [`ProviderHookProfile`](/packages/caamp/api/index#providerhookprofile)                                   | interface | Complete hook profile for a single provider.                                     |
+| [`NormalizedHookEvent`](/packages/caamp/api/index#normalizedhookevent)                                   | interface | A fully resolved hook event with both canonical and native names.                |
+| [`HookSupportResult`](/packages/caamp/api/index#hooksupportresult)                                       | interface | Result of querying whether a provider supports a specific canonical event.       |
+| [`ProviderHookSummary`](/packages/caamp/api/index#providerhooksummary)                                   | interface | Aggregated hook support summary for a single provider.                           |
+| [`CrossProviderMatrix`](/packages/caamp/api/index#crossprovidermatrix)                                   | interface | Cross-provider hook support matrix comparing multiple providers.                 |
+| [`HookMappingsFile`](/packages/caamp/api/index#hookmappingsfile)                                         | interface | Schema for the `providers/hook-mappings.json` data file.                         |
+| [`MarketplaceAdapter`](/packages/caamp/api/index#marketplaceadapter)                                     | interface | Contract that each marketplace backend adapter must implement.                   |
+| [`MarketplaceResult`](/packages/caamp/api/index#marketplaceresult)                                       | interface | Normalized marketplace record returned by all adapters.                          |
+| [`SearchOptions`](/packages/caamp/api/index#searchoptions)                                               | interface | Options for marketplace search requests.                                         |
+| [`RecommendationErrorCode`](/packages/caamp/api/index#recommendationerrorcode)                           | type      | Union type of all recommendation error code string literals.                     |
+| [`RecommendationValidationIssue`](/packages/caamp/api/index#recommendationvalidationissue)               | interface | Describes a single validation issue found in recommendation criteria.            |
+| [`RecommendationValidationResult`](/packages/caamp/api/index#recommendationvalidationresult)             | interface | Result of validating recommendation criteria input.                              |
+| [`RecommendationCriteriaInput`](/packages/caamp/api/index#recommendationcriteriainput)                   | interface | Raw user-provided criteria for skill recommendations.                            |
+| [`NormalizedRecommendationCriteria`](/packages/caamp/api/index#normalizedrecommendationcriteria)         | interface | Normalized and tokenized form of recommendation criteria.                        |
+| [`RecommendationReasonCode`](/packages/caamp/api/index#recommendationreasoncode)                         | type      | String literal union of all reason codes emitted during skill scoring.           |
+| [`RecommendationReason`](/packages/caamp/api/index#recommendationreason)                                 | interface | A single reason contributing to a skill's recommendation score.                  |
+| [`RecommendationScoreBreakdown`](/packages/caamp/api/index#recommendationscorebreakdown)                 | interface | Detailed breakdown of a skill's recommendation score by category.                |
+| [`RankedSkillRecommendation`](/packages/caamp/api/index#rankedskillrecommendation)                       | interface | A single skill recommendation with its computed score and explanations.          |
+| [`RecommendationOptions`](/packages/caamp/api/index#recommendationoptions)                               | interface | Configuration options for the skill recommendation engine.                       |
+| [`RecommendationWeights`](/packages/caamp/api/index#recommendationweights)                               | interface | Numeric weights controlling the recommendation scoring algorithm.                |
+| [`RecommendSkillsResult`](/packages/caamp/api/index#recommendskillsresult)                               | interface | The complete result of a skill recommendation operation.                         |
+| [`SearchSkillsOptions`](/packages/caamp/api/index#searchskillsoptions)                                   | interface | Options for searching skills via marketplace APIs.                               |
+| [`RecommendSkillsQueryOptions`](/packages/caamp/api/index#recommendskillsqueryoptions)                   | interface | Options for the recommendation query combining ranking options with a result...  |
+| [`GitFetchResult`](/packages/caamp/api/index#gitfetchresult)                                             | interface | Result of fetching a Git repository to a local temporary directory.              |
+| [`ValidationIssue`](/packages/caamp/api/index#validationissue)                                           | interface | A single validation issue found during SKILL.md validation.                      |
+| [`ValidationResult`](/packages/caamp/api/index#validationresult)                                         | interface | Result of validating a SKILL.md file against the Agent Skills standard.          |
+| [`SpawnOptions`](/packages/caamp/api/index#spawnoptions)                                                 | interface | Options for spawning a subagent.                                                 |
+| [`SpawnResult`](/packages/caamp/api/index#spawnresult)                                                   | interface | Result from a spawn operation.                                                   |
+| [`SpawnAdapter`](/packages/caamp/api/index#spawnadapter)                                                 | interface | Provider-neutral interface for spawning and managing subagents.  Concrete imp... |
+| [`SkillIntegrityStatus`](/packages/caamp/api/index#skillintegritystatus)                                 | type      | Status of a single skill's integrity check.                                      |
+| [`SkillIntegrityResult`](/packages/caamp/api/index#skillintegrityresult)                                 | interface | Result of checking a single skill's integrity.                                   |
+| [`ResolvedImports`](/packages/caamp/api/index#resolvedimports)                                           | interface | Result of resolving  lines in content.                                           |
+| [`WellKnownSkill`](/packages/caamp/api/index#wellknownskill)                                             | interface | A skill entry discovered via the RFC 8615 well-known endpoint.                   |
+
+## Other Exports
+
+| Symbol                                                                                                         | Kind     | Description                                                                      |
+| -------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`forge-ts.config.ts`](/packages/caamp/api/index#forge-tsconfigts)                                             | file     |                                                                                  |
+| [`tsup.config.ts`](/packages/caamp/api/index#tsupconfigts)                                                     | file     |                                                                                  |
+| [`vitest.config.ts`](/packages/caamp/api/index#vitestconfigts)                                                 | file     |                                                                                  |
+| [`generate-hook-types.ts`](/packages/caamp/api/index#generate-hook-typests)                                    | file     |                                                                                  |
+| [`provider-research.ts`](/packages/caamp/api/index#provider-researchts)                                        | file     |                                                                                  |
+| [`skill-library.ts`](/packages/caamp/api/index#skill-libraryts)                                                | file     |                                                                                  |
+| [`types.ts`](/packages/caamp/api/index#typests)                                                                | file     |                                                                                  |
+| [`types.ts`](/packages/caamp/api/index#typests)                                                                | file     |                                                                                  |
+| [`platform-paths.ts`](/packages/caamp/api/index#platform-pathsts)                                              | file     |                                                                                  |
+| [`standard.ts`](/packages/caamp/api/index#standardts)                                                          | file     |                                                                                  |
+| [`providers.ts`](/packages/caamp/api/index#providersts)                                                        | file     |                                                                                  |
+| [`templates.ts`](/packages/caamp/api/index#templatests)                                                        | file     |                                                                                  |
+| [`injector.ts`](/packages/caamp/api/index#injectorts)                                                          | file     |                                                                                  |
+| [`AGENTS_HOME`](/packages/caamp/api/index#agentshome)                                                          | variable | Global `.agents/` home directory (`~/.agents/` or `$AGENTS_HOME`).               |
+| [`LOCK_FILE_PATH`](/packages/caamp/api/index#lockfilepath)                                                     | variable | CAAMP lock file path (`~/.agents/.caamp-lock.json`).                             |
+| [`CANONICAL_SKILLS_DIR`](/packages/caamp/api/index#canonicalskillsdir)                                         | variable | Canonical skills directory (`~/.agents/skills/`).                                |
+| [`AGENTS_MCP_DIR`](/packages/caamp/api/index#agentsmcpdir)                                                     | variable | Global MCP directory (`~/.agents/mcp/`).                                         |
+| [`AGENTS_MCP_SERVERS_PATH`](/packages/caamp/api/index#agentsmcpserverspath)                                    | variable | Global MCP servers.json path (`~/.agents/mcp/servers.json`).                     |
+| [`AGENTS_CONFIG_PATH`](/packages/caamp/api/index#agentsconfigpath)                                             | variable | Global agents config.toml path (`~/.agents/config.toml`).                        |
+| [`agents.ts`](/packages/caamp/api/index#agentsts)                                                              | file     |                                                                                  |
+| [`logger.ts`](/packages/caamp/api/index#loggerts)                                                              | file     |                                                                                  |
+| [`detection.ts`](/packages/caamp/api/index#detectionts)                                                        | file     |                                                                                  |
+| [`installer.ts`](/packages/caamp/api/index#installerts)                                                        | file     |                                                                                  |
+| [`orchestration.ts`](/packages/caamp/api/index#orchestrationts)                                                | file     |                                                                                  |
+| [`ErrorCategories`](/packages/caamp/api/index#errorcategories)                                                 | variable | Common error categories mapping for convenience.                                 |
+| [`ErrorCodes`](/packages/caamp/api/index#errorcodes)                                                           | variable | Common error codes for consistency.                                              |
+| [`lafs.ts`](/packages/caamp/api/index#lafsts)                                                                  | file     |                                                                                  |
+| [`lafs.ts`](/packages/caamp/api/index#lafsts)                                                                  | file     |                                                                                  |
+| [`common.ts`](/packages/caamp/api/index#commonts)                                                              | file     |                                                                                  |
+| [`batch.ts`](/packages/caamp/api/index#batchts)                                                                | file     |                                                                                  |
+| [`instructions.ts`](/packages/caamp/api/index#instructionsts)                                                  | file     |                                                                                  |
+| [`providers.ts`](/packages/caamp/api/index#providersts)                                                        | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Advanced orchestration command group providing LAFS-compliant wrappers for ba... |
+| [`utils.ts`](/packages/caamp/api/index#utilsts)                                                                | file     |                                                                                  |
+| [`json.ts`](/packages/caamp/api/index#jsonts)                                                                  | file     |                                                                                  |
+| [`toml.ts`](/packages/caamp/api/index#tomlts)                                                                  | file     |                                                                                  |
+| [`yaml.ts`](/packages/caamp/api/index#yamlts)                                                                  | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Provides format-agnostic config read, write, and remove operations that dispa... |
+| [`config.ts`](/packages/caamp/api/index#configts)                                                              | file     |                                                                                  |
+| [`version.ts`](/packages/caamp/api/index#versionts)                                                            | file     |                                                                                  |
+| [`doctor.ts`](/packages/caamp/api/index#doctorts)                                                              | file     |                                                                                  |
+| [`check.ts`](/packages/caamp/api/index#checkts)                                                                | file     |                                                                                  |
+| [`inject.ts`](/packages/caamp/api/index#injectts)                                                              | file     |                                                                                  |
+| [`update.ts`](/packages/caamp/api/index#updatets)                                                              | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Instruction file management command group for injecting, checking, and updati... |
+| [`HOOK_CATEGORIES`](/packages/caamp/api/index#hookcategories)                                                  | variable | All hook event categories (8 total).                                             |
+| [`EVENT_SOURCES`](/packages/caamp/api/index#eventsources)                                                      | variable | Event source types: domain, provider.                                            |
+| [`CANONICAL_HOOK_EVENTS`](/packages/caamp/api/index#canonicalhookevents)                                       | variable | All canonical hook events (31 total: 16 provider, 15 domain).  This replaces...  |
+| [`PROVIDER_HOOK_EVENTS`](/packages/caamp/api/index#providerhookevents)                                         | variable | Provider-sourced events only (original 16 CAAMP events).                         |
+| [`DOMAIN_HOOK_EVENTS`](/packages/caamp/api/index#domainhookevents)                                             | variable | Domain-sourced events only (CLEO business events).                               |
+| [`EVENT_METADATA`](/packages/caamp/api/index#eventmetadata)                                                    | variable | Metadata for each canonical event, derived from hook-mappings.json.              |
+| [`generated.ts`](/packages/caamp/api/index#generatedts)                                                        | file     |                                                                                  |
+| [`types.ts`](/packages/caamp/api/index#typests)                                                                | file     |                                                                                  |
+| [`normalizer.ts`](/packages/caamp/api/index#normalizerts)                                                      | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | CAAMP Hooks Module  Unified hook normalization layer that translates between...  |
+| [`providers.ts`](/packages/caamp/api/index#providersts)                                                        | file     |                                                                                  |
+| [`AUDIT_RULES`](/packages/caamp/api/index#auditrules)                                                          | variable | Complete set of security audit rules for SKILL.md scanning.                      |
+| [`rules.ts`](/packages/caamp/api/index#rulests)                                                                | file     |                                                                                  |
+| [`scanner.ts`](/packages/caamp/api/index#scannerts)                                                            | file     |                                                                                  |
+| [`audit.ts`](/packages/caamp/api/index#auditts)                                                                | file     |                                                                                  |
+| [`lock-utils.ts`](/packages/caamp/api/index#lock-utilsts)                                                      | file     |                                                                                  |
+| [`parser.ts`](/packages/caamp/api/index#parserts)                                                              | file     |                                                                                  |
+| [`lock.ts`](/packages/caamp/api/index#lockts)                                                                  | file     |                                                                                  |
+| [`check.ts`](/packages/caamp/api/index#checkts)                                                                | file     |                                                                                  |
+| [`DEFAULT_FETCH_TIMEOUT_MS`](/packages/caamp/api/index#defaultfetchtimeoutms)                                  | variable | Default timeout in milliseconds for outbound HTTP requests.                      |
+| [`fetch.ts`](/packages/caamp/api/index#fetchts)                                                                | file     |                                                                                  |
+| [`types.ts`](/packages/caamp/api/index#typests)                                                                | file     |                                                                                  |
+| [`skillsmp.ts`](/packages/caamp/api/index#skillsmpts)                                                          | file     |                                                                                  |
+| [`skillssh.ts`](/packages/caamp/api/index#skillsshts)                                                          | file     |                                                                                  |
+| [`client.ts`](/packages/caamp/api/index#clientts)                                                              | file     |                                                                                  |
+| [`RECOMMENDATION_ERROR_CODES`](/packages/caamp/api/index#recommendationerrorcodes)                             | variable | Error codes used in skill recommendation validation.                             |
+| [`rankSkills`](/packages/caamp/api/index#rankskills)                                                           | variable | Alias for `recommendSkills` providing a shorter function name.                   |
+| [`recommendation.ts`](/packages/caamp/api/index#recommendationts)                                              | file     |                                                                                  |
+| [`recommendation-api.ts`](/packages/caamp/api/index#recommendation-apits)                                      | file     |                                                                                  |
+| [`find.ts`](/packages/caamp/api/index#findts)                                                                  | file     |                                                                                  |
+| [`init.ts`](/packages/caamp/api/index#initts)                                                                  | file     |                                                                                  |
+| [`library-loader.ts`](/packages/caamp/api/index#library-loaderts)                                              | file     |                                                                                  |
+| [`catalog.ts`](/packages/caamp/api/index#catalogts)                                                            | file     |                                                                                  |
+| [`discovery.ts`](/packages/caamp/api/index#discoveryts)                                                        | file     |                                                                                  |
+| [`github.ts`](/packages/caamp/api/index#githubts)                                                              | file     |                                                                                  |
+| [`gitlab.ts`](/packages/caamp/api/index#gitlabts)                                                              | file     |                                                                                  |
+| [`install.ts`](/packages/caamp/api/index#installts)                                                            | file     |                                                                                  |
+| [`list.ts`](/packages/caamp/api/index#listts)                                                                  | file     |                                                                                  |
+| [`remove.ts`](/packages/caamp/api/index#removets)                                                              | file     |                                                                                  |
+| [`update.ts`](/packages/caamp/api/index#updatets)                                                              | file     |                                                                                  |
+| [`validator.ts`](/packages/caamp/api/index#validatorts)                                                        | file     |                                                                                  |
+| [`validate.ts`](/packages/caamp/api/index#validatets)                                                          | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Skills management command group for installing, removing, listing, finding, c... |
+| [`cli.ts`](/packages/caamp/api/index#clits)                                                                    | file     |                                                                                  |
+| [`spawn-adapter.ts`](/packages/caamp/api/index#spawn-adapterts)                                                | file     |                                                                                  |
+| [`integrity.ts`](/packages/caamp/api/index#integrityts)                                                        | file     |                                                                                  |
+| [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Provides the public API surface for the CAAMP library, re-exporting types, re... |
+| [`cant-resolver.ts`](/packages/caamp/api/index#cant-resolverts)                                                | file     |                                                                                  |
+| [`wellknown.ts`](/packages/caamp/api/index#wellknownts)                                                        | file     |                                                                                  |
+| [`cli.test.ts`](/packages/caamp/api/index#clitestts)                                                           | file     |                                                                                  |
+| [`config-providers.test.ts`](/packages/caamp/api/index#config-providerstestts)                                 | file     |                                                                                  |
+| [`coverage-config-providers-doctor.test.ts`](/packages/caamp/api/index#coverage-config-providers-doctortestts) | file     |                                                                                  |
+| [`coverage-instructions.test.ts`](/packages/caamp/api/index#coverage-instructionstestts)                       | file     |                                                                                  |
+| [`instructions-command-wrappers.test.ts`](/packages/caamp/api/index#instructions-command-wrapperstestts)       | file     |                                                                                  |
+| [`skill-install.test.ts`](/packages/caamp/api/index#skill-installtestts)                                       | file     |                                                                                  |
+| [`skills-commands-coverage.test.ts`](/packages/caamp/api/index#skills-commands-coveragetestts)                 | file     |                                                                                  |
+| [`skills-commands.test.ts`](/packages/caamp/api/index#skills-commandstestts)                                   | file     |                                                                                  |
+| [`skills-find-recommendation.test.ts`](/packages/caamp/api/index#skills-find-recommendationtestts)             | file     |                                                                                  |
+| [`skills-format-errors.test.ts`](/packages/caamp/api/index#skills-format-errorstestts)                         | file     |                                                                                  |
+| [`skills-protocol-format-errors.test.ts`](/packages/caamp/api/index#skills-protocol-format-errorstestts)       | file     |                                                                                  |
+| [`skills-update-readline.test.ts`](/packages/caamp/api/index#skills-update-readlinetestts)                     | file     |                                                                                  |
+| [`advanced-common.test.ts`](/packages/caamp/api/index#advanced-commontestts)                                   | file     |                                                                                  |
+| [`advanced-lafs.test.ts`](/packages/caamp/api/index#advanced-lafstestts)                                       | file     |                                                                                  |
+| [`advanced-orchestration.test.ts`](/packages/caamp/api/index#advanced-orchestrationtestts)                     | file     |                                                                                  |
+| [`cant-resolver.test.ts`](/packages/caamp/api/index#cant-resolvertestts)                                       | file     |                                                                                  |
+| [`catalog.test.ts`](/packages/caamp/api/index#catalogtestts)                                                   | file     |                                                                                  |
+| [`core-coverage-gaps.test.ts`](/packages/caamp/api/index#core-coverage-gapstestts)                             | file     |                                                                                  |
+| [`coverage-clone-cleanup.test.ts`](/packages/caamp/api/index#coverage-clone-cleanuptestts)                     | file     |                                                                                  |
+| [`coverage-deep-branches.test.ts`](/packages/caamp/api/index#coverage-deep-branchestestts)                     | file     |                                                                                  |
+| [`coverage-final-push.test.ts`](/packages/caamp/api/index#coverage-final-pushtestts)                           | file     |                                                                                  |
+| [`coverage-lock-installer-mocked.test.ts`](/packages/caamp/api/index#coverage-lock-installer-mockedtestts)     | file     |                                                                                  |
+| [`coverage-network-mocked.test.ts`](/packages/caamp/api/index#coverage-network-mockedtestts)                   | file     |                                                                                  |
+| [`coverage-scanner-mocked.test.ts`](/packages/caamp/api/index#coverage-scanner-mockedtestts)                   | file     |                                                                                  |
+| [`detection.test.ts`](/packages/caamp/api/index#detectiontestts)                                               | file     |                                                                                  |
+| [`doctor.test.ts`](/packages/caamp/api/index#doctortestts)                                                     | file     |                                                                                  |
+| [`formats.test.ts`](/packages/caamp/api/index#formatstestts)                                                   | file     |                                                                                  |
+| [`hooks-normalizer.test.ts`](/packages/caamp/api/index#hooks-normalizertestts)                                 | file     |                                                                                  |
+| [`injection-templates.test.ts`](/packages/caamp/api/index#injection-templatestestts)                           | file     |                                                                                  |
+| [`injector-idempotent.test.ts`](/packages/caamp/api/index#injector-idempotenttestts)                           | file     |                                                                                  |
+| [`installer.test.ts`](/packages/caamp/api/index#installertestts)                                               | file     |                                                                                  |
+| [`instructions.test.ts`](/packages/caamp/api/index#instructionstestts)                                         | file     |                                                                                  |
+| [`lock-utils.test.ts`](/packages/caamp/api/index#lock-utilstestts)                                             | file     |                                                                                  |
+| [`lock.test.ts`](/packages/caamp/api/index#locktestts)                                                         | file     |                                                                                  |
+| [`logger.test.ts`](/packages/caamp/api/index#loggertestts)                                                     | file     |                                                                                  |
+| [`marketplace.test.ts`](/packages/caamp/api/index#marketplacetestts)                                           | file     |                                                                                  |
+| [`network-fetch.test.ts`](/packages/caamp/api/index#network-fetchtestts)                                       | file     |                                                                                  |
+| [`paths-standard.test.ts`](/packages/caamp/api/index#paths-standardtestts)                                     | file     |                                                                                  |
+| [`recommendation-api.test.ts`](/packages/caamp/api/index#recommendation-apitestts)                             | file     |                                                                                  |
+| [`recommendation.test.ts`](/packages/caamp/api/index#recommendationtestts)                                     | file     |                                                                                  |
+| [`registry.test.ts`](/packages/caamp/api/index#registrytestts)                                                 | file     |                                                                                  |
+| [`skill-integrity.test.ts`](/packages/caamp/api/index#skill-integritytestts)                                   | file     |                                                                                  |
+| [`skill-library.test.ts`](/packages/caamp/api/index#skill-librarytestts)                                       | file     |                                                                                  |
+| [`skills-audit.test.ts`](/packages/caamp/api/index#skills-audittestts)                                         | file     |                                                                                  |
+| [`skills-discovery.test.ts`](/packages/caamp/api/index#skills-discoverytestts)                                 | file     |                                                                                  |
+| [`skills-installer.test.ts`](/packages/caamp/api/index#skills-installertestts)                                 | file     |                                                                                  |
+| [`skills-lock.test.ts`](/packages/caamp/api/index#skills-locktestts)                                           | file     |                                                                                  |
+| [`source-fetchers.test.ts`](/packages/caamp/api/index#source-fetcherstestts)                                   | file     |                                                                                  |
+| [`source-parser.test.ts`](/packages/caamp/api/index#source-parsertestts)                                       | file     |                                                                                  |
+| [`spawn-adapter.test.ts`](/packages/caamp/api/index#spawn-adaptertestts)                                       | file     |                                                                                  |
+| [`validator.test.ts`](/packages/caamp/api/index#validatortestts)                                               | file     |                                                                                  |
+| [`version.test.ts`](/packages/caamp/api/index#versiontestts)                                                   | file     |                                                                                  |
