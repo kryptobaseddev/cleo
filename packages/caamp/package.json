@@ -57,6 +57,7 @@
     "url": "https://github.com/kryptobaseddev/cleo/issues"
   },
   "dependencies": {
+    "@cleocode/cant": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@iarna/toml": "^2.2.5",
     "commander": "^14.0.0",

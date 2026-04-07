@@ -47,8 +47,12 @@ export {
   resolveDefaultTargetProviders,
 } from './core/harness/index.js';
 export type {
+  CantProfileCounts,
+  CantProfileEntry,
+  CantValidationDiagnostic,
   ExclusivityMode,
   ResolveDefaultTargetProvidersOptions,
+  ValidateCantProfileResult,
 } from './core/harness/types.js';
 // Hooks normalizer
 export type {

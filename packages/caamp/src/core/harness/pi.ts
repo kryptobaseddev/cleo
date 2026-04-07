@@ -27,10 +27,14 @@ import { type Dirent, existsSync } from 'node:fs';
 import { cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
+import { parseDocument, validateDocument } from '@cleocode/cant';
 import type { Provider } from '../../types.js';
 import type { HarnessTier } from './scope.js';
 import { resolveAllTiers, resolveTierDir } from './scope.js';
 import type {
+  CantProfileCounts,
+  CantProfileEntry,
+  CantValidationDiagnostic,
   ExtensionEntry,
   Harness,
   HarnessInstallOptions,
@@ -45,6 +49,7 @@ import type {
   SubagentResult,
   SubagentTask,
   ThemeEntry,
+  ValidateCantProfileResult,
 } from './types.js';
 
 // ── Marker constants ──────────────────────────────────────────────────
@@ -827,6 +832,162 @@ export class PiHarness implements Harness {
     }
     return removed;
   }
+
+  // ── CANT profiles (Wave-1, T276) ────────────────────────────────────
+
+  /**
+   * {@inheritDoc Harness.installCantProfile}
+   *
+   * @remarks
+   * Validates the source via {@link validateCantProfile} before copying so
+   * we never persist a `.cant` file the runtime bridge cannot load. The
+   * target layout is `<tier-root>/cant/<name>.cant`, resolved through
+   * {@link resolveTierDir} so the project/user/global hierarchy stays
+   * consistent with the other Wave-1 verbs.
+   */
+  async installCantProfile(
+    sourcePath: string,
+    name: string,
+    tier: HarnessTier,
+    projectDir?: string,
+    opts?: HarnessInstallOptions,
+  ): Promise<{ targetPath: string; tier: HarnessTier; counts: CantProfileCounts }> {
+    if (!existsSync(sourcePath)) {
+      throw new Error(`installCantProfile: source file does not exist: ${sourcePath}`);
+    }
+    const stats = await stat(sourcePath);
+    if (!stats.isFile()) {
+      throw new Error(`installCantProfile: source path is not a regular file: ${sourcePath}`);
+    }
+
+    const ext = extname(sourcePath);
+    if (ext !== '.cant') {
+      throw new Error(
+        `installCantProfile: expected a CANT source file (.cant), got: ${ext || '(no extension)'}`,
+      );
+    }
+
+    // Hard validation gate: refuse to install a profile cant-core rejects.
+    const validation = await this.validateCantProfile(sourcePath);
+    if (!validation.valid) {
+      const firstError =
+        validation.errors.find((e) => e.severity === 'error') ?? validation.errors[0];
+      const detail =
+        firstError !== undefined
+          ? ` (${firstError.ruleId} at ${firstError.line}:${firstError.col}: ${firstError.message})`
+          : '';
+      throw new Error(`installCantProfile: source file failed cant-core validation${detail}`);
+    }
+
+    const dir = resolveTierDir({ tier, kind: 'cant', projectDir });
+    const targetPath = join(dir, `${name}.cant`);
+
+    if (existsSync(targetPath) && opts?.force !== true) {
+      throw new Error(
+        `installCantProfile: target already exists at ${targetPath} (pass --force to overwrite)`,
+      );
+    }
+
+    const contents = await readFile(sourcePath);
+    await mkdir(dir, { recursive: true });
+    await writeFile(targetPath, contents);
+    return { targetPath, tier, counts: validation.counts };
+  }
+
+  /** {@inheritDoc Harness.removeCantProfile} */
+  async removeCantProfile(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean> {
+    const dir = resolveTierDir({ tier, kind: 'cant', projectDir });
+    const targetPath = join(dir, `${name}.cant`);
+    if (!existsSync(targetPath)) return false;
+    await rm(targetPath, { force: true });
+    return true;
+  }
+
+  /**
+   * {@inheritDoc Harness.listCantProfiles}
+   *
+   * @remarks
+   * Walks every tier in {@link TIER_PRECEDENCE} order, parsing each
+   * discovered `.cant` file via cant-core to extract a
+   * {@link CantProfileCounts} bag. Higher-precedence tiers shadow
+   * lower-precedence entries with the same name; shadowed entries
+   * still appear in the result but carry the
+   * `shadowedByHigherTier` flag so callers can render the precedence
+   * story without losing visibility of the duplicate.
+   */
+  async listCantProfiles(projectDir?: string): Promise<CantProfileEntry[]> {
+    const tiers = resolveAllTiers('cant', projectDir);
+    const out: CantProfileEntry[] = [];
+    const seenNames = new Set<string>();
+
+    for (const { tier, dir } of tiers) {
+      if (!existsSync(dir)) continue;
+      let entries: Dirent[];
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const fileName = entry.name;
+        if (!fileName.endsWith('.cant')) continue;
+        const name = fileName.slice(0, -'.cant'.length);
+        const sourcePath = join(dir, fileName);
+        const counts = await extractCantCounts(sourcePath);
+        const shadowed = seenNames.has(name);
+        const profile: CantProfileEntry = {
+          name,
+          tier,
+          sourcePath,
+          counts,
+        };
+        if (shadowed) {
+          profile.shadowedByHigherTier = true;
+        }
+        out.push(profile);
+        seenNames.add(name);
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * {@inheritDoc Harness.validateCantProfile}
+   *
+   * @remarks
+   * Pure validator. Reads the file, runs `parseDocument` to derive
+   * counts (when parsing succeeds) and `validateDocument` to collect
+   * the 42-rule diagnostic feed. The two calls are kept independent so
+   * we can still report counts for files that pass parsing but fail a
+   * lint rule.
+   */
+  async validateCantProfile(sourcePath: string): Promise<ValidateCantProfileResult> {
+    if (!existsSync(sourcePath)) {
+      throw new Error(`validateCantProfile: source file does not exist: ${sourcePath}`);
+    }
+    const stats = await stat(sourcePath);
+    if (!stats.isFile()) {
+      throw new Error(`validateCantProfile: source path is not a regular file: ${sourcePath}`);
+    }
+
+    const counts = await extractCantCounts(sourcePath);
+    const validation = await validateDocument(sourcePath);
+    const errors: CantValidationDiagnostic[] = validation.diagnostics.map((d) => ({
+      ruleId: d.ruleId,
+      message: d.message,
+      line: d.line,
+      col: d.col,
+      severity: normaliseSeverity(d.severity),
+    }));
+
+    return {
+      valid: validation.valid,
+      errors,
+      counts,
+    };
+  }
 }
 
 // ── Private session-header helper ──────────────────────────────────────
@@ -896,4 +1057,164 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
       });
     }
   }
+}
+
+// ── Private CANT helpers (T276) ────────────────────────────────────────
+
+/** Empty count bag returned when parsing fails. */
+const EMPTY_CANT_COUNTS: CantProfileCounts = {
+  agentCount: 0,
+  workflowCount: 0,
+  pipelineCount: 0,
+  hookCount: 0,
+  skillCount: 0,
+};
+
+/**
+ * Narrow a value to a record so we can safely walk the cant-core AST.
+ */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Extract a string value from a cant-core spanned-name node.
+ *
+ * @remarks
+ * Cant-core wraps identifiers/property keys in a `{ span, value }`
+ * envelope. This helper unwraps the envelope or accepts a raw string,
+ * returning `null` for anything else.
+ */
+function unwrapSpanned(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (isRecord(value) && typeof value['value'] === 'string') {
+    return value['value'];
+  }
+  return null;
+}
+
+/**
+ * Drill into a cant-core property `value` union and pull out the
+ * declared skill names from a `skills:` array.
+ *
+ * @remarks
+ * The cant-core AST encodes property values as discriminated objects
+ * like `{ Array: [{ String: { raw: "ct-cleo" } }, ...] }` or
+ * `{ Identifier: "name" }`. This helper walks just the shape used by
+ * `skills: ["ct-cleo", "ct-task-executor"]` and pushes every string
+ * literal into `out`. It is intentionally tolerant: anything that does
+ * not match the expected shape is ignored rather than thrown.
+ */
+function collectSkillNames(value: unknown, out: Set<string>): void {
+  if (!isRecord(value)) return;
+  const arr = value['Array'];
+  if (!Array.isArray(arr)) return;
+  for (const item of arr) {
+    if (!isRecord(item)) continue;
+    const stringWrapper = item['String'];
+    if (isRecord(stringWrapper) && typeof stringWrapper['raw'] === 'string') {
+      out.add(stringWrapper['raw']);
+      continue;
+    }
+    const identWrapper = item['Identifier'];
+    if (typeof identWrapper === 'string') {
+      out.add(identWrapper);
+    }
+  }
+}
+
+/**
+ * Parse a `.cant` file and return its top-level section counts.
+ *
+ * @remarks
+ * Used by both {@link PiHarness.listCantProfiles} and
+ * {@link PiHarness.validateCantProfile}. Walks
+ * `document.sections` (a tagged-union array where each element is a
+ * single-key object such as `{ Agent: ... }`, `{ Workflow: ... }`,
+ * `{ Pipeline: ... }`, `{ Hook: ... }`, `{ Comment: ... }`) and tallies
+ * each section type. Hook bodies nested inside an Agent section's
+ * `hooks` array are added to {@link CantProfileCounts.hookCount}, and
+ * skill names referenced via the agent's `skills:` property are
+ * de-duplicated into {@link CantProfileCounts.skillCount}.
+ *
+ * Returns the empty count bag when parsing fails — callers can still
+ * surface the file in a list, just without per-section detail.
+ */
+async function extractCantCounts(sourcePath: string): Promise<CantProfileCounts> {
+  let parsed: Awaited<ReturnType<typeof parseDocument>>;
+  try {
+    parsed = await parseDocument(sourcePath);
+  } catch {
+    return { ...EMPTY_CANT_COUNTS };
+  }
+  if (!parsed.success || !isRecord(parsed.document)) {
+    return { ...EMPTY_CANT_COUNTS };
+  }
+  const sections = parsed.document['sections'];
+  if (!Array.isArray(sections)) {
+    return { ...EMPTY_CANT_COUNTS };
+  }
+
+  let agentCount = 0;
+  let workflowCount = 0;
+  let pipelineCount = 0;
+  let hookCount = 0;
+  const skillNames = new Set<string>();
+
+  for (const section of sections) {
+    if (!isRecord(section)) continue;
+    if (isRecord(section['Agent'])) {
+      agentCount += 1;
+      const agent = section['Agent'];
+      const hooks = agent['hooks'];
+      if (Array.isArray(hooks)) {
+        hookCount += hooks.length;
+      }
+      const properties = agent['properties'];
+      if (Array.isArray(properties)) {
+        for (const prop of properties) {
+          if (!isRecord(prop)) continue;
+          const key = unwrapSpanned(prop['key']);
+          if (key === 'skills') {
+            collectSkillNames(prop['value'], skillNames);
+          }
+        }
+      }
+      continue;
+    }
+    if (isRecord(section['Workflow'])) {
+      workflowCount += 1;
+      continue;
+    }
+    if (isRecord(section['Pipeline'])) {
+      pipelineCount += 1;
+      continue;
+    }
+    if (isRecord(section['Hook'])) {
+      hookCount += 1;
+    }
+  }
+
+  return {
+    agentCount,
+    workflowCount,
+    pipelineCount,
+    hookCount,
+    skillCount: skillNames.size,
+  };
+}
+
+/**
+ * Normalise a cant-core severity string into the harness layer's typed
+ * union.
+ *
+ * @remarks
+ * Cant-core's native binding returns severity as a free-form string;
+ * the harness contract types it as a closed union so downstream
+ * envelope builders can safely render it. Unknown severities collapse
+ * to `'error'` to fail closed.
+ */
+function normaliseSeverity(raw: string): 'error' | 'warning' | 'info' | 'hint' {
+  if (raw === 'warning' || raw === 'info' || raw === 'hint') return raw;
+  return 'error';
 }

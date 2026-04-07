@@ -13,6 +13,7 @@
  */
 
 import type { Command } from 'commander';
+import { registerPiCantCommands } from './cant.js';
 import { registerPiExtensionsCommands } from './extensions.js';
 import { registerPiModelsCommands } from './models.js';
 import { registerPiPromptsCommands } from './prompts.js';
@@ -42,6 +43,7 @@ import { registerPiThemesCommands } from './themes.js';
  * caamp pi models list
  * caamp pi prompts list
  * caamp pi themes list
+ * caamp pi cant list
  * ```
  *
  * @public
@@ -49,11 +51,12 @@ import { registerPiThemesCommands } from './themes.js';
 export function registerPiCommands(program: Command): void {
   const pi = program
     .command('pi')
-    .description('Pi harness operations (extensions, sessions, models, prompts, themes)');
+    .description('Pi harness operations (extensions, sessions, models, prompts, themes, cant)');
 
   registerPiExtensionsCommands(pi);
   registerPiSessionsCommands(pi);
   registerPiModelsCommands(pi);
   registerPiPromptsCommands(pi);
   registerPiThemesCommands(pi);
+  registerPiCantCommands(pi);
 }
