@@ -249,16 +249,30 @@ export function validateTestCoverage(projectRoot?: string): EngineResult {
 // ============================================================================
 
 import {
+  checkArchitectureDecisionManifest,
+  checkArtifactPublishManifest,
   checkConsensusManifest,
   checkContributionManifest,
   checkDecompositionManifest,
   checkImplementationManifest,
+  checkProvenanceManifest,
+  checkReleaseManifest,
+  checkResearchManifest,
   checkSpecificationManifest,
+  checkTestingManifest,
+  checkValidationManifest,
+  validateArchitectureDecisionTask,
+  validateArtifactPublishTask,
   validateConsensusTask,
   validateContributionProtocol as validateContributionTask,
   validateDecompositionTask,
   validateImplementationTask,
+  validateProvenanceTask,
+  validateReleaseTask,
+  validateResearchTask,
   validateSpecificationTask,
+  validateTestingTask,
+  validateValidationTask,
 } from '@cleocode/core/internal';
 
 interface ProtocolValidationParams {
@@ -266,9 +280,64 @@ interface ProtocolValidationParams {
   taskId?: string;
   manifestFile?: string;
   strict?: boolean;
+  // consensus
   votingMatrixFile?: string;
+  // decomposition
   epicId?: string;
+  siblingCount?: number;
+  descriptionClarity?: boolean;
+  maxSiblings?: number;
+  maxDepth?: number;
+  // specification
   specFile?: string;
+  // implementation / contribution
+  hasTaskTags?: boolean;
+  hasContributionTags?: boolean;
+  // research
+  hasCodeChanges?: boolean;
+  // release
+  version?: string;
+  hasChangelog?: boolean;
+  // artifact-publish
+  artifactType?: string;
+  buildPassed?: boolean;
+  // provenance
+  hasAttestation?: boolean;
+  hasSbom?: boolean;
+  // architecture-decision
+  adrContent?: string;
+  status?: 'proposed' | 'accepted' | 'superseded' | 'deprecated';
+  hitlReviewed?: boolean;
+  downstreamFlagged?: boolean;
+  persistedInDb?: boolean;
+  // validation stage
+  specMatchConfirmed?: boolean;
+  testSuitePassed?: boolean;
+  protocolComplianceChecked?: boolean;
+  // testing stage
+  framework?: string;
+  testsRun?: number;
+  testsPassed?: number;
+  testsFailed?: number;
+  coveragePercent?: number;
+  coverageThreshold?: number;
+  ivtLoopConverged?: boolean;
+  ivtLoopIterations?: number;
+}
+
+/**
+ * Shared catch handler for protocol validation ops.
+ *
+ * @task T260
+ */
+function protocolCatch(err: unknown): EngineResult {
+  const message = err instanceof Error ? err.message : String(err);
+  const code = message.includes('not found')
+    ? 'E_NOT_FOUND'
+    : message.includes('violations')
+      ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+  return engineError(code, message);
 }
 
 /**
@@ -442,13 +511,241 @@ export async function validateProtocolSpecification(
       return { success: true, data: result };
     }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const code = message.includes('not found')
-      ? 'E_NOT_FOUND'
-      : message.includes('violations')
-        ? 'E_PROTOCOL_VIOLATION'
-        : 'E_VALIDATION_ERROR';
-    return engineError(code, message);
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.research - Validate research protocol compliance
+ * @task T260
+ */
+export async function validateProtocolResearch(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, hasCodeChanges } = params;
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateResearchTask(params.taskId, { strict, hasCodeChanges });
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkResearchManifest(params.manifestFile, { strict, hasCodeChanges });
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.architecture-decision - Validate ADR protocol compliance
+ * @task T260
+ */
+export async function validateProtocolArchitectureDecision(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, adrContent, status, hitlReviewed, downstreamFlagged, persistedInDb } =
+      params;
+    const adrOpts = { strict, adrContent, status, hitlReviewed, downstreamFlagged, persistedInDb };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateArchitectureDecisionTask(params.taskId, adrOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkArchitectureDecisionManifest(params.manifestFile, adrOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.validation - Validate validation-stage protocol compliance
+ * @task T260
+ */
+export async function validateProtocolValidation(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, specMatchConfirmed, testSuitePassed, protocolComplianceChecked } = params;
+    const validationOpts = {
+      strict,
+      specMatchConfirmed,
+      testSuitePassed,
+      protocolComplianceChecked,
+    };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateValidationTask(params.taskId, validationOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkValidationManifest(params.manifestFile, validationOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.testing - Validate testing-stage protocol compliance (IVT loop)
+ * @task T260
+ */
+export async function validateProtocolTesting(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const {
+      mode,
+      strict,
+      framework,
+      testsRun,
+      testsPassed,
+      testsFailed,
+      coveragePercent,
+      coverageThreshold,
+      ivtLoopConverged,
+      ivtLoopIterations,
+    } = params;
+    const testingOpts = {
+      strict,
+      framework: framework as
+        | 'vitest'
+        | 'jest'
+        | 'mocha'
+        | 'pytest'
+        | 'unittest'
+        | 'go-test'
+        | 'cargo-test'
+        | 'rspec'
+        | 'phpunit'
+        | 'bats'
+        | 'other'
+        | undefined,
+      testsRun,
+      testsPassed,
+      testsFailed,
+      coveragePercent,
+      coverageThreshold,
+      ivtLoopConverged,
+      ivtLoopIterations,
+    };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateTestingTask(params.taskId, testingOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkTestingManifest(params.manifestFile, testingOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.release - Validate release protocol compliance
+ * @task T260
+ */
+export async function validateProtocolRelease(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, version, hasChangelog } = params;
+    const releaseOpts = { strict, version, hasChangelog };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateReleaseTask(params.taskId, releaseOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkReleaseManifest(params.manifestFile, releaseOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.artifact-publish - Validate artifact-publish protocol compliance
+ * @task T260
+ */
+export async function validateProtocolArtifactPublish(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, artifactType, buildPassed } = params;
+    const artifactOpts = { strict, artifactType, buildPassed };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateArtifactPublishTask(params.taskId, artifactOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkArtifactPublishManifest(params.manifestFile, artifactOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
+  }
+}
+
+/**
+ * check.protocol.provenance - Validate provenance protocol compliance
+ * @task T260
+ */
+export async function validateProtocolProvenance(
+  params: ProtocolValidationParams,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, hasAttestation, hasSbom } = params;
+    const provenanceOpts = { strict, hasAttestation, hasSbom };
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateProvenanceTask(params.taskId, provenanceOpts);
+      return { success: true, data: result };
+    }
+    if (!params.manifestFile) {
+      return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+    }
+    const result = await checkProvenanceManifest(params.manifestFile, provenanceOpts);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return protocolCatch(err);
   }
 }
 

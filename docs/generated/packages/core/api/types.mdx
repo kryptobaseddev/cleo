@@ -58,13 +58,13 @@ Required column definition for ensureColumns().
 ## AgentInstanceRow
 
 ```typescript
-{ id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; sessionId: string | null; taskId: string | null; startedAt: string; lastHeartbeat: string; stoppedAt: string | null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string | null; parentAgentId: string | null; }
+{ id: string; agentType: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; sessionId: string | null; taskId: string | null; startedAt: string; lastHeartbeat: string; stoppedAt: string | null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string | null; parentAgentId: string | null; }
 ```
 
 ## NewAgentInstanceRow
 
 ```typescript
-{ id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status?: "error" | "active" | "starting" | "idle" | "crashed" | "stopped" | undefined; sessionId?: string | null | undefined; taskId?: string | null | undefined; startedAt?: string | undefined; lastHeartbeat?: string | undefined; stoppedAt?: string | null | undefined; errorCount?: number | undefined; totalTasksCompleted?: number | undefined; capacity?: string | undefined; metadataJson?: string | null | undefined; parentAgentId?: string | null | undefined; }
+{ id: string; agentType: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status?: "error" | "active" | "starting" | "idle" | "crashed" | "stopped" | undefined; sessionId?: string | null | undefined; taskId?: string | null | undefined; startedAt?: string | undefined; lastHeartbeat?: string | undefined; stoppedAt?: string | null | undefined; errorCount?: number | undefined; totalTasksCompleted?: number | undefined; capacity?: string | undefined; metadataJson?: string | null | undefined; parentAgentId?: string | null | undefined; }
 ```
 
 ## AgentErrorLogRow
@@ -88,7 +88,7 @@ Required column definition for ensureColumns().
 ## AgentType
 
 ```typescript
-"custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"
+"orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"
 ```
 
 ## AgentErrorType
@@ -513,7 +513,7 @@ Options for registering a new agent instance.
 
 | Property        | Type                                                                                                     | Required | Description   |
 | --------------- | -------------------------------------------------------------------------------------------------------- | -------- | ------------- |
-| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | agentType     |
+| `agentType`     | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | agentType     |
 | `sessionId`     | `string \| undefined`                                                                                    | No       | sessionId     |
 | `taskId`        | `string \| undefined`                                                                                    | No       | taskId        |
 | `parentAgentId` | `string \| undefined`                                                                                    | No       | parentAgentId |
@@ -536,7 +536,7 @@ Filters for listing agent instances.
 | Property        | Type                                                                                                                                                                                                                                | Required | Description   |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------- |
 | `status`        | `"error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped" \| ("error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped")[] \| undefined`                                                                   | No       | status        |
-| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor" \| ("custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor")[] \| undefined` | No       | agentType     |
+| `agentType`     | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor" \| ("orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor")[] \| undefined` | No       | agentType     |
 | `sessionId`     | `string \| undefined`                                                                                                                                                                                                               | No       | sessionId     |
 | `parentAgentId` | `string \| undefined`                                                                                                                                                                                                               | No       | parentAgentId |
 
@@ -554,7 +554,7 @@ Agent health report summary.
 | `crashed`     | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Yes      | crashed     |
 | `stopped`     | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Yes      | stopped     |
 | `totalErrors` | `number`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Yes      | totalErrors |
-| `staleAgents` | `{ id: string; agentType: "custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"; status: "error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped"; sessionId: string \| null; taskId: string \| null; startedAt: string; lastHeartbeat: string; stoppedAt: string \| null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string \| null; parentAgentId: string \| null; }[]` | Yes      | staleAgents |
+| `staleAgents` | `{ id: string; agentType: "orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"; status: "error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped"; sessionId: string \| null; taskId: string \| null; startedAt: string; lastHeartbeat: string; stoppedAt: string \| null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string \| null; parentAgentId: string \| null; }[]` | Yes      | staleAgents |
 
 ## AtomicMigrationResult
 
@@ -1270,6 +1270,352 @@ Transition rule - defines if a transition is allowed.   T4800
 | `absolutePath` | `string`        | Yes      | absolutePath |
 | `outputFile`   | `string`        | Yes      | outputFile   |
 | `related`      | `RelatedLink[]` | Yes      | related      |
+
+## SkillFrontmatter
+
+Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
+
+| Property           | Type                             | Required | Description                                                         |
+| ------------------ | -------------------------------- | -------- | ------------------------------------------------------------------- |
+| `name`             | `string`                         | Yes      | Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.   |
+| `description`      | `string`                         | Yes      | Human-readable description. Maps to CaampSkillMetadata.description. |
+| `version`          | `string \| undefined`            | No       | Semantic version string. Maps to CaampSkillMetadata.version.        |
+| `author`           | `string \| undefined`            | No       | Skill author (CLEO extension).                                      |
+| `tags`             | `string[] \| undefined`          | No       | Classification tags for search/filter (CLEO extension).             |
+| `triggers`         | `string[] \| undefined`          | No       | Trigger patterns for auto-dispatch (CLEO extension).                |
+| `dispatchPriority` | `number \| undefined`            | No       | Priority for dispatch selection (CLEO extension).                   |
+| `model`            | `string \| undefined`            | No       | Preferred LLM model (CLEO extension).                               |
+| `allowedTools`     | `string[] \| undefined`          | No       | Allowed tool names. Maps to CaampSkillMetadata.allowedTools.        |
+| `invocable`        | `boolean \| undefined`           | No       | Whether the skill can be invoked directly (CLEO extension).         |
+| `command`          | `string \| undefined`            | No       | CLI command for direct invocation (CLEO extension).                 |
+| `protocol`         | `SkillProtocolType \| undefined` | No       | RCASD-IVTR+C protocol type (CLEO extension).                        |
+
+## Skill
+
+Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
+
+| Property      | Type                  | Required | Description |
+| ------------- | --------------------- | -------- | ----------- |
+| `name`        | `string`              | Yes      | name        |
+| `dirName`     | `string`              | Yes      | dirName     |
+| `path`        | `string`              | Yes      | path        |
+| `skillMdPath` | `string`              | Yes      | skillMdPath |
+| `frontmatter` | `SkillFrontmatter`    | Yes      | frontmatter |
+| `content`     | `string \| undefined` | No       | content     |
+
+## SkillSummary
+
+Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
+
+| Property      | Type                             | Required | Description |
+| ------------- | -------------------------------- | -------- | ----------- |
+| `name`        | `string`                         | Yes      | name        |
+| `dirName`     | `string`                         | Yes      | dirName     |
+| `description` | `string`                         | Yes      | description |
+| `tags`        | `string[]`                       | Yes      | tags        |
+| `version`     | `string`                         | Yes      | version     |
+| `invocable`   | `boolean`                        | Yes      | invocable   |
+| `command`     | `string \| undefined`            | No       | command     |
+| `protocol`    | `SkillProtocolType \| undefined` | No       | protocol    |
+
+## SkillManifest
+
+Skill manifest (cached aggregate of all discovered skills).
+
+| Property | Type                                                                                      | Required | Description |
+| -------- | ----------------------------------------------------------------------------------------- | -------- | ----------- |
+| `_meta`  | `{ generatedAt: string; ttlSeconds: number; skillCount: number; searchPaths: string[]; }` | Yes      | \_meta      |
+| `skills` | `SkillSummary[]`                                                                          | Yes      | skills      |
+
+## SkillProtocolType
+
+RCASD-IVTR+C protocol types.
+
+```typescript
+SkillProtocolType
+```
+
+## AgentConfig
+
+Agent configuration from AGENT.md or agent definition.
+
+| Property             | Type                    | Required | Description        |
+| -------------------- | ----------------------- | -------- | ------------------ |
+| `name`               | `string`                | Yes      | name               |
+| `description`        | `string`                | Yes      | description        |
+| `model`              | `string \| undefined`   | No       | model              |
+| `allowedTools`       | `string[] \| undefined` | No       | allowedTools       |
+| `customInstructions` | `string \| undefined`   | No       | customInstructions |
+
+## AgentRegistryEntry
+
+Agent registry entry.
+
+| Property      | Type          | Required | Description |
+| ------------- | ------------- | -------- | ----------- |
+| `name`        | `string`      | Yes      | name        |
+| `path`        | `string`      | Yes      | path        |
+| `config`      | `AgentConfig` | Yes      | config      |
+| `installedAt` | `string`      | Yes      | installedAt |
+
+## AgentRegistry
+
+Agent registry (persisted).
+
+| Property | Type                                        | Required | Description |
+| -------- | ------------------------------------------- | -------- | ----------- |
+| `_meta`  | `{ version: string; lastUpdated: string; }` | Yes      | \_meta      |
+| `agents` | `AgentRegistryEntry[]`                      | Yes      | agents      |
+
+## SkillSearchScope
+
+CAAMP search order for skill discovery.
+
+```typescript
+SkillSearchScope
+```
+
+## SkillSearchPath
+
+Ordered search path entry.
+
+| Property   | Type               | Required | Description |
+| ---------- | ------------------ | -------- | ----------- |
+| `scope`    | `SkillSearchScope` | Yes      | scope       |
+| `path`     | `string`           | Yes      | path        |
+| `priority` | `number`           | Yes      | priority    |
+
+## DispatchStrategy
+
+Dispatch strategy for skill selection.
+
+```typescript
+DispatchStrategy
+```
+
+## DispatchResult
+
+Dispatch result from skill\_auto\_dispatch.
+
+| Property     | Type                             | Required | Description |
+| ------------ | -------------------------------- | -------- | ----------- |
+| `skill`      | `string`                         | Yes      | skill       |
+| `strategy`   | `DispatchStrategy`               | Yes      | strategy    |
+| `confidence` | `number`                         | Yes      | confidence  |
+| `protocol`   | `SkillProtocolType \| undefined` | No       | protocol    |
+
+## TokenDefinition
+
+Token definition from placeholders.json.
+
+| Property      | Type                   | Required | Description |
+| ------------- | ---------------------- | -------- | ----------- |
+| `token`       | `string`               | Yes      | token       |
+| `description` | `string \| undefined`  | No       | description |
+| `required`    | `boolean \| undefined` | No       | required    |
+| `default`     | `string \| undefined`  | No       | default     |
+| `pattern`     | `string \| undefined`  | No       | pattern     |
+
+## TokenValidationResult
+
+Token validation result.
+
+| Property | Type                  | Required | Description |
+| -------- | --------------------- | -------- | ----------- |
+| `valid`  | `boolean`             | Yes      | valid       |
+| `token`  | `string`              | Yes      | token       |
+| `value`  | `string \| undefined` | No       | value       |
+| `error`  | `string \| undefined` | No       | error       |
+
+## TokenContext
+
+Token injection context.
+
+| Property       | Type                  | Required | Description  |
+| -------------- | --------------------- | -------- | ------------ |
+| `taskId`       | `string`              | Yes      | taskId       |
+| `date`         | `string`              | Yes      | date         |
+| `topicSlug`    | `string`              | Yes      | topicSlug    |
+| `epicId`       | `string \| undefined` | No       | epicId       |
+| `sessionId`    | `string \| undefined` | No       | sessionId    |
+| `outputDir`    | `string \| undefined` | No       | outputDir    |
+| `manifestPath` | `string \| undefined` | No       | manifestPath |
+
+## OrchestratorThresholds
+
+Orchestrator context thresholds.
+
+| Property   | Type     | Required | Description |
+| ---------- | -------- | -------- | ----------- |
+| `warning`  | `number` | Yes      | warning     |
+| `critical` | `number` | Yes      | critical    |
+
+## PreSpawnCheckResult
+
+Pre-spawn check result.
+
+| Property               | Type                                                                                                                                                     | Required | Description          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------- |
+| `canSpawn`             | `boolean`                                                                                                                                                | Yes      | canSpawn             |
+| `spawnStatus`          | `"warning" \| "blocked" \| "ok" \| "stale"`                                                                                                              | Yes      | spawnStatus          |
+| `recommendation`       | `"continue" \| "wrap_up" \| "stop" \| "verify_compliance"`                                                                                               | Yes      | recommendation       |
+| `context`              | `{ percentage: number; currentTokens: number; maxTokens: number; warningThreshold: number; criticalThreshold: number; status: string; stale: boolean; }` | Yes      | context              |
+| `reasons`              | `{ code: string; message: string; }[]`                                                                                                                   | Yes      | reasons              |
+| `taskValidation`       | `{ exists: boolean; taskId: string; status?: string; title?: string; spawnable: boolean; } \| null \| undefined`                                         | No       | taskValidation       |
+| `complianceValidation` | `Record<string, unknown> \| null \| undefined`                                                                                                           | No       | complianceValidation |
+
+## SpawnPromptResult
+
+Spawn prompt result.
+
+| Property     | Type     | Required | Description |
+| ------------ | -------- | -------- | ----------- |
+| `taskId`     | `string` | Yes      | taskId      |
+| `template`   | `string` | Yes      | template    |
+| `topicSlug`  | `string` | Yes      | topicSlug   |
+| `date`       | `string` | Yes      | date        |
+| `outputDir`  | `string` | Yes      | outputDir   |
+| `outputFile` | `string` | Yes      | outputFile  |
+| `prompt`     | `string` | Yes      | prompt      |
+
+## DependencyWave
+
+Dependency wave for parallel execution.
+
+| Property | Type                                                                                     | Required | Description |
+| -------- | ---------------------------------------------------------------------------------------- | -------- | ----------- |
+| `wave`   | `number`                                                                                 | Yes      | wave        |
+| `tasks`  | `{ id: string; title: string; priority?: string; status: string; depends: string[]; }[]` | No       | tasks       |
+
+## DependencyAnalysis
+
+Dependency analysis result.
+
+| Property         | Type                                                                | Required | Description    |
+| ---------------- | ------------------------------------------------------------------- | -------- | -------------- |
+| `epicId`         | `string`                                                            | Yes      | epicId         |
+| `totalTasks`     | `number`                                                            | Yes      | totalTasks     |
+| `completedTasks` | `number`                                                            | Yes      | completedTasks |
+| `pendingTasks`   | `number`                                                            | Yes      | pendingTasks   |
+| `activeTasks`    | `number`                                                            | Yes      | activeTasks    |
+| `waves`          | `DependencyWave[]`                                                  | Yes      | waves          |
+| `readyToSpawn`   | `{ id: string; title: string; priority?: string; wave: number; }[]` | No       | readyToSpawn   |
+| `blockedTasks`   | `{ id: string; title: string; depends: string[]; wave: number; }[]` | Yes      | blockedTasks   |
+
+## HitlSummary
+
+HITL summary for session handoff.
+
+| Property         | Type                                                                                                               | Required | Description    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------- | -------------- |
+| `timestamp`      | `string`                                                                                                           | Yes      | timestamp      |
+| `stopReason`     | `string`                                                                                                           | Yes      | stopReason     |
+| `session`        | `{ id: string \| null; epicId: string \| null; focusedTask: string \| null; progressNote: string \| null; }`       | Yes      | session        |
+| `progress`       | `{ completed: number; pending: number; active: number; blocked: number; total: number; percentComplete: number; }` | Yes      | progress       |
+| `completedTasks` | `Pick<TaskRef, "id" \| "title">[]`                                                                                 | Yes      | completedTasks |
+| `remainingTasks` | `(TaskRef & { priority?: string; })[]`                                                                             | No       | remainingTasks |
+| `readyToSpawn`   | `TaskRefPriority[]`                                                                                                | Yes      | readyToSpawn   |
+| `handoff`        | `{ resumeCommand: string; nextSteps: string[]; }`                                                                  | Yes      | handoff        |
+
+## ManifestEntry
+
+Research manifest entry (MANIFEST.jsonl).
+
+| Property         | Type                                                  | Required | Description     |
+| ---------------- | ----------------------------------------------------- | -------- | --------------- |
+| `id`             | `string`                                              | Yes      | id              |
+| `file`           | `string`                                              | Yes      | file            |
+| `title`          | `string`                                              | Yes      | title           |
+| `date`           | `string`                                              | Yes      | date            |
+| `status`         | `"completed" \| "blocked" \| "archived" \| "partial"` | Yes      | status          |
+| `agent_type`     | `string \| undefined`                                 | No       | agent\_type     |
+| `topics`         | `string[]`                                            | Yes      | topics          |
+| `key_findings`   | `string[]`                                            | Yes      | key\_findings   |
+| `actionable`     | `boolean`                                             | Yes      | actionable      |
+| `needs_followup` | `string[]`                                            | Yes      | needs\_followup |
+| `linked_tasks`   | `string[] \| undefined`                               | No       | linked\_tasks   |
+| `audit`          | `Record<string, unknown> \| undefined`                | No       | audit           |
+
+## ManifestValidationResult
+
+Manifest validation result.
+
+| Property | Type                                                                                 | Required | Description |
+| -------- | ------------------------------------------------------------------------------------ | -------- | ----------- |
+| `exists` | `boolean`                                                                            | Yes      | exists      |
+| `passed` | `boolean`                                                                            | Yes      | passed      |
+| `stats`  | `{ totalLines: number; validEntries: number; invalidEntries: number; } \| undefined` | No       | stats       |
+| `issues` | `string[]`                                                                           | Yes      | issues      |
+
+## ComplianceResult
+
+Compliance verification result.
+
+| Property         | Type                                                                                                   | Required | Description    |
+| ---------------- | ------------------------------------------------------------------------------------------------------ | -------- | -------------- |
+| `previousTaskId` | `string`                                                                                               | Yes      | previousTaskId |
+| `researchId`     | `string \| null`                                                                                       | Yes      | researchId     |
+| `checks`         | `{ manifestEntryExists: boolean; researchLinkedToTask: boolean; returnStatusValid: boolean \| null; }` | Yes      | checks         |
+| `canSpawnNext`   | `boolean`                                                                                              | Yes      | canSpawnNext   |
+| `violations`     | `string[]`                                                                                             | Yes      | violations     |
+| `warnings`       | `string[]`                                                                                             | Yes      | warnings       |
+
+## InstalledSkill
+
+Installed skill tracking.
+
+| Property      | Type     | Required | Description |
+| ------------- | -------- | -------- | ----------- |
+| `name`        | `string` | Yes      | name        |
+| `version`     | `string` | Yes      | version     |
+| `installedAt` | `string` | Yes      | installedAt |
+| `sourcePath`  | `string` | Yes      | sourcePath  |
+| `symlinkPath` | `string` | Yes      | symlinkPath |
+
+## InstalledSkillsFile
+
+Installed skills file.
+
+| Property | Type                                        | Required | Description |
+| -------- | ------------------------------------------- | -------- | ----------- |
+| `_meta`  | `{ version: string; lastUpdated: string; }` | Yes      | \_meta      |
+| `skills` | `Record<string, InstalledSkill>`            | Yes      | skills      |
+
+## TokenValues
+
+Token values map: TOKEN\_NAME - value.
+
+```typescript
+TokenValues
+```
+
+## MultiSkillComposition
+
+Result of multi-skill composition.
+
+| Property               | Type                                                                           | Required | Description          |
+| ---------------------- | ------------------------------------------------------------------------------ | -------- | -------------------- |
+| `skillCount`           | `number`                                                                       | Yes      | skillCount           |
+| `primarySkill`         | `string`                                                                       | Yes      | primarySkill         |
+| `skills`               | `{ skill: string; mode: "full" \| "progressive"; estimatedTokens: number; }[]` | Yes      | skills               |
+| `totalEstimatedTokens` | `number`                                                                       | Yes      | totalEstimatedTokens |
+| `prompt`               | `string`                                                                       | Yes      | prompt               |
+
+## StageGuidance
+
+Structured guidance for a single pipeline stage.  Pi extensions consume the `.prompt` field directly (render via `{ systemPrompt }` in `before_agent_start`). The structured fields are exposed for TUI widgets, badges, and logging.
+
+| Property            | Type                                                                                                                                                       | Required | Description                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------- |
+| `stage`             | `"research" \| "consensus" \| "architecture_decision" \| "specification" \| "decomposition" \| "implementation" \| "validation" \| "testing" \| "release"` | Yes      | The canonical stage identifier.                                     |
+| `name`              | `string`                                                                                                                                                   | Yes      | Human-readable stage name (e.g. "Research").                        |
+| `order`             | `number`                                                                                                                                                   | Yes      | Numeric stage order (1-9).                                          |
+| `primarySkill`      | `string`                                                                                                                                                   | Yes      | Primary skill loaded for this stage (SSoT from STAGE\_SKILL\_MAP).  |
+| `loadedSkills`      | `readonly string[]`                                                                                                                                        | Yes      | All skills loaded (Tier 0 + stage primary).                         |
+| `requiredGates`     | `readonly string[]`                                                                                                                                        | Yes      | Gates that must pass before the stage can be completed.             |
+| `expectedArtifacts` | `readonly string[]`                                                                                                                                        | Yes      | Artifacts the agent is expected to produce before advancing.        |
+| `prompt`            | `string`                                                                                                                                                   | Yes      | Composed prompt text, ready for LLM system prompt injection.        |
+| `source`            | `"fallback" \| "skills"`                                                                                                                                   | Yes      | Source of the prompt: 'skills' (real SKILL.md files) or 'fallback'. |
 
 ## EnforcementMode
 
@@ -2845,6 +3191,28 @@ Result of a check\* diagnostic (compatible with doctor/checks.ts CheckResult).
 | `details`  | `Record<string, unknown>` | Yes      | Structured metadata about the check (paths, sizes, missing items). |
 | `fix`      | `string \| null`          | Yes      | Suggested CLI command to fix the issue, or null if passed.         |
 
+## ProjectClassification
+
+Classification result for a project directory.
+
+| Property            | Type                           | Required | Description                                                        |
+| ------------------- | ------------------------------ | -------- | ------------------------------------------------------------------ |
+| `kind`              | `"greenfield" \| "brownfield"` | Yes      | Project type: 'greenfield' (empty/new) or 'brownfield' (existing). |
+| `directory`         | `string`                       | Yes      | Absolute path that was classified.                                 |
+| `signals`           | `ClassificationSignal[]`       | Yes      | Signal list — which indicators led to the classification.          |
+| `topLevelFileCount` | `number`                       | Yes      | Total non-hidden files found at the top level (for reporting).     |
+| `hasGit`            | `boolean`                      | Yes      | Whether a `.git/` directory is present.                            |
+
+## ClassificationSignal
+
+A single classification signal detected on the filesystem.
+
+| Property      | Type                                                                                                                                        | Required | Description                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------ |
+| `id`          | `"docs" \| "git-dir" \| "source-dir" \| "package-manifest" \| "rust-manifest" \| "go-manifest" \| "python-manifest" \| "readme" \| "empty"` | Yes      | Canonical signal id for programmatic handling.   |
+| `description` | `string`                                                                                                                                    | Yes      | Human-readable description of what was detected. |
+| `path`        | `string`                                                                                                                                    | Yes      | File or directory that triggered this signal.    |
+
 ## ScaffoldResult
 
 | Property  | Type                                   | Required | Description |
@@ -3043,14 +3411,16 @@ Options for the init operation.
 
 Result of the init operation.
 
-| Property         | Type                   | Required | Description    |
-| ---------------- | ---------------------- | -------- | -------------- |
-| `initialized`    | `boolean`              | Yes      | initialized    |
-| `directory`      | `string`               | Yes      | directory      |
-| `created`        | `string[]`             | Yes      | created        |
-| `skipped`        | `string[]`             | Yes      | skipped        |
-| `warnings`       | `string[]`             | Yes      | warnings       |
-| `updateDocsOnly` | `boolean \| undefined` | No       | updateDocsOnly |
+| Property         | Type                                                                                                                    | Required | Description                                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialized`    | `boolean`                                                                                                               | Yes      | initialized                                                                                                                                                           |
+| `directory`      | `string`                                                                                                                | Yes      | directory                                                                                                                                                             |
+| `created`        | `string[]`                                                                                                              | Yes      | created                                                                                                                                                               |
+| `skipped`        | `string[]`                                                                                                              | Yes      | skipped                                                                                                                                                               |
+| `warnings`       | `string[]`                                                                                                              | Yes      | warnings                                                                                                                                                              |
+| `updateDocsOnly` | `boolean \| undefined`                                                                                                  | No       | updateDocsOnly                                                                                                                                                        |
+| `classification` | `{ kind: "greenfield" \| "brownfield"; signalCount: number; topLevelFileCount: number; hasGit: boolean; } \| undefined` | No       | Phase 5 — Greenfield/brownfield classification of the directory. Populated by the discovery module during init.                                                       |
+| `nextSteps`      | `{ action: string; command: string; }[] \| undefined`                                                                   | No       | Phase 5 — Next-step guidance for the agent/operator, emitted as a LAFS-compatible suggestion list. Each entry has an action description and a copy-pasteable command. |
 
 ## BootstrapContext
 
@@ -3134,7 +3504,7 @@ Context recorded when an agent completes or fails a task.
 | Property       | Type                                                                                                     | Required | Description                                       |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------- |
 | `agentId`      | `string`                                                                                                 | Yes      | Agent instance ID (agt\_...).                     |
-| `agentType`    | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type classification.                        |
+| `agentType`    | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type classification.                        |
 | `taskId`       | `string`                                                                                                 | Yes      | Task ID that was attempted.                       |
 | `taskType`     | `string`                                                                                                 | Yes      | Task type: 'epic' \| 'task' \| 'subtask'.         |
 | `taskLabels`   | `string[] \| undefined`                                                                                  | No       | Task labels for richer pattern classification.    |
@@ -3150,7 +3520,7 @@ Summary of an agent type's execution performance on a task type.
 
 | Property        | Type                                                                                                     | Required | Description                                    |
 | --------------- | -------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------- |
-| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type.                                    |
+| `agentType`     | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type.                                    |
 | `taskType`      | `string`                                                                                                 | Yes      | Task type this summary is for.                 |
 | `totalAttempts` | `number`                                                                                                 | Yes      | Total execution attempts tracked.              |
 | `successCount`  | `number`                                                                                                 | Yes      | Number of successful attempts.                 |
@@ -3178,7 +3548,7 @@ Task-count-based capacity for a single agent instance.
 | Property            | Type                                                                                                     | Required | Description                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
 | `agentId`           | `string`                                                                                                 | Yes      | Agent instance ID.                                               |
-| `agentType`         | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type classification.                                       |
+| `agentType`         | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Yes      | Agent type classification.                                       |
 | `status`            | `"error" \| "active" \| "starting" \| "idle" \| "crashed" \| "stopped"`                                  | Yes      | Current status of the agent.                                     |
 | `activeTasks`       | `number`                                                                                                 | Yes      | Number of tasks currently assigned to this agent.                |
 | `remainingCapacity` | `number`                                                                                                 | Yes      | Number of additional tasks this agent can accept (max - active). |
@@ -5828,336 +6198,6 @@ Rate limit check result
 | `resetMs`   | `number`  | Yes      | resetMs     |
 | `limit`     | `number`  | Yes      | limit       |
 
-## SkillFrontmatter
-
-Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
-
-| Property           | Type                             | Required | Description                                                         |
-| ------------------ | -------------------------------- | -------- | ------------------------------------------------------------------- |
-| `name`             | `string`                         | Yes      | Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.   |
-| `description`      | `string`                         | Yes      | Human-readable description. Maps to CaampSkillMetadata.description. |
-| `version`          | `string \| undefined`            | No       | Semantic version string. Maps to CaampSkillMetadata.version.        |
-| `author`           | `string \| undefined`            | No       | Skill author (CLEO extension).                                      |
-| `tags`             | `string[] \| undefined`          | No       | Classification tags for search/filter (CLEO extension).             |
-| `triggers`         | `string[] \| undefined`          | No       | Trigger patterns for auto-dispatch (CLEO extension).                |
-| `dispatchPriority` | `number \| undefined`            | No       | Priority for dispatch selection (CLEO extension).                   |
-| `model`            | `string \| undefined`            | No       | Preferred LLM model (CLEO extension).                               |
-| `allowedTools`     | `string[] \| undefined`          | No       | Allowed tool names. Maps to CaampSkillMetadata.allowedTools.        |
-| `invocable`        | `boolean \| undefined`           | No       | Whether the skill can be invoked directly (CLEO extension).         |
-| `command`          | `string \| undefined`            | No       | CLI command for direct invocation (CLEO extension).                 |
-| `protocol`         | `SkillProtocolType \| undefined` | No       | RCASD-IVTR+C protocol type (CLEO extension).                        |
-
-## Skill
-
-Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
-
-| Property      | Type                  | Required | Description |
-| ------------- | --------------------- | -------- | ----------- |
-| `name`        | `string`              | Yes      | name        |
-| `dirName`     | `string`              | Yes      | dirName     |
-| `path`        | `string`              | Yes      | path        |
-| `skillMdPath` | `string`              | Yes      | skillMdPath |
-| `frontmatter` | `SkillFrontmatter`    | Yes      | frontmatter |
-| `content`     | `string \| undefined` | No       | content     |
-
-## SkillSummary
-
-Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
-
-| Property      | Type                             | Required | Description |
-| ------------- | -------------------------------- | -------- | ----------- |
-| `name`        | `string`                         | Yes      | name        |
-| `dirName`     | `string`                         | Yes      | dirName     |
-| `description` | `string`                         | Yes      | description |
-| `tags`        | `string[]`                       | Yes      | tags        |
-| `version`     | `string`                         | Yes      | version     |
-| `invocable`   | `boolean`                        | Yes      | invocable   |
-| `command`     | `string \| undefined`            | No       | command     |
-| `protocol`    | `SkillProtocolType \| undefined` | No       | protocol    |
-
-## SkillManifest
-
-Skill manifest (cached aggregate of all discovered skills).
-
-| Property | Type                                                                                      | Required | Description |
-| -------- | ----------------------------------------------------------------------------------------- | -------- | ----------- |
-| `_meta`  | `{ generatedAt: string; ttlSeconds: number; skillCount: number; searchPaths: string[]; }` | Yes      | \_meta      |
-| `skills` | `SkillSummary[]`                                                                          | Yes      | skills      |
-
-## SkillProtocolType
-
-RCASD-IVTR+C protocol types.
-
-```typescript
-SkillProtocolType
-```
-
-## AgentConfig
-
-Agent configuration from AGENT.md or agent definition.
-
-| Property             | Type                    | Required | Description        |
-| -------------------- | ----------------------- | -------- | ------------------ |
-| `name`               | `string`                | Yes      | name               |
-| `description`        | `string`                | Yes      | description        |
-| `model`              | `string \| undefined`   | No       | model              |
-| `allowedTools`       | `string[] \| undefined` | No       | allowedTools       |
-| `customInstructions` | `string \| undefined`   | No       | customInstructions |
-
-## AgentRegistryEntry
-
-Agent registry entry.
-
-| Property      | Type          | Required | Description |
-| ------------- | ------------- | -------- | ----------- |
-| `name`        | `string`      | Yes      | name        |
-| `path`        | `string`      | Yes      | path        |
-| `config`      | `AgentConfig` | Yes      | config      |
-| `installedAt` | `string`      | Yes      | installedAt |
-
-## AgentRegistry
-
-Agent registry (persisted).
-
-| Property | Type                                        | Required | Description |
-| -------- | ------------------------------------------- | -------- | ----------- |
-| `_meta`  | `{ version: string; lastUpdated: string; }` | Yes      | \_meta      |
-| `agents` | `AgentRegistryEntry[]`                      | Yes      | agents      |
-
-## SkillSearchScope
-
-CAAMP search order for skill discovery.
-
-```typescript
-SkillSearchScope
-```
-
-## SkillSearchPath
-
-Ordered search path entry.
-
-| Property   | Type               | Required | Description |
-| ---------- | ------------------ | -------- | ----------- |
-| `scope`    | `SkillSearchScope` | Yes      | scope       |
-| `path`     | `string`           | Yes      | path        |
-| `priority` | `number`           | Yes      | priority    |
-
-## DispatchStrategy
-
-Dispatch strategy for skill selection.
-
-```typescript
-DispatchStrategy
-```
-
-## DispatchResult
-
-Dispatch result from skill\_auto\_dispatch.
-
-| Property     | Type                             | Required | Description |
-| ------------ | -------------------------------- | -------- | ----------- |
-| `skill`      | `string`                         | Yes      | skill       |
-| `strategy`   | `DispatchStrategy`               | Yes      | strategy    |
-| `confidence` | `number`                         | Yes      | confidence  |
-| `protocol`   | `SkillProtocolType \| undefined` | No       | protocol    |
-
-## TokenDefinition
-
-Token definition from placeholders.json.
-
-| Property      | Type                   | Required | Description |
-| ------------- | ---------------------- | -------- | ----------- |
-| `token`       | `string`               | Yes      | token       |
-| `description` | `string \| undefined`  | No       | description |
-| `required`    | `boolean \| undefined` | No       | required    |
-| `default`     | `string \| undefined`  | No       | default     |
-| `pattern`     | `string \| undefined`  | No       | pattern     |
-
-## TokenValidationResult
-
-Token validation result.
-
-| Property | Type                  | Required | Description |
-| -------- | --------------------- | -------- | ----------- |
-| `valid`  | `boolean`             | Yes      | valid       |
-| `token`  | `string`              | Yes      | token       |
-| `value`  | `string \| undefined` | No       | value       |
-| `error`  | `string \| undefined` | No       | error       |
-
-## TokenContext
-
-Token injection context.
-
-| Property       | Type                  | Required | Description  |
-| -------------- | --------------------- | -------- | ------------ |
-| `taskId`       | `string`              | Yes      | taskId       |
-| `date`         | `string`              | Yes      | date         |
-| `topicSlug`    | `string`              | Yes      | topicSlug    |
-| `epicId`       | `string \| undefined` | No       | epicId       |
-| `sessionId`    | `string \| undefined` | No       | sessionId    |
-| `outputDir`    | `string \| undefined` | No       | outputDir    |
-| `manifestPath` | `string \| undefined` | No       | manifestPath |
-
-## OrchestratorThresholds
-
-Orchestrator context thresholds.
-
-| Property   | Type     | Required | Description |
-| ---------- | -------- | -------- | ----------- |
-| `warning`  | `number` | Yes      | warning     |
-| `critical` | `number` | Yes      | critical    |
-
-## PreSpawnCheckResult
-
-Pre-spawn check result.
-
-| Property               | Type                                                                                                                                                     | Required | Description          |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------- |
-| `canSpawn`             | `boolean`                                                                                                                                                | Yes      | canSpawn             |
-| `spawnStatus`          | `"warning" \| "blocked" \| "ok" \| "stale"`                                                                                                              | Yes      | spawnStatus          |
-| `recommendation`       | `"stop" \| "continue" \| "wrap_up" \| "verify_compliance"`                                                                                               | Yes      | recommendation       |
-| `context`              | `{ percentage: number; currentTokens: number; maxTokens: number; warningThreshold: number; criticalThreshold: number; status: string; stale: boolean; }` | Yes      | context              |
-| `reasons`              | `{ code: string; message: string; }[]`                                                                                                                   | Yes      | reasons              |
-| `taskValidation`       | `{ exists: boolean; taskId: string; status?: string; title?: string; spawnable: boolean; } \| null \| undefined`                                         | No       | taskValidation       |
-| `complianceValidation` | `Record<string, unknown> \| null \| undefined`                                                                                                           | No       | complianceValidation |
-
-## SpawnPromptResult
-
-Spawn prompt result.
-
-| Property     | Type     | Required | Description |
-| ------------ | -------- | -------- | ----------- |
-| `taskId`     | `string` | Yes      | taskId      |
-| `template`   | `string` | Yes      | template    |
-| `topicSlug`  | `string` | Yes      | topicSlug   |
-| `date`       | `string` | Yes      | date        |
-| `outputDir`  | `string` | Yes      | outputDir   |
-| `outputFile` | `string` | Yes      | outputFile  |
-| `prompt`     | `string` | Yes      | prompt      |
-
-## DependencyWave
-
-Dependency wave for parallel execution.
-
-| Property | Type                                                                                     | Required | Description |
-| -------- | ---------------------------------------------------------------------------------------- | -------- | ----------- |
-| `wave`   | `number`                                                                                 | Yes      | wave        |
-| `tasks`  | `{ id: string; title: string; priority?: string; status: string; depends: string[]; }[]` | No       | tasks       |
-
-## DependencyAnalysis
-
-Dependency analysis result.
-
-| Property         | Type                                                                | Required | Description    |
-| ---------------- | ------------------------------------------------------------------- | -------- | -------------- |
-| `epicId`         | `string`                                                            | Yes      | epicId         |
-| `totalTasks`     | `number`                                                            | Yes      | totalTasks     |
-| `completedTasks` | `number`                                                            | Yes      | completedTasks |
-| `pendingTasks`   | `number`                                                            | Yes      | pendingTasks   |
-| `activeTasks`    | `number`                                                            | Yes      | activeTasks    |
-| `waves`          | `DependencyWave[]`                                                  | Yes      | waves          |
-| `readyToSpawn`   | `{ id: string; title: string; priority?: string; wave: number; }[]` | No       | readyToSpawn   |
-| `blockedTasks`   | `{ id: string; title: string; depends: string[]; wave: number; }[]` | Yes      | blockedTasks   |
-
-## HitlSummary
-
-HITL summary for session handoff.
-
-| Property         | Type                                                                                                               | Required | Description    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------- | -------------- |
-| `timestamp`      | `string`                                                                                                           | Yes      | timestamp      |
-| `stopReason`     | `string`                                                                                                           | Yes      | stopReason     |
-| `session`        | `{ id: string \| null; epicId: string \| null; focusedTask: string \| null; progressNote: string \| null; }`       | Yes      | session        |
-| `progress`       | `{ completed: number; pending: number; active: number; blocked: number; total: number; percentComplete: number; }` | Yes      | progress       |
-| `completedTasks` | `Pick<TaskRef, "id" \| "title">[]`                                                                                 | Yes      | completedTasks |
-| `remainingTasks` | `(TaskRef & { priority?: string; })[]`                                                                             | No       | remainingTasks |
-| `readyToSpawn`   | `TaskRefPriority[]`                                                                                                | Yes      | readyToSpawn   |
-| `handoff`        | `{ resumeCommand: string; nextSteps: string[]; }`                                                                  | Yes      | handoff        |
-
-## ManifestEntry
-
-Research manifest entry (MANIFEST.jsonl).
-
-| Property         | Type                                                  | Required | Description     |
-| ---------------- | ----------------------------------------------------- | -------- | --------------- |
-| `id`             | `string`                                              | Yes      | id              |
-| `file`           | `string`                                              | Yes      | file            |
-| `title`          | `string`                                              | Yes      | title           |
-| `date`           | `string`                                              | Yes      | date            |
-| `status`         | `"completed" \| "blocked" \| "archived" \| "partial"` | Yes      | status          |
-| `agent_type`     | `string \| undefined`                                 | No       | agent\_type     |
-| `topics`         | `string[]`                                            | Yes      | topics          |
-| `key_findings`   | `string[]`                                            | Yes      | key\_findings   |
-| `actionable`     | `boolean`                                             | Yes      | actionable      |
-| `needs_followup` | `string[]`                                            | Yes      | needs\_followup |
-| `linked_tasks`   | `string[] \| undefined`                               | No       | linked\_tasks   |
-| `audit`          | `Record<string, unknown> \| undefined`                | No       | audit           |
-
-## ManifestValidationResult
-
-Manifest validation result.
-
-| Property | Type                                                                                 | Required | Description |
-| -------- | ------------------------------------------------------------------------------------ | -------- | ----------- |
-| `exists` | `boolean`                                                                            | Yes      | exists      |
-| `passed` | `boolean`                                                                            | Yes      | passed      |
-| `stats`  | `{ totalLines: number; validEntries: number; invalidEntries: number; } \| undefined` | No       | stats       |
-| `issues` | `string[]`                                                                           | Yes      | issues      |
-
-## ComplianceResult
-
-Compliance verification result.
-
-| Property         | Type                                                                                                   | Required | Description    |
-| ---------------- | ------------------------------------------------------------------------------------------------------ | -------- | -------------- |
-| `previousTaskId` | `string`                                                                                               | Yes      | previousTaskId |
-| `researchId`     | `string \| null`                                                                                       | Yes      | researchId     |
-| `checks`         | `{ manifestEntryExists: boolean; researchLinkedToTask: boolean; returnStatusValid: boolean \| null; }` | Yes      | checks         |
-| `canSpawnNext`   | `boolean`                                                                                              | Yes      | canSpawnNext   |
-| `violations`     | `string[]`                                                                                             | Yes      | violations     |
-| `warnings`       | `string[]`                                                                                             | Yes      | warnings       |
-
-## InstalledSkill
-
-Installed skill tracking.
-
-| Property      | Type     | Required | Description |
-| ------------- | -------- | -------- | ----------- |
-| `name`        | `string` | Yes      | name        |
-| `version`     | `string` | Yes      | version     |
-| `installedAt` | `string` | Yes      | installedAt |
-| `sourcePath`  | `string` | Yes      | sourcePath  |
-| `symlinkPath` | `string` | Yes      | symlinkPath |
-
-## InstalledSkillsFile
-
-Installed skills file.
-
-| Property | Type                                        | Required | Description |
-| -------- | ------------------------------------------- | -------- | ----------- |
-| `_meta`  | `{ version: string; lastUpdated: string; }` | Yes      | \_meta      |
-| `skills` | `Record<string, InstalledSkill>`            | Yes      | skills      |
-
-## TokenValues
-
-Token values map: TOKEN\_NAME - value.
-
-```typescript
-TokenValues
-```
-
-## MultiSkillComposition
-
-Result of multi-skill composition.
-
-| Property               | Type                                                                           | Required | Description          |
-| ---------------------- | ------------------------------------------------------------------------------ | -------- | -------------------- |
-| `skillCount`           | `number`                                                                       | Yes      | skillCount           |
-| `primarySkill`         | `string`                                                                       | Yes      | primarySkill         |
-| `skills`               | `{ skill: string; mode: "full" \| "progressive"; estimatedTokens: number; }[]` | Yes      | skills               |
-| `totalEstimatedTokens` | `number`                                                                       | Yes      | totalEstimatedTokens |
-| `prompt`               | `string`                                                                       | Yes      | prompt               |
-
 ## ContributionDecision
 
 A contribution decision from an agent.
@@ -7906,7 +7946,7 @@ Manifest entry structure for validation.
 ## ProtocolType
 
 ```typescript
-"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish"
+"research" | "consensus" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | "contribution" | "provenance" | "artifact-publish" | "architecture-decision"
 ```
 
 ## VotingMatrix
@@ -7915,6 +7955,59 @@ Manifest entry structure for validation.
 | ----------- | ------------------------------------------------------------- | -------- | ----------- |
 | `options`   | `{ name: string; confidence: number; rationale?: string; }[]` | No       | options     |
 | `threshold` | `number \| undefined`                                         | No       | threshold   |
+
+## AdrStatus
+
+ADR lifecycle status values.  T260
+
+```typescript
+AdrStatus
+```
+
+## ArchitectureDecisionOptions
+
+Architecture decision options for validator.
+
+| Property            | Type                     | Required | Description                                                              |
+| ------------------- | ------------------------ | -------- | ------------------------------------------------------------------------ |
+| `adrContent`        | `string \| undefined`    | No       | Content of the ADR markdown document, used to verify required sections.  |
+| `status`            | `AdrStatus \| undefined` | No       | Current status of the decision record.                                   |
+| `hitlReviewed`      | `boolean \| undefined`   | No       | Whether a human-in-the-loop review has been completed (ADR-003).         |
+| `downstreamFlagged` | `boolean \| undefined`   | No       | Whether downstream artifacts are flagged for review after supersession.  |
+| `persistedInDb`     | `boolean \| undefined`   | No       | Whether the record is persisted in the canonical SQLite decisions table. |
+
+## ValidationStageOptions
+
+Validation-stage options for validator.
+
+| Property                    | Type                   | Required | Description                                                     |
+| --------------------------- | ---------------------- | -------- | --------------------------------------------------------------- |
+| `specMatchConfirmed`        | `boolean \| undefined` | No       | Whether static analysis / type check passed (VALID-001).        |
+| `testSuitePassed`           | `boolean \| undefined` | No       | Whether the existing test suite ran successfully (VALID-002).   |
+| `protocolComplianceChecked` | `boolean \| undefined` | No       | Whether upstream protocol compliance checks passed (VALID-003). |
+
+## TestFramework
+
+Project-agnostic test framework identifiers.  The testing protocol is deliberately framework-neutral. Whichever framework the project uses, the protocol only cares that tests run autonomously via a framework adapter and loop until the spec is met.   T260
+
+```typescript
+TestFramework
+```
+
+## TestingOptions
+
+Testing-stage options for validator.
+
+| Property            | Type                         | Required | Description                                                         |
+| ------------------- | ---------------------------- | -------- | ------------------------------------------------------------------- |
+| `framework`         | `TestFramework \| undefined` | No       | Detected or declared test framework for the current worktree.       |
+| `testsRun`          | `number \| undefined`        | No       | Total number of tests executed.                                     |
+| `testsPassed`       | `number \| undefined`        | No       | Number of tests that passed.                                        |
+| `testsFailed`       | `number \| undefined`        | No       | Number of tests that failed.                                        |
+| `coveragePercent`   | `number \| undefined`        | No       | Coverage percentage achieved (0-100).                               |
+| `coverageThreshold` | `number \| undefined`        | No       | Minimum coverage threshold from project config.                     |
+| `ivtLoopConverged`  | `boolean \| undefined`       | No       | Whether the implementation→validate→test loop converged (spec met). |
+| `ivtLoopIterations` | `number \| undefined`        | No       | Number of IVT loop iterations until convergence.                    |
 
 ## BrainMaintenanceDecayResult
 
@@ -8712,7 +8805,7 @@ A resolved skill path with full provenance metadata.
 | Property     | Type                                    | Required | Description                                       |
 | ------------ | --------------------------------------- | -------- | ------------------------------------------------- |
 | `path`       | `string`                                | Yes      | Absolute filesystem path to the skill directory.  |
-| `source`     | `"marketplace" \| "vendor" \| "agents"` | Yes      | Where the skill was sourced from.                 |
+| `source`     | `"marketplace" \| "agents" \| "vendor"` | Yes      | Where the skill was sourced from.                 |
 | `scope`      | `"project" \| "global"`                 | Yes      | Whether this is a global or project-scoped skill. |
 | `precedence` | `SkillsPrecedence`                      | Yes      | The precedence mode that selected this path.      |
 | `providerId` | `string`                                | Yes      | The provider that owns this skill path.           |

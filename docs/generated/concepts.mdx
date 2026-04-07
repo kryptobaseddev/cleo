@@ -29,10 +29,19 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`SkillLibraryManifest`** — Full manifest structure for a skill library.
 - **`SkillLibrary`** — Standard interface for a skill library.  Any directory or module providing skills must implement this contract. CAAMP uses it to discover, resolve, and install skills from any source.
 - **`RegistryDetection`** — Raw detection configuration as stored in registry.json.
+- **`ProviderPriority`** — Priority tier identifier stored in registry.json.
+- **`ProviderStatus`** — Lifecycle status identifier stored in registry.json.
 - **`RegistryProvider`** — Raw provider definition as stored in registry.json before path resolution.
+- **`McpConfigFormat`** — Supported MCP config file formats.
+- **`McpTransportType`** — MCP transport protocols a provider may advertise.
+- **`RegistryMcpIntegration`** — MCP server integration metadata for providers that consume MCP servers via a per-agent config file.
+- **`RegistryHarnessKind`** — Harness role category for a primary or standalone harness.
+- **`RegistryHarnessCapability`** — First-class harness role declaration.
 - **`SkillsPrecedence`** — How a provider resolves skill file precedence between vendor and agents directories.
 - **`RegistrySkillsCapability`** — Raw skills capability definition as stored in registry.json.
 - **`HookEvent`** — Hook lifecycle event identifier from registry.json.
+- **`RegistryHookFormat`** — The on-disk layout of a provider's hook configuration.
+- **`RegistryHookCatalog`** — Which native event catalog a provider's hook system uses.
 - **`RegistryHooksCapability`** — Raw hooks capability definition as stored in registry.json.
 - **`SpawnMechanism`** — Mechanism a provider uses to spawn subagents.
 - **`RegistrySpawnCapability`** — Raw spawn capability definition as stored in registry.json.
@@ -49,11 +58,13 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`TransportType`** — MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote)
 - **`DetectionMethod`** — Method used to detect whether an AI agent is installed on the system.  - `"binary"` - Check if a CLI binary exists on PATH - `"directory"` - Check if known config/data directories exist - `"appBundle"` - Check for macOS .app bundle in standard app directories - `"flatpak"` - Check for Flatpak installation on Linux
 - **`DetectionConfig`** — Configuration for detecting whether a provider is installed.
+- **`ProviderMcpCapability`** — Resolved MCP server integration metadata for a provider.
+- **`ProviderHarnessCapability`** — Resolved first-class harness capability for a provider.
 - **`ProviderSkillsCapability`** — Resolved skills capability for a provider at runtime.
 - **`ProviderHooksCapability`** — Resolved hooks capability for a provider at runtime.
 - **`ProviderSpawnCapability`** — Resolved spawn capability for a provider at runtime.
-- **`ProviderCapabilities`** — Aggregate provider capabilities for skills, hooks, and spawn.
-- **`ProviderPriority`** — Priority tier for a provider, used for sorting and default selection.  - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
+- **`ProviderCapabilities`** — Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
+- **`ProviderPriority`** — Priority tier for a provider, used for sorting and default selection.  - `"primary"` - First-class harness. Default target when no `--agent` flag   is given. Exactly zero or one provider per registry should have this   priority; CAAMP consumers (e.g. `getPrimaryProvider()`) expect that   invariant but the registry loader does not enforce it. - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
 - **`ProviderStatus`** — Lifecycle status of a provider in the registry.  - `"active"` - Fully supported - `"beta"` - Supported but may have rough edges - `"deprecated"` - Still present but no longer recommended - `"planned"` - Not yet implemented
 - **`Provider`** — A resolved AI agent provider definition with platform-specific paths.
 - **`McpServerConfig`** — Canonical MCP server configuration.
@@ -298,6 +309,35 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`StageDefinition`** — Stage metadata with descriptive information.   T4800
 - **`TransitionRule`** — Transition rule - defines if a transition is allowed.   T4800
 - **`StageArtifactResult`** — The `StageArtifactResult` interface.
+- **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
+- **`Skill`** — Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
+- **`SkillSummary`** — Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
+- **`SkillManifest`** — Skill manifest (cached aggregate of all discovered skills).
+- **`SkillProtocolType`** — RCASD-IVTR+C protocol types.
+- **`AgentConfig`** — Agent configuration from AGENT.md or agent definition.
+- **`AgentRegistryEntry`** — Agent registry entry.
+- **`AgentRegistry`** — Agent registry (persisted).
+- **`SkillSearchScope`** — CAAMP search order for skill discovery.
+- **`SkillSearchPath`** — Ordered search path entry.
+- **`DispatchStrategy`** — Dispatch strategy for skill selection.
+- **`DispatchResult`** — Dispatch result from skill\_auto\_dispatch.
+- **`TokenDefinition`** — Token definition from placeholders.json.
+- **`TokenValidationResult`** — Token validation result.
+- **`TokenContext`** — Token injection context.
+- **`OrchestratorThresholds`** — Orchestrator context thresholds.
+- **`PreSpawnCheckResult`** — Pre-spawn check result.
+- **`SpawnPromptResult`** — Spawn prompt result.
+- **`DependencyWave`** — Dependency wave for parallel execution.
+- **`DependencyAnalysis`** — Dependency analysis result.
+- **`HitlSummary`** — HITL summary for session handoff.
+- **`ManifestEntry`** — Research manifest entry (MANIFEST.jsonl).
+- **`ManifestValidationResult`** — Manifest validation result.
+- **`ComplianceResult`** — Compliance verification result.
+- **`InstalledSkill`** — Installed skill tracking.
+- **`InstalledSkillsFile`** — Installed skills file.
+- **`TokenValues`** — Token values map: TOKEN\_NAME - value.
+- **`MultiSkillComposition`** — Result of multi-skill composition.
+- **`StageGuidance`** — Structured guidance for a single pipeline stage.  Pi extensions consume the `.prompt` field directly (render via `{ systemPrompt }` in `before_agent_start`). The structured fields are exposed for TUI widgets, badges, and logging.
 - **`EnforcementMode`** — Lifecycle enforcement modes.
 - **`GateData`** — Gate data within a stage.
 - **`ManifestStageData`** — Stage data in an on-disk manifest.
@@ -442,6 +482,8 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ScaffoldResult`** — Result of an ensure\* scaffolding operation.
 - **`CheckStatus`** — Status of a check\* diagnostic.
 - **`CheckResult`** — Result of a check\* diagnostic (compatible with doctor/checks.ts CheckResult).
+- **`ProjectClassification`** — Classification result for a project directory.
+- **`ClassificationSignal`** — A single classification signal detected on the filesystem.
 - **`ScaffoldResult`** — The `ScaffoldResult` interface.
 - **`HookCheckResult`** — The `HookCheckResult` interface.
 - **`EnsureGitHooksOptions`** — The `EnsureGitHooksOptions` interface.
@@ -712,34 +754,6 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`CapabilityReport`** — Capability report returned by system.doctor
 - **`RateLimitConfig`** — Rate limiter configuration
 - **`RateLimitResult`** — Rate limit check result
-- **`SkillFrontmatter`** — Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
-- **`Skill`** — Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
-- **`SkillSummary`** — Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
-- **`SkillManifest`** — Skill manifest (cached aggregate of all discovered skills).
-- **`SkillProtocolType`** — RCASD-IVTR+C protocol types.
-- **`AgentConfig`** — Agent configuration from AGENT.md or agent definition.
-- **`AgentRegistryEntry`** — Agent registry entry.
-- **`AgentRegistry`** — Agent registry (persisted).
-- **`SkillSearchScope`** — CAAMP search order for skill discovery.
-- **`SkillSearchPath`** — Ordered search path entry.
-- **`DispatchStrategy`** — Dispatch strategy for skill selection.
-- **`DispatchResult`** — Dispatch result from skill\_auto\_dispatch.
-- **`TokenDefinition`** — Token definition from placeholders.json.
-- **`TokenValidationResult`** — Token validation result.
-- **`TokenContext`** — Token injection context.
-- **`OrchestratorThresholds`** — Orchestrator context thresholds.
-- **`PreSpawnCheckResult`** — Pre-spawn check result.
-- **`SpawnPromptResult`** — Spawn prompt result.
-- **`DependencyWave`** — Dependency wave for parallel execution.
-- **`DependencyAnalysis`** — Dependency analysis result.
-- **`HitlSummary`** — HITL summary for session handoff.
-- **`ManifestEntry`** — Research manifest entry (MANIFEST.jsonl).
-- **`ManifestValidationResult`** — Manifest validation result.
-- **`ComplianceResult`** — Compliance verification result.
-- **`InstalledSkill`** — Installed skill tracking.
-- **`InstalledSkillsFile`** — Installed skills file.
-- **`TokenValues`** — Token values map: TOKEN\_NAME - value.
-- **`MultiSkillComposition`** — Result of multi-skill composition.
 - **`ContributionDecision`** — A contribution decision from an agent.
 - **`ContributionConflict`** — Conflict between two agent decisions.
 - **`ConsensusResult`** — Consensus result from weighted voting.
@@ -922,6 +936,11 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ManifestEntryInput`** — Manifest entry structure for validation.
 - **`ProtocolType`** — The `ProtocolType` type.
 - **`VotingMatrix`** — The `VotingMatrix` interface.
+- **`AdrStatus`** — ADR lifecycle status values.  T260
+- **`ArchitectureDecisionOptions`** — Architecture decision options for validator.
+- **`ValidationStageOptions`** — Validation-stage options for validator.
+- **`TestFramework`** — Project-agnostic test framework identifiers.  The testing protocol is deliberately framework-neutral. Whichever framework the project uses, the protocol only cares that tests run autonomously via a framework adapter and loop until the spec is met.   T260
+- **`TestingOptions`** — Testing-stage options for validator.
 - **`BrainMaintenanceDecayResult`** — Temporal decay step result subset used in maintenance output.
 - **`BrainMaintenanceConsolidationResult`** — Memory consolidation step result subset used in maintenance output.
 - **`BrainMaintenanceReconciliationResult`** — Orphaned reference reconciliation step result.
@@ -1089,6 +1108,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ShimArg`** — Positional argument definition.
 - **`CommanderCompatOption`** — Commander-compatible option view for tests.
 - **`ActionHandler`** — Type for the action handler function - flexible to support various signatures
+- **`LafsShapeViolation`** — The minimum shape invariants for a LAFS envelope, compatible with both minimal (`{ok, r, _m}`) and full (`{success, result, _meta}`) formats.
 - **`CliOutputOptions`** — The `CliOutputOptions` interface.
 - **`CliErrorDetails`** — Error details for structured error output.
 - **`Gateway`** — CQRS gateway: read-only queries vs state-modifying mutations.
@@ -1120,6 +1140,8 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`ComplianceData`** — Compliance monitoring data.
 - **`HelpData`** — Help topic content and related commands.
 - **`SyncData`** — The `SyncData` interface.
+- **`PathsData`** — Summary of all resolved CleoOS paths (project + global hub).
+- **`ScaffoldHubData`** — Result of scaffolding the CleoOS Hub.
 - **`SmokeProbe`** — Result for a single domain smoke probe.
 - **`SmokeResult`** — Aggregate smoke test result.
 - **`EngineResult`** — Engine result shape accepted by wrapResult. Matches the union of what all engine functions return.
@@ -1599,7 +1621,7 @@ cleocode processes your TypeScript source with a single AST traversal, extractin
 - **`CLEOSpawnAdapter`** — Spawn adapter interface Wraps CAAMP SpawnAdapter with CLEO-specific context and result types
 - **`TokenResolution`** — Token resolution information for prompt processing
 - **`SpawnStatus`** — Spawn status values
-- **`ProtocolType`** — All supported protocol types.
+- **`ProtocolType`** — All supported protocol types.  Covers the 9 RCASD-IVTR pipeline stages plus the 3 cross-cutting protocols (contribution, artifact-publish, provenance). Must stay in sync with `packages/core/src/orchestration/protocol-validators.ts#PROTOCOL_TYPES`.   T260 — add architecture-decision, validation, testing
 - **`GateName`** — Verification gate names (ordered dependency chain).
 - **`WarpStage`** — A single stage in the warp chain.  The category union includes all canonical CLEO pipeline stages plus 'custom' for user-defined stages.
 - **`WarpLink`** — Connection between two stages in the chain.

@@ -36,6 +36,7 @@ description: caamp package overview
 | [`getProvider()`](/packages/caamp/api/index#getprovider)                                             | function | Look up a provider by its ID or any of its aliases.                               |
 | [`resolveAlias()`](/packages/caamp/api/index#resolvealias)                                           | function | Resolve an alias to its canonical provider ID.  If the input is already a can...  |
 | [`getProvidersByPriority()`](/packages/caamp/api/index#getprovidersbypriority)                       | function | Filter providers by their priority tier.                                          |
+| [`getPrimaryProvider()`](/packages/caamp/api/index#getprimaryprovider)                               | function | Get the single primary harness provider, if any is registered.                    |
 | [`getProvidersByStatus()`](/packages/caamp/api/index#getprovidersbystatus)                           | function | Filter providers by their lifecycle status.                                       |
 | [`getProvidersByInstructFile()`](/packages/caamp/api/index#getprovidersbyinstructfile)               | function | Filter providers that use a specific instruction file.  Multiple providers of...  |
 | [`getInstructionFiles()`](/packages/caamp/api/index#getinstructionfiles)                             | function | Get the set of all unique instruction file names across all providers.            |
@@ -124,6 +125,9 @@ description: caamp package overview
 | [`writeConfig()`](/packages/caamp/api/index#writeconfig)                                             | function | Write a server entry to a config file, preserving existing content.  Dispatch...  |
 | [`removeConfig()`](/packages/caamp/api/index#removeconfig)                                           | function | Remove a server entry from a config file in the specified format.                 |
 | [`registerConfigCommand()`](/packages/caamp/api/index#registerconfigcommand)                         | function | Registers the `config` command group with show and path subcommands for viewi...  |
+| [`readLockFile()`](/packages/caamp/api/index#readlockfile)                                           | function | Read and parse the CAAMP lock file from disk.                                     |
+| [`writeLockFile()`](/packages/caamp/api/index#writelockfile)                                         | function | Write the lock file atomically under a process lock guard.                        |
+| [`updateLockFile()`](/packages/caamp/api/index#updatelockfile)                                       | function | Safely read-modify-write the lock file under a process lock guard.                |
 | [`getCaampVersion()`](/packages/caamp/api/index#getcaampversion)                                     | function | Retrieve the current CAAMP package version from the nearest `package.json`.       |
 | [`registerDoctorCommand()`](/packages/caamp/api/index#registerdoctorcommand)                         | function | Registers the `doctor` command for diagnosing configuration issues and overal...  |
 | [`registerInstructionsCheck()`](/packages/caamp/api/index#registerinstructionscheck)                 | function | Registers the `instructions check` subcommand for verifying injection status...   |
@@ -161,9 +165,6 @@ description: caamp package overview
 | [`scanDirectory()`](/packages/caamp/api/index#scandirectory)                                         | function | Scan a directory of skills for security issues.                                   |
 | [`toSarif()`](/packages/caamp/api/index#tosarif)                                                     | function | Convert audit results to SARIF 2.1.0 format (Static Analysis Results Intercha...  |
 | [`registerSkillsAudit()`](/packages/caamp/api/index#registerskillsaudit)                             | function | Registers the `skills audit` subcommand for security scanning skill files.        |
-| [`readLockFile()`](/packages/caamp/api/index#readlockfile)                                           | function | Read and parse the CAAMP lock file from disk.                                     |
-| [`writeLockFile()`](/packages/caamp/api/index#writelockfile)                                         | function | Write the lock file atomically under a process lock guard.                        |
-| [`updateLockFile()`](/packages/caamp/api/index#updatelockfile)                                       | function | Safely read-modify-write the lock file under a process lock guard.                |
 | [`parseSource()`](/packages/caamp/api/index#parsesource)                                             | function | Parse and classify a source string into a typed `ParsedSource`.                   |
 | [`isMarketplaceScoped()`](/packages/caamp/api/index#ismarketplacescoped)                             | function | Check if a source string looks like a marketplace scoped name (`@author/name`).   |
 | [`recordSkillInstall()`](/packages/caamp/api/index#recordskillinstall)                               | function | Record a skill installation in the lock file.                                     |
@@ -259,10 +260,19 @@ description: caamp package overview
 | [`SkillLibraryManifest`](/packages/caamp/api/index#skilllibrarymanifest)                                 | interface | Full manifest structure for a skill library.                                     |
 | [`SkillLibrary`](/packages/caamp/api/index#skilllibrary)                                                 | interface | Standard interface for a skill library.  Any directory or module providing sk... |
 | [`RegistryDetection`](/packages/caamp/api/index#registrydetection)                                       | interface | Raw detection configuration as stored in registry.json.                          |
+| [`ProviderPriority`](/packages/caamp/api/index#providerpriority)                                         | type      | Priority tier identifier stored in registry.json.                                |
+| [`ProviderStatus`](/packages/caamp/api/index#providerstatus)                                             | type      | Lifecycle status identifier stored in registry.json.                             |
 | [`RegistryProvider`](/packages/caamp/api/index#registryprovider)                                         | interface | Raw provider definition as stored in registry.json before path resolution.       |
+| [`McpConfigFormat`](/packages/caamp/api/index#mcpconfigformat)                                           | type      | Supported MCP config file formats.                                               |
+| [`McpTransportType`](/packages/caamp/api/index#mcptransporttype)                                         | type      | MCP transport protocols a provider may advertise.                                |
+| [`RegistryMcpIntegration`](/packages/caamp/api/index#registrymcpintegration)                             | interface | MCP server integration metadata for providers that consume MCP servers via a...  |
+| [`RegistryHarnessKind`](/packages/caamp/api/index#registryharnesskind)                                   | type      | Harness role category for a primary or standalone harness.                       |
+| [`RegistryHarnessCapability`](/packages/caamp/api/index#registryharnesscapability)                       | interface | First-class harness role declaration.                                            |
 | [`SkillsPrecedence`](/packages/caamp/api/index#skillsprecedence)                                         | type      | How a provider resolves skill file precedence between vendor and agents direc... |
 | [`RegistrySkillsCapability`](/packages/caamp/api/index#registryskillscapability)                         | interface | Raw skills capability definition as stored in registry.json.                     |
 | [`HookEvent`](/packages/caamp/api/index#hookevent)                                                       | type      | Hook lifecycle event identifier from registry.json.                              |
+| [`RegistryHookFormat`](/packages/caamp/api/index#registryhookformat)                                     | type      | The on-disk layout of a provider's hook configuration.                           |
+| [`RegistryHookCatalog`](/packages/caamp/api/index#registryhookcatalog)                                   | type      | Which native event catalog a provider's hook system uses.                        |
 | [`RegistryHooksCapability`](/packages/caamp/api/index#registryhookscapability)                           | interface | Raw hooks capability definition as stored in registry.json.                      |
 | [`SpawnMechanism`](/packages/caamp/api/index#spawnmechanism)                                             | type      | Mechanism a provider uses to spawn subagents.                                    |
 | [`RegistrySpawnCapability`](/packages/caamp/api/index#registryspawncapability)                           | interface | Raw spawn capability definition as stored in registry.json.                      |
@@ -279,10 +289,12 @@ description: caamp package overview
 | [`TransportType`](/packages/caamp/api/index#transporttype)                                               | type      | MCP server transport protocol type.  - `"stdio"` - Standard input/output (loc... |
 | [`DetectionMethod`](/packages/caamp/api/index#detectionmethod)                                           | type      | Method used to detect whether an AI agent is installed on the system.  -...      |
 | [`DetectionConfig`](/packages/caamp/api/index#detectionconfig)                                           | interface | Configuration for detecting whether a provider is installed.                     |
+| [`ProviderMcpCapability`](/packages/caamp/api/index#providermcpcapability)                               | interface | Resolved MCP server integration metadata for a provider.                         |
+| [`ProviderHarnessCapability`](/packages/caamp/api/index#providerharnesscapability)                       | interface | Resolved first-class harness capability for a provider.                          |
 | [`ProviderSkillsCapability`](/packages/caamp/api/index#providerskillscapability)                         | interface | Resolved skills capability for a provider at runtime.                            |
 | [`ProviderHooksCapability`](/packages/caamp/api/index#providerhookscapability)                           | interface | Resolved hooks capability for a provider at runtime.                             |
 | [`ProviderSpawnCapability`](/packages/caamp/api/index#providerspawncapability)                           | interface | Resolved spawn capability for a provider at runtime.                             |
-| [`ProviderCapabilities`](/packages/caamp/api/index#providercapabilities)                                 | interface | Aggregate provider capabilities for skills, hooks, and spawn.                    |
+| [`ProviderCapabilities`](/packages/caamp/api/index#providercapabilities)                                 | interface | Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn. |
 | [`ProviderPriority`](/packages/caamp/api/index#providerpriority)                                         | type      | Priority tier for a provider, used for sorting and default selection.  -...      |
 | [`ProviderStatus`](/packages/caamp/api/index#providerstatus)                                             | type      | Lifecycle status of a provider in the registry.  - `"active"` - Fully support... |
 | [`Provider`](/packages/caamp/api/index#provider)                                                         | interface | A resolved AI agent provider definition with platform-specific paths.            |
@@ -408,6 +420,7 @@ description: caamp package overview
 | [`yaml.ts`](/packages/caamp/api/index#yamlts)                                                                  | file     |                                                                                  |
 | [`index.ts`](/packages/caamp/api/index#indexts)                                                                | file     | Provides format-agnostic config read, write, and remove operations that dispa... |
 | [`config.ts`](/packages/caamp/api/index#configts)                                                              | file     |                                                                                  |
+| [`lock-utils.ts`](/packages/caamp/api/index#lock-utilsts)                                                      | file     |                                                                                  |
 | [`version.ts`](/packages/caamp/api/index#versionts)                                                            | file     |                                                                                  |
 | [`doctor.ts`](/packages/caamp/api/index#doctorts)                                                              | file     |                                                                                  |
 | [`check.ts`](/packages/caamp/api/index#checkts)                                                                | file     |                                                                                  |
@@ -429,7 +442,6 @@ description: caamp package overview
 | [`rules.ts`](/packages/caamp/api/index#rulests)                                                                | file     |                                                                                  |
 | [`scanner.ts`](/packages/caamp/api/index#scannerts)                                                            | file     |                                                                                  |
 | [`audit.ts`](/packages/caamp/api/index#auditts)                                                                | file     |                                                                                  |
-| [`lock-utils.ts`](/packages/caamp/api/index#lock-utilsts)                                                      | file     |                                                                                  |
 | [`parser.ts`](/packages/caamp/api/index#parserts)                                                              | file     |                                                                                  |
 | [`lock.ts`](/packages/caamp/api/index#lockts)                                                                  | file     |                                                                                  |
 | [`check.ts`](/packages/caamp/api/index#checkts)                                                                | file     |                                                                                  |

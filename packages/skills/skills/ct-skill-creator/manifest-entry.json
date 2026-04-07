@@ -2,7 +2,7 @@
   "name": "ct-skill-creator",
   "version": "1.0.0",
   "description": "Guide for creating effective CLEO skills with the full v2 standard.",
-  "path": "packages/ct-skills/skills/ct-skill-creator",
+  "path": "packages/skills/skills/ct-skill-creator",
   "status": "active",
   "tier": 3,
   "core": false,

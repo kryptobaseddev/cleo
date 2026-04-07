@@ -151,7 +151,7 @@ All notable changes to this project will be documented in this file.
 ## [1.2.0] - 2026-02-25
 
 ### Added
-- **Library Source Type**: Added support for `library` source type in `parseSource` to properly parse `package:skill` formats (e.g., `@cleocode/ct-skills:ct-research-agent`).
+- **Library Source Type**: Added support for `library` source type in `parseSource` to properly parse `package:skill` formats (e.g., `@cleocode/skills:ct-research-agent`).
 - **Package Freshness Checking**: Enhanced `checkSkillUpdate()` to support package-type skills. It now uses `npm view` to compare installed versions against the latest published version on the npm registry.
 - **Bulk Update API**: Added `checkAllSkillUpdates()` to check for updates across all tracked skills simultaneously.
 
@@ -173,7 +173,7 @@ All notable changes to this project will be documented in this file.
 ## [1.1.1] - 2026-02-24
 
 ### Fixed
-- **Protocol path discovery**: `buildLibraryFromFiles()` now checks root `protocols/` directory first, falling back to `skills/protocols/` — fixes discovery for libraries like ct-skills that place protocols at root level
+- **Protocol path discovery**: `buildLibraryFromFiles()` now checks root `protocols/` directory first, falling back to `skills/protocols/` — fixes discovery for libraries like @cleocode/skills that place protocols at root level
 - Bumped `@cleocode/lafs` to ^1.3.2
 
 ### Added
@@ -182,13 +182,13 @@ All notable changes to this project will be documented in this file.
 ## [1.1.0] - 2026-02-24
 
 ### Added
-- **Pluggable SkillLibrary SDK**: Decoupled from `@cleocode/ct-skills` with a new abstract `SkillLibrary` interface and dynamic library loader, enabling any skill catalog backend to be used
+- **Pluggable SkillLibrary SDK**: Decoupled from `@cleocode/skills` with a new abstract `SkillLibrary` interface and dynamic library loader, enabling any skill catalog backend to be used
 - **Library Loader**: Runtime resolution of skill library implementations via `src/core/skills/library-loader.ts`
 - **Abstract SkillLibrary Interface**: `src/core/skills/skill-library.ts` defining the contract for skill catalog adapters
 
 ### Changed
 - **MVILevel Type**: Replaced boolean `mvi` parameter with `MVILevel` string union (`'minimal' | 'standard' | 'full' | 'custom'`) from LAFS protocol across all commands
-- Skills install command refactored to use pluggable library SDK instead of hardcoded `@cleocode/ct-skills`
+- Skills install command refactored to use pluggable library SDK instead of hardcoded `@cleocode/skills`
 - LAFS helper functions updated to use proper `MVILevel` type signatures
 
 ### Fixed
@@ -295,10 +295,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `@cleocode/ct-skills@2.0.0` as dependency — official skills catalog library for skill discovery, metadata, dependency resolution, and install profiles
-- ESM adapter (`src/core/skills/catalog.ts`) wrapping ct-skills CJS module via `createRequire()` with full TypeScript types
-- `--profile <name>` option on `skills install` for batch-installing ct-skills profiles (minimal, core, recommended, full)
-- Package source type support: `caamp skills install <skill-name>` resolves from ct-skills catalog
+- `@cleocode/skills@2.0.0` as dependency — official skills catalog library for skill discovery, metadata, dependency resolution, and install profiles
+- ESM adapter (`src/core/skills/catalog.ts`) wrapping @cleocode/skills CJS module via `createRequire()` with full TypeScript types
+- `--profile <name>` option on `skills install` for batch-installing @cleocode/skills profiles (minimal, core, recommended, full)
+- Package source type support: `caamp skills install <skill-name>` resolves from @cleocode/skills catalog
 - `.agents/mcp/servers.json` as primary MCP config source, checked before per-provider legacy configs (per `.agents/` standard Section 9.4)
 - `.agents/` standard path helpers: `getAgentsMcpDir()`, `getAgentsMcpServersPath()`, `getAgentsInstructFile()`, `getAgentsConfigPath()`, `getAgentsWikiDir()`, `getAgentsSpecDir()`, `getAgentsLinksDir()` — all support global/project scopes with cross-platform resolution
 - `AGENTS_MCP_DIR`, `AGENTS_MCP_SERVERS_PATH`, `AGENTS_CONFIG_PATH` exports from paths module

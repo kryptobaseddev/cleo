@@ -1,79 +1,52 @@
 /**
- * Decomposition protocol validation.
+ * Decomposition protocol — thin wrapper delegating to the canonical pure validator.
+ *
+ * The canonical validator enforces DCOMP-001 (max siblings), DCOMP-002 (clarity),
+ * DCOMP-007 (`agent_type: decomposition`). The old validator here checked for
+ * `agent_type: specification` which was a copy-paste bug from specification.ts.
+ *
  * @task T4537
- * @epic T4454
+ * @task T260 — delegate to orchestration/protocol-validators, fix agent_type
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { ExitCode } from '@cleocode/contracts';
-import { CleoError } from '../../errors.js';
-import { getManifestPath } from '../../paths.js';
+import {
+  type ProtocolValidationResult,
+  validateDecompositionProtocol,
+} from '../../orchestration/protocol-validators.js';
+import {
+  loadManifestEntryByTaskId,
+  loadManifestEntryFromFile,
+  throwIfStrictFailed,
+} from './_shared.js';
 
-interface ValidationResult {
-  valid: boolean;
-  violations: Array<{ code: string; severity: string; message: string }>;
-  score: number;
-  protocol: string;
-  taskId: string;
-}
-
-function findManifestEntry(taskId: string, manifestPath: string): string | null {
-  if (!existsSync(manifestPath)) return null;
-  const lines = readFileSync(manifestPath, 'utf-8').trim().split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i]!.includes(`"${taskId}"`)) return lines[i]!;
-  }
-  return null;
+interface DecompositionOpts {
+  strict?: boolean;
+  epicId?: string;
+  siblingCount?: number;
+  descriptionClarity?: boolean;
+  maxSiblings?: number;
+  maxDepth?: number;
 }
 
 /** Validate decomposition protocol for a task. */
 export async function validateDecompositionTask(
   taskId: string,
-  opts: { strict?: boolean; epicId?: string },
-): Promise<ValidationResult> {
-  const manifestPath = getManifestPath();
-  const entry = findManifestEntry(taskId, manifestPath);
-  if (!entry) {
-    throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`);
-  }
-
-  const manifest = JSON.parse(entry);
-  const violations: ValidationResult['violations'] = [];
-
-  // DCMP-007: agent_type check
-  if (manifest.agent_type !== 'specification') {
-    violations.push({
-      code: 'DCMP-007',
-      severity: 'high',
-      message: `Expected agent_type "specification", got "${manifest.agent_type}"`,
-    });
-  }
-
-  const score = violations.length === 0 ? 100 : Math.max(0, 100 - violations.length * 25);
-  const result: ValidationResult = {
-    valid: violations.length === 0,
-    violations,
-    score,
-    protocol: 'decomposition',
-    taskId,
-  };
-
-  if (opts.strict && violations.length > 0) {
-    throw new CleoError(63 as ExitCode, `Decomposition protocol violations for ${taskId}`);
-  }
-
+  opts: DecompositionOpts,
+): Promise<ProtocolValidationResult> {
+  const entry = loadManifestEntryByTaskId(taskId);
+  const result = validateDecompositionProtocol(entry, opts);
+  throwIfStrictFailed(result, opts, 'decomposition', taskId);
   return result;
 }
 
-/** Validate decomposition protocol from manifest file. */
+/** Validate decomposition protocol from a manifest file. */
 export async function checkDecompositionManifest(
   manifestFile: string,
-  opts: { strict?: boolean; epicId?: string },
-): Promise<ValidationResult> {
-  if (!existsSync(manifestFile)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Manifest file not found: ${manifestFile}`);
-  }
-  const manifest = JSON.parse(readFileSync(manifestFile, 'utf-8'));
-  const taskId = manifest.linked_tasks?.[0] ?? 'UNKNOWN';
-  return validateDecompositionTask(taskId, opts);
+  opts: DecompositionOpts,
+): Promise<ProtocolValidationResult> {
+  const entry = loadManifestEntryFromFile(manifestFile);
+  const taskId = entry.linked_tasks?.[0] ?? 'UNKNOWN';
+  const result = validateDecompositionProtocol(entry, opts);
+  throwIfStrictFailed(result, opts, 'decomposition', taskId);
+  return result;
 }

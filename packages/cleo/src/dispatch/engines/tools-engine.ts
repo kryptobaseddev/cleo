@@ -120,7 +120,7 @@ export async function toolsSkillFind(
     const skills = await discoverSkills(getCanonicalSkillsDir());
     const filtered = q
       ? skills.filter(
-          (s) =>
+          (s: { name: string; metadata: { description: string } }) =>
             s.name.toLowerCase().includes(q) || s.metadata.description.toLowerCase().includes(q),
         )
       : skills;
@@ -268,10 +268,10 @@ export function toolsSkillCatalogProtocols(
   page: ReturnType<typeof paginate>['page'];
 }> {
   try {
-    const protocols = catalog.listProtocols();
-    const details = protocols.map((name) => ({
+    const protocols = catalog.listProtocols() as string[];
+    const details = protocols.map((name: string) => ({
       name,
-      path: catalog.getProtocolPath(name) ?? null,
+      path: (catalog.getProtocolPath(name) as string | undefined) ?? null,
     }));
     const page = paginate(details, limit, offset);
     return {
@@ -310,14 +310,16 @@ export function toolsSkillCatalogProfiles(
   page: ReturnType<typeof paginate>['page'];
 }> {
   try {
-    const profileNames = catalog.listProfiles();
-    const profiles = profileNames.map((name) => {
-      const profile = catalog.getProfile(name);
+    const profileNames = catalog.listProfiles() as string[];
+    const profiles = profileNames.map((name: string) => {
+      const profile = catalog.getProfile(name) as
+        | { description?: string; extends?: string; skills?: string[] }
+        | undefined;
       return {
         name,
         description: profile?.description ?? '',
         extends: profile?.extends,
-        skillCount: profile?.skills.length ?? 0,
+        skillCount: profile?.skills?.length ?? 0,
         skills: profile?.skills ?? [],
       };
     });
@@ -352,10 +354,10 @@ export function toolsSkillCatalogResources(
   page: ReturnType<typeof paginate>['page'];
 }> {
   try {
-    const resources = catalog.listSharedResources();
-    const details = resources.map((name) => ({
+    const resources = catalog.listSharedResources() as string[];
+    const details = resources.map((name: string) => ({
       name,
-      path: catalog.getSharedResourcePath(name) ?? null,
+      path: (catalog.getSharedResourcePath(name) as string | undefined) ?? null,
     }));
     const page = paginate(details, limit, offset);
     return {
@@ -433,7 +435,7 @@ export async function toolsSkillInstall(
     }
 
     const resolvedSource = source ?? `library:${name}`;
-    const providerIds = providers.map((p) => p.id);
+    const providerIds = providers.map((p: { id: string }) => p.id);
 
     const { determineInstallationTargets } = await import('@cleocode/core/internal');
     const targets = await determineInstallationTargets({
@@ -447,7 +449,7 @@ export async function toolsSkillInstall(
     const errors: string[] = [];
 
     for (const target of targets) {
-      const provider = providers.find((p) => p.id === target.providerId);
+      const provider = providers.find((p: { id: string }) => p.id === target.providerId);
       if (!provider) continue;
       const result = await installSkill(resolvedSource, name, [provider], globalFlag, projectRoot);
       results.push({ providerId: target.providerId, ...result });
@@ -530,7 +532,9 @@ export async function toolsSkillRefresh(projectRoot: string): Promise<
     const updated: string[] = [];
     const failed: Array<{ name: string; error: string }> = [];
 
-    for (const [name, status] of Object.entries(updates)) {
+    for (const [name, status] of Object.entries(updates) as Array<
+      [string, { hasUpdate: boolean }]
+    >) {
       if (!status.hasUpdate) continue;
       const entry = tracked[name];
       if (!entry) continue;
@@ -690,7 +694,9 @@ export async function toolsProviderInject(
     const resolvedRefs = references ?? ['@AGENTS.md'];
     const resolvedContent = content ?? buildInjectionContent({ references: resolvedRefs });
     const result = await injectAll(providers, projectRoot, resolvedScope, resolvedContent);
-    const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
+    const actions = Array.from(result.entries() as Iterable<[string, string]>).map(
+      ([file, action]) => ({ file, action }),
+    );
     return engineSuccess({ actions, count: actions.length });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

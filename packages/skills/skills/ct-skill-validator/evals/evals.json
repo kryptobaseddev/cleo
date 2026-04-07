@@ -15,7 +15,7 @@
     },
     {
       "id": 2,
-      "prompt": "Check if this skill folder is v2 compliant: packages/ct-skills/skills/ct-orchestrator",
+      "prompt": "Check if this skill folder is v2 compliant: packages/skills/skills/ct-orchestrator",
       "expected_output": "Validation results for ct-orchestrator with tier breakdown, and an HTML report",
       "expectations": [
         "Claude validates ct-orchestrator not some other skill",

@@ -781,13 +781,30 @@ Filter providers by their priority tier.
 
 **Parameters:**
 
-- `priority` — Priority level to filter by (`"high"`, `"medium"`, or `"low"`)
+- `priority` — Priority level to filter by (`"primary"`, `"high"`, `"medium"`, or `"low"`)
 
 **Returns:** Array of providers matching the given priority
 
 ```typescript
 const highPriority = getProvidersByPriority("high");
 console.log(highPriority.map(p => p.toolName));
+```
+
+### `getPrimaryProvider`
+
+Get the single primary harness provider, if any is registered.
+
+```typescript
+() => Provider | undefined
+```
+
+**Returns:** The primary provider, or `undefined` if none is registered
+
+```typescript
+const primary = getPrimaryProvider();
+if (primary) {
+  console.log(`Primary harness: ${primary.toolName}`);
+}
 ```
 
 ### `getProvidersByStatus`
@@ -865,7 +882,7 @@ Get the semantic version string of the provider registry.
 () => string
 ```
 
-**Returns:** Version string from `providers/registry.json` (e.g. `"1.0.0"`)
+**Returns:** Version string from `providers/registry.json` (e.g. `"2.0.0"`)
 
 ```typescript
 console.log(`Registry version: ${getRegistryVersion()}`);
@@ -950,7 +967,7 @@ console.log(spawnCapable.map(p => p.id));
 Filter providers by a specific boolean spawn capability flag.
 
 ```typescript
-(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism">) => Provider[]
+(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism" | "spawnCommand">) => Provider[]
 ```
 
 **Parameters:**
@@ -2471,6 +2488,59 @@ caamp config show claude-code --global
 caamp config path cursor project
 ```
 
+### `readLockFile`
+
+Read and parse the CAAMP lock file from disk.
+
+```typescript
+() => Promise<CaampLockFile>
+```
+
+**Returns:** Parsed lock file contents
+
+```typescript
+const lock = await readLockFile();
+console.log(Object.keys(lock.mcpServers));
+```
+
+### `writeLockFile`
+
+Write the lock file atomically under a process lock guard.
+
+```typescript
+(lock: CaampLockFile) => Promise<void>
+```
+
+**Parameters:**
+
+- `lock` — Lock file data to persist
+
+```typescript
+const lock = await readLockFile();
+lock.mcpServers["my-server"] = entry;
+await writeLockFile(lock);
+```
+
+### `updateLockFile`
+
+Safely read-modify-write the lock file under a process lock guard.
+
+```typescript
+(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile>
+```
+
+**Parameters:**
+
+- `updater` — Callback that modifies the lock object (may be async)
+
+**Returns:** The updated lock file contents after the write
+
+```typescript
+const updated = await updateLockFile((lock) => {
+  lock.mcpServers["new-server"] = entry;
+});
+```
+
 ### `getCaampVersion`
 
 Retrieve the current CAAMP package version from the nearest `package.json`.
@@ -3214,59 +3284,6 @@ caamp skills audit ./my-skill/SKILL.md
 caamp skills audit ./skills-dir --sarif
 ```
 
-### `readLockFile`
-
-Read and parse the CAAMP lock file from disk.
-
-```typescript
-() => Promise<CaampLockFile>
-```
-
-**Returns:** Parsed lock file contents
-
-```typescript
-const lock = await readLockFile();
-console.log(Object.keys(lock.mcpServers));
-```
-
-### `writeLockFile`
-
-Write the lock file atomically under a process lock guard.
-
-```typescript
-(lock: CaampLockFile) => Promise<void>
-```
-
-**Parameters:**
-
-- `lock` — Lock file data to persist
-
-```typescript
-const lock = await readLockFile();
-lock.mcpServers["my-server"] = entry;
-await writeLockFile(lock);
-```
-
-### `updateLockFile`
-
-Safely read-modify-write the lock file under a process lock guard.
-
-```typescript
-(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile>
-```
-
-**Parameters:**
-
-- `updater` — Callback that modifies the lock object (may be async)
-
-**Returns:** The updated lock file contents after the write
-
-```typescript
-const updated = await updateLockFile((lock) => {
-  lock.mcpServers["new-server"] = entry;
-});
-```
-
 ### `parseSource`
 
 Parse and classify a source string into a typed `ParsedSource`.
@@ -3728,7 +3745,7 @@ Load a SkillLibrary from a module (index.js) at the given root directory.
 **Returns:** A validated SkillLibrary instance
 
 ```typescript
-const library = loadLibraryFromModule("/home/user/.agents/libraries/ct-skills");
+const library = loadLibraryFromModule("/home/user/.agents/libraries/cleocode-skills");
 console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
 ```
 
@@ -3747,7 +3764,7 @@ Build a SkillLibrary from raw files in a directory.
 **Returns:** A SkillLibrary instance backed by filesystem reads
 
 ```typescript
-const library = buildLibraryFromFiles("/home/user/.agents/libraries/ct-skills");
+const library = buildLibraryFromFiles("/home/user/.agents/libraries/cleocode-skills");
 const coreSkills = library.getCoreSkills();
 console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
 ```
@@ -5384,6 +5401,78 @@ Get the global config file path.
 
 ```typescript
 const globalConfig = getGlobalConfigPath();
+```
+
+### `getCleoGlobalRecipesDir`
+
+Get the Global Justfile Hub directory.  The hub stores cross-project recipe libraries agents can run in ANY project (cleo-bootstrap, rcasd-init, schema-validate, lint-standard). Both humans (via editor) and the meta Cleo Chef Agent write recipes here.
+
+```typescript
+() => string
+```
+
+**Returns:** Absolute path to the global-recipes directory under CLEO home
+
+```typescript
+const dir = getCleoGlobalRecipesDir();
+// Linux: "/home/user/.local/share/cleo/global-recipes"
+```
+
+### `getCleoGlobalJustfilePath`
+
+Get the absolute path to the primary global justfile.
+
+```typescript
+() => string
+```
+
+**Returns:** Absolute path to `{cleoHome}/global-recipes/justfile`
+
+```typescript
+const path = getCleoGlobalJustfilePath();
+```
+
+### `getCleoPiExtensionsDir`
+
+Get the Global Pi Extensions Hub directory.  Houses the Pi extensions that drive the CleoOS UI and tools: orchestrator.ts (Conductor Loop), project-manager.ts (TUI dashboard), tilldone.ts (work visualization), cant-bridge.ts (CANT runtime), stage-guide.ts (before_agent_start hook).
+
+```typescript
+() => string
+```
+
+**Returns:** Absolute path to the pi-extensions directory under CLEO home
+
+```typescript
+const dir = getCleoPiExtensionsDir();
+// Linux: "/home/user/.local/share/cleo/pi-extensions"
+```
+
+### `getCleoCantWorkflowsDir`
+
+Get the Global CANT Workflows Hub directory.  Stores compiled and parsed `.cant` workflows that agents can invoke globally across projects. Project-local agents still live in `.cleo/agents/`.
+
+```typescript
+() => string
+```
+
+**Returns:** Absolute path to the cant-workflows directory under CLEO home
+
+```typescript
+const dir = getCleoCantWorkflowsDir();
+```
+
+### `getCleoGlobalAgentsDir`
+
+Get the Global CLEO Agents directory.  Holds globally-available CANT agent definitions (`.cant` files). Project-local agents still live in `{projectRoot}/.cleo/agents/`.
+
+```typescript
+() => string
+```
+
+**Returns:** Absolute path to the agents directory under CLEO home
+
+```typescript
+const dir = getCleoGlobalAgentsDir();
 ```
 
 ### `getAgentOutputsDir`
@@ -8620,6 +8709,279 @@ Ensure stage artifact exists and frontmatter/backlinks are up to date.
 (epicId: string, stage: Stage, cwd?: string) => Promise<StageArtifactResult>
 ```
 
+### `getSkillSearchPaths`
+
+Build the CAAMP skill search paths in priority order. Uses CAAMP's canonical path functions for standard locations.  T4516
+
+```typescript
+(cwd?: string) => SkillSearchPath[]
+```
+
+### `getSkillsDir`
+
+Get the primary skills directory (app-embedded).  T4516
+
+```typescript
+(cwd?: string) => string
+```
+
+### `getSharedDir`
+
+Get the shared skills resources directory.  T4516
+
+```typescript
+(cwd?: string) => string
+```
+
+### `mapSkillName`
+
+Map a user-friendly skill name to the canonical ct-prefixed directory name. Supports: UPPER-CASE, lower-case, with/without ct- prefix.  T4516
+
+```typescript
+(input: string) => { canonical: string; mapped: boolean; }
+```
+
+### `listCanonicalSkillNames`
+
+List all known canonical skill names (unique values from the map).  T4516
+
+```typescript
+() => string[]
+```
+
+### `parseFrontmatter`
+
+Parse YAML-like frontmatter from a SKILL.md file. Handles the --- delimited header with key: value pairs.  T4516
+
+```typescript
+(content: string) => SkillFrontmatter
+```
+
+### `discoverSkill`
+
+Discover a single skill from a directory. Tries CAAMP's parseSkillFile first, falls back to local parsing.  T4516
+
+```typescript
+(skillDir: string) => Skill | null
+```
+
+### `discoverSkillsInDir`
+
+Discover all skills in a single directory. Scans for subdirectories containing SKILL.md.  T4516
+
+```typescript
+(dir: string) => Skill[]
+```
+
+### `discoverAllSkills`
+
+Discover all skills across CAAMP search paths. Returns skills in priority order (earlier paths take precedence).  T4516
+
+```typescript
+(cwd?: string) => Skill[]
+```
+
+### `findSkill`
+
+Find a specific skill by name across all search paths.  T4516
+
+```typescript
+(name: string, cwd?: string) => Skill | null
+```
+
+### `toSkillSummary`
+
+Convert a Skill to a lightweight SkillSummary.  T4516
+
+```typescript
+(skill: Skill) => SkillSummary
+```
+
+### `generateManifest`
+
+Generate a skill manifest from discovered skills.  T4516
+
+```typescript
+(cwd?: string) => SkillManifest
+```
+
+### `resolveTemplatePath`
+
+Resolve a skill template path (SKILL.md) by name.  T4516
+
+```typescript
+(name: string, cwd?: string) => string | null
+```
+
+### `loadPlaceholders`
+
+Load token definitions from placeholders.json.  T4521
+
+```typescript
+(cwd?: string) => PlaceholdersConfig | null
+```
+
+### `buildDefaults`
+
+Build the full default values map (merging placeholders.json with hardcoded defaults).  T4521
+
+```typescript
+(cwd?: string) => TokenValues
+```
+
+### `validateTokenValue`
+
+Validate a single token value against its pattern.  T4521
+
+```typescript
+(token: string, value: string) => { valid: boolean; error?: string; }
+```
+
+### `validateRequired`
+
+Validate all required tokens are present and valid.  T4521
+
+```typescript
+(values: TokenValues) => { valid: boolean; missing: string[]; invalid: Array<{ token: string; error: string; }>; }
+```
+
+### `validateAllTokens`
+
+Validate all tokens in a values map (required + optional).  T4521
+
+```typescript
+(values: TokenValues) => { valid: boolean; errors: Array<{ token: string; error: string; }>; }
+```
+
+### `injectTokens`
+
+Inject token values into a template string. Replaces all TOKEN_NAME patterns with corresponding values. Unresolved tokens are left as-is (for debugging).  T4521
+
+```typescript
+(template: string, values: TokenValues) => string
+```
+
+### `hasUnresolvedTokens`
+
+Check if a template has unresolved tokens after injection.  T4521
+
+```typescript
+(content: string) => string[]
+```
+
+### `loadAndInject`
+
+Load a skill template and inject tokens.  T4521
+
+```typescript
+(templatePath: string, values: TokenValues) => { content: string; unresolvedTokens: string[]; }
+```
+
+### `setFullContext`
+
+Build a complete TokenValues map from a task, resolving all standard tokens. Ports ti_set_full_context from lib/skills/token-inject.sh.  This is the primary entry point for orchestrators to prepare token values before spawning subagents. It populates: TASK_ID, DATE, TOPIC_SLUG, EPIC_ID, TITLE, TASK_TITLE, TASK_DESCRIPTION, TOPICS_JSON, DEPENDS_LIST, RESEARCH_ID, OUTPUT_DIR, MANIFEST_PATH, and all command defaults.   T4712  T4663
+
+```typescript
+(task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[]; }, options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string; }) => TokenValues
+```
+
+### `autoDispatch`
+
+Auto-dispatch a task to the most appropriate skill. Tries strategies in priority order: label - catalog - type - keyword - fallback.  T4517
+
+```typescript
+(task: Task, cwd?: string) => DispatchResult
+```
+
+### `dispatchExplicit`
+
+Dispatch with explicit skill override. Verifies the skill exists before returning.  T4517
+
+```typescript
+(skillName: string, cwd?: string) => DispatchResult | null
+```
+
+### `getProtocolForDispatch`
+
+Get the protocol type for a dispatch result.  T4517
+
+```typescript
+(result: DispatchResult) => SkillProtocolType | null
+```
+
+### `prepareSpawnContext`
+
+Prepare spawn context for a dispatched skill. Returns the skill name and protocol needed for token injection.  T4517
+
+```typescript
+(task: Task, overrideSkill?: string, cwd?: string) => { skill: string; protocol: SkillProtocolType | null; dispatch: DispatchResult; }
+```
+
+### `prepareSpawnMulti`
+
+Compose multiple skills into a single prompt with progressive disclosure. Ports skill_prepare_spawn_multi from lib/skills/skill-dispatch.sh.  The first skill is loaded fully (primary). Secondary skills use progressive disclosure (frontmatter + first section only) to save context budget.   T4712  T4663
+
+```typescript
+(skillNames: string[], tokenValues: Record<string, string>, cwd?: string) => MultiSkillComposition
+```
+
+### `buildStageGuidance`
+
+Build structured stage guidance for a given pipeline stage.  Resolves the primary skill for the stage from `STAGE_SKILL_MAP`, composes a prompt from the real `SKILL.md` files via `prepareSpawnMulti()`, and returns a `StageGuidance` object suitable for Pi extension injection or direct CLI rendering.  If the skills cannot be resolved, returns a fallback prompt built from `STAGE_DEFINITIONS` metadata only — no hand-authored protocol text.
+
+```typescript
+(stage: Stage, cwd?: string) => StageGuidance
+```
+
+**Parameters:**
+
+- `stage` — The canonical pipeline stage identifier
+- `cwd` — Optional project root override for skill resolution
+
+**Returns:** Structured guidance with `.prompt` ready for LLM injection
+
+```typescript
+const guidance = buildStageGuidance('implementation');
+// guidance.primarySkill === 'ct-task-executor'
+// guidance.loadedSkills === ['ct-task-executor', 'ct-cleo', 'ct-orchestrator']
+// guidance.prompt starts with "## Skills Loaded (3 total)"
+```
+
+### `formatStageGuidance`
+
+Format stage guidance as a Markdown-wrapped system prompt.  Since `buildStageGuidance()` now returns the already-composed prompt in `.prompt`, this helper simply passes it through with a header banner identifying which skills are loaded and which stage is active.
+
+```typescript
+(guidance: StageGuidance) => string
+```
+
+**Parameters:**
+
+- `guidance` — The structured guidance from `buildStageGuidance()`
+
+**Returns:** Markdown text suitable for LLM system prompt injection
+
+```typescript
+const g = buildStageGuidance('research');
+const text = formatStageGuidance(g);
+return { systemPrompt: text };  // Pi before_agent_start hook return
+```
+
+### `renderStageGuidance`
+
+Convenience wrapper: build AND format in a single call.
+
+```typescript
+(stage: Stage, cwd?: string) => string
+```
+
+**Parameters:**
+
+- `stage` — The canonical pipeline stage identifier
+- `cwd` — Optional project root override for skill resolution
+
+**Returns:** Markdown text ready for LLM system prompt injection
+
 ### `getLifecycleState`
 
 Get the current lifecycle state for an epic.  T4467
@@ -10921,6 +11283,40 @@ Resolve output format from Commander.js option values.  Reads --json, --human, a
 
 **Returns:** Resolved format with source provenance   T4703  T4663
 
+### `validateLafsShape`
+
+Validate a LAFS envelope shape and report violations.  Full envelopes are delegated to `@cleocode/lafs.validateEnvelope()` (which uses the canonical schema via lafs-napi/AJV). Minimal envelopes are checked against the lightweight invariants in this module.
+
+```typescript
+(envelope: unknown) => LafsShapeViolation
+```
+
+**Parameters:**
+
+- `envelope` — The candidate envelope (serialized string or object)
+
+**Returns:** A `LafsShapeViolation` report. `.reasons.length === 0` when valid.
+
+### `assertLafsShape`
+
+Assert that a LAFS envelope conforms to the shape contract, throwing an error with a LAFS-shaped diagnostic if it does not.  Used by the renderer middleware to fail LOUDLY when CLEO itself emits a malformed envelope — this is a developer bug, not an operator issue.
+
+```typescript
+(envelope: unknown) => void
+```
+
+**Parameters:**
+
+- `envelope` — The candidate envelope
+
+### `emitLafsViolation`
+
+Emit a LAFS-shaped error envelope describing a validation failure and set `process.exitCode` to `ExitCode.LAFS_VIOLATION`.  Called by the renderer middleware as a recovery path when a previously- emitted envelope turns out to be malformed.
+
+```typescript
+(err: LafsViolationError) => void
+```
+
 ### `normalizeForHuman`
 
 Normalize data shape for human renderers.  Each command expects data with specific named keys (e.g., `data.task` for 'show', `data.tasks` for 'list'). This function detects and corrects flat/array data from the engine layer.
@@ -11350,7 +11746,7 @@ Build a cross-provider hook support matrix using CAAMP APIs.  Calls `buildHookMa
 Initialize a CLEO project directory.  Creates the .cleo/ directory structure with empty data files. Returns error if already initialized (unless force=true).
 
 ```typescript
-(projectRoot: string, options?: { projectName?: string; force?: boolean; }) => Promise<EngineResult<{ initialized: boolean; projectRoot: string; filesCreated: string[]; }>>
+(projectRoot: string, options?: { projectName?: string; force?: boolean; mapCodebase?: boolean; }) => Promise<EngineResult<{ initialized: boolean; projectRoot: string; filesCreated: string[]; skipped: string[]; warnings: string[]; classification?: { kind: "greenfield" | "brownfield"; signalCount: number; topLevelFileCount: number; hasGit: boolean; }; nextSteps?: Array<{ action: string; command: string; }>; }>>
 ```
 
 ### `isAutoInitEnabled`
@@ -11916,6 +12312,22 @@ Runtime/channel diagnostics for CLI installation mode checks.  T4815
 (_projectRoot: string, params?: { detailed?: boolean; }) => Promise<EngineResult<RuntimeData>>
 ```
 
+### `systemPaths`
+
+Report all resolved CleoOS paths (project + global hub).  Backs the `cleo admin paths` CLI command. Read-only: reports current state without mutating the filesystem. Use `systemScaffoldHub()` to create missing hub directories and seed the starter justfile.   Phase 1 — XDG Foundation + Justfile Hub Skeleton
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<PathsData>>
+```
+
+### `systemScaffoldHub`
+
+Create the CleoOS Hub directories and seed the starter justfile if absent.  Idempotent: safe to call repeatedly. Never overwrites existing user-edited justfile or README content. Backs the `cleo admin scaffold-hub` CLI command and is invoked automatically by `cleo init` (Phase 5).   Phase 1 — XDG Foundation + Justfile Hub Skeleton
+
+```typescript
+() => Promise<EngineResult<ScaffoldHubData>>
+```
+
 ### `systemSequenceRepair`
 
 Repair task ID sequence using canonical core implementation.  T4815
@@ -12148,6 +12560,62 @@ check.protocol.implementation - Validate implementation protocol compliance  T53
 ### `validateProtocolSpecification`
 
 check.protocol.specification - Validate specification protocol compliance  T5327
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolResearch`
+
+check.protocol.research - Validate research protocol compliance  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolArchitectureDecision`
+
+check.protocol.architecture-decision - Validate ADR protocol compliance  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolValidation`
+
+check.protocol.validation - Validate validation-stage protocol compliance  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolTesting`
+
+check.protocol.testing - Validate testing-stage protocol compliance (IVT loop)  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolRelease`
+
+check.protocol.release - Validate release protocol compliance  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolArtifactPublish`
+
+check.protocol.artifact-publish - Validate artifact-publish protocol compliance  T260
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+### `validateProtocolProvenance`
+
+check.protocol.provenance - Validate provenance protocol compliance  T260
 
 ```typescript
 (params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
@@ -13142,19 +13610,8 @@ Register the bug command.  T4913
 
 ### `registerCantCommand`
 
-Register the `cleo cant` command group.  Registers a `cant` parent command and a `migrate` subcommand that converts markdown instruction files to CANT DSL format.
-
 ```typescript
 (program: Command) => void
-```
-
-**Parameters:**
-
-- `program` — The root CLI command to attach to
-
-```ts
-registerCantCommand(rootCommand);
-// Adds: cleo cant migrate <file> [--write] [--dry-run] [--output-dir <dir>] [--verbose] [--json]
 ```
 
 ### `registerCheckCommand`
@@ -14861,7 +15318,7 @@ if (result.action === 'repaired') console.log('Template updated');
 Perform a complete global scaffold operation: ensure home and templates are all present and current. This is the single entry point for global infrastructure scaffolding.  Schemas are NOT copied here — they are read at runtime from the npm package path (getPackageRoot() + '/schemas/'). Use ensureGlobalSchemas() explicitly from init or upgrade if a copy is needed for a specific workflow.  Used by:   - CLI startup (via startupHealthCheck in health.ts)   - init (for first-time global setup)   - upgrade (for global repair)
 
 ```typescript
-() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }>
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; cleoosHub: ScaffoldResult; }>
 ```
 
 **Returns:** Combined scaffold results for home and templates
@@ -14869,6 +15326,21 @@ Perform a complete global scaffold operation: ensure home and templates are all 
 ```typescript
 const { home, templates } = await ensureGlobalScaffold();
 console.log(home.action, templates.action);
+```
+
+### `ensureCleoOsHub`
+
+Ensure the CleoOS Hub subdirectories exist under the global CLEO home, and seed a starter Justfile Hub if none exists yet.  This is the Phase 1 scaffolding entry point. Idempotent: re-running is safe and will not overwrite an existing user-edited justfile.
+
+```typescript
+() => Promise<ScaffoldResult>
+```
+
+**Returns:** Scaffold result for the CleoOS hub root
+
+```typescript
+const result = await ensureCleoOsHub();
+console.log(result.action); // "created" or "skipped"
 ```
 
 ### `checkGlobalHome`
@@ -14918,6 +15390,29 @@ Check that the project log directory exists. Read-only: no side effects.
 ```typescript
 const check = checkLogDir('/my/project');
 console.log(check.status);
+```
+
+### `classifyProject`
+
+Classify a project directory as greenfield or brownfield.  Read-only — never mutates the filesystem. Safe to call at any time.
+
+```typescript
+(directory?: string) => ProjectClassification
+```
+
+**Parameters:**
+
+- `directory` — Absolute or relative path; defaults to process.cwd()
+
+**Returns:** Classification result with signals and metadata
+
+```typescript
+const classification = classifyProject('/my/project');
+if (classification.kind === 'greenfield') {
+  // Seed initial Vision epic
+} else {
+  // Run codebase mapping
+}
 ```
 
 ### `ensureGitHooks`
@@ -19959,110 +20454,6 @@ Sanitize all params in a request before routing
 (params: Record<string, unknown> | undefined, projectRoot?: string, context?: { domain?: string; operation?: string; }) => Record<string, unknown> | undefined
 ```
 
-### `getSkillSearchPaths`
-
-Build the CAAMP skill search paths in priority order. Uses CAAMP's canonical path functions for standard locations.  T4516
-
-```typescript
-(cwd?: string) => SkillSearchPath[]
-```
-
-### `getSkillsDir`
-
-Get the primary skills directory (app-embedded).  T4516
-
-```typescript
-(cwd?: string) => string
-```
-
-### `getSharedDir`
-
-Get the shared skills resources directory.  T4516
-
-```typescript
-(cwd?: string) => string
-```
-
-### `mapSkillName`
-
-Map a user-friendly skill name to the canonical ct-prefixed directory name. Supports: UPPER-CASE, lower-case, with/without ct- prefix.  T4516
-
-```typescript
-(input: string) => { canonical: string; mapped: boolean; }
-```
-
-### `listCanonicalSkillNames`
-
-List all known canonical skill names (unique values from the map).  T4516
-
-```typescript
-() => string[]
-```
-
-### `parseFrontmatter`
-
-Parse YAML-like frontmatter from a SKILL.md file. Handles the --- delimited header with key: value pairs.  T4516
-
-```typescript
-(content: string) => SkillFrontmatter
-```
-
-### `discoverSkill`
-
-Discover a single skill from a directory. Tries CAAMP's parseSkillFile first, falls back to local parsing.  T4516
-
-```typescript
-(skillDir: string) => Skill | null
-```
-
-### `discoverSkillsInDir`
-
-Discover all skills in a single directory. Scans for subdirectories containing SKILL.md.  T4516
-
-```typescript
-(dir: string) => Skill[]
-```
-
-### `discoverAllSkills`
-
-Discover all skills across CAAMP search paths. Returns skills in priority order (earlier paths take precedence).  T4516
-
-```typescript
-(cwd?: string) => Skill[]
-```
-
-### `findSkill`
-
-Find a specific skill by name across all search paths.  T4516
-
-```typescript
-(name: string, cwd?: string) => Skill | null
-```
-
-### `toSkillSummary`
-
-Convert a Skill to a lightweight SkillSummary.  T4516
-
-```typescript
-(skill: Skill) => SkillSummary
-```
-
-### `generateManifest`
-
-Generate a skill manifest from discovered skills.  T4516
-
-```typescript
-(cwd?: string) => SkillManifest
-```
-
-### `resolveTemplatePath`
-
-Resolve a skill template path (SKILL.md) by name.  T4516
-
-```typescript
-(name: string, cwd?: string) => string | null
-```
-
 ### `getAgentsDir`
 
 Get the agents directory path.  T4518
@@ -20189,118 +20580,6 @@ Scan the agents/ directory and register all found agents.  T4518
 
 ```typescript
 (cwd?: string) => { added: string[]; removed: string[]; unchanged: string[]; }
-```
-
-### `loadPlaceholders`
-
-Load token definitions from placeholders.json.  T4521
-
-```typescript
-(cwd?: string) => PlaceholdersConfig | null
-```
-
-### `buildDefaults`
-
-Build the full default values map (merging placeholders.json with hardcoded defaults).  T4521
-
-```typescript
-(cwd?: string) => TokenValues
-```
-
-### `validateTokenValue`
-
-Validate a single token value against its pattern.  T4521
-
-```typescript
-(token: string, value: string) => { valid: boolean; error?: string; }
-```
-
-### `validateRequired`
-
-Validate all required tokens are present and valid.  T4521
-
-```typescript
-(values: TokenValues) => { valid: boolean; missing: string[]; invalid: Array<{ token: string; error: string; }>; }
-```
-
-### `validateAllTokens`
-
-Validate all tokens in a values map (required + optional).  T4521
-
-```typescript
-(values: TokenValues) => { valid: boolean; errors: Array<{ token: string; error: string; }>; }
-```
-
-### `injectTokens`
-
-Inject token values into a template string. Replaces all TOKEN_NAME patterns with corresponding values. Unresolved tokens are left as-is (for debugging).  T4521
-
-```typescript
-(template: string, values: TokenValues) => string
-```
-
-### `hasUnresolvedTokens`
-
-Check if a template has unresolved tokens after injection.  T4521
-
-```typescript
-(content: string) => string[]
-```
-
-### `loadAndInject`
-
-Load a skill template and inject tokens.  T4521
-
-```typescript
-(templatePath: string, values: TokenValues) => { content: string; unresolvedTokens: string[]; }
-```
-
-### `setFullContext`
-
-Build a complete TokenValues map from a task, resolving all standard tokens. Ports ti_set_full_context from lib/skills/token-inject.sh.  This is the primary entry point for orchestrators to prepare token values before spawning subagents. It populates: TASK_ID, DATE, TOPIC_SLUG, EPIC_ID, TITLE, TASK_TITLE, TASK_DESCRIPTION, TOPICS_JSON, DEPENDS_LIST, RESEARCH_ID, OUTPUT_DIR, MANIFEST_PATH, and all command defaults.   T4712  T4663
-
-```typescript
-(task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[]; }, options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string; }) => TokenValues
-```
-
-### `autoDispatch`
-
-Auto-dispatch a task to the most appropriate skill. Tries strategies in priority order: label - catalog - type - keyword - fallback.  T4517
-
-```typescript
-(task: Task, cwd?: string) => DispatchResult
-```
-
-### `dispatchExplicit`
-
-Dispatch with explicit skill override. Verifies the skill exists before returning.  T4517
-
-```typescript
-(skillName: string, cwd?: string) => DispatchResult | null
-```
-
-### `getProtocolForDispatch`
-
-Get the protocol type for a dispatch result.  T4517
-
-```typescript
-(result: DispatchResult) => SkillProtocolType | null
-```
-
-### `prepareSpawnContext`
-
-Prepare spawn context for a dispatched skill. Returns the skill name and protocol needed for token injection.  T4517
-
-```typescript
-(task: Task, overrideSkill?: string, cwd?: string) => { skill: string; protocol: SkillProtocolType | null; dispatch: DispatchResult; }
-```
-
-### `prepareSpawnMulti`
-
-Compose multiple skills into a single prompt with progressive disclosure. Ports skill_prepare_spawn_multi from lib/skills/skill-dispatch.sh.  The first skill is loaded fully (primary). Secondary skills use progressive disclosure (frontmatter + first section only) to save context budget.   T4712  T4663
-
-```typescript
-(skillNames: string[], tokenValues: Record<string, string>, cwd?: string) => MultiSkillComposition
 ```
 
 ### `loadProtocolBase`
@@ -20697,7 +20976,7 @@ Resolve a skill directory containing SKILL.md. Searches all paths from getSkillS
 
 ### `resolveProtocolPath`
 
-Resolve a protocol .md file.  Search order per base path: 1. base/_ct-skills-protocols/protocol_name.md (Strategy B shared dir) 2. PROJECT_ROOT/src/protocols/protocol_name.md (legacy embedded fallback)   T4552
+Resolve a protocol .md file.  Search order: 1. `<core-package>/src/validation/protocols/protocols-markdown/{name}.md`    (canonical location, where the markdown lives in this monorepo) 2. `<base>/protocols/{name}.md` for each registered skill base path    (project-local protocol overrides)   T4552  T260 — drop dead Strategy B paths, point at the real protocols-markdown dir
 
 ```typescript
 (protocolName: string, projectRoot?: string) => string | null
@@ -20705,7 +20984,7 @@ Resolve a protocol .md file.  Search order per base path: 1. base/_ct-skills-pro
 
 ### `resolveSharedPath`
 
-Resolve a shared resource .md file.  Search order per base path: 1. base/_ct-skills-shared/resource_name.md (Strategy B shared dir) 2. base/_shared/resource_name.md (legacy embedded layout)   T4552
+Resolve a shared resource .md file.  Search order per base path: `{base}/_shared/{resource_name}.md`. The `_shared/` directory is the canonical location in `@cleocode/skills`.   T4552  T260 — drop dead Strategy B path
 
 ```typescript
 (resourceName: string, projectRoot?: string) => string | null
@@ -22802,6 +23081,30 @@ T4499
 (entry: ManifestEntryInput, options?: { hasAttestation?: boolean; hasSbom?: boolean; }) => ProtocolValidationResult
 ```
 
+### `validateArchitectureDecisionProtocol`
+
+Validate an Architecture Decision Record manifest entry.  Enforces the 8 MUST requirements from `architecture-decision.md`: ADR-001 (consensus provenance), ADR-002 (manifest link), ADR-003 (HITL), ADR-004 (required sections), ADR-005 (cascade on supersession), ADR-006 (SQLite persistence), ADR-007 (agent_type), ADR-008 (spec block).  ADR-005, ADR-006, and ADR-008 require runtime state the caller must provide via options — this validator checks the options and never performs side-effectful I/O.   T260
+
+```typescript
+(entry: ManifestEntryInput & { consensus_manifest_id?: string; }, options?: ArchitectureDecisionOptions) => ProtocolValidationResult
+```
+
+### `validateValidationProtocol`
+
+Validate a manifest entry against the validation stage protocol.  Enforces VALID-001..007 from `validation.md`. The validation stage runs static analysis, type checking, and pre-test quality gates. This validator verifies the manifest entry captures a real validation run; runtime gate enforcement happens in the lifecycle state machine, not here.   T260
+
+```typescript
+(entry: ManifestEntryInput, options?: ValidationStageOptions) => ProtocolValidationResult
+```
+
+### `validateTestingProtocol`
+
+Validate a manifest entry against the testing protocol.  This validator is **project-agnostic**: it makes no assumption about the underlying test framework. It enforces the invariant that tests ran via a detected framework, achieved 100% pass rate, and (if an IVT loop was used) converged before the stage completes.  Enforces TEST-001..007 from the post-2026-04 rewrite of `testing.md`.   T260
+
+```typescript
+(entry: ManifestEntryInput, options?: TestingOptions) => ProtocolValidationResult
+```
+
 ### `validateProtocol`
 
 Validate a manifest entry against a specific protocol. Throws CleoError with appropriate exit code on strict failure.  T4499
@@ -24625,20 +24928,84 @@ Validates that all required parameters are present in the request. Returns an ar
 (def: OperationDef, params?: Record<string, unknown>) => string[]
 ```
 
+### `findManifestEntry`
+
+Locate the manifest line for a given task ID, reading from the end of the file so the most recent entry wins.   T260
+
+```typescript
+(taskId: string, manifestPath: string) => string | null
+```
+
+### `loadManifestEntryByTaskId`
+
+Load a manifest entry by task ID from the canonical manifest file.   T260
+
+```typescript
+(taskId: string) => ManifestEntryInput
+```
+
+### `loadManifestEntryFromFile`
+
+Load a manifest entry from an arbitrary JSON file (used by the `manifest` dispatch mode where the caller already has a serialized entry).   T260
+
+```typescript
+(manifestFile: string) => ManifestEntryInput
+```
+
+### `throwIfStrictFailed`
+
+Throw a CleoError with the protocol's canonical exit code when strict validation fails.   T260
+
+```typescript
+(result: ProtocolValidationResult, opts: { strict?: boolean; }, protocol: ProtocolType, taskId: string) => void
+```
+
+### `validateArchitectureDecisionTask`
+
+Validate architecture-decision protocol for a task.
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & ArchitectureDecisionOptions) => Promise<ProtocolValidationResult>
+```
+
+### `checkArchitectureDecisionManifest`
+
+Validate architecture-decision protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & ArchitectureDecisionOptions) => Promise<ProtocolValidationResult>
+```
+
+### `validateArtifactPublishTask`
+
+Validate artifact-publish protocol for a task.
+
+```typescript
+(taskId: string, opts: ArtifactPublishOpts) => Promise<ProtocolValidationResult>
+```
+
+### `checkArtifactPublishManifest`
+
+Validate artifact-publish protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: ArtifactPublishOpts) => Promise<ProtocolValidationResult>
+```
+
 ### `validateConsensusTask`
 
 Validate consensus protocol for a task.
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `checkConsensusManifest`
 
-Validate consensus protocol from manifest file.
+Validate consensus protocol from a manifest file.
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `validateContributionTask`
@@ -24646,15 +25013,15 @@ Validate consensus protocol from manifest file.
 Validate contribution protocol for a task.
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; hasContributionTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `checkContributionManifest`
 
-Validate contribution protocol from manifest file.
+Validate contribution protocol from a manifest file.
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; hasContributionTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `validateDecompositionTask`
@@ -24662,15 +25029,15 @@ Validate contribution protocol from manifest file.
 Validate decomposition protocol for a task.
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; epicId?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: DecompositionOpts) => Promise<ProtocolValidationResult>
 ```
 
 ### `checkDecompositionManifest`
 
-Validate decomposition protocol from manifest file.
+Validate decomposition protocol from a manifest file.
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; epicId?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: DecompositionOpts) => Promise<ProtocolValidationResult>
 ```
 
 ### `validateImplementationTask`
@@ -24678,15 +25045,63 @@ Validate decomposition protocol from manifest file.
 Validate implementation protocol for a task.
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; hasTaskTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `checkImplementationManifest`
 
-Validate implementation protocol from manifest file.
+Validate implementation protocol from a manifest file.
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; hasTaskTags?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+### `validateProvenanceTask`
+
+Validate provenance protocol for a task.
+
+```typescript
+(taskId: string, opts: ProvenanceOpts) => Promise<ProtocolValidationResult>
+```
+
+### `checkProvenanceManifest`
+
+Validate provenance protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: ProvenanceOpts) => Promise<ProtocolValidationResult>
+```
+
+### `validateReleaseTask`
+
+Validate release protocol for a task.
+
+```typescript
+(taskId: string, opts: { strict?: boolean; version?: string; hasChangelog?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+### `checkReleaseManifest`
+
+Validate release protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; version?: string; hasChangelog?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+### `validateResearchTask`
+
+Validate research protocol for a task.
+
+```typescript
+(taskId: string, opts: { strict?: boolean; hasCodeChanges?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+### `checkResearchManifest`
+
+Validate research protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; hasCodeChanges?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `validateSpecificationTask`
@@ -24694,15 +25109,47 @@ Validate implementation protocol from manifest file.
 Validate specification protocol for a task.
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ### `checkSpecificationManifest`
 
-Validate specification protocol from manifest file.
+Validate specification protocol from a manifest file.
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ProtocolValidationResult>
+```
+
+### `validateTestingTask`
+
+Validate testing protocol for a task.
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & TestingOptions) => Promise<ProtocolValidationResult>
+```
+
+### `checkTestingManifest`
+
+Validate testing protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & TestingOptions) => Promise<ProtocolValidationResult>
+```
+
+### `validateValidationTask`
+
+Validate validation-stage protocol for a task.
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & ValidationStageOptions) => Promise<ProtocolValidationResult>
+```
+
+### `checkValidationManifest`
+
+Validate validation-stage protocol from a manifest file.
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & ValidationStageOptions) => Promise<ProtocolValidationResult>
 ```
 
 ### `validateSchema`
@@ -26432,70 +26879,6 @@ Find all stale tasks (stale, critical, or abandoned).
 
 ```typescript
 (tasks: Task[], thresholds?: StalenessThresholds) => StalenessSummary
-```
-
-### `validateReleaseTask`
-
-Validate release protocol for a task.
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `checkReleaseManifest`
-
-Validate release protocol from manifest file.
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `validateResearchTask`
-
-Validate research protocol for a task.
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `checkResearchManifest`
-
-Validate research protocol from manifest file.
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `validateTestingTask`
-
-Validate testing protocol for a task.
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `checkTestingManifest`
-
-Validate testing protocol from manifest file.
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `validateValidationTask`
-
-Validate verification/validation protocol for a task.
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-### `checkValidationManifest`
-
-Validate validation protocol from manifest file.
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
 ```
 
 ### `parseExtensionsHeader`
@@ -28548,6 +28931,22 @@ RegistryDetection
 - `appBundle` — macOS .app bundle name (for the `"appBundle"` method).
 - `flatpakId` — Flatpak application ID (for the `"flatpak"` method).
 
+### `ProviderPriority`
+
+Priority tier identifier stored in registry.json.
+
+```typescript
+ProviderPriority
+```
+
+### `ProviderStatus`
+
+Lifecycle status identifier stored in registry.json.
+
+```typescript
+ProviderStatus
+```
+
 ### `RegistryProvider`
 
 Raw provider definition as stored in registry.json before path resolution.
@@ -28566,19 +28965,72 @@ RegistryProvider
 - `pathGlobal` — Global instruction file directory path (may contain platform variables).
 - `pathProject` — Project-relative instruction file directory path.
 - `instructFile` — Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).
-- `configKey` — Dot-notation key path for MCP server config (e.g. `"mcpServers"`).
-- `configFormat` — Config file format identifier (e.g. `"json"`, `"jsonc"`, `"yaml"`, `"toml"`).
-- `configPathGlobal` — Global config file path (may contain platform variables).
-- `configPathProject` — Project-relative config file path, or `null` if unsupported.
 - `pathSkills` — Global skills directory path (may contain platform variables).
 - `pathProjectSkills` — Project-relative skills directory path.
 - `detection` — Detection configuration for auto-discovering this provider.
+- `priority` — Priority tier identifier. Exactly zero or one provider should be `"primary"`.
+- `status` — Lifecycle status identifier.
+- `agentSkillsCompatible` — Whether the provider is compatible with the Agent Skills standard.
+- `capabilities` — Optional provider capabilities for MCP, harness role, skills, hooks, and spawn.
+
+### `McpConfigFormat`
+
+Supported MCP config file formats.
+
+```typescript
+McpConfigFormat
+```
+
+### `McpTransportType`
+
+MCP transport protocols a provider may advertise.
+
+```typescript
+McpTransportType
+```
+
+### `RegistryMcpIntegration`
+
+MCP server integration metadata for providers that consume MCP servers via a per-agent config file.
+
+```typescript
+RegistryMcpIntegration
+```
+
+**Members:**
+
+- `configKey` — Dot-notation key path for MCP server config (e.g. `"mcpServers"`).
+- `configFormat` — Config file format identifier.
+- `configPathGlobal` — Global config file path (may contain platform variables).
+- `configPathProject` — Project-relative config file path, or `null` if unsupported.
 - `supportedTransports` — MCP transport protocol identifiers this provider supports.
 - `supportsHeaders` — Whether the provider supports custom HTTP headers for remote MCP servers.
-- `priority` — Priority tier identifier (`"high"`, `"medium"`, or `"low"`).
-- `status` — Lifecycle status identifier (`"active"`, `"beta"`, `"deprecated"`, `"planned"`).
-- `agentSkillsCompatible` — Whether the provider is compatible with the Agent Skills standard.
-- `capabilities` — Optional provider capabilities for skills, hooks, and spawn.
+
+### `RegistryHarnessKind`
+
+Harness role category for a primary or standalone harness.
+
+```typescript
+RegistryHarnessKind
+```
+
+### `RegistryHarnessCapability`
+
+First-class harness role declaration.
+
+```typescript
+RegistryHarnessCapability
+```
+
+**Members:**
+
+- `kind` — The harness kind (`"orchestrator"` or `"standalone"`).
+- `spawnTargets` — Provider ids this harness can spawn as subagents. Empty for standalone.
+- `supportsConductorLoop` — Whether the harness drives a CleoOS conductor loop.
+- `supportsStageGuidance` — Whether the harness accepts stage guidance injection.
+- `supportsCantBridge` — Whether the harness bridges CANT events.
+- `extensionsPath` — Path to the harness's runtime extensions directory (file paths, not a config file).
+- `globalExtensionsHub` — Optional CLEO-managed shared extensions hub.
 
 ### `SkillsPrecedence`
 
@@ -28610,6 +29062,22 @@ Hook lifecycle event identifier from registry.json.
 string
 ```
 
+### `RegistryHookFormat`
+
+The on-disk layout of a provider's hook configuration.
+
+```typescript
+RegistryHookFormat
+```
+
+### `RegistryHookCatalog`
+
+Which native event catalog a provider's hook system uses.
+
+```typescript
+RegistryHookCatalog
+```
+
 ### `RegistryHooksCapability`
 
 Raw hooks capability definition as stored in registry.json.
@@ -28621,8 +29089,12 @@ RegistryHooksCapability
 **Members:**
 
 - `supported` — Hook lifecycle event identifiers this provider supports.
-- `hookConfigPath` — Path to the hook configuration file, or `null` if not applicable.
-- `hookFormat` — Format of the hook config file (e.g. `"json"`, `"yaml"`), or `null`.
+- `hookConfigPath` — Path to the hook configuration file or directory, or `null` if not applicable.
+- `hookConfigPathProject` — Project-relative path to the hook configuration file or directory.
+- `hookFormat` — Format of the hook config, or `null` when the provider has no hook system.
+- `nativeEventCatalog` — Which native event catalog this provider's hooks are drawn from. Defaults to `"canonical"` when omitted.
+- `canInjectSystemPrompt` — Whether hooks may inject or modify the system prompt.
+- `canBlockTools` — Whether hooks may block tool calls.
 
 ### `SpawnMechanism`
 
@@ -28647,6 +29119,7 @@ RegistrySpawnCapability
 - `supportsInterAgentComms` — Whether spawned agents can communicate with each other.
 - `supportsParallelSpawn` — Whether multiple agents can be spawned in parallel.
 - `spawnMechanism` — Mechanism used for spawning, or `null` if spawning is unsupported.
+- `spawnCommand` — Literal command-line invocation used by the harness to spawn a child worker (e.g. Pi's `["pi", "--mode", "json", "-p", "--no-session"]`). Only meaningful when `spawnMechanism === "native-child-process"`.
 
 ### `RegistryCapabilities`
 
@@ -28658,6 +29131,8 @@ RegistryCapabilities
 
 **Members:**
 
+- `mcp` — MCP server integration metadata. Omitted for providers (like Pi) that do not consume MCP servers via a config file.
+- `harness` — First-class harness role. Present only for orchestrators or standalone harnesses, not for pure spawn targets.
 - `skills` — Skills path resolution and precedence capabilities.
 - `hooks` — Hook/lifecycle event capabilities.
 - `spawn` — Subagent spawn capabilities.
@@ -28788,6 +29263,41 @@ const config: DetectionConfig = {
 };
 ```
 
+### `ProviderMcpCapability`
+
+Resolved MCP server integration metadata for a provider.
+
+```typescript
+ProviderMcpCapability
+```
+
+**Members:**
+
+- `configKey` — Dot-notation key path for MCP server config (e.g. `"mcpServers"`).
+- `configFormat` — Resolved config file format.
+- `configPathGlobal` — Resolved global config file path.
+- `configPathProject` — Project-relative config file path, or `null` if unsupported.
+- `supportedTransports` — MCP transport protocols this provider supports.
+- `supportsHeaders` — Whether the provider supports custom HTTP headers for remote MCP servers.
+
+### `ProviderHarnessCapability`
+
+Resolved first-class harness capability for a provider.
+
+```typescript
+ProviderHarnessCapability
+```
+
+**Members:**
+
+- `kind` — Harness kind (`"orchestrator"` or `"standalone"`).
+- `spawnTargets` — Provider ids this harness can spawn as subagents. Empty for standalone.
+- `supportsConductorLoop` — Whether the harness drives a CleoOS conductor loop.
+- `supportsStageGuidance` — Whether the harness accepts stage guidance injection.
+- `supportsCantBridge` — Whether the harness bridges CANT events.
+- `extensionsPath` — Resolved path to the harness's runtime extensions directory.
+- `globalExtensionsHub` — Resolved CLEO-managed shared extensions hub path, if configured.
+
 ### `ProviderSkillsCapability`
 
 Resolved skills capability for a provider at runtime.
@@ -28813,8 +29323,12 @@ ProviderHooksCapability
 **Members:**
 
 - `supported` — Hook lifecycle events this provider supports.
-- `hookConfigPath` — Resolved path to hook configuration file, or `null`.
-- `hookFormat` — Format of the hook config file.
+- `hookConfigPath` — Resolved path to the hook configuration file or directory, or `null`.
+- `hookConfigPathProject` — Resolved project-relative hook configuration path, or `null`.
+- `hookFormat` — Format of the hook config.
+- `nativeEventCatalog` — Which native event catalog this provider's hooks are drawn from.
+- `canInjectSystemPrompt` — Whether hooks may inject or modify the system prompt.
+- `canBlockTools` — Whether hooks may block tool calls.
 
 ### `ProviderSpawnCapability`
 
@@ -28831,10 +29345,11 @@ ProviderSpawnCapability
 - `supportsInterAgentComms` — Whether spawned agents can communicate with each other.
 - `supportsParallelSpawn` — Whether multiple agents can be spawned in parallel.
 - `spawnMechanism` — Mechanism used for spawning.
+- `spawnCommand` — Literal command-line invocation used by the harness to spawn a child worker. Only meaningful when `spawnMechanism === "native-child-process"`.
 
 ### `ProviderCapabilities`
 
-Aggregate provider capabilities for skills, hooks, and spawn.
+Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
 
 ```typescript
 ProviderCapabilities
@@ -28842,13 +29357,15 @@ ProviderCapabilities
 
 **Members:**
 
+- `mcp` — MCP server integration, when the provider consumes MCP via a config file.
+- `harness` — Harness role, present only for orchestrators and standalone harnesses.
 - `skills` — Skills path resolution and precedence.
 - `hooks` — Hook/lifecycle event support.
 - `spawn` — Subagent spawn capabilities.
 
 ### `ProviderPriority`
 
-Priority tier for a provider, used for sorting and default selection.  - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
+Priority tier for a provider, used for sorting and default selection.  - `"primary"` - First-class harness. Default target when no `--agent` flag   is given. Exactly zero or one provider per registry should have this   priority; CAAMP consumers (e.g. `getPrimaryProvider()`) expect that   invariant but the registry loader does not enforce it. - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
 
 ```typescript
 ProviderPriority
@@ -28880,24 +29397,18 @@ Provider
 - `pathGlobal` — Resolved global instruction file directory path.
 - `pathProject` — Project-relative instruction file directory path.
 - `instructFile` — Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).
-- `configKey` — Dot-notation key path for MCP server config (e.g. `"mcpServers"`).
-- `configFormat` — Config file format used by this provider.
-- `configPathGlobal` — Resolved global config file path.
-- `configPathProject` — Project-relative config file path, or `null` if unsupported.
 - `pathSkills` — Resolved global skills directory path.
 - `pathProjectSkills` — Project-relative skills directory path.
 - `detection` — Detection configuration for auto-discovering this provider.
-- `supportedTransports` — MCP transport protocols this provider supports.
-- `supportsHeaders` — Whether the provider supports custom HTTP headers for remote MCP servers.
 - `priority` — Priority tier for sorting and default selection.
 - `status` — Lifecycle status in the registry.
 - `agentSkillsCompatible` — Whether the provider is compatible with the Agent Skills standard.
-- `capabilities` — Provider capabilities for skills, hooks, and spawn. Always populated at runtime.
+- `capabilities` — Provider capabilities (MCP, harness, skills, hooks, spawn). Always populated at runtime.
 
 ```typescript
 const provider = getProvider("claude-code");
-if (provider) {
-  console.log(provider.configPathGlobal);
+if (provider?.capabilities.mcp) {
+  console.log(provider.capabilities.mcp.configPathGlobal);
 }
 ```
 
@@ -30458,13 +30969,13 @@ VacuumOptions
 ### `AgentInstanceRow`
 
 ```typescript
-{ id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; sessionId: string | null; taskId: string | null; startedAt: string; lastHeartbeat: string; stoppedAt: string | null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string | null; parentAgentId: string | null; }
+{ id: string; agentType: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; sessionId: string | null; taskId: string | null; startedAt: string; lastHeartbeat: string; stoppedAt: string | null; errorCount: number; totalTasksCompleted: number; capacity: string; metadataJson: string | null; parentAgentId: string | null; }
 ```
 
 ### `NewAgentInstanceRow`
 
 ```typescript
-{ id: string; agentType: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status?: "error" | "active" | "starting" | "idle" | "crashed" | "stopped" | undefined; sessionId?: string | null | undefined; taskId?: string | null | undefined; startedAt?: string | undefined; lastHeartbeat?: string | undefined; stoppedAt?: string | null | undefined; errorCount?: number | undefined; totalTasksCompleted?: number | undefined; capacity?: string | undefined; metadataJson?: string | null | undefined; parentAgentId?: string | null | undefined; }
+{ id: string; agentType: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; status?: "error" | "active" | "starting" | "idle" | "crashed" | "stopped" | undefined; sessionId?: string | null | undefined; taskId?: string | null | undefined; startedAt?: string | undefined; lastHeartbeat?: string | undefined; stoppedAt?: string | null | undefined; errorCount?: number | undefined; totalTasksCompleted?: number | undefined; capacity?: string | undefined; metadataJson?: string | null | undefined; parentAgentId?: string | null | undefined; }
 ```
 
 ### `AgentErrorLogRow`
@@ -30488,7 +30999,7 @@ VacuumOptions
 ### `AgentType`
 
 ```typescript
-"custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"
+"orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"
 ```
 
 ### `AgentErrorType`
@@ -31942,6 +32453,452 @@ StageArtifactResult
 - `absolutePath`
 - `outputFile`
 - `related`
+
+### `SkillFrontmatter`
+
+Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
+
+```typescript
+SkillFrontmatter
+```
+
+**Members:**
+
+- `name` — Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.
+- `description` — Human-readable description. Maps to CaampSkillMetadata.description.
+- `version` — Semantic version string. Maps to CaampSkillMetadata.version.
+- `author` — Skill author (CLEO extension).
+- `tags` — Classification tags for search/filter (CLEO extension).
+- `triggers` — Trigger patterns for auto-dispatch (CLEO extension).
+- `dispatchPriority` — Priority for dispatch selection (CLEO extension).
+- `model` — Preferred LLM model (CLEO extension).
+- `allowedTools` — Allowed tool names. Maps to CaampSkillMetadata.allowedTools.
+- `invocable` — Whether the skill can be invoked directly (CLEO extension).
+- `command` — CLI command for direct invocation (CLEO extension).
+- `protocol` — RCASD-IVTR+C protocol type (CLEO extension).
+
+### `Skill`
+
+Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
+
+```typescript
+Skill
+```
+
+**Members:**
+
+- `name`
+- `dirName`
+- `path`
+- `skillMdPath`
+- `frontmatter`
+- `content`
+
+### `SkillSummary`
+
+Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
+
+```typescript
+SkillSummary
+```
+
+**Members:**
+
+- `name`
+- `dirName`
+- `description`
+- `tags`
+- `version`
+- `invocable`
+- `command`
+- `protocol`
+
+### `SkillManifest`
+
+Skill manifest (cached aggregate of all discovered skills).
+
+```typescript
+SkillManifest
+```
+
+**Members:**
+
+- `_meta`
+- `skills`
+
+### `SkillProtocolType`
+
+RCASD-IVTR+C protocol types.
+
+```typescript
+SkillProtocolType
+```
+
+### `AgentConfig`
+
+Agent configuration from AGENT.md or agent definition.
+
+```typescript
+AgentConfig
+```
+
+**Members:**
+
+- `name`
+- `description`
+- `model`
+- `allowedTools`
+- `customInstructions`
+
+### `AgentRegistryEntry`
+
+Agent registry entry.
+
+```typescript
+AgentRegistryEntry
+```
+
+**Members:**
+
+- `name`
+- `path`
+- `config`
+- `installedAt`
+
+### `AgentRegistry`
+
+Agent registry (persisted).
+
+```typescript
+AgentRegistry
+```
+
+**Members:**
+
+- `_meta`
+- `agents`
+
+### `SkillSearchScope`
+
+CAAMP search order for skill discovery.
+
+```typescript
+SkillSearchScope
+```
+
+### `SkillSearchPath`
+
+Ordered search path entry.
+
+```typescript
+SkillSearchPath
+```
+
+**Members:**
+
+- `scope`
+- `path`
+- `priority`
+
+### `DispatchStrategy`
+
+Dispatch strategy for skill selection.
+
+```typescript
+DispatchStrategy
+```
+
+### `DispatchResult`
+
+Dispatch result from skill_auto_dispatch.
+
+```typescript
+DispatchResult
+```
+
+**Members:**
+
+- `skill`
+- `strategy`
+- `confidence`
+- `protocol`
+
+### `TokenDefinition`
+
+Token definition from placeholders.json.
+
+```typescript
+TokenDefinition
+```
+
+**Members:**
+
+- `token`
+- `description`
+- `required`
+- `default`
+- `pattern`
+
+### `TokenValidationResult`
+
+Token validation result.
+
+```typescript
+TokenValidationResult
+```
+
+**Members:**
+
+- `valid`
+- `token`
+- `value`
+- `error`
+
+### `TokenContext`
+
+Token injection context.
+
+```typescript
+TokenContext
+```
+
+**Members:**
+
+- `taskId`
+- `date`
+- `topicSlug`
+- `epicId`
+- `sessionId`
+- `outputDir`
+- `manifestPath`
+
+### `OrchestratorThresholds`
+
+Orchestrator context thresholds.
+
+```typescript
+OrchestratorThresholds
+```
+
+**Members:**
+
+- `warning`
+- `critical`
+
+### `PreSpawnCheckResult`
+
+Pre-spawn check result.
+
+```typescript
+PreSpawnCheckResult
+```
+
+**Members:**
+
+- `canSpawn`
+- `spawnStatus`
+- `recommendation`
+- `context`
+- `reasons`
+- `taskValidation`
+- `complianceValidation`
+
+### `SpawnPromptResult`
+
+Spawn prompt result.
+
+```typescript
+SpawnPromptResult
+```
+
+**Members:**
+
+- `taskId`
+- `template`
+- `topicSlug`
+- `date`
+- `outputDir`
+- `outputFile`
+- `prompt`
+
+### `DependencyWave`
+
+Dependency wave for parallel execution.
+
+```typescript
+DependencyWave
+```
+
+**Members:**
+
+- `wave`
+- `tasks`
+
+### `DependencyAnalysis`
+
+Dependency analysis result.
+
+```typescript
+DependencyAnalysis
+```
+
+**Members:**
+
+- `epicId`
+- `totalTasks`
+- `completedTasks`
+- `pendingTasks`
+- `activeTasks`
+- `waves`
+- `readyToSpawn`
+- `blockedTasks`
+
+### `HitlSummary`
+
+HITL summary for session handoff.
+
+```typescript
+HitlSummary
+```
+
+**Members:**
+
+- `timestamp`
+- `stopReason`
+- `session`
+- `progress`
+- `completedTasks`
+- `remainingTasks`
+- `readyToSpawn`
+- `handoff`
+
+### `ManifestEntry`
+
+Research manifest entry (MANIFEST.jsonl).
+
+```typescript
+ManifestEntry
+```
+
+**Members:**
+
+- `id`
+- `file`
+- `title`
+- `date`
+- `status`
+- `agent_type`
+- `topics`
+- `key_findings`
+- `actionable`
+- `needs_followup`
+- `linked_tasks`
+- `audit`
+
+### `ManifestValidationResult`
+
+Manifest validation result.
+
+```typescript
+ManifestValidationResult
+```
+
+**Members:**
+
+- `exists`
+- `passed`
+- `stats`
+- `issues`
+
+### `ComplianceResult`
+
+Compliance verification result.
+
+```typescript
+ComplianceResult
+```
+
+**Members:**
+
+- `previousTaskId`
+- `researchId`
+- `checks`
+- `canSpawnNext`
+- `violations`
+- `warnings`
+
+### `InstalledSkill`
+
+Installed skill tracking.
+
+```typescript
+InstalledSkill
+```
+
+**Members:**
+
+- `name`
+- `version`
+- `installedAt`
+- `sourcePath`
+- `symlinkPath`
+
+### `InstalledSkillsFile`
+
+Installed skills file.
+
+```typescript
+InstalledSkillsFile
+```
+
+**Members:**
+
+- `_meta`
+- `skills`
+
+### `TokenValues`
+
+Token values map: TOKEN_NAME - value.
+
+```typescript
+TokenValues
+```
+
+### `MultiSkillComposition`
+
+Result of multi-skill composition.
+
+```typescript
+MultiSkillComposition
+```
+
+**Members:**
+
+- `skillCount`
+- `primarySkill`
+- `skills`
+- `totalEstimatedTokens`
+- `prompt`
+
+### `StageGuidance`
+
+Structured guidance for a single pipeline stage.  Pi extensions consume the `.prompt` field directly (render via `{ systemPrompt }` in `before_agent_start`). The structured fields are exposed for TUI widgets, badges, and logging.
+
+```typescript
+StageGuidance
+```
+
+**Members:**
+
+- `stage` — The canonical stage identifier.
+- `name` — Human-readable stage name (e.g. "Research").
+- `order` — Numeric stage order (1-9).
+- `primarySkill` — Primary skill loaded for this stage (SSoT from STAGE_SKILL_MAP).
+- `loadedSkills` — All skills loaded (Tier 0 + stage primary).
+- `requiredGates` — Gates that must pass before the stage can be completed.
+- `expectedArtifacts` — Artifacts the agent is expected to produce before advancing.
+- `prompt` — Composed prompt text, ready for LLM system prompt injection.
+- `source` — Source of the prompt: 'skills' (real SKILL.md files) or 'fallback'.
 
 ### `EnforcementMode`
 
@@ -33895,6 +34852,23 @@ Type for the action handler function - flexible to support various signatures
 ActionHandler
 ```
 
+### `LafsShapeViolation`
+
+The minimum shape invariants for a LAFS envelope, compatible with both minimal (`{ok, r, _m}`) and full (`{success, result, _meta}`) formats.
+
+```typescript
+LafsShapeViolation
+```
+
+**Members:**
+
+- `isObject` — True iff the input is a well-formed JSON object.
+- `hasSuccessField` — True iff the envelope has exactly one success-indicator field.
+- `successIsBoolean` — True iff the success-indicator is a boolean.
+- `hasMeta` — True iff a metadata field (`_m` or `_meta`) is present.
+- `resultOrErrorValid` — True iff the result/error invariants hold for the indicated success value.
+- `reasons` — Human-readable reasons the envelope failed validation (empty = valid).
+
 ### `CliOutputOptions`
 
 ```typescript
@@ -34325,6 +35299,36 @@ SyncData
 - `synced`
 - `conflicts`
 - `message`
+
+### `PathsData`
+
+Summary of all resolved CleoOS paths (project + global hub).
+
+```typescript
+PathsData
+```
+
+**Members:**
+
+- `projectCleoDir` — Project-local .cleo directory (absolute).
+- `cleoHome` — XDG-compliant global data root (Linux: ~/.local/share/cleo).
+- `configDir` — XDG config dir (Linux: ~/.config/cleo).
+- `hub` — CleoOS Hub subdirectories under cleoHome.
+- `scaffolded` — Scaffolding status — true if hub directories + seed files exist.
+
+### `ScaffoldHubData`
+
+Result of scaffolding the CleoOS Hub.
+
+```typescript
+ScaffoldHubData
+```
+
+**Members:**
+
+- `action`
+- `path`
+- `details`
 
 ### `SmokeProbe`
 
@@ -36615,6 +37619,7 @@ ExitCode
 - `ALREADY_EXISTS`
 - `NO_CHANGE`
 - `TESTS_SKIPPED`
+- `LAFS_VIOLATION` — E_LAFS_VIOLATION — CLI output did not conform to the LAFS envelope schema. Emitted by the CLI renderer middleware when `zod.parse()` on the emitted envelope fails. This is an INTERNAL failure: CLEO itself produced a malformed envelope.   Phase 6 — LAFS formalization + schema consolidation
 
 ### `LAFSErrorCategory`
 
@@ -40481,7 +41486,7 @@ SpawnStatus
 
 ### `ProtocolType`
 
-All supported protocol types.
+All supported protocol types.  Covers the 9 RCASD-IVTR pipeline stages plus the 3 cross-cutting protocols (contribution, artifact-publish, provenance). Must stay in sync with `packages/core/src/orchestration/protocol-validators.ts#PROTOCOL_TYPES`.   T260 — add architecture-decision, validation, testing
 
 ```typescript
 ProtocolType
@@ -40763,7 +41768,7 @@ Agent instance status type.
 Agent type classification.
 
 ```typescript
-"custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"
+"orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"
 ```
 
 ### `AgentInstanceRow`
@@ -41361,6 +42366,36 @@ CheckResult
 - `details` — Structured metadata about the check (paths, sizes, missing items).
 - `fix` — Suggested CLI command to fix the issue, or null if passed.
 
+### `ProjectClassification`
+
+Classification result for a project directory.
+
+```typescript
+ProjectClassification
+```
+
+**Members:**
+
+- `kind` — Project type: 'greenfield' (empty/new) or 'brownfield' (existing).
+- `directory` — Absolute path that was classified.
+- `signals` — Signal list — which indicators led to the classification.
+- `topLevelFileCount` — Total non-hidden files found at the top level (for reporting).
+- `hasGit` — Whether a `.git/` directory is present.
+
+### `ClassificationSignal`
+
+A single classification signal detected on the filesystem.
+
+```typescript
+ClassificationSignal
+```
+
+**Members:**
+
+- `id` — Canonical signal id for programmatic handling.
+- `description` — Human-readable description of what was detected.
+- `path` — File or directory that triggered this signal.
+
 ### `ScaffoldResult`
 
 ```typescript
@@ -41639,6 +42674,8 @@ InitResult
 - `skipped`
 - `warnings`
 - `updateDocsOnly`
+- `classification` — Phase 5 — Greenfield/brownfield classification of the directory. Populated by the discovery module during init.
+- `nextSteps` — Phase 5 — Next-step guidance for the agent/operator, emitted as a LAFS-compatible suggestion list. Each entry has an action description and a copy-pasteable command.
 
 ### `BootstrapContext`
 
@@ -45235,432 +46272,6 @@ RateLimitResult
 - `resetMs`
 - `limit`
 
-### `SkillFrontmatter`
-
-Skill frontmatter parsed from SKILL.md YAML header.  This is CLEO's extended skill metadata -- a functional superset of CAAMP's `SkillMetadata`. All fields from `CaampSkillMetadata` (name, description, version, allowedTools) are present here. CLEO adds: tags, triggers, dispatchPriority, model, invocable, command, protocol.  Use this type when working with CLEO's skill loading, dispatch, and orchestration systems. Use `CaampSkillMetadata` when interfacing directly with CAAMP's discovery/install APIs.
-
-```typescript
-SkillFrontmatter
-```
-
-**Members:**
-
-- `name` — Skill name (lowercase, hyphens). Maps to CaampSkillMetadata.name.
-- `description` — Human-readable description. Maps to CaampSkillMetadata.description.
-- `version` — Semantic version string. Maps to CaampSkillMetadata.version.
-- `author` — Skill author (CLEO extension).
-- `tags` — Classification tags for search/filter (CLEO extension).
-- `triggers` — Trigger patterns for auto-dispatch (CLEO extension).
-- `dispatchPriority` — Priority for dispatch selection (CLEO extension).
-- `model` — Preferred LLM model (CLEO extension).
-- `allowedTools` — Allowed tool names. Maps to CaampSkillMetadata.allowedTools.
-- `invocable` — Whether the skill can be invoked directly (CLEO extension).
-- `command` — CLI command for direct invocation (CLEO extension).
-- `protocol` — RCASD-IVTR+C protocol type (CLEO extension).
-
-### `Skill`
-
-Skill definition loaded from disk.  CLEO-specific type that wraps a `SkillFrontmatter` with filesystem context. For CAAMP's equivalent, see `CtSkillEntry` which wraps `CaampSkillMetadata` with install/discovery metadata instead.
-
-```typescript
-Skill
-```
-
-**Members:**
-
-- `name`
-- `dirName`
-- `path`
-- `skillMdPath`
-- `frontmatter`
-- `content`
-
-### `SkillSummary`
-
-Lightweight skill summary for manifest/listing.  Projected from `Skill` for efficient caching in `SkillManifest`. Contains only the fields needed for CLI display and dispatch selection.
-
-```typescript
-SkillSummary
-```
-
-**Members:**
-
-- `name`
-- `dirName`
-- `description`
-- `tags`
-- `version`
-- `invocable`
-- `command`
-- `protocol`
-
-### `SkillManifest`
-
-Skill manifest (cached aggregate of all discovered skills).
-
-```typescript
-SkillManifest
-```
-
-**Members:**
-
-- `_meta`
-- `skills`
-
-### `SkillProtocolType`
-
-RCASD-IVTR+C protocol types.
-
-```typescript
-SkillProtocolType
-```
-
-### `AgentConfig`
-
-Agent configuration from AGENT.md or agent definition.
-
-```typescript
-AgentConfig
-```
-
-**Members:**
-
-- `name`
-- `description`
-- `model`
-- `allowedTools`
-- `customInstructions`
-
-### `AgentRegistryEntry`
-
-Agent registry entry.
-
-```typescript
-AgentRegistryEntry
-```
-
-**Members:**
-
-- `name`
-- `path`
-- `config`
-- `installedAt`
-
-### `AgentRegistry`
-
-Agent registry (persisted).
-
-```typescript
-AgentRegistry
-```
-
-**Members:**
-
-- `_meta`
-- `agents`
-
-### `SkillSearchScope`
-
-CAAMP search order for skill discovery.
-
-```typescript
-SkillSearchScope
-```
-
-### `SkillSearchPath`
-
-Ordered search path entry.
-
-```typescript
-SkillSearchPath
-```
-
-**Members:**
-
-- `scope`
-- `path`
-- `priority`
-
-### `DispatchStrategy`
-
-Dispatch strategy for skill selection.
-
-```typescript
-DispatchStrategy
-```
-
-### `DispatchResult`
-
-Dispatch result from skill_auto_dispatch.
-
-```typescript
-DispatchResult
-```
-
-**Members:**
-
-- `skill`
-- `strategy`
-- `confidence`
-- `protocol`
-
-### `TokenDefinition`
-
-Token definition from placeholders.json.
-
-```typescript
-TokenDefinition
-```
-
-**Members:**
-
-- `token`
-- `description`
-- `required`
-- `default`
-- `pattern`
-
-### `TokenValidationResult`
-
-Token validation result.
-
-```typescript
-TokenValidationResult
-```
-
-**Members:**
-
-- `valid`
-- `token`
-- `value`
-- `error`
-
-### `TokenContext`
-
-Token injection context.
-
-```typescript
-TokenContext
-```
-
-**Members:**
-
-- `taskId`
-- `date`
-- `topicSlug`
-- `epicId`
-- `sessionId`
-- `outputDir`
-- `manifestPath`
-
-### `OrchestratorThresholds`
-
-Orchestrator context thresholds.
-
-```typescript
-OrchestratorThresholds
-```
-
-**Members:**
-
-- `warning`
-- `critical`
-
-### `PreSpawnCheckResult`
-
-Pre-spawn check result.
-
-```typescript
-PreSpawnCheckResult
-```
-
-**Members:**
-
-- `canSpawn`
-- `spawnStatus`
-- `recommendation`
-- `context`
-- `reasons`
-- `taskValidation`
-- `complianceValidation`
-
-### `SpawnPromptResult`
-
-Spawn prompt result.
-
-```typescript
-SpawnPromptResult
-```
-
-**Members:**
-
-- `taskId`
-- `template`
-- `topicSlug`
-- `date`
-- `outputDir`
-- `outputFile`
-- `prompt`
-
-### `DependencyWave`
-
-Dependency wave for parallel execution.
-
-```typescript
-DependencyWave
-```
-
-**Members:**
-
-- `wave`
-- `tasks`
-
-### `DependencyAnalysis`
-
-Dependency analysis result.
-
-```typescript
-DependencyAnalysis
-```
-
-**Members:**
-
-- `epicId`
-- `totalTasks`
-- `completedTasks`
-- `pendingTasks`
-- `activeTasks`
-- `waves`
-- `readyToSpawn`
-- `blockedTasks`
-
-### `HitlSummary`
-
-HITL summary for session handoff.
-
-```typescript
-HitlSummary
-```
-
-**Members:**
-
-- `timestamp`
-- `stopReason`
-- `session`
-- `progress`
-- `completedTasks`
-- `remainingTasks`
-- `readyToSpawn`
-- `handoff`
-
-### `ManifestEntry`
-
-Research manifest entry (MANIFEST.jsonl).
-
-```typescript
-ManifestEntry
-```
-
-**Members:**
-
-- `id`
-- `file`
-- `title`
-- `date`
-- `status`
-- `agent_type`
-- `topics`
-- `key_findings`
-- `actionable`
-- `needs_followup`
-- `linked_tasks`
-- `audit`
-
-### `ManifestValidationResult`
-
-Manifest validation result.
-
-```typescript
-ManifestValidationResult
-```
-
-**Members:**
-
-- `exists`
-- `passed`
-- `stats`
-- `issues`
-
-### `ComplianceResult`
-
-Compliance verification result.
-
-```typescript
-ComplianceResult
-```
-
-**Members:**
-
-- `previousTaskId`
-- `researchId`
-- `checks`
-- `canSpawnNext`
-- `violations`
-- `warnings`
-
-### `InstalledSkill`
-
-Installed skill tracking.
-
-```typescript
-InstalledSkill
-```
-
-**Members:**
-
-- `name`
-- `version`
-- `installedAt`
-- `sourcePath`
-- `symlinkPath`
-
-### `InstalledSkillsFile`
-
-Installed skills file.
-
-```typescript
-InstalledSkillsFile
-```
-
-**Members:**
-
-- `_meta`
-- `skills`
-
-### `TokenValues`
-
-Token values map: TOKEN_NAME - value.
-
-```typescript
-TokenValues
-```
-
-### `MultiSkillComposition`
-
-Result of multi-skill composition.
-
-```typescript
-MultiSkillComposition
-```
-
-**Members:**
-
-- `skillCount`
-- `primarySkill`
-- `skills`
-- `totalEstimatedTokens`
-- `prompt`
-
 ### `ContributionDecision`
 
 A contribution decision from an agent.
@@ -47873,7 +48484,7 @@ ManifestEntryInput
 ### `ProtocolType`
 
 ```typescript
-"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish"
+"research" | "consensus" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | "contribution" | "provenance" | "artifact-publish" | "architecture-decision"
 ```
 
 ### `VotingMatrix`
@@ -47886,6 +48497,71 @@ VotingMatrix
 
 - `options`
 - `threshold`
+
+### `AdrStatus`
+
+ADR lifecycle status values.  T260
+
+```typescript
+AdrStatus
+```
+
+### `ArchitectureDecisionOptions`
+
+Architecture decision options for validator.
+
+```typescript
+ArchitectureDecisionOptions
+```
+
+**Members:**
+
+- `adrContent` — Content of the ADR markdown document, used to verify required sections.
+- `status` — Current status of the decision record.
+- `hitlReviewed` — Whether a human-in-the-loop review has been completed (ADR-003).
+- `downstreamFlagged` — Whether downstream artifacts are flagged for review after supersession.
+- `persistedInDb` — Whether the record is persisted in the canonical SQLite decisions table.
+
+### `ValidationStageOptions`
+
+Validation-stage options for validator.
+
+```typescript
+ValidationStageOptions
+```
+
+**Members:**
+
+- `specMatchConfirmed` — Whether static analysis / type check passed (VALID-001).
+- `testSuitePassed` — Whether the existing test suite ran successfully (VALID-002).
+- `protocolComplianceChecked` — Whether upstream protocol compliance checks passed (VALID-003).
+
+### `TestFramework`
+
+Project-agnostic test framework identifiers.  The testing protocol is deliberately framework-neutral. Whichever framework the project uses, the protocol only cares that tests run autonomously via a framework adapter and loop until the spec is met.   T260
+
+```typescript
+TestFramework
+```
+
+### `TestingOptions`
+
+Testing-stage options for validator.
+
+```typescript
+TestingOptions
+```
+
+**Members:**
+
+- `framework` — Detected or declared test framework for the current worktree.
+- `testsRun` — Total number of tests executed.
+- `testsPassed` — Number of tests that passed.
+- `testsFailed` — Number of tests that failed.
+- `coveragePercent` — Coverage percentage achieved (0-100).
+- `coverageThreshold` — Minimum coverage threshold from project config.
+- `ivtLoopConverged` — Whether the implementation→validate→test loop converged (spec met).
+- `ivtLoopIterations` — Number of IVT loop iterations until convergence.
 
 ### `BrainMaintenanceDecayResult`
 
@@ -52629,6 +53305,19 @@ typeof ShimCommand
 - `optsWithGlobals` — Return parsed global flags from process.argv. Commander compat: returns parent + own options merged.
 - `opts` — Return parsed options. For shim purposes, same as optsWithGlobals().
 
+### `LafsViolationError`
+
+Error thrown by `assertLafsShape` when an envelope fails validation.  Carries the full `LafsShapeViolation` report so diagnostic tooling can report which specific invariants were violated.
+
+```typescript
+typeof LafsViolationError
+```
+
+**Members:**
+
+- `code`
+- `report`
+
 ### `Dispatcher`
 
 ```typescript
@@ -54029,7 +54718,7 @@ readonly ["orchestrator", "executor", "researcher", "architect", "validator", "d
 ### `agentInstances`
 
 ```typescript
-import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/table").SQLiteTableWithColumns<{ name: "agent_instances"; schema: undefined; columns: { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }; dialect: "sqlite"; }>
+import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/table").SQLiteTableWithColumns<{ name: "agent_instances"; schema: undefined; columns: { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }; dialect: "sqlite"; }>
 ```
 
 ### `agentErrorLog`
@@ -54694,6 +55383,30 @@ Delivery stages.   T4800
 ("research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release")[]
 ```
 
+### `SKILL_NAME_MAP`
+
+Canonical skill name mapping (user-friendly to ct-prefixed).
+
+```typescript
+Record<string, string>
+```
+
+### `STAGE_SKILL_MAP`
+
+Canonical mapping from RCASD-IVTR+C pipeline stages to the primary skill that encodes the protocol for that stage.  Mirrors `packages/skills/skills/manifest.json#dispatch_matrix.by_protocol` but is kept in TypeScript for ergonomic consumption. If the two drift, the manifest.json is authoritative — this table should be regenerated.  Every stage gets at least one dedicated skill. Some stages reuse skills (e.g. testing and release both use `ct-dev-workflow`).
+
+```typescript
+Record<"research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release", string>
+```
+
+### `TIER_0_SKILLS`
+
+Tier 0 skills — always loaded alongside the stage-specific skill.  - `ct-cleo`: CLEO task management protocol (session, task, memory CLI) - `ct-orchestrator`: pipeline-aware orchestration constraints (ORC-001..009)  `ct-task-executor` is NOT unconditionally included because most stages already resolve to a more-specific executor skill; it's only added when no stage-specific skill exists.
+
+```typescript
+readonly string[]
+```
+
 ### `THRESHOLDS`
 
 Context alert thresholds (percentage of context window).
@@ -55031,7 +55744,7 @@ Embedded fallback for .cleo/.gitignore content (deny-by-default).
 Required subdirectories under the global ~/.cleo/ home. These are infrastructure directories managed by CLEO itself, not project-specific data.  Truly global:   - logs      — global log output   - templates — CLEO-INJECTION.md symlink target  Note: nexus.db lives directly in ~/.cleo/, not a subdir. Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed. Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
 
 ```typescript
-readonly ["logs", "templates"]
+readonly ["logs", "templates", "global-recipes", "pi-extensions", "cant-workflows", "agents"]
 ```
 
 ### `STALE_GLOBAL_ENTRIES`
@@ -55390,14 +56103,6 @@ Default rate limit configurations per operation type
 
 ```typescript
 Record<string, RateLimitConfig>
-```
-
-### `SKILL_NAME_MAP`
-
-Canonical skill name mapping (user-friendly to ct-prefixed).
-
-```typescript
-Record<string, string>
 ```
 
 ### `spawnRegistry`
@@ -55941,13 +56646,13 @@ import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b
 ### `insertAgentInstanceSchema`
 
 ```typescript
-import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types.internal").BuildSchema<"insert", { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }, { id: (s: z.ZodString) => z.ZodString; }, import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types").CoerceOptions>
+import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types.internal").BuildSchema<"insert", { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }, { id: (s: z.ZodString) => z.ZodString; }, import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types").CoerceOptions>
 ```
 
 ### `selectAgentInstanceSchema`
 
 ```typescript
-import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types.internal").BuildSchema<"select", { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "custom" | "orchestrator" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }, { id: (s: z.ZodString) => z.ZodString; }, import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types").CoerceOptions>
+import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types.internal").BuildSchema<"select", { id: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: true; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; agentType: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "orchestrator" | "custom" | "executor" | "researcher" | "architect" | "validator" | "documentor"; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["orchestrator", "executor", "researcher", "architect", "validator", "documentor", "custom"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; status: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string enum"; data: "error" | "active" | "starting" | "idle" | "crashed" | "stopped"; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: ["starting", "active", "idle", "error", "crashed", "stopped"]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; sessionId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; taskId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; startedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; lastHeartbeat: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; stoppedAt: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; errorCount: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; totalTasksCompleted: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "number int53"; data: number; driverParam: number; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: undefined; baseColumn: never; identity: undefined; generated: undefined; }, {}>; capacity: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: true; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; metadataJson: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: true; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; parentAgentId: import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/sqlite-core/index").SQLiteColumn<{ name: string; tableName: "agent_instances"; dataType: "string"; data: string; driverParam: string; notNull: false; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; hasRuntimeDefault: false; enumValues: [string, ...string[]]; baseColumn: never; identity: undefined; generated: undefined; }, {}>; }, { id: (s: z.ZodString) => z.ZodString; }, import("/mnt/projects/cleocode/node_modules/.pnpm/drizzle-orm@1.0.0-beta.19-d95b7a4_@types+mssql@9.1.9_@azure+core-client@1.10.1__mssql@1_735b8d50d0ee1e3e16a97e41691265be/node_modules/drizzle-orm/zod/schema.types").CoerceOptions>
 ```
 
 ### `insertAgentErrorLogSchema`
@@ -55975,7 +56680,7 @@ z.ZodEnum<{ error: "error"; active: "active"; starting: "starting"; idle: "idle"
 Zod enum schema for agent types.
 
 ```typescript
-z.ZodEnum<{ custom: "custom"; orchestrator: "orchestrator"; executor: "executor"; researcher: "researcher"; architect: "architect"; validator: "validator"; documentor: "documentor"; }>
+z.ZodEnum<{ orchestrator: "orchestrator"; custom: "custom"; executor: "executor"; researcher: "researcher"; architect: "architect"; validator: "validator"; documentor: "documentor"; }>
 ```
 
 ### `CACHE_VERSION`
@@ -56060,18 +56765,18 @@ ProtocolEnforcer
 
 ### `PROTOCOL_TYPES`
 
-All supported protocol types.
+All supported protocol types.  The canonical set covers all 9 RCASD-IVTR pipeline stages plus the 3 cross-cutting protocols that compose with specific stages:  - Pipeline stages: research, consensus, architecture-decision,   specification, decomposition, implementation, validation, testing, release - Cross-cutting: contribution (at implementation),   artifact-publish (at release), provenance (at release)   T260 — unify pipeline stages and cross-cutting protocols
 
 ```typescript
-readonly ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "artifact-publish", "provenance"]
+readonly ["research", "consensus", "architecture-decision", "specification", "decomposition", "implementation", "contribution", "validation", "testing", "release", "artifact-publish", "provenance"]
 ```
 
 ### `PROTOCOL_EXIT_CODES`
 
-Map protocol types to exit codes.
+Map protocol types to exit codes.  Pipeline protocols use the 60-67 orchestrator range. Cross-cutting protocols with dedicated ranges (artifact-publish 85-89, provenance 90-94) use their own codes. Architecture-decision uses 84 PROVENANCE_REQUIRED because every ADR MUST be generated from an accepted Consensus verdict (ADR-001) — the provenance chain is the whole point.   T260
 
 ```typescript
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", ExitCode>
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | "contribution" | "provenance" | "artifact-publish" | "architecture-decision", ExitCode>
 ```
 
 ### `DEFAULT_CHAIN_ID`
@@ -56082,10 +56787,10 @@ Record<"research" | "consensus" | "specification" | "decomposition" | "implement
 
 ### `DEFAULT_PROTOCOL_STAGE_MAP`
 
-Stage mapping for protocol validation gates in the default chain.  `contribution` is cross-cutting and is validated at implementation. `artifact-publish` and `provenance` are validated at release.   T5419
+Stage mapping for protocol validation gates in the default chain.  Cross-cutting protocols compose with specific host stages: - `contribution` is validated at implementation (author attribution). - `artifact-publish` and `provenance` are validated at release   (see release.md composition: release triggers artifact-publish for the   distribution phase, which delegates signing/attestation to provenance).  Pipeline stages map 1:1 to their own protocol validators.   T5419  T260 — add architecture-decision, validation, testing mappings
 
 ```typescript
-Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "release" | "contribution" | "provenance" | "artifact-publish", "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
+Record<"research" | "consensus" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release" | "contribution" | "provenance" | "artifact-publish" | "architecture-decision", "research" | "consensus" | "architecture_decision" | "specification" | "decomposition" | "implementation" | "validation" | "testing" | "release">
 ```
 
 ### `GATE_SEQUENCE`

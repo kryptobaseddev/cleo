@@ -14,14 +14,25 @@
 // INLINED TYPES (from core/orchestration and core/validation)
 // =============================================================================
 
-/** All supported protocol types. */
+/**
+ * All supported protocol types.
+ *
+ * Covers the 9 RCASD-IVTR pipeline stages plus the 3 cross-cutting protocols
+ * (contribution, artifact-publish, provenance). Must stay in sync with
+ * `packages/core/src/orchestration/protocol-validators.ts#PROTOCOL_TYPES`.
+ *
+ * @task T260 — add architecture-decision, validation, testing
+ */
 export type ProtocolType =
   | 'research'
   | 'consensus'
+  | 'architecture-decision'
   | 'specification'
   | 'decomposition'
   | 'implementation'
   | 'contribution'
+  | 'validation'
+  | 'testing'
   | 'release'
   | 'artifact-publish'
   | 'provenance';

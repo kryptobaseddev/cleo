@@ -1,11 +1,11 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
-    "schemaVersion": "2.3.0",
-    "lastUpdated": "2026-03-02",
-    "totalSkills": 15,
-    "generatedFrom": "manual restructure — provider-neutral skills consolidation",
-    "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection."
+    "schemaVersion": "2.4.0",
+    "lastUpdated": "2026-04-07",
+    "totalSkills": 21,
+    "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance",
+    "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading."
   },
   "dispatch_matrix": {
     "_comment": "Maps task types/keywords to skill NAMES. Provider adapter decides HOW to execute.",
@@ -13,35 +13,45 @@
       "research": "ct-research-agent",
       "planning": "ct-epic-architect",
       "implementation": "ct-task-executor",
-      "testing": "ct-dev-workflow",
+      "testing": "ct-ivt-looper",
       "documentation": "ct-documentor",
       "specification": "ct-spec-writer",
       "validation": "ct-validator",
-      "release": "ct-dev-workflow",
-      "consensus": "ct-validator",
-      "contribution": "ct-contribution"
+      "release": "ct-release-orchestrator",
+      "consensus": "ct-consensus-voter",
+      "contribution": "ct-contribution",
+      "architecture-decision": "ct-adr-recorder",
+      "artifact-publish": "ct-artifact-publisher",
+      "provenance": "ct-provenance-keeper"
     },
     "by_keyword": {
       "research|investigate|explore|discover": "ct-research-agent",
       "epic|plan|decompose|architect": "ct-epic-architect",
       "implement|build|execute|create": "ct-task-executor",
-      "test|coverage|integration|vitest": "ct-dev-workflow",
+      "ivt|test|coverage|integration|verify against spec": "ct-ivt-looper",
       "doc|document|readme|guide": "ct-documentor",
       "spec|rfc|protocol|contract": "ct-spec-writer",
-      "validate|verify|audit|compliance|consensus|vote": "ct-validator",
-      "release|version|publish|deploy|ship|changelog": "ct-dev-workflow"
+      "validate|verify|audit|compliance": "ct-validator",
+      "consensus|vote|verdict|resolve the debate": "ct-consensus-voter",
+      "adr|architecture decision|formalize|lock in the choice": "ct-adr-recorder",
+      "release|version|ship|changelog|cut release": "ct-release-orchestrator",
+      "artifact|publish|registry|npm publish|docker push": "ct-artifact-publisher",
+      "provenance|attestation|sbom|sigstore|slsa": "ct-provenance-keeper"
     },
     "by_protocol": {
       "research": "ct-research-agent",
-      "consensus": "ct-validator",
+      "consensus": "ct-consensus-voter",
+      "architecture-decision": "ct-adr-recorder",
       "specification": "ct-spec-writer",
       "decomposition": "ct-epic-architect",
       "implementation": "ct-task-executor",
       "contribution": "ct-contribution",
-      "release": "ct-dev-workflow",
-      "agent-protocol": "ct-orchestrator",
       "validation": "ct-validator",
-      "testing": "ct-dev-workflow"
+      "testing": "ct-ivt-looper",
+      "release": "ct-release-orchestrator",
+      "artifact-publish": "ct-artifact-publisher",
+      "provenance": "ct-provenance-keeper",
+      "agent-protocol": "ct-orchestrator"
     }
   },
   "skills": [
@@ -461,6 +471,232 @@
       },
       "constraints": {
         "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-adr-recorder",
+      "version": "1.0.0",
+      "description": "Records Architecture Decision Records from accepted consensus verdicts. Drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded.",
+      "path": "skills/ct-adr-recorder",
+      "tags": ["adr", "architecture-decision", "hitl", "decision-record"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 8000,
+      "protocol": "architecture-decision",
+      "references": [
+        "skills/ct-adr-recorder/references/cascade.md",
+        "skills/ct-adr-recorder/references/examples.md"
+      ],
+      "capabilities": {
+        "inputs": ["consensus-manifest-id", "task-id", "decision-context"],
+        "outputs": ["adr-markdown", "decisions-table-row", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "write ADR",
+          "record architecture decision",
+          "formalize this decision",
+          "create ADR",
+          "lock in the choice"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-consensus-voter", "ct-spec-writer"],
+        "dispatch_keywords": {
+          "primary": ["adr", "decision", "architecture", "formalize"],
+          "secondary": ["proposed", "accepted", "superseded", "hitl"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-ivt-looper",
+      "version": "1.0.0",
+      "description": "Runs a project-agnostic autonomous Implement→Validate→Test compliance loop on any git worktree. Detects the project's test framework and iterates until the implementation satisfies its specification. Works in any git worktree regardless of language or framework — the autonomous compliance layer enforced before any release or PR.",
+      "path": "skills/ct-ivt-looper",
+      "tags": ["testing", "ivt-loop", "autonomous", "framework-agnostic", "compliance"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 10000,
+      "protocol": "testing",
+      "references": [
+        "skills/ct-ivt-looper/references/escalation.md",
+        "skills/ct-ivt-looper/references/frameworks.md",
+        "skills/ct-ivt-looper/references/loop-anatomy.md"
+      ],
+      "capabilities": {
+        "inputs": ["task-id", "spec-reference", "worktree-path"],
+        "outputs": ["manifest-entry", "ivt-convergence-report"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "run the IVT loop",
+          "implement and verify",
+          "ship this task",
+          "verify against spec",
+          "complete implementation with tests"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-validator", "ct-release-orchestrator"],
+        "dispatch_keywords": {
+          "primary": ["ivt", "implement", "validate", "test"],
+          "secondary": ["converge", "framework", "spec", "iterate"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-consensus-voter",
+      "version": "1.0.0",
+      "description": "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Produces a voting matrix JSON, enforces the 0.5 threshold, and flags ties within 0.1 confidence as contested for human tiebreak. Split from the overloaded ct-validator skill.",
+      "path": "skills/ct-consensus-voter",
+      "tags": ["consensus", "voting", "decision", "multi-agent", "hitl"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "protocol": "consensus",
+      "references": ["skills/ct-consensus-voter/references/matrix-examples.md"],
+      "capabilities": {
+        "inputs": ["task-id", "question", "candidate-options"],
+        "outputs": ["voting-matrix", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "reach consensus",
+          "vote on options",
+          "resolve the debate",
+          "pick the best approach",
+          "run consensus"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-adr-recorder", "ct-research-agent"],
+        "dispatch_keywords": {
+          "primary": ["consensus", "vote", "decide", "verdict"],
+          "secondary": ["confidence", "rationale", "evidence", "contested"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-release-orchestrator",
+      "version": "1.0.0",
+      "description": "Orchestrates the full release pipeline: version bump → changelog → commit → tag, then conditionally forks to artifact-publish and provenance based on release config. Parent protocol that composes ct-artifact-publisher and ct-provenance-keeper as sub-protocols. Source-only releases skip both sub-protocols entirely.",
+      "path": "skills/ct-release-orchestrator",
+      "tags": ["release", "orchestration", "composition", "ship", "version"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 8000,
+      "protocol": "release",
+      "references": [
+        "skills/ct-release-orchestrator/references/composition.md",
+        "skills/ct-release-orchestrator/references/release-types.md"
+      ],
+      "capabilities": {
+        "inputs": ["version", "epic-id", "release-config"],
+        "outputs": ["release-commit", "git-tag", "changelog-entry", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "ship release",
+          "cut release",
+          "publish version",
+          "cleo release ship",
+          "promote epic to released"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-artifact-publisher", "ct-provenance-keeper"],
+        "dispatch_keywords": {
+          "primary": ["release", "ship", "version", "tag"],
+          "secondary": ["changelog", "semver", "bump", "publish"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": true
+      }
+    },
+    {
+      "name": "ct-artifact-publisher",
+      "version": "1.0.0",
+      "description": "Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) following the validate → dry-run → build → publish → record-provenance pipeline. Invoked by ct-release-orchestrator as a sub-skill when a release has artifact config. Never stores credentials in output or manifest.",
+      "path": "skills/ct-artifact-publisher",
+      "tags": ["artifact", "publish", "registry", "release", "distribution"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 8000,
+      "protocol": "artifact-publish",
+      "references": [
+        "skills/ct-artifact-publisher/references/artifact-types.md",
+        "skills/ct-artifact-publisher/references/handler-interface.md"
+      ],
+      "capabilities": {
+        "inputs": ["release-config", "version", "commit-sha"],
+        "outputs": ["built-artifacts", "checksums", "publish-results", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "publish artifacts",
+          "build and publish",
+          "run artifact publish",
+          "ship packages",
+          "push to registry"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": ["ct-provenance-keeper"],
+        "dispatch_keywords": {
+          "primary": ["artifact", "publish", "registry", "package"],
+          "secondary": ["npm", "docker", "cargo", "tarball"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-provenance-keeper",
+      "version": "1.0.0",
+      "description": "Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosign signatures for published artifacts. Invoked by ct-artifact-publisher as a delegation for signing and attestation. Records the full commit→build→artifact→attestation→registry chain in .cleo/releases.json.",
+      "path": "skills/ct-provenance-keeper",
+      "tags": ["provenance", "slsa", "attestation", "sbom", "sigstore", "supply-chain"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 6000,
+      "protocol": "provenance",
+      "references": [
+        "skills/ct-provenance-keeper/references/signing.md",
+        "skills/ct-provenance-keeper/references/slsa.md"
+      ],
+      "capabilities": {
+        "inputs": ["built-artifacts", "commit-sha", "builder-identity"],
+        "outputs": ["in-toto-attestation", "sbom", "signature", "releases-json-entry"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "generate provenance",
+          "sign artifacts",
+          "create attestation",
+          "record supply chain",
+          "run slsa attestation"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["provenance", "attestation", "sbom", "slsa"],
+          "secondary": ["sigstore", "cosign", "in-toto", "sign"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
         "requires_session": false,
         "requires_epic": false
       }

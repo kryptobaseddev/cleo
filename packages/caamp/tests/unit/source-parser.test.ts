@@ -89,9 +89,9 @@ describe("Source Parser", () => {
     // ── Library skill format ────────────────────────────────────────
 
     it("parses scoped library skill format @scope/pkg:skill-name", () => {
-      const result = parseSource("@cleocode/ct-skills:ct-research-agent");
+      const result = parseSource("@cleocode/skills:ct-research-agent");
       expect(result.type).toBe("library");
-      expect(result.owner).toBe("@cleocode/ct-skills");
+      expect(result.owner).toBe("@cleocode/skills");
       expect(result.repo).toBe("ct-research-agent");
       expect(result.inferredName).toBe("ct-research-agent");
     });

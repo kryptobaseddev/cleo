@@ -122,19 +122,29 @@ export {
 } from './lifecycle/chain-store.js';
 // Lifecycle
 export {
+  buildStageGuidance,
   checkGate,
   checkStagePrerequisites,
   failGate,
+  formatStageGuidance,
   getLifecycleGates,
   getLifecycleHistory,
   getLifecycleStatus,
   getStagePrerequisites,
+  isValidStage,
   listEpicsWithLifecycle,
+  PIPELINE_STAGES,
   passGate,
   recordStageProgress,
+  renderStageGuidance,
   resetStage,
+  STAGE_SKILL_MAP,
+  type Stage,
+  type StageGuidance,
   skipStageWithReason,
+  TIER_0_SKILLS,
 } from './lifecycle/index.js';
+export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 // Memory — brain lifecycle (temporal decay + consolidation)
 export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';
@@ -568,7 +578,16 @@ export {
   camelToKebab,
   validateRequiredParamsDef,
 } from './validation/param-utils.js';
-// Validation — protocols
+// Validation — protocols (thin wrappers around orchestration/protocol-validators)
+// Covers all 9 pipeline stages + 3 cross-cutting protocols (12 total).
+export {
+  checkArchitectureDecisionManifest,
+  validateArchitectureDecisionTask,
+} from './validation/protocols/architecture-decision.js';
+export {
+  checkArtifactPublishManifest,
+  validateArtifactPublishTask,
+} from './validation/protocols/artifact-publish.js';
 export { checkConsensusManifest, validateConsensusTask } from './validation/protocols/consensus.js';
 export {
   checkContributionManifest,
@@ -583,9 +602,20 @@ export {
   validateImplementationTask,
 } from './validation/protocols/implementation.js';
 export {
+  checkProvenanceManifest,
+  validateProvenanceTask,
+} from './validation/protocols/provenance.js';
+export { checkReleaseManifest, validateReleaseTask } from './validation/protocols/release.js';
+export { checkResearchManifest, validateResearchTask } from './validation/protocols/research.js';
+export {
   checkSpecificationManifest,
   validateSpecificationTask,
 } from './validation/protocols/specification.js';
+export { checkTestingManifest, validateTestingTask } from './validation/protocols/testing.js';
+export {
+  checkValidationManifest,
+  validateValidationTask,
+} from './validation/protocols/validation.js';
 export type { CoherenceIssue } from './validation/validate-ops.js';
 // Validation — validate-ops
 export {

@@ -20,18 +20,27 @@ export const DEFAULT_CHAIN_ID = 'rcasd-ivtrc';
 /**
  * Stage mapping for protocol validation gates in the default chain.
  *
- * `contribution` is cross-cutting and is validated at implementation.
- * `artifact-publish` and `provenance` are validated at release.
+ * Cross-cutting protocols compose with specific host stages:
+ * - `contribution` is validated at implementation (author attribution).
+ * - `artifact-publish` and `provenance` are validated at release
+ *   (see release.md composition: release triggers artifact-publish for the
+ *   distribution phase, which delegates signing/attestation to provenance).
+ *
+ * Pipeline stages map 1:1 to their own protocol validators.
  *
  * @task T5419
+ * @task T260 — add architecture-decision, validation, testing mappings
  */
 export const DEFAULT_PROTOCOL_STAGE_MAP: Record<ProtocolType, Stage> = {
   research: 'research',
   consensus: 'consensus',
+  'architecture-decision': 'architecture_decision',
   specification: 'specification',
   decomposition: 'decomposition',
   implementation: 'implementation',
   contribution: 'implementation',
+  validation: 'validation',
+  testing: 'testing',
   release: 'release',
   'artifact-publish': 'release',
   provenance: 'release',

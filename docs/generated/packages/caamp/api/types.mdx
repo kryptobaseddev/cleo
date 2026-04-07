@@ -141,33 +141,94 @@ Raw detection configuration as stored in registry.json.
 | `appBundle`   | `string \| undefined`   | No       | macOS .app bundle name (for the `"appBundle"` method).               |
 | `flatpakId`   | `string \| undefined`   | No       | Flatpak application ID (for the `"flatpak"` method).                 |
 
+## ProviderPriority
+
+Priority tier identifier stored in registry.json.
+
+```typescript
+ProviderPriority
+```
+
+## ProviderStatus
+
+Lifecycle status identifier stored in registry.json.
+
+```typescript
+ProviderStatus
+```
+
 ## RegistryProvider
 
 Raw provider definition as stored in registry.json before path resolution.
 
-| Property                | Type                                | Required | Description                                                                      |
-| ----------------------- | ----------------------------------- | -------- | -------------------------------------------------------------------------------- |
-| `id`                    | `string`                            | Yes      | Unique provider identifier (e.g. `"claude-code"`).                               |
-| `toolName`              | `string`                            | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                 |
-| `vendor`                | `string`                            | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                        |
-| `agentFlag`             | `string`                            | Yes      | CLI flag name for `--agent` selection.                                           |
-| `aliases`               | `string[]`                          | Yes      | Alternative names that resolve to this provider.                                 |
-| `pathGlobal`            | `string`                            | Yes      | Global instruction file directory path (may contain platform variables).         |
-| `pathProject`           | `string`                            | Yes      | Project-relative instruction file directory path.                                |
-| `instructFile`          | `string`                            | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                       |
-| `configKey`             | `string`                            | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).               |
-| `configFormat`          | `string`                            | Yes      | Config file format identifier (e.g. `"json"`, `"jsonc"`, `"yaml"`, `"toml"`).    |
-| `configPathGlobal`      | `string`                            | Yes      | Global config file path (may contain platform variables).                        |
-| `configPathProject`     | `string \| null`                    | Yes      | Project-relative config file path, or `null` if unsupported.                     |
-| `pathSkills`            | `string`                            | Yes      | Global skills directory path (may contain platform variables).                   |
-| `pathProjectSkills`     | `string`                            | Yes      | Project-relative skills directory path.                                          |
-| `detection`             | `RegistryDetection`                 | Yes      | Detection configuration for auto-discovering this provider.                      |
-| `supportedTransports`   | `string[]`                          | Yes      | MCP transport protocol identifiers this provider supports.                       |
-| `supportsHeaders`       | `boolean`                           | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers.        |
-| `priority`              | `string`                            | Yes      | Priority tier identifier (`"high"`, `"medium"`, or `"low"`).                     |
-| `status`                | `string`                            | Yes      | Lifecycle status identifier (`"active"`, `"beta"`, `"deprecated"`, `"planned"`). |
-| `agentSkillsCompatible` | `boolean`                           | Yes      | Whether the provider is compatible with the Agent Skills standard.               |
-| `capabilities`          | `RegistryCapabilities \| undefined` | No       | Optional provider capabilities for skills, hooks, and spawn.                     |
+| Property                | Type                                | Required | Description                                                                     |
+| ----------------------- | ----------------------------------- | -------- | ------------------------------------------------------------------------------- |
+| `id`                    | `string`                            | Yes      | Unique provider identifier (e.g. `"claude-code"`).                              |
+| `toolName`              | `string`                            | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                |
+| `vendor`                | `string`                            | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                       |
+| `agentFlag`             | `string`                            | Yes      | CLI flag name for `--agent` selection.                                          |
+| `aliases`               | `string[]`                          | Yes      | Alternative names that resolve to this provider.                                |
+| `pathGlobal`            | `string`                            | Yes      | Global instruction file directory path (may contain platform variables).        |
+| `pathProject`           | `string`                            | Yes      | Project-relative instruction file directory path.                               |
+| `instructFile`          | `string`                            | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                      |
+| `pathSkills`            | `string`                            | Yes      | Global skills directory path (may contain platform variables).                  |
+| `pathProjectSkills`     | `string`                            | Yes      | Project-relative skills directory path.                                         |
+| `detection`             | `RegistryDetection`                 | Yes      | Detection configuration for auto-discovering this provider.                     |
+| `priority`              | `ProviderPriority`                  | Yes      | Priority tier identifier. Exactly zero or one provider should be `"primary"`.   |
+| `status`                | `ProviderStatus`                    | Yes      | Lifecycle status identifier.                                                    |
+| `agentSkillsCompatible` | `boolean`                           | Yes      | Whether the provider is compatible with the Agent Skills standard.              |
+| `capabilities`          | `RegistryCapabilities \| undefined` | No       | Optional provider capabilities for MCP, harness role, skills, hooks, and spawn. |
+
+## McpConfigFormat
+
+Supported MCP config file formats.
+
+```typescript
+McpConfigFormat
+```
+
+## McpTransportType
+
+MCP transport protocols a provider may advertise.
+
+```typescript
+McpTransportType
+```
+
+## RegistryMcpIntegration
+
+MCP server integration metadata for providers that consume MCP servers via a per-agent config file.
+
+| Property              | Type                 | Required | Description                                                               |
+| --------------------- | -------------------- | -------- | ------------------------------------------------------------------------- |
+| `configKey`           | `string`             | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).        |
+| `configFormat`        | `McpConfigFormat`    | Yes      | Config file format identifier.                                            |
+| `configPathGlobal`    | `string`             | Yes      | Global config file path (may contain platform variables).                 |
+| `configPathProject`   | `string \| null`     | Yes      | Project-relative config file path, or `null` if unsupported.              |
+| `supportedTransports` | `McpTransportType[]` | Yes      | MCP transport protocol identifiers this provider supports.                |
+| `supportsHeaders`     | `boolean`            | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers. |
+
+## RegistryHarnessKind
+
+Harness role category for a primary or standalone harness.
+
+```typescript
+RegistryHarnessKind
+```
+
+## RegistryHarnessCapability
+
+First-class harness role declaration.
+
+| Property                | Type                  | Required | Description                                                                         |
+| ----------------------- | --------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `kind`                  | `RegistryHarnessKind` | Yes      | The harness kind (`"orchestrator"` or `"standalone"`).                              |
+| `spawnTargets`          | `string[]`            | Yes      | Provider ids this harness can spawn as subagents. Empty for standalone.             |
+| `supportsConductorLoop` | `boolean`             | Yes      | Whether the harness drives a CleoOS conductor loop.                                 |
+| `supportsStageGuidance` | `boolean`             | Yes      | Whether the harness accepts stage guidance injection.                               |
+| `supportsCantBridge`    | `boolean`             | Yes      | Whether the harness bridges CANT events.                                            |
+| `extensionsPath`        | `string`              | Yes      | Path to the harness's runtime extensions directory (file paths, not a config file). |
+| `globalExtensionsHub`   | `string \| undefined` | No       | Optional CLEO-managed shared extensions hub.                                        |
 
 ## SkillsPrecedence
 
@@ -197,15 +258,35 @@ Hook lifecycle event identifier from registry.json.
 string
 ```
 
+## RegistryHookFormat
+
+The on-disk layout of a provider's hook configuration.
+
+```typescript
+RegistryHookFormat
+```
+
+## RegistryHookCatalog
+
+Which native event catalog a provider's hook system uses.
+
+```typescript
+RegistryHookCatalog
+```
+
 ## RegistryHooksCapability
 
 Raw hooks capability definition as stored in registry.json.
 
-| Property         | Type             | Required | Description                                                          |
-| ---------------- | ---------------- | -------- | -------------------------------------------------------------------- |
-| `supported`      | `string[]`       | Yes      | Hook lifecycle event identifiers this provider supports.             |
-| `hookConfigPath` | `string \| null` | Yes      | Path to the hook configuration file, or `null` if not applicable.    |
-| `hookFormat`     | `string \| null` | Yes      | Format of the hook config file (e.g. `"json"`, `"yaml"`), or `null`. |
+| Property                | Type                               | Required | Description                                                                                              |
+| ----------------------- | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `supported`             | `string[]`                         | Yes      | Hook lifecycle event identifiers this provider supports.                                                 |
+| `hookConfigPath`        | `string \| null`                   | Yes      | Path to the hook configuration file or directory, or `null` if not applicable.                           |
+| `hookConfigPathProject` | `string \| undefined`              | No       | Project-relative path to the hook configuration file or directory.                                       |
+| `hookFormat`            | `RegistryHookFormat \| null`       | Yes      | Format of the hook config, or `null` when the provider has no hook system.                               |
+| `nativeEventCatalog`    | `RegistryHookCatalog \| undefined` | No       | Which native event catalog this provider's hooks are drawn from. Defaults to `"canonical"` when omitted. |
+| `canInjectSystemPrompt` | `boolean \| undefined`             | No       | Whether hooks may inject or modify the system prompt.                                                    |
+| `canBlockTools`         | `boolean \| undefined`             | No       | Whether hooks may block tool calls.                                                                      |
 
 ## SpawnMechanism
 
@@ -219,23 +300,26 @@ SpawnMechanism
 
 Raw spawn capability definition as stored in registry.json.
 
-| Property                    | Type             | Required | Description                                                        |
-| --------------------------- | ---------------- | -------- | ------------------------------------------------------------------ |
-| `supportsSubagents`         | `boolean`        | Yes      | Whether the provider supports spawning subagents.                  |
-| `supportsProgrammaticSpawn` | `boolean`        | Yes      | Whether subagents can be spawned programmatically.                 |
-| `supportsInterAgentComms`   | `boolean`        | Yes      | Whether spawned agents can communicate with each other.            |
-| `supportsParallelSpawn`     | `boolean`        | Yes      | Whether multiple agents can be spawned in parallel.                |
-| `spawnMechanism`            | `string \| null` | Yes      | Mechanism used for spawning, or `null` if spawning is unsupported. |
+| Property                    | Type                     | Required | Description                                                                                                                                                                                                 |
+| --------------------------- | ------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `supportsSubagents`         | `boolean`                | Yes      | Whether the provider supports spawning subagents.                                                                                                                                                           |
+| `supportsProgrammaticSpawn` | `boolean`                | Yes      | Whether subagents can be spawned programmatically.                                                                                                                                                          |
+| `supportsInterAgentComms`   | `boolean`                | Yes      | Whether spawned agents can communicate with each other.                                                                                                                                                     |
+| `supportsParallelSpawn`     | `boolean`                | Yes      | Whether multiple agents can be spawned in parallel.                                                                                                                                                         |
+| `spawnMechanism`            | `SpawnMechanism \| null` | Yes      | Mechanism used for spawning, or `null` if spawning is unsupported.                                                                                                                                          |
+| `spawnCommand`              | `string[] \| undefined`  | No       | Literal command-line invocation used by the harness to spawn a child worker (e.g. Pi's `["pi", "--mode", "json", "-p", "--no-session"]`). Only meaningful when `spawnMechanism === "native-child-process"`. |
 
 ## RegistryCapabilities
 
 Aggregate capability block for a provider in registry.json.
 
-| Property | Type                                    | Required | Description                                         |
-| -------- | --------------------------------------- | -------- | --------------------------------------------------- |
-| `skills` | `RegistrySkillsCapability \| undefined` | No       | Skills path resolution and precedence capabilities. |
-| `hooks`  | `RegistryHooksCapability \| undefined`  | No       | Hook/lifecycle event capabilities.                  |
-| `spawn`  | `RegistrySpawnCapability \| undefined`  | No       | Subagent spawn capabilities.                        |
+| Property  | Type                                     | Required | Description                                                                                                         |
+| --------- | ---------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `mcp`     | `RegistryMcpIntegration \| undefined`    | No       | MCP server integration metadata. Omitted for providers (like Pi) that do not consume MCP servers via a config file. |
+| `harness` | `RegistryHarnessCapability \| undefined` | No       | First-class harness role. Present only for orchestrators or standalone harnesses, not for pure spawn targets.       |
+| `skills`  | `RegistrySkillsCapability \| undefined`  | No       | Skills path resolution and precedence capabilities.                                                                 |
+| `hooks`   | `RegistryHooksCapability \| undefined`   | No       | Hook/lifecycle event capabilities.                                                                                  |
+| `spawn`   | `RegistrySpawnCapability \| undefined`   | No       | Subagent spawn capabilities.                                                                                        |
 
 ## ProviderRegistry
 
@@ -353,6 +437,33 @@ Configuration for detecting whether a provider is installed.
 | `appBundle`   | `string \| undefined`   | No       | macOS .app bundle name (for `"appBundle"` method).             |
 | `flatpakId`   | `string \| undefined`   | No       | Flatpak application ID (for `"flatpak"` method).               |
 
+## ProviderMcpCapability
+
+Resolved MCP server integration metadata for a provider.
+
+| Property              | Type              | Required | Description                                                               |
+| --------------------- | ----------------- | -------- | ------------------------------------------------------------------------- |
+| `configKey`           | `string`          | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).        |
+| `configFormat`        | `ConfigFormat`    | Yes      | Resolved config file format.                                              |
+| `configPathGlobal`    | `string`          | Yes      | Resolved global config file path.                                         |
+| `configPathProject`   | `string \| null`  | Yes      | Project-relative config file path, or `null` if unsupported.              |
+| `supportedTransports` | `TransportType[]` | Yes      | MCP transport protocols this provider supports.                           |
+| `supportsHeaders`     | `boolean`         | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers. |
+
+## ProviderHarnessCapability
+
+Resolved first-class harness capability for a provider.
+
+| Property                | Type                                                                                          | Required | Description                                                             |
+| ----------------------- | --------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `kind`                  | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").RegistryHarnessKind` | Yes      | Harness kind (`"orchestrator"` or `"standalone"`).                      |
+| `spawnTargets`          | `string[]`                                                                                    | Yes      | Provider ids this harness can spawn as subagents. Empty for standalone. |
+| `supportsConductorLoop` | `boolean`                                                                                     | Yes      | Whether the harness drives a CleoOS conductor loop.                     |
+| `supportsStageGuidance` | `boolean`                                                                                     | Yes      | Whether the harness accepts stage guidance injection.                   |
+| `supportsCantBridge`    | `boolean`                                                                                     | Yes      | Whether the harness bridges CANT events.                                |
+| `extensionsPath`        | `string`                                                                                      | Yes      | Resolved path to the harness's runtime extensions directory.            |
+| `globalExtensionsHub`   | `string \| null`                                                                              | Yes      | Resolved CLEO-managed shared extensions hub path, if configured.        |
+
 ## ProviderSkillsCapability
 
 Resolved skills capability for a provider at runtime.
@@ -367,37 +478,44 @@ Resolved skills capability for a provider at runtime.
 
 Resolved hooks capability for a provider at runtime.
 
-| Property         | Type                                                 | Required | Description                                          |
-| ---------------- | ---------------------------------------------------- | -------- | ---------------------------------------------------- |
-| `supported`      | `string[]`                                           | Yes      | Hook lifecycle events this provider supports.        |
-| `hookConfigPath` | `string \| null`                                     | Yes      | Resolved path to hook configuration file, or `null`. |
-| `hookFormat`     | `"json" \| "yaml" \| "toml" \| "javascript" \| null` | Yes      | Format of the hook config file.                      |
+| Property                | Type                                                                                                 | Required | Description                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------- |
+| `supported`             | `string[]`                                                                                           | Yes      | Hook lifecycle events this provider supports.                         |
+| `hookConfigPath`        | `string \| null`                                                                                     | Yes      | Resolved path to the hook configuration file or directory, or `null`. |
+| `hookConfigPathProject` | `string \| null`                                                                                     | Yes      | Resolved project-relative hook configuration path, or `null`.         |
+| `hookFormat`            | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").RegistryHookFormat \| null` | Yes      | Format of the hook config.                                            |
+| `nativeEventCatalog`    | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").RegistryHookCatalog`        | Yes      | Which native event catalog this provider's hooks are drawn from.      |
+| `canInjectSystemPrompt` | `boolean`                                                                                            | Yes      | Whether hooks may inject or modify the system prompt.                 |
+| `canBlockTools`         | `boolean`                                                                                            | Yes      | Whether hooks may block tool calls.                                   |
 
 ## ProviderSpawnCapability
 
 Resolved spawn capability for a provider at runtime.
 
-| Property                    | Type                                                                                             | Required | Description                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------ | -------- | ------------------------------------------------------- |
-| `supportsSubagents`         | `boolean`                                                                                        | Yes      | Whether the provider supports spawning subagents.       |
-| `supportsProgrammaticSpawn` | `boolean`                                                                                        | Yes      | Whether subagents can be spawned programmatically.      |
-| `supportsInterAgentComms`   | `boolean`                                                                                        | Yes      | Whether spawned agents can communicate with each other. |
-| `supportsParallelSpawn`     | `boolean`                                                                                        | Yes      | Whether multiple agents can be spawned in parallel.     |
-| `spawnMechanism`            | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").SpawnMechanism \| null` | Yes      | Mechanism used for spawning.                            |
+| Property                    | Type                                                                                             | Required | Description                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `supportsSubagents`         | `boolean`                                                                                        | Yes      | Whether the provider supports spawning subagents.                                                                                              |
+| `supportsProgrammaticSpawn` | `boolean`                                                                                        | Yes      | Whether subagents can be spawned programmatically.                                                                                             |
+| `supportsInterAgentComms`   | `boolean`                                                                                        | Yes      | Whether spawned agents can communicate with each other.                                                                                        |
+| `supportsParallelSpawn`     | `boolean`                                                                                        | Yes      | Whether multiple agents can be spawned in parallel.                                                                                            |
+| `spawnMechanism`            | `import("/mnt/projects/cleocode/packages/caamp/src/core/registry/types").SpawnMechanism \| null` | Yes      | Mechanism used for spawning.                                                                                                                   |
+| `spawnCommand`              | `string[] \| null`                                                                               | Yes      | Literal command-line invocation used by the harness to spawn a child worker. Only meaningful when `spawnMechanism === "native-child-process"`. |
 
 ## ProviderCapabilities
 
-Aggregate provider capabilities for skills, hooks, and spawn.
+Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
 
-| Property | Type                       | Required | Description                            |
-| -------- | -------------------------- | -------- | -------------------------------------- |
-| `skills` | `ProviderSkillsCapability` | Yes      | Skills path resolution and precedence. |
-| `hooks`  | `ProviderHooksCapability`  | Yes      | Hook/lifecycle event support.          |
-| `spawn`  | `ProviderSpawnCapability`  | Yes      | Subagent spawn capabilities.           |
+| Property  | Type                                | Required | Description                                                               |
+| --------- | ----------------------------------- | -------- | ------------------------------------------------------------------------- |
+| `mcp`     | `ProviderMcpCapability \| null`     | Yes      | MCP server integration, when the provider consumes MCP via a config file. |
+| `harness` | `ProviderHarnessCapability \| null` | Yes      | Harness role, present only for orchestrators and standalone harnesses.    |
+| `skills`  | `ProviderSkillsCapability`          | Yes      | Skills path resolution and precedence.                                    |
+| `hooks`   | `ProviderHooksCapability`           | Yes      | Hook/lifecycle event support.                                             |
+| `spawn`   | `ProviderSpawnCapability`           | Yes      | Subagent spawn capabilities.                                              |
 
 ## ProviderPriority
 
-Priority tier for a provider, used for sorting and default selection.  - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
+Priority tier for a provider, used for sorting and default selection.  - `"primary"` - First-class harness. Default target when no `--agent` flag   is given. Exactly zero or one provider per registry should have this   priority; CAAMP consumers (e.g. `getPrimaryProvider()`) expect that   invariant but the registry loader does not enforce it. - `"high"` - Major, widely-used agents - `"medium"` - Established but less common agents - `"low"` - Niche or experimental agents
 
 ```typescript
 ProviderPriority
@@ -415,29 +533,23 @@ ProviderStatus
 
 A resolved AI agent provider definition with platform-specific paths.
 
-| Property                | Type                   | Required | Description                                                                      |
-| ----------------------- | ---------------------- | -------- | -------------------------------------------------------------------------------- |
-| `id`                    | `string`               | Yes      | Unique provider identifier (e.g. `"claude-code"`).                               |
-| `toolName`              | `string`               | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                 |
-| `vendor`                | `string`               | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                        |
-| `agentFlag`             | `string`               | Yes      | CLI flag name for `--agent` selection.                                           |
-| `aliases`               | `string[]`             | Yes      | Alternative names that resolve to this provider.                                 |
-| `pathGlobal`            | `string`               | Yes      | Resolved global instruction file directory path.                                 |
-| `pathProject`           | `string`               | Yes      | Project-relative instruction file directory path.                                |
-| `instructFile`          | `string`               | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                       |
-| `configKey`             | `string`               | Yes      | Dot-notation key path for MCP server config (e.g. `"mcpServers"`).               |
-| `configFormat`          | `ConfigFormat`         | Yes      | Config file format used by this provider.                                        |
-| `configPathGlobal`      | `string`               | Yes      | Resolved global config file path.                                                |
-| `configPathProject`     | `string \| null`       | Yes      | Project-relative config file path, or `null` if unsupported.                     |
-| `pathSkills`            | `string`               | Yes      | Resolved global skills directory path.                                           |
-| `pathProjectSkills`     | `string`               | Yes      | Project-relative skills directory path.                                          |
-| `detection`             | `DetectionConfig`      | Yes      | Detection configuration for auto-discovering this provider.                      |
-| `supportedTransports`   | `TransportType[]`      | Yes      | MCP transport protocols this provider supports.                                  |
-| `supportsHeaders`       | `boolean`              | Yes      | Whether the provider supports custom HTTP headers for remote MCP servers.        |
-| `priority`              | `ProviderPriority`     | Yes      | Priority tier for sorting and default selection.                                 |
-| `status`                | `ProviderStatus`       | Yes      | Lifecycle status in the registry.                                                |
-| `agentSkillsCompatible` | `boolean`              | Yes      | Whether the provider is compatible with the Agent Skills standard.               |
-| `capabilities`          | `ProviderCapabilities` | Yes      | Provider capabilities for skills, hooks, and spawn. Always populated at runtime. |
+| Property                | Type                   | Required | Description                                                                              |
+| ----------------------- | ---------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `id`                    | `string`               | Yes      | Unique provider identifier (e.g. `"claude-code"`).                                       |
+| `toolName`              | `string`               | Yes      | Human-readable tool name (e.g. `"Claude Code"`).                                         |
+| `vendor`                | `string`               | Yes      | Vendor/company name (e.g. `"Anthropic"`).                                                |
+| `agentFlag`             | `string`               | Yes      | CLI flag name for `--agent` selection.                                                   |
+| `aliases`               | `string[]`             | Yes      | Alternative names that resolve to this provider.                                         |
+| `pathGlobal`            | `string`               | Yes      | Resolved global instruction file directory path.                                         |
+| `pathProject`           | `string`               | Yes      | Project-relative instruction file directory path.                                        |
+| `instructFile`          | `string`               | Yes      | Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`).                               |
+| `pathSkills`            | `string`               | Yes      | Resolved global skills directory path.                                                   |
+| `pathProjectSkills`     | `string`               | Yes      | Project-relative skills directory path.                                                  |
+| `detection`             | `DetectionConfig`      | Yes      | Detection configuration for auto-discovering this provider.                              |
+| `priority`              | `ProviderPriority`     | Yes      | Priority tier for sorting and default selection.                                         |
+| `status`                | `ProviderStatus`       | Yes      | Lifecycle status in the registry.                                                        |
+| `agentSkillsCompatible` | `boolean`              | Yes      | Whether the provider is compatible with the Agent Skills standard.                       |
+| `capabilities`          | `ProviderCapabilities` | Yes      | Provider capabilities (MCP, harness, skills, hooks, spawn). Always populated at runtime. |
 
 ## McpServerConfig
 

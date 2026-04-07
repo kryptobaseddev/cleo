@@ -31,7 +31,7 @@ The file is regenerated at key lifecycle points: session end, task completion, a
 
 ### Layer 2: Guided Self-Retrieval (`ct-memory` skill)
 
-A progressive disclosure skill (`packages/ct-skills/skills/ct-memory/SKILL.md`) that teaches agents to search `brain.db` for relevant context using three tiers:
+A progressive disclosure skill (`packages/skills/skills/ct-memory/SKILL.md`) that teaches agents to search `brain.db` for relevant context using three tiers:
 
 - **Tier 0** (session start): Load recent handoff and active learnings
 - **Tier 1** (during work): Search for topic-specific patterns and decisions

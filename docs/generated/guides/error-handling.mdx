@@ -585,6 +585,26 @@ Skip a stage with validation.
 
 - CleoError If stage cannot be skipped
 
+### `assertLafsShape()`
+
+Assert that a LAFS envelope conforms to the shape contract, throwing an error with a LAFS-shaped diagnostic if it does not.  Used by the renderer middleware to fail LOUDLY when CLEO itself emits a malformed envelope — this is a developer bug, not an operator issue.
+
+```typescript
+(envelope: unknown) => void
+```
+
+**Throws**
+
+- `LafsViolationError` if the envelope fails any shape invariant
+
+### `LafsViolationError`
+
+Error thrown by `assertLafsShape` when an envelope fails validation.  Carries the full `LafsShapeViolation` report so diagnostic tooling can report which specific invariants were violated.
+
+```typescript
+typeof LafsViolationError
+```
+
 ### `bindSession()`
 
 Bind a session to the current process. Called by session.start mutation handler after successful session creation.

@@ -107,6 +107,19 @@ Type for the action handler function - flexible to support various signatures
 ActionHandler
 ```
 
+## LafsShapeViolation
+
+The minimum shape invariants for a LAFS envelope, compatible with both minimal (`{ok, r, _m}`) and full (`{success, result, _meta}`) formats.
+
+| Property             | Type       | Required | Description                                                                |
+| -------------------- | ---------- | -------- | -------------------------------------------------------------------------- |
+| `isObject`           | `boolean`  | Yes      | True iff the input is a well-formed JSON object.                           |
+| `hasSuccessField`    | `boolean`  | Yes      | True iff the envelope has exactly one success-indicator field.             |
+| `successIsBoolean`   | `boolean`  | Yes      | True iff the success-indicator is a boolean.                               |
+| `hasMeta`            | `boolean`  | Yes      | True iff a metadata field (`_m` or `_meta`) is present.                    |
+| `resultOrErrorValid` | `boolean`  | Yes      | True iff the result/error invariants hold for the indicated success value. |
+| `reasons`            | `string[]` | Yes      | Human-readable reasons the envelope failed validation (empty = valid).     |
+
 ## CliOutputOptions
 
 | Property     | Type                                                                                  | Required | Description                                             |
@@ -445,6 +458,28 @@ Help topic content and related commands.
 | `synced`    | `number` | Yes      | synced      |
 | `conflicts` | `number` | Yes      | conflicts   |
 | `message`   | `string` | Yes      | message     |
+
+## PathsData
+
+Summary of all resolved CleoOS paths (project + global hub).
+
+| Property         | Type                                                                                                                         | Required | Description                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `projectCleoDir` | `string`                                                                                                                     | Yes      | Project-local .cleo directory (absolute).                        |
+| `cleoHome`       | `string`                                                                                                                     | Yes      | XDG-compliant global data root (Linux: \~/.local/share/cleo).    |
+| `configDir`      | `string`                                                                                                                     | Yes      | XDG config dir (Linux: \~/.config/cleo).                         |
+| `hub`            | `{ globalRecipes: string; globalJustfile: string; piExtensions: string; cantWorkflows: string; globalAgents: string; }`      | Yes      | CleoOS Hub subdirectories under cleoHome.                        |
+| `scaffolded`     | `{ globalRecipes: boolean; globalJustfile: boolean; piExtensions: boolean; cantWorkflows: boolean; globalAgents: boolean; }` | Yes      | Scaffolding status — true if hub directories + seed files exist. |
+
+## ScaffoldHubData
+
+Result of scaffolding the CleoOS Hub.
+
+| Property  | Type                                   | Required | Description |
+| --------- | -------------------------------------- | -------- | ----------- |
+| `action`  | `"created" \| "skipped" \| "repaired"` | Yes      | action      |
+| `path`    | `string`                               | Yes      | path        |
+| `details` | `string \| undefined`                  | No       | details     |
 
 ## SmokeProbe
 

@@ -248,7 +248,7 @@ describe("SkillLibrary protocol path discovery", () => {
         mkdirSync(fixtureRoot, { recursive: true });
         // Minimal skills.json
         writeFileSync(join(fixtureRoot, "skills.json"), JSON.stringify({ version: "1.0.0", skills: [] }));
-        // Protocols at root level (ct-skills layout)
+        // Protocols at root level (root-level layout)
         mkdirSync(join(fixtureRoot, "protocols"), { recursive: true });
         writeFileSync(join(fixtureRoot, "protocols", "research.md"), "# Research Protocol");
         writeFileSync(join(fixtureRoot, "protocols", "implementation.md"), "# Implementation Protocol");

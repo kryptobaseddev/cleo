@@ -770,9 +770,46 @@ export async function releaseShip(
       }
     }
 
-    // Step 8 (internal): Record provenance
+    // Step 8 (internal): Record provenance for the release manifest entry
     const pushedAt = new Date().toISOString();
     await markReleasePushed(version, pushedAt, projectRoot, { commitSha, gitTag });
+
+    // ────────────────────────────────────────────────────────────────────
+    // Step 9: Resolve the cross-cutting sub-protocol composition chain
+    //
+    // Per release.md (Composition with Cross-Cutting Sub-Protocols) the
+    // release protocol is the parent of artifact-publish and provenance.
+    // Not every release needs both — source-only releases skip them, and
+    // releases with security.enableProvenance=false skip provenance.
+    //
+    // The actual `npm publish --provenance` still happens in CI (see
+    // .github/workflows/release.yml line 295) — this step records the
+    // EXPECTED chain so the release manifest entry is linked to the
+    // artifact-publish and provenance manifest entries that CI will
+    // produce. This satisfies COMP-005 from release.md (full chain
+    // traceability) and gives the operator a single command to inspect
+    // the planned distribution flow.
+    //
+    // @task T260 — wire conditional composition with artifact-publish + provenance
+    // ────────────────────────────────────────────────────────────────────
+    const compositionChain = resolveCompositionChain(cwd);
+    if (compositionChain.subProtocols.length > 0) {
+      const list = compositionChain.subProtocols.join(' → ');
+      const m = `  ✓ Composition chain expected: release → ${list}`;
+      steps.push(m);
+      console.log(m);
+      if (compositionChain.notes.length > 0) {
+        for (const note of compositionChain.notes) {
+          const n = `    · ${note}`;
+          steps.push(n);
+          console.log(n);
+        }
+      }
+    } else {
+      const m = `  · Source-only release — no artifact-publish or provenance sub-protocols`;
+      steps.push(m);
+      console.log(m);
+    }
 
     return {
       success: true,
@@ -784,6 +821,7 @@ export async function releaseShip(
         pushedAt,
         changelog: changelogPath,
         channel: resolvedChannel,
+        composition: compositionChain,
         steps,
         ...(prResult
           ? {
@@ -800,4 +838,77 @@ export async function releaseShip(
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message ?? String(err));
   }
+}
+
+/**
+ * Composition chain for a release, linking the parent release protocol to the
+ * cross-cutting sub-protocols (artifact-publish, provenance) per release.md.
+ *
+ * @task T260
+ */
+interface CompositionChain {
+  subProtocols: ('artifact-publish' | 'provenance')[];
+  artifactType: string | null;
+  provenanceEnabled: boolean;
+  slsaLevel: number | null;
+  notes: string[];
+}
+
+/**
+ * Resolve which cross-cutting sub-protocols apply to a release based on the
+ * project's release config.
+ *
+ * Decision rules (matching release.md "Conditional Trigger Matrix"):
+ * - `source-only` artifact type → no sub-protocols
+ * - any non-`source-only` artifact type → artifact-publish required
+ * - `security.enableProvenance: true` → provenance required (transitively)
+ *
+ * The CI workflow (`.github/workflows/release.yml`) currently uses
+ * `npm publish --provenance` which satisfies the SLSA L3 attestation
+ * requirement automatically; this resolver only records the EXPECTED
+ * chain so the release manifest entry can be linked to the resulting
+ * sub-protocol manifest entries.
+ *
+ * @task T260
+ */
+function resolveCompositionChain(cwd: string): CompositionChain {
+  const config = loadReleaseConfig(cwd);
+  const artifactType = config.artifactType ?? null;
+  const provenanceEnabled = config.security?.enableProvenance === true;
+  const slsaLevel = config.security?.slsaLevel ?? null;
+  const notes: string[] = [];
+
+  // Source-only releases (docs, chore bumps) declare no artifact handler
+  // or use the sentinel `source-only` value. They skip both sub-protocols.
+  if (!artifactType || artifactType === 'source-only') {
+    return {
+      subProtocols: [],
+      artifactType,
+      provenanceEnabled: false,
+      slsaLevel: null,
+      notes: [],
+    };
+  }
+
+  const subProtocols: ('artifact-publish' | 'provenance')[] = ['artifact-publish'];
+  notes.push(`artifact type: ${artifactType}`);
+
+  if (provenanceEnabled) {
+    subProtocols.push('provenance');
+    if (slsaLevel != null) {
+      notes.push(`provenance: SLSA L${slsaLevel}`);
+    } else {
+      notes.push('provenance: enabled');
+    }
+  } else {
+    notes.push('provenance: disabled in config');
+  }
+
+  return {
+    subProtocols,
+    artifactType,
+    provenanceEnabled,
+    slsaLevel,
+    notes,
+  };
 }

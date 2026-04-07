@@ -49,7 +49,7 @@ export async function queryHookProviders(
 
   return engineSuccess({
     event,
-    providers: providers.map((p) => ({
+    providers: (providers as unknown[]).map((p: unknown) => ({
       id: (p as { id: string }).id,
       name: (p as { name?: string }).name,
       supportedHooks:
@@ -152,7 +152,7 @@ export async function systemHooksMatrix(params?: {
     }
 
     // Build per-provider summary
-    const summary: ProviderMatrixEntry[] = raw.providers.map((providerId) => {
+    const summary: ProviderMatrixEntry[] = (raw.providers as string[]).map((providerId: string) => {
       const provSummary = getProviderSummary(providerId);
       if (provSummary) {
         return {
@@ -165,8 +165,12 @@ export async function systemHooksMatrix(params?: {
         };
       }
       // Derive from matrix if no summary profile available
-      const supported = raw.events.filter((ev) => boolMatrix[ev]?.[providerId] === true);
-      const unsupported = raw.events.filter((ev) => boolMatrix[ev]?.[providerId] !== true);
+      const supported = (raw.events as string[]).filter(
+        (ev: string) => boolMatrix[ev]?.[providerId] === true,
+      );
+      const unsupported = (raw.events as string[]).filter(
+        (ev: string) => boolMatrix[ev]?.[providerId] !== true,
+      );
       const totalCanonical = raw.events.length;
       const coverage =
         totalCanonical > 0 ? Math.round((supported.length / totalCanonical) * 100) : 0;
@@ -185,12 +189,18 @@ export async function systemHooksMatrix(params?: {
     const shouldDetect = params?.detectProvider !== false;
     if (shouldDetect) {
       try {
-        const detectionResults = detectAllProviders();
-        const detected = detectionResults.find((r) => r.installed && r.projectDetected);
+        const detectionResults = detectAllProviders() as Array<{
+          installed: boolean;
+          projectDetected: boolean;
+          provider: { id: string };
+        }>;
+        const detected = detectionResults.find(
+          (r: { installed: boolean; projectDetected: boolean }) => r.installed && r.projectDetected,
+        );
         if (detected) {
           detectedProvider = (detected.provider as { id: string }).id;
         } else {
-          const anyInstalled = detectionResults.find((r) => r.installed);
+          const anyInstalled = detectionResults.find((r: { installed: boolean }) => r.installed);
           if (anyInstalled) {
             detectedProvider = (anyInstalled.provider as { id: string }).id;
           }

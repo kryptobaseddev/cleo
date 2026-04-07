@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-provenance-keeper",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 6000,
+  "protocol": "provenance",
+  "capabilities": {
+    "inputs": ["built-artifacts", "commit-sha", "builder-identity"],
+    "outputs": ["in-toto-attestation", "sbom", "signature", "releases-json-entry"],
+    "dispatch_triggers": [
+      "generate provenance",
+      "sign artifacts",
+      "create attestation",
+      "record supply chain",
+      "run slsa attestation"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": [],
+    "dispatch_keywords": {
+      "primary": ["provenance", "attestation", "sbom", "slsa"],
+      "secondary": ["sigstore", "cosign", "in-toto", "sign"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

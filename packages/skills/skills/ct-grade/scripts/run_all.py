@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
-SKILL_DIR = SCRIPT_DIR.parent  # packages/ct-skills/skills/ct-grade/
+SKILL_DIR = SCRIPT_DIR.parent  # packages/skills/skills/ct-grade/
 
 
 # ---------------------------------------------------------------------------

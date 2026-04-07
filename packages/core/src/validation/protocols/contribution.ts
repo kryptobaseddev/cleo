@@ -1,79 +1,42 @@
 /**
- * Contribution protocol validation.
+ * Contribution protocol — thin wrapper delegating to the canonical pure validator.
+ *
+ * Contribution is a cross-cutting protocol that tracks multi-agent attribution
+ * at the implementation stage (see default-chain.ts DEFAULT_PROTOCOL_STAGE_MAP).
+ *
  * @task T4537
- * @epic T4454
+ * @task T260
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { ExitCode } from '@cleocode/contracts';
-import { CleoError } from '../../errors.js';
-import { getManifestPath } from '../../paths.js';
-
-interface ValidationResult {
-  valid: boolean;
-  violations: Array<{ code: string; severity: string; message: string }>;
-  score: number;
-  protocol: string;
-  taskId: string;
-}
-
-function findManifestEntry(taskId: string, manifestPath: string): string | null {
-  if (!existsSync(manifestPath)) return null;
-  const lines = readFileSync(manifestPath, 'utf-8').trim().split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i]!.includes(`"${taskId}"`)) return lines[i]!;
-  }
-  return null;
-}
+import {
+  type ProtocolValidationResult,
+  validateContributionProtocol,
+} from '../../orchestration/protocol-validators.js';
+import {
+  loadManifestEntryByTaskId,
+  loadManifestEntryFromFile,
+  throwIfStrictFailed,
+} from './_shared.js';
 
 /** Validate contribution protocol for a task. */
 export async function validateContributionTask(
   taskId: string,
-  opts: { strict?: boolean },
-): Promise<ValidationResult> {
-  const manifestPath = getManifestPath();
-  const entry = findManifestEntry(taskId, manifestPath);
-  if (!entry) {
-    throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`);
-  }
-
-  const manifest = JSON.parse(entry);
-  const violations: ValidationResult['violations'] = [];
-
-  // CONT-007: agent_type check
-  if (manifest.agent_type !== 'implementation') {
-    violations.push({
-      code: 'CONT-007',
-      severity: 'high',
-      message: `Expected agent_type "implementation", got "${manifest.agent_type}"`,
-    });
-  }
-
-  const score = violations.length === 0 ? 100 : Math.max(0, 100 - violations.length * 25);
-  const result: ValidationResult = {
-    valid: violations.length === 0,
-    violations,
-    score,
-    protocol: 'contribution',
-    taskId,
-  };
-
-  if (opts.strict && violations.length > 0) {
-    throw new CleoError(65 as ExitCode, `Contribution protocol violations for ${taskId}`);
-  }
-
+  opts: { strict?: boolean; hasContributionTags?: boolean },
+): Promise<ProtocolValidationResult> {
+  const entry = loadManifestEntryByTaskId(taskId);
+  const result = validateContributionProtocol(entry, opts);
+  throwIfStrictFailed(result, opts, 'contribution', taskId);
   return result;
 }
 
-/** Validate contribution protocol from manifest file. */
+/** Validate contribution protocol from a manifest file. */
 export async function checkContributionManifest(
   manifestFile: string,
-  opts: { strict?: boolean },
-): Promise<ValidationResult> {
-  if (!existsSync(manifestFile)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Manifest file not found: ${manifestFile}`);
-  }
-  const manifest = JSON.parse(readFileSync(manifestFile, 'utf-8'));
-  const taskId = manifest.linked_tasks?.[0] ?? 'UNKNOWN';
-  return validateContributionTask(taskId, opts);
+  opts: { strict?: boolean; hasContributionTags?: boolean },
+): Promise<ProtocolValidationResult> {
+  const entry = loadManifestEntryFromFile(manifestFile);
+  const taskId = entry.linked_tasks?.[0] ?? 'UNKNOWN';
+  const result = validateContributionProtocol(entry, opts);
+  throwIfStrictFailed(result, opts, 'contribution', taskId);
+  return result;
 }

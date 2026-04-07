@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-artifact-publisher",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 8000,
+  "protocol": "artifact-publish",
+  "capabilities": {
+    "inputs": ["release-config", "version", "commit-sha"],
+    "outputs": ["built-artifacts", "checksums", "publish-results", "manifest-entry"],
+    "dispatch_triggers": [
+      "publish artifacts",
+      "build and publish",
+      "run artifact publish",
+      "ship packages",
+      "push to registry"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-provenance-keeper"],
+    "dispatch_keywords": {
+      "primary": ["artifact", "publish", "registry", "package"],
+      "secondary": ["npm", "docker", "cargo", "tarball"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

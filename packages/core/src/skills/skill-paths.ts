@@ -147,28 +147,39 @@ export function resolveSkillPath(skillName: string, projectRoot?: string): strin
 /**
  * Resolve a protocol .md file.
  *
- * Search order per base path:
- * 1. {base}/_ct-skills-protocols/{protocol_name}.md (Strategy B shared dir)
- * 2. {PROJECT_ROOT}/src/protocols/{protocol_name}.md (legacy embedded fallback)
+ * Search order:
+ * 1. `<core-package>/src/validation/protocols/protocols-markdown/{name}.md`
+ *    (canonical location, where the markdown lives in this monorepo)
+ * 2. `<base>/protocols/{name}.md` for each registered skill base path
+ *    (project-local protocol overrides)
  *
  * @task T4552
+ * @task T260 — drop dead Strategy B paths, point at the real protocols-markdown dir
  */
 export function resolveProtocolPath(protocolName: string, projectRoot?: string): string | null {
-  const searchPaths = getSkillSearchPaths(projectRoot);
+  // Canonical location in @cleocode/core
+  const root = getProjectRoot(projectRoot);
+  const canonical = join(
+    root,
+    'packages',
+    'core',
+    'src',
+    'validation',
+    'protocols',
+    'protocols-markdown',
+    `${protocolName}.md`,
+  );
+  if (existsSync(canonical)) {
+    return safeRealpath(canonical);
+  }
 
-  // Search Strategy B shared directories in each base path
+  // Per-skill-base override directory
+  const searchPaths = getSkillSearchPaths(projectRoot);
   for (const { path: searchPath } of searchPaths) {
-    const candidate = join(searchPath, '_ct-skills-protocols', `${protocolName}.md`);
+    const candidate = join(searchPath, 'protocols', `${protocolName}.md`);
     if (existsSync(candidate)) {
       return safeRealpath(candidate);
     }
-  }
-
-  // Legacy fallback: project root protocols directory
-  const root = getProjectRoot(projectRoot);
-  const legacy = join(root, 'src', 'protocols', `${protocolName}.md`);
-  if (existsSync(legacy)) {
-    return safeRealpath(legacy);
   }
 
   return null;
@@ -177,23 +188,16 @@ export function resolveProtocolPath(protocolName: string, projectRoot?: string):
 /**
  * Resolve a shared resource .md file.
  *
- * Search order per base path:
- * 1. {base}/_ct-skills-shared/{resource_name}.md (Strategy B shared dir)
- * 2. {base}/_shared/{resource_name}.md (legacy embedded layout)
+ * Search order per base path: `{base}/_shared/{resource_name}.md`. The
+ * `_shared/` directory is the canonical location in `@cleocode/skills`.
  *
  * @task T4552
+ * @task T260 — drop dead Strategy B path
  */
 export function resolveSharedPath(resourceName: string, projectRoot?: string): string | null {
   const searchPaths = getSkillSearchPaths(projectRoot);
 
   for (const { path: searchPath } of searchPaths) {
-    // Strategy B: _ct-skills-shared/ directory
-    const candidate = join(searchPath, '_ct-skills-shared', `${resourceName}.md`);
-    if (existsSync(candidate)) {
-      return safeRealpath(candidate);
-    }
-
-    // Legacy: _shared/ directory within each base path
     const legacy = join(searchPath, '_shared', `${resourceName}.md`);
     if (existsSync(legacy)) {
       return safeRealpath(legacy);

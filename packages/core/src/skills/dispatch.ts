@@ -4,7 +4,7 @@
  *
  * Implements multi-strategy dispatch:
  *   1. Label-based: task labels match skill tags
- *   2. Catalog-based: ct-skills dispatch matrix (via CAAMP catalog bridge)
+ *   2. Catalog-based: @cleocode/skills dispatch matrix (via CAAMP catalog bridge)
  *   3. Type-based: task type maps to protocol
  *   4. Keyword-based: title/description matches triggers
  *   5. Fallback: ct-task-executor
@@ -70,15 +70,15 @@ const TYPE_PROTOCOL_MAP: Record<string, { skill: string; protocol: SkillProtocol
 };
 
 // ============================================================================
-// Catalog Dispatch Matrix (from ct-skills via CAAMP)
+// Catalog Dispatch Matrix (from @cleocode/skills via CAAMP)
 // ============================================================================
 
-/** Cached dispatch matrix from the ct-skills catalog. */
+/** Cached dispatch matrix from the @cleocode/skills catalog. */
 let _catalogMatrix: CtDispatchMatrix | null = null;
 
 /**
  * Get the catalog dispatch matrix, caching on first access.
- * Returns null if ct-skills catalog is unavailable.
+ * Returns null if the @cleocode/skills catalog is unavailable.
  */
 function getCatalogMatrix(): CtDispatchMatrix | null {
   if (_catalogMatrix !== null) return _catalogMatrix;
@@ -123,7 +123,7 @@ function dispatchByLabels(task: Task, skills: Skill[]): DispatchResult | null {
 }
 
 /**
- * Attempt catalog-based dispatch: use ct-skills dispatch matrix.
+ * Attempt catalog-based dispatch: use the @cleocode/skills dispatch matrix.
  * Checks by_task_type and by_keyword from the catalog.
  * @task T4517
  */
@@ -220,7 +220,7 @@ export function autoDispatch(task: Task, cwd?: string): DispatchResult {
   const labelResult = dispatchByLabels(task, skills);
   if (labelResult) return labelResult;
 
-  // Strategy 2: Catalog-based (ct-skills dispatch matrix via CAAMP)
+  // Strategy 2: Catalog-based (@cleocode/skills dispatch matrix via CAAMP)
   const catalogResult = dispatchByCatalog(task);
   if (catalogResult) return catalogResult;
 

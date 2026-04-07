@@ -30,11 +30,18 @@ import {
   validateManifestOp,
   validateOutput,
   validateProtocol,
+  validateProtocolArchitectureDecision,
+  validateProtocolArtifactPublish,
   validateProtocolConsensus,
   validateProtocolContribution,
   validateProtocolDecomposition,
   validateProtocolImplementation,
+  validateProtocolProvenance,
+  validateProtocolRelease,
+  validateProtocolResearch,
   validateProtocolSpecification,
+  validateProtocolTesting,
+  validateProtocolValidation,
   validateSchemaOp,
   validateTaskOp,
   validateTestCoverage,
@@ -195,6 +202,101 @@ export class CheckHandler implements DomainHandler {
                 {
                   ...protocolParams,
                   specFile: params?.specFile as string | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'research': {
+              const result = await validateProtocolResearch(
+                {
+                  ...protocolParams,
+                  hasCodeChanges: params?.hasCodeChanges as boolean | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'architecture-decision':
+            case 'architecture_decision': {
+              const result = await validateProtocolArchitectureDecision(
+                {
+                  ...protocolParams,
+                  adrContent: params?.adrContent as string | undefined,
+                  status: params?.status as
+                    | 'proposed'
+                    | 'accepted'
+                    | 'superseded'
+                    | 'deprecated'
+                    | undefined,
+                  hitlReviewed: params?.hitlReviewed as boolean | undefined,
+                  downstreamFlagged: params?.downstreamFlagged as boolean | undefined,
+                  persistedInDb: params?.persistedInDb as boolean | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'validation': {
+              const result = await validateProtocolValidation(
+                {
+                  ...protocolParams,
+                  specMatchConfirmed: params?.specMatchConfirmed as boolean | undefined,
+                  testSuitePassed: params?.testSuitePassed as boolean | undefined,
+                  protocolComplianceChecked: params?.protocolComplianceChecked as
+                    | boolean
+                    | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'testing': {
+              const result = await validateProtocolTesting(
+                {
+                  ...protocolParams,
+                  framework: params?.framework as string | undefined,
+                  testsRun: params?.testsRun as number | undefined,
+                  testsPassed: params?.testsPassed as number | undefined,
+                  testsFailed: params?.testsFailed as number | undefined,
+                  coveragePercent: params?.coveragePercent as number | undefined,
+                  coverageThreshold: params?.coverageThreshold as number | undefined,
+                  ivtLoopConverged: params?.ivtLoopConverged as boolean | undefined,
+                  ivtLoopIterations: params?.ivtLoopIterations as number | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'release': {
+              const result = await validateProtocolRelease(
+                {
+                  ...protocolParams,
+                  version: params?.version as string | undefined,
+                  hasChangelog: params?.hasChangelog as boolean | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'artifact-publish':
+            case 'artifact_publish': {
+              const result = await validateProtocolArtifactPublish(
+                {
+                  ...protocolParams,
+                  artifactType: params?.artifactType as string | undefined,
+                  buildPassed: params?.buildPassed as boolean | undefined,
+                },
+                projectRoot,
+              );
+              return wrapResult(result, 'query', 'check', operation, startTime);
+            }
+            case 'provenance': {
+              const result = await validateProtocolProvenance(
+                {
+                  ...protocolParams,
+                  hasAttestation: params?.hasAttestation as boolean | undefined,
+                  hasSbom: params?.hasSbom as boolean | undefined,
                 },
                 projectRoot,
               );

@@ -175,6 +175,30 @@ const config: Partial<SafetyConfig> = {
 | `autoCheckpoint` | `boolean` | Enable auto-checkpoint (default: true) |
 | `strictMode` | `boolean` | Throw on safety violations (default: true) |
 
+## `AgentConfig`
+
+Agent configuration from AGENT.md or agent definition.
+
+```typescript
+import type { AgentConfig } from "@cleocode/monorepo";
+
+const config: Partial<AgentConfig> = {
+  name: "...",
+  description: "...",
+  model: "...",
+  allowedTools: "...",
+  customInstructions: "...",
+};
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` |  |
+| `description` | `string` |  |
+| `model` | `string | undefined` |  |
+| `allowedTools` | `string[] | undefined` |  |
+| `customInstructions` | `string | undefined` |  |
+
 ## `MemoryBridgeConfig`
 
 Configuration for memory bridge content generation.
@@ -1207,30 +1231,6 @@ const config: Partial<RateLimitConfig> = {
 |----------|------|-------------|
 | `maxRequests` | `number` |  |
 | `windowMs` | `number` |  |
-
-## `AgentConfig`
-
-Agent configuration from AGENT.md or agent definition.
-
-```typescript
-import type { AgentConfig } from "@cleocode/monorepo";
-
-const config: Partial<AgentConfig> = {
-  name: "...",
-  description: "...",
-  model: "...",
-  allowedTools: "...",
-  customInstructions: "...",
-};
-```
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | `string` |  |
-| `description` | `string` |  |
-| `model` | `string | undefined` |  |
-| `allowedTools` | `string[] | undefined` |  |
-| `customInstructions` | `string | undefined` |  |
 
 ## `SkillsMpConfig`
 

@@ -1,13 +1,13 @@
 # Provider Deployment
 
-This reference covers multi-provider skill deployment: where each provider reads skills from, how symlinks enable a single source of truth, and how to add new skills to the CLEO ct-skills package.
+This reference covers multi-provider skill deployment: where each provider reads skills from, how symlinks enable a single source of truth, and how to add new skills to the @cleocode/skills package.
 
 ## Architecture
 
 Skills follow a single-source-of-truth model:
 
 ```
-packages/ct-skills/skills/         <-- canonical location
+packages/skills/skills/         <-- canonical location
   ct-cleo/SKILL.md
   ct-orchestrator/SKILL.md
   ct-skill-creator/SKILL.md
@@ -57,7 +57,7 @@ CLEO-aware providers read both SKILL.md and manifest.json. The manifest provides
 
 ### CLEO Package Skills
 
-Skills in `packages/ct-skills/skills/` are managed by CLEO infrastructure. They are deployed via the CLEO skill system and do not need manual symlink setup. The manifest.json, dispatch-config.json, and provider-skills-map.json coordinate deployment automatically.
+Skills in `packages/skills/skills/` are managed by CLEO infrastructure. They are deployed via the CLEO skill system and do not need manual symlink setup. The manifest.json, dispatch-config.json, and provider-skills-map.json coordinate deployment automatically.
 
 ### User Global Skills
 
@@ -110,13 +110,13 @@ cp -r my-skill/ .cursor/skills/my-skill/
 
 Project skills are committed to the repository and shared with all contributors.
 
-## Adding a New Skill to CLEO ct-skills
+## Adding a New Skill to @cleocode/skills
 
-To add a new skill to the CLEO package (`packages/ct-skills/`):
+To add a new skill to the CLEO package (`packages/skills/`):
 
 1. **Create the skill directory**:
    ```bash
-   mkdir -p packages/ct-skills/skills/my-new-skill
+   mkdir -p packages/skills/skills/my-new-skill
    ```
 
 2. **Write SKILL.md with standard fields only**:
@@ -132,7 +132,7 @@ To add a new skill to the CLEO package (`packages/ct-skills/`):
    ```
    Include only v2 standard fields. No `version`, `tier`, `category`, or other CLEO-only fields.
 
-3. **Add entry to manifest.json** (`packages/ct-skills/skills/manifest.json`):
+3. **Add entry to manifest.json** (`packages/skills/skills/manifest.json`):
    ```json
    {
      "name": "my-new-skill",
@@ -164,12 +164,12 @@ To add a new skill to the CLEO package (`packages/ct-skills/`):
    }
    ```
 
-4. **Add entry to dispatch-config.json** (`packages/ct-skills/dispatch-config.json`):
+4. **Add entry to dispatch-config.json** (`packages/skills/dispatch-config.json`):
    Add the skill to relevant `by_task_type`, `by_keyword`, and/or `by_protocol` mappings if it should participate in dispatch routing.
 
 5. **Update totalSkills** in manifest.json `_meta.totalSkills` to reflect the new count.
 
 6. **Validate**: Run the skill validator to confirm the new skill passes all checks:
    ```bash
-   python3 packages/ct-skills/skills/ct-skill-creator/scripts/quick_validate.py packages/ct-skills/skills/my-new-skill
+   python3 packages/skills/skills/ct-skill-creator/scripts/quick_validate.py packages/skills/skills/my-new-skill
    ```

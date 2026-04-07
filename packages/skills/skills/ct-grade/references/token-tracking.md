@@ -116,5 +116,5 @@ For ct-grade specifically, both arms of an A/B test experience the same approxim
 - `src/core/metrics/token-estimation.ts` — CLEO's token estimation implementation
 - `docs/specs/CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` — Metrics system specification
 - `.cleo/setup-otel.sh` — OTel environment setup script
-- `packages/ct-skills/skills/ct-grade/scripts/token_tracker.py` — Token aggregation script
-- `packages/ct-skills/skills/ct-grade/scripts/generate_report.py` — Report generator (uses confidence labels)
+- `packages/skills/skills/ct-grade/scripts/token_tracker.py` — Token aggregation script
+- `packages/skills/skills/ct-grade/scripts/generate_report.py` — Report generator (uses confidence labels)

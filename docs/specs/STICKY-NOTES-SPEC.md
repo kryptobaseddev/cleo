@@ -261,7 +261,7 @@ cleo skill install library:ct-stickynote
 - `packages/cleo/src/dispatch/engines/sticky-engine.ts` - Engine layer
 - `packages/cleo/src/dispatch/domains/sticky.ts` - Domain handler
 - `packages/cleo/src/cli/commands/sticky.ts` - CLI implementation
-- `packages/ct-skills/skills/ct-stickynote/` - Skill package
+- `packages/skills/skills/ct-stickynote/` - Skill package
 - `docs/features/STICKY-NOTES.md` - User guide
 - `docs/specs/STICKY-NOTES-SPEC.md` - This spec
 

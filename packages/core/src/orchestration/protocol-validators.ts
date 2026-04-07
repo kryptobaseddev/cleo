@@ -41,14 +41,29 @@ export interface ManifestEntryInput {
   sources?: string[];
 }
 
-/** All supported protocol types. */
+/**
+ * All supported protocol types.
+ *
+ * The canonical set covers all 9 RCASD-IVTR pipeline stages plus the 3
+ * cross-cutting protocols that compose with specific stages:
+ *
+ * - Pipeline stages: research, consensus, architecture-decision,
+ *   specification, decomposition, implementation, validation, testing, release
+ * - Cross-cutting: contribution (at implementation),
+ *   artifact-publish (at release), provenance (at release)
+ *
+ * @task T260 — unify pipeline stages and cross-cutting protocols
+ */
 export const PROTOCOL_TYPES = [
   'research',
   'consensus',
+  'architecture-decision',
   'specification',
   'decomposition',
   'implementation',
   'contribution',
+  'validation',
+  'testing',
   'release',
   'artifact-publish',
   'provenance',
@@ -56,7 +71,17 @@ export const PROTOCOL_TYPES = [
 
 export type ProtocolType = (typeof PROTOCOL_TYPES)[number];
 
-/** Map protocol types to exit codes. */
+/**
+ * Map protocol types to exit codes.
+ *
+ * Pipeline protocols use the 60-67 orchestrator range. Cross-cutting
+ * protocols with dedicated ranges (artifact-publish 85-89, provenance 90-94)
+ * use their own codes. Architecture-decision uses 84 PROVENANCE_REQUIRED
+ * because every ADR MUST be generated from an accepted Consensus verdict
+ * (ADR-001) — the provenance chain is the whole point.
+ *
+ * @task T260
+ */
 export const PROTOCOL_EXIT_CODES: Record<ProtocolType, ExitCode> = {
   research: ExitCode.PROTOCOL_MISSING, // 60
   consensus: ExitCode.INVALID_RETURN_MESSAGE, // 61
@@ -65,8 +90,11 @@ export const PROTOCOL_EXIT_CODES: Record<ProtocolType, ExitCode> = {
   implementation: ExitCode.AUTONOMOUS_BOUNDARY, // 64
   contribution: ExitCode.HANDOFF_REQUIRED, // 65
   release: ExitCode.RESUME_FAILED, // 66
-  'artifact-publish': ExitCode.CONCURRENT_SESSION, // 67
-  provenance: ExitCode.CONCURRENT_SESSION, // 67 (shared with artifact-publish)
+  testing: ExitCode.CONCURRENT_SESSION, // 67 (shared: both testing and validation are lifecycle gates)
+  validation: ExitCode.LIFECYCLE_GATE_FAILED, // 80
+  'architecture-decision': ExitCode.PROVENANCE_REQUIRED, // 84 (ADR-001: must link to consensus)
+  'artifact-publish': ExitCode.ARTIFACT_PUBLISH_FAILED, // 88 (dedicated)
+  provenance: ExitCode.ATTESTATION_INVALID, // 94 (dedicated)
 };
 
 // ============================================================
@@ -616,6 +644,381 @@ export function validateProvenanceProtocol(
 }
 
 // ============================================================
+// Architecture Decision Record Protocol (ADR-*)
+// ============================================================
+
+/**
+ * ADR lifecycle status values.
+ * @task T260
+ */
+export type AdrStatus = 'proposed' | 'accepted' | 'superseded' | 'deprecated';
+
+/** Architecture decision options for validator. */
+export interface ArchitectureDecisionOptions {
+  /** Content of the ADR markdown document, used to verify required sections. */
+  adrContent?: string;
+  /** Current status of the decision record. */
+  status?: AdrStatus;
+  /** Whether a human-in-the-loop review has been completed (ADR-003). */
+  hitlReviewed?: boolean;
+  /** Whether downstream artifacts are flagged for review after supersession. */
+  downstreamFlagged?: boolean;
+  /** Whether the record is persisted in the canonical SQLite decisions table. */
+  persistedInDb?: boolean;
+}
+
+/**
+ * Validate an Architecture Decision Record manifest entry.
+ *
+ * Enforces the 8 MUST requirements from `architecture-decision.md`:
+ * ADR-001 (consensus provenance), ADR-002 (manifest link), ADR-003 (HITL),
+ * ADR-004 (required sections), ADR-005 (cascade on supersession),
+ * ADR-006 (SQLite persistence), ADR-007 (agent_type), ADR-008 (spec block).
+ *
+ * ADR-005, ADR-006, and ADR-008 require runtime state the caller must
+ * provide via options — this validator checks the options and never
+ * performs side-effectful I/O.
+ *
+ * @task T260
+ */
+export function validateArchitectureDecisionProtocol(
+  entry: ManifestEntryInput & { consensus_manifest_id?: string },
+  options: ArchitectureDecisionOptions = {},
+): ProtocolValidationResult {
+  const violations: ProtocolViolation[] = [];
+  let score = 100;
+
+  // ADR-001 / ADR-002: MUST be generated from accepted Consensus and
+  // include a `consensus_manifest_id` link.
+  if (!entry.consensus_manifest_id || entry.consensus_manifest_id.trim().length === 0) {
+    violations.push({
+      requirement: 'ADR-001',
+      severity: 'error',
+      message: 'ADR must link to the originating consensus manifest',
+      fix: 'Add consensus_manifest_id to manifest entry referencing the accepted consensus',
+    });
+    score -= 25;
+  }
+
+  // ADR-003: Transition from proposed→accepted requires explicit HITL review.
+  if (options.status === 'accepted' && options.hitlReviewed === false) {
+    violations.push({
+      requirement: 'ADR-003',
+      severity: 'error',
+      message: 'ADR cannot be accepted without HITL (human-in-the-loop) review',
+      fix: 'Have a human review and approve the ADR before promoting to accepted',
+    });
+    score -= 30;
+  }
+
+  // ADR-004: MUST include Context, Options Evaluated, Decision, Rationale, Consequences.
+  if (options.adrContent) {
+    const requiredSections = [
+      /##\s+.*Context/i,
+      /##\s+.*Option/i,
+      /##\s+.*Decision/i,
+      /##\s+.*Rationale/i,
+      /##\s+.*Consequences/i,
+    ];
+    const missing = requiredSections.filter((re) => !re.test(options.adrContent!)).length;
+    if (missing > 0) {
+      violations.push({
+        requirement: 'ADR-004',
+        severity: 'error',
+        message: `ADR missing ${missing} of 5 required sections (Context, Options, Decision, Rationale, Consequences)`,
+        fix: 'Add all five canonical sections to the ADR body',
+      });
+      score -= 20;
+    }
+  }
+
+  // ADR-005: If the record is superseded, downstream artifacts MUST be flagged.
+  if (options.status === 'superseded' && options.downstreamFlagged === false) {
+    violations.push({
+      requirement: 'ADR-005',
+      severity: 'error',
+      message: 'Superseded ADR has not triggered downstream invalidation cascade',
+      fix: 'Flag linked specifications, decomposition, and implementations for review',
+    });
+    score -= 20;
+  }
+
+  // ADR-006: MUST be persisted in the canonical SQLite decisions table.
+  if (options.persistedInDb === false) {
+    violations.push({
+      requirement: 'ADR-006',
+      severity: 'error',
+      message: 'ADR not persisted in canonical decisions SQLite table',
+      fix: 'Insert the decision via the Drizzle ORM architectureDecisions table',
+    });
+    score -= 15;
+  }
+
+  // ADR-007: MUST set agent_type: decision
+  if (!checkAgentType(entry, 'decision')) {
+    violations.push({
+      requirement: 'ADR-007',
+      severity: 'error',
+      message: `agent_type must be decision, got ${entry.agent_type ?? 'undefined'}`,
+      fix: 'Update manifest entry agent_type field to "decision"',
+    });
+    score -= 15;
+  }
+
+  // ADR (output file): MUST produce an ADR markdown document.
+  if (!checkRequiredField(entry, 'file')) {
+    violations.push({
+      requirement: 'ADR-004',
+      severity: 'error',
+      message: 'ADR must produce an output markdown file',
+      fix: 'Write the ADR to disk and reference it in the manifest entry',
+    });
+    score -= 10;
+  }
+
+  const hasErrors = violations.some((v) => v.severity === 'error');
+  return {
+    valid: !hasErrors,
+    protocol: 'architecture-decision',
+    violations,
+    score: Math.max(0, score),
+  };
+}
+
+// ============================================================
+// Validation Protocol (VALID-*)
+// ============================================================
+
+/** Validation-stage options for validator. */
+export interface ValidationStageOptions {
+  /** Whether static analysis / type check passed (VALID-001). */
+  specMatchConfirmed?: boolean;
+  /** Whether the existing test suite ran successfully (VALID-002). */
+  testSuitePassed?: boolean;
+  /** Whether upstream protocol compliance checks passed (VALID-003). */
+  protocolComplianceChecked?: boolean;
+}
+
+/**
+ * Validate a manifest entry against the validation stage protocol.
+ *
+ * Enforces VALID-001..007 from `validation.md`. The validation stage runs
+ * static analysis, type checking, and pre-test quality gates. This validator
+ * verifies the manifest entry captures a real validation run; runtime gate
+ * enforcement happens in the lifecycle state machine, not here.
+ *
+ * @task T260
+ */
+export function validateValidationProtocol(
+  entry: ManifestEntryInput,
+  options: ValidationStageOptions = {},
+): ProtocolValidationResult {
+  const violations: ProtocolViolation[] = [];
+  let score = 100;
+
+  // VALID-001: MUST verify implementation matches specification
+  if (options.specMatchConfirmed === false) {
+    violations.push({
+      requirement: 'VALID-001',
+      severity: 'error',
+      message: 'Validation must confirm implementation matches specification',
+      fix: 'Run spec-match validation before reporting completion',
+    });
+    score -= 25;
+  }
+
+  // VALID-002: MUST run existing test suite and report results
+  if (options.testSuitePassed === false) {
+    violations.push({
+      requirement: 'VALID-002',
+      severity: 'error',
+      message: 'Existing test suite failed during validation',
+      fix: 'Fix failing tests before completing the validation stage',
+    });
+    score -= 25;
+  }
+
+  // VALID-003: MUST check protocol compliance
+  if (options.protocolComplianceChecked === false) {
+    violations.push({
+      requirement: 'VALID-003',
+      severity: 'error',
+      message: 'Upstream protocol compliance not checked',
+      fix: 'Run cleo check protocol for every upstream protocol before validation exits',
+    });
+    score -= 20;
+  }
+
+  // VALID-005: MUST write validation summary (key_findings) to manifest
+  if (!checkArrayMinLength(entry, 'key_findings', 1)) {
+    violations.push({
+      requirement: 'VALID-005',
+      severity: 'error',
+      message: 'Validation must record summary findings in manifest entry',
+      fix: 'Populate key_findings with pass/fail counts and coverage',
+    });
+    score -= 15;
+  }
+
+  // VALID-006: MUST set agent_type: validation
+  if (!checkAgentType(entry, 'validation')) {
+    violations.push({
+      requirement: 'VALID-006',
+      severity: 'error',
+      message: `agent_type must be validation, got ${entry.agent_type ?? 'undefined'}`,
+      fix: 'Update manifest entry agent_type field to "validation"',
+    });
+    score -= 15;
+  }
+
+  const hasErrors = violations.some((v) => v.severity === 'error');
+  return { valid: !hasErrors, protocol: 'validation', violations, score: Math.max(0, score) };
+}
+
+// ============================================================
+// Testing Protocol (TEST-*)
+// ============================================================
+
+/**
+ * Project-agnostic test framework identifiers.
+ *
+ * The testing protocol is deliberately framework-neutral. Whichever
+ * framework the project uses, the protocol only cares that tests run
+ * autonomously via a framework adapter and loop until the spec is met.
+ *
+ * @task T260
+ */
+export type TestFramework =
+  | 'vitest'
+  | 'jest'
+  | 'mocha'
+  | 'pytest'
+  | 'unittest'
+  | 'go-test'
+  | 'cargo-test'
+  | 'rspec'
+  | 'phpunit'
+  | 'bats'
+  | 'other';
+
+/** Testing-stage options for validator. */
+export interface TestingOptions {
+  /** Detected or declared test framework for the current worktree. */
+  framework?: TestFramework;
+  /** Total number of tests executed. */
+  testsRun?: number;
+  /** Number of tests that passed. */
+  testsPassed?: number;
+  /** Number of tests that failed. */
+  testsFailed?: number;
+  /** Coverage percentage achieved (0-100). */
+  coveragePercent?: number;
+  /** Minimum coverage threshold from project config. */
+  coverageThreshold?: number;
+  /** Whether the implementation→validate→test loop converged (spec met). */
+  ivtLoopConverged?: boolean;
+  /** Number of IVT loop iterations until convergence. */
+  ivtLoopIterations?: number;
+}
+
+/**
+ * Validate a manifest entry against the testing protocol.
+ *
+ * This validator is **project-agnostic**: it makes no assumption about the
+ * underlying test framework. It enforces the invariant that tests ran via
+ * a detected framework, achieved 100% pass rate, and (if an IVT loop was
+ * used) converged before the stage completes.
+ *
+ * Enforces TEST-001..007 from the post-2026-04 rewrite of `testing.md`.
+ *
+ * @task T260
+ */
+export function validateTestingProtocol(
+  entry: ManifestEntryInput,
+  options: TestingOptions = {},
+): ProtocolValidationResult {
+  const violations: ProtocolViolation[] = [];
+  let score = 100;
+
+  // TEST-001: MUST identify the detected test framework (project-agnostic).
+  if (!options.framework) {
+    violations.push({
+      requirement: 'TEST-001',
+      severity: 'error',
+      message: 'Test framework not identified for the current worktree',
+      fix: 'Detect or declare the project test framework before running tests',
+    });
+    score -= 20;
+  }
+
+  // TEST-004: MUST achieve 100% pass rate before release.
+  if (
+    options.testsRun !== undefined &&
+    options.testsFailed !== undefined &&
+    options.testsFailed > 0
+  ) {
+    violations.push({
+      requirement: 'TEST-004',
+      severity: 'error',
+      message: `${options.testsFailed} of ${options.testsRun} tests failed`,
+      fix: 'Fix failing tests; re-enter the IVT loop until all pass',
+    });
+    score -= 30;
+  }
+
+  // TEST-005: IVT loop MUST converge (spec satisfied) before testing exits.
+  if (options.ivtLoopConverged === false) {
+    violations.push({
+      requirement: 'TEST-005',
+      severity: 'error',
+      message: 'Implement→Validate→Test loop has not converged on specification',
+      fix: 'Continue IVT iterations until implementation satisfies the spec',
+    });
+    score -= 25;
+  }
+
+  // TEST-006: MUST include test summary (key_findings) in manifest.
+  if (!checkArrayMinLength(entry, 'key_findings', 1)) {
+    violations.push({
+      requirement: 'TEST-006',
+      severity: 'error',
+      message: 'Testing output must record pass/fail summary in key_findings',
+      fix: 'Populate key_findings with framework, pass count, fail count, coverage',
+    });
+    score -= 10;
+  }
+
+  // TEST-007: MUST set agent_type: testing
+  if (!checkAgentType(entry, 'testing')) {
+    violations.push({
+      requirement: 'TEST-007',
+      severity: 'error',
+      message: `agent_type must be testing, got ${entry.agent_type ?? 'undefined'}`,
+      fix: 'Update manifest entry agent_type field to "testing"',
+    });
+    score -= 15;
+  }
+
+  // Coverage threshold (advisory, non-blocking unless explicit threshold given).
+  if (
+    options.coveragePercent !== undefined &&
+    options.coverageThreshold !== undefined &&
+    options.coveragePercent < options.coverageThreshold
+  ) {
+    violations.push({
+      requirement: 'TEST-004',
+      severity: 'warning',
+      message: `Coverage ${options.coveragePercent}% below threshold ${options.coverageThreshold}%`,
+      fix: 'Add tests for uncovered code paths',
+    });
+    score -= 5;
+  }
+
+  const hasErrors = violations.some((v) => v.severity === 'error');
+  return { valid: !hasErrors, protocol: 'testing', violations, score: Math.max(0, score) };
+}
+
+// ============================================================
 // Unified Dispatcher
 // ============================================================
 
@@ -679,6 +1082,18 @@ export function validateProtocol(
         entry,
         options as { hasAttestation?: boolean; hasSbom?: boolean },
       );
+      break;
+    case 'architecture-decision':
+      result = validateArchitectureDecisionProtocol(
+        entry as ManifestEntryInput & { consensus_manifest_id?: string },
+        options as ArchitectureDecisionOptions,
+      );
+      break;
+    case 'validation':
+      result = validateValidationProtocol(entry, options as ValidationStageOptions);
+      break;
+    case 'testing':
+      result = validateTestingProtocol(entry, options as TestingOptions);
       break;
     default:
       throw new CleoError(ExitCode.CONCURRENT_SESSION, `Unknown protocol: ${protocol as string}`);

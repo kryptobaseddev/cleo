@@ -5,471 +5,484 @@ description: cleo package overview
 
 ## Functions & Classes
 
-| Symbol                                                                                            | Kind     | Description                                                                       |
-| ------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
-| [`engineError()`](/packages/cleo/api/index#engineerror)                                           | function | Create a typed engine error result with pino logging and correct exit code.       |
-| [`engineSuccess()`](/packages/cleo/api/index#enginesuccess)                                       | function | Create an engine success result.                                                  |
-| [`taskShow()`](/packages/cleo/api/index#taskshow)                                                 | function | Get a single task by ID.                                                          |
-| [`taskList()`](/packages/cleo/api/index#tasklist)                                                 | function | List tasks with optional filters.                                                 |
-| [`taskFind()`](/packages/cleo/api/index#taskfind)                                                 | function | Fuzzy search tasks by title/description/ID.                                       |
-| [`taskExists()`](/packages/cleo/api/index#taskexists)                                             | function | Check if a task exists.                                                           |
-| [`taskCreate()`](/packages/cleo/api/index#taskcreate)                                             | function | Create a new task.                                                                |
-| [`taskUpdate()`](/packages/cleo/api/index#taskupdate)                                             | function | Update a task's fields.                                                           |
-| [`taskComplete()`](/packages/cleo/api/index#taskcomplete)                                         | function | Complete a task (set status to done).                                             |
-| [`taskDelete()`](/packages/cleo/api/index#taskdelete)                                             | function | Delete a task.                                                                    |
-| [`taskArchive()`](/packages/cleo/api/index#taskarchive)                                           | function | Archive completed tasks. Moves done/cancelled tasks from active task data to...   |
-| [`taskNext()`](/packages/cleo/api/index#tasknext)                                                 | function | Suggest next task to work on based on priority, phase alignment, age, and dep...  |
-| [`taskBlockers()`](/packages/cleo/api/index#taskblockers)                                         | function | Show blocked tasks and analyze blocking chains.                                   |
-| [`taskTree()`](/packages/cleo/api/index#tasktree)                                                 | function | Build hierarchy tree.                                                             |
-| [`taskDeps()`](/packages/cleo/api/index#taskdeps)                                                 | function | Show dependencies for a task - both what it depends on and what depends on it.    |
-| [`taskRelates()`](/packages/cleo/api/index#taskrelates)                                           | function | Show task relations (existing relates entries).                                   |
-| [`taskRelatesAdd()`](/packages/cleo/api/index#taskrelatesadd)                                     | function | Add a relation between two tasks.                                                 |
-| [`taskAnalyze()`](/packages/cleo/api/index#taskanalyze)                                           | function | Analyze a task for description quality, missing fields, and dependency health.    |
-| [`taskImpact()`](/packages/cleo/api/index#taskimpact)                                             | function | Predict downstream impact of a free-text change description.  Delegates to...     |
-| [`taskRestore()`](/packages/cleo/api/index#taskrestore)                                           | function | Restore a cancelled task back to pending.                                         |
-| [`taskUnarchive()`](/packages/cleo/api/index#taskunarchive)                                       | function | Move an archived task back to active task data with status 'done' (or specifi...  |
-| [`taskReorder()`](/packages/cleo/api/index#taskreorder)                                           | function | Change task position within its sibling group.                                    |
-| [`taskReparent()`](/packages/cleo/api/index#taskreparent)                                         | function | Move task under a different parent.                                               |
-| [`taskPromote()`](/packages/cleo/api/index#taskpromote)                                           | function | Promote a subtask to task or task to root (remove parent).                        |
-| [`taskReopen()`](/packages/cleo/api/index#taskreopen)                                             | function | Reopen a completed task (set status back to pending).                             |
-| [`taskCancel()`](/packages/cleo/api/index#taskcancel)                                             | function | Cancel a task (soft terminal state -- reversible via restore).                    |
-| [`taskComplexityEstimate()`](/packages/cleo/api/index#taskcomplexityestimate)                     | function | Deterministic complexity scoring from task metadata.                              |
-| [`taskDepends()`](/packages/cleo/api/index#taskdepends)                                           | function | List dependencies for a task in a given direction.  T4657  T4790  T4654           |
-| [`taskDepsOverview()`](/packages/cleo/api/index#taskdepsoverview)                                 | function | Overview of all dependencies across the project.  T5157                           |
-| [`taskDepsCycles()`](/packages/cleo/api/index#taskdepscycles)                                     | function | Detect circular dependencies across the project.  T5157                           |
-| [`taskStats()`](/packages/cleo/api/index#taskstats)                                               | function | Compute task statistics, optionally scoped to an epic.  T4657  T4790  T4654       |
-| [`taskExport()`](/packages/cleo/api/index#taskexport)                                             | function | Export tasks as JSON or CSV.  T4657  T4790  T4654                                 |
-| [`taskHistory()`](/packages/cleo/api/index#taskhistory)                                           | function | Get task history from the log file.  T4657  T4790  T4654                          |
-| [`taskLint()`](/packages/cleo/api/index#tasklint)                                                 | function | Lint tasks for common issues.  T4657  T4790  T4654                                |
-| [`taskBatchValidate()`](/packages/cleo/api/index#taskbatchvalidate)                               | function | Validate multiple tasks at once.  T4657  T4790  T4654                             |
-| [`taskImport()`](/packages/cleo/api/index#taskimport)                                             | function | Import tasks from a JSON source string or export package.  T4790                  |
-| [`taskPlan()`](/packages/cleo/api/index#taskplan)                                                 | function | Compute a ranked plan: in-progress epics, ready tasks, blockers, bugs.  T4815     |
-| [`taskRelatesFind()`](/packages/cleo/api/index#taskrelatesfind)                                   | function | Find related tasks using semantic search or keyword matching.  T5672              |
-| [`taskLabelList()`](/packages/cleo/api/index#tasklabellist)                                       | function | List all labels used in tasks.  T5672                                             |
-| [`taskLabelShow()`](/packages/cleo/api/index#tasklabelshow)                                       | function | Show tasks associated with a label.  T5672                                        |
-| [`taskSyncReconcile()`](/packages/cleo/api/index#tasksyncreconcile)                               | function | Reconcile external tasks with CLEO as SSoT.                                       |
-| [`taskSyncLinks()`](/packages/cleo/api/index#tasksynclinks)                                       | function | List external task links by provider or task ID.                                  |
-| [`taskSyncLinksRemove()`](/packages/cleo/api/index#tasksynclinksremove)                           | function | Remove all external task links for a provider.                                    |
-| [`taskClaim()`](/packages/cleo/api/index#taskclaim)                                               | function | Atomically claim a task for an agent.  Fails if the task is already claimed b...  |
-| [`taskUnclaim()`](/packages/cleo/api/index#taskunclaim)                                           | function | Release an agent's claim on a task, setting assignee to null.  No-op if the t...  |
-| [`sessionStatus()`](/packages/cleo/api/index#sessionstatus)                                       | function | Get current session status.                                                       |
-| [`sessionList()`](/packages/cleo/api/index#sessionlist)                                           | function | List sessions with budget enforcement.  When a limit is applied (explicit or...   |
-| [`sessionFind()`](/packages/cleo/api/index#sessionfind)                                           | function | Lightweight session discovery -- returns minimal session records.                 |
-| [`sessionShow()`](/packages/cleo/api/index#sessionshow)                                           | function | Show a specific session by ID.                                                    |
-| [`taskCurrentGet()`](/packages/cleo/api/index#taskcurrentget)                                     | function | Get current task being worked on. Delegates to core/task-work/currentTask.  T...  |
-| [`taskStart()`](/packages/cleo/api/index#taskstart)                                               | function | Start working on a specific task. Delegates to core/task-work/startTask.  T4782   |
-| [`taskStop()`](/packages/cleo/api/index#taskstop)                                                 | function | Stop working on the current task. Delegates to core/task-work/stopTask.  T4782    |
-| [`taskWorkHistory()`](/packages/cleo/api/index#taskworkhistory)                                   | function | Get task work history from session notes.  T5323                                  |
-| [`sessionStart()`](/packages/cleo/api/index#sessionstart)                                         | function | Start a new session. Note: This function has engine-specific logic for task f...  |
-| [`sessionEnd()`](/packages/cleo/api/index#sessionend)                                             | function | End the current session. Note: This function has engine-specific logic for ta...  |
-| [`sessionResume()`](/packages/cleo/api/index#sessionresume)                                       | function | Resume an ended or suspended session. Note: This function has engine-specific...  |
-| [`sessionGc()`](/packages/cleo/api/index#sessiongc)                                               | function | Garbage collect old sessions.  T4782                                              |
-| [`sessionSuspend()`](/packages/cleo/api/index#sessionsuspend)                                     | function | Suspend an active session.  T4782                                                 |
-| [`sessionHistory()`](/packages/cleo/api/index#sessionhistory)                                     | function | List session history with focus changes and completed tasks.  T4782               |
-| [`sessionCleanup()`](/packages/cleo/api/index#sessioncleanup)                                     | function | Remove orphaned sessions and clean up stale data.  T4782                          |
-| [`sessionRecordDecision()`](/packages/cleo/api/index#sessionrecorddecision)                       | function | Record a decision to the audit trail.  T4782                                      |
-| [`sessionDecisionLog()`](/packages/cleo/api/index#sessiondecisionlog)                             | function | Read the decision log, optionally filtered by sessionId and/or taskId.  T4782     |
-| [`sessionContextDrift()`](/packages/cleo/api/index#sessioncontextdrift)                           | function | Compute context drift score for the current session.  T4782                       |
-| [`sessionRecordAssumption()`](/packages/cleo/api/index#sessionrecordassumption)                   | function | Record an assumption made during a session.  T4782                                |
-| [`sessionStats()`](/packages/cleo/api/index#sessionstats)                                         | function | Compute session statistics, optionally for a specific session.  T4782             |
-| [`sessionSwitch()`](/packages/cleo/api/index#sessionswitch)                                       | function | Switch to a different session.  T4782                                             |
-| [`sessionArchive()`](/packages/cleo/api/index#sessionarchive)                                     | function | Archive old/ended sessions.  T4782                                                |
-| [`sessionHandoff()`](/packages/cleo/api/index#sessionhandoff)                                     | function | Get handoff data for the most recent ended session.  T4915, T5123                 |
-| [`sessionComputeHandoff()`](/packages/cleo/api/index#sessioncomputehandoff)                       | function | Compute and persist handoff data for a session.  T4915                            |
-| [`sessionBriefing()`](/packages/cleo/api/index#sessionbriefing)                                   | function | Compute session briefing - composite view for session start. Aggregates data...   |
-| [`sessionComputeDebrief()`](/packages/cleo/api/index#sessioncomputedebrief)                       | function | Compute and persist rich debrief data for a session. Persists as both handoff...  |
-| [`sessionDebriefShow()`](/packages/cleo/api/index#sessiondebriefshow)                             | function | Read a session's debrief data. Falls back to handoff data if no debrief is av...  |
-| [`sessionChainShow()`](/packages/cleo/api/index#sessionchainshow)                                 | function | Show the session chain for a given session. Returns ordered list of sessions...   |
-| [`sessionContextInject()`](/packages/cleo/api/index#sessioncontextinject)                         | function | Inject context protocol content.  T5673                                           |
-| [`listRcsdEpics()`](/packages/cleo/api/index#listrcsdepics)                                       | function | List all epic IDs that have RCASD pipeline data.                                  |
-| [`lifecycleStatus()`](/packages/cleo/api/index#lifecyclestatus)                                   | function | lifecycle.check / lifecycle.status - Get lifecycle status for epic.  T4785        |
-| [`lifecycleHistory()`](/packages/cleo/api/index#lifecyclehistory)                                 | function | lifecycle.history - Stage transition history.  T4785                              |
-| [`lifecycleGates()`](/packages/cleo/api/index#lifecyclegates)                                     | function | lifecycle.gates - Get all gate statuses for an epic.  T4785                       |
-| [`lifecyclePrerequisites()`](/packages/cleo/api/index#lifecycleprerequisites)                     | function | lifecycle.prerequisites - Get required prior stages for a target stage.  T4785    |
-| [`lifecycleCheck()`](/packages/cleo/api/index#lifecyclecheck)                                     | function | lifecycle.check - Check if a stage's prerequisites are met.  T4785                |
-| [`lifecycleProgress()`](/packages/cleo/api/index#lifecycleprogress)                               | function | lifecycle.progress / lifecycle.record - Record stage completion.  T4785           |
-| [`lifecycleSkip()`](/packages/cleo/api/index#lifecycleskip)                                       | function | lifecycle.skip - Skip a stage with reason.  T4785                                 |
-| [`lifecycleReset()`](/packages/cleo/api/index#lifecyclereset)                                     | function | lifecycle.reset - Reset a stage (emergency).  T4785                               |
-| [`lifecycleGatePass()`](/packages/cleo/api/index#lifecyclegatepass)                               | function | lifecycle.gate.pass - Mark gate as passed.  T4785                                 |
-| [`lifecycleGateFail()`](/packages/cleo/api/index#lifecyclegatefail)                               | function | lifecycle.gate.fail - Mark gate as failed.  T4785                                 |
-| [`createGatewayMeta()`](/packages/cleo/api/index#creategatewaymeta)                               | function | Create a fully typed GatewayMeta for domain responses.                            |
-| [`enforceBudget()`](/packages/cleo/api/index#enforcebudget)                                       | function | Apply budget enforcement to a dispatch response envelope.  Converts the Domai...  |
-| [`isWithinBudget()`](/packages/cleo/api/index#iswithinbudget)                                     | function | Quick check whether a response exceeds a token budget without modifying it....    |
-| [`ShimCommand`](/packages/cleo/api/index#shimcommand)                                             | class    | Minimal Commander-compatible Command class. Captures command definitions for...   |
-| [`setFieldContext()`](/packages/cleo/api/index#setfieldcontext)                                   | function | Set the field extraction context for this CLI invocation. Called once from th...  |
-| [`getFieldContext()`](/packages/cleo/api/index#getfieldcontext)                                   | function | Get the current field extraction context.                                         |
-| [`resolveFieldContext()`](/packages/cleo/api/index#resolvefieldcontext)                           | function | Parse global field options from Commander.js parsed opts and resolve via the...   |
-| [`setFormatContext()`](/packages/cleo/api/index#setformatcontext)                                 | function | Set the resolved format for this CLI invocation. Called once from the preActi...  |
-| [`getFormatContext()`](/packages/cleo/api/index#getformatcontext)                                 | function | Get the current resolved format.                                                  |
-| [`isJsonFormat()`](/packages/cleo/api/index#isjsonformat)                                         | function | Check if output should be JSON format.                                            |
-| [`isHumanFormat()`](/packages/cleo/api/index#ishumanformat)                                       | function | Check if output should be human-readable format.                                  |
-| [`isQuiet()`](/packages/cleo/api/index#isquiet)                                                   | function | Check if quiet mode is enabled (suppress non-essential output).                   |
-| [`resolveFormat()`](/packages/cleo/api/index#resolveformat)                                       | function | Resolve output format from Commander.js option values.  Reads --json, --human...  |
-| [`normalizeForHuman()`](/packages/cleo/api/index#normalizeforhuman)                               | function | Normalize data shape for human renderers.  Each command expects data with spe...  |
-| [`statusSymbol()`](/packages/cleo/api/index#statussymbol)                                         | function | Map task status to a display symbol. Falls back to '?' for unknown values.        |
-| [`statusColor()`](/packages/cleo/api/index#statuscolor)                                           | function | Map task status to a color escape.                                                |
-| [`prioritySymbol()`](/packages/cleo/api/index#prioritysymbol)                                     | function | Map task priority to a display symbol.                                            |
-| [`priorityColor()`](/packages/cleo/api/index#prioritycolor)                                       | function | Map task priority to a color escape.                                              |
-| [`hRule()`](/packages/cleo/api/index#hrule)                                                       | function | Create a horizontal rule with box-drawing characters.                             |
-| [`shortDate()`](/packages/cleo/api/index#shortdate)                                               | function | Format a date string as YYYY-MM-DD.                                               |
-| [`renderDoctor()`](/packages/cleo/api/index#renderdoctor)                                         | function |                                                                                   |
-| [`renderStats()`](/packages/cleo/api/index#renderstats)                                           | function |                                                                                   |
-| [`renderNext()`](/packages/cleo/api/index#rendernext)                                             | function |                                                                                   |
-| [`renderBlockers()`](/packages/cleo/api/index#renderblockers)                                     | function |                                                                                   |
-| [`renderTree()`](/packages/cleo/api/index#rendertree)                                             | function |                                                                                   |
-| [`renderStart()`](/packages/cleo/api/index#renderstart)                                           | function |                                                                                   |
-| [`renderStop()`](/packages/cleo/api/index#renderstop)                                             | function |                                                                                   |
-| [`renderCurrent()`](/packages/cleo/api/index#rendercurrent)                                       | function |                                                                                   |
-| [`renderSession()`](/packages/cleo/api/index#rendersession)                                       | function |                                                                                   |
-| [`renderVersion()`](/packages/cleo/api/index#renderversion)                                       | function |                                                                                   |
-| [`renderPlan()`](/packages/cleo/api/index#renderplan)                                             | function |                                                                                   |
-| [`renderGeneric()`](/packages/cleo/api/index#rendergeneric)                                       | function | Generic human renderer for commands that don't have a specific renderer. Rend...  |
-| [`renderShow()`](/packages/cleo/api/index#rendershow)                                             | function | Render a single task in a box format (mirrors bash display\_text).                |
-| [`renderList()`](/packages/cleo/api/index#renderlist)                                             | function | Render a list of tasks (mirrors bash list.sh text output).                        |
-| [`renderFind()`](/packages/cleo/api/index#renderfind)                                             | function | Render search results.                                                            |
-| [`renderAdd()`](/packages/cleo/api/index#renderadd)                                               | function | Render add result.                                                                |
-| [`renderUpdate()`](/packages/cleo/api/index#renderupdate)                                         | function | Render update result.                                                             |
-| [`renderComplete()`](/packages/cleo/api/index#rendercomplete)                                     | function | Render complete result.                                                           |
-| [`renderDelete()`](/packages/cleo/api/index#renderdelete)                                         | function | Render delete result.                                                             |
-| [`renderArchive()`](/packages/cleo/api/index#renderarchive)                                       | function | Render archive result.                                                            |
-| [`renderRestore()`](/packages/cleo/api/index#renderrestore)                                       | function | Render restore result.                                                            |
-| [`cliOutput()`](/packages/cleo/api/index#clioutput)                                               | function | Output data to stdout in the resolved format (JSON or human-readable).  Repla...  |
-| [`cliError()`](/packages/cleo/api/index#clierror)                                                 | function | Output an error in the resolved format. For JSON: delegates to formatError (a...  |
-| [`createDispatchMeta()`](/packages/cleo/api/index#createdispatchmeta)                             | function | Create metadata for a dispatch response.                                          |
-| [`compose()`](/packages/cleo/api/index#compose)                                                   | function | Composes an array of Middleware functions into a single Middleware function....   |
-| [`deriveGatewayMatrix()`](/packages/cleo/api/index#derivegatewaymatrix)                           | function | Derive a gateway operation matrix from the registry.  Returns...                  |
-| [`getGatewayDomains()`](/packages/cleo/api/index#getgatewaydomains)                               | function | Get all accepted domain names for a gateway (canonical only).                     |
-| [`resolve()`](/packages/cleo/api/index#resolve)                                                   | function | Resolves a domain + operation to its registered definition.                       |
-| [`validateRequiredParams()`](/packages/cleo/api/index#validaterequiredparams)                     | function | Validates that all required parameters are present in the request. Returns an...  |
-| [`getByDomain()`](/packages/cleo/api/index#getbydomain)                                           | function | Get all operations for a specific canonical domain.                               |
-| [`getByGateway()`](/packages/cleo/api/index#getbygateway)                                         | function | Get all operations for a specific gateway.                                        |
-| [`getByTier()`](/packages/cleo/api/index#getbytier)                                               | function | Get all operations available at or below a specific tier.                         |
-| [`getActiveDomains()`](/packages/cleo/api/index#getactivedomains)                                 | function | Get a list of canonical domains that actually have operations registered.         |
-| [`getCounts()`](/packages/cleo/api/index#getcounts)                                               | function | Returns summary counts of operations for module validation.                       |
-| [`Dispatcher`](/packages/cleo/api/index#dispatcher)                                               | class    |                                                                                   |
-| [`mapCodebase()`](/packages/cleo/api/index#mapcodebase)                                           | function | Analyze a codebase and return structured mapping. When storeToBrain is true,...   |
-| [`configGet()`](/packages/cleo/api/index#configget)                                               | function | Get config value by key (dot-notation supported)                                  |
-| [`configSet()`](/packages/cleo/api/index#configset)                                               | function | Set a config value by key (dot-notation supported)                                |
-| [`configSetPreset()`](/packages/cleo/api/index#configsetpreset)                                   | function | Apply a strictness preset to the project config.  T067                            |
-| [`configListPresets()`](/packages/cleo/api/index#configlistpresets)                               | function | List all available strictness presets.  T067                                      |
-| [`queryHookProviders()`](/packages/cleo/api/index#queryhookproviders)                             | function | Query providers that support a specific hook event  Returns detailed provider...  |
-| [`queryCommonHooks()`](/packages/cleo/api/index#querycommonhooks)                                 | function | Get hook events common to specified providers  Analyzes which hook events are...  |
-| [`systemHooksMatrix()`](/packages/cleo/api/index#systemhooksmatrix)                               | function | Build a cross-provider hook support matrix using CAAMP APIs.  Calls...            |
-| [`initProject()`](/packages/cleo/api/index#initproject)                                           | function | Initialize a CLEO project directory.  Creates the .cleo/ directory structure...   |
-| [`isAutoInitEnabled()`](/packages/cleo/api/index#isautoinitenabled)                               | function | Check if auto-init is enabled via environment variable                            |
-| [`ensureInitialized()`](/packages/cleo/api/index#ensureinitialized)                               | function | Check initialization status and auto-init if configured                           |
-| [`getVersion()`](/packages/cleo/api/index#getversion)                                             | function | Get current version (native implementation)                                       |
-| [`orchestrateStatus()`](/packages/cleo/api/index#orchestratestatus)                               | function | orchestrate.status - Get orchestrator status  T4478                               |
-| [`orchestrateAnalyze()`](/packages/cleo/api/index#orchestrateanalyze)                             | function | orchestrate.analyze - Dependency analysis  T4478                                  |
-| [`orchestrateReady()`](/packages/cleo/api/index#orchestrateready)                                 | function | orchestrate.ready - Get parallel-safe tasks (ready to execute)  T4478             |
-| [`orchestrateNext()`](/packages/cleo/api/index#orchestratenext)                                   | function | orchestrate.next - Next task to spawn  T4478                                      |
-| [`orchestrateWaves()`](/packages/cleo/api/index#orchestratewaves)                                 | function | orchestrate.waves - Compute dependency waves  T4478                               |
-| [`orchestrateContext()`](/packages/cleo/api/index#orchestratecontext)                             | function | orchestrate.context - Context usage check  T4478                                  |
-| [`orchestrateValidate()`](/packages/cleo/api/index#orchestratevalidate)                           | function | orchestrate.validate - Validate spawn readiness for a task  T4478                 |
-| [`orchestrateSpawnSelectProvider()`](/packages/cleo/api/index#orchestratespawnselectprovider)     | function | orchestrate.spawn.select - Select best provider for spawn based on required c...  |
-| [`orchestrateSpawnExecute()`](/packages/cleo/api/index#orchestratespawnexecute)                   | function | orchestrate.spawn.execute - Execute spawn for a task using adapter registry...    |
-| [`orchestrateSpawn()`](/packages/cleo/api/index#orchestratespawn)                                 | function | orchestrate.spawn - Generate spawn prompt for a task  T4478                       |
-| [`orchestrateStartup()`](/packages/cleo/api/index#orchestratestartup)                             | function | orchestrate.startup - Initialize orchestration for an epic  T4478                 |
-| [`orchestrateBootstrap()`](/packages/cleo/api/index#orchestratebootstrap)                         | function | orchestrate.bootstrap - Load brain state for agent bootstrapping  T4478  T4657    |
-| [`orchestrateCriticalPath()`](/packages/cleo/api/index#orchestratecriticalpath)                   | function | orchestrate.critical-path - Find the longest dependency chain  T4478              |
-| [`orchestrateUnblockOpportunities()`](/packages/cleo/api/index#orchestrateunblockopportunities)   | function | orchestrate.unblock-opportunities - Analyze dependency graph for unblocking o...  |
-| [`orchestrateParallel()`](/packages/cleo/api/index#orchestrateparallel)                           | function | orchestrate.parallel - Manage parallel execution (start/end)  T4632               |
-| [`orchestrateParallelStart()`](/packages/cleo/api/index#orchestrateparallelstart)                 | function | orchestrate.parallel.start - Start parallel execution for a wave  T4632           |
-| [`orchestrateParallelEnd()`](/packages/cleo/api/index#orchestrateparallelend)                     | function | orchestrate.parallel.end - End parallel execution for a wave  T4632               |
-| [`orchestrateCheck()`](/packages/cleo/api/index#orchestratecheck)                                 | function | orchestrate.check - Check current orchestration state  T4632                      |
-| [`orchestrateSkillInject()`](/packages/cleo/api/index#orchestrateskillinject)                     | function | orchestrate.skill.inject - Read skill content for injection into agent contex...  |
-| [`orchestrateHandoff()`](/packages/cleo/api/index#orchestratehandoff)                             | function | orchestrate.handoff - Composite session handoff + successor spawn  Step order...  |
-| [`phaseList()`](/packages/cleo/api/index#phaselist)                                               | function | phase.list - List all project phases                                              |
-| [`phaseShow()`](/packages/cleo/api/index#phaseshow)                                               | function | phase.show - Show details of a specific phase                                     |
-| [`phaseSet()`](/packages/cleo/api/index#phaseset)                                                 | function | phase.set - Set the current phase                                                 |
-| [`phaseStart()`](/packages/cleo/api/index#phasestart)                                             | function | phase.start - Start a pending phase                                               |
-| [`phaseComplete()`](/packages/cleo/api/index#phasecomplete)                                       | function | phase.complete - Complete an active phase                                         |
-| [`phaseAdvance()`](/packages/cleo/api/index#phaseadvance)                                         | function | phase.advance - Advance to the next phase                                         |
-| [`phaseRename()`](/packages/cleo/api/index#phaserename)                                           | function | phase.rename - Rename a phase                                                     |
-| [`phaseDelete()`](/packages/cleo/api/index#phasedelete)                                           | function | phase.delete - Delete a phase                                                     |
-| [`releasePrepare()`](/packages/cleo/api/index#releaseprepare)                                     | function | release.prepare - Prepare a release  T4788                                        |
-| [`releaseChangelog()`](/packages/cleo/api/index#releasechangelog)                                 | function | release.changelog - Generate changelog  T4788                                     |
-| [`releaseList()`](/packages/cleo/api/index#releaselist)                                           | function | release.list - List all releases (query operation via data read)  T4788           |
-| [`releaseShow()`](/packages/cleo/api/index#releaseshow)                                           | function | release.show - Show release details (query operation via data read)  T4788        |
-| [`releaseCommit()`](/packages/cleo/api/index#releasecommit)                                       | function | release.commit - Mark release as committed (metadata only)  T4788                 |
-| [`releaseTag()`](/packages/cleo/api/index#releasetag)                                             | function | release.tag - Mark release as tagged (metadata only)  T4788                       |
-| [`releaseGatesRun()`](/packages/cleo/api/index#releasegatesrun)                                   | function | release.gates.run - Run release gates (validation checks)  T4788                  |
-| [`releaseRollback()`](/packages/cleo/api/index#releaserollback)                                   | function | release.rollback - Rollback a release  T4788                                      |
-| [`releaseCancel()`](/packages/cleo/api/index#releasecancel)                                       | function | release.cancel - Cancel and remove a release in draft or prepared state  T5602    |
-| [`releasePush()`](/packages/cleo/api/index#releasepush)                                           | function | release.push - Push release to remote via git Uses execFileSync (no shell) fo...  |
-| [`releaseShip()`](/packages/cleo/api/index#releaseship)                                           | function | release.ship - Composite release operation  Sequence: validate gates → epic c...  |
-| [`systemDash()`](/packages/cleo/api/index#systemdash)                                             | function | Project dashboard: task counts by status, active session info, current focus,...  |
-| [`systemStats()`](/packages/cleo/api/index#systemstats)                                           | function | Detailed statistics: tasks by status/priority/type/phase, completion rate, av...  |
-| [`systemLabels()`](/packages/cleo/api/index#systemlabels)                                         | function | List all unique labels across tasks with counts and task IDs per label.           |
-| [`systemArchiveStats()`](/packages/cleo/api/index#systemarchivestats)                             | function | Archive metrics: total archived, by reason, average cycle time, archive rate.     |
-| [`systemLog()`](/packages/cleo/api/index#systemlog)                                               | function | Query audit log with optional filters. Reads from SQLite audit\_log table.   T... |
-| [`systemContext()`](/packages/cleo/api/index#systemcontext)                                       | function | Context window tracking: estimate token usage from current session/state.         |
-| [`systemSequence()`](/packages/cleo/api/index#systemsequence)                                     | function | Read task ID sequence state from canonical SQLite metadata. Supports 'show' a...  |
-| [`systemInjectGenerate()`](/packages/cleo/api/index#systeminjectgenerate)                         | function | Generate Minimum Viable Injection (MVI).                                          |
-| [`systemMetrics()`](/packages/cleo/api/index#systemmetrics)                                       | function | System metrics: token usage, compliance summary, session counts.  T4631           |
-| [`systemHealth()`](/packages/cleo/api/index#systemhealth)                                         | function | System health check: verify core data files exist and are valid.  T4631           |
-| [`systemDiagnostics()`](/packages/cleo/api/index#systemdiagnostics)                               | function | System diagnostics: extended health checks with fix suggestions.  T4631           |
-| [`systemHelp()`](/packages/cleo/api/index#systemhelp)                                             | function | Return help text for the system.  T4631                                           |
-| [`systemRoadmap()`](/packages/cleo/api/index#systemroadmap)                                       | function | Generate roadmap from pending epics and optional CHANGELOG history.  T4631        |
-| [`systemCompliance()`](/packages/cleo/api/index#systemcompliance)                                 | function | System compliance report from COMPLIANCE.jsonl.  T4631                            |
-| [`systemBackup()`](/packages/cleo/api/index#systembackup)                                         | function | Create a backup of CLEO data files.  T4631                                        |
-| [`systemListBackups()`](/packages/cleo/api/index#systemlistbackups)                               | function | List available system backups (read-only).  T4783                                 |
-| [`systemRestore()`](/packages/cleo/api/index#systemrestore)                                       | function | Restore from a backup.  T4631                                                     |
-| [`backupRestore()`](/packages/cleo/api/index#backuprestore)                                       | function | Restore an individual file from backup.  T5329                                    |
-| [`systemMigrate()`](/packages/cleo/api/index#systemmigrate)                                       | function | Check/run schema migrations.  T4631                                               |
-| [`systemCleanup()`](/packages/cleo/api/index#systemcleanup)                                       | function | Cleanup stale data (sessions, backups, logs).  T4631                              |
-| [`systemAudit()`](/packages/cleo/api/index#systemaudit)                                           | function | Audit data integrity.  T4631                                                      |
-| [`systemSync()`](/packages/cleo/api/index#systemsync)                                             | function | Sync check (no external sync targets in native mode).  T4631                      |
-| [`systemSafestop()`](/packages/cleo/api/index#systemsafestop)                                     | function | Safe stop: signal clean shutdown for agents.  T4631                               |
-| [`systemUncancel()`](/packages/cleo/api/index#systemuncancel)                                     | function | Uncancel a cancelled task (restore to pending).  T4631                            |
-| [`systemDoctor()`](/packages/cleo/api/index#systemdoctor)                                         | function | Run comprehensive doctor diagnostics.  T4795                                      |
-| [`systemFix()`](/packages/cleo/api/index#systemfix)                                               | function | Run auto-fix for failed doctor checks.  T4795                                     |
-| [`systemRuntime()`](/packages/cleo/api/index#systemruntime)                                       | function | Runtime/channel diagnostics for CLI installation mode checks.  T4815              |
-| [`systemSequenceRepair()`](/packages/cleo/api/index#systemsequencerepair)                         | function | Repair task ID sequence using canonical core implementation.  T4815               |
-| [`systemSmoke()`](/packages/cleo/api/index#systemsmoke)                                           | function | Run operational smoke tests across all domains.  Dispatches one read-only que...  |
-| [`parseIssueTemplates()`](/packages/cleo/api/index#parseissuetemplates)                           | function | Parse all templates from the repo's .github/ISSUE\_TEMPLATE/ directory.           |
-| [`getTemplateForSubcommand()`](/packages/cleo/api/index#gettemplateforsubcommand)                 | function | Get template config for a specific subcommand (bug/feature/help).                 |
-| [`generateTemplateConfig()`](/packages/cleo/api/index#generatetemplateconfig)                     | function | Generate and cache the config as .cleo/issue-templates.json.                      |
-| [`validateLabels()`](/packages/cleo/api/index#validatelabels)                                     | function | Validate that labels exist on a GitHub repo.                                      |
-| [`validateSchemaOp()`](/packages/cleo/api/index#validateschemaop)                                 | function | validate.schema - JSON Schema validation  T4477                                   |
-| [`validateTask()`](/packages/cleo/api/index#validatetask)                                         | function | validate.task - Anti-hallucination task validation  T4477                         |
-| [`validateProtocol()`](/packages/cleo/api/index#validateprotocol)                                 | function | validate.protocol - Protocol compliance check  T4477                              |
-| [`validateManifest()`](/packages/cleo/api/index#validatemanifest)                                 | function | validate.manifest - Manifest entry validation  T4477                              |
-| [`validateOutput()`](/packages/cleo/api/index#validateoutput)                                     | function | validate.output - Output file validation  T4477                                   |
-| [`validateComplianceSummary()`](/packages/cleo/api/index#validatecompliancesummary)               | function | validate.compliance.summary - Aggregated compliance metrics  T4477                |
-| [`validateComplianceViolations()`](/packages/cleo/api/index#validatecomplianceviolations)         | function | validate.compliance.violations - List compliance violations  T4477                |
-| [`validateComplianceRecord()`](/packages/cleo/api/index#validatecompliancerecord)                 | function | validate.compliance.record - Record compliance check result  T4477                |
-| [`validateTestStatus()`](/packages/cleo/api/index#validateteststatus)                             | function | validate.test.status - Test suite status  T4477                                   |
-| [`validateCoherenceCheck()`](/packages/cleo/api/index#validatecoherencecheck)                     | function | validate.coherence-check - Cross-validate task graph for consistency  T4477       |
-| [`validateTestRun()`](/packages/cleo/api/index#validatetestrun)                                   | function | validate.test.run - Execute test suite via subprocess  T4632                      |
-| [`validateBatchValidate()`](/packages/cleo/api/index#validatebatchvalidate)                       | function | validate.batch-validate - Batch validate all tasks against schema and rules...    |
-| [`validateTestCoverage()`](/packages/cleo/api/index#validatetestcoverage)                         | function | validate.test.coverage - Coverage metrics  T4477                                  |
-| [`validateProtocolConsensus()`](/packages/cleo/api/index#validateprotocolconsensus)               | function | check.protocol.consensus - Validate consensus protocol compliance  T5327          |
-| [`validateProtocolContribution()`](/packages/cleo/api/index#validateprotocolcontribution)         | function | check.protocol.contribution - Validate contribution protocol compliance  T5327    |
-| [`validateProtocolDecomposition()`](/packages/cleo/api/index#validateprotocoldecomposition)       | function | check.protocol.decomposition - Validate decomposition protocol compliance  T5327  |
-| [`validateProtocolImplementation()`](/packages/cleo/api/index#validateprotocolimplementation)     | function | check.protocol.implementation - Validate implementation protocol compliance...    |
-| [`validateProtocolSpecification()`](/packages/cleo/api/index#validateprotocolspecification)       | function | check.protocol.specification - Validate specification protocol compliance  T5327  |
-| [`validateGateVerify()`](/packages/cleo/api/index#validategateverify)                             | function | check.gate.verify - View or modify verification gates for a task  T5327           |
-| [`dispatchMeta()`](/packages/cleo/api/index#dispatchmeta)                                         | function | Build metadata for a dispatch domain response.                                    |
-| [`wrapResult()`](/packages/cleo/api/index#wrapresult)                                             | function | Wrap a native engine result into a DispatchResponse. Handles success data, pa...  |
-| [`errorResult()`](/packages/cleo/api/index#errorresult)                                           | function | Return a standard error response.                                                 |
-| [`unsupportedOp()`](/packages/cleo/api/index#unsupportedop)                                       | function | Return a standard "unsupported operation" error response.                         |
-| [`getListParams()`](/packages/cleo/api/index#getlistparams)                                       | function | Extract limit and offset pagination params from a params dict.                    |
-| [`handleErrorResult()`](/packages/cleo/api/index#handleerrorresult)                               | function | Handle a caught error: extract message and return an internal error response....  |
-| [`routeByParam()`](/packages/cleo/api/index#routebyparam)                                         | function | Shared parameter-based routing for merged operations. DRY utility -- all doma...  |
-| [`BackgroundJobManager`](/packages/cleo/api/index#backgroundjobmanager)                           | class    | Manages background jobs for long-running operations                               |
-| [`setJobManager()`](/packages/cleo/api/index#setjobmanager)                                       | function |                                                                                   |
-| [`getJobManager()`](/packages/cleo/api/index#getjobmanager)                                       | function |                                                                                   |
-| [`AdminHandler`](/packages/cleo/api/index#adminhandler)                                           | class    |                                                                                   |
-| [`CheckHandler`](/packages/cleo/api/index#checkhandler)                                           | class    |                                                                                   |
-| [`ConduitHandler`](/packages/cleo/api/index#conduithandler)                                       | class    | Conduit dispatch handler for agent messaging operations.                          |
-| [`MemoryHandler`](/packages/cleo/api/index#memoryhandler)                                         | class    |                                                                                   |
-| [`nexusStatus()`](/packages/cleo/api/index#nexusstatus)                                           | function | Get nexus status (initialized, project count, last updated).                      |
-| [`nexusListProjects()`](/packages/cleo/api/index#nexuslistprojects)                               | function | List all registered projects.                                                     |
-| [`nexusShowProject()`](/packages/cleo/api/index#nexusshowproject)                                 | function | Show a single project by name.                                                    |
-| [`nexusResolve()`](/packages/cleo/api/index#nexusresolve)                                         | function | Resolve a cross-project task query.                                               |
-| [`nexusDepsQuery()`](/packages/cleo/api/index#nexusdepsquery)                                     | function | Get cross-project dependencies for a task query.                                  |
-| [`nexusGraph()`](/packages/cleo/api/index#nexusgraph)                                             | function | Build the global dependency graph.                                                |
-| [`nexusCriticalPath()`](/packages/cleo/api/index#nexuscriticalpath)                               | function | Get the critical path across projects.                                            |
-| [`nexusBlockers()`](/packages/cleo/api/index#nexusblockers)                                       | function | Analyze blockers for a task query.                                                |
-| [`nexusOrphans()`](/packages/cleo/api/index#nexusorphans)                                         | function | List orphaned cross-project tasks.                                                |
-| [`nexusDiscover()`](/packages/cleo/api/index#nexusdiscover)                                       | function | Discover tasks related to a given task query across projects. Delegates all b...  |
-| [`nexusSearch()`](/packages/cleo/api/index#nexussearch)                                           | function | Search for tasks across all registered projects. Delegates all business logic...  |
-| [`nexusInitialize()`](/packages/cleo/api/index#nexusinitialize)                                   | function | Initialize the nexus.                                                             |
-| [`nexusRegisterProject()`](/packages/cleo/api/index#nexusregisterproject)                         | function | Register a project in the nexus.                                                  |
-| [`nexusUnregisterProject()`](/packages/cleo/api/index#nexusunregisterproject)                     | function | Unregister a project from the nexus.                                              |
-| [`nexusSyncProject()`](/packages/cleo/api/index#nexussyncproject)                                 | function | Sync a specific project or all projects.                                          |
-| [`nexusSetPermission()`](/packages/cleo/api/index#nexussetpermission)                             | function | Set permission level for a project.                                               |
-| [`nexusReconcileProject()`](/packages/cleo/api/index#nexusreconcileproject)                       | function | Reconcile the nexus registry with the filesystem.                                 |
-| [`nexusShareStatus()`](/packages/cleo/api/index#nexussharestatus)                                 | function | Get sharing status for a project.                                                 |
-| [`nexusShareSnapshotExport()`](/packages/cleo/api/index#nexussharesnapshotexport)                 | function | Export a snapshot of the project's tasks.                                         |
-| [`nexusShareSnapshotImport()`](/packages/cleo/api/index#nexussharesnapshotimport)                 | function | Import a snapshot into the project.                                               |
-| [`nexusTransferPreview()`](/packages/cleo/api/index#nexustransferpreview)                         | function | Preview a cross-project task transfer (dry run).                                  |
-| [`nexusTransferExecute()`](/packages/cleo/api/index#nexustransferexecute)                         | function | Execute a cross-project task transfer.                                            |
-| [`NexusHandler`](/packages/cleo/api/index#nexushandler)                                           | class    |                                                                                   |
-| [`OrchestrateHandler`](/packages/cleo/api/index#orchestratehandler)                               | class    |                                                                                   |
-| [`PipelineHandler`](/packages/cleo/api/index#pipelinehandler)                                     | class    |                                                                                   |
-| [`bindSession()`](/packages/cleo/api/index#bindsession)                                           | function | Bind a session to the current process. Called by session.start mutation handl...  |
-| [`getBoundSession()`](/packages/cleo/api/index#getboundsession)                                   | function | Get the currently bound session context, or null if none is bound.                |
-| [`hasSession()`](/packages/cleo/api/index#hassession)                                             | function | Check whether a session is currently bound.                                       |
-| [`unbindSession()`](/packages/cleo/api/index#unbindsession)                                       | function | Unbind the current session context. Called by session.end mutation handler.       |
-| [`resetSessionContext()`](/packages/cleo/api/index#resetsessioncontext)                           | function | Reset the session context (for testing only).                                     |
-| [`SessionHandler`](/packages/cleo/api/index#sessionhandler)                                       | class    |                                                                                   |
-| [`stickyAdd()`](/packages/cleo/api/index#stickyadd)                                               | function | Create a new sticky note.                                                         |
-| [`stickyList()`](/packages/cleo/api/index#stickylist)                                             | function | List sticky notes with optional filtering.                                        |
-| [`stickyShow()`](/packages/cleo/api/index#stickyshow)                                             | function | Get a single sticky note by ID.                                                   |
-| [`stickyConvertToTask()`](/packages/cleo/api/index#stickyconverttotask)                           | function | Convert a sticky note to a task.                                                  |
-| [`stickyConvertToMemory()`](/packages/cleo/api/index#stickyconverttomemory)                       | function | Convert a sticky note to a memory observation.                                    |
-| [`stickyArchive()`](/packages/cleo/api/index#stickyarchive)                                       | function | Archive a sticky note.                                                            |
-| [`stickyConvertToTaskNote()`](/packages/cleo/api/index#stickyconverttotasknote)                   | function | Convert a sticky note to a task note.                                             |
-| [`stickyConvertToSessionNote()`](/packages/cleo/api/index#stickyconverttosessionnote)             | function | Convert a sticky note to a session note.                                          |
-| [`stickyPurge()`](/packages/cleo/api/index#stickypurge)                                           | function | Purge (permanently delete) a sticky note.                                         |
-| [`StickyHandler`](/packages/cleo/api/index#stickyhandler)                                         | class    |                                                                                   |
-| [`TasksHandler`](/packages/cleo/api/index#taskshandler)                                           | class    |                                                                                   |
-| [`codeOutline()`](/packages/cleo/api/index#codeoutline)                                           | function | code.outline — file structural skeleton.                                          |
-| [`codeSearch()`](/packages/cleo/api/index#codesearch)                                             | function | code.search — cross-codebase symbol search.                                       |
-| [`codeUnfold()`](/packages/cleo/api/index#codeunfold)                                             | function | code.unfold — single symbol extraction.                                           |
-| [`codeParse()`](/packages/cleo/api/index#codeparse)                                               | function | code.parse — raw AST parse for a single file.                                     |
-| [`toolsIssueDiagnostics()`](/packages/cleo/api/index#toolsissuediagnostics)                       | function | Collect issue diagnostics.                                                        |
-| [`toolsSkillList()`](/packages/cleo/api/index#toolsskilllist)                                     | function | List all discovered skills.                                                       |
-| [`toolsSkillShow()`](/packages/cleo/api/index#toolsskillshow)                                     | function | Show a single skill by name.                                                      |
-| [`toolsSkillFind()`](/packages/cleo/api/index#toolsskillfind)                                     | function | Find skills matching a query string.                                              |
-| [`toolsSkillDispatch()`](/packages/cleo/api/index#toolsskilldispatch)                             | function | Get dispatch matrix entries for a skill.                                          |
-| [`toolsSkillVerify()`](/packages/cleo/api/index#toolsskillverify)                                 | function | Verify a skill's installation and catalog status.                                 |
-| [`toolsSkillDependencies()`](/packages/cleo/api/index#toolsskilldependencies)                     | function | Get dependency tree for a skill.                                                  |
-| [`toolsSkillSpawnProviders()`](/packages/cleo/api/index#toolsskillspawnproviders)                 | function | Get spawn-capable providers by capability.                                        |
-| [`toolsSkillCatalogInfo()`](/packages/cleo/api/index#toolsskillcataloginfo)                       | function | Get catalog info (protocols, profiles, resources, or summary).                    |
-| [`toolsSkillCatalogProtocols()`](/packages/cleo/api/index#toolsskillcatalogprotocols)             | function | List catalog protocols.                                                           |
-| [`toolsSkillCatalogProfiles()`](/packages/cleo/api/index#toolsskillcatalogprofiles)               | function | List catalog profiles.                                                            |
-| [`toolsSkillCatalogResources()`](/packages/cleo/api/index#toolsskillcatalogresources)             | function | List catalog shared resources.                                                    |
-| [`toolsSkillPrecedenceShow()`](/packages/cleo/api/index#toolsskillprecedenceshow)                 | function | Show skill precedence map.                                                        |
-| [`toolsSkillPrecedenceResolve()`](/packages/cleo/api/index#toolsskillprecedenceresolve)           | function | Resolve skill paths for a specific provider.                                      |
-| [`toolsSkillInstall()`](/packages/cleo/api/index#toolsskillinstall)                               | function | Install a skill to one or more providers.                                         |
-| [`toolsSkillUninstall()`](/packages/cleo/api/index#toolsskilluninstall)                           | function | Uninstall a skill from all providers.                                             |
-| [`toolsSkillRefresh()`](/packages/cleo/api/index#toolsskillrefresh)                               | function | Refresh all tracked skills that have updates available.                           |
-| [`toolsProviderList()`](/packages/cleo/api/index#toolsproviderlist)                               | function | List all registered providers.                                                    |
-| [`toolsProviderDetect()`](/packages/cleo/api/index#toolsproviderdetect)                           | function | Detect all available providers in the environment.                                |
-| [`toolsProviderInjectStatus()`](/packages/cleo/api/index#toolsproviderinjectstatus)               | function | Check injection status for all installed providers.                               |
-| [`toolsProviderSupports()`](/packages/cleo/api/index#toolsprovidersupports)                       | function | Check if a provider supports a specific capability.                               |
-| [`toolsProviderHooks()`](/packages/cleo/api/index#toolsproviderhooks)                             | function | Query hook providers for a specific event.                                        |
-| [`toolsProviderInject()`](/packages/cleo/api/index#toolsproviderinject)                           | function | Inject CLEO directives into all installed provider instruction files.             |
-| [`toolsAdapterList()`](/packages/cleo/api/index#toolsadapterlist)                                 | function | List all discovered adapters.                                                     |
-| [`toolsAdapterShow()`](/packages/cleo/api/index#toolsadaptershow)                                 | function | Show a single adapter by ID.                                                      |
-| [`toolsAdapterDetect()`](/packages/cleo/api/index#toolsadapterdetect)                             | function | Detect active adapters.                                                           |
-| [`toolsAdapterHealth()`](/packages/cleo/api/index#toolsadapterhealth)                             | function | Get adapter health status.                                                        |
-| [`toolsAdapterActivate()`](/packages/cleo/api/index#toolsadapteractivate)                         | function | Activate an adapter by ID.                                                        |
-| [`toolsAdapterDispose()`](/packages/cleo/api/index#toolsadapterdispose)                           | function | Dispose one or all adapters.                                                      |
-| [`ToolsHandler`](/packages/cleo/api/index#toolshandler)                                           | class    |                                                                                   |
-| [`createDomainHandlers()`](/packages/cleo/api/index#createdomainhandlers)                         | function | Create a Map of all canonical domain handlers.                                    |
-| [`RateLimiter`](/packages/cleo/api/index#ratelimiter)                                             | class    | Sliding-window rate limiter for the dispatch pipeline.                            |
-| [`createRateLimiter()`](/packages/cleo/api/index#createratelimiter)                               | function | Creates a rate limiting middleware for the dispatch pipeline.                     |
-| [`ConfigValidationError`](/packages/cleo/api/index#configvalidationerror)                         | class    | Configuration validation error                                                    |
-| [`validateConfig()`](/packages/cleo/api/index#validateconfig)                                     | function | Validate complete configuration                                                   |
-| [`loadConfig()`](/packages/cleo/api/index#loadconfig)                                             | function | Load configuration from all sources  Priority order: 1. Environment variables...  |
-| [`getConfig()`](/packages/cleo/api/index#getconfig)                                               | function | Get global configuration (singleton)                                              |
-| [`resetConfig()`](/packages/cleo/api/index#resetconfig)                                           | function | Reset global configuration (for testing)                                          |
-| [`createAudit()`](/packages/cleo/api/index#createaudit)                                           | function | Creates an audit middleware that logs all mutate operations (and query operat...  |
-| [`createFieldFilter()`](/packages/cleo/api/index#createfieldfilter)                               | function | Create the LAFS field-filter middleware.  Handles: - \_fields: filter response... |
-| [`createSanitizer()`](/packages/cleo/api/index#createsanitizer)                                   | function | Creates a middleware that sanitizes incoming request parameters. Uses the can...  |
-| [`createSessionResolver()`](/packages/cleo/api/index#createsessionresolver)                       | function | Creates the session resolver middleware.                                          |
-| [`getCliDispatcher()`](/packages/cleo/api/index#getclidispatcher)                                 | function | Get or create the singleton CLI dispatcher.  Creates a Dispatcher with all 9...   |
-| [`createCliDispatcher()`](/packages/cleo/api/index#createclidispatcher)                           | function | Factory: creates a Dispatcher with all domain handlers + session-resolver, sa...  |
-| [`resetCliDispatcher()`](/packages/cleo/api/index#resetclidispatcher)                             | function | Reset the singleton dispatcher (for testing).                                     |
-| [`dispatchFromCli()`](/packages/cleo/api/index#dispatchfromcli)                                   | function | Build a DispatchRequest, dispatch it, and handle output/errors.  This is the...   |
-| [`handleRawError()`](/packages/cleo/api/index#handlerawerror)                                     | function | Handle an error response from dispatchRaw().  Calls cliError() and process.ex...  |
-| [`dispatchRaw()`](/packages/cleo/api/index#dispatchraw)                                           | function | Dispatch and return the raw response without handling output.  For commands t...  |
-| [`registerAddCommand()`](/packages/cleo/api/index#registeraddcommand)                             | function | Register the add command.  T4460                                                  |
-| [`registerAdminCommand()`](/packages/cleo/api/index#registeradmincommand)                         | function | Register the admin command group.                                                 |
-| [`registerAdrCommand()`](/packages/cleo/api/index#registeradrcommand)                             | function |                                                                                   |
-| [`registerAgentCommand()`](/packages/cleo/api/index#registeragentcommand)                         | function | Register the `cleo agent` command group.                                          |
-| [`registerAgentsCommand()`](/packages/cleo/api/index#registeragentscommand)                       | function | Register `agents` as an alias that prints deprecation notice. Health monitori...  |
-| [`registerAnalyzeCommand()`](/packages/cleo/api/index#registeranalyzecommand)                     | function | Register the analyze command.  T4538                                              |
-| [`registerArchiveCommand()`](/packages/cleo/api/index#registerarchivecommand)                     | function | Register the archive command.  T4461                                              |
-| [`registerArchiveStatsCommand()`](/packages/cleo/api/index#registerarchivestatscommand)           | function | Register the archive-stats command. Routes through dispatch layer to admin.ar...  |
-| [`registerBackfillCommand()`](/packages/cleo/api/index#registerbackfillcommand)                   | function | Register the `cleo backfill` CLI command.                                         |
-| [`registerBackupCommand()`](/packages/cleo/api/index#registerbackupcommand)                       | function |                                                                                   |
-| [`registerBlockersCommand()`](/packages/cleo/api/index#registerblockerscommand)                   | function |                                                                                   |
-| [`registerBrainCommand()`](/packages/cleo/api/index#registerbraincommand)                         | function | Register the `cleo brain` command group.  Registers a `brain` parent command...   |
-| [`registerBriefingCommand()`](/packages/cleo/api/index#registerbriefingcommand)                   | function | Register the briefing command.  T4916                                             |
-| [`registerBugCommand()`](/packages/cleo/api/index#registerbugcommand)                             | function | Register the bug command.  T4913                                                  |
-| [`registerCantCommand()`](/packages/cleo/api/index#registercantcommand)                           | function | Register the `cleo cant` command group.  Registers a `cant` parent command an...  |
-| [`registerCheckCommand()`](/packages/cleo/api/index#registercheckcommand)                         | function | Register the check command group.                                                 |
-| [`registerCheckpointCommand()`](/packages/cleo/api/index#registercheckpointcommand)               | function | Register the checkpoint command. Delegates to src/store/git-checkpoint.ts for...  |
-| [`registerCommandsCommand()`](/packages/cleo/api/index#registercommandscommand)                   | function | Register the commands command.  T4551, T5671                                      |
-| [`registerCompleteCommand()`](/packages/cleo/api/index#registercompletecommand)                   | function | Register the complete command.  T4461                                             |
-| [`registerComplianceCommand()`](/packages/cleo/api/index#registercompliancecommand)               | function |                                                                                   |
-| [`registerConfigCommand()`](/packages/cleo/api/index#registerconfigcommand)                       | function |                                                                                   |
-| [`registerConsensusCommand()`](/packages/cleo/api/index#registerconsensuscommand)                 | function | Register the consensus command group.  T4537                                      |
-| [`registerContextCommand()`](/packages/cleo/api/index#registercontextcommand)                     | function |                                                                                   |
-| [`registerContributionCommand()`](/packages/cleo/api/index#registercontributioncommand)           | function | Register the contribution command group.  T4537                                   |
-| [`registerCurrentCommand()`](/packages/cleo/api/index#registercurrentcommand)                     | function | Register the current command.  T4756  T4666                                       |
-| [`registerDashCommand()`](/packages/cleo/api/index#registerdashcommand)                           | function | Register the dash command.  T4535                                                 |
-| [`registerDecompositionCommand()`](/packages/cleo/api/index#registerdecompositioncommand)         | function | Register the decomposition command group.  T4537                                  |
-| [`registerDeleteCommand()`](/packages/cleo/api/index#registerdeletecommand)                       | function | Register the delete command.  T4461                                               |
-| [`registerDepsCommand()`](/packages/cleo/api/index#registerdepscommand)                           | function | Register the deps command group and its subcommands.                              |
-| [`registerTreeCommand()`](/packages/cleo/api/index#registertreecommand)                           | function | Register the tree command.                                                        |
-| [`registerDetectCommand()`](/packages/cleo/api/index#registerdetectcommand)                       | function |                                                                                   |
-| [`registerDetectDriftCommand()`](/packages/cleo/api/index#registerdetectdriftcommand)             | function |                                                                                   |
-| [`registerDocsCommand()`](/packages/cleo/api/index#registerdocscommand)                           | function | Register the docs command.  T4551                                                 |
-| [`ProgressTracker`](/packages/cleo/api/index#progresstracker)                                     | class    | Simple progress tracker for CLI operations.                                       |
-| [`Spinner`](/packages/cleo/api/index#spinner)                                                     | class    | Simple spinner for indeterminate progress.                                        |
-| [`createSelfUpdateProgress()`](/packages/cleo/api/index#createselfupdateprogress)                 | function | Create a progress tracker for self-update operations.                             |
-| [`createDoctorProgress()`](/packages/cleo/api/index#createdoctorprogress)                         | function | Create a progress tracker for doctor operations.                                  |
-| [`createUpgradeProgress()`](/packages/cleo/api/index#createupgradeprogress)                       | function | Create a progress tracker for upgrade operations.                                 |
-| [`registerDoctorCommand()`](/packages/cleo/api/index#registerdoctorcommand)                       | function |                                                                                   |
-| [`registerEnvCommand()`](/packages/cleo/api/index#registerenvcommand)                             | function | Register the env command group.  T4581                                            |
-| [`registerExistsCommand()`](/packages/cleo/api/index#registerexistscommand)                       | function | Register the exists command.                                                      |
-| [`registerExportCommand()`](/packages/cleo/api/index#registerexportcommand)                       | function |                                                                                   |
-| [`registerExportTasksCommand()`](/packages/cleo/api/index#registerexporttaskscommand)             | function |                                                                                   |
-| [`registerFindCommand()`](/packages/cleo/api/index#registerfindcommand)                           | function | Register the find command.  T4460  T4668                                          |
-| [`registerGenerateChangelogCommand()`](/packages/cleo/api/index#registergeneratechangelogcommand) | function | Register the generate-changelog command.  T4555                                   |
-| [`registerGradeCommand()`](/packages/cleo/api/index#registergradecommand)                         | function |                                                                                   |
-| [`registerHistoryCommand()`](/packages/cleo/api/index#registerhistorycommand)                     | function |                                                                                   |
-| [`registerImplementationCommand()`](/packages/cleo/api/index#registerimplementationcommand)       | function | Register the implementation command group.  T4537                                 |
-| [`registerImportCommand()`](/packages/cleo/api/index#registerimportcommand)                       | function |                                                                                   |
-| [`registerImportTasksCommand()`](/packages/cleo/api/index#registerimporttaskscommand)             | function |                                                                                   |
-| [`getGitignoreTemplate()`](/packages/cleo/api/index#getgitignoretemplate)                         | function | Load the gitignore template from the package's templates/ directory. Falls ba...  |
-| [`registerInitCommand()`](/packages/cleo/api/index#registerinitcommand)                           | function | Register the init command.  T4681  T4663                                          |
-| [`registerInjectCommand()`](/packages/cleo/api/index#registerinjectcommand)                       | function |                                                                                   |
-| [`registerIssueCommand()`](/packages/cleo/api/index#registerissuecommand)                         | function | Register the issue command with all subcommands.  T4555                           |
-| [`registerLabelsCommand()`](/packages/cleo/api/index#registerlabelscommand)                       | function | Register the labels command group.  T4538                                         |
-| [`registerLifecycleCommand()`](/packages/cleo/api/index#registerlifecyclecommand)                 | function |                                                                                   |
-| [`registerListCommand()`](/packages/cleo/api/index#registerlistcommand)                           | function | Register the list command.  T4460  T4668                                          |
-| [`registerLogCommand()`](/packages/cleo/api/index#registerlogcommand)                             | function | Register the log command.  T4538                                                  |
-| [`registerMapCommand()`](/packages/cleo/api/index#registermapcommand)                             | function | Register the map command.                                                         |
-| [`registerMemoryBrainCommand()`](/packages/cleo/api/index#registermemorybraincommand)             | function |                                                                                   |
-| [`registerMigrateClaudeMemCommand()`](/packages/cleo/api/index#registermigrateclaudememcommand)   | function | Register the `migrate claude-mem` command under a migrate parent command.  Us...  |
-| [`registerNextCommand()`](/packages/cleo/api/index#registernextcommand)                           | function |                                                                                   |
-| [`registerNexusCommand()`](/packages/cleo/api/index#registernexuscommand)                         | function | Register the nexus command group.  T4554                                          |
-| [`registerObserveCommand()`](/packages/cleo/api/index#registerobservecommand)                     | function |                                                                                   |
-| [`registerOpsCommand()`](/packages/cleo/api/index#registeropscommand)                             | function | Register the ops command.                                                         |
-| [`registerOrchestrateCommand()`](/packages/cleo/api/index#registerorchestratecommand)             | function |                                                                                   |
-| [`registerOtelCommand()`](/packages/cleo/api/index#registerotelcommand)                           | function | Register the otel command group.  T4535                                           |
-| [`registerPhaseCommand()`](/packages/cleo/api/index#registerphasecommand)                         | function | Register the phase command group.  T4464, T5326                                   |
-| [`registerPhasesCommand()`](/packages/cleo/api/index#registerphasescommand)                       | function | Register the phases command group.  T4538, T5326                                  |
-| [`registerPlanCommand()`](/packages/cleo/api/index#registerplancommand)                           | function |                                                                                   |
-| [`registerPromoteCommand()`](/packages/cleo/api/index#registerpromotecommand)                     | function |                                                                                   |
-| [`registerReasonCommand()`](/packages/cleo/api/index#registerreasoncommand)                       | function | Register the `cleo reason` command group and its subcommands.                     |
-| [`registerRefreshMemoryCommand()`](/packages/cleo/api/index#registerrefreshmemorycommand)         | function |                                                                                   |
-| [`registerRelatesCommand()`](/packages/cleo/api/index#registerrelatescommand)                     | function | Register the relates command group.  T4538                                        |
-| [`registerReleaseCommand()`](/packages/cleo/api/index#registerreleasecommand)                     | function |                                                                                   |
-| [`registerRemoteCommand()`](/packages/cleo/api/index#registerremotecommand)                       | function | Register the remote command with add/remove/list/push/pull subcommands.  T4884    |
-| [`registerReorderCommand()`](/packages/cleo/api/index#registerreordercommand)                     | function |                                                                                   |
-| [`registerReparentCommand()`](/packages/cleo/api/index#registerreparentcommand)                   | function |                                                                                   |
-| [`registerResearchCommand()`](/packages/cleo/api/index#registerresearchcommand)                   | function |                                                                                   |
-| [`registerRestoreCommand()`](/packages/cleo/api/index#registerrestorecommand)                     | function |                                                                                   |
-| [`registerRoadmapCommand()`](/packages/cleo/api/index#registerroadmapcommand)                     | function |                                                                                   |
-| [`registerSafestopCommand()`](/packages/cleo/api/index#registersafestopcommand)                   | function | Register the safestop command.  T4551                                             |
-| [`registerSelfUpdateCommand()`](/packages/cleo/api/index#registerselfupdatecommand)               | function |                                                                                   |
-| [`registerSequenceCommand()`](/packages/cleo/api/index#registersequencecommand)                   | function |                                                                                   |
-| [`registerSessionCommand()`](/packages/cleo/api/index#registersessioncommand)                     | function | Register the session command group.  T4463                                        |
-| [`registerShowCommand()`](/packages/cleo/api/index#registershowcommand)                           | function | Register the show command.  T4460  T4666                                          |
-| [`registerSkillsCommand()`](/packages/cleo/api/index#registerskillscommand)                       | function | Register the skills command with all subcommands.  T4555                          |
-| [`registerSnapshotCommand()`](/packages/cleo/api/index#registersnapshotcommand)                   | function |                                                                                   |
-| [`registerSpecificationCommand()`](/packages/cleo/api/index#registerspecificationcommand)         | function | Register the specification command group.  T4537                                  |
-| [`registerStartCommand()`](/packages/cleo/api/index#registerstartcommand)                         | function | Register the start command.  T4756  T4666                                         |
-| [`registerStatsCommand()`](/packages/cleo/api/index#registerstatscommand)                         | function | Register the stats command.  T4535                                                |
-| [`registerStickyCommand()`](/packages/cleo/api/index#registerstickycommand)                       | function | Register the sticky command group.  T5281                                         |
-| [`registerStopCommand()`](/packages/cleo/api/index#registerstopcommand)                           | function | Register the stop command.  T4756  T4666                                          |
-| [`registerTestingCommand()`](/packages/cleo/api/index#registertestingcommand)                     | function | Register the testing command.  T4551                                              |
-| [`registerTokenCommand()`](/packages/cleo/api/index#registertokencommand)                         | function |                                                                                   |
-| [`registerUpdateCommand()`](/packages/cleo/api/index#registerupdatecommand)                       | function | Register the update command.  T4461                                               |
-| [`registerUpgradeCommand()`](/packages/cleo/api/index#registerupgradecommand)                     | function |                                                                                   |
-| [`registerValidateCommand()`](/packages/cleo/api/index#registervalidatecommand)                   | function |                                                                                   |
-| [`registerVerifyCommand()`](/packages/cleo/api/index#registerverifycommand)                       | function |                                                                                   |
-| [`registerWebCommand()`](/packages/cleo/api/index#registerwebcommand)                             | function | Register the web command.  T4551                                                  |
-| [`initCliLogger()`](/packages/cleo/api/index#initclilogger)                                       | function | Initialize CLI logger with optional projectHash correlation context.              |
-| [`registerDynamicCommands()`](/packages/cleo/api/index#registerdynamiccommands)                   | function | Register dynamically-generated commands onto the Commander program.  Stub imp...  |
-| [`renderErrorMarkdown()`](/packages/cleo/api/index#rendererrormarkdown)                           | function | Render a CleoError as structured markdown for CLI display.                        |
-| [`createProtocolEnforcement()`](/packages/cleo/api/index#createprotocolenforcement)               | function | Creates a middleware that enforces protocol compliance.  Delegates to Protoco...  |
-| [`createVerificationGates()`](/packages/cleo/api/index#createverificationgates)                   | function | Creates a middleware that enforces verification gates on task operations.         |
-| [`getOperationSchema()`](/packages/cleo/api/index#getoperationschema)                             | function | Look up an operation in the OPERATIONS registry and return a JSON Schema obje...  |
-| [`getAllOperationSchemas()`](/packages/cleo/api/index#getalloperationschemas)                     | function | Return schemas for ALL operations of a given gateway.  Useful for documentati...  |
-| [`resolveTier()`](/packages/cleo/api/index#resolvetier)                                           | function | Resolve tier from request params, defaulting to 'standard'.                       |
-| [`isOperationAllowed()`](/packages/cleo/api/index#isoperationallowed)                             | function | Check if a domain is allowed at the given tier.                                   |
-| [`applyProjection()`](/packages/cleo/api/index#applyprojection)                                   | function | Apply field projection to a result object. Removes fields that are excluded a...  |
-| [`createProjectionContext()`](/packages/cleo/api/index#createprojectioncontext)                   | function | Create projection context from request params.                                    |
-| [`createProjectionMiddleware()`](/packages/cleo/api/index#createprojectionmiddleware)             | function | Create the MVI projection middleware.  Extracts \_mviTier from params, checks...  |
+| Symbol                                                                                                    | Kind     | Description                                                                       |
+| --------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
+| [`engineError()`](/packages/cleo/api/index#engineerror)                                                   | function | Create a typed engine error result with pino logging and correct exit code.       |
+| [`engineSuccess()`](/packages/cleo/api/index#enginesuccess)                                               | function | Create an engine success result.                                                  |
+| [`taskShow()`](/packages/cleo/api/index#taskshow)                                                         | function | Get a single task by ID.                                                          |
+| [`taskList()`](/packages/cleo/api/index#tasklist)                                                         | function | List tasks with optional filters.                                                 |
+| [`taskFind()`](/packages/cleo/api/index#taskfind)                                                         | function | Fuzzy search tasks by title/description/ID.                                       |
+| [`taskExists()`](/packages/cleo/api/index#taskexists)                                                     | function | Check if a task exists.                                                           |
+| [`taskCreate()`](/packages/cleo/api/index#taskcreate)                                                     | function | Create a new task.                                                                |
+| [`taskUpdate()`](/packages/cleo/api/index#taskupdate)                                                     | function | Update a task's fields.                                                           |
+| [`taskComplete()`](/packages/cleo/api/index#taskcomplete)                                                 | function | Complete a task (set status to done).                                             |
+| [`taskDelete()`](/packages/cleo/api/index#taskdelete)                                                     | function | Delete a task.                                                                    |
+| [`taskArchive()`](/packages/cleo/api/index#taskarchive)                                                   | function | Archive completed tasks. Moves done/cancelled tasks from active task data to...   |
+| [`taskNext()`](/packages/cleo/api/index#tasknext)                                                         | function | Suggest next task to work on based on priority, phase alignment, age, and dep...  |
+| [`taskBlockers()`](/packages/cleo/api/index#taskblockers)                                                 | function | Show blocked tasks and analyze blocking chains.                                   |
+| [`taskTree()`](/packages/cleo/api/index#tasktree)                                                         | function | Build hierarchy tree.                                                             |
+| [`taskDeps()`](/packages/cleo/api/index#taskdeps)                                                         | function | Show dependencies for a task - both what it depends on and what depends on it.    |
+| [`taskRelates()`](/packages/cleo/api/index#taskrelates)                                                   | function | Show task relations (existing relates entries).                                   |
+| [`taskRelatesAdd()`](/packages/cleo/api/index#taskrelatesadd)                                             | function | Add a relation between two tasks.                                                 |
+| [`taskAnalyze()`](/packages/cleo/api/index#taskanalyze)                                                   | function | Analyze a task for description quality, missing fields, and dependency health.    |
+| [`taskImpact()`](/packages/cleo/api/index#taskimpact)                                                     | function | Predict downstream impact of a free-text change description.  Delegates to...     |
+| [`taskRestore()`](/packages/cleo/api/index#taskrestore)                                                   | function | Restore a cancelled task back to pending.                                         |
+| [`taskUnarchive()`](/packages/cleo/api/index#taskunarchive)                                               | function | Move an archived task back to active task data with status 'done' (or specifi...  |
+| [`taskReorder()`](/packages/cleo/api/index#taskreorder)                                                   | function | Change task position within its sibling group.                                    |
+| [`taskReparent()`](/packages/cleo/api/index#taskreparent)                                                 | function | Move task under a different parent.                                               |
+| [`taskPromote()`](/packages/cleo/api/index#taskpromote)                                                   | function | Promote a subtask to task or task to root (remove parent).                        |
+| [`taskReopen()`](/packages/cleo/api/index#taskreopen)                                                     | function | Reopen a completed task (set status back to pending).                             |
+| [`taskCancel()`](/packages/cleo/api/index#taskcancel)                                                     | function | Cancel a task (soft terminal state -- reversible via restore).                    |
+| [`taskComplexityEstimate()`](/packages/cleo/api/index#taskcomplexityestimate)                             | function | Deterministic complexity scoring from task metadata.                              |
+| [`taskDepends()`](/packages/cleo/api/index#taskdepends)                                                   | function | List dependencies for a task in a given direction.  T4657  T4790  T4654           |
+| [`taskDepsOverview()`](/packages/cleo/api/index#taskdepsoverview)                                         | function | Overview of all dependencies across the project.  T5157                           |
+| [`taskDepsCycles()`](/packages/cleo/api/index#taskdepscycles)                                             | function | Detect circular dependencies across the project.  T5157                           |
+| [`taskStats()`](/packages/cleo/api/index#taskstats)                                                       | function | Compute task statistics, optionally scoped to an epic.  T4657  T4790  T4654       |
+| [`taskExport()`](/packages/cleo/api/index#taskexport)                                                     | function | Export tasks as JSON or CSV.  T4657  T4790  T4654                                 |
+| [`taskHistory()`](/packages/cleo/api/index#taskhistory)                                                   | function | Get task history from the log file.  T4657  T4790  T4654                          |
+| [`taskLint()`](/packages/cleo/api/index#tasklint)                                                         | function | Lint tasks for common issues.  T4657  T4790  T4654                                |
+| [`taskBatchValidate()`](/packages/cleo/api/index#taskbatchvalidate)                                       | function | Validate multiple tasks at once.  T4657  T4790  T4654                             |
+| [`taskImport()`](/packages/cleo/api/index#taskimport)                                                     | function | Import tasks from a JSON source string or export package.  T4790                  |
+| [`taskPlan()`](/packages/cleo/api/index#taskplan)                                                         | function | Compute a ranked plan: in-progress epics, ready tasks, blockers, bugs.  T4815     |
+| [`taskRelatesFind()`](/packages/cleo/api/index#taskrelatesfind)                                           | function | Find related tasks using semantic search or keyword matching.  T5672              |
+| [`taskLabelList()`](/packages/cleo/api/index#tasklabellist)                                               | function | List all labels used in tasks.  T5672                                             |
+| [`taskLabelShow()`](/packages/cleo/api/index#tasklabelshow)                                               | function | Show tasks associated with a label.  T5672                                        |
+| [`taskSyncReconcile()`](/packages/cleo/api/index#tasksyncreconcile)                                       | function | Reconcile external tasks with CLEO as SSoT.                                       |
+| [`taskSyncLinks()`](/packages/cleo/api/index#tasksynclinks)                                               | function | List external task links by provider or task ID.                                  |
+| [`taskSyncLinksRemove()`](/packages/cleo/api/index#tasksynclinksremove)                                   | function | Remove all external task links for a provider.                                    |
+| [`taskClaim()`](/packages/cleo/api/index#taskclaim)                                                       | function | Atomically claim a task for an agent.  Fails if the task is already claimed b...  |
+| [`taskUnclaim()`](/packages/cleo/api/index#taskunclaim)                                                   | function | Release an agent's claim on a task, setting assignee to null.  No-op if the t...  |
+| [`sessionStatus()`](/packages/cleo/api/index#sessionstatus)                                               | function | Get current session status.                                                       |
+| [`sessionList()`](/packages/cleo/api/index#sessionlist)                                                   | function | List sessions with budget enforcement.  When a limit is applied (explicit or...   |
+| [`sessionFind()`](/packages/cleo/api/index#sessionfind)                                                   | function | Lightweight session discovery -- returns minimal session records.                 |
+| [`sessionShow()`](/packages/cleo/api/index#sessionshow)                                                   | function | Show a specific session by ID.                                                    |
+| [`taskCurrentGet()`](/packages/cleo/api/index#taskcurrentget)                                             | function | Get current task being worked on. Delegates to core/task-work/currentTask.  T...  |
+| [`taskStart()`](/packages/cleo/api/index#taskstart)                                                       | function | Start working on a specific task. Delegates to core/task-work/startTask.  T4782   |
+| [`taskStop()`](/packages/cleo/api/index#taskstop)                                                         | function | Stop working on the current task. Delegates to core/task-work/stopTask.  T4782    |
+| [`taskWorkHistory()`](/packages/cleo/api/index#taskworkhistory)                                           | function | Get task work history from session notes.  T5323                                  |
+| [`sessionStart()`](/packages/cleo/api/index#sessionstart)                                                 | function | Start a new session. Note: This function has engine-specific logic for task f...  |
+| [`sessionEnd()`](/packages/cleo/api/index#sessionend)                                                     | function | End the current session. Note: This function has engine-specific logic for ta...  |
+| [`sessionResume()`](/packages/cleo/api/index#sessionresume)                                               | function | Resume an ended or suspended session. Note: This function has engine-specific...  |
+| [`sessionGc()`](/packages/cleo/api/index#sessiongc)                                                       | function | Garbage collect old sessions.  T4782                                              |
+| [`sessionSuspend()`](/packages/cleo/api/index#sessionsuspend)                                             | function | Suspend an active session.  T4782                                                 |
+| [`sessionHistory()`](/packages/cleo/api/index#sessionhistory)                                             | function | List session history with focus changes and completed tasks.  T4782               |
+| [`sessionCleanup()`](/packages/cleo/api/index#sessioncleanup)                                             | function | Remove orphaned sessions and clean up stale data.  T4782                          |
+| [`sessionRecordDecision()`](/packages/cleo/api/index#sessionrecorddecision)                               | function | Record a decision to the audit trail.  T4782                                      |
+| [`sessionDecisionLog()`](/packages/cleo/api/index#sessiondecisionlog)                                     | function | Read the decision log, optionally filtered by sessionId and/or taskId.  T4782     |
+| [`sessionContextDrift()`](/packages/cleo/api/index#sessioncontextdrift)                                   | function | Compute context drift score for the current session.  T4782                       |
+| [`sessionRecordAssumption()`](/packages/cleo/api/index#sessionrecordassumption)                           | function | Record an assumption made during a session.  T4782                                |
+| [`sessionStats()`](/packages/cleo/api/index#sessionstats)                                                 | function | Compute session statistics, optionally for a specific session.  T4782             |
+| [`sessionSwitch()`](/packages/cleo/api/index#sessionswitch)                                               | function | Switch to a different session.  T4782                                             |
+| [`sessionArchive()`](/packages/cleo/api/index#sessionarchive)                                             | function | Archive old/ended sessions.  T4782                                                |
+| [`sessionHandoff()`](/packages/cleo/api/index#sessionhandoff)                                             | function | Get handoff data for the most recent ended session.  T4915, T5123                 |
+| [`sessionComputeHandoff()`](/packages/cleo/api/index#sessioncomputehandoff)                               | function | Compute and persist handoff data for a session.  T4915                            |
+| [`sessionBriefing()`](/packages/cleo/api/index#sessionbriefing)                                           | function | Compute session briefing - composite view for session start. Aggregates data...   |
+| [`sessionComputeDebrief()`](/packages/cleo/api/index#sessioncomputedebrief)                               | function | Compute and persist rich debrief data for a session. Persists as both handoff...  |
+| [`sessionDebriefShow()`](/packages/cleo/api/index#sessiondebriefshow)                                     | function | Read a session's debrief data. Falls back to handoff data if no debrief is av...  |
+| [`sessionChainShow()`](/packages/cleo/api/index#sessionchainshow)                                         | function | Show the session chain for a given session. Returns ordered list of sessions...   |
+| [`sessionContextInject()`](/packages/cleo/api/index#sessioncontextinject)                                 | function | Inject context protocol content.  T5673                                           |
+| [`listRcsdEpics()`](/packages/cleo/api/index#listrcsdepics)                                               | function | List all epic IDs that have RCASD pipeline data.                                  |
+| [`lifecycleStatus()`](/packages/cleo/api/index#lifecyclestatus)                                           | function | lifecycle.check / lifecycle.status - Get lifecycle status for epic.  T4785        |
+| [`lifecycleHistory()`](/packages/cleo/api/index#lifecyclehistory)                                         | function | lifecycle.history - Stage transition history.  T4785                              |
+| [`lifecycleGates()`](/packages/cleo/api/index#lifecyclegates)                                             | function | lifecycle.gates - Get all gate statuses for an epic.  T4785                       |
+| [`lifecyclePrerequisites()`](/packages/cleo/api/index#lifecycleprerequisites)                             | function | lifecycle.prerequisites - Get required prior stages for a target stage.  T4785    |
+| [`lifecycleCheck()`](/packages/cleo/api/index#lifecyclecheck)                                             | function | lifecycle.check - Check if a stage's prerequisites are met.  T4785                |
+| [`lifecycleProgress()`](/packages/cleo/api/index#lifecycleprogress)                                       | function | lifecycle.progress / lifecycle.record - Record stage completion.  T4785           |
+| [`lifecycleSkip()`](/packages/cleo/api/index#lifecycleskip)                                               | function | lifecycle.skip - Skip a stage with reason.  T4785                                 |
+| [`lifecycleReset()`](/packages/cleo/api/index#lifecyclereset)                                             | function | lifecycle.reset - Reset a stage (emergency).  T4785                               |
+| [`lifecycleGatePass()`](/packages/cleo/api/index#lifecyclegatepass)                                       | function | lifecycle.gate.pass - Mark gate as passed.  T4785                                 |
+| [`lifecycleGateFail()`](/packages/cleo/api/index#lifecyclegatefail)                                       | function | lifecycle.gate.fail - Mark gate as failed.  T4785                                 |
+| [`createGatewayMeta()`](/packages/cleo/api/index#creategatewaymeta)                                       | function | Create a fully typed GatewayMeta for domain responses.                            |
+| [`enforceBudget()`](/packages/cleo/api/index#enforcebudget)                                               | function | Apply budget enforcement to a dispatch response envelope.  Converts the Domai...  |
+| [`isWithinBudget()`](/packages/cleo/api/index#iswithinbudget)                                             | function | Quick check whether a response exceeds a token budget without modifying it....    |
+| [`ShimCommand`](/packages/cleo/api/index#shimcommand)                                                     | class    | Minimal Commander-compatible Command class. Captures command definitions for...   |
+| [`setFieldContext()`](/packages/cleo/api/index#setfieldcontext)                                           | function | Set the field extraction context for this CLI invocation. Called once from th...  |
+| [`getFieldContext()`](/packages/cleo/api/index#getfieldcontext)                                           | function | Get the current field extraction context.                                         |
+| [`resolveFieldContext()`](/packages/cleo/api/index#resolvefieldcontext)                                   | function | Parse global field options from Commander.js parsed opts and resolve via the...   |
+| [`setFormatContext()`](/packages/cleo/api/index#setformatcontext)                                         | function | Set the resolved format for this CLI invocation. Called once from the preActi...  |
+| [`getFormatContext()`](/packages/cleo/api/index#getformatcontext)                                         | function | Get the current resolved format.                                                  |
+| [`isJsonFormat()`](/packages/cleo/api/index#isjsonformat)                                                 | function | Check if output should be JSON format.                                            |
+| [`isHumanFormat()`](/packages/cleo/api/index#ishumanformat)                                               | function | Check if output should be human-readable format.                                  |
+| [`isQuiet()`](/packages/cleo/api/index#isquiet)                                                           | function | Check if quiet mode is enabled (suppress non-essential output).                   |
+| [`resolveFormat()`](/packages/cleo/api/index#resolveformat)                                               | function | Resolve output format from Commander.js option values.  Reads --json, --human...  |
+| [`validateLafsShape()`](/packages/cleo/api/index#validatelafsshape)                                       | function | Validate a LAFS envelope shape and report violations.  Full envelopes are del...  |
+| [`assertLafsShape()`](/packages/cleo/api/index#assertlafsshape)                                           | function | Assert that a LAFS envelope conforms to the shape contract, throwing an error...  |
+| [`LafsViolationError`](/packages/cleo/api/index#lafsviolationerror)                                       | class    | Error thrown by `assertLafsShape` when an envelope fails validation.  Carries...  |
+| [`emitLafsViolation()`](/packages/cleo/api/index#emitlafsviolation)                                       | function | Emit a LAFS-shaped error envelope describing a validation failure and set...      |
+| [`normalizeForHuman()`](/packages/cleo/api/index#normalizeforhuman)                                       | function | Normalize data shape for human renderers.  Each command expects data with spe...  |
+| [`statusSymbol()`](/packages/cleo/api/index#statussymbol)                                                 | function | Map task status to a display symbol. Falls back to '?' for unknown values.        |
+| [`statusColor()`](/packages/cleo/api/index#statuscolor)                                                   | function | Map task status to a color escape.                                                |
+| [`prioritySymbol()`](/packages/cleo/api/index#prioritysymbol)                                             | function | Map task priority to a display symbol.                                            |
+| [`priorityColor()`](/packages/cleo/api/index#prioritycolor)                                               | function | Map task priority to a color escape.                                              |
+| [`hRule()`](/packages/cleo/api/index#hrule)                                                               | function | Create a horizontal rule with box-drawing characters.                             |
+| [`shortDate()`](/packages/cleo/api/index#shortdate)                                                       | function | Format a date string as YYYY-MM-DD.                                               |
+| [`renderDoctor()`](/packages/cleo/api/index#renderdoctor)                                                 | function |                                                                                   |
+| [`renderStats()`](/packages/cleo/api/index#renderstats)                                                   | function |                                                                                   |
+| [`renderNext()`](/packages/cleo/api/index#rendernext)                                                     | function |                                                                                   |
+| [`renderBlockers()`](/packages/cleo/api/index#renderblockers)                                             | function |                                                                                   |
+| [`renderTree()`](/packages/cleo/api/index#rendertree)                                                     | function |                                                                                   |
+| [`renderStart()`](/packages/cleo/api/index#renderstart)                                                   | function |                                                                                   |
+| [`renderStop()`](/packages/cleo/api/index#renderstop)                                                     | function |                                                                                   |
+| [`renderCurrent()`](/packages/cleo/api/index#rendercurrent)                                               | function |                                                                                   |
+| [`renderSession()`](/packages/cleo/api/index#rendersession)                                               | function |                                                                                   |
+| [`renderVersion()`](/packages/cleo/api/index#renderversion)                                               | function |                                                                                   |
+| [`renderPlan()`](/packages/cleo/api/index#renderplan)                                                     | function |                                                                                   |
+| [`renderGeneric()`](/packages/cleo/api/index#rendergeneric)                                               | function | Generic human renderer for commands that don't have a specific renderer. Rend...  |
+| [`renderShow()`](/packages/cleo/api/index#rendershow)                                                     | function | Render a single task in a box format (mirrors bash display\_text).                |
+| [`renderList()`](/packages/cleo/api/index#renderlist)                                                     | function | Render a list of tasks (mirrors bash list.sh text output).                        |
+| [`renderFind()`](/packages/cleo/api/index#renderfind)                                                     | function | Render search results.                                                            |
+| [`renderAdd()`](/packages/cleo/api/index#renderadd)                                                       | function | Render add result.                                                                |
+| [`renderUpdate()`](/packages/cleo/api/index#renderupdate)                                                 | function | Render update result.                                                             |
+| [`renderComplete()`](/packages/cleo/api/index#rendercomplete)                                             | function | Render complete result.                                                           |
+| [`renderDelete()`](/packages/cleo/api/index#renderdelete)                                                 | function | Render delete result.                                                             |
+| [`renderArchive()`](/packages/cleo/api/index#renderarchive)                                               | function | Render archive result.                                                            |
+| [`renderRestore()`](/packages/cleo/api/index#renderrestore)                                               | function | Render restore result.                                                            |
+| [`cliOutput()`](/packages/cleo/api/index#clioutput)                                                       | function | Output data to stdout in the resolved format (JSON or human-readable).  Repla...  |
+| [`cliError()`](/packages/cleo/api/index#clierror)                                                         | function | Output an error in the resolved format. For JSON: delegates to formatError (a...  |
+| [`createDispatchMeta()`](/packages/cleo/api/index#createdispatchmeta)                                     | function | Create metadata for a dispatch response.                                          |
+| [`compose()`](/packages/cleo/api/index#compose)                                                           | function | Composes an array of Middleware functions into a single Middleware function....   |
+| [`deriveGatewayMatrix()`](/packages/cleo/api/index#derivegatewaymatrix)                                   | function | Derive a gateway operation matrix from the registry.  Returns...                  |
+| [`getGatewayDomains()`](/packages/cleo/api/index#getgatewaydomains)                                       | function | Get all accepted domain names for a gateway (canonical only).                     |
+| [`resolve()`](/packages/cleo/api/index#resolve)                                                           | function | Resolves a domain + operation to its registered definition.                       |
+| [`validateRequiredParams()`](/packages/cleo/api/index#validaterequiredparams)                             | function | Validates that all required parameters are present in the request. Returns an...  |
+| [`getByDomain()`](/packages/cleo/api/index#getbydomain)                                                   | function | Get all operations for a specific canonical domain.                               |
+| [`getByGateway()`](/packages/cleo/api/index#getbygateway)                                                 | function | Get all operations for a specific gateway.                                        |
+| [`getByTier()`](/packages/cleo/api/index#getbytier)                                                       | function | Get all operations available at or below a specific tier.                         |
+| [`getActiveDomains()`](/packages/cleo/api/index#getactivedomains)                                         | function | Get a list of canonical domains that actually have operations registered.         |
+| [`getCounts()`](/packages/cleo/api/index#getcounts)                                                       | function | Returns summary counts of operations for module validation.                       |
+| [`Dispatcher`](/packages/cleo/api/index#dispatcher)                                                       | class    |                                                                                   |
+| [`mapCodebase()`](/packages/cleo/api/index#mapcodebase)                                                   | function | Analyze a codebase and return structured mapping. When storeToBrain is true,...   |
+| [`configGet()`](/packages/cleo/api/index#configget)                                                       | function | Get config value by key (dot-notation supported)                                  |
+| [`configSet()`](/packages/cleo/api/index#configset)                                                       | function | Set a config value by key (dot-notation supported)                                |
+| [`configSetPreset()`](/packages/cleo/api/index#configsetpreset)                                           | function | Apply a strictness preset to the project config.  T067                            |
+| [`configListPresets()`](/packages/cleo/api/index#configlistpresets)                                       | function | List all available strictness presets.  T067                                      |
+| [`queryHookProviders()`](/packages/cleo/api/index#queryhookproviders)                                     | function | Query providers that support a specific hook event  Returns detailed provider...  |
+| [`queryCommonHooks()`](/packages/cleo/api/index#querycommonhooks)                                         | function | Get hook events common to specified providers  Analyzes which hook events are...  |
+| [`systemHooksMatrix()`](/packages/cleo/api/index#systemhooksmatrix)                                       | function | Build a cross-provider hook support matrix using CAAMP APIs.  Calls...            |
+| [`initProject()`](/packages/cleo/api/index#initproject)                                                   | function | Initialize a CLEO project directory.  Creates the .cleo/ directory structure...   |
+| [`isAutoInitEnabled()`](/packages/cleo/api/index#isautoinitenabled)                                       | function | Check if auto-init is enabled via environment variable                            |
+| [`ensureInitialized()`](/packages/cleo/api/index#ensureinitialized)                                       | function | Check initialization status and auto-init if configured                           |
+| [`getVersion()`](/packages/cleo/api/index#getversion)                                                     | function | Get current version (native implementation)                                       |
+| [`orchestrateStatus()`](/packages/cleo/api/index#orchestratestatus)                                       | function | orchestrate.status - Get orchestrator status  T4478                               |
+| [`orchestrateAnalyze()`](/packages/cleo/api/index#orchestrateanalyze)                                     | function | orchestrate.analyze - Dependency analysis  T4478                                  |
+| [`orchestrateReady()`](/packages/cleo/api/index#orchestrateready)                                         | function | orchestrate.ready - Get parallel-safe tasks (ready to execute)  T4478             |
+| [`orchestrateNext()`](/packages/cleo/api/index#orchestratenext)                                           | function | orchestrate.next - Next task to spawn  T4478                                      |
+| [`orchestrateWaves()`](/packages/cleo/api/index#orchestratewaves)                                         | function | orchestrate.waves - Compute dependency waves  T4478                               |
+| [`orchestrateContext()`](/packages/cleo/api/index#orchestratecontext)                                     | function | orchestrate.context - Context usage check  T4478                                  |
+| [`orchestrateValidate()`](/packages/cleo/api/index#orchestratevalidate)                                   | function | orchestrate.validate - Validate spawn readiness for a task  T4478                 |
+| [`orchestrateSpawnSelectProvider()`](/packages/cleo/api/index#orchestratespawnselectprovider)             | function | orchestrate.spawn.select - Select best provider for spawn based on required c...  |
+| [`orchestrateSpawnExecute()`](/packages/cleo/api/index#orchestratespawnexecute)                           | function | orchestrate.spawn.execute - Execute spawn for a task using adapter registry...    |
+| [`orchestrateSpawn()`](/packages/cleo/api/index#orchestratespawn)                                         | function | orchestrate.spawn - Generate spawn prompt for a task  T4478                       |
+| [`orchestrateStartup()`](/packages/cleo/api/index#orchestratestartup)                                     | function | orchestrate.startup - Initialize orchestration for an epic  T4478                 |
+| [`orchestrateBootstrap()`](/packages/cleo/api/index#orchestratebootstrap)                                 | function | orchestrate.bootstrap - Load brain state for agent bootstrapping  T4478  T4657    |
+| [`orchestrateCriticalPath()`](/packages/cleo/api/index#orchestratecriticalpath)                           | function | orchestrate.critical-path - Find the longest dependency chain  T4478              |
+| [`orchestrateUnblockOpportunities()`](/packages/cleo/api/index#orchestrateunblockopportunities)           | function | orchestrate.unblock-opportunities - Analyze dependency graph for unblocking o...  |
+| [`orchestrateParallel()`](/packages/cleo/api/index#orchestrateparallel)                                   | function | orchestrate.parallel - Manage parallel execution (start/end)  T4632               |
+| [`orchestrateParallelStart()`](/packages/cleo/api/index#orchestrateparallelstart)                         | function | orchestrate.parallel.start - Start parallel execution for a wave  T4632           |
+| [`orchestrateParallelEnd()`](/packages/cleo/api/index#orchestrateparallelend)                             | function | orchestrate.parallel.end - End parallel execution for a wave  T4632               |
+| [`orchestrateCheck()`](/packages/cleo/api/index#orchestratecheck)                                         | function | orchestrate.check - Check current orchestration state  T4632                      |
+| [`orchestrateSkillInject()`](/packages/cleo/api/index#orchestrateskillinject)                             | function | orchestrate.skill.inject - Read skill content for injection into agent contex...  |
+| [`orchestrateHandoff()`](/packages/cleo/api/index#orchestratehandoff)                                     | function | orchestrate.handoff - Composite session handoff + successor spawn  Step order...  |
+| [`phaseList()`](/packages/cleo/api/index#phaselist)                                                       | function | phase.list - List all project phases                                              |
+| [`phaseShow()`](/packages/cleo/api/index#phaseshow)                                                       | function | phase.show - Show details of a specific phase                                     |
+| [`phaseSet()`](/packages/cleo/api/index#phaseset)                                                         | function | phase.set - Set the current phase                                                 |
+| [`phaseStart()`](/packages/cleo/api/index#phasestart)                                                     | function | phase.start - Start a pending phase                                               |
+| [`phaseComplete()`](/packages/cleo/api/index#phasecomplete)                                               | function | phase.complete - Complete an active phase                                         |
+| [`phaseAdvance()`](/packages/cleo/api/index#phaseadvance)                                                 | function | phase.advance - Advance to the next phase                                         |
+| [`phaseRename()`](/packages/cleo/api/index#phaserename)                                                   | function | phase.rename - Rename a phase                                                     |
+| [`phaseDelete()`](/packages/cleo/api/index#phasedelete)                                                   | function | phase.delete - Delete a phase                                                     |
+| [`releasePrepare()`](/packages/cleo/api/index#releaseprepare)                                             | function | release.prepare - Prepare a release  T4788                                        |
+| [`releaseChangelog()`](/packages/cleo/api/index#releasechangelog)                                         | function | release.changelog - Generate changelog  T4788                                     |
+| [`releaseList()`](/packages/cleo/api/index#releaselist)                                                   | function | release.list - List all releases (query operation via data read)  T4788           |
+| [`releaseShow()`](/packages/cleo/api/index#releaseshow)                                                   | function | release.show - Show release details (query operation via data read)  T4788        |
+| [`releaseCommit()`](/packages/cleo/api/index#releasecommit)                                               | function | release.commit - Mark release as committed (metadata only)  T4788                 |
+| [`releaseTag()`](/packages/cleo/api/index#releasetag)                                                     | function | release.tag - Mark release as tagged (metadata only)  T4788                       |
+| [`releaseGatesRun()`](/packages/cleo/api/index#releasegatesrun)                                           | function | release.gates.run - Run release gates (validation checks)  T4788                  |
+| [`releaseRollback()`](/packages/cleo/api/index#releaserollback)                                           | function | release.rollback - Rollback a release  T4788                                      |
+| [`releaseCancel()`](/packages/cleo/api/index#releasecancel)                                               | function | release.cancel - Cancel and remove a release in draft or prepared state  T5602    |
+| [`releasePush()`](/packages/cleo/api/index#releasepush)                                                   | function | release.push - Push release to remote via git Uses execFileSync (no shell) fo...  |
+| [`releaseShip()`](/packages/cleo/api/index#releaseship)                                                   | function | release.ship - Composite release operation  Sequence: validate gates → epic c...  |
+| [`systemDash()`](/packages/cleo/api/index#systemdash)                                                     | function | Project dashboard: task counts by status, active session info, current focus,...  |
+| [`systemStats()`](/packages/cleo/api/index#systemstats)                                                   | function | Detailed statistics: tasks by status/priority/type/phase, completion rate, av...  |
+| [`systemLabels()`](/packages/cleo/api/index#systemlabels)                                                 | function | List all unique labels across tasks with counts and task IDs per label.           |
+| [`systemArchiveStats()`](/packages/cleo/api/index#systemarchivestats)                                     | function | Archive metrics: total archived, by reason, average cycle time, archive rate.     |
+| [`systemLog()`](/packages/cleo/api/index#systemlog)                                                       | function | Query audit log with optional filters. Reads from SQLite audit\_log table.   T... |
+| [`systemContext()`](/packages/cleo/api/index#systemcontext)                                               | function | Context window tracking: estimate token usage from current session/state.         |
+| [`systemSequence()`](/packages/cleo/api/index#systemsequence)                                             | function | Read task ID sequence state from canonical SQLite metadata. Supports 'show' a...  |
+| [`systemInjectGenerate()`](/packages/cleo/api/index#systeminjectgenerate)                                 | function | Generate Minimum Viable Injection (MVI).                                          |
+| [`systemMetrics()`](/packages/cleo/api/index#systemmetrics)                                               | function | System metrics: token usage, compliance summary, session counts.  T4631           |
+| [`systemHealth()`](/packages/cleo/api/index#systemhealth)                                                 | function | System health check: verify core data files exist and are valid.  T4631           |
+| [`systemDiagnostics()`](/packages/cleo/api/index#systemdiagnostics)                                       | function | System diagnostics: extended health checks with fix suggestions.  T4631           |
+| [`systemHelp()`](/packages/cleo/api/index#systemhelp)                                                     | function | Return help text for the system.  T4631                                           |
+| [`systemRoadmap()`](/packages/cleo/api/index#systemroadmap)                                               | function | Generate roadmap from pending epics and optional CHANGELOG history.  T4631        |
+| [`systemCompliance()`](/packages/cleo/api/index#systemcompliance)                                         | function | System compliance report from COMPLIANCE.jsonl.  T4631                            |
+| [`systemBackup()`](/packages/cleo/api/index#systembackup)                                                 | function | Create a backup of CLEO data files.  T4631                                        |
+| [`systemListBackups()`](/packages/cleo/api/index#systemlistbackups)                                       | function | List available system backups (read-only).  T4783                                 |
+| [`systemRestore()`](/packages/cleo/api/index#systemrestore)                                               | function | Restore from a backup.  T4631                                                     |
+| [`backupRestore()`](/packages/cleo/api/index#backuprestore)                                               | function | Restore an individual file from backup.  T5329                                    |
+| [`systemMigrate()`](/packages/cleo/api/index#systemmigrate)                                               | function | Check/run schema migrations.  T4631                                               |
+| [`systemCleanup()`](/packages/cleo/api/index#systemcleanup)                                               | function | Cleanup stale data (sessions, backups, logs).  T4631                              |
+| [`systemAudit()`](/packages/cleo/api/index#systemaudit)                                                   | function | Audit data integrity.  T4631                                                      |
+| [`systemSync()`](/packages/cleo/api/index#systemsync)                                                     | function | Sync check (no external sync targets in native mode).  T4631                      |
+| [`systemSafestop()`](/packages/cleo/api/index#systemsafestop)                                             | function | Safe stop: signal clean shutdown for agents.  T4631                               |
+| [`systemUncancel()`](/packages/cleo/api/index#systemuncancel)                                             | function | Uncancel a cancelled task (restore to pending).  T4631                            |
+| [`systemDoctor()`](/packages/cleo/api/index#systemdoctor)                                                 | function | Run comprehensive doctor diagnostics.  T4795                                      |
+| [`systemFix()`](/packages/cleo/api/index#systemfix)                                                       | function | Run auto-fix for failed doctor checks.  T4795                                     |
+| [`systemRuntime()`](/packages/cleo/api/index#systemruntime)                                               | function | Runtime/channel diagnostics for CLI installation mode checks.  T4815              |
+| [`systemPaths()`](/packages/cleo/api/index#systempaths)                                                   | function | Report all resolved CleoOS paths (project + global hub).  Backs the...            |
+| [`systemScaffoldHub()`](/packages/cleo/api/index#systemscaffoldhub)                                       | function | Create the CleoOS Hub directories and seed the starter justfile if absent.  I...  |
+| [`systemSequenceRepair()`](/packages/cleo/api/index#systemsequencerepair)                                 | function | Repair task ID sequence using canonical core implementation.  T4815               |
+| [`systemSmoke()`](/packages/cleo/api/index#systemsmoke)                                                   | function | Run operational smoke tests across all domains.  Dispatches one read-only que...  |
+| [`parseIssueTemplates()`](/packages/cleo/api/index#parseissuetemplates)                                   | function | Parse all templates from the repo's .github/ISSUE\_TEMPLATE/ directory.           |
+| [`getTemplateForSubcommand()`](/packages/cleo/api/index#gettemplateforsubcommand)                         | function | Get template config for a specific subcommand (bug/feature/help).                 |
+| [`generateTemplateConfig()`](/packages/cleo/api/index#generatetemplateconfig)                             | function | Generate and cache the config as .cleo/issue-templates.json.                      |
+| [`validateLabels()`](/packages/cleo/api/index#validatelabels)                                             | function | Validate that labels exist on a GitHub repo.                                      |
+| [`validateSchemaOp()`](/packages/cleo/api/index#validateschemaop)                                         | function | validate.schema - JSON Schema validation  T4477                                   |
+| [`validateTask()`](/packages/cleo/api/index#validatetask)                                                 | function | validate.task - Anti-hallucination task validation  T4477                         |
+| [`validateProtocol()`](/packages/cleo/api/index#validateprotocol)                                         | function | validate.protocol - Protocol compliance check  T4477                              |
+| [`validateManifest()`](/packages/cleo/api/index#validatemanifest)                                         | function | validate.manifest - Manifest entry validation  T4477                              |
+| [`validateOutput()`](/packages/cleo/api/index#validateoutput)                                             | function | validate.output - Output file validation  T4477                                   |
+| [`validateComplianceSummary()`](/packages/cleo/api/index#validatecompliancesummary)                       | function | validate.compliance.summary - Aggregated compliance metrics  T4477                |
+| [`validateComplianceViolations()`](/packages/cleo/api/index#validatecomplianceviolations)                 | function | validate.compliance.violations - List compliance violations  T4477                |
+| [`validateComplianceRecord()`](/packages/cleo/api/index#validatecompliancerecord)                         | function | validate.compliance.record - Record compliance check result  T4477                |
+| [`validateTestStatus()`](/packages/cleo/api/index#validateteststatus)                                     | function | validate.test.status - Test suite status  T4477                                   |
+| [`validateCoherenceCheck()`](/packages/cleo/api/index#validatecoherencecheck)                             | function | validate.coherence-check - Cross-validate task graph for consistency  T4477       |
+| [`validateTestRun()`](/packages/cleo/api/index#validatetestrun)                                           | function | validate.test.run - Execute test suite via subprocess  T4632                      |
+| [`validateBatchValidate()`](/packages/cleo/api/index#validatebatchvalidate)                               | function | validate.batch-validate - Batch validate all tasks against schema and rules...    |
+| [`validateTestCoverage()`](/packages/cleo/api/index#validatetestcoverage)                                 | function | validate.test.coverage - Coverage metrics  T4477                                  |
+| [`validateProtocolConsensus()`](/packages/cleo/api/index#validateprotocolconsensus)                       | function | check.protocol.consensus - Validate consensus protocol compliance  T5327          |
+| [`validateProtocolContribution()`](/packages/cleo/api/index#validateprotocolcontribution)                 | function | check.protocol.contribution - Validate contribution protocol compliance  T5327    |
+| [`validateProtocolDecomposition()`](/packages/cleo/api/index#validateprotocoldecomposition)               | function | check.protocol.decomposition - Validate decomposition protocol compliance  T5327  |
+| [`validateProtocolImplementation()`](/packages/cleo/api/index#validateprotocolimplementation)             | function | check.protocol.implementation - Validate implementation protocol compliance...    |
+| [`validateProtocolSpecification()`](/packages/cleo/api/index#validateprotocolspecification)               | function | check.protocol.specification - Validate specification protocol compliance  T5327  |
+| [`validateProtocolResearch()`](/packages/cleo/api/index#validateprotocolresearch)                         | function | check.protocol.research - Validate research protocol compliance  T260             |
+| [`validateProtocolArchitectureDecision()`](/packages/cleo/api/index#validateprotocolarchitecturedecision) | function | check.protocol.architecture-decision - Validate ADR protocol compliance  T260     |
+| [`validateProtocolValidation()`](/packages/cleo/api/index#validateprotocolvalidation)                     | function | check.protocol.validation - Validate validation-stage protocol compliance  T260   |
+| [`validateProtocolTesting()`](/packages/cleo/api/index#validateprotocoltesting)                           | function | check.protocol.testing - Validate testing-stage protocol compliance (IVT loop...  |
+| [`validateProtocolRelease()`](/packages/cleo/api/index#validateprotocolrelease)                           | function | check.protocol.release - Validate release protocol compliance  T260               |
+| [`validateProtocolArtifactPublish()`](/packages/cleo/api/index#validateprotocolartifactpublish)           | function | check.protocol.artifact-publish - Validate artifact-publish protocol complian...  |
+| [`validateProtocolProvenance()`](/packages/cleo/api/index#validateprotocolprovenance)                     | function | check.protocol.provenance - Validate provenance protocol compliance  T260         |
+| [`validateGateVerify()`](/packages/cleo/api/index#validategateverify)                                     | function | check.gate.verify - View or modify verification gates for a task  T5327           |
+| [`dispatchMeta()`](/packages/cleo/api/index#dispatchmeta)                                                 | function | Build metadata for a dispatch domain response.                                    |
+| [`wrapResult()`](/packages/cleo/api/index#wrapresult)                                                     | function | Wrap a native engine result into a DispatchResponse. Handles success data, pa...  |
+| [`errorResult()`](/packages/cleo/api/index#errorresult)                                                   | function | Return a standard error response.                                                 |
+| [`unsupportedOp()`](/packages/cleo/api/index#unsupportedop)                                               | function | Return a standard "unsupported operation" error response.                         |
+| [`getListParams()`](/packages/cleo/api/index#getlistparams)                                               | function | Extract limit and offset pagination params from a params dict.                    |
+| [`handleErrorResult()`](/packages/cleo/api/index#handleerrorresult)                                       | function | Handle a caught error: extract message and return an internal error response....  |
+| [`routeByParam()`](/packages/cleo/api/index#routebyparam)                                                 | function | Shared parameter-based routing for merged operations. DRY utility -- all doma...  |
+| [`BackgroundJobManager`](/packages/cleo/api/index#backgroundjobmanager)                                   | class    | Manages background jobs for long-running operations                               |
+| [`setJobManager()`](/packages/cleo/api/index#setjobmanager)                                               | function |                                                                                   |
+| [`getJobManager()`](/packages/cleo/api/index#getjobmanager)                                               | function |                                                                                   |
+| [`AdminHandler`](/packages/cleo/api/index#adminhandler)                                                   | class    |                                                                                   |
+| [`CheckHandler`](/packages/cleo/api/index#checkhandler)                                                   | class    |                                                                                   |
+| [`ConduitHandler`](/packages/cleo/api/index#conduithandler)                                               | class    | Conduit dispatch handler for agent messaging operations.                          |
+| [`MemoryHandler`](/packages/cleo/api/index#memoryhandler)                                                 | class    |                                                                                   |
+| [`nexusStatus()`](/packages/cleo/api/index#nexusstatus)                                                   | function | Get nexus status (initialized, project count, last updated).                      |
+| [`nexusListProjects()`](/packages/cleo/api/index#nexuslistprojects)                                       | function | List all registered projects.                                                     |
+| [`nexusShowProject()`](/packages/cleo/api/index#nexusshowproject)                                         | function | Show a single project by name.                                                    |
+| [`nexusResolve()`](/packages/cleo/api/index#nexusresolve)                                                 | function | Resolve a cross-project task query.                                               |
+| [`nexusDepsQuery()`](/packages/cleo/api/index#nexusdepsquery)                                             | function | Get cross-project dependencies for a task query.                                  |
+| [`nexusGraph()`](/packages/cleo/api/index#nexusgraph)                                                     | function | Build the global dependency graph.                                                |
+| [`nexusCriticalPath()`](/packages/cleo/api/index#nexuscriticalpath)                                       | function | Get the critical path across projects.                                            |
+| [`nexusBlockers()`](/packages/cleo/api/index#nexusblockers)                                               | function | Analyze blockers for a task query.                                                |
+| [`nexusOrphans()`](/packages/cleo/api/index#nexusorphans)                                                 | function | List orphaned cross-project tasks.                                                |
+| [`nexusDiscover()`](/packages/cleo/api/index#nexusdiscover)                                               | function | Discover tasks related to a given task query across projects. Delegates all b...  |
+| [`nexusSearch()`](/packages/cleo/api/index#nexussearch)                                                   | function | Search for tasks across all registered projects. Delegates all business logic...  |
+| [`nexusInitialize()`](/packages/cleo/api/index#nexusinitialize)                                           | function | Initialize the nexus.                                                             |
+| [`nexusRegisterProject()`](/packages/cleo/api/index#nexusregisterproject)                                 | function | Register a project in the nexus.                                                  |
+| [`nexusUnregisterProject()`](/packages/cleo/api/index#nexusunregisterproject)                             | function | Unregister a project from the nexus.                                              |
+| [`nexusSyncProject()`](/packages/cleo/api/index#nexussyncproject)                                         | function | Sync a specific project or all projects.                                          |
+| [`nexusSetPermission()`](/packages/cleo/api/index#nexussetpermission)                                     | function | Set permission level for a project.                                               |
+| [`nexusReconcileProject()`](/packages/cleo/api/index#nexusreconcileproject)                               | function | Reconcile the nexus registry with the filesystem.                                 |
+| [`nexusShareStatus()`](/packages/cleo/api/index#nexussharestatus)                                         | function | Get sharing status for a project.                                                 |
+| [`nexusShareSnapshotExport()`](/packages/cleo/api/index#nexussharesnapshotexport)                         | function | Export a snapshot of the project's tasks.                                         |
+| [`nexusShareSnapshotImport()`](/packages/cleo/api/index#nexussharesnapshotimport)                         | function | Import a snapshot into the project.                                               |
+| [`nexusTransferPreview()`](/packages/cleo/api/index#nexustransferpreview)                                 | function | Preview a cross-project task transfer (dry run).                                  |
+| [`nexusTransferExecute()`](/packages/cleo/api/index#nexustransferexecute)                                 | function | Execute a cross-project task transfer.                                            |
+| [`NexusHandler`](/packages/cleo/api/index#nexushandler)                                                   | class    |                                                                                   |
+| [`OrchestrateHandler`](/packages/cleo/api/index#orchestratehandler)                                       | class    |                                                                                   |
+| [`PipelineHandler`](/packages/cleo/api/index#pipelinehandler)                                             | class    |                                                                                   |
+| [`bindSession()`](/packages/cleo/api/index#bindsession)                                                   | function | Bind a session to the current process. Called by session.start mutation handl...  |
+| [`getBoundSession()`](/packages/cleo/api/index#getboundsession)                                           | function | Get the currently bound session context, or null if none is bound.                |
+| [`hasSession()`](/packages/cleo/api/index#hassession)                                                     | function | Check whether a session is currently bound.                                       |
+| [`unbindSession()`](/packages/cleo/api/index#unbindsession)                                               | function | Unbind the current session context. Called by session.end mutation handler.       |
+| [`resetSessionContext()`](/packages/cleo/api/index#resetsessioncontext)                                   | function | Reset the session context (for testing only).                                     |
+| [`SessionHandler`](/packages/cleo/api/index#sessionhandler)                                               | class    |                                                                                   |
+| [`stickyAdd()`](/packages/cleo/api/index#stickyadd)                                                       | function | Create a new sticky note.                                                         |
+| [`stickyList()`](/packages/cleo/api/index#stickylist)                                                     | function | List sticky notes with optional filtering.                                        |
+| [`stickyShow()`](/packages/cleo/api/index#stickyshow)                                                     | function | Get a single sticky note by ID.                                                   |
+| [`stickyConvertToTask()`](/packages/cleo/api/index#stickyconverttotask)                                   | function | Convert a sticky note to a task.                                                  |
+| [`stickyConvertToMemory()`](/packages/cleo/api/index#stickyconverttomemory)                               | function | Convert a sticky note to a memory observation.                                    |
+| [`stickyArchive()`](/packages/cleo/api/index#stickyarchive)                                               | function | Archive a sticky note.                                                            |
+| [`stickyConvertToTaskNote()`](/packages/cleo/api/index#stickyconverttotasknote)                           | function | Convert a sticky note to a task note.                                             |
+| [`stickyConvertToSessionNote()`](/packages/cleo/api/index#stickyconverttosessionnote)                     | function | Convert a sticky note to a session note.                                          |
+| [`stickyPurge()`](/packages/cleo/api/index#stickypurge)                                                   | function | Purge (permanently delete) a sticky note.                                         |
+| [`StickyHandler`](/packages/cleo/api/index#stickyhandler)                                                 | class    |                                                                                   |
+| [`TasksHandler`](/packages/cleo/api/index#taskshandler)                                                   | class    |                                                                                   |
+| [`codeOutline()`](/packages/cleo/api/index#codeoutline)                                                   | function | code.outline — file structural skeleton.                                          |
+| [`codeSearch()`](/packages/cleo/api/index#codesearch)                                                     | function | code.search — cross-codebase symbol search.                                       |
+| [`codeUnfold()`](/packages/cleo/api/index#codeunfold)                                                     | function | code.unfold — single symbol extraction.                                           |
+| [`codeParse()`](/packages/cleo/api/index#codeparse)                                                       | function | code.parse — raw AST parse for a single file.                                     |
+| [`toolsIssueDiagnostics()`](/packages/cleo/api/index#toolsissuediagnostics)                               | function | Collect issue diagnostics.                                                        |
+| [`toolsSkillList()`](/packages/cleo/api/index#toolsskilllist)                                             | function | List all discovered skills.                                                       |
+| [`toolsSkillShow()`](/packages/cleo/api/index#toolsskillshow)                                             | function | Show a single skill by name.                                                      |
+| [`toolsSkillFind()`](/packages/cleo/api/index#toolsskillfind)                                             | function | Find skills matching a query string.                                              |
+| [`toolsSkillDispatch()`](/packages/cleo/api/index#toolsskilldispatch)                                     | function | Get dispatch matrix entries for a skill.                                          |
+| [`toolsSkillVerify()`](/packages/cleo/api/index#toolsskillverify)                                         | function | Verify a skill's installation and catalog status.                                 |
+| [`toolsSkillDependencies()`](/packages/cleo/api/index#toolsskilldependencies)                             | function | Get dependency tree for a skill.                                                  |
+| [`toolsSkillSpawnProviders()`](/packages/cleo/api/index#toolsskillspawnproviders)                         | function | Get spawn-capable providers by capability.                                        |
+| [`toolsSkillCatalogInfo()`](/packages/cleo/api/index#toolsskillcataloginfo)                               | function | Get catalog info (protocols, profiles, resources, or summary).                    |
+| [`toolsSkillCatalogProtocols()`](/packages/cleo/api/index#toolsskillcatalogprotocols)                     | function | List catalog protocols.                                                           |
+| [`toolsSkillCatalogProfiles()`](/packages/cleo/api/index#toolsskillcatalogprofiles)                       | function | List catalog profiles.                                                            |
+| [`toolsSkillCatalogResources()`](/packages/cleo/api/index#toolsskillcatalogresources)                     | function | List catalog shared resources.                                                    |
+| [`toolsSkillPrecedenceShow()`](/packages/cleo/api/index#toolsskillprecedenceshow)                         | function | Show skill precedence map.                                                        |
+| [`toolsSkillPrecedenceResolve()`](/packages/cleo/api/index#toolsskillprecedenceresolve)                   | function | Resolve skill paths for a specific provider.                                      |
+| [`toolsSkillInstall()`](/packages/cleo/api/index#toolsskillinstall)                                       | function | Install a skill to one or more providers.                                         |
+| [`toolsSkillUninstall()`](/packages/cleo/api/index#toolsskilluninstall)                                   | function | Uninstall a skill from all providers.                                             |
+| [`toolsSkillRefresh()`](/packages/cleo/api/index#toolsskillrefresh)                                       | function | Refresh all tracked skills that have updates available.                           |
+| [`toolsProviderList()`](/packages/cleo/api/index#toolsproviderlist)                                       | function | List all registered providers.                                                    |
+| [`toolsProviderDetect()`](/packages/cleo/api/index#toolsproviderdetect)                                   | function | Detect all available providers in the environment.                                |
+| [`toolsProviderInjectStatus()`](/packages/cleo/api/index#toolsproviderinjectstatus)                       | function | Check injection status for all installed providers.                               |
+| [`toolsProviderSupports()`](/packages/cleo/api/index#toolsprovidersupports)                               | function | Check if a provider supports a specific capability.                               |
+| [`toolsProviderHooks()`](/packages/cleo/api/index#toolsproviderhooks)                                     | function | Query hook providers for a specific event.                                        |
+| [`toolsProviderInject()`](/packages/cleo/api/index#toolsproviderinject)                                   | function | Inject CLEO directives into all installed provider instruction files.             |
+| [`toolsAdapterList()`](/packages/cleo/api/index#toolsadapterlist)                                         | function | List all discovered adapters.                                                     |
+| [`toolsAdapterShow()`](/packages/cleo/api/index#toolsadaptershow)                                         | function | Show a single adapter by ID.                                                      |
+| [`toolsAdapterDetect()`](/packages/cleo/api/index#toolsadapterdetect)                                     | function | Detect active adapters.                                                           |
+| [`toolsAdapterHealth()`](/packages/cleo/api/index#toolsadapterhealth)                                     | function | Get adapter health status.                                                        |
+| [`toolsAdapterActivate()`](/packages/cleo/api/index#toolsadapteractivate)                                 | function | Activate an adapter by ID.                                                        |
+| [`toolsAdapterDispose()`](/packages/cleo/api/index#toolsadapterdispose)                                   | function | Dispose one or all adapters.                                                      |
+| [`ToolsHandler`](/packages/cleo/api/index#toolshandler)                                                   | class    |                                                                                   |
+| [`createDomainHandlers()`](/packages/cleo/api/index#createdomainhandlers)                                 | function | Create a Map of all canonical domain handlers.                                    |
+| [`RateLimiter`](/packages/cleo/api/index#ratelimiter)                                                     | class    | Sliding-window rate limiter for the dispatch pipeline.                            |
+| [`createRateLimiter()`](/packages/cleo/api/index#createratelimiter)                                       | function | Creates a rate limiting middleware for the dispatch pipeline.                     |
+| [`ConfigValidationError`](/packages/cleo/api/index#configvalidationerror)                                 | class    | Configuration validation error                                                    |
+| [`validateConfig()`](/packages/cleo/api/index#validateconfig)                                             | function | Validate complete configuration                                                   |
+| [`loadConfig()`](/packages/cleo/api/index#loadconfig)                                                     | function | Load configuration from all sources  Priority order: 1. Environment variables...  |
+| [`getConfig()`](/packages/cleo/api/index#getconfig)                                                       | function | Get global configuration (singleton)                                              |
+| [`resetConfig()`](/packages/cleo/api/index#resetconfig)                                                   | function | Reset global configuration (for testing)                                          |
+| [`createAudit()`](/packages/cleo/api/index#createaudit)                                                   | function | Creates an audit middleware that logs all mutate operations (and query operat...  |
+| [`createFieldFilter()`](/packages/cleo/api/index#createfieldfilter)                                       | function | Create the LAFS field-filter middleware.  Handles: - \_fields: filter response... |
+| [`createSanitizer()`](/packages/cleo/api/index#createsanitizer)                                           | function | Creates a middleware that sanitizes incoming request parameters. Uses the can...  |
+| [`createSessionResolver()`](/packages/cleo/api/index#createsessionresolver)                               | function | Creates the session resolver middleware.                                          |
+| [`getCliDispatcher()`](/packages/cleo/api/index#getclidispatcher)                                         | function | Get or create the singleton CLI dispatcher.  Creates a Dispatcher with all 9...   |
+| [`createCliDispatcher()`](/packages/cleo/api/index#createclidispatcher)                                   | function | Factory: creates a Dispatcher with all domain handlers + session-resolver, sa...  |
+| [`resetCliDispatcher()`](/packages/cleo/api/index#resetclidispatcher)                                     | function | Reset the singleton dispatcher (for testing).                                     |
+| [`dispatchFromCli()`](/packages/cleo/api/index#dispatchfromcli)                                           | function | Build a DispatchRequest, dispatch it, and handle output/errors.  This is the...   |
+| [`handleRawError()`](/packages/cleo/api/index#handlerawerror)                                             | function | Handle an error response from dispatchRaw().  Calls cliError() and process.ex...  |
+| [`dispatchRaw()`](/packages/cleo/api/index#dispatchraw)                                                   | function | Dispatch and return the raw response without handling output.  For commands t...  |
+| [`registerAddCommand()`](/packages/cleo/api/index#registeraddcommand)                                     | function | Register the add command.  T4460                                                  |
+| [`registerAdminCommand()`](/packages/cleo/api/index#registeradmincommand)                                 | function | Register the admin command group.                                                 |
+| [`registerAdrCommand()`](/packages/cleo/api/index#registeradrcommand)                                     | function |                                                                                   |
+| [`registerAgentCommand()`](/packages/cleo/api/index#registeragentcommand)                                 | function | Register the `cleo agent` command group.                                          |
+| [`registerAgentsCommand()`](/packages/cleo/api/index#registeragentscommand)                               | function | Register `agents` as an alias that prints deprecation notice. Health monitori...  |
+| [`registerAnalyzeCommand()`](/packages/cleo/api/index#registeranalyzecommand)                             | function | Register the analyze command.  T4538                                              |
+| [`registerArchiveCommand()`](/packages/cleo/api/index#registerarchivecommand)                             | function | Register the archive command.  T4461                                              |
+| [`registerArchiveStatsCommand()`](/packages/cleo/api/index#registerarchivestatscommand)                   | function | Register the archive-stats command. Routes through dispatch layer to admin.ar...  |
+| [`registerBackfillCommand()`](/packages/cleo/api/index#registerbackfillcommand)                           | function | Register the `cleo backfill` CLI command.                                         |
+| [`registerBackupCommand()`](/packages/cleo/api/index#registerbackupcommand)                               | function |                                                                                   |
+| [`registerBlockersCommand()`](/packages/cleo/api/index#registerblockerscommand)                           | function |                                                                                   |
+| [`registerBrainCommand()`](/packages/cleo/api/index#registerbraincommand)                                 | function | Register the `cleo brain` command group.  Registers a `brain` parent command...   |
+| [`registerBriefingCommand()`](/packages/cleo/api/index#registerbriefingcommand)                           | function | Register the briefing command.  T4916                                             |
+| [`registerBugCommand()`](/packages/cleo/api/index#registerbugcommand)                                     | function | Register the bug command.  T4913                                                  |
+| [`registerCantCommand()`](/packages/cleo/api/index#registercantcommand)                                   | function |                                                                                   |
+| [`registerCheckCommand()`](/packages/cleo/api/index#registercheckcommand)                                 | function | Register the check command group.                                                 |
+| [`registerCheckpointCommand()`](/packages/cleo/api/index#registercheckpointcommand)                       | function | Register the checkpoint command. Delegates to src/store/git-checkpoint.ts for...  |
+| [`registerCommandsCommand()`](/packages/cleo/api/index#registercommandscommand)                           | function | Register the commands command.  T4551, T5671                                      |
+| [`registerCompleteCommand()`](/packages/cleo/api/index#registercompletecommand)                           | function | Register the complete command.  T4461                                             |
+| [`registerComplianceCommand()`](/packages/cleo/api/index#registercompliancecommand)                       | function |                                                                                   |
+| [`registerConfigCommand()`](/packages/cleo/api/index#registerconfigcommand)                               | function |                                                                                   |
+| [`registerConsensusCommand()`](/packages/cleo/api/index#registerconsensuscommand)                         | function | Register the consensus command group.  T4537                                      |
+| [`registerContextCommand()`](/packages/cleo/api/index#registercontextcommand)                             | function |                                                                                   |
+| [`registerContributionCommand()`](/packages/cleo/api/index#registercontributioncommand)                   | function | Register the contribution command group.  T4537                                   |
+| [`registerCurrentCommand()`](/packages/cleo/api/index#registercurrentcommand)                             | function | Register the current command.  T4756  T4666                                       |
+| [`registerDashCommand()`](/packages/cleo/api/index#registerdashcommand)                                   | function | Register the dash command.  T4535                                                 |
+| [`registerDecompositionCommand()`](/packages/cleo/api/index#registerdecompositioncommand)                 | function | Register the decomposition command group.  T4537                                  |
+| [`registerDeleteCommand()`](/packages/cleo/api/index#registerdeletecommand)                               | function | Register the delete command.  T4461                                               |
+| [`registerDepsCommand()`](/packages/cleo/api/index#registerdepscommand)                                   | function | Register the deps command group and its subcommands.                              |
+| [`registerTreeCommand()`](/packages/cleo/api/index#registertreecommand)                                   | function | Register the tree command.                                                        |
+| [`registerDetectCommand()`](/packages/cleo/api/index#registerdetectcommand)                               | function |                                                                                   |
+| [`registerDetectDriftCommand()`](/packages/cleo/api/index#registerdetectdriftcommand)                     | function |                                                                                   |
+| [`registerDocsCommand()`](/packages/cleo/api/index#registerdocscommand)                                   | function | Register the docs command.  T4551                                                 |
+| [`ProgressTracker`](/packages/cleo/api/index#progresstracker)                                             | class    | Simple progress tracker for CLI operations.                                       |
+| [`Spinner`](/packages/cleo/api/index#spinner)                                                             | class    | Simple spinner for indeterminate progress.                                        |
+| [`createSelfUpdateProgress()`](/packages/cleo/api/index#createselfupdateprogress)                         | function | Create a progress tracker for self-update operations.                             |
+| [`createDoctorProgress()`](/packages/cleo/api/index#createdoctorprogress)                                 | function | Create a progress tracker for doctor operations.                                  |
+| [`createUpgradeProgress()`](/packages/cleo/api/index#createupgradeprogress)                               | function | Create a progress tracker for upgrade operations.                                 |
+| [`registerDoctorCommand()`](/packages/cleo/api/index#registerdoctorcommand)                               | function |                                                                                   |
+| [`registerEnvCommand()`](/packages/cleo/api/index#registerenvcommand)                                     | function | Register the env command group.  T4581                                            |
+| [`registerExistsCommand()`](/packages/cleo/api/index#registerexistscommand)                               | function | Register the exists command.                                                      |
+| [`registerExportCommand()`](/packages/cleo/api/index#registerexportcommand)                               | function |                                                                                   |
+| [`registerExportTasksCommand()`](/packages/cleo/api/index#registerexporttaskscommand)                     | function |                                                                                   |
+| [`registerFindCommand()`](/packages/cleo/api/index#registerfindcommand)                                   | function | Register the find command.  T4460  T4668                                          |
+| [`registerGenerateChangelogCommand()`](/packages/cleo/api/index#registergeneratechangelogcommand)         | function | Register the generate-changelog command.  T4555                                   |
+| [`registerGradeCommand()`](/packages/cleo/api/index#registergradecommand)                                 | function |                                                                                   |
+| [`registerHistoryCommand()`](/packages/cleo/api/index#registerhistorycommand)                             | function |                                                                                   |
+| [`registerImplementationCommand()`](/packages/cleo/api/index#registerimplementationcommand)               | function | Register the implementation command group.  T4537                                 |
+| [`registerImportCommand()`](/packages/cleo/api/index#registerimportcommand)                               | function |                                                                                   |
+| [`registerImportTasksCommand()`](/packages/cleo/api/index#registerimporttaskscommand)                     | function |                                                                                   |
+| [`getGitignoreTemplate()`](/packages/cleo/api/index#getgitignoretemplate)                                 | function | Load the gitignore template from the package's templates/ directory. Falls ba...  |
+| [`registerInitCommand()`](/packages/cleo/api/index#registerinitcommand)                                   | function | Register the init command.  T4681  T4663                                          |
+| [`registerInjectCommand()`](/packages/cleo/api/index#registerinjectcommand)                               | function |                                                                                   |
+| [`registerIssueCommand()`](/packages/cleo/api/index#registerissuecommand)                                 | function | Register the issue command with all subcommands.  T4555                           |
+| [`registerLabelsCommand()`](/packages/cleo/api/index#registerlabelscommand)                               | function | Register the labels command group.  T4538                                         |
+| [`registerLifecycleCommand()`](/packages/cleo/api/index#registerlifecyclecommand)                         | function |                                                                                   |
+| [`registerListCommand()`](/packages/cleo/api/index#registerlistcommand)                                   | function | Register the list command.  T4460  T4668                                          |
+| [`registerLogCommand()`](/packages/cleo/api/index#registerlogcommand)                                     | function | Register the log command.  T4538                                                  |
+| [`registerMapCommand()`](/packages/cleo/api/index#registermapcommand)                                     | function | Register the map command.                                                         |
+| [`registerMemoryBrainCommand()`](/packages/cleo/api/index#registermemorybraincommand)                     | function |                                                                                   |
+| [`registerMigrateClaudeMemCommand()`](/packages/cleo/api/index#registermigrateclaudememcommand)           | function | Register the `migrate claude-mem` command under a migrate parent command.  Us...  |
+| [`registerNextCommand()`](/packages/cleo/api/index#registernextcommand)                                   | function |                                                                                   |
+| [`registerNexusCommand()`](/packages/cleo/api/index#registernexuscommand)                                 | function | Register the nexus command group.  T4554                                          |
+| [`registerObserveCommand()`](/packages/cleo/api/index#registerobservecommand)                             | function |                                                                                   |
+| [`registerOpsCommand()`](/packages/cleo/api/index#registeropscommand)                                     | function | Register the ops command.                                                         |
+| [`registerOrchestrateCommand()`](/packages/cleo/api/index#registerorchestratecommand)                     | function |                                                                                   |
+| [`registerOtelCommand()`](/packages/cleo/api/index#registerotelcommand)                                   | function | Register the otel command group.  T4535                                           |
+| [`registerPhaseCommand()`](/packages/cleo/api/index#registerphasecommand)                                 | function | Register the phase command group.  T4464, T5326                                   |
+| [`registerPhasesCommand()`](/packages/cleo/api/index#registerphasescommand)                               | function | Register the phases command group.  T4538, T5326                                  |
+| [`registerPlanCommand()`](/packages/cleo/api/index#registerplancommand)                                   | function |                                                                                   |
+| [`registerPromoteCommand()`](/packages/cleo/api/index#registerpromotecommand)                             | function |                                                                                   |
+| [`registerReasonCommand()`](/packages/cleo/api/index#registerreasoncommand)                               | function | Register the `cleo reason` command group and its subcommands.                     |
+| [`registerRefreshMemoryCommand()`](/packages/cleo/api/index#registerrefreshmemorycommand)                 | function |                                                                                   |
+| [`registerRelatesCommand()`](/packages/cleo/api/index#registerrelatescommand)                             | function | Register the relates command group.  T4538                                        |
+| [`registerReleaseCommand()`](/packages/cleo/api/index#registerreleasecommand)                             | function |                                                                                   |
+| [`registerRemoteCommand()`](/packages/cleo/api/index#registerremotecommand)                               | function | Register the remote command with add/remove/list/push/pull subcommands.  T4884    |
+| [`registerReorderCommand()`](/packages/cleo/api/index#registerreordercommand)                             | function |                                                                                   |
+| [`registerReparentCommand()`](/packages/cleo/api/index#registerreparentcommand)                           | function |                                                                                   |
+| [`registerResearchCommand()`](/packages/cleo/api/index#registerresearchcommand)                           | function |                                                                                   |
+| [`registerRestoreCommand()`](/packages/cleo/api/index#registerrestorecommand)                             | function |                                                                                   |
+| [`registerRoadmapCommand()`](/packages/cleo/api/index#registerroadmapcommand)                             | function |                                                                                   |
+| [`registerSafestopCommand()`](/packages/cleo/api/index#registersafestopcommand)                           | function | Register the safestop command.  T4551                                             |
+| [`registerSelfUpdateCommand()`](/packages/cleo/api/index#registerselfupdatecommand)                       | function |                                                                                   |
+| [`registerSequenceCommand()`](/packages/cleo/api/index#registersequencecommand)                           | function |                                                                                   |
+| [`registerSessionCommand()`](/packages/cleo/api/index#registersessioncommand)                             | function | Register the session command group.  T4463                                        |
+| [`registerShowCommand()`](/packages/cleo/api/index#registershowcommand)                                   | function | Register the show command.  T4460  T4666                                          |
+| [`registerSkillsCommand()`](/packages/cleo/api/index#registerskillscommand)                               | function | Register the skills command with all subcommands.  T4555                          |
+| [`registerSnapshotCommand()`](/packages/cleo/api/index#registersnapshotcommand)                           | function |                                                                                   |
+| [`registerSpecificationCommand()`](/packages/cleo/api/index#registerspecificationcommand)                 | function | Register the specification command group.  T4537                                  |
+| [`registerStartCommand()`](/packages/cleo/api/index#registerstartcommand)                                 | function | Register the start command.  T4756  T4666                                         |
+| [`registerStatsCommand()`](/packages/cleo/api/index#registerstatscommand)                                 | function | Register the stats command.  T4535                                                |
+| [`registerStickyCommand()`](/packages/cleo/api/index#registerstickycommand)                               | function | Register the sticky command group.  T5281                                         |
+| [`registerStopCommand()`](/packages/cleo/api/index#registerstopcommand)                                   | function | Register the stop command.  T4756  T4666                                          |
+| [`registerTestingCommand()`](/packages/cleo/api/index#registertestingcommand)                             | function | Register the testing command.  T4551                                              |
+| [`registerTokenCommand()`](/packages/cleo/api/index#registertokencommand)                                 | function |                                                                                   |
+| [`registerUpdateCommand()`](/packages/cleo/api/index#registerupdatecommand)                               | function | Register the update command.  T4461                                               |
+| [`registerUpgradeCommand()`](/packages/cleo/api/index#registerupgradecommand)                             | function |                                                                                   |
+| [`registerValidateCommand()`](/packages/cleo/api/index#registervalidatecommand)                           | function |                                                                                   |
+| [`registerVerifyCommand()`](/packages/cleo/api/index#registerverifycommand)                               | function |                                                                                   |
+| [`registerWebCommand()`](/packages/cleo/api/index#registerwebcommand)                                     | function | Register the web command.  T4551                                                  |
+| [`initCliLogger()`](/packages/cleo/api/index#initclilogger)                                               | function | Initialize CLI logger with optional projectHash correlation context.              |
+| [`registerDynamicCommands()`](/packages/cleo/api/index#registerdynamiccommands)                           | function | Register dynamically-generated commands onto the Commander program.  Stub imp...  |
+| [`renderErrorMarkdown()`](/packages/cleo/api/index#rendererrormarkdown)                                   | function | Render a CleoError as structured markdown for CLI display.                        |
+| [`createProtocolEnforcement()`](/packages/cleo/api/index#createprotocolenforcement)                       | function | Creates a middleware that enforces protocol compliance.  Delegates to Protoco...  |
+| [`createVerificationGates()`](/packages/cleo/api/index#createverificationgates)                           | function | Creates a middleware that enforces verification gates on task operations.         |
+| [`getOperationSchema()`](/packages/cleo/api/index#getoperationschema)                                     | function | Look up an operation in the OPERATIONS registry and return a JSON Schema obje...  |
+| [`getAllOperationSchemas()`](/packages/cleo/api/index#getalloperationschemas)                             | function | Return schemas for ALL operations of a given gateway.  Useful for documentati...  |
+| [`resolveTier()`](/packages/cleo/api/index#resolvetier)                                                   | function | Resolve tier from request params, defaulting to 'standard'.                       |
+| [`isOperationAllowed()`](/packages/cleo/api/index#isoperationallowed)                                     | function | Check if a domain is allowed at the given tier.                                   |
+| [`applyProjection()`](/packages/cleo/api/index#applyprojection)                                           | function | Apply field projection to a result object. Removes fields that are excluded a...  |
+| [`createProjectionContext()`](/packages/cleo/api/index#createprojectioncontext)                           | function | Create projection context from request params.                                    |
+| [`createProjectionMiddleware()`](/packages/cleo/api/index#createprojectionmiddleware)                     | function | Create the MVI projection middleware.  Extracts \_mviTier from params, checks...  |
 
 ## Types & Interfaces
 
@@ -482,6 +495,7 @@ description: cleo package overview
 | [`ShimArg`](/packages/cleo/api/index#shimarg)                                       | interface | Positional argument definition.                                                  |
 | [`CommanderCompatOption`](/packages/cleo/api/index#commandercompatoption)           | interface | Commander-compatible option view for tests.                                      |
 | [`ActionHandler`](/packages/cleo/api/index#actionhandler)                           | type      | Type for the action handler function - flexible to support various signatures    |
+| [`LafsShapeViolation`](/packages/cleo/api/index#lafsshapeviolation)                 | interface | The minimum shape invariants for a LAFS envelope, compatible with both minima... |
 | [`CliOutputOptions`](/packages/cleo/api/index#clioutputoptions)                     | interface |                                                                                  |
 | [`CliErrorDetails`](/packages/cleo/api/index#clierrordetails)                       | interface | Error details for structured error output.                                       |
 | [`Gateway`](/packages/cleo/api/index#gateway)                                       | type      | CQRS gateway: read-only queries vs state-modifying mutations.                    |
@@ -513,6 +527,8 @@ description: cleo package overview
 | [`ComplianceData`](/packages/cleo/api/index#compliancedata)                         | interface | Compliance monitoring data.                                                      |
 | [`HelpData`](/packages/cleo/api/index#helpdata)                                     | interface | Help topic content and related commands.                                         |
 | [`SyncData`](/packages/cleo/api/index#syncdata)                                     | interface |                                                                                  |
+| [`PathsData`](/packages/cleo/api/index#pathsdata)                                   | interface | Summary of all resolved CleoOS paths (project + global hub).                     |
+| [`ScaffoldHubData`](/packages/cleo/api/index#scaffoldhubdata)                       | interface | Result of scaffolding the CleoOS Hub.                                            |
 | [`SmokeProbe`](/packages/cleo/api/index#smokeprobe)                                 | interface | Result for a single domain smoke probe.                                          |
 | [`SmokeResult`](/packages/cleo/api/index#smokeresult)                               | interface | Aggregate smoke test result.                                                     |
 | [`EngineResult`](/packages/cleo/api/index#engineresult)                             | interface | Engine result shape accepted by wrapResult. Matches the union of what all eng... |
@@ -549,6 +565,7 @@ description: cleo package overview
 | [`field-context.ts`](/packages/cleo/api/index#field-contextts)                              | file     |                                                                                  |
 | [`format-context.ts`](/packages/cleo/api/index#format-contextts)                            | file     |                                                                                  |
 | [`output-format.ts`](/packages/cleo/api/index#output-formatts)                              | file     |                                                                                  |
+| [`lafs-validator.ts`](/packages/cleo/api/index#lafs-validatorts)                            | file     |                                                                                  |
 | [`normalizer.ts`](/packages/cleo/api/index#normalizerts)                                    | file     |                                                                                  |
 | [`BOLD`](/packages/cleo/api/index#bold)                                                     | variable |                                                                                  |
 | [`DIM`](/packages/cleo/api/index#dim)                                                       | variable |                                                                                  |

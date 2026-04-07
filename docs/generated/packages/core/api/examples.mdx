@@ -170,6 +170,58 @@ const backupDir = getBackupDir('/project');
 const globalConfig = getGlobalConfigPath();
 ```
 
+## `getCleoGlobalRecipesDir()`
+
+*Get the Global Justfile Hub directory.  The hub stores cross-project recipe libraries agents can run in ANY project (cleo-bootstrap, rcasd-init, schema-validate, lint-standard). Both humans (via editor) and the meta Cleo Chef Agent write recipes here.*
+
+[View in API reference](/packages/core/api/functions#getcleoglobalrecipesdir)
+
+```typescript
+const dir = getCleoGlobalRecipesDir();
+// Linux: "/home/user/.local/share/cleo/global-recipes"
+```
+
+## `getCleoGlobalJustfilePath()`
+
+*Get the absolute path to the primary global justfile.*
+
+[View in API reference](/packages/core/api/functions#getcleoglobaljustfilepath)
+
+```typescript
+const path = getCleoGlobalJustfilePath();
+```
+
+## `getCleoPiExtensionsDir()`
+
+*Get the Global Pi Extensions Hub directory.  Houses the Pi extensions that drive the CleoOS UI and tools: orchestrator.ts (Conductor Loop), project-manager.ts (TUI dashboard), tilldone.ts (work visualization), cant-bridge.ts (CANT runtime), stage-guide.ts (before\_agent\_start hook).*
+
+[View in API reference](/packages/core/api/functions#getcleopiextensionsdir)
+
+```typescript
+const dir = getCleoPiExtensionsDir();
+// Linux: "/home/user/.local/share/cleo/pi-extensions"
+```
+
+## `getCleoCantWorkflowsDir()`
+
+*Get the Global CANT Workflows Hub directory.  Stores compiled and parsed `.cant` workflows that agents can invoke globally across projects. Project-local agents still live in `.cleo/agents/`.*
+
+[View in API reference](/packages/core/api/functions#getcleocantworkflowsdir)
+
+```typescript
+const dir = getCleoCantWorkflowsDir();
+```
+
+## `getCleoGlobalAgentsDir()`
+
+*Get the Global CLEO Agents directory.  Holds globally-available CANT agent definitions (`.cant` files). Project-local agents still live in `{projectRoot}/.cleo/agents/`.*
+
+[View in API reference](/packages/core/api/functions#getcleoglobalagentsdir)
+
+```typescript
+const dir = getCleoGlobalAgentsDir();
+```
+
 ## `getAgentOutputsDir()`
 
 *Get the agent outputs directory (relative path) from config or default.  Config lookup priority:   1. config.agentOutputs.directory   2. config.research.outputDir (deprecated)   3. config.directories.agentOutputs (deprecated)   4. Default: '.cleo/agent-outputs'*
@@ -331,6 +383,31 @@ await cleanupBrainRefsOnSessionDelete('ses_20260321_abc');
 
 ```ts
 if (await taskExistsInTasksDb('T042', db)) { /* safe to reference *\/ }
+```
+
+## `buildStageGuidance()`
+
+*Build structured stage guidance for a given pipeline stage.  Resolves the primary skill for the stage from `STAGE_SKILL_MAP`, composes a prompt from the real `SKILL.md` files via `prepareSpawnMulti()`, and returns a `StageGuidance` object suitable for Pi extension injection or direct CLI rendering.  If the skills cannot be resolved, returns a fallback prompt built from `STAGE_DEFINITIONS` metadata only — no hand-authored protocol text.*
+
+[View in API reference](/packages/core/api/functions#buildstageguidance)
+
+```typescript
+const guidance = buildStageGuidance('implementation');
+// guidance.primarySkill === 'ct-task-executor'
+// guidance.loadedSkills === ['ct-task-executor', 'ct-cleo', 'ct-orchestrator']
+// guidance.prompt starts with "## Skills Loaded (3 total)"
+```
+
+## `formatStageGuidance()`
+
+*Format stage guidance as a Markdown-wrapped system prompt.  Since `buildStageGuidance()` now returns the already-composed prompt in `.prompt`, this helper simply passes it through with a header banner identifying which skills are loaded and which stage is active.*
+
+[View in API reference](/packages/core/api/functions#formatstageguidance)
+
+```typescript
+const g = buildStageGuidance('research');
+const text = formatStageGuidance(g);
+return { systemPrompt: text };  // Pi before_agent_start hook return
 ```
 
 ## `PopulateEmbeddingsOptions`
@@ -850,6 +927,17 @@ const { home, templates } = await ensureGlobalScaffold();
 console.log(home.action, templates.action);
 ```
 
+## `ensureCleoOsHub()`
+
+*Ensure the CleoOS Hub subdirectories exist under the global CLEO home, and seed a starter Justfile Hub if none exists yet.  This is the Phase 1 scaffolding entry point. Idempotent: re-running is safe and will not overwrite an existing user-edited justfile.*
+
+[View in API reference](/packages/core/api/functions#ensurecleooshub)
+
+```typescript
+const result = await ensureCleoOsHub();
+console.log(result.action); // "created" or "skipped"
+```
+
 ## `checkGlobalHome()`
 
 *Check that the global \~/.cleo/ home and its required subdirectories exist. Read-only: no side effects.*
@@ -881,6 +969,21 @@ console.log(check.details.version);
 ```typescript
 const check = checkLogDir('/my/project');
 console.log(check.status);
+```
+
+## `classifyProject()`
+
+*Classify a project directory as greenfield or brownfield.  Read-only — never mutates the filesystem. Safe to call at any time.*
+
+[View in API reference](/packages/core/api/functions#classifyproject)
+
+```typescript
+const classification = classifyProject('/my/project');
+if (classification.kind === 'greenfield') {
+  // Seed initial Vision epic
+} else {
+  // Run codebase mapping
+}
 ```
 
 ## `getAgentCapacity()`

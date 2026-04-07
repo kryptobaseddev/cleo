@@ -104,6 +104,6 @@ During conversation, agent can query MCP resources (Layer 3)
 - `src/core/memory/memory-bridge.ts` — bridge generator
 - `src/mcp/resources/index.ts` — MCP resource endpoints
 - `src/mcp/resources/budget.ts` — LAFS budget-aware truncation
-- `packages/ct-skills/skills/ct-memory/SKILL.md` — brain memory skill
+- `packages/skills/skills/ct-memory/SKILL.md` — brain memory skill
 - `src/core/skills/routing-table.ts` — token-efficiency routing
 - `src/core/skills/dynamic-skill-generator.ts` — provider-aware skill content

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
         getSharedResourcePath: vi.fn(() => null),
         isCatalogAvailable: vi.fn(() => true),
         getVersion: vi.fn(() => '2.0.0'),
-        getLibraryRoot: vi.fn(() => '/tmp/ct-skills'),
+        getLibraryRoot: vi.fn(() => '/tmp/cleocode-skills'),
         getSkills: vi.fn(() => []),
         getDispatchMatrix: vi.fn(() => ({ by_task_type: {}, by_keyword: {}, by_protocol: {} })),
         getSkill: vi.fn(() => undefined),

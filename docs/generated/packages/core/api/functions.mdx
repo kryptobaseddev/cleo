@@ -453,6 +453,98 @@ Get the global config file path.
 const globalConfig = getGlobalConfigPath();
 ```
 
+## getCleoGlobalRecipesDir()
+
+Get the Global Justfile Hub directory.  The hub stores cross-project recipe libraries agents can run in ANY project (cleo-bootstrap, rcasd-init, schema-validate, lint-standard). Both humans (via editor) and the meta Cleo Chef Agent write recipes here.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Absolute path to the global-recipes directory under CLEO home
+
+**Example**
+
+```typescript
+const dir = getCleoGlobalRecipesDir();
+// Linux: "/home/user/.local/share/cleo/global-recipes"
+```
+
+## getCleoGlobalJustfilePath()
+
+Get the absolute path to the primary global justfile.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Absolute path to `{cleoHome}/global-recipes/justfile`
+
+**Example**
+
+```typescript
+const path = getCleoGlobalJustfilePath();
+```
+
+## getCleoPiExtensionsDir()
+
+Get the Global Pi Extensions Hub directory.  Houses the Pi extensions that drive the CleoOS UI and tools: orchestrator.ts (Conductor Loop), project-manager.ts (TUI dashboard), tilldone.ts (work visualization), cant-bridge.ts (CANT runtime), stage-guide.ts (before\_agent\_start hook).
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Absolute path to the pi-extensions directory under CLEO home
+
+**Example**
+
+```typescript
+const dir = getCleoPiExtensionsDir();
+// Linux: "/home/user/.local/share/cleo/pi-extensions"
+```
+
+## getCleoCantWorkflowsDir()
+
+Get the Global CANT Workflows Hub directory.  Stores compiled and parsed `.cant` workflows that agents can invoke globally across projects. Project-local agents still live in `.cleo/agents/`.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Absolute path to the cant-workflows directory under CLEO home
+
+**Example**
+
+```typescript
+const dir = getCleoCantWorkflowsDir();
+```
+
+## getCleoGlobalAgentsDir()
+
+Get the Global CLEO Agents directory.  Holds globally-available CANT agent definitions (`.cant` files). Project-local agents still live in `{projectRoot}/.cleo/agents/`.
+
+**Signature**
+
+```typescript
+() => string
+```
+
+**Returns** — Absolute path to the agents directory under CLEO home
+
+**Example**
+
+```typescript
+const dir = getCleoGlobalAgentsDir();
+```
+
 ## getAgentOutputsDir(cwd)
 
 Get the agent outputs directory (relative path) from config or default.  Config lookup priority:   1. config.agentOutputs.directory   2. config.research.outputDir (deprecated)   3. config.directories.agentOutputs (deprecated)   4. Default: '.cleo/agent-outputs'
@@ -3599,6 +3691,349 @@ Ensure stage artifact exists and frontmatter/backlinks are up to date.
 ```typescript
 (epicId: string, stage: Stage, cwd?: string) => Promise<StageArtifactResult>
 ```
+
+## getSkillSearchPaths()
+
+Build the CAAMP skill search paths in priority order. Uses CAAMP's canonical path functions for standard locations.  T4516
+
+**Signature**
+
+```typescript
+(cwd?: string) => SkillSearchPath[]
+```
+
+## getSkillsDir()
+
+Get the primary skills directory (app-embedded).  T4516
+
+**Signature**
+
+```typescript
+(cwd?: string) => string
+```
+
+## getSharedDir()
+
+Get the shared skills resources directory.  T4516
+
+**Signature**
+
+```typescript
+(cwd?: string) => string
+```
+
+## mapSkillName()
+
+Map a user-friendly skill name to the canonical ct-prefixed directory name. Supports: UPPER-CASE, lower-case, with/without ct- prefix.  T4516
+
+**Signature**
+
+```typescript
+(input: string) => { canonical: string; mapped: boolean; }
+```
+
+## listCanonicalSkillNames()
+
+List all known canonical skill names (unique values from the map).  T4516
+
+**Signature**
+
+```typescript
+() => string[]
+```
+
+## parseFrontmatter()
+
+Parse YAML-like frontmatter from a SKILL.md file. Handles the --- delimited header with key: value pairs.  T4516
+
+**Signature**
+
+```typescript
+(content: string) => SkillFrontmatter
+```
+
+## discoverSkill()
+
+Discover a single skill from a directory. Tries CAAMP's parseSkillFile first, falls back to local parsing.  T4516
+
+**Signature**
+
+```typescript
+(skillDir: string) => Skill | null
+```
+
+## discoverSkillsInDir()
+
+Discover all skills in a single directory. Scans for subdirectories containing SKILL.md.  T4516
+
+**Signature**
+
+```typescript
+(dir: string) => Skill[]
+```
+
+## discoverAllSkills()
+
+Discover all skills across CAAMP search paths. Returns skills in priority order (earlier paths take precedence).  T4516
+
+**Signature**
+
+```typescript
+(cwd?: string) => Skill[]
+```
+
+## findSkill()
+
+Find a specific skill by name across all search paths.  T4516
+
+**Signature**
+
+```typescript
+(name: string, cwd?: string) => Skill | null
+```
+
+## toSkillSummary()
+
+Convert a Skill to a lightweight SkillSummary.  T4516
+
+**Signature**
+
+```typescript
+(skill: Skill) => SkillSummary
+```
+
+## generateManifest()
+
+Generate a skill manifest from discovered skills.  T4516
+
+**Signature**
+
+```typescript
+(cwd?: string) => SkillManifest
+```
+
+## resolveTemplatePath()
+
+Resolve a skill template path (SKILL.md) by name.  T4516
+
+**Signature**
+
+```typescript
+(name: string, cwd?: string) => string | null
+```
+
+## loadPlaceholders()
+
+Load token definitions from placeholders.json.  T4521
+
+**Signature**
+
+```typescript
+(cwd?: string) => PlaceholdersConfig | null
+```
+
+## buildDefaults()
+
+Build the full default values map (merging placeholders.json with hardcoded defaults).  T4521
+
+**Signature**
+
+```typescript
+(cwd?: string) => TokenValues
+```
+
+## validateTokenValue()
+
+Validate a single token value against its pattern.  T4521
+
+**Signature**
+
+```typescript
+(token: string, value: string) => { valid: boolean; error?: string; }
+```
+
+## validateRequired()
+
+Validate all required tokens are present and valid.  T4521
+
+**Signature**
+
+```typescript
+(values: TokenValues) => { valid: boolean; missing: string[]; invalid: Array<{ token: string; error: string; }>; }
+```
+
+## validateAllTokens()
+
+Validate all tokens in a values map (required + optional).  T4521
+
+**Signature**
+
+```typescript
+(values: TokenValues) => { valid: boolean; errors: Array<{ token: string; error: string; }>; }
+```
+
+## injectTokens()
+
+Inject token values into a template string. Replaces all TOKEN\_NAME patterns with corresponding values. Unresolved tokens are left as-is (for debugging).  T4521
+
+**Signature**
+
+```typescript
+(template: string, values: TokenValues) => string
+```
+
+## hasUnresolvedTokens()
+
+Check if a template has unresolved tokens after injection.  T4521
+
+**Signature**
+
+```typescript
+(content: string) => string[]
+```
+
+## loadAndInject()
+
+Load a skill template and inject tokens.  T4521
+
+**Signature**
+
+```typescript
+(templatePath: string, values: TokenValues) => { content: string; unresolvedTokens: string[]; }
+```
+
+## setFullContext()
+
+Build a complete TokenValues map from a task, resolving all standard tokens. Ports ti\_set\_full\_context from lib/skills/token-inject.sh.  This is the primary entry point for orchestrators to prepare token values before spawning subagents. It populates: TASK\_ID, DATE, TOPIC\_SLUG, EPIC\_ID, TITLE, TASK\_TITLE, TASK\_DESCRIPTION, TOPICS\_JSON, DEPENDS\_LIST, RESEARCH\_ID, OUTPUT\_DIR, MANIFEST\_PATH, and all command defaults.   T4712  T4663
+
+**Signature**
+
+```typescript
+(task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[]; }, options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string; }) => TokenValues
+```
+
+## autoDispatch()
+
+Auto-dispatch a task to the most appropriate skill. Tries strategies in priority order: label - catalog - type - keyword - fallback.  T4517
+
+**Signature**
+
+```typescript
+(task: Task, cwd?: string) => DispatchResult
+```
+
+## dispatchExplicit()
+
+Dispatch with explicit skill override. Verifies the skill exists before returning.  T4517
+
+**Signature**
+
+```typescript
+(skillName: string, cwd?: string) => DispatchResult | null
+```
+
+## getProtocolForDispatch()
+
+Get the protocol type for a dispatch result.  T4517
+
+**Signature**
+
+```typescript
+(result: DispatchResult) => SkillProtocolType | null
+```
+
+## prepareSpawnContext()
+
+Prepare spawn context for a dispatched skill. Returns the skill name and protocol needed for token injection.  T4517
+
+**Signature**
+
+```typescript
+(task: Task, overrideSkill?: string, cwd?: string) => { skill: string; protocol: SkillProtocolType | null; dispatch: DispatchResult; }
+```
+
+## prepareSpawnMulti()
+
+Compose multiple skills into a single prompt with progressive disclosure. Ports skill\_prepare\_spawn\_multi from lib/skills/skill-dispatch.sh.  The first skill is loaded fully (primary). Secondary skills use progressive disclosure (frontmatter + first section only) to save context budget.   T4712  T4663
+
+**Signature**
+
+```typescript
+(skillNames: string[], tokenValues: Record<string, string>, cwd?: string) => MultiSkillComposition
+```
+
+## buildStageGuidance(stage, cwd)
+
+Build structured stage guidance for a given pipeline stage.  Resolves the primary skill for the stage from `STAGE_SKILL_MAP`, composes a prompt from the real `SKILL.md` files via `prepareSpawnMulti()`, and returns a `StageGuidance` object suitable for Pi extension injection or direct CLI rendering.  If the skills cannot be resolved, returns a fallback prompt built from `STAGE_DEFINITIONS` metadata only — no hand-authored protocol text.
+
+**Signature**
+
+```typescript
+(stage: Stage, cwd?: string) => StageGuidance
+```
+
+**Parameters**
+
+| Name    | Type       | Description                                         |
+| ------- | ---------- | --------------------------------------------------- |
+| `stage` | `Stage`    | The canonical pipeline stage identifier             |
+| `cwd`   | `: string` | Optional project root override for skill resolution |
+
+**Returns** — Structured guidance with `.prompt` ready for LLM injection
+
+**Example**
+
+```typescript
+const guidance = buildStageGuidance('implementation');
+// guidance.primarySkill === 'ct-task-executor'
+// guidance.loadedSkills === ['ct-task-executor', 'ct-cleo', 'ct-orchestrator']
+// guidance.prompt starts with "## Skills Loaded (3 total)"
+```
+
+## formatStageGuidance(guidance)
+
+Format stage guidance as a Markdown-wrapped system prompt.  Since `buildStageGuidance()` now returns the already-composed prompt in `.prompt`, this helper simply passes it through with a header banner identifying which skills are loaded and which stage is active.
+
+**Signature**
+
+```typescript
+(guidance: StageGuidance) => string
+```
+
+**Parameters**
+
+| Name       | Type            | Description                                         |
+| ---------- | --------------- | --------------------------------------------------- |
+| `guidance` | `StageGuidance` | The structured guidance from `buildStageGuidance()` |
+
+**Returns** — Markdown text suitable for LLM system prompt injection
+
+**Example**
+
+```typescript
+const g = buildStageGuidance('research');
+const text = formatStageGuidance(g);
+return { systemPrompt: text };  // Pi before_agent_start hook return
+```
+
+## renderStageGuidance(stage, cwd)
+
+Convenience wrapper: build AND format in a single call.
+
+**Signature**
+
+```typescript
+(stage: Stage, cwd?: string) => string
+```
+
+**Parameters**
+
+| Name    | Type       | Description                                         |
+| ------- | ---------- | --------------------------------------------------- |
+| `stage` | `Stage`    | The canonical pipeline stage identifier             |
+| `cwd`   | `: string` | Optional project root override for skill resolution |
+
+**Returns** — Markdown text ready for LLM system prompt injection
 
 ## getLifecycleState()
 
@@ -7772,7 +8207,7 @@ Perform a complete global scaffold operation: ensure home and templates are all 
 **Signature**
 
 ```typescript
-() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; }>
+() => Promise<{ home: ScaffoldResult; templates: ScaffoldResult; cleoosHub: ScaffoldResult; }>
 ```
 
 **Returns** — Combined scaffold results for home and templates
@@ -7782,6 +8217,25 @@ Perform a complete global scaffold operation: ensure home and templates are all 
 ```typescript
 const { home, templates } = await ensureGlobalScaffold();
 console.log(home.action, templates.action);
+```
+
+## ensureCleoOsHub()
+
+Ensure the CleoOS Hub subdirectories exist under the global CLEO home, and seed a starter Justfile Hub if none exists yet.  This is the Phase 1 scaffolding entry point. Idempotent: re-running is safe and will not overwrite an existing user-edited justfile.
+
+**Signature**
+
+```typescript
+() => Promise<ScaffoldResult>
+```
+
+**Returns** — Scaffold result for the CleoOS hub root
+
+**Example**
+
+```typescript
+const result = await ensureCleoOsHub();
+console.log(result.action); // "created" or "skipped"
 ```
 
 ## checkGlobalHome()
@@ -7845,6 +8299,35 @@ Check that the project log directory exists. Read-only: no side effects.
 ```typescript
 const check = checkLogDir('/my/project');
 console.log(check.status);
+```
+
+## classifyProject(directory)
+
+Classify a project directory as greenfield or brownfield.  Read-only — never mutates the filesystem. Safe to call at any time.
+
+**Signature**
+
+```typescript
+(directory?: string) => ProjectClassification
+```
+
+**Parameters**
+
+| Name        | Type       | Description                                          |
+| ----------- | ---------- | ---------------------------------------------------- |
+| `directory` | `: string` | Absolute or relative path; defaults to process.cwd() |
+
+**Returns** — Classification result with signals and metadata
+
+**Example**
+
+```typescript
+const classification = classifyProject('/my/project');
+if (classification.kind === 'greenfield') {
+  // Seed initial Vision epic
+} else {
+  // Run codebase mapping
+}
 ```
 
 ## ensureGitHooks()
@@ -14898,136 +15381,6 @@ Sanitize all params in a request before routing
 (params: Record<string, unknown> | undefined, projectRoot?: string, context?: { domain?: string; operation?: string; }) => Record<string, unknown> | undefined
 ```
 
-## getSkillSearchPaths()
-
-Build the CAAMP skill search paths in priority order. Uses CAAMP's canonical path functions for standard locations.  T4516
-
-**Signature**
-
-```typescript
-(cwd?: string) => SkillSearchPath[]
-```
-
-## getSkillsDir()
-
-Get the primary skills directory (app-embedded).  T4516
-
-**Signature**
-
-```typescript
-(cwd?: string) => string
-```
-
-## getSharedDir()
-
-Get the shared skills resources directory.  T4516
-
-**Signature**
-
-```typescript
-(cwd?: string) => string
-```
-
-## mapSkillName()
-
-Map a user-friendly skill name to the canonical ct-prefixed directory name. Supports: UPPER-CASE, lower-case, with/without ct- prefix.  T4516
-
-**Signature**
-
-```typescript
-(input: string) => { canonical: string; mapped: boolean; }
-```
-
-## listCanonicalSkillNames()
-
-List all known canonical skill names (unique values from the map).  T4516
-
-**Signature**
-
-```typescript
-() => string[]
-```
-
-## parseFrontmatter()
-
-Parse YAML-like frontmatter from a SKILL.md file. Handles the --- delimited header with key: value pairs.  T4516
-
-**Signature**
-
-```typescript
-(content: string) => SkillFrontmatter
-```
-
-## discoverSkill()
-
-Discover a single skill from a directory. Tries CAAMP's parseSkillFile first, falls back to local parsing.  T4516
-
-**Signature**
-
-```typescript
-(skillDir: string) => Skill | null
-```
-
-## discoverSkillsInDir()
-
-Discover all skills in a single directory. Scans for subdirectories containing SKILL.md.  T4516
-
-**Signature**
-
-```typescript
-(dir: string) => Skill[]
-```
-
-## discoverAllSkills()
-
-Discover all skills across CAAMP search paths. Returns skills in priority order (earlier paths take precedence).  T4516
-
-**Signature**
-
-```typescript
-(cwd?: string) => Skill[]
-```
-
-## findSkill()
-
-Find a specific skill by name across all search paths.  T4516
-
-**Signature**
-
-```typescript
-(name: string, cwd?: string) => Skill | null
-```
-
-## toSkillSummary()
-
-Convert a Skill to a lightweight SkillSummary.  T4516
-
-**Signature**
-
-```typescript
-(skill: Skill) => SkillSummary
-```
-
-## generateManifest()
-
-Generate a skill manifest from discovered skills.  T4516
-
-**Signature**
-
-```typescript
-(cwd?: string) => SkillManifest
-```
-
-## resolveTemplatePath()
-
-Resolve a skill template path (SKILL.md) by name.  T4516
-
-**Signature**
-
-```typescript
-(name: string, cwd?: string) => string | null
-```
-
 ## getAgentsDir()
 
 Get the agents directory path.  T4518
@@ -15186,146 +15539,6 @@ Scan the agents/ directory and register all found agents.  T4518
 
 ```typescript
 (cwd?: string) => { added: string[]; removed: string[]; unchanged: string[]; }
-```
-
-## loadPlaceholders()
-
-Load token definitions from placeholders.json.  T4521
-
-**Signature**
-
-```typescript
-(cwd?: string) => PlaceholdersConfig | null
-```
-
-## buildDefaults()
-
-Build the full default values map (merging placeholders.json with hardcoded defaults).  T4521
-
-**Signature**
-
-```typescript
-(cwd?: string) => TokenValues
-```
-
-## validateTokenValue()
-
-Validate a single token value against its pattern.  T4521
-
-**Signature**
-
-```typescript
-(token: string, value: string) => { valid: boolean; error?: string; }
-```
-
-## validateRequired()
-
-Validate all required tokens are present and valid.  T4521
-
-**Signature**
-
-```typescript
-(values: TokenValues) => { valid: boolean; missing: string[]; invalid: Array<{ token: string; error: string; }>; }
-```
-
-## validateAllTokens()
-
-Validate all tokens in a values map (required + optional).  T4521
-
-**Signature**
-
-```typescript
-(values: TokenValues) => { valid: boolean; errors: Array<{ token: string; error: string; }>; }
-```
-
-## injectTokens()
-
-Inject token values into a template string. Replaces all TOKEN\_NAME patterns with corresponding values. Unresolved tokens are left as-is (for debugging).  T4521
-
-**Signature**
-
-```typescript
-(template: string, values: TokenValues) => string
-```
-
-## hasUnresolvedTokens()
-
-Check if a template has unresolved tokens after injection.  T4521
-
-**Signature**
-
-```typescript
-(content: string) => string[]
-```
-
-## loadAndInject()
-
-Load a skill template and inject tokens.  T4521
-
-**Signature**
-
-```typescript
-(templatePath: string, values: TokenValues) => { content: string; unresolvedTokens: string[]; }
-```
-
-## setFullContext()
-
-Build a complete TokenValues map from a task, resolving all standard tokens. Ports ti\_set\_full\_context from lib/skills/token-inject.sh.  This is the primary entry point for orchestrators to prepare token values before spawning subagents. It populates: TASK\_ID, DATE, TOPIC\_SLUG, EPIC\_ID, TITLE, TASK\_TITLE, TASK\_DESCRIPTION, TOPICS\_JSON, DEPENDS\_LIST, RESEARCH\_ID, OUTPUT\_DIR, MANIFEST\_PATH, and all command defaults.   T4712  T4663
-
-**Signature**
-
-```typescript
-(task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[]; }, options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string; }) => TokenValues
-```
-
-## autoDispatch()
-
-Auto-dispatch a task to the most appropriate skill. Tries strategies in priority order: label - catalog - type - keyword - fallback.  T4517
-
-**Signature**
-
-```typescript
-(task: Task, cwd?: string) => DispatchResult
-```
-
-## dispatchExplicit()
-
-Dispatch with explicit skill override. Verifies the skill exists before returning.  T4517
-
-**Signature**
-
-```typescript
-(skillName: string, cwd?: string) => DispatchResult | null
-```
-
-## getProtocolForDispatch()
-
-Get the protocol type for a dispatch result.  T4517
-
-**Signature**
-
-```typescript
-(result: DispatchResult) => SkillProtocolType | null
-```
-
-## prepareSpawnContext()
-
-Prepare spawn context for a dispatched skill. Returns the skill name and protocol needed for token injection.  T4517
-
-**Signature**
-
-```typescript
-(task: Task, overrideSkill?: string, cwd?: string) => { skill: string; protocol: SkillProtocolType | null; dispatch: DispatchResult; }
-```
-
-## prepareSpawnMulti()
-
-Compose multiple skills into a single prompt with progressive disclosure. Ports skill\_prepare\_spawn\_multi from lib/skills/skill-dispatch.sh.  The first skill is loaded fully (primary). Secondary skills use progressive disclosure (frontmatter + first section only) to save context budget.   T4712  T4663
-
-**Signature**
-
-```typescript
-(skillNames: string[], tokenValues: Record<string, string>, cwd?: string) => MultiSkillComposition
 ```
 
 ## loadProtocolBase()
@@ -15820,7 +16033,7 @@ Resolve a skill directory containing SKILL.md. Searches all paths from getSkillS
 
 ## resolveProtocolPath()
 
-Resolve a protocol .md file.  Search order per base path: 1. base/\_ct-skills-protocols/protocol\_name.md (Strategy B shared dir) 2. PROJECT\_ROOT/src/protocols/protocol\_name.md (legacy embedded fallback)   T4552
+Resolve a protocol .md file.  Search order: 1. `<core-package>/src/validation/protocols/protocols-markdown/{name}.md`    (canonical location, where the markdown lives in this monorepo) 2. `<base>/protocols/{name}.md` for each registered skill base path    (project-local protocol overrides)   T4552  T260 — drop dead Strategy B paths, point at the real protocols-markdown dir
 
 **Signature**
 
@@ -15830,7 +16043,7 @@ Resolve a protocol .md file.  Search order per base path: 1. base/\_ct-skills-pr
 
 ## resolveSharedPath()
 
-Resolve a shared resource .md file.  Search order per base path: 1. base/\_ct-skills-shared/resource\_name.md (Strategy B shared dir) 2. base/\_shared/resource\_name.md (legacy embedded layout)   T4552
+Resolve a shared resource .md file.  Search order per base path: `{base}/_shared/{resource_name}.md`. The `_shared/` directory is the canonical location in `@cleocode/skills`.   T4552  T260 — drop dead Strategy B path
 
 **Signature**
 
@@ -18653,6 +18866,36 @@ T4499
 (entry: ManifestEntryInput, options?: { hasAttestation?: boolean; hasSbom?: boolean; }) => ProtocolValidationResult
 ```
 
+## validateArchitectureDecisionProtocol()
+
+Validate an Architecture Decision Record manifest entry.  Enforces the 8 MUST requirements from `architecture-decision.md`: ADR-001 (consensus provenance), ADR-002 (manifest link), ADR-003 (HITL), ADR-004 (required sections), ADR-005 (cascade on supersession), ADR-006 (SQLite persistence), ADR-007 (agent\_type), ADR-008 (spec block).  ADR-005, ADR-006, and ADR-008 require runtime state the caller must provide via options — this validator checks the options and never performs side-effectful I/O.   T260
+
+**Signature**
+
+```typescript
+(entry: ManifestEntryInput & { consensus_manifest_id?: string; }, options?: ArchitectureDecisionOptions) => ProtocolValidationResult
+```
+
+## validateValidationProtocol()
+
+Validate a manifest entry against the validation stage protocol.  Enforces VALID-001..007 from `validation.md`. The validation stage runs static analysis, type checking, and pre-test quality gates. This validator verifies the manifest entry captures a real validation run; runtime gate enforcement happens in the lifecycle state machine, not here.   T260
+
+**Signature**
+
+```typescript
+(entry: ManifestEntryInput, options?: ValidationStageOptions) => ProtocolValidationResult
+```
+
+## validateTestingProtocol()
+
+Validate a manifest entry against the testing protocol.  This validator is **project-agnostic**: it makes no assumption about the underlying test framework. It enforces the invariant that tests ran via a detected framework, achieved 100% pass rate, and (if an IVT loop was used) converged before the stage completes.  Enforces TEST-001..007 from the post-2026-04 rewrite of `testing.md`.   T260
+
+**Signature**
+
+```typescript
+(entry: ManifestEntryInput, options?: TestingOptions) => ProtocolValidationResult
+```
+
 ## validateProtocol()
 
 Validate a manifest entry against a specific protocol. Throws CleoError with appropriate exit code on strict failure.  T4499
@@ -21202,6 +21445,86 @@ Validates that all required parameters are present in the request. Returns an ar
 (def: OperationDef, params?: Record<string, unknown>) => string[]
 ```
 
+## findManifestEntry()
+
+Locate the manifest line for a given task ID, reading from the end of the file so the most recent entry wins.   T260
+
+**Signature**
+
+```typescript
+(taskId: string, manifestPath: string) => string | null
+```
+
+## loadManifestEntryByTaskId()
+
+Load a manifest entry by task ID from the canonical manifest file.   T260
+
+**Signature**
+
+```typescript
+(taskId: string) => ManifestEntryInput
+```
+
+## loadManifestEntryFromFile()
+
+Load a manifest entry from an arbitrary JSON file (used by the `manifest` dispatch mode where the caller already has a serialized entry).   T260
+
+**Signature**
+
+```typescript
+(manifestFile: string) => ManifestEntryInput
+```
+
+## throwIfStrictFailed()
+
+Throw a CleoError with the protocol's canonical exit code when strict validation fails.   T260
+
+**Signature**
+
+```typescript
+(result: ProtocolValidationResult, opts: { strict?: boolean; }, protocol: ProtocolType, taskId: string) => void
+```
+
+## validateArchitectureDecisionTask()
+
+Validate architecture-decision protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & ArchitectureDecisionOptions) => Promise<ProtocolValidationResult>
+```
+
+## checkArchitectureDecisionManifest()
+
+Validate architecture-decision protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & ArchitectureDecisionOptions) => Promise<ProtocolValidationResult>
+```
+
+## validateArtifactPublishTask()
+
+Validate artifact-publish protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: ArtifactPublishOpts) => Promise<ProtocolValidationResult>
+```
+
+## checkArtifactPublishManifest()
+
+Validate artifact-publish protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: ArtifactPublishOpts) => Promise<ProtocolValidationResult>
+```
+
 ## validateConsensusTask()
 
 Validate consensus protocol for a task.
@@ -21209,17 +21532,17 @@ Validate consensus protocol for a task.
 **Signature**
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ## checkConsensusManifest()
 
-Validate consensus protocol from manifest file.
+Validate consensus protocol from a manifest file.
 
 **Signature**
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; votingMatrixFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ## validateContributionTask()
@@ -21229,17 +21552,17 @@ Validate contribution protocol for a task.
 **Signature**
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; hasContributionTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ## checkContributionManifest()
 
-Validate contribution protocol from manifest file.
+Validate contribution protocol from a manifest file.
 
 **Signature**
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; hasContributionTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ## validateDecompositionTask()
@@ -21249,17 +21572,17 @@ Validate decomposition protocol for a task.
 **Signature**
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; epicId?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: DecompositionOpts) => Promise<ProtocolValidationResult>
 ```
 
 ## checkDecompositionManifest()
 
-Validate decomposition protocol from manifest file.
+Validate decomposition protocol from a manifest file.
 
 **Signature**
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; epicId?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: DecompositionOpts) => Promise<ProtocolValidationResult>
 ```
 
 ## validateImplementationTask()
@@ -21269,17 +21592,77 @@ Validate implementation protocol for a task.
 **Signature**
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; hasTaskTags?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ## checkImplementationManifest()
 
-Validate implementation protocol from manifest file.
+Validate implementation protocol from a manifest file.
 
 **Signature**
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; hasTaskTags?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+## validateProvenanceTask()
+
+Validate provenance protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: ProvenanceOpts) => Promise<ProtocolValidationResult>
+```
+
+## checkProvenanceManifest()
+
+Validate provenance protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: ProvenanceOpts) => Promise<ProtocolValidationResult>
+```
+
+## validateReleaseTask()
+
+Validate release protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: { strict?: boolean; version?: string; hasChangelog?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+## checkReleaseManifest()
+
+Validate release protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; version?: string; hasChangelog?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+## validateResearchTask()
+
+Validate research protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: { strict?: boolean; hasCodeChanges?: boolean; }) => Promise<ProtocolValidationResult>
+```
+
+## checkResearchManifest()
+
+Validate research protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; hasCodeChanges?: boolean; }) => Promise<ProtocolValidationResult>
 ```
 
 ## validateSpecificationTask()
@@ -21289,17 +21672,57 @@ Validate specification protocol for a task.
 **Signature**
 
 ```typescript
-(taskId: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ValidationResult>
+(taskId: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ProtocolValidationResult>
 ```
 
 ## checkSpecificationManifest()
 
-Validate specification protocol from manifest file.
+Validate specification protocol from a manifest file.
 
 **Signature**
 
 ```typescript
-(manifestFile: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ValidationResult>
+(manifestFile: string, opts: { strict?: boolean; specFile?: string; }) => Promise<ProtocolValidationResult>
+```
+
+## validateTestingTask()
+
+Validate testing protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & TestingOptions) => Promise<ProtocolValidationResult>
+```
+
+## checkTestingManifest()
+
+Validate testing protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & TestingOptions) => Promise<ProtocolValidationResult>
+```
+
+## validateValidationTask()
+
+Validate validation-stage protocol for a task.
+
+**Signature**
+
+```typescript
+(taskId: string, opts: { strict?: boolean; } & ValidationStageOptions) => Promise<ProtocolValidationResult>
+```
+
+## checkValidationManifest()
+
+Validate validation-stage protocol from a manifest file.
+
+**Signature**
+
+```typescript
+(manifestFile: string, opts: { strict?: boolean; } & ValidationStageOptions) => Promise<ProtocolValidationResult>
 ```
 
 ## validateSchema(schemaType, data)
@@ -24205,84 +24628,4 @@ Find all stale tasks (stale, critical, or abandoned).
 
 ```typescript
 (tasks: Task[], thresholds?: StalenessThresholds) => StalenessSummary
-```
-
-## validateReleaseTask()
-
-Validate release protocol for a task.
-
-**Signature**
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## checkReleaseManifest()
-
-Validate release protocol from manifest file.
-
-**Signature**
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## validateResearchTask()
-
-Validate research protocol for a task.
-
-**Signature**
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## checkResearchManifest()
-
-Validate research protocol from manifest file.
-
-**Signature**
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## validateTestingTask()
-
-Validate testing protocol for a task.
-
-**Signature**
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## checkTestingManifest()
-
-Validate testing protocol from manifest file.
-
-**Signature**
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## validateValidationTask()
-
-Validate verification/validation protocol for a task.
-
-**Signature**
-
-```typescript
-(taskId: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
-```
-
-## checkValidationManifest()
-
-Validate validation protocol from manifest file.
-
-**Signature**
-
-```typescript
-(manifestFile: string, opts: { strict?: boolean; }) => Promise<ValidationResult>
 ```

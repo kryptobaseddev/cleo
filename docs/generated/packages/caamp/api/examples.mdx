@@ -47,8 +47,8 @@ const config: DetectionConfig = {
 
 ```typescript
 const provider = getProvider("claude-code");
-if (provider) {
-  console.log(provider.configPathGlobal);
+if (provider?.capabilities.mcp) {
+  console.log(provider.capabilities.mcp.configPathGlobal);
 }
 ```
 
@@ -599,6 +599,19 @@ resolveAlias("unknown"); // "unknown"
 ```typescript
 const highPriority = getProvidersByPriority("high");
 console.log(highPriority.map(p => p.toolName));
+```
+
+## `getPrimaryProvider()`
+
+*Get the single primary harness provider, if any is registered.*
+
+[View in API reference](/packages/caamp/api/functions#getprimaryprovider)
+
+```typescript
+const primary = getPrimaryProvider();
+if (primary) {
+  console.log(`Primary harness: ${primary.toolName}`);
+}
 ```
 
 ## `getProvidersByStatus()`
@@ -1616,6 +1629,41 @@ caamp config show claude-code --global
 caamp config path cursor project
 ```
 
+## `readLockFile()`
+
+*Read and parse the CAAMP lock file from disk.*
+
+[View in API reference](/packages/caamp/api/functions#readlockfile)
+
+```typescript
+const lock = await readLockFile();
+console.log(Object.keys(lock.mcpServers));
+```
+
+## `writeLockFile()`
+
+*Write the lock file atomically under a process lock guard.*
+
+[View in API reference](/packages/caamp/api/functions#writelockfile)
+
+```typescript
+const lock = await readLockFile();
+lock.mcpServers["my-server"] = entry;
+await writeLockFile(lock);
+```
+
+## `updateLockFile()`
+
+*Safely read-modify-write the lock file under a process lock guard.*
+
+[View in API reference](/packages/caamp/api/functions#updatelockfile)
+
+```typescript
+const updated = await updateLockFile((lock) => {
+  lock.mcpServers["new-server"] = entry;
+});
+```
+
 ## `getCaampVersion()`
 
 *Retrieve the current CAAMP package version from the nearest `package.json`.*
@@ -2096,41 +2144,6 @@ caamp skills audit ./my-skill/SKILL.md
 caamp skills audit ./skills-dir --sarif
 ```
 
-## `readLockFile()`
-
-*Read and parse the CAAMP lock file from disk.*
-
-[View in API reference](/packages/caamp/api/functions#readlockfile)
-
-```typescript
-const lock = await readLockFile();
-console.log(Object.keys(lock.mcpServers));
-```
-
-## `writeLockFile()`
-
-*Write the lock file atomically under a process lock guard.*
-
-[View in API reference](/packages/caamp/api/functions#writelockfile)
-
-```typescript
-const lock = await readLockFile();
-lock.mcpServers["my-server"] = entry;
-await writeLockFile(lock);
-```
-
-## `updateLockFile()`
-
-*Safely read-modify-write the lock file under a process lock guard.*
-
-[View in API reference](/packages/caamp/api/functions#updatelockfile)
-
-```typescript
-const updated = await updateLockFile((lock) => {
-  lock.mcpServers["new-server"] = entry;
-});
-```
-
 ## `parseSource()`
 
 *Parse and classify a source string into a typed `ParsedSource`.*
@@ -2427,7 +2440,7 @@ caamp skills init --dir ./skills/new-skill
 [View in API reference](/packages/caamp/api/functions#loadlibraryfrommodule)
 
 ```typescript
-const library = loadLibraryFromModule("/home/user/.agents/libraries/ct-skills");
+const library = loadLibraryFromModule("/home/user/.agents/libraries/cleocode-skills");
 console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
 ```
 
@@ -2438,7 +2451,7 @@ console.log(`Loaded v${library.version} with ${library.listSkills().length} skil
 [View in API reference](/packages/caamp/api/functions#buildlibraryfromfiles)
 
 ```typescript
-const library = buildLibraryFromFiles("/home/user/.agents/libraries/ct-skills");
+const library = buildLibraryFromFiles("/home/user/.agents/libraries/cleocode-skills");
 const coreSkills = library.getCoreSkills();
 console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
 ```

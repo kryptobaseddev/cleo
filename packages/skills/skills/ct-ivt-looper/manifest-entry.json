@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-ivt-looper",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 10000,
+  "protocol": "testing",
+  "capabilities": {
+    "inputs": ["task-id", "spec-reference", "worktree-path"],
+    "outputs": ["manifest-entry", "ivt-convergence-report"],
+    "dispatch_triggers": [
+      "run the IVT loop",
+      "implement and verify",
+      "ship this task",
+      "verify against spec",
+      "complete implementation with tests"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-validator", "ct-release-orchestrator"],
+    "dispatch_keywords": {
+      "primary": ["ivt", "implement", "validate", "test"],
+      "secondary": ["converge", "framework", "spec", "iterate"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 80000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

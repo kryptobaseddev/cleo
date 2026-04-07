@@ -2,7 +2,7 @@
   "name": "ct-orchestrator",
   "version": "4.0.0",
   "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation.",
-  "path": "packages/ct-skills/skills/ct-orchestrator",
+  "path": "packages/skills/skills/ct-orchestrator",
   "status": "active",
   "tier": 0,
   "core": true,

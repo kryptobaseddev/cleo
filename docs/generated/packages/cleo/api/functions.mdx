@@ -1615,6 +1615,64 @@ Resolve output format from Commander.js option values.  Reads --json, --human, a
 
 **Returns** — Resolved format with source provenance   T4703  T4663
 
+## validateLafsShape(envelope)
+
+Validate a LAFS envelope shape and report violations.  Full envelopes are delegated to `@cleocode/lafs.validateEnvelope()` (which uses the canonical schema via lafs-napi/AJV). Minimal envelopes are checked against the lightweight invariants in this module.
+
+**Signature**
+
+```typescript
+(envelope: unknown) => LafsShapeViolation
+```
+
+**Parameters**
+
+| Name       | Type      | Description                                          |
+| ---------- | --------- | ---------------------------------------------------- |
+| `envelope` | `unknown` | The candidate envelope (serialized string or object) |
+
+**Returns** — A `LafsShapeViolation` report. `.reasons.length === 0` when valid.
+
+## assertLafsShape(envelope)
+
+Assert that a LAFS envelope conforms to the shape contract, throwing an error with a LAFS-shaped diagnostic if it does not.  Used by the renderer middleware to fail LOUDLY when CLEO itself emits a malformed envelope — this is a developer bug, not an operator issue.
+
+**Signature**
+
+```typescript
+(envelope: unknown) => void
+```
+
+**Parameters**
+
+| Name       | Type      | Description            |
+| ---------- | --------- | ---------------------- |
+| `envelope` | `unknown` | The candidate envelope |
+
+**Throws**
+
+- `LafsViolationError` if the envelope fails any shape invariant
+
+## LafsViolationError
+
+Error thrown by `assertLafsShape` when an envelope fails validation.  Carries the full `LafsShapeViolation` report so diagnostic tooling can report which specific invariants were violated.
+
+**Signature**
+
+```typescript
+typeof LafsViolationError
+```
+
+## emitLafsViolation()
+
+Emit a LAFS-shaped error envelope describing a validation failure and set `process.exitCode` to `ExitCode.LAFS_VIOLATION`.  Called by the renderer middleware as a recovery path when a previously- emitted envelope turns out to be malformed.
+
+**Signature**
+
+```typescript
+(err: LafsViolationError) => void
+```
+
 ## normalizeForHuman()
 
 Normalize data shape for human renderers.  Each command expects data with specific named keys (e.g., `data.task` for 'show', `data.tasks` for 'list'). This function detects and corrects flat/array data from the engine layer.
@@ -2176,7 +2234,7 @@ Initialize a CLEO project directory.  Creates the .cleo/ directory structure wit
 **Signature**
 
 ```typescript
-(projectRoot: string, options?: { projectName?: string; force?: boolean; }) => Promise<EngineResult<{ initialized: boolean; projectRoot: string; filesCreated: string[]; }>>
+(projectRoot: string, options?: { projectName?: string; force?: boolean; mapCodebase?: boolean; }) => Promise<EngineResult<{ initialized: boolean; projectRoot: string; filesCreated: string[]; skipped: string[]; warnings: string[]; classification?: { kind: "greenfield" | "brownfield"; signalCount: number; topLevelFileCount: number; hasGit: boolean; }; nextSteps?: Array<{ action: string; command: string; }>; }>>
 ```
 
 ## isAutoInitEnabled()
@@ -2884,6 +2942,26 @@ Runtime/channel diagnostics for CLI installation mode checks.  T4815
 (_projectRoot: string, params?: { detailed?: boolean; }) => Promise<EngineResult<RuntimeData>>
 ```
 
+## systemPaths()
+
+Report all resolved CleoOS paths (project + global hub).  Backs the `cleo admin paths` CLI command. Read-only: reports current state without mutating the filesystem. Use `systemScaffoldHub()` to create missing hub directories and seed the starter justfile.   Phase 1 — XDG Foundation + Justfile Hub Skeleton
+
+**Signature**
+
+```typescript
+(projectRoot: string) => Promise<EngineResult<PathsData>>
+```
+
+## systemScaffoldHub()
+
+Create the CleoOS Hub directories and seed the starter justfile if absent.  Idempotent: safe to call repeatedly. Never overwrites existing user-edited justfile or README content. Backs the `cleo admin scaffold-hub` CLI command and is invoked automatically by `cleo init` (Phase 5).   Phase 1 — XDG Foundation + Justfile Hub Skeleton
+
+**Signature**
+
+```typescript
+() => Promise<EngineResult<ScaffoldHubData>>
+```
+
 ## systemSequenceRepair()
 
 Repair task ID sequence using canonical core implementation.  T4815
@@ -3178,6 +3256,76 @@ check.protocol.implementation - Validate implementation protocol compliance  T53
 ## validateProtocolSpecification()
 
 check.protocol.specification - Validate specification protocol compliance  T5327
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolResearch()
+
+check.protocol.research - Validate research protocol compliance  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolArchitectureDecision()
+
+check.protocol.architecture-decision - Validate ADR protocol compliance  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolValidation()
+
+check.protocol.validation - Validate validation-stage protocol compliance  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolTesting()
+
+check.protocol.testing - Validate testing-stage protocol compliance (IVT loop)  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolRelease()
+
+check.protocol.release - Validate release protocol compliance  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolArtifactPublish()
+
+check.protocol.artifact-publish - Validate artifact-publish protocol compliance  T260
+
+**Signature**
+
+```typescript
+(params: ProtocolValidationParams, _projectRoot?: string) => Promise<EngineResult>
+```
+
+## validateProtocolProvenance()
+
+check.protocol.provenance - Validate provenance protocol compliance  T260
 
 **Signature**
 
@@ -5026,27 +5174,12 @@ Register the bug command.  T4913
 (program: Command) => void
 ```
 
-## registerCantCommand(program)
-
-Register the `cleo cant` command group.  Registers a `cant` parent command and a `migrate` subcommand that converts markdown instruction files to CANT DSL format.
+## registerCantCommand()
 
 **Signature**
 
 ```typescript
 (program: Command) => void
-```
-
-**Parameters**
-
-| Name      | Type      | Description                       |
-| --------- | --------- | --------------------------------- |
-| `program` | `Command` | The root CLI command to attach to |
-
-**Example**
-
-```ts
-registerCantCommand(rootCommand);
-// Adds: cleo cant migrate <file> [--write] [--dry-run] [--output-dir <dir>] [--verbose] [--json]
 ```
 
 ## registerCheckCommand()

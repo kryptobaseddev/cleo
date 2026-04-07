@@ -686,9 +686,9 @@ Filter providers by their priority tier.
 
 **Parameters**
 
-| Name       | Type               | Description                                                    |
-| ---------- | ------------------ | -------------------------------------------------------------- |
-| `priority` | `ProviderPriority` | Priority level to filter by (`"high"`, `"medium"`, or `"low"`) |
+| Name       | Type               | Description                                                                 |
+| ---------- | ------------------ | --------------------------------------------------------------------------- |
+| `priority` | `ProviderPriority` | Priority level to filter by (`"primary"`, `"high"`, `"medium"`, or `"low"`) |
 
 **Returns** — Array of providers matching the given priority
 
@@ -697,6 +697,27 @@ Filter providers by their priority tier.
 ```typescript
 const highPriority = getProvidersByPriority("high");
 console.log(highPriority.map(p => p.toolName));
+```
+
+## getPrimaryProvider()
+
+Get the single primary harness provider, if any is registered.
+
+**Signature**
+
+```typescript
+() => Provider | undefined
+```
+
+**Returns** — The primary provider, or `undefined` if none is registered
+
+**Example**
+
+```typescript
+const primary = getPrimaryProvider();
+if (primary) {
+  console.log(`Primary harness: ${primary.toolName}`);
+}
 ```
 
 ## getProvidersByStatus(status)
@@ -796,7 +817,7 @@ Get the semantic version string of the provider registry.
 () => string
 ```
 
-**Returns** — Version string from `providers/registry.json` (e.g. `"1.0.0"`)
+**Returns** — Version string from `providers/registry.json` (e.g. `"2.0.0"`)
 
 **Example**
 
@@ -907,7 +928,7 @@ Filter providers by a specific boolean spawn capability flag.
 **Signature**
 
 ```typescript
-(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism">) => Provider[]
+(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism" | "spawnCommand">) => Provider[]
 ```
 
 **Parameters**
@@ -2914,6 +2935,75 @@ caamp config show claude-code --global
 caamp config path cursor project
 ```
 
+## readLockFile()
+
+Read and parse the CAAMP lock file from disk.
+
+**Signature**
+
+```typescript
+() => Promise<CaampLockFile>
+```
+
+**Returns** — Parsed lock file contents
+
+**Example**
+
+```typescript
+const lock = await readLockFile();
+console.log(Object.keys(lock.mcpServers));
+```
+
+## writeLockFile(lock)
+
+Write the lock file atomically under a process lock guard.
+
+**Signature**
+
+```typescript
+(lock: CaampLockFile) => Promise<void>
+```
+
+**Parameters**
+
+| Name   | Type            | Description               |
+| ------ | --------------- | ------------------------- |
+| `lock` | `CaampLockFile` | Lock file data to persist |
+
+**Example**
+
+```typescript
+const lock = await readLockFile();
+lock.mcpServers["my-server"] = entry;
+await writeLockFile(lock);
+```
+
+## updateLockFile(updater)
+
+Safely read-modify-write the lock file under a process lock guard.
+
+**Signature**
+
+```typescript
+(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile>
+```
+
+**Parameters**
+
+| Name      | Type                   | Description                                           |
+| --------- | ---------------------- | ----------------------------------------------------- |
+| `updater` | `(lock: CaampLockFile` | Callback that modifies the lock object (may be async) |
+
+**Returns** — The updated lock file contents after the write
+
+**Example**
+
+```typescript
+const updated = await updateLockFile((lock) => {
+  lock.mcpServers["new-server"] = entry;
+});
+```
+
 ## getCaampVersion()
 
 Retrieve the current CAAMP package version from the nearest `package.json`.
@@ -3867,75 +3957,6 @@ caamp skills audit ./my-skill/SKILL.md
 caamp skills audit ./skills-dir --sarif
 ```
 
-## readLockFile()
-
-Read and parse the CAAMP lock file from disk.
-
-**Signature**
-
-```typescript
-() => Promise<CaampLockFile>
-```
-
-**Returns** — Parsed lock file contents
-
-**Example**
-
-```typescript
-const lock = await readLockFile();
-console.log(Object.keys(lock.mcpServers));
-```
-
-## writeLockFile(lock)
-
-Write the lock file atomically under a process lock guard.
-
-**Signature**
-
-```typescript
-(lock: CaampLockFile) => Promise<void>
-```
-
-**Parameters**
-
-| Name   | Type            | Description               |
-| ------ | --------------- | ------------------------- |
-| `lock` | `CaampLockFile` | Lock file data to persist |
-
-**Example**
-
-```typescript
-const lock = await readLockFile();
-lock.mcpServers["my-server"] = entry;
-await writeLockFile(lock);
-```
-
-## updateLockFile(updater)
-
-Safely read-modify-write the lock file under a process lock guard.
-
-**Signature**
-
-```typescript
-(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile>
-```
-
-**Parameters**
-
-| Name      | Type                   | Description                                           |
-| --------- | ---------------------- | ----------------------------------------------------- |
-| `updater` | `(lock: CaampLockFile` | Callback that modifies the lock object (may be async) |
-
-**Returns** — The updated lock file contents after the write
-
-**Example**
-
-```typescript
-const updated = await updateLockFile((lock) => {
-  lock.mcpServers["new-server"] = entry;
-});
-```
-
 ## parseSource(input)
 
 Parse and classify a source string into a typed `ParsedSource`.
@@ -4655,7 +4676,7 @@ Load a SkillLibrary from a module (index.js) at the given root directory.
 **Example**
 
 ```typescript
-const library = loadLibraryFromModule("/home/user/.agents/libraries/ct-skills");
+const library = loadLibraryFromModule("/home/user/.agents/libraries/cleocode-skills");
 console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
 ```
 
@@ -4684,7 +4705,7 @@ Build a SkillLibrary from raw files in a directory.
 **Example**
 
 ```typescript
-const library = buildLibraryFromFiles("/home/user/.agents/libraries/ct-skills");
+const library = buildLibraryFromFiles("/home/user/.agents/libraries/cleocode-skills");
 const coreSkills = library.getCoreSkills();
 console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
 ```

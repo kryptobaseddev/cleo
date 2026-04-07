@@ -429,14 +429,14 @@ describe("skills lock", () => {
                     "lib-skill": mockSkillEntry({
                         name: "lib-skill",
                         sourceType: "library",
-                        source: "@cleocode/ct-skills:ct-research",
+                        source: "@cleocode/skills:ct-research",
                         version: "1.0.0",
                     }),
                 },
             }));
             mocks.parseSource.mockReturnValue({
                 type: "library",
-                owner: "@cleocode/ct-skills",
+                owner: "@cleocode/skills",
                 repo: "ct-research",
             });
             mocks.execFileAsync.mockResolvedValue({ stdout: "2.0.0\n" });
@@ -452,14 +452,14 @@ describe("skills lock", () => {
                     "lib-current": mockSkillEntry({
                         name: "lib-current",
                         sourceType: "library",
-                        source: "@cleocode/ct-skills:ct-research",
+                        source: "@cleocode/skills:ct-research",
                         version: "1.5.0",
                     }),
                 },
             }));
             mocks.parseSource.mockReturnValue({
                 type: "library",
-                owner: "@cleocode/ct-skills",
+                owner: "@cleocode/skills",
                 repo: "ct-research",
             });
             mocks.execFileAsync.mockResolvedValue({ stdout: "1.5.0\n" });
@@ -473,14 +473,14 @@ describe("skills lock", () => {
                     "lib-fail": mockSkillEntry({
                         name: "lib-fail",
                         sourceType: "library",
-                        source: "@cleocode/ct-skills:ct-research",
+                        source: "@cleocode/skills:ct-research",
                         version: "1.0.0",
                     }),
                 },
             }));
             mocks.parseSource.mockReturnValue({
                 type: "library",
-                owner: "@cleocode/ct-skills",
+                owner: "@cleocode/skills",
                 repo: "ct-research",
             });
             mocks.execFileAsync.mockRejectedValue(new Error("npm view failed"));
@@ -494,14 +494,14 @@ describe("skills lock", () => {
                     "lib-no-ver": mockSkillEntry({
                         name: "lib-no-ver",
                         sourceType: "library",
-                        source: "@cleocode/ct-skills:ct-research",
+                        source: "@cleocode/skills:ct-research",
                         version: undefined,
                     }),
                 },
             }));
             mocks.parseSource.mockReturnValue({
                 type: "library",
-                owner: "@cleocode/ct-skills",
+                owner: "@cleocode/skills",
                 repo: "ct-research",
             });
             mocks.execFileAsync.mockResolvedValue({ stdout: "1.0.0\n" });

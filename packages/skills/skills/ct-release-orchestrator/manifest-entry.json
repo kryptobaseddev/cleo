@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-release-orchestrator",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 8000,
+  "protocol": "release",
+  "capabilities": {
+    "inputs": ["version", "epic-id", "release-config"],
+    "outputs": ["release-commit", "git-tag", "changelog-entry", "manifest-entry"],
+    "dispatch_triggers": [
+      "ship release",
+      "cut release",
+      "publish version",
+      "cleo release ship",
+      "promote epic to released"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-artifact-publisher", "ct-provenance-keeper"],
+    "dispatch_keywords": {
+      "primary": ["release", "ship", "version", "tag"],
+      "secondary": ["changelog", "semver", "bump", "publish"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": true
+  }
+}

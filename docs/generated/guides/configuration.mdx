@@ -11,6 +11,10 @@ How to configure the project using its exported configuration interfaces.
 
 ## Configuration Interfaces
 
+### `McpConfigFormat`
+
+Supported MCP config file formats.
+
 ### `ConfigFormat`
 
 Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
@@ -240,7 +244,7 @@ Options for registering a new agent instance.
 
 | Property        | Type                                                                                                     | Description   |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ------------- |
-| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | agentType     |
+| `agentType`     | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | agentType     |
 | `sessionId`     | `string \| undefined`                                                                                    | sessionId     |
 | `taskId`        | `string \| undefined`                                                                                    | taskId        |
 | `parentAgentId` | `string \| undefined`                                                                                    | parentAgentId |
@@ -350,6 +354,18 @@ Options for finding tasks.
 | `includeArchive` | `boolean \| undefined`                                                                   | includeArchive |
 | `limit`          | `number \| undefined`                                                                    | limit          |
 | `offset`         | `number \| undefined`                                                                    | offset         |
+
+### `AgentConfig`
+
+Agent configuration from AGENT.md or agent definition.
+
+| Property             | Type                    | Description        |
+| -------------------- | ----------------------- | ------------------ |
+| `name`               | `string`                | name               |
+| `description`        | `string`                | description        |
+| `model`              | `string \| undefined`   | model              |
+| `allowedTools`       | `string[] \| undefined` | allowedTools       |
+| `customInstructions` | `string \| undefined`   | customInstructions |
 
 ### `FormatOptions`
 
@@ -879,18 +895,6 @@ Rate limiter configuration
 | `maxRequests` | `number` | maxRequests |
 | `windowMs`    | `number` | windowMs    |
 
-### `AgentConfig`
-
-Agent configuration from AGENT.md or agent definition.
-
-| Property             | Type                    | Description        |
-| -------------------- | ----------------------- | ------------------ |
-| `name`               | `string`                | name               |
-| `description`        | `string`                | description        |
-| `model`              | `string \| undefined`   | model              |
-| `allowedTools`       | `string[] \| undefined` | allowedTools       |
-| `customInstructions` | `string \| undefined`   | customInstructions |
-
 ### `SkillsMpConfig`
 
 SkillsMP configuration.
@@ -930,6 +934,43 @@ Options for backfillTasks().
 | `dryRun`   | `boolean \| undefined`  | Preview changes only — do not modify the database. Default: false.                    |
 | `rollback` | `boolean \| undefined`  | Revert a previous backfill (remove auto-generated AC + verification). Default: false. |
 | `taskIds`  | `string[] \| undefined` | Restrict backfill to specific task IDs. Default: all tasks.                           |
+
+### `ArchitectureDecisionOptions`
+
+Architecture decision options for validator.
+
+| Property            | Type                     | Description                                                              |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------ |
+| `adrContent`        | `string \| undefined`    | Content of the ADR markdown document, used to verify required sections.  |
+| `status`            | `AdrStatus \| undefined` | Current status of the decision record.                                   |
+| `hitlReviewed`      | `boolean \| undefined`   | Whether a human-in-the-loop review has been completed (ADR-003).         |
+| `downstreamFlagged` | `boolean \| undefined`   | Whether downstream artifacts are flagged for review after supersession.  |
+| `persistedInDb`     | `boolean \| undefined`   | Whether the record is persisted in the canonical SQLite decisions table. |
+
+### `ValidationStageOptions`
+
+Validation-stage options for validator.
+
+| Property                    | Type                   | Description                                                     |
+| --------------------------- | ---------------------- | --------------------------------------------------------------- |
+| `specMatchConfirmed`        | `boolean \| undefined` | Whether static analysis / type check passed (VALID-001).        |
+| `testSuitePassed`           | `boolean \| undefined` | Whether the existing test suite ran successfully (VALID-002).   |
+| `protocolComplianceChecked` | `boolean \| undefined` | Whether upstream protocol compliance checks passed (VALID-003). |
+
+### `TestingOptions`
+
+Testing-stage options for validator.
+
+| Property            | Type                         | Description                                                         |
+| ------------------- | ---------------------------- | ------------------------------------------------------------------- |
+| `framework`         | `TestFramework \| undefined` | Detected or declared test framework for the current worktree.       |
+| `testsRun`          | `number \| undefined`        | Total number of tests executed.                                     |
+| `testsPassed`       | `number \| undefined`        | Number of tests that passed.                                        |
+| `testsFailed`       | `number \| undefined`        | Number of tests that failed.                                        |
+| `coveragePercent`   | `number \| undefined`        | Coverage percentage achieved (0-100).                               |
+| `coverageThreshold` | `number \| undefined`        | Minimum coverage threshold from project config.                     |
+| `ivtLoopConverged`  | `boolean \| undefined`       | Whether the implementation→validate→test loop converged (spec met). |
+| `ivtLoopIterations` | `number \| undefined`        | Number of IVT loop iterations until convergence.                    |
 
 ### `BrainMaintenanceOptions`
 
@@ -1452,7 +1493,7 @@ Options for registering a new agent instance.
 
 | Property        | Type                                                                                                     | Description                                     |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `agentType`     | `"custom" \| "orchestrator" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Agent type classification.                      |
+| `agentType`     | `"orchestrator" \| "custom" \| "executor" \| "researcher" \| "architect" \| "validator" \| "documentor"` | Agent type classification.                      |
 | `sessionId`     | `string \| undefined`                                                                                    | Session to associate with.                      |
 | `taskId`        | `string \| undefined`                                                                                    | Task to associate with.                         |
 | `parentAgentId` | `string \| undefined`                                                                                    | Parent agent ID for hierarchical orchestration. |
