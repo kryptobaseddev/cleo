@@ -11,22 +11,21 @@ If you want command-line wrappers for these patterns, use the LAFS-compliant `ca
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { McpServerConfig, Provider, ProviderPriority } from "@cleocode/caamp";
+import type { McpScope, McpServerConfig, Provider, ProviderPriority } from "@cleocode/caamp";
 import {
   getInstalledProviders,
   installMcpServer,
   installSkill,
   removeSkill,
-  resolveConfigPath,
+  resolveMcpConfigPath,
 } from "@cleocode/caamp";
 
-type Scope = "project" | "global";
 const TIER_ORDER: ProviderPriority[] = ["high", "medium", "low"];
 
 interface McpBatchItem {
   serverName: string;
   config: McpServerConfig;
-  scope: Scope;
+  scope: McpScope;
 }
 
 interface SkillBatchItem {
@@ -83,7 +82,7 @@ export async function installBatchWithRollback(
   const candidateConfigPaths = targets.flatMap((provider) => {
     const paths: string[] = [];
     for (const item of mcpItems) {
-      const path = resolveConfigPath(provider, item.scope, projectDir);
+      const path = resolveMcpConfigPath(provider, item.scope, projectDir);
       if (path) paths.push(path);
     }
     return paths;
@@ -95,16 +94,22 @@ export async function installBatchWithRollback(
   try {
     for (const item of mcpItems) {
       for (const provider of targets) {
+        // Skip providers that do not declare an MCP capability — the
+        // installer would throw, and the rollback path is cheaper if we
+        // pre-filter here.
+        if (provider.capabilities.mcp === null) continue;
+
         const result = await installMcpServer(
           provider,
           item.serverName,
           item.config,
-          item.scope,
-          projectDir,
+          { scope: item.scope, projectDir, force: true },
         );
 
-        if (!result.success) {
-          throw new Error(`MCP install failed for ${provider.id}: ${result.error ?? "unknown error"}`);
+        if (!result.installed) {
+          throw new Error(
+            `MCP install failed for ${provider.id}: ${result.conflicted ? "existing entry not overwritten" : "unknown error"}`,
+          );
         }
       }
     }
@@ -157,22 +162,21 @@ Use a preflight + policy + apply workflow:
 3. Apply: install only the operations allowed by policy.
 
 ```typescript
-import type { McpServerConfig, Provider } from "@cleocode/caamp";
-import { getTransform, installMcpServer, listMcpServers } from "@cleocode/caamp";
+import type { McpScope, McpServerConfig, Provider } from "@cleocode/caamp";
+import { installMcpServer, listMcpServers } from "@cleocode/caamp";
 
-type Scope = "project" | "global";
 type ConflictPolicy = "fail" | "skip" | "overwrite";
 
 interface PlannedInstall {
   serverName: string;
   config: McpServerConfig;
-  scope: Scope;
+  scope: McpScope;
 }
 
 interface Conflict {
   providerId: string;
   serverName: string;
-  code: "unsupported-transport" | "unsupported-headers" | "existing-mismatch";
+  code: "no-mcp-capability" | "unsupported-transport" | "unsupported-headers" | "existing-mismatch";
   message: string;
 }
 
@@ -198,8 +202,20 @@ async function detectConflicts(
   const conflicts: Conflict[] = [];
 
   for (const provider of providers) {
+    const mcp = provider.capabilities.mcp;
+    if (mcp === null) {
+      for (const item of planned) {
+        conflicts.push({
+          providerId: provider.id,
+          serverName: item.serverName,
+          code: "no-mcp-capability",
+          message: `${provider.id} does not consume MCP servers via a config file`,
+        });
+      }
+      continue;
+    }
     for (const item of planned) {
-      if (item.config.type && !provider.supportedTransports.includes(item.config.type)) {
+      if (item.config.type && !mcp.supportedTransports.includes(item.config.type)) {
         conflicts.push({
           providerId: provider.id,
           serverName: item.serverName,
@@ -208,7 +224,7 @@ async function detectConflicts(
         });
       }
 
-      if (item.config.headers && !provider.supportsHeaders) {
+      if (item.config.headers && !mcp.supportsHeaders) {
         conflicts.push({
           providerId: provider.id,
           serverName: item.serverName,
@@ -221,12 +237,7 @@ async function detectConflicts(
       const current = existing.find((entry) => entry.name === item.serverName);
       if (!current) continue;
 
-      const transform = getTransform(provider.id);
-      const desired = transform
-        ? transform(item.serverName, item.config)
-        : item.config;
-
-      if (stableStringify(current.config) !== stableStringify(desired)) {
+      if (stableStringify(current.config) !== stableStringify(item.config)) {
         conflicts.push({
           providerId: provider.id,
           serverName: item.serverName,
@@ -255,6 +266,7 @@ export async function installWithConflictStrategy(
   let applied = 0;
 
   for (const provider of providers) {
+    if (provider.capabilities.mcp === null) continue;
     for (const item of planned) {
       const conflict = conflicts.find((c) => c.providerId === provider.id && c.serverName === item.serverName);
       if (conflict && policy === "skip") continue;
@@ -263,11 +275,10 @@ export async function installWithConflictStrategy(
         provider,
         item.serverName,
         item.config,
-        item.scope,
-        projectDir,
+        { scope: item.scope, projectDir, force: policy === "overwrite" },
       );
 
-      if (result.success) applied += 1;
+      if (result.installed) applied += 1;
     }
   }
 
@@ -316,7 +327,7 @@ import type { McpServerConfig, Provider } from "@cleocode/caamp";
 import {
   injectAll,
   installMcpServer,
-  resolveConfigPath,
+  resolveMcpConfigPath,
 } from "@cleocode/caamp";
 
 export async function configureProviderGlobalAndProject(
@@ -328,28 +339,28 @@ export async function configureProviderGlobalAndProject(
   },
   projectDir = process.cwd(),
 ) {
-  const globalConfigPath = resolveConfigPath(provider, "global", projectDir);
-  const projectConfigPath = resolveConfigPath(provider, "project", projectDir);
+  const globalConfigPath = resolveMcpConfigPath(provider, "global", projectDir);
+  const projectConfigPath = resolveMcpConfigPath(provider, "project", projectDir);
 
-  const globalResult = options.globalServer
-    ? await installMcpServer(
-      provider,
-      options.globalServer.name,
-      options.globalServer.config,
-      "global",
-      projectDir,
-    )
-    : null;
+  const globalResult =
+    options.globalServer && provider.capabilities.mcp !== null
+      ? await installMcpServer(
+        provider,
+        options.globalServer.name,
+        options.globalServer.config,
+        { scope: "global", projectDir, force: true },
+      )
+      : null;
 
-  const projectResult = options.projectServer && projectConfigPath
-    ? await installMcpServer(
-      provider,
-      options.projectServer.name,
-      options.projectServer.config,
-      "project",
-      projectDir,
-    )
-    : null;
+  const projectResult =
+    options.projectServer && projectConfigPath
+      ? await installMcpServer(
+        provider,
+        options.projectServer.name,
+        options.projectServer.config,
+        { scope: "project", projectDir, force: true },
+      )
+      : null;
 
   const instructionResults = options.instructionContent
     ? {

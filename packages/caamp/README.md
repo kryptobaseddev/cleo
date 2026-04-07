@@ -34,7 +34,7 @@ After global install, use `caamp` directly:
 ```bash
 caamp providers list
 caamp providers detect
-caamp mcp install @anthropic/mcp-server-fetch
+caamp mcp install fetch --provider claude-desktop -- npx -y @modelcontextprotocol/server-fetch
 caamp skills install owner/repo
 ```
 
@@ -130,16 +130,17 @@ Recommendation criteria flags:
 --select <index>     # select from ranked CHOOSE list
 ```
 
-LAFS canonical spec: https://github.com/kryptobaseddev/lafs/blob/main/lafs.md
-
 ### MCP Servers
 
 ```bash
-caamp mcp install <source>         # Install MCP server to agent configs
-caamp mcp remove <name>            # Remove MCP server from configs
-caamp mcp list                     # List configured MCP servers
-caamp mcp list -a cursor           # List for a specific agent
-caamp mcp detect                   # Auto-detect MCP configurations
+caamp mcp detect                                              # Auto-detect MCP-configured providers
+caamp mcp list                                                # List servers across every MCP-capable provider
+caamp mcp list --provider cursor                              # List for a specific provider
+caamp mcp install <name> --provider <id> -- <command> [args]  # Install via inline command
+caamp mcp install <name> --provider <id> --from server.json   # Install via JSON file
+caamp mcp install <name> --provider <id> --env KEY=VAL -- ... # With env vars
+caamp mcp remove <name> --provider <id>                       # Remove from a single provider
+caamp mcp remove <name> --all-providers                       # Remove from every provider
 ```
 
 ### Instructions

@@ -201,11 +201,14 @@ extensions:
 
 ### 6.2 Environment Variables
 
-CAAMP supports env var injection:
+CAAMP supports env var injection via repeatable `--env KEY=VALUE`
+flags. The provider id is required so the install knows which
+config file to write to:
 
 ```bash
-caamp mcp install @modelcontextprotocol/server-github -- \
-  -e GITHUB_PERSONAL_ACCESS_TOKEN=token
+caamp mcp install github --provider claude-desktop \
+  --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- \
+  npx -y @modelcontextprotocol/server-github
 ```
 
 ---
