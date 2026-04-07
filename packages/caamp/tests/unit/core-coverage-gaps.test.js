@@ -138,18 +138,27 @@ describe("core/paths/standard - uncovered lines", () => {
     it("resolvePreferredConfigScope returns global when useGlobalFlag is true", async () => {
         const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
         const provider = {
-            configPathProject: ".test/config.json",
+            capabilities: { mcp: { configPathProject: ".test/config.json" } },
         };
         expect(resolvePreferredConfigScope(provider, true)).toBe("global");
     });
     it("resolvePreferredConfigScope returns project when provider has project path", async () => {
         const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
-        const provider = { configPathProject: ".test/config.json" };
+        const provider = {
+            capabilities: { mcp: { configPathProject: ".test/config.json" } },
+        };
         expect(resolvePreferredConfigScope(provider)).toBe("project");
     });
     it("resolvePreferredConfigScope returns global when provider lacks project path", async () => {
         const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
-        const provider = { configPathProject: null };
+        const provider = {
+            capabilities: { mcp: { configPathProject: null } },
+        };
+        expect(resolvePreferredConfigScope(provider)).toBe("global");
+    });
+    it("resolvePreferredConfigScope returns global when provider has no MCP integration", async () => {
+        const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
+        const provider = { capabilities: { mcp: null } };
         expect(resolvePreferredConfigScope(provider)).toBe("global");
     });
     it("resolveProvidersRegistryPath throws when registry not found", async () => {
@@ -712,10 +721,21 @@ describe("core/sources/gitlab - branch coverage", () => {
         await expect(cloneGitLabRepo("nonexistent-owner-xxx", "nonexistent-repo-xxx", "main")).rejects.toThrow();
     });
     it("fetchGitLabRawFile returns null on fetch failure", async () => {
-        const { fetchGitLabRawFile } = await import("../../src/core/sources/gitlab.js");
-        const result = await fetchGitLabRawFile("nonexistent-owner-xxx", "nonexistent-repo-xxx", "README.md", "main");
-        // Either null or throws - both are valid
-        expect(result).toBeNull();
+        // Mock fetchWithTimeout to simulate a non-OK response — avoids real network
+        // dependency and GitLab's redirect-to-login behavior on missing repos.
+        vi.doMock("../../src/core/network/fetch.js", () => ({
+            fetchWithTimeout: vi.fn().mockResolvedValue(new Response(null, { status: 404, statusText: "Not Found" })),
+        }));
+        vi.resetModules();
+        try {
+            const { fetchGitLabRawFile } = await import("../../src/core/sources/gitlab.js");
+            const result = await fetchGitLabRawFile("nonexistent-owner-xxx", "nonexistent-repo-xxx", "README.md", "main");
+            expect(result).toBeNull();
+        }
+        finally {
+            vi.doUnmock("../../src/core/network/fetch.js");
+            vi.resetModules();
+        }
     });
 });
 // ════════════════════════════════════════════════════════════════════

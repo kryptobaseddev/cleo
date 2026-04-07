@@ -18,16 +18,20 @@ import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
   addChain,
   advanceInstance,
+  buildStageGuidance,
   channelToDistTag,
   createInstance,
   describeChannel,
+  formatStageGuidance,
   getLogger,
   getProjectRoot,
+  isValidStage,
   type ListPhasesResult,
   listChains,
   paginate,
   type ReleaseListOptions,
   resolveChannelFromBranch,
+  type Stage,
   showChain,
 } from '@cleocode/core/internal';
 import {
@@ -177,6 +181,7 @@ export class PipelineHandler implements DomainHandler {
         'stage.validate',
         'stage.status',
         'stage.history',
+        'stage.guidance',
         'manifest.show',
         'manifest.list',
         'manifest.find',
@@ -268,6 +273,72 @@ export class PipelineHandler implements DomainHandler {
         }
         const result = await lifecycleHistory(taskId, this.projectRoot);
         return wrapResult(result, 'query', 'pipeline', 'stage.history', startTime);
+      }
+
+      case 'guidance': {
+        // Phase 2 + Phase 4: stage-aware prompt guidance sourced from real
+        // SKILL.md files (ct-cleo, ct-orchestrator + stage-specific skill).
+        // Resolves stage from: (a) explicit stage param, or
+        // (b) epicId → lifecycleStatus → active stage.
+        let stage = params?.stage as string | undefined;
+        const epicId = params?.epicId as string | undefined;
+        const format = (params?.format as string | undefined) ?? 'markdown';
+
+        if (!stage && epicId) {
+          const statusResult = await lifecycleStatus(epicId, this.projectRoot);
+          if (statusResult.success) {
+            const data = statusResult.data as
+              | { currentStage?: string; activeStage?: string }
+              | undefined;
+            stage = data?.currentStage ?? data?.activeStage;
+          }
+        }
+
+        if (!stage) {
+          return errorResult(
+            'query',
+            'pipeline',
+            'stage.guidance',
+            'E_INVALID_INPUT',
+            'Either stage or epicId (with an active pipeline stage) is required',
+            startTime,
+          );
+        }
+
+        if (!isValidStage(stage)) {
+          return errorResult(
+            'query',
+            'pipeline',
+            'stage.guidance',
+            'E_INVALID_INPUT',
+            `Unknown stage: ${stage}`,
+            startTime,
+          );
+        }
+
+        const guidance = buildStageGuidance(stage as Stage, this.projectRoot);
+        const data =
+          format === 'json'
+            ? { stage: guidance.stage, guidance }
+            : {
+                stage: guidance.stage,
+                name: guidance.name,
+                order: guidance.order,
+                primarySkill: guidance.primarySkill,
+                loadedSkills: guidance.loadedSkills,
+                requiredGates: guidance.requiredGates,
+                expectedArtifacts: guidance.expectedArtifacts,
+                source: guidance.source,
+                prompt: formatStageGuidance(guidance),
+              };
+
+        return wrapResult(
+          { success: true, data },
+          'query',
+          'pipeline',
+          'stage.guidance',
+          startTime,
+        );
       }
 
       default:

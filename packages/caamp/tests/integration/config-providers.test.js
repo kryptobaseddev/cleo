@@ -34,28 +34,61 @@ vi.mock("node:fs", () => ({
 }));
 import { registerConfigCommand } from "../../src/commands/config.js";
 import { registerProvidersCommand } from "../../src/commands/providers.js";
-const mockProvider = (overrides = {}) => ({
-    id: "claude-code",
-    toolName: "Claude Code",
-    vendor: "Anthropic",
-    agentFlag: "claude",
-    aliases: ["claude"],
-    pathGlobal: "/global",
-    pathProject: ".claude",
-    instructFile: "CLAUDE.md",
-    configFormat: "json",
-    configKey: "mcpServers",
-    configPathGlobal: "/global/claude.json",
-    configPathProject: ".claude/settings.json",
-    pathSkills: "/global/skills",
-    pathProjectSkills: ".claude/skills",
-    detection: { methods: ["binary"], binary: "claude" },
-    supportedTransports: ["stdio", "sse"],
-    supportsHeaders: true,
-    priority: "high",
-    status: "active",
-    ...overrides,
-});
+const mockProvider = (overrides = {}) => {
+    const { configPathProject, capabilities: capOverride, ...rest } = overrides;
+    const mcp = {
+        configKey: "mcpServers",
+        configFormat: "json",
+        configPathGlobal: "/global/claude.json",
+        configPathProject: configPathProject === undefined ? ".claude/settings.json" : configPathProject,
+        supportedTransports: ["stdio", "sse"],
+        supportsHeaders: true,
+    };
+    return {
+        id: "claude-code",
+        toolName: "Claude Code",
+        vendor: "Anthropic",
+        agentFlag: "claude",
+        aliases: ["claude"],
+        pathGlobal: "/global",
+        pathProject: ".claude",
+        instructFile: "CLAUDE.md",
+        pathSkills: "/global/skills",
+        pathProjectSkills: ".claude/skills",
+        detection: { methods: ["binary"], binary: "claude" },
+        priority: "high",
+        status: "active",
+        agentSkillsCompatible: true,
+        capabilities: {
+            mcp,
+            harness: null,
+            skills: {
+                agentsGlobalPath: null,
+                agentsProjectPath: null,
+                precedence: "vendor-only",
+            },
+            hooks: {
+                supported: [],
+                hookConfigPath: null,
+                hookConfigPathProject: null,
+                hookFormat: null,
+                nativeEventCatalog: "canonical",
+                canInjectSystemPrompt: false,
+                canBlockTools: false,
+            },
+            spawn: {
+                supportsSubagents: false,
+                supportsProgrammaticSpawn: false,
+                supportsInterAgentComms: false,
+                supportsParallelSpawn: false,
+                spawnMechanism: null,
+                spawnCommand: null,
+            },
+            ...capOverride,
+        },
+        ...rest,
+    };
+};
 describe("integration: config and providers commands", () => {
     beforeEach(() => {
         vi.restoreAllMocks();

@@ -29,18 +29,29 @@ export async function initProject(
   options?: {
     projectName?: string;
     force?: boolean;
+    mapCodebase?: boolean;
   },
 ): Promise<
   EngineResult<{
     initialized: boolean;
     projectRoot: string;
     filesCreated: string[];
+    skipped: string[];
+    warnings: string[];
+    classification?: {
+      kind: 'greenfield' | 'brownfield';
+      signalCount: number;
+      topLevelFileCount: number;
+      hasGit: boolean;
+    };
+    nextSteps?: Array<{ action: string; command: string }>;
   }>
 > {
   try {
     const result = await coreInitProject({
       name: options?.projectName,
       force: options?.force,
+      mapCodebase: options?.mapCodebase,
     });
 
     return {
@@ -49,6 +60,10 @@ export async function initProject(
         initialized: result.initialized,
         projectRoot,
         filesCreated: result.created,
+        skipped: result.skipped,
+        warnings: result.warnings,
+        classification: result.classification,
+        nextSteps: result.nextSteps,
       },
     };
   } catch (err: unknown) {

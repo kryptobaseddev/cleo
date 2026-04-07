@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.4.5",
-  "description": "CLEO CLI — the assembled product consuming @cleocode/core",
+  "version": "2026.4.6",
+  "description": "CLEO CLI \u2014 the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
   "exports": {
@@ -36,7 +36,8 @@
     "dist",
     "migrations",
     "completions",
-    "bin"
+    "bin",
+    "templates"
   ],
   "repository": {
     "type": "git",

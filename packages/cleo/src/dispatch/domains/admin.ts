@@ -61,9 +61,11 @@ import {
   systemListBackups,
   systemLog,
   systemMigrate,
+  systemPaths,
   systemRestore,
   systemRuntime,
   systemSafestop,
+  systemScaffoldHub,
   systemSequence,
   systemSmoke,
   systemStats,
@@ -138,6 +140,11 @@ export class AdminHandler implements DomainHandler {
             projectRoot,
             params as { detailed?: boolean } | undefined,
           );
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'paths': {
+          const result = await systemPaths(projectRoot);
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -573,8 +580,14 @@ export class AdminHandler implements DomainHandler {
         case 'init': {
           const result = await initProject(
             projectRoot,
-            params as { projectName?: string; force?: boolean } | undefined,
+            params as { projectName?: string; force?: boolean; mapCodebase?: boolean } | undefined,
           );
+          return wrapResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        case 'scaffold-hub': {
+          // Phase 1: create CleoOS Hub dirs and seed starter justfile
+          const result = await systemScaffoldHub();
           return wrapResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -1075,6 +1088,7 @@ export class AdminHandler implements DomainHandler {
         'stats',
         'context',
         'runtime',
+        'paths',
         'job',
         'dash',
         'log',
@@ -1091,6 +1105,7 @@ export class AdminHandler implements DomainHandler {
       ],
       mutate: [
         'init',
+        'scaffold-hub',
         'config.set',
         'config.set-preset',
         'backup',

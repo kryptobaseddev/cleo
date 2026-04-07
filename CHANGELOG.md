@@ -4,6 +4,110 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.6] - 2026-04-07
+
+### CleoOS — autonomous orchestration is now real
+
+This release closes the autonomous-orchestration gap identified in the v2026.4.x system assessment. CLEO + Pi now form a functional CleoOS: a unified, cross-project agentic operating system with a Conductor Loop, skill-backed stage guidance, a CANT runtime bridge, and a global hub of recipes/extensions/agents that ships with `npm install`.
+
+This release builds on top of the v2026.4.5 Pi-as-primary harness work and the T260 dedicated-protocols/skills epic. It fills in the runtime, distribution, and validation layers.
+
+### Added
+
+#### CleoOS hub (Phase 1) — `$CLEO_HOME/{global-recipes,pi-extensions,cant-workflows,agents}`
+
+- **`getCleoGlobalRecipesDir/getCleoPiExtensionsDir/getCleoCantWorkflowsDir/getCleoGlobalAgentsDir`** path resolvers in `@cleocode/core` ([`packages/core/src/paths.ts`](packages/core/src/paths.ts)). All four hub subdirectories live under the existing XDG-compliant `getCleoHome()` (Linux: `~/.local/share/cleo/`).
+- **`ensureCleoOsHub()`** scaffolding entry point in [`packages/core/src/scaffold.ts`](packages/core/src/scaffold.ts). Idempotent, copies templates from the bundled `@cleocode/cleo` package, never overwrites operator/agent edits.
+- **`cleo admin paths`** query — reports all CleoOS paths and per-component scaffolding status as a LAFS envelope.
+- **`cleo admin scaffold-hub`** mutation — explicit hub provisioning command for operators.
+- **`packages/cleo/templates/cleoos-hub/`** bundle — ships with the `@cleocode/cleo` npm tarball. Contains `pi-extensions/{orchestrator,stage-guide,cant-bridge}.ts`, `global-recipes/{justfile,README.md}`, plus a top-level `README.md`.
+- **Global Justfile Hub** seeded with cross-project recipes (`bootstrap`, `stage-guidance <stage>`, `skills`, `skill-info <name>`, `lint`, `test`, `recipes`) — every recipe wraps `cleo` CLI invocations rather than re-encoding protocol text.
+
+#### Pi as the exclusive CAAMP harness (Phase 2)
+
+- **Pi registered** as the 45th CAAMP provider (`packages/caamp/providers/registry.json`) with full harness capability metadata (`role: "primary-orchestrator"`, `conductorLoopHost: true`, `stageGuidanceInjection: true`, `cantBridgeHost: true`, `globalExtensionsHub: $CLEO_HOME/pi-extensions`). Pi sits alongside the v2026.4.5 priority `"primary"` tier introduced for the Pi-first reshape.
+- **`buildStageGuidance(stage, cwd?)`** in [`packages/core/src/lifecycle/stage-guidance.ts`](packages/core/src/lifecycle/stage-guidance.ts) — thin loader that maps each pipeline stage to its dedicated SKILL.md via `STAGE_SKILL_MAP` (rewired in T260 to ct-consensus-voter, ct-adr-recorder, ct-ivt-looper, ct-release-orchestrator) and composes Tier-0 + stage-specific skills via the existing `prepareSpawnMulti()` helper. **Source: `skills` (real `SKILL.md` files), never hand-authored.**
+- **`renderStageGuidance(stage)`**, **`formatStageGuidance(g)`**, **`STAGE_SKILL_MAP`**, **`TIER_0_SKILLS`** exports for downstream consumers.
+- **`cleo lifecycle guidance [stage]`** CLI command — Pi extensions shell out to this on `before_agent_start` to inject the stage-aware system prompt. Resolves stage from `--epicId <id>` automatically when omitted.
+- **`pipeline.stage.guidance`** dispatch operation in `@cleocode/cleo` (registered in `dispatch/registry.ts` and routed in `dispatch/domains/pipeline.ts`).
+- **`stage-guide.ts` Pi extension** — `before_agent_start` hook that calls `cleo lifecycle guidance --epicId` and returns `{ systemPrompt }` to enrich the LLM's effective prompt with skill-backed protocol text.
+
+#### Conductor Loop (Phase 3)
+
+- **`orchestrator.ts` Pi extension** (~624 lines) — registers `/cleo:auto <epicId>`, `/cleo:stop`, `/cleo:status` commands. The loop polls CLEO for ready tasks, queries the active stage, fetches stage guidance, spawns subagents via the CLEO orchestrate engine, monitors completion, and validates output. Includes mock mode (`CLEOOS_MOCK=1`) for CI, safety cap of 100 iterations, and graceful `ctx.signal` cancellation. Loads ct-orchestrator + ct-cleo (Tier 0) into the LLM system prompt on every turn so even sessions without an active epic operate under the skill-backed protocol.
+- **`cleo agent work --execute`** flag in [`packages/cleo/src/cli/commands/agent.ts`](packages/cleo/src/cli/commands/agent.ts) — fills the documented gap at line 791. The work loop now actually spawns ready tasks via `orchestrate.spawn.execute` instead of merely advertising them. New `--adapter <id>` and `--epic <id>` flags scope execution.
+
+#### CANT runtime bridge via napi-rs (Phase 4)
+
+- **`cant-napi` extended** with async `cant_execute_pipeline(file, name)` exposing `cant-runtime::execute_pipeline` to Node ([`crates/cant-napi/src/lib.rs`](crates/cant-napi/src/lib.rs)). Returns structured `JsPipelineResult` with per-step exit codes, stdout/stderr lengths, and timing.
+- **`@cleocode/cant` migrated to napi-rs**: `executePipeline(filePath, pipelineName)` async TS API in `packages/cant/src/index.ts` calls into the native binding. **The legacy WASM bundle is gone** (see Removed below).
+- **`cant-bridge.ts` Pi extension** (~989 lines) — registers `/cant:load <file>`, `/cant:run <file> <workflow>`, `/cant:execute-pipeline <file> --name <pipeline>`, `/cant:info`. Parses .cant files via `cleo cant parse`, delegates deterministic pipelines to the napi binding, interprets workflow constructs (Session, Parallel race/settle, Conditional with Expression+Discretion, ApprovalGate, Repeat, ForLoop, LoopUntil, TryCatch) in TypeScript using Pi's native subagent spawning. When `/cant:load` reads an Agent definition, the bridge captures its declared `skills:` list and the `before_agent_start` hook fetches each skill's metadata via `cleo skills info` to compose a system-prompt prefix at every LLM turn. Mock mode and `ctx.signal` cancellation supported throughout.
+- **`cleo cant parse|validate|list|execute`** CLI commands in [`packages/cleo/src/cli/commands/cant.ts`](packages/cleo/src/cli/commands/cant.ts) — call directly into the @cleocode/cant napi-backed TS API, no shell-out to a standalone binary.
+- **6 canonical seed agents bundled** in [`packages/agents/seed-agents/`](packages/agents/seed-agents/): `cleo-prime`, `cleo-dev`, `cleo-historian`, `cleo-rust-lead`, `cleo-db-lead`, `cleoos-opus-orchestrator`. Pre-existing T01 `persist` boolean errors fixed in the seeds before bundling.
+- **`cleo init --install-seed-agents`** flag — opt-in installer for the canonical seeds into the project's `.cleo/agents/` directory.
+
+#### Greenfield/brownfield bootstrap (Phase 5)
+
+- **`classifyProject(directory?)`** in [`packages/core/src/discovery.ts`](packages/core/src/discovery.ts) — read-only classifier that detects `greenfield` (empty/new) vs `brownfield` (existing codebase) by checking `.git/`, source dirs, package manifests, and docs presence. Returns a `ProjectClassification` with signal list and metadata.
+- **`cleo init`** now classifies the directory BEFORE creating files and emits `classification: { kind, signalCount, topLevelFileCount, hasGit }` in the LAFS envelope.
+- **`nextSteps: Array<{action, command}>`** field in init output — different recommendations for greenfield (start session, seed Vision epic, run Conductor Loop) vs brownfield (anchor codebase in BRAIN, review project context, start scoped session).
+- **Brownfield warning** — when a brownfield project is initialized without `--map-codebase`, init emits a warning recommending `cleo init --map-codebase` to anchor the existing codebase as BRAIN baseline (Phase 5 context anchoring).
+- **`ensureCleoOsHub()` invoked from `cleo init`** — every new project gets the CleoOS hub provisioned automatically.
+
+#### LAFS validator middleware (Phase 6)
+
+- **`packages/cleo/src/cli/renderers/lafs-validator.ts`** — middleware that validates every CLI envelope before stdout. Full envelopes (`{$schema, _meta, success, result}`) delegate to the canonical `validateEnvelope()` from `@cleocode/lafs` (which uses `lafs-napi` Rust + AJV fallback against `packages/lafs/schemas/v1/envelope.schema.json`). Minimal envelopes (`{ok, r, _m}`) are checked against a local shape invariant since the canonical schema doesn't cover the agent-optimized format.
+- **`ExitCode.LAFS_VIOLATION = 104`** — emitted when a CLEO-internal envelope fails the shape contract. Wraps the malformed output in a valid error envelope on stderr and sets `process.exitCode`.
+- **`CLEO_LAFS_VALIDATE=off` env opt-out** — disables the validator middleware for performance-sensitive scripted use.
+
+### Changed
+
+- **`packages/core/schemas/` reduced from 43 → 10 files.** 33 orphan schemas deleted (audit confirmed zero AJV consumers in source code; only cosmetic comment/URL references remained).
+- **`STAGE_SKILL_MAP` rewired** in [`packages/core/src/lifecycle/stage-guidance.ts`](packages/core/src/lifecycle/stage-guidance.ts) (T260, shipped via this release): consensus → ct-consensus-voter, architecture_decision → ct-adr-recorder, testing → ct-ivt-looper, release → ct-release-orchestrator, validation → ct-validator (kept). Each pipeline stage now owns exactly one dedicated skill — no more overloaded ct-validator/ct-dev-workflow assignments.
+- **`packages/cant/package.json` files array**: `"wasm/"` removed, `"napi/"` added.
+- **`packages/cleo/package.json` files array**: `"templates"` added so the cleoos-hub bundle ships in the npm tarball.
+- **`@cleocode/cant` runtime path**: every consumer now goes through the napi-rs binding. The TypeScript `native-loader.ts` no longer falls back to WASM.
+- **`cleo init` LAFS output shape extended** with `classification` and `nextSteps` fields. Existing fields (`initialized`, `directory`, `created`, `skipped`, `warnings`) unchanged.
+- **`cleo cant migrate` and other cant subcommands** route through the napi binding instead of the WASM fallback.
+
+### Removed
+
+- **`packages/cant/wasm/`** — entire WASM bundle deleted (`cant_core.{js,d.ts,_bg.wasm,_bg.wasm.d.ts}` + `package.json`). The `build:wasm` script removed from `packages/cant/package.json`.
+- **`packages/cant/src/wasm-loader.ts`** — superseded by the napi-only `native-loader.ts`.
+- **`crates/cant-runtime/src/bin/cant-cli.rs`** — standalone binary deleted now that `cant-napi` exposes `execute_pipeline` directly. One less artifact to ship, no per-platform binary distribution complexity.
+- **`packages/core/src/conduit/__tests__/dual-api-e2e.test.ts`** — deleted entirely. The test suite was a transitional E2E that exercised both the canonical `api.signaldock.io` and the legacy `api.clawmsgr.com` against real network endpoints. Per the v2026.4.5 deprecation, ClawMsgr is no longer a supported backend, and network-dependent E2E tests are an anti-pattern in the unit test runner. Removed along with the generated `.d.ts`/`.js`/`.js.map` files. SignalDock health and messaging are exercised by the existing in-process LocalTransport unit tests and the live `cleo admin smoke` probes.
+- **33 orphan JSON schemas** in `packages/core/schemas/`: `agent-configs`, `agent-registry`, `archive`, `brain-{decision,learning,pattern}`, `critical-path`, `deps-cache`, `doctor-output`, `error`, `global-config`, `grade`, `log`, `metrics`, `migrations`, `nexus-registry`, `operation-constitution`, `output`, `projects-registry`, `protocol-frontmatter`, all 9 `rcasd-*` schemas, `releases`, `skills-manifest`, `spec-index`, `system-flow-atlas`. None had any AJV consumers; deleted with no runtime impact.
+
+### Fixed
+
+- **`agent.ts:791` Conductor Loop gap** — `cleo agent work` now actually spawns tasks via the orchestrate engine when `--execute` is passed (was: prints "Task available. Run: cleo start <id> to begin." and exits). The legacy watch-only mode is preserved as the default for backwards compatibility.
+- **Pre-existing T01 errors** in 6 `.cant` seed agent files — `persist: project` (string) → `persist: true` (boolean) per the .cant grammar contract. All 6 seeds now validate clean via `cleo cant validate`.
+- **`getSupportedOperations()` drift** in `AdminHandler` — `paths` (query) and `scaffold-hub` (mutate) added to the explicit operation list to keep `alias-detection.test.ts` and `admin.test.ts` in sync with the registry.
+- **Operation count drift** in `parity.test.ts` — registry now exposes 130 query + 98 mutate = 228 total operations (was: 128/97/225). Test expectations updated.
+
+### Acknowledgements
+
+This release stacks on top of:
+
+- **v2026.4.5 (BREAKING)** — Pi as primary CAAMP harness, registry v3 schema, harness layer abstraction, default-resolution to primary harness across CAAMP commands. The harness contract `PiHarness` introduced there is what makes the CleoOS Conductor Loop possible.
+- **T260 epic (committed in v2026.4.5)** — 12 dedicated protocols + 6 new v2-compliant skills (`ct-adr-recorder`, `ct-ivt-looper`, `ct-consensus-voter`, `ct-release-orchestrator`, `ct-artifact-publisher`, `ct-provenance-keeper`) + project-agnostic IVT loop in `testing.md` + composition pipeline in `release.md`. The CleoOS stage-guidance loader points at these skills.
+
+### Migration
+
+No public API removed beyond the WASM path in `@cleocode/cant`. If you imported from `@cleocode/cant/wasm-loader` directly (unlikely — it was internal), switch to the public TS API:
+
+```diff
+- import { initWasm, cantParseWasm } from '@cleocode/cant/wasm-loader';
+- await initWasm();
+- const result = cantParseWasm(content);
++ import { parseCANTMessage } from '@cleocode/cant';
++ const result = parseCANTMessage(content);
+```
+
+The napi binding loads synchronously on first use; no `await initWasm()` ceremony.
+
+If you depended on the standalone `cant-cli` Rust binary that briefly existed in `crates/cant-runtime/src/bin/`, switch to the napi-backed TS API or shell out to `cleo cant parse|validate|list|execute` (which now wraps the napi binding internally).
+
 ## [2026.4.5] - 2026-04-06
 
 ### ⚠ BREAKING CHANGES — v3 harness architecture

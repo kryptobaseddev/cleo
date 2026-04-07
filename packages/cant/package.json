@@ -1,16 +1,16 @@
 {
   "name": "@cleocode/cant",
-  "version": "2026.4.5",
-  "description": "CANT protocol parser and interpreter for CLEO - wraps cant-core WASM",
+  "version": "2026.4.6",
+  "description": "CANT protocol parser and runtime for CLEO \u2014 wraps cant-core via napi-rs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist/",
-    "wasm/"
+    "napi/"
   ],
   "scripts": {
     "build": "tsc",
-    "build:wasm": "cd ../../crates/cant-core && wasm-pack build --target web --features wasm --out-dir ../../packages/cant/wasm",
+    "build:napi": "cargo build --release -p cant-napi && mkdir -p napi && cp ../../target/release/libcant_napi.so napi/cant.linux-x64-gnu.node",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -22,12 +22,24 @@
     "typescript": "^5.0.0",
     "vitest": "^1.0.0"
   },
+  "napi": {
+    "name": "cant",
+    "package": {
+      "name": "@cleocode/cant"
+    },
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "x86_64-unknown-linux-gnu"
+      ]
+    }
+  },
   "keywords": [
     "cleo",
     "cant",
     "agent",
     "parser",
-    "wasm"
+    "napi-rs"
   ],
   "license": "MIT",
   "repository": {

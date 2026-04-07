@@ -63,9 +63,35 @@ import { registerProvidersCommand } from "../../src/commands/providers.js";
 const provider = {
     id: "claude-code",
     toolName: "Claude Code",
-    configPathGlobal: "/global/claude.json",
-    configPathProject: ".claude/settings.json",
-    configFormat: "json",
+    capabilities: {
+        mcp: {
+            configKey: "mcpServers",
+            configFormat: "json",
+            configPathGlobal: "/global/claude.json",
+            configPathProject: ".claude/settings.json",
+            supportedTransports: ["stdio"],
+            supportsHeaders: false,
+        },
+        harness: null,
+        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+        hooks: {
+            supported: [],
+            hookConfigPath: null,
+            hookConfigPathProject: null,
+            hookFormat: null,
+            nativeEventCatalog: "canonical",
+            canInjectSystemPrompt: false,
+            canBlockTools: false,
+        },
+        spawn: {
+            supportsSubagents: false,
+            supportsProgrammaticSpawn: false,
+            supportsInterAgentComms: false,
+            supportsParallelSpawn: false,
+            spawnMechanism: null,
+            spawnCommand: null,
+        },
+    },
 };
 describe("coverage: config command branches", () => {
     beforeEach(() => {

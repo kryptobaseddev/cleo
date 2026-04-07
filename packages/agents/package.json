@@ -1,9 +1,14 @@
 {
   "name": "@cleocode/agents",
-  "version": "2026.4.5",
+  "version": "2026.4.6",
   "description": "CLEO agent protocols and templates",
   "type": "module",
   "license": "MIT",
+  "files": [
+    "cleo-subagent/",
+    "seed-agents/",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",

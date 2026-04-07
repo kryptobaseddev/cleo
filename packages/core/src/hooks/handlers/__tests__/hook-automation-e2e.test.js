@@ -64,7 +64,9 @@ const TIMESTAMP = '2026-03-24T00:00:00.000Z';
 // ---------------------------------------------------------------------------
 describe('hook automation E2E', () => {
     beforeEach(() => {
-        observeBrainMock.mockReset().mockResolvedValue({ id: 'O-test', type: 'observation', createdAt: '2026-01-01 00:00:00' });
+        observeBrainMock
+            .mockReset()
+            .mockResolvedValue({ id: 'O-test', type: 'observation', createdAt: '2026-01-01 00:00:00' });
         loadConfigMock.mockReset().mockResolvedValue(makeConfig());
         maybeRefreshMemoryBridgeMock.mockReset().mockResolvedValue(undefined);
         // Clear work-capture env var

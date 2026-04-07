@@ -19,9 +19,17 @@ import {
   auditData,
   cleanupSystem,
   systemCreateBackup as createBackup,
+  ensureCleoOsHub,
   generateInjection,
   getAccessor,
   getArchiveStats,
+  getCleoCantWorkflowsDir,
+  getCleoConfigDir,
+  getCleoGlobalAgentsDir,
+  getCleoGlobalJustfilePath,
+  getCleoGlobalRecipesDir,
+  getCleoHome,
+  getCleoPiExtensionsDir,
   getDashboard,
   getLabels,
   getMigrationStatus,
@@ -1472,6 +1480,103 @@ export async function systemRuntime(
     return { success: true, data };
   } catch (err: unknown) {
     return engineError('E_RUNTIME_ERROR', (err as Error).message);
+  }
+}
+
+/** Summary of all resolved CleoOS paths (project + global hub). */
+export interface PathsData {
+  /** Project-local .cleo directory (absolute). */
+  projectCleoDir: string;
+  /** XDG-compliant global data root (Linux: ~/.local/share/cleo). */
+  cleoHome: string;
+  /** XDG config dir (Linux: ~/.config/cleo). */
+  configDir: string;
+  /** CleoOS Hub subdirectories under cleoHome. */
+  hub: {
+    globalRecipes: string;
+    globalJustfile: string;
+    piExtensions: string;
+    cantWorkflows: string;
+    globalAgents: string;
+  };
+  /** Scaffolding status — true if hub directories + seed files exist. */
+  scaffolded: {
+    globalRecipes: boolean;
+    globalJustfile: boolean;
+    piExtensions: boolean;
+    cantWorkflows: boolean;
+    globalAgents: boolean;
+  };
+}
+
+/**
+ * Report all resolved CleoOS paths (project + global hub).
+ *
+ * Backs the `cleo admin paths` CLI command. Read-only: reports current state
+ * without mutating the filesystem. Use `systemScaffoldHub()` to create
+ * missing hub directories and seed the starter justfile.
+ *
+ * @task Phase 1 — XDG Foundation + Justfile Hub Skeleton
+ */
+export async function systemPaths(projectRoot: string): Promise<EngineResult<PathsData>> {
+  try {
+    const cleoHome = getCleoHome();
+    const configDir = getCleoConfigDir();
+    const globalRecipes = getCleoGlobalRecipesDir();
+    const globalJustfile = getCleoGlobalJustfilePath();
+    const piExtensions = getCleoPiExtensionsDir();
+    const cantWorkflows = getCleoCantWorkflowsDir();
+    const globalAgents = getCleoGlobalAgentsDir();
+
+    return {
+      success: true,
+      data: {
+        projectCleoDir: join(projectRoot, '.cleo'),
+        cleoHome,
+        configDir,
+        hub: {
+          globalRecipes,
+          globalJustfile,
+          piExtensions,
+          cantWorkflows,
+          globalAgents,
+        },
+        scaffolded: {
+          globalRecipes: existsSync(globalRecipes),
+          globalJustfile: existsSync(globalJustfile),
+          piExtensions: existsSync(piExtensions),
+          cantWorkflows: existsSync(cantWorkflows),
+          globalAgents: existsSync(globalAgents),
+        },
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_PATHS_RESOLVE_FAILED', (err as Error).message);
+  }
+}
+
+/** Result of scaffolding the CleoOS Hub. */
+export interface ScaffoldHubData {
+  action: 'created' | 'repaired' | 'skipped';
+  path: string;
+  details?: string;
+}
+
+/**
+ * Create the CleoOS Hub directories and seed the starter justfile if absent.
+ *
+ * Idempotent: safe to call repeatedly. Never overwrites existing user-edited
+ * justfile or README content. Backs the `cleo admin scaffold-hub` CLI
+ * command and is invoked automatically by `cleo init` (Phase 5).
+ *
+ * @task Phase 1 — XDG Foundation + Justfile Hub Skeleton
+ */
+export async function systemScaffoldHub(): Promise<EngineResult<ScaffoldHubData>> {
+  try {
+    const result = await ensureCleoOsHub();
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return engineError('E_SCAFFOLD_HUB_FAILED', (err as Error).message);
   }
 }
 

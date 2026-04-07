@@ -37,6 +37,7 @@ import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'no
 import { platform } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
+import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import { ensureInjection } from './injection.js';
@@ -47,6 +48,7 @@ import { getAgentsHome, getCleoDirAbsolute, getProjectRoot } from './paths.js';
 import {
   ensureBrainDb,
   ensureCleoGitRepo,
+  ensureCleoOsHub,
   ensureCleoStructure,
   ensureConfig,
   ensureGitignore,
@@ -70,6 +72,16 @@ export interface InitOptions {
   detect?: boolean;
   /** Run codebase analysis and store findings to brain.db. */
   mapCodebase?: boolean;
+  /**
+   * Install canonical CleoOS seed agents (cleo-prime, cleo-dev, cleo-historian,
+   * cleo-rust-lead, cleo-db-lead, cleoos-opus-orchestrator) into the project's
+   * `.cleo/agents/` directory. Default: false (operator opts in).
+   *
+   * The seeds ship with `@cleocode/agents` under `seed-agents/`. Existing
+   * project files are never overwritten — operators are free to delete or
+   * fork any seed.
+   */
+  installSeedAgents?: boolean;
 }
 
 /** Result of the init operation. */
@@ -80,6 +92,22 @@ export interface InitResult {
   skipped: string[];
   warnings: string[];
   updateDocsOnly?: boolean;
+  /**
+   * Phase 5 — Greenfield/brownfield classification of the directory.
+   * Populated by the discovery module during init.
+   */
+  classification?: {
+    kind: 'greenfield' | 'brownfield';
+    signalCount: number;
+    topLevelFileCount: number;
+    hasGit: boolean;
+  };
+  /**
+   * Phase 5 — Next-step guidance for the agent/operator, emitted as a
+   * LAFS-compatible suggestion list. Each entry has an action description
+   * and a copy-pasteable command.
+   */
+  nextSteps?: Array<{ action: string; command: string }>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -92,6 +120,62 @@ export interface InitResult {
 const DIR_SYMLINK_TYPE: 'junction' | 'dir' = platform() === 'win32' ? 'junction' : 'dir';
 
 // ── Init-specific operations ─────────────────────────────────────────
+
+/**
+ * Resolve the absolute path to the bundled `seed-agents/` directory inside
+ * the `@cleocode/agents` package.
+ *
+ * Mirrors the multi-candidate resolution pattern used by
+ * {@link initAgentDefinition} so the same code path works across all layouts:
+ *   1. **npm install** — `require.resolve('@cleocode/agents/package.json')`
+ *      finds the package under `node_modules/@cleocode/agents/`.
+ *   2. **Workspace dev (bundled CLI)** — walks up from `getPackageRoot()`
+ *      (which resolves to `packages/cleo/dist/` or `packages/core/`) to find
+ *      `packages/agents/seed-agents/`.
+ *   3. **Monorepo dev (source)** — falls back to `packages/agents/seed-agents/`
+ *      relative to `getPackageRoot()`.
+ *
+ * @returns Absolute path to an existing `seed-agents/` directory, or `null`
+ *          if no candidate exists. Returning `null` lets callers skip the
+ *          seed install gracefully without crashing.
+ *
+ * @task T283
+ * @epic T280
+ */
+export async function resolveSeedAgentsDir(): Promise<string | null> {
+  // Primary: resolve via Node module resolution (@cleocode/agents)
+  try {
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const agentsPkgMain = req.resolve('@cleocode/agents/package.json');
+    const agentsPkgRoot = dirname(agentsPkgMain);
+    const candidate = join(agentsPkgRoot, 'seed-agents');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  } catch {
+    // Not resolvable via require.resolve — fall through to bundled path
+  }
+
+  // Walk a series of candidate paths relative to getPackageRoot(), which
+  // can resolve to several different locations depending on whether we're
+  // running from packages/core/dist, packages/cleo/dist, or installed under
+  // node_modules/@cleocode/.
+  const packageRoot = getPackageRoot();
+  const candidates = [
+    // Workspace fallback: bundled alongside core under packages/agents/seed-agents
+    join(packageRoot, 'agents', 'seed-agents'),
+    // Sibling-package layout (e.g. node_modules/@cleocode/core -> ../agents)
+    join(packageRoot, '..', 'agents', 'seed-agents'),
+    // Bundled CLI: packages/cleo/dist -> ../../agents/seed-agents
+    join(packageRoot, '..', '..', 'agents', 'seed-agents'),
+    // Bundled CLI dist subdir: packages/cleo/dist/cli -> ../../../packages/agents
+    join(packageRoot, '..', '..', 'packages', 'agents', 'seed-agents'),
+    // Monorepo workspace from repo root
+    join(packageRoot, '..', '..', '..', 'packages', 'agents', 'seed-agents'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
 
 /**
  * Install cleo-subagent agent definition to ~/.agents/agents/.
@@ -458,6 +542,17 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const skipped: string[] = [];
   const warnings: string[] = [];
 
+  // Phase 5 — classify the directory BEFORE creating any files so the
+  // classification reflects the real pre-init state of the directory.
+  let classification: ProjectClassification | undefined;
+  try {
+    classification = classifyProject(projRoot);
+  } catch (err) {
+    warnings.push(
+      `Project classification failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // T4681: Create .cleo/ directory structure
   const structureResult = await ensureCleoStructure(projRoot);
   if (structureResult.action === 'created') {
@@ -724,12 +819,113 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
+  // T283: Optional install of canonical CleoOS seed agent personas
+  if (opts.installSeedAgents) {
+    try {
+      const seedDir = await resolveSeedAgentsDir();
+      if (seedDir && existsSync(seedDir)) {
+        const targetDir = join(projRoot, '.cleo', 'agents');
+        await mkdir(targetDir, { recursive: true });
+        const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
+        let installed = 0;
+        for (const seed of seeds) {
+          const dst = join(targetDir, seed);
+          if (!existsSync(dst)) {
+            await copyFile(join(seedDir, seed), dst);
+            installed++;
+          }
+        }
+        if (installed > 0) {
+          created.push(`seed-agents: ${installed} canonical .cant personas installed`);
+        }
+      } else {
+        warnings.push('seed-agents install: bundled seed-agents/ directory not found');
+      }
+    } catch (err) {
+      warnings.push(
+        `seed-agents install failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Phase 5 — Finalize classification report + CleoOS hub bootstrap
+  // (Classification already ran at the TOP of init, before file creation)
+  // ────────────────────────────────────────────────────────────────────
+  if (classification) {
+    created.push(
+      `classification: ${classification.kind} (${classification.signals.length} signals)`,
+    );
+  }
+
+  // Ensure the CleoOS Hub exists globally (idempotent — only writes once)
+  try {
+    const hubResult = await ensureCleoOsHub();
+    if (hubResult.action === 'created') {
+      created.push(`cleoos-hub: ${hubResult.details ?? 'scaffolded'}`);
+    }
+  } catch (err) {
+    warnings.push(
+      `CleoOS hub scaffold failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // Context anchoring: when brownfield and --map-codebase was NOT already run,
+  // surface a hint so the operator knows they can anchor the baseline in BRAIN.
+  // (We do NOT auto-run mapCodebase here — it's opt-in to avoid blocking init.)
+  if (classification?.kind === 'brownfield' && !opts.mapCodebase) {
+    warnings.push(
+      'Brownfield detected — run `cleo init --map-codebase` to anchor the existing codebase in BRAIN (Phase 5 context anchoring).',
+    );
+  }
+
+  // LAFS next-step guidance for autonomous agents
+  const nextSteps: Array<{ action: string; command: string }> =
+    classification?.kind === 'greenfield'
+      ? [
+          {
+            action: 'Start the session and record your first research findings',
+            command: 'cleo session start --scope global',
+          },
+          {
+            action: 'Create the seed epic for Vision/PRD research',
+            command: 'cleo add "Project vision and initial scope" --type epic',
+          },
+          {
+            action: 'Invoke the Conductor Loop once the seed epic is present',
+            command: 'pi /cleo:auto <seedEpicId>',
+          },
+        ]
+      : [
+          {
+            action: 'Anchor the existing codebase in BRAIN as baseline context',
+            command: 'cleo init --map-codebase',
+          },
+          {
+            action: 'Review the detected project context',
+            command: 'cleo admin paths',
+          },
+          {
+            action: 'Start a session scoped to the work you want to continue',
+            command: 'cleo session start --scope global',
+          },
+        ];
+
   return {
     initialized: true,
     directory: cleoDir,
     created,
     skipped,
     warnings,
+    classification: classification
+      ? {
+          kind: classification.kind,
+          signalCount: classification.signals.length,
+          topLevelFileCount: classification.topLevelFileCount,
+          hasGit: classification.hasGit,
+        }
+      : undefined,
+    nextSteps,
   };
 }
 

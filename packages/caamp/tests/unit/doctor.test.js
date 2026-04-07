@@ -29,7 +29,7 @@ vi.mock("../../src/core/registry/providers.js", () => ({
 vi.mock("../../src/core/registry/detection.js", () => ({
     detectAllProviders: mocks.detectAllProviders,
 }));
-vi.mock("../../src/core/mcp/lock.js", () => ({
+vi.mock("../../src/core/lock-utils.js", () => ({
     readLockFile: mocks.readLockFile,
 }));
 vi.mock("../../src/core/formats/index.js", () => ({
@@ -59,6 +59,48 @@ function parseErrorEnvelope(errorSpy) {
  */
 function findCheck(checks, labelSubstring) {
     return checks.find((c) => c.label.includes(labelSubstring));
+}
+/**
+ * Helper: build a mock provider shape with a populated `capabilities.mcp`
+ * block so doctor command reads like the real v2 registry. The caller may
+ * still pass top-level `configPathGlobal`/`configKey`/`configFormat` via
+ * `mcpOverrides` (the fields move into capabilities.mcp automatically).
+ */
+function makeMockProviderWithMcp(base) {
+    const { configPathGlobal = "/home/user/.claude/config.json", configPathProject = null, configKey = "mcpServers", configFormat = "json", supportedTransports = ["stdio"], supportsHeaders = false, ...rest } = base;
+    return {
+        ...rest,
+        agentSkillsCompatible: true,
+        capabilities: {
+            mcp: {
+                configKey,
+                configFormat,
+                configPathGlobal,
+                configPathProject,
+                supportedTransports,
+                supportsHeaders,
+            },
+            harness: null,
+            skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+            hooks: {
+                supported: [],
+                hookConfigPath: null,
+                hookConfigPathProject: null,
+                hookFormat: null,
+                nativeEventCatalog: "canonical",
+                canInjectSystemPrompt: false,
+                canBlockTools: false,
+            },
+            spawn: {
+                supportsSubagents: false,
+                supportsProgrammaticSpawn: false,
+                supportsInterAgentComms: false,
+                supportsParallelSpawn: false,
+                spawnMechanism: null,
+                spawnCommand: null,
+            },
+        },
+    };
 }
 /**
  * Helper: find all checks belonging to a section.
@@ -155,7 +197,7 @@ describe("doctor command", () => {
         const logSpy = vi.spyOn(console, "log").mockImplementation(() => { });
         vi.spyOn(console, "error").mockImplementation(() => { });
         mocks.getAllProviders.mockReturnValue([
-            { id: "test", toolName: "", configKey: "", configFormat: "" },
+            { id: "test", toolName: "", capabilities: { mcp: { configKey: "", configFormat: "", configPathGlobal: "", configPathProject: null, supportedTransports: [], supportsHeaders: false }, harness: null, skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null } } },
         ]);
         // Malformed entries cause a "fail" check which triggers process.exit(1)
         const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
@@ -182,9 +224,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: "/skills",
-                    configPathGlobal: "/config",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/config",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary", "config"],
             },
@@ -229,9 +282,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: "/skills",
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -317,9 +381,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: providerSkillDir,
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -365,9 +440,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: providerSkillDir,
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -407,9 +493,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: "/home/user/.claude/skills",
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -449,9 +546,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: "/home/user/.claude/skills",
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -500,7 +608,7 @@ describe("doctor command", () => {
         const logSpy = vi.spyOn(console, "log").mockImplementation(() => { });
         // Set up a warning to ensure formatSection renders the warn icon path
         mocks.getAllProviders.mockReturnValue([
-            { id: "bad", toolName: "", configKey: "", configFormat: "" },
+            { id: "bad", toolName: "", capabilities: { mcp: { configKey: "", configFormat: "", configPathGlobal: "", configPathProject: null, supportedTransports: [], supportsHeaders: false }, harness: null, skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null } } },
         ]);
         const program = new Command();
         registerDoctorCommand(program);
@@ -533,9 +641,20 @@ describe("doctor command", () => {
                     id: "windsurf",
                     toolName: "Windsurf",
                     pathSkills: "/home/user/.windsurf/skills",
-                    configPathGlobal: "/home/user/.windsurf/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.windsurf/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -668,9 +787,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: providerSkillDir,
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -707,9 +837,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: providerSkillDir,
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -788,9 +929,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: providerSkillDir,
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -843,9 +995,20 @@ describe("doctor command", () => {
                     id: "claude-code",
                     toolName: "Claude Code",
                     pathSkills: "/home/user/.claude/skills",
-                    configPathGlobal: "/home/user/.claude/config.json",
-                    configKey: "mcpServers",
-                    configFormat: "json",
+                    capabilities: {
+                        mcp: {
+                            configKey: "mcpServers",
+                            configFormat: "json",
+                            configPathGlobal: "/home/user/.claude/config.json",
+                            configPathProject: null,
+                            supportedTransports: ["stdio"],
+                            supportsHeaders: false,
+                        },
+                        harness: null,
+                        skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+                        hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false },
+                        spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null },
+                    },
                 },
                 methods: ["binary"],
             },
@@ -876,7 +1039,7 @@ describe("doctor command", () => {
         const logSpy = vi.spyOn(console, "log").mockImplementation(() => { });
         // Create exactly 1 error: malformed provider entry
         mocks.getAllProviders.mockReturnValue([
-            { id: "bad", toolName: "", configKey: "", configFormat: "" },
+            { id: "bad", toolName: "", capabilities: { mcp: { configKey: "", configFormat: "", configPathGlobal: "", configPathProject: null, supportedTransports: [], supportsHeaders: false }, harness: null, skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookConfigPathProject: null, hookFormat: null, nativeEventCatalog: "canonical", canInjectSystemPrompt: false, canBlockTools: false }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null, spawnCommand: null } } },
         ]);
         // Create exactly 1 warning: orphaned lock entry
         mocks.readLockFile.mockResolvedValue({

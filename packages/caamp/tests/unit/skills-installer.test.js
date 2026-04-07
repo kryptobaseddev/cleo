@@ -39,19 +39,22 @@ function createMockProvider(id) {
         pathGlobal: join(testDir, `${id}-global`),
         pathProject: `.${id}`,
         instructFile: "AGENTS.md",
-        configKey: "mcpServers",
-        configFormat: "json",
-        configPathGlobal: join(testDir, `${id}-config.json`),
-        configPathProject: join(testDir, `.${id}-config.json`),
         pathSkills: join(testDir, `${id}-skills`),
         pathProjectSkills: `.${id}-skills`,
         detection: { methods: ["binary"], binary: id },
-        supportedTransports: ["stdio"],
-        supportsHeaders: false,
         priority: "high",
         status: "active",
         agentSkillsCompatible: true,
         capabilities: {
+            mcp: {
+                configKey: "mcpServers",
+                configFormat: "json",
+                configPathGlobal: join(testDir, `${id}-config.json`),
+                configPathProject: join(testDir, `.${id}-config.json`),
+                supportedTransports: ["stdio"],
+                supportsHeaders: false,
+            },
+            harness: null,
             skills: {
                 agentsGlobalPath: null,
                 agentsProjectPath: null,
@@ -60,7 +63,11 @@ function createMockProvider(id) {
             hooks: {
                 supported: [],
                 hookConfigPath: null,
+                hookConfigPathProject: null,
                 hookFormat: null,
+                nativeEventCatalog: "canonical",
+                canInjectSystemPrompt: false,
+                canBlockTools: false,
             },
             spawn: {
                 supportsSubagents: false,
@@ -68,6 +75,7 @@ function createMockProvider(id) {
                 supportsInterAgentComms: false,
                 supportsParallelSpawn: false,
                 spawnMechanism: null,
+                spawnCommand: null,
             },
         },
     };
@@ -151,19 +159,22 @@ describe("installSkill", () => {
             pathGlobal: join(testDir, "global"),
             pathProject: ".no-skills",
             instructFile: "AGENTS.md",
-            configKey: "mcpServers",
-            configFormat: "json",
-            configPathGlobal: join(testDir, "config.json"),
-            configPathProject: null,
             pathSkills: "", // Empty pathSkills
             pathProjectSkills: ".no-skills-dir",
             detection: { methods: ["binary"] },
-            supportedTransports: ["stdio"],
-            supportsHeaders: false,
             priority: "low",
             status: "active",
             agentSkillsCompatible: false,
             capabilities: {
+                mcp: {
+                    configKey: "mcpServers",
+                    configFormat: "json",
+                    configPathGlobal: join(testDir, "config.json"),
+                    configPathProject: null,
+                    supportedTransports: ["stdio"],
+                    supportsHeaders: false,
+                },
+                harness: null,
                 skills: {
                     agentsGlobalPath: null,
                     agentsProjectPath: null,
@@ -172,7 +183,11 @@ describe("installSkill", () => {
                 hooks: {
                     supported: [],
                     hookConfigPath: null,
+                    hookConfigPathProject: null,
                     hookFormat: null,
+                    nativeEventCatalog: "canonical",
+                    canInjectSystemPrompt: false,
+                    canBlockTools: false,
                 },
                 spawn: {
                     supportsSubagents: false,
@@ -180,6 +195,7 @@ describe("installSkill", () => {
                     supportsInterAgentComms: false,
                     supportsParallelSpawn: false,
                     spawnMechanism: null,
+                    spawnCommand: null,
                 },
             },
         };
@@ -298,19 +314,22 @@ describe("removeSkill", () => {
             pathGlobal: join(testDir, "global"),
             pathProject: ".no-skills",
             instructFile: "AGENTS.md",
-            configKey: "mcpServers",
-            configFormat: "json",
-            configPathGlobal: join(testDir, "config.json"),
-            configPathProject: null,
             pathSkills: "",
             pathProjectSkills: ".no-skills-dir",
             detection: { methods: ["binary"] },
-            supportedTransports: ["stdio"],
-            supportsHeaders: false,
             priority: "low",
             status: "active",
             agentSkillsCompatible: false,
             capabilities: {
+                mcp: {
+                    configKey: "mcpServers",
+                    configFormat: "json",
+                    configPathGlobal: join(testDir, "config.json"),
+                    configPathProject: null,
+                    supportedTransports: ["stdio"],
+                    supportsHeaders: false,
+                },
+                harness: null,
                 skills: {
                     agentsGlobalPath: null,
                     agentsProjectPath: null,
@@ -319,7 +338,11 @@ describe("removeSkill", () => {
                 hooks: {
                     supported: [],
                     hookConfigPath: null,
+                    hookConfigPathProject: null,
                     hookFormat: null,
+                    nativeEventCatalog: "canonical",
+                    canInjectSystemPrompt: false,
+                    canBlockTools: false,
                 },
                 spawn: {
                     supportsSubagents: false,
@@ -327,6 +350,7 @@ describe("removeSkill", () => {
                     supportsInterAgentComms: false,
                     supportsParallelSpawn: false,
                     spawnMechanism: null,
+                    spawnCommand: null,
                 },
             },
         };
@@ -519,18 +543,29 @@ describe("edge cases", () => {
 describe("precedence-aware installation", () => {
     function makeCapabilities(precedence, agentsGlobalPath = null, agentsProjectPath = null) {
         return {
+            mcp: null,
+            harness: null,
             skills: {
                 precedence: precedence,
                 agentsGlobalPath,
                 agentsProjectPath,
             },
-            hooks: { supported: [], hookConfigPath: null, hookFormat: null },
+            hooks: {
+                supported: [],
+                hookConfigPath: null,
+                hookConfigPathProject: null,
+                hookFormat: null,
+                nativeEventCatalog: "canonical",
+                canInjectSystemPrompt: false,
+                canBlockTools: false,
+            },
             spawn: {
                 supportsSubagents: false,
                 supportsProgrammaticSpawn: false,
                 supportsInterAgentComms: false,
                 supportsParallelSpawn: false,
                 spawnMechanism: null,
+                spawnCommand: null,
             },
         };
     }

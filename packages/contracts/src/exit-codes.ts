@@ -123,6 +123,17 @@ export enum ExitCode {
   ALREADY_EXISTS = 101,
   NO_CHANGE = 102,
   TESTS_SKIPPED = 103,
+
+  // === LAFS ENVELOPE VALIDATION (Phase 6) ===
+  /**
+   * E_LAFS_VIOLATION — CLI output did not conform to the LAFS envelope
+   * schema. Emitted by the CLI renderer middleware when `zod.parse()` on
+   * the emitted envelope fails. This is an INTERNAL failure: CLEO itself
+   * produced a malformed envelope.
+   *
+   * @task Phase 6 — LAFS formalization + schema consolidation
+   */
+  LAFS_VIOLATION = 104,
 }
 
 /** Check if an exit code represents an error (1-99). */

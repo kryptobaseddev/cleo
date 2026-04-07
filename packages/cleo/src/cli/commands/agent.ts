@@ -728,8 +728,22 @@ agent ${agentId}:
   // --- cleo agent work ---
   agent
     .command('work <agentId>')
-    .description('Enter autonomous work loop — poll tasks, report, repeat')
+    .description(
+      'Enter autonomous work loop — poll tasks, report, optionally execute. Phase 3: --execute enables the Conductor Loop.',
+    )
     .option('--poll-interval <ms>', 'Task check interval in milliseconds', '30000')
+    .option(
+      '--execute',
+      'Autonomously execute ready tasks via orchestrate.spawn.execute (Phase 3 Conductor Loop)',
+    )
+    .option(
+      '--adapter <id>',
+      'Adapter id to route spawns through (default: auto-detect from capabilities)',
+    )
+    .option(
+      '--epic <id>',
+      'Restrict autonomous execution to a specific epic (default: any ready task)',
+    )
     .action(async (agentId: string, opts: Record<string, unknown>) => {
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
@@ -763,41 +777,128 @@ agent ${agentId}:
           heartbeatIntervalMs: 30000,
         });
         runtime.poller.start();
+        const executeMode = opts['execute'] === true;
+        const epicRestrict =
+          typeof opts['epic'] === 'string' ? (opts['epic'] as string) : undefined;
+        const adapterRestrict =
+          typeof opts['adapter'] === 'string' ? (opts['adapter'] as string) : undefined;
         cliOutput(
           {
             success: true,
             data: {
               agentId,
-              mode: 'work-loop',
+              mode: executeMode ? 'conductor-loop' : 'watch-only',
               profile: hasProfile ? 'loaded' : 'none',
               status: 'running',
+              epic: epicRestrict ?? 'any',
+              adapter: adapterRestrict ?? 'auto',
             },
           },
           { command: 'agent work' },
         );
-        const taskInterval = Number(opts['pollInterval'] ?? 30000);
-        const workLoop = setInterval(async () => {
+
+        // Parse LAFS envelope from CLI stdout (handles both minimal and full shapes)
+        const parseLafs = <T = unknown>(raw: string): T | undefined => {
+          const lines = raw.trim().split('\n');
+          const envLine = [...lines].reverse().find((l) => l.startsWith('{'));
+          if (!envLine) return undefined;
           try {
-            const { stdout: currentRaw } = await execFileAsync('cleo', ['current'], {
-              encoding: 'utf-8',
-              timeout: 10000,
+            const env = JSON.parse(envLine) as {
+              ok?: boolean;
+              r?: T;
+              success?: boolean;
+              result?: T;
+              data?: T;
+            };
+            if (env.ok === true) return env.r;
+            if (env.success === true) return (env.result ?? env.data) as T | undefined;
+            return undefined;
+          } catch {
+            return undefined;
+          }
+        };
+
+        const runCleo = async (args: string[], timeoutMs = 15000): Promise<string> => {
+          const { stdout } = await execFileAsync('cleo', args, {
+            encoding: 'utf-8',
+            timeout: timeoutMs,
+          });
+          return stdout;
+        };
+
+        const taskInterval = Number(opts['pollInterval'] ?? 30000);
+        let inFlight = false;
+        let iterations = 0;
+        const workLoop = setInterval(async () => {
+          if (inFlight) return;
+          inFlight = true;
+          iterations += 1;
+          try {
+            const currentRaw = await runCleo(['current']).catch(() => '');
+            if (currentRaw.trim()) {
+              // A task is already in progress — skip
+              return;
+            }
+
+            // Resolve next ready task (respect epic restriction when set)
+            const nextArgs = epicRestrict ? ['orchestrate', 'next', epicRestrict] : ['next'];
+            const nextRaw = await runCleo(nextArgs).catch(() => '');
+            if (!nextRaw.trim()) return;
+
+            const nextData = parseLafs<{
+              nextTask?: { id?: string; title?: string } | null;
+              id?: string;
+              title?: string;
+            }>(nextRaw);
+            const taskId =
+              nextData?.nextTask?.id ??
+              (typeof nextData?.id === 'string' ? nextData.id : undefined);
+
+            if (!taskId) return;
+
+            if (!executeMode) {
+              // Watch-only legacy behaviour: advertise availability
+              console.log(
+                `[${agentId}] Task available: ${taskId}. Pass --execute to run autonomously.`,
+              );
+              return;
+            }
+
+            // Phase 3 Conductor Loop: actually execute via orchestrate.spawn.execute
+            const spawnArgs = ['orchestrate', 'spawn', taskId];
+            if (adapterRestrict) {
+              spawnArgs.push('--adapter', adapterRestrict);
+            }
+            const spawnRaw = await runCleo(spawnArgs, 60000).catch((e) => {
+              console.error(
+                `[${agentId}] conductor-loop: spawn failed for ${taskId}: ${String(e)}`,
+              );
+              return '';
             });
-            if (currentRaw.trim()) return;
-            const { stdout: nextRaw } = await execFileAsync('cleo', ['next'], {
-              encoding: 'utf-8',
-              timeout: 10000,
-            });
-            if (nextRaw.trim()) {
-              console.log(`[${agentId}] Task available. Run: cleo start <id> to begin.`);
+            const spawnData = parseLafs<{
+              instanceId?: string;
+              taskId?: string;
+              status?: string;
+            }>(spawnRaw);
+            if (spawnData?.instanceId) {
+              console.log(
+                `[${agentId}] conductor-loop spawned task=${taskId} instance=${spawnData.instanceId} status=${spawnData.status ?? 'unknown'}`,
+              );
             }
           } catch {
-            /* non-fatal */
+            /* non-fatal — loop continues */
+          } finally {
+            inFlight = false;
           }
         }, taskInterval);
+
         const shutdown = () => {
           clearInterval(workLoop);
           runtime.stop();
           void registry.update(agentId, { isActive: false }).catch(() => {});
+          if (executeMode) {
+            console.log(`[${agentId}] conductor-loop shutdown after ${iterations} iterations.`);
+          }
           process.exit(0);
         };
         process.on('SIGINT', shutdown);

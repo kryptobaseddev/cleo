@@ -12,14 +12,24 @@
 
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import type { Dirent } from 'node:fs';
 import { existsSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir as getHomedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { generateProjectHash } from './nexus/hash.js';
-import { getCleoDirAbsolute, getCleoHome, getCleoTemplatesDir, getConfigPath } from './paths.js';
+import {
+  getCleoCantWorkflowsDir,
+  getCleoDirAbsolute,
+  getCleoGlobalAgentsDir,
+  getCleoGlobalRecipesDir,
+  getCleoHome,
+  getCleoPiExtensionsDir,
+  getCleoTemplatesDir,
+  getConfigPath,
+} from './paths.js';
 import { saveJson } from './store/json.js';
 
 const execFileAsync = promisify(execFile);
@@ -1334,7 +1344,15 @@ export function checkMemoryBridge(projectRoot: string): CheckResult {
  * Schemas are read at runtime from getPackageRoot()/schemas/ — no copy needed.
  * Project-level dirs (adrs/, rcasd/, agent-outputs/, backups/) live in .cleo/ only.
  */
-export const REQUIRED_GLOBAL_SUBDIRS = ['logs', 'templates'] as const;
+export const REQUIRED_GLOBAL_SUBDIRS = [
+  'logs',
+  'templates',
+  // CleoOS hub (Phase 1): cross-project recipe library, Pi extensions, CANT workflows
+  'global-recipes',
+  'pi-extensions',
+  'cant-workflows',
+  'agents',
+] as const;
 
 /**
  * Stale entries that must NOT exist at the global ~/.cleo/ level.
@@ -1532,11 +1550,229 @@ export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
 export async function ensureGlobalScaffold(): Promise<{
   home: ScaffoldResult;
   templates: ScaffoldResult;
+  cleoosHub: ScaffoldResult;
 }> {
   const home = await ensureGlobalHome();
   const templates = await ensureGlobalTemplates();
+  const cleoosHub = await ensureCleoOsHub();
 
-  return { home, templates };
+  return { home, templates, cleoosHub };
+}
+
+// ── CleoOS Hub scaffolding (Phase 1) ─────────────────────────────────
+
+/**
+ * Recursively copy a template tree from {@link srcDir} into {@link dstDir}.
+ *
+ * Never overwrites existing files: any file that already exists at the
+ * destination is left untouched, preserving user/agent edits. Missing
+ * subdirectories are created on demand. Symbolic links and special files
+ * are skipped silently.
+ *
+ * @param srcDir - Absolute path to the template source directory
+ * @param dstDir - Absolute path to the destination directory
+ * @returns Counts of files copied vs files that already existed and were kept
+ *
+ * @remarks
+ * Returns `{ copied: 0, kept: 0 }` if the source directory does not exist.
+ * Designed as the workhorse for {@link ensureCleoOsHub} and any other
+ * idempotent template scaffolding that ships with the npm package.
+ *
+ * @example
+ * ```typescript
+ * const { copied, kept } = await copyTemplateTree(
+ *   '/usr/lib/node_modules/@cleocode/cleo/templates/cleoos-hub/pi-extensions',
+ *   '/home/me/.local/share/cleo/pi-extensions',
+ * );
+ * console.log(`copied ${copied}, kept ${kept}`);
+ * ```
+ */
+async function copyTemplateTree(
+  srcDir: string,
+  dstDir: string,
+): Promise<{ copied: number; kept: number }> {
+  if (!existsSync(srcDir)) {
+    return { copied: 0, kept: 0 };
+  }
+
+  await mkdir(dstDir, { recursive: true });
+
+  let copied = 0;
+  let kept = 0;
+
+  let entries: Dirent[];
+  try {
+    entries = await readdir(srcDir, { withFileTypes: true });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[CLEO] Could not read template dir ${srcDir}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { copied: 0, kept: 0 };
+  }
+
+  for (const entry of entries) {
+    const srcPath = join(srcDir, entry.name);
+    const dstPath = join(dstDir, entry.name);
+
+    if (entry.isDirectory()) {
+      const sub = await copyTemplateTree(srcPath, dstPath);
+      copied += sub.copied;
+      kept += sub.kept;
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      // Skip symlinks, sockets, devices, etc.
+      continue;
+    }
+
+    if (existsSync(dstPath)) {
+      kept += 1;
+      continue;
+    }
+
+    try {
+      await copyFile(srcPath, dstPath);
+      copied += 1;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[CLEO] Could not copy template file ${srcPath} -> ${dstPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return { copied, kept };
+}
+
+/**
+ * Resolve the absolute root directory of the bundled CleoOS hub templates.
+ *
+ * The templates ship inside the `@cleocode/cleo` package at
+ * `templates/cleoos-hub/`. Because `scaffold.ts` is authored in
+ * `@cleocode/core` but is also esbuilt directly into the `@cleocode/cleo`
+ * CLI bundle, the runtime location of `import.meta.url` (and therefore
+ * {@link getPackageRoot}) varies across deployment shapes. The candidate
+ * list below covers every layout we ship:
+ *
+ *   1. **Bundled cleo (npm install)** — `dist/cli/index.js` lives at
+ *      `node_modules/@cleocode/cleo/dist/cli/index.js`, so
+ *      `getPackageRoot()` resolves to `node_modules/@cleocode/cleo/dist`
+ *      and `../templates/cleoos-hub` reaches the package's templates dir.
+ *   2. **Bundled cleo (dev workspace via build.mjs)** — `dist/cli/index.js`
+ *      lives at `packages/cleo/dist/cli/index.js`; same `../templates/...`
+ *      candidate as above.
+ *   3. **Unbundled core (workspace tsc)** — scaffold.ts is loaded as
+ *      `packages/core/src/scaffold.ts`, so `getPackageRoot()` resolves to
+ *      `packages/core/` and `../cleo/templates/cleoos-hub` reaches the
+ *      sibling cleo package.
+ *   4. **Unbundled core (npm install of just @cleocode/core)** — the
+ *      scope-sibling layout puts both packages under
+ *      `node_modules/@cleocode/`, so the same `../cleo/templates/...`
+ *      candidate works.
+ *   5. **Legacy fallback** — if the cleo package ever bundles the templates
+ *      directly under core, fall through to
+ *      `getPackageRoot()/templates/cleoos-hub`.
+ *
+ * @returns Absolute path to the existing template root, or `null` if none found
+ *
+ * @remarks
+ * Returning `null` allows callers to skip the scaffold gracefully instead of
+ * crashing — important for the never-crash scaffold contract.
+ */
+function resolveCleoOsHubTemplateRoot(): string | null {
+  const packageRoot = getPackageRoot();
+  const candidates = [
+    // Bundled cleo: getPackageRoot() = .../@cleocode/cleo/dist
+    join(packageRoot, '..', 'templates', 'cleoos-hub'),
+    // Unbundled core in workspace or scope-sibling install
+    join(packageRoot, '..', 'cleo', 'templates', 'cleoos-hub'),
+    // Workspace from monorepo root resolution (defensive)
+    join(packageRoot, '..', '..', 'packages', 'cleo', 'templates', 'cleoos-hub'),
+    // Legacy in-place fallback
+    join(packageRoot, 'templates', 'cleoos-hub'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
+ * Ensure the CleoOS Hub subdirectories exist under the global CLEO home,
+ * and seed all bundled hub templates if they are not already present.
+ *
+ * This is the Phase 1 scaffolding entry point. Idempotent: re-running is
+ * safe and will never overwrite a file that already exists — human and
+ * agent edits to the installed copies are always preserved.
+ *
+ * @returns Scaffold result for the CleoOS hub root
+ *
+ * @remarks
+ * The CleoOS hub currently consists of:
+ *   - `global-recipes/` (Justfile Hub: justfile + README)
+ *   - `pi-extensions/`  (Pi extensions: orchestrator, stage-guide, cant-bridge)
+ *   - `cant-workflows/` (CANT workflow library — created empty for agents)
+ *   - `agents/`         (Global CANT agent definitions — created empty)
+ *
+ * Templates are sourced from the `@cleocode/cleo` package's bundled
+ * `templates/cleoos-hub/` tree. The directory is resolved at runtime through
+ * {@link resolveCleoOsHubTemplateRoot} so the same code path works in the
+ * monorepo workspace and in an installed npm package layout.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureCleoOsHub();
+ * console.log(result.action); // "created" or "skipped"
+ * ```
+ */
+export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
+  const recipesDir = getCleoGlobalRecipesDir();
+  const piExtDir = getCleoPiExtensionsDir();
+  const cantWorkflowsDir = getCleoCantWorkflowsDir();
+  const agentsDir = getCleoGlobalAgentsDir();
+
+  // Always make sure the hub directory skeleton exists, even if templates
+  // can't be located (so downstream tools writing into them don't ENOENT).
+  try {
+    await mkdir(recipesDir, { recursive: true });
+    await mkdir(piExtDir, { recursive: true });
+    await mkdir(cantWorkflowsDir, { recursive: true });
+    await mkdir(agentsDir, { recursive: true });
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: recipesDir,
+      details: `Failed to create CleoOS hub directories: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const templateRoot = resolveCleoOsHubTemplateRoot();
+  if (!templateRoot) {
+    return {
+      action: 'skipped',
+      path: recipesDir,
+      details: 'CleoOS hub template directory not found in any expected location',
+    };
+  }
+
+  let piResult: { copied: number; kept: number };
+  let recipesResult: { copied: number; kept: number };
+  try {
+    piResult = await copyTemplateTree(join(templateRoot, 'pi-extensions'), piExtDir);
+    recipesResult = await copyTemplateTree(join(templateRoot, 'global-recipes'), recipesDir);
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: recipesDir,
+      details: `Failed to seed CleoOS hub templates: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const totalCopied = piResult.copied + recipesResult.copied;
+  return {
+    action: totalCopied > 0 ? 'created' : 'skipped',
+    path: recipesDir,
+    details: `pi-extensions: ${piResult.copied} created/${piResult.kept} kept, global-recipes: ${recipesResult.copied} created/${recipesResult.kept} kept`,
+  };
 }
 
 // ── Global check* functions (read-only diagnostics) ──────────────────

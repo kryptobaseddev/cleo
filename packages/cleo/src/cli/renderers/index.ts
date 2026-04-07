@@ -19,6 +19,7 @@ import type { LAFSEnvelope } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
+import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
 // System renderers
 import {
@@ -213,13 +214,37 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   if (opts.extensions) formatOpts.extensions = opts.extensions;
   if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
-  console.log(
-    formatSuccess(
-      filteredData,
-      opts.message,
-      Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation,
-    ),
+  // Phase 6 — LAFS envelope validation middleware.
+  // Every CLI output flows through `formatSuccess()` → string. We parse the
+  // string, assert the shape invariants, and only emit if validation passes.
+  // A shape violation is a CLEO developer bug, so we:
+  //   1. Emit a valid LAFS error envelope to stderr describing the violation
+  //   2. Set process.exitCode to ExitCode.LAFS_VIOLATION (104)
+  //   3. Still emit the (invalid) original to stdout so operators can inspect
+  // This is a safety net — it never SILENTLY swallows output.
+  const envelopeString = formatSuccess(
+    filteredData,
+    opts.message,
+    Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation,
   );
+
+  if (process.env['CLEO_LAFS_VALIDATE'] !== 'off') {
+    try {
+      const report = validateLafsShape(envelopeString);
+      if (report.reasons.length > 0) {
+        emitLafsViolation(
+          new LafsViolationError(`cliOutput: envelope failed LAFS shape validation`, report),
+        );
+      }
+    } catch (err) {
+      if (err instanceof LafsViolationError) {
+        emitLafsViolation(err);
+      }
+      // Non-validator errors — re-raise so tests can see them
+    }
+  }
+
+  console.log(envelopeString);
 }
 
 /**

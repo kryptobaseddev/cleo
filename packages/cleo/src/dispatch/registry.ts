@@ -583,6 +583,17 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'stage.guidance',
+    description:
+      'pipeline.stage.guidance (query) — stage-aware LLM prompt guidance (Phase 2). Pi extensions shell out to this on before_agent_start.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   // stage.gates removed — merged into stage.status via include param (T5615)
   // stage.prerequisites removed — always returned in stage.validate response (T5615)
   // T5326: Phase management operations
@@ -926,6 +937,17 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'admin',
     operation: 'runtime',
     description: 'admin.runtime (query)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'paths',
+    description:
+      'admin.paths (query) — report all CleoOS paths (project + global hub) and scaffolding status',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -2043,6 +2065,17 @@ export const OPERATIONS: OperationDef[] = [
     description: 'admin.init (mutate)',
     tier: 1,
     idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'admin',
+    operation: 'scaffold-hub',
+    description:
+      'admin.scaffold-hub (mutate) — create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
+    tier: 1,
+    idempotent: true,
     sessionRequired: false,
     requiredParams: [],
   },

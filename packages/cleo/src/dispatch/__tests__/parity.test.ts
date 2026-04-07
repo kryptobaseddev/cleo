@@ -127,9 +127,11 @@ describe('Group 1: Registry completeness', () => {
     const queryCount = OPERATIONS.filter((o) => o.gateway === 'query').length;
     const mutateCount = OPERATIONS.filter((o) => o.gateway === 'mutate').length;
 
-    expect(queryCount).toBe(128);
-    expect(mutateCount).toBe(97);
-    expect(OPERATIONS.length).toBe(225);
+    // Phase 1 added admin.paths (query); Phase 1 added admin.scaffold-hub (mutate);
+    // Phase 2 added pipeline.stage.guidance (query). +2 query / +1 mutate / +3 total.
+    expect(queryCount).toBe(130);
+    expect(mutateCount).toBe(98);
+    expect(OPERATIONS.length).toBe(228);
   });
 
   it('all operations have valid gateway values', () => {

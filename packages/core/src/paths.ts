@@ -355,6 +355,116 @@ export function getGlobalConfigPath(): string {
 }
 
 // ============================================================================
+// CleoOS Hub Paths (Phase 1)
+// ============================================================================
+
+/**
+ * Get the Global Justfile Hub directory.
+ *
+ * The hub stores cross-project recipe libraries agents can run in ANY project
+ * (cleo-bootstrap, rcasd-init, schema-validate, lint-standard). Both humans
+ * (via editor) and the meta Cleo Chef Agent write recipes here.
+ *
+ * @returns Absolute path to the global-recipes directory under CLEO home
+ *
+ * @remarks
+ * Returns `{cleoHome}/global-recipes`. Created by `ensureGlobalHome()`.
+ *
+ * @example
+ * ```typescript
+ * const dir = getCleoGlobalRecipesDir();
+ * // Linux: "/home/user/.local/share/cleo/global-recipes"
+ * ```
+ */
+export function getCleoGlobalRecipesDir(): string {
+  return join(getCleoHome(), 'global-recipes');
+}
+
+/**
+ * Get the absolute path to the primary global justfile.
+ *
+ * @returns Absolute path to `{cleoHome}/global-recipes/justfile`
+ *
+ * @remarks
+ * This is the single-file entry point for the Justfile Hub. Additional
+ * domain-specific justfiles live alongside it in the same directory.
+ *
+ * @example
+ * ```typescript
+ * const path = getCleoGlobalJustfilePath();
+ * ```
+ */
+export function getCleoGlobalJustfilePath(): string {
+  return join(getCleoGlobalRecipesDir(), 'justfile');
+}
+
+/**
+ * Get the Global Pi Extensions Hub directory.
+ *
+ * Houses the Pi extensions that drive the CleoOS UI and tools:
+ * orchestrator.ts (Conductor Loop), project-manager.ts (TUI dashboard),
+ * tilldone.ts (work visualization), cant-bridge.ts (CANT runtime),
+ * stage-guide.ts (before_agent_start hook).
+ *
+ * @returns Absolute path to the pi-extensions directory under CLEO home
+ *
+ * @remarks
+ * Returns `{cleoHome}/pi-extensions`. Pi is configured to load extensions
+ * from this directory via settings.json or the PI extension path setting.
+ *
+ * @example
+ * ```typescript
+ * const dir = getCleoPiExtensionsDir();
+ * // Linux: "/home/user/.local/share/cleo/pi-extensions"
+ * ```
+ */
+export function getCleoPiExtensionsDir(): string {
+  return join(getCleoHome(), 'pi-extensions');
+}
+
+/**
+ * Get the Global CANT Workflows Hub directory.
+ *
+ * Stores compiled and parsed `.cant` workflows that agents can invoke
+ * globally across projects. Project-local agents still live in `.cleo/agents/`.
+ *
+ * @returns Absolute path to the cant-workflows directory under CLEO home
+ *
+ * @remarks
+ * Returns `{cleoHome}/cant-workflows`. Used by the CANT runtime bridge
+ * to resolve globally-available workflow definitions.
+ *
+ * @example
+ * ```typescript
+ * const dir = getCleoCantWorkflowsDir();
+ * ```
+ */
+export function getCleoCantWorkflowsDir(): string {
+  return join(getCleoHome(), 'cant-workflows');
+}
+
+/**
+ * Get the Global CLEO Agents directory.
+ *
+ * Holds globally-available CANT agent definitions (`.cant` files).
+ * Project-local agents still live in `{projectRoot}/.cleo/agents/`.
+ *
+ * @returns Absolute path to the agents directory under CLEO home
+ *
+ * @remarks
+ * Returns `{cleoHome}/agents`. Loaded when `cleo agent start <id>` resolves
+ * agent IDs that aren't found in the project-local registry.
+ *
+ * @example
+ * ```typescript
+ * const dir = getCleoGlobalAgentsDir();
+ * ```
+ */
+export function getCleoGlobalAgentsDir(): string {
+  return join(getCleoHome(), 'agents');
+}
+
+// ============================================================================
 // Agent Outputs
 // ============================================================================
 

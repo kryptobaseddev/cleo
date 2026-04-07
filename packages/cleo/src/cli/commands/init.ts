@@ -62,6 +62,7 @@ export function registerInitCommand(program: Command): void {
     .option('--force', 'Overwrite existing files')
     .option('--detect', 'Auto-detect project configuration')
     .option('--map-codebase', 'Run codebase analysis and store findings to brain.db')
+    .option('--install-seed-agents', 'Install canonical CleoOS seed agent personas (.cant)')
     .argument('[projectName]', 'Project name (alternative to --name)')
     .action(async (projectName: string | undefined, opts: Record<string, unknown>) => {
       try {
@@ -70,6 +71,7 @@ export function registerInitCommand(program: Command): void {
           force: !!opts['force'],
           detect: !!opts['detect'],
           mapCodebase: !!opts['mapCodebase'],
+          installSeedAgents: !!opts['installSeedAgents'],
         };
 
         const result = await initProject(initOpts);
@@ -82,6 +84,11 @@ export function registerInitCommand(program: Command): void {
             skipped: result.skipped,
             ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
             ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
+            // Phase 5 — greenfield/brownfield classification + LAFS nextSteps
+            ...(result.classification ? { classification: result.classification } : {}),
+            ...(result.nextSteps && result.nextSteps.length > 0
+              ? { nextSteps: result.nextSteps }
+              : {}),
           },
           { command: 'init' },
         );

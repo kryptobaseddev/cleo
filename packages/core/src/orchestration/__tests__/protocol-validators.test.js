@@ -8,7 +8,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
-import { PROTOCOL_EXIT_CODES, PROTOCOL_TYPES, validateArtifactPublishProtocol, validateConsensusProtocol, validateContributionProtocol, validateDecompositionProtocol, validateImplementationProtocol, validateProtocol, validateProvenanceProtocol, validateReleaseProtocol, validateResearchProtocol, validateSpecificationProtocol, } from '../protocol-validators.js';
+import { PROTOCOL_EXIT_CODES, PROTOCOL_TYPES, validateArchitectureDecisionProtocol, validateArtifactPublishProtocol, validateConsensusProtocol, validateContributionProtocol, validateDecompositionProtocol, validateImplementationProtocol, validateProtocol, validateProvenanceProtocol, validateReleaseProtocol, validateResearchProtocol, validateSpecificationProtocol, validateTestingProtocol, validateValidationProtocol, } from '../protocol-validators.js';
 // ============================================================
 // Helper: create valid manifest entry for a protocol
 // ============================================================
@@ -314,13 +314,222 @@ describe('Provenance Protocol', () => {
     });
 });
 // ============================================================
+// 10. ARCHITECTURE DECISION RECORD PROTOCOL (exit code 84)
+// ============================================================
+describe('Architecture Decision Record Protocol', () => {
+    const adrEntry = (overrides = {}) => ({
+        ...validEntry('decision'),
+        consensus_manifest_id: 'manifest_consensus_2026_04_07',
+        ...overrides,
+    });
+    it('passes a complete ADR entry', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry(), {
+            status: 'proposed',
+            adrContent: '## Context\n## Options Evaluated\n## Decision\n## Rationale\n## Consequences\n',
+            persistedInDb: true,
+        });
+        expect(result.valid).toBe(true);
+        expect(result.protocol).toBe('architecture-decision');
+    });
+    it('fails without a consensus manifest link (ADR-001)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry({ consensus_manifest_id: undefined }));
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-001' }));
+    });
+    it('fails when accepted without HITL review (ADR-003)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry(), {
+            status: 'accepted',
+            hitlReviewed: false,
+            adrContent: '## Context\n## Options\n## Decision\n## Rationale\n## Consequences\n',
+            persistedInDb: true,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-003' }));
+    });
+    it('fails when required sections are missing (ADR-004)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry(), {
+            status: 'proposed',
+            adrContent: '## Context only',
+            persistedInDb: true,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-004' }));
+    });
+    it('fails superseded ADR without downstream flag (ADR-005)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry(), {
+            status: 'superseded',
+            downstreamFlagged: false,
+            adrContent: '## Context\n## Options\n## Decision\n## Rationale\n## Consequences\n',
+            persistedInDb: true,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-005' }));
+    });
+    it('fails when not persisted in SQLite (ADR-006)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry(), {
+            status: 'proposed',
+            persistedInDb: false,
+            adrContent: '## Context\n## Options\n## Decision\n## Rationale\n## Consequences\n',
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-006' }));
+    });
+    it('fails with wrong agent_type (ADR-007)', () => {
+        const result = validateArchitectureDecisionProtocol(adrEntry({ agent_type: 'specification' }));
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'ADR-007' }));
+    });
+});
+// ============================================================
+// 11. VALIDATION PROTOCOL (exit code 80)
+// ============================================================
+describe('Validation Protocol', () => {
+    it('passes a complete validation entry', () => {
+        const result = validateValidationProtocol(validEntry('validation'), {
+            specMatchConfirmed: true,
+            testSuitePassed: true,
+            protocolComplianceChecked: true,
+        });
+        expect(result.valid).toBe(true);
+        expect(result.protocol).toBe('validation');
+    });
+    it('fails when spec-match not confirmed (VALID-001)', () => {
+        const result = validateValidationProtocol(validEntry('validation'), {
+            specMatchConfirmed: false,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'VALID-001' }));
+    });
+    it('fails when test suite failed (VALID-002)', () => {
+        const result = validateValidationProtocol(validEntry('validation'), {
+            testSuitePassed: false,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'VALID-002' }));
+    });
+    it('fails without key_findings (VALID-005)', () => {
+        const result = validateValidationProtocol(validEntry('validation', { key_findings: [] }));
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'VALID-005' }));
+    });
+    it('fails with wrong agent_type (VALID-006)', () => {
+        const result = validateValidationProtocol(validEntry('implementation'));
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'VALID-006' }));
+    });
+});
+// ============================================================
+// 12. TESTING PROTOCOL (project-agnostic IVT loop)
+// ============================================================
+describe('Testing Protocol', () => {
+    it('passes a complete testing entry with any framework', () => {
+        const result = validateTestingProtocol(validEntry('testing'), {
+            framework: 'vitest',
+            testsRun: 42,
+            testsPassed: 42,
+            testsFailed: 0,
+            ivtLoopConverged: true,
+        });
+        expect(result.valid).toBe(true);
+        expect(result.protocol).toBe('testing');
+    });
+    it('is project-agnostic — accepts any supported framework', () => {
+        const frameworks = [
+            'vitest',
+            'jest',
+            'pytest',
+            'go-test',
+            'cargo-test',
+            'rspec',
+            'bats',
+            'other',
+        ];
+        for (const framework of frameworks) {
+            const result = validateTestingProtocol(validEntry('testing'), {
+                framework,
+                testsRun: 1,
+                testsPassed: 1,
+                testsFailed: 0,
+                ivtLoopConverged: true,
+            });
+            expect(result.valid).toBe(true);
+        }
+    });
+    it('fails without a detected framework (TEST-001)', () => {
+        const result = validateTestingProtocol(validEntry('testing'), {
+            testsRun: 10,
+            testsPassed: 10,
+            testsFailed: 0,
+            ivtLoopConverged: true,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'TEST-001' }));
+    });
+    it('fails when tests failed (TEST-004)', () => {
+        const result = validateTestingProtocol(validEntry('testing'), {
+            framework: 'vitest',
+            testsRun: 10,
+            testsPassed: 8,
+            testsFailed: 2,
+            ivtLoopConverged: false,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'TEST-004' }));
+    });
+    it('fails when IVT loop has not converged (TEST-005)', () => {
+        const result = validateTestingProtocol(validEntry('testing'), {
+            framework: 'vitest',
+            ivtLoopConverged: false,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'TEST-005' }));
+    });
+    it('warns on coverage below threshold (non-blocking)', () => {
+        const result = validateTestingProtocol(validEntry('testing'), {
+            framework: 'vitest',
+            testsRun: 10,
+            testsPassed: 10,
+            testsFailed: 0,
+            ivtLoopConverged: true,
+            coveragePercent: 70,
+            coverageThreshold: 80,
+        });
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'TEST-004', severity: 'warning' }));
+    });
+    it('fails with wrong agent_type (TEST-007)', () => {
+        const result = validateTestingProtocol(validEntry('implementation'), {
+            framework: 'vitest',
+            ivtLoopConverged: true,
+        });
+        expect(result.valid).toBe(false);
+        expect(result.violations).toContainEqual(expect.objectContaining({ requirement: 'TEST-007' }));
+    });
+});
+// ============================================================
 // UNIFIED DISPATCHER
 // ============================================================
 describe('validateProtocol (unified dispatcher)', () => {
-    it('dispatches to all 9 protocols', () => {
+    it('dispatches to all 12 protocols', () => {
         for (const protocol of PROTOCOL_TYPES) {
-            const agentType = protocol === 'consensus' ? 'analysis' : protocol;
-            const entry = validEntry(agentType);
+            // Map protocol name to expected agent_type
+            const agentTypeMap = {
+                research: 'research',
+                consensus: 'analysis',
+                'architecture-decision': 'decision',
+                specification: 'specification',
+                decomposition: 'decomposition',
+                implementation: 'implementation',
+                contribution: 'contribution',
+                validation: 'validation',
+                testing: 'testing',
+                release: 'release',
+                'artifact-publish': 'artifact-publish',
+                provenance: 'provenance',
+            };
+            const entry = {
+                ...validEntry(agentTypeMap[protocol]),
+                consensus_manifest_id: 'mf_consensus_test',
+            };
             // All should not throw without strict mode
             const result = validateProtocol(protocol, entry);
             expect(result.protocol).toBe(protocol);
@@ -331,7 +540,7 @@ describe('validateProtocol (unified dispatcher)', () => {
         expect(() => validateProtocol('research', entry, {}, true)).toThrow(CleoError);
     });
     it('uses correct exit codes for each protocol', () => {
-        // Verify exit code mapping covers range 60-67
+        // Pipeline codes 60-67 + dedicated codes for cross-cutting protocols
         const exitCodes = new Set(Object.values(PROTOCOL_EXIT_CODES));
         expect(exitCodes.has(ExitCode.PROTOCOL_MISSING)).toBe(true); // 60
         expect(exitCodes.has(ExitCode.INVALID_RETURN_MESSAGE)).toBe(true); // 61
@@ -341,6 +550,10 @@ describe('validateProtocol (unified dispatcher)', () => {
         expect(exitCodes.has(ExitCode.HANDOFF_REQUIRED)).toBe(true); // 65
         expect(exitCodes.has(ExitCode.RESUME_FAILED)).toBe(true); // 66
         expect(exitCodes.has(ExitCode.CONCURRENT_SESSION)).toBe(true); // 67
+        expect(exitCodes.has(ExitCode.LIFECYCLE_GATE_FAILED)).toBe(true); // 80 (validation)
+        expect(exitCodes.has(ExitCode.PROVENANCE_REQUIRED)).toBe(true); // 84 (ADR)
+        expect(exitCodes.has(ExitCode.ARTIFACT_PUBLISH_FAILED)).toBe(true); // 88
+        expect(exitCodes.has(ExitCode.ATTESTATION_INVALID)).toBe(true); // 94
     });
     it('strict mode throws with correct exit code per protocol', () => {
         const testCases = [
@@ -351,7 +564,11 @@ describe('validateProtocol (unified dispatcher)', () => {
             { protocol: 'implementation', expectedCode: ExitCode.AUTONOMOUS_BOUNDARY },
             { protocol: 'contribution', expectedCode: ExitCode.HANDOFF_REQUIRED },
             { protocol: 'release', expectedCode: ExitCode.RESUME_FAILED },
-            { protocol: 'artifact-publish', expectedCode: ExitCode.CONCURRENT_SESSION },
+            { protocol: 'testing', expectedCode: ExitCode.CONCURRENT_SESSION },
+            { protocol: 'validation', expectedCode: ExitCode.LIFECYCLE_GATE_FAILED },
+            { protocol: 'architecture-decision', expectedCode: ExitCode.PROVENANCE_REQUIRED },
+            { protocol: 'artifact-publish', expectedCode: ExitCode.ARTIFACT_PUBLISH_FAILED },
+            { protocol: 'provenance', expectedCode: ExitCode.ATTESTATION_INVALID },
         ];
         for (const { protocol, expectedCode } of testCases) {
             const entry = validEntry('wrong-type');
@@ -366,14 +583,17 @@ describe('validateProtocol (unified dispatcher)', () => {
             }
         }
     });
-    it('PROTOCOL_TYPES contains all 9 protocols', () => {
-        expect(PROTOCOL_TYPES).toHaveLength(9);
+    it('PROTOCOL_TYPES contains all 12 protocols', () => {
+        expect(PROTOCOL_TYPES).toHaveLength(12);
         expect(PROTOCOL_TYPES).toContain('research');
         expect(PROTOCOL_TYPES).toContain('consensus');
+        expect(PROTOCOL_TYPES).toContain('architecture-decision');
         expect(PROTOCOL_TYPES).toContain('specification');
         expect(PROTOCOL_TYPES).toContain('decomposition');
         expect(PROTOCOL_TYPES).toContain('implementation');
         expect(PROTOCOL_TYPES).toContain('contribution');
+        expect(PROTOCOL_TYPES).toContain('validation');
+        expect(PROTOCOL_TYPES).toContain('testing');
         expect(PROTOCOL_TYPES).toContain('release');
         expect(PROTOCOL_TYPES).toContain('artifact-publish');
         expect(PROTOCOL_TYPES).toContain('provenance');

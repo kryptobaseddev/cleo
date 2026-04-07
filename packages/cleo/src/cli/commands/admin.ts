@@ -69,4 +69,20 @@ export function registerAdminCommand(program: Command): void {
     .action(async () => {
       await dispatchFromCli('query', 'admin', 'smoke', {}, { command: 'admin' });
     });
+
+  admin
+    .command('paths')
+    .description('Report all CleoOS paths (project + global hub) and scaffolding status')
+    .action(async () => {
+      await dispatchFromCli('query', 'admin', 'paths', {}, { command: 'admin' });
+    });
+
+  admin
+    .command('scaffold-hub')
+    .description(
+      'Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
+    )
+    .action(async () => {
+      await dispatchFromCli('mutate', 'admin', 'scaffold-hub', {}, { command: 'admin' });
+    });
 }

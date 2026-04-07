@@ -99,4 +99,25 @@ export function registerLifecycleCommand(program: Command): void {
         handleRawError(result, { command: 'lifecycle', operation: 'pipeline.stage.validate' });
       }
     });
+
+  lifecycle
+    .command('guidance [stage]')
+    .description(
+      'Get stage-aware LLM prompt guidance (Phase 2). Pi extensions shell out to this on before_agent_start.',
+    )
+    .option('--epicId <id>', 'Resolve stage from current epic pipeline status if no stage arg')
+    .option('--format <fmt>', 'Output format: markdown | json', 'markdown')
+    .action(async (stage: string | undefined, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'stage.guidance',
+        {
+          stage,
+          epicId: opts['epicId'],
+          format: opts['format'],
+        },
+        { command: 'lifecycle' },
+      );
+    });
 }

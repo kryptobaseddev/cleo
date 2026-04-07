@@ -173,6 +173,12 @@ export {
 } from './config.js';
 // Constants
 export { CORE_PROTECTED_FILES } from './constants.js';
+// Discovery (Phase 5)
+export {
+  type ClassificationSignal,
+  classifyProject,
+  type ProjectClassification,
+} from './discovery.js';
 // Engine result type (used by dispatch layer)
 export type { EngineResult } from './engine-result.js';
 export type { ErrorDefinition } from './error-catalog.js';
@@ -208,9 +214,18 @@ export { formatError, formatOutput, formatSuccess, pushWarning } from './output.
 export { createPage, paginate } from './pagination.js';
 // Paths
 export {
+  getCleoCacheDir,
+  getCleoCantWorkflowsDir,
+  getCleoConfigDir,
   getCleoDir,
   getCleoDirAbsolute,
+  getCleoGlobalAgentsDir,
+  getCleoGlobalJustfilePath,
+  getCleoGlobalRecipesDir,
   getCleoHome,
+  getCleoLogDir,
+  getCleoPiExtensionsDir,
+  getCleoTempDir,
   getCleoTemplatesTildePath,
   getConfigPath,
   getGlobalConfigPath,
@@ -233,6 +248,7 @@ export type { ProjectInfo } from './project-info.js';
 export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
 // Scaffold
 export {
+  ensureCleoOsHub,
   ensureCleoStructure,
   ensureGlobalHome,
   ensureGlobalScaffold,

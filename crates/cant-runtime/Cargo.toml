@@ -10,7 +10,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 cant-core = { path = "../cant-core" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

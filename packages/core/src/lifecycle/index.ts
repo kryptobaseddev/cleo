@@ -29,6 +29,16 @@ import { ensureStageArtifact } from './stage-artifacts.js';
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
 // =============================================================================
 
+// Phase 2 — stage-aware prompt guidance for Pi extensions
+// Phase 4 — refactored to load from real SKILL.md files via prepareSpawnMulti
+export {
+  buildStageGuidance,
+  formatStageGuidance,
+  renderStageGuidance,
+  STAGE_SKILL_MAP,
+  type StageGuidance,
+  TIER_0_SKILLS,
+} from './stage-guidance.js';
 export {
   CONTRIBUTION_STAGE,
   checkTransition,

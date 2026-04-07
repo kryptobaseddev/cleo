@@ -168,6 +168,7 @@ describe('AdminHandler', () => {
   describe('getSupportedOperations', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
+      // v2026.4.6 added 'paths' (admin.paths — CleoOS Phase 1)
       expect(ops.query).toEqual([
         'version',
         'health',
@@ -176,6 +177,7 @@ describe('AdminHandler', () => {
         'stats',
         'context',
         'runtime',
+        'paths',
         'job',
         'dash',
         'log',
@@ -194,8 +196,10 @@ describe('AdminHandler', () => {
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
+      // v2026.4.6 added 'scaffold-hub' (admin.scaffold-hub — CleoOS Phase 1)
       expect(ops.mutate).toEqual([
         'init',
+        'scaffold-hub',
         'config.set',
         'config.set-preset',
         'backup',

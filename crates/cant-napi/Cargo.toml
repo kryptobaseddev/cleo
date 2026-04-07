@@ -10,10 +10,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cant-core = { path = "../cant-core" }
-napi = { version = "3", features = ["napi4", "serde-json"] }
+cant-runtime = { path = "../cant-runtime" }
+napi = { version = "3", features = ["napi4", "serde-json", "async"] }
 napi-derive = "3"
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
 napi-build = "1"

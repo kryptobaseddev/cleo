@@ -729,15 +729,27 @@ describe("coverage: standard.ts branch gaps", () => {
     it("resolveProviderConfigPath returns null for project scope with no project path", async () => {
         const { resolveProviderConfigPath, resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
         const provider = {
-            configPathGlobal: "/tmp/global.json",
-            configPathProject: null,
+            capabilities: {
+                mcp: {
+                    configPathGlobal: "/tmp/global.json",
+                    configPathProject: null,
+                },
+            },
         };
         expect(resolveProviderConfigPath(provider, "project")).toBeNull();
         expect(resolveProviderConfigPath(provider, "global")).toBe("/tmp/global.json");
         // resolvePreferredConfigScope
         expect(resolvePreferredConfigScope(provider, true)).toBe("global");
         expect(resolvePreferredConfigScope(provider, false)).toBe("global"); // no project path
-        expect(resolvePreferredConfigScope({ ...provider, configPathProject: ".config/test.json" }, false)).toBe("project");
+        const withProject = {
+            capabilities: {
+                mcp: {
+                    configPathGlobal: "/tmp/global.json",
+                    configPathProject: ".config/test.json",
+                },
+            },
+        };
+        expect(resolvePreferredConfigScope(withProject, false)).toBe("project");
     });
 });
 // ══════════════════════════════════════════════════════════════════════════════

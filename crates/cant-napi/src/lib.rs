@@ -6,6 +6,8 @@
 //! and [`cant_core::classify_directive`] with napi-rs `#[napi]` exports for
 //! synchronous, high-performance access from TypeScript/JavaScript.
 
+use cant_runtime::env::StepEnv;
+use cant_runtime::pipeline::{PipelineConfig, execute_pipeline};
 use napi_derive::napi;
 
 /// The classification of a directive extracted from a CANT message.
@@ -401,6 +403,7 @@ fn format_value(value: &cant_core::dsl::ast::Value) -> String {
             let strs: Vec<String> = items.iter().map(format_value).collect();
             format!("[{}]", strs.join(", "))
         }
+        cant_core::dsl::ast::Value::ProseBlock(block) => block.lines.join("\n"),
         cant_core::dsl::ast::Value::_Span(_) => String::new(),
     }
 }
@@ -412,5 +415,143 @@ fn format_duration_unit(unit: &cant_core::dsl::ast::DurationUnit) -> &'static st
         cant_core::dsl::ast::DurationUnit::Minutes => "m",
         cant_core::dsl::ast::DurationUnit::Hours => "h",
         cant_core::dsl::ast::DurationUnit::Days => "d",
+    }
+}
+
+// ── Pipeline Execution (async) ──────────────────────────────────────
+
+/// A single step result returned to JavaScript from a pipeline run.
+///
+/// Mirrors the Rust [`cant_runtime::step::StepResult`] but exposes only
+/// the metadata that JS callers need (lengths instead of full output to
+/// keep IPC payloads bounded).
+#[napi(object)]
+pub struct JsPipelineStep {
+    /// The step name from the pipeline definition.
+    pub name: String,
+    /// Subprocess exit code (0 = success).
+    pub exit_code: i32,
+    /// Length in bytes of captured stdout.
+    pub stdout_len: u32,
+    /// Length in bytes of captured stderr.
+    pub stderr_len: u32,
+    /// Wall-clock duration of the step in milliseconds.
+    pub duration_ms: u32,
+    /// Whether the step was skipped due to a condition.
+    pub skipped: bool,
+}
+
+/// The aggregate result of executing a pipeline, exposed to JavaScript.
+///
+/// Mirrors the shape produced by the standalone `cant-cli` so that the
+/// CLEO TS layer can render the same envelope regardless of which path
+/// produced it. Logical failures populate `error` rather than throwing.
+#[napi(object)]
+pub struct JsPipelineResult {
+    /// The pipeline name (echoes back the requested name even on failure).
+    pub name: String,
+    /// Whether all steps completed with exit code 0.
+    pub success: bool,
+    /// Total wall-clock duration in milliseconds.
+    pub duration_ms: u32,
+    /// Per-step results in execution order.
+    pub steps: Vec<JsPipelineStep>,
+    /// Optional error message describing why the pipeline did not run
+    /// (file read failure, parse error, missing pipeline, runtime error).
+    pub error: Option<String>,
+}
+
+/// Parse a `.cant` file, locate the named pipeline, and execute it via
+/// the Rust runtime ([`cant_runtime::pipeline::execute_pipeline`]).
+///
+/// This is the async napi-rs equivalent of the deleted `cant-cli execute`
+/// subcommand. It never throws on logical failure: parse errors, missing
+/// pipelines, and runtime errors are all reported via the `error` field
+/// of the returned [`JsPipelineResult`] with `success: false`.
+///
+/// # Arguments
+///
+/// * `file_path` - Absolute or relative path to a `.cant` file.
+/// * `pipeline_name` - The name of the `pipeline { ... }` block to run.
+#[napi]
+pub async fn cant_execute_pipeline(file_path: String, pipeline_name: String) -> JsPipelineResult {
+    use cant_core::dsl::ast::Section;
+    use std::fs;
+
+    // Read the .cant file from disk.
+    let content = match fs::read_to_string(&file_path) {
+        Ok(s) => s,
+        Err(e) => {
+            return JsPipelineResult {
+                name: pipeline_name,
+                success: false,
+                duration_ms: 0,
+                steps: vec![],
+                error: Some(format!("read error: {e}")),
+            };
+        }
+    };
+
+    // Parse the document.
+    let doc = match cant_core::parse_document(&content) {
+        Ok(d) => d,
+        Err(errors) => {
+            let messages: Vec<String> = errors.into_iter().map(|e| e.message).collect();
+            return JsPipelineResult {
+                name: pipeline_name,
+                success: false,
+                duration_ms: 0,
+                steps: vec![],
+                error: Some(format!("parse error: {}", messages.join("; "))),
+            };
+        }
+    };
+
+    // Locate the named pipeline section.
+    let pipeline = doc.sections.iter().find_map(|s| match s {
+        Section::Pipeline(p) if p.name.value == pipeline_name => Some(p),
+        _ => None,
+    });
+    let Some(pipeline) = pipeline else {
+        return JsPipelineResult {
+            name: pipeline_name.clone(),
+            success: false,
+            duration_ms: 0,
+            steps: vec![],
+            error: Some(format!(
+                "pipeline '{pipeline_name}' not found in {file_path}"
+            )),
+        };
+    };
+
+    // Execute the pipeline via the runtime.
+    let env = StepEnv::new();
+    let config = PipelineConfig::default();
+    match execute_pipeline(pipeline, env, &config).await {
+        Ok(result) => JsPipelineResult {
+            name: result.name,
+            success: result.success,
+            duration_ms: result.duration_ms as u32,
+            steps: result
+                .steps
+                .into_iter()
+                .map(|s| JsPipelineStep {
+                    name: s.name,
+                    exit_code: s.exit_code,
+                    stdout_len: s.stdout.len() as u32,
+                    stderr_len: s.stderr.len() as u32,
+                    duration_ms: s.duration_ms as u32,
+                    skipped: s.skipped,
+                })
+                .collect(),
+            error: None,
+        },
+        Err(e) => JsPipelineResult {
+            name: pipeline_name,
+            success: false,
+            duration_ms: 0,
+            steps: vec![],
+            error: Some(format!("runtime error: {e}")),
+        },
     }
 }
