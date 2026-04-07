@@ -141,7 +141,33 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
-      - name: Build all packages
+
+      # ──────────────────────────────────────────────────────────────────
+      # COLD-STATE BUILD GATE
+      #
+      # Purpose: catch workspace-dependency-order regressions in build.mjs
+      # at PR-time, never at release-time.
+      #
+      # Background: in v2026.4.8 the release workflow failed at the Build
+      # step because caamp's tsup DTS resolver couldn't find @cleocode/cant
+      # — caamp had grown a new import that depended on cant's .d.ts files
+      # being present on disk before caamp built, but build.mjs's order had
+      # caamp building first. The bug only reproduced from a fully clean
+      # state (no dist, no tsbuildinfo) because local re-builds left stale
+      # dist files behind that masked the gap.
+      #
+      # CI checkouts are already fresh, so this defensive `rm -rf` is
+      # belt-and-braces — it guarantees the build runs from zero state
+      # regardless of any future caching changes to actions/checkout or
+      # actions/cache. If someone reorders build.mjs incorrectly again,
+      # this step fails and blocks the merge.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Cold-state cleanup (defense against build-order regressions)
+        shell: bash
+        run: |
+          rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
+          echo "Cleaned dist and tsbuildinfo from all packages."
+      - name: Build all packages from cold state (catches dep-order regressions)
         run: node build.mjs
       - name: Verify core dist exists
         shell: bash

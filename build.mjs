@@ -146,8 +146,26 @@ const adaptersBuildOptions = {
 // ---------------------------------------------------------------------------
 
 async function build() {
-  console.log('Building @cleocode/lafs...');
+  // Build order is topological — every package builds AFTER its workspace
+  // dependencies. Reordering this list without consulting the dep graph
+  // breaks fresh-checkout builds (CI). Verified order:
+  //
+  //   lafs       (no internal deps)
+  //   contracts  (no internal deps — type-only)
+  //   cant       (deps: contracts, lafs)
+  //   caamp      (deps: cant, lafs)
+  //   core       (deps: contracts, lafs, others — built via esbuild + tsc emit)
+  //   runtime    (deps: contracts, core)
+  //   adapters   (deps: contracts — built via esbuild + tsc emit)
+  //   cleo       (deps: all of the above — built via esbuild)
+  //
+  // The CI lint job at .github/workflows/ci.yml `Build & Verify` runs
+  // `node build.mjs` from a fresh state (no dist, no tsbuildinfo) on every
+  // push so that any future dep-order regression is caught at PR time, not
+  // at release time.
   const { execFileSync } = await import('node:child_process');
+
+  console.log('Building @cleocode/lafs...');
   execFileSync('pnpm', ['--filter', '@cleocode/lafs', 'run', 'build'], {
     stdio: 'inherit',
     cwd: __dirname,
@@ -155,15 +173,8 @@ async function build() {
   await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
   console.log('  -> packages/lafs/dist/');
 
-  console.log('Building @cleocode/caamp...');
-  execFileSync('pnpm', ['--filter', '@cleocode/caamp', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
-  console.log('  -> packages/caamp/dist/');
-
-  // Build contracts first (tsc, not esbuild — types-only package)
+  // Contracts is type-only and has no internal deps — build before any
+  // package that imports its types.
   console.log('Building @cleocode/contracts...');
   execFileSync('pnpm', ['--filter', '@cleocode/contracts', 'run', 'build'], {
     stdio: 'inherit',
@@ -171,13 +182,25 @@ async function build() {
   });
   console.log('  -> packages/contracts/dist/');
 
-  // CANT depends on @cleocode/contracts and @cleocode/lafs — both are built above.
+  // CANT depends on @cleocode/contracts and @cleocode/lafs — both built above.
+  // CANT must build BEFORE caamp because caamp imports validateDocument /
+  // parseDocument from @cleocode/cant in src/core/harness/pi.ts. Without
+  // cant's .d.ts on disk first, caamp's tsup DTS step throws TS2307.
   console.log('Building @cleocode/cant...');
   execFileSync('pnpm', ['--filter', '@cleocode/cant', 'run', 'build'], {
     stdio: 'inherit',
     cwd: __dirname,
   });
   console.log('  -> packages/cant/dist/');
+
+  // CAAMP depends on @cleocode/cant and @cleocode/lafs — both built above.
+  console.log('Building @cleocode/caamp...');
+  execFileSync('pnpm', ['--filter', '@cleocode/caamp', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
+  console.log('  -> packages/caamp/dist/');
 
   console.log('Building @cleocode/core...');
   await esbuild.build(coreBuildOptions);

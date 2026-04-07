@@ -93,13 +93,27 @@ jobs:
             echo "CalVer OK (stable): $VERSION"
           fi
 
-      # Sync all publishable package.json versions from the tag.
-      # Prevents "cannot publish over previously published" errors when a developer
-      # forgets to bump package.json files before pushing the tag.
+      # Sync all package.json versions from the tag.
+      #
+      # The git tag is the canonical source of truth for the release version.
+      # The root package.json AND every publishable workspace package.json are
+      # synced from the tag in the same step so they cannot drift.
+      #
+      # Prevents "cannot publish over previously published" errors when a
+      # developer forgets to bump package.json files before pushing the tag,
+      # and prevents the root package.json from lying about the workspace
+      # version (which it did from v2026.4.5 through v2026.4.8).
       - name: Sync package versions from tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Root first — root package.json is the workspace source of truth.
+          if [[ -f "package.json" ]]; then
+            jq --arg v "$VERSION" '.version = $v' "package.json" > "package.tmp" \
+              && mv "package.tmp" "package.json"
+            echo "package.json (root) synced to $VERSION"
+          fi
+          # Then every publishable workspace package.
           for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/runtime packages/adapters packages/cleo packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \

@@ -4,6 +4,82 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.9] - 2026-04-07
+
+### Fixed
+
+- **`build.mjs` build order — caamp now builds AFTER cant** ([`build.mjs`](build.mjs)).
+  v2026.4.8's release workflow run [`24108196937`](https://github.com/kryptobaseddev/cleo/actions/runs/24108196937)
+  failed at the Build step with `TS2307: Cannot find module '@cleocode/cant'`
+  because caamp's tsup DTS step couldn't resolve `@cleocode/cant` types — caamp had
+  grown a `validateDocument`/`parseDocument` import in `pi.ts:41` (T276 / `caamp pi
+  cant *` verbs) but `build.mjs` still built caamp before cant, so the cant `.d.ts`
+  files weren't on disk yet when caamp's DTS resolver ran. Local builds masked the
+  bug because `dist/` and `tsbuildinfo` files persisted between invocations.
+  Reordered the build chain to strict topological order: lafs → contracts → cant
+  → caamp → core → runtime → adapters → cleo. **Verified by cold rebuild**:
+  `rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo && node build.mjs`
+  succeeds end-to-end. v2026.4.8 source code (T276 + T277 + T278) is unchanged
+  — only the build pipeline that ships it is fixed.
+
+- **Root `package.json` version drift — root is now the source of truth**
+  ([`package.json`](package.json)). The root `package.json` had been stuck at
+  2026.4.5 since v2026.4.5 because the release workflow's `Sync package versions
+  from tag` step only walked `packages/*/package.json`, never the root. The root
+  is now bumped to match every release, and the release workflow has been updated
+  ([`.github/workflows/release.yml`](.github/workflows/release.yml)) to sync the
+  root in the same step it syncs the workspace packages. The git tag remains the
+  canonical source of truth for the version; the root and every workspace
+  `package.json` are derived from the tag at release time and cannot drift again.
+
+- **CI cold-build gate — defensive cleanup before `node build.mjs`**
+  ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The Build & Verify
+  job now `rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo` immediately
+  before running `node build.mjs`. CI checkouts are already fresh, so this is
+  belt-and-braces — but it guarantees the build runs from zero state regardless
+  of any future caching changes to `actions/checkout` or `actions/cache`. If
+  someone reorders `build.mjs` incorrectly again, this step fails and blocks the
+  merge instead of failing only at release time. The step has a self-documenting
+  name and a 16-line inline comment that records the v2026.4.8 incident as the
+  reason it exists.
+
+- **T261 acceptance criterion #2 corrected** to record the ADR-035 §D4 Option Y
+  decision. The original AC read "v2: Full MCP-as-Pi-extension bridge with real
+  JSON-RPC client (not scaffold)" — which was inverted by the architecture decision
+  ratified in v2026.4.7 (MCP is legacy interop only, not a first-class CleoOS
+  primitive; T268-T272 archived; `installMcpAsExtension` removed from PiHarness).
+  AC now reads: "v2: MCP-as-Pi-extension bridge REJECTED per ADR-035 §D4 Option Y
+  — MCP is legacy interop only…". AC #5 also rewritten to match the actual T278
+  deliverable (`caamp.exclusivityMode` setting) instead of the original generic
+  phrasing.
+
+### Added
+
+- **`packages/cant/README.md`** — first README for `@cleocode/cant`. Documents
+  the public API (`parseDocument`, `validateDocument`, `executePipeline`,
+  `migrateMarkdown`, `parseCANTMessage`), the napi-rs architecture, the two
+  CANT execution paths (cant-bridge.ts vs deterministic pipelines), and the
+  ADR-035 §D5 single-engine boundary. Closes a gap where a published-to-npm
+  package shipped without any README on the registry page.
+
+- **`packages/runtime/README.md`** — first README for `@cleocode/runtime`.
+  Documents `createRuntime`, the four resident services (`AgentPoller`,
+  `HeartbeatService`, `KeyRotationService`, `SseConnectionService`), the
+  transport-agnostic architecture, and the runtime-vs-Pi boundary set by
+  ADR-035 §D5. Closes a gap where a published-to-npm package shipped without
+  any README on the registry page.
+
+### Background — why v2026.4.9 exists at all
+
+v2026.4.8 was tagged and pushed but its release workflow failed at the Build
+step (above). The published packages on npm were stuck at v2026.4.7 even
+though the v2026.4.8 git tag exists. Rather than force-move the v2026.4.8 tag
+(destructive on an already-pushed tag), v2026.4.9 takes the v2026.4.8 source
+code unchanged and adds the four fixes above. The result is that all of
+v2026.4.8's intended deliverables (T276 `caamp pi cant *` verbs, T277
+`PiHarness.spawnSubagent` v2, T278 `caamp.exclusivityMode` setting) ship in
+v2026.4.9 alongside the build/CI/version/AC/README fixes.
+
 ## [2026.4.8] - 2026-04-07
 
 ### Highlights
