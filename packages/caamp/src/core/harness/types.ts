@@ -476,6 +476,12 @@ export interface ModelListEntry {
  * is a routing hint passed to the harness; concrete harnesses may use it
  * to select an inner agent or simply record it for observability.
  *
+ * Per ADR-035 §D6, every spawn has a stable {@link taskId} and is
+ * attributed to a parent session via {@link parentSessionId}. When the
+ * caller provides {@link parentSessionPath}, the harness records a
+ * `subagent_link` custom entry into that file so listing the parent
+ * session surfaces its children automatically.
+ *
  * @public
  */
 export interface SubagentTask {
@@ -483,6 +489,42 @@ export interface SubagentTask {
   targetProviderId: string;
   /** The prompt / instruction to give the spawned agent. */
   prompt: string;
+  /**
+   * Stable task identifier used to derive the child session filename and
+   * to correlate streamed events with their originating task.
+   *
+   * @remarks
+   * When omitted, the harness generates a short id at spawn time so
+   * legacy callers (pre-ADR-035 §D6) keep working. New callers SHOULD
+   * always supply a deterministic value.
+   *
+   * @defaultValue undefined
+   */
+  taskId?: string;
+  /**
+   * Identifier of the parent session that owns this subagent.
+   *
+   * @remarks
+   * Used to compose the child session filename
+   * (`subagent-{parentSessionId}-{taskId}.jsonl`) per ADR-035 §D6.
+   * When omitted, the harness substitutes `"orphan"` so legacy callers
+   * still produce a well-formed file path.
+   *
+   * @defaultValue undefined
+   */
+  parentSessionId?: string;
+  /**
+   * Absolute path to the parent session JSONL file.
+   *
+   * @remarks
+   * When supplied, the harness appends a {@link SubagentLinkEntry} as
+   * a `custom` entry to this file at spawn time so listing the parent
+   * surfaces its children automatically. When omitted, no link entry
+   * is written and the parent session is not modified.
+   *
+   * @defaultValue undefined
+   */
+  parentSessionPath?: string;
   /**
    * Working directory for the spawned agent.
    * @defaultValue undefined
@@ -494,19 +536,164 @@ export interface SubagentTask {
    */
   env?: Record<string, string>;
   /**
-   * Abort signal. When it aborts, the harness will terminate the subagent.
+   * Abort signal. When it aborts, the harness will terminate the subagent
+   * via the configured SIGTERM-then-SIGKILL cleanup sequence.
    * @defaultValue undefined
    */
   signal?: AbortSignal;
 }
 
 /**
- * Final result of a subagent's execution.
+ * Per-call options that override harness-wide spawn defaults.
  *
  * @remarks
- * Collected once the child process exits. {@link parsed} is populated
- * on a best-effort basis: if the subagent emits JSON on stdout the
- * harness will parse it, otherwise {@link parsed} is left undefined.
+ * Introduced for ADR-035 §D6 streaming + cleanup semantics. Every field
+ * is optional so callers that just want default behaviour can omit the
+ * second argument entirely.
+ *
+ * @public
+ */
+export interface SubagentSpawnOptions {
+  /**
+   * Streaming callback invoked once per parsed event from the child.
+   *
+   * @remarks
+   * The harness fires this for every line of stdout (parsed as JSON when
+   * possible), every line of stderr, the final exit, and the
+   * `subagent_link` write. Callbacks are best-effort: throwing from the
+   * callback is caught and recorded as a stderr line so the spawn loop
+   * is never aborted by user code.
+   *
+   * @defaultValue undefined
+   */
+  onStream?: (event: SubagentStreamEvent) => void;
+  /**
+   * Override the SIGTERM grace window before SIGKILL fires.
+   *
+   * @remarks
+   * When omitted, the harness reads
+   * `settings.json:pi.subagent.terminateGraceMs` (global scope) and
+   * falls back to `5000` ms if absent or invalid. Tests use very small
+   * values to keep cleanup checks fast.
+   *
+   * @defaultValue undefined
+   */
+  terminateGraceMs?: number;
+  /**
+   * Environment variable overrides layered atop the task-level env.
+   *
+   * @remarks
+   * Convenience hook for per-call secrets that should not live on the
+   * task object itself. Merged after {@link SubagentTask.env} so
+   * call-site keys win.
+   *
+   * @defaultValue undefined
+   */
+  env?: Record<string, string>;
+  /**
+   * Working directory override that wins over {@link SubagentTask.cwd}.
+   *
+   * @remarks
+   * Useful when the same task description is reused across multiple
+   * working directories.
+   *
+   * @defaultValue undefined
+   */
+  cwd?: string;
+}
+
+/**
+ * One streaming event surfaced through {@link SubagentSpawnOptions.onStream}.
+ *
+ * @remarks
+ * Discriminated by {@link kind}:
+ *
+ * - `"message"` — a successfully parsed JSON line from the child's
+ *   stdout. {@link payload} is the parsed object and {@link lineNumber}
+ *   is the 1-based line index within the child's stdout stream.
+ * - `"stderr"` — a single line from the child's stderr stream. The
+ *   {@link payload} is `{ line: string }`. The harness NEVER injects
+ *   stderr into the parent LLM context per ADR-035 §D6.
+ * - `"exit"` — the child has exited. {@link payload} is a
+ *   {@link SubagentExitResult}.
+ * - `"link"` — the harness wrote a `subagent_link` custom entry to the
+ *   parent session. {@link payload} is the {@link SubagentLinkEntry}.
+ *
+ * @public
+ */
+export interface SubagentStreamEvent {
+  /** Event kind discriminator. */
+  kind: 'message' | 'stderr' | 'exit' | 'link';
+  /** Subagent identifier (matches {@link SubagentHandle.subagentId}). */
+  subagentId: string;
+  /**
+   * 1-based line number within the child's stdout stream. Only set for
+   * `"message"` events that originated from a parsed stdout line.
+   * @defaultValue undefined
+   */
+  lineNumber?: number;
+  /** Event payload, shaped according to {@link kind}. */
+  payload: unknown;
+}
+
+/**
+ * Resolution value of {@link SubagentHandle.exitPromise}.
+ *
+ * @remarks
+ * Captured exactly once when the child process exits. The promise NEVER
+ * rejects — failure is encoded by a non-zero {@link code}, a non-null
+ * {@link signal}, or partial output preserved in the child session file
+ * at {@link childSessionPath}.
+ *
+ * @public
+ */
+export interface SubagentExitResult {
+  /**
+   * Process exit code, or `null` when the child was terminated by a
+   * signal before exiting normally.
+   */
+  code: number | null;
+  /** Terminating signal, or `null` when the child exited normally. */
+  signal: NodeJS.Signals | null;
+  /** Absolute path to the child session JSONL file on disk. */
+  childSessionPath: string;
+  /** Wall-clock duration from spawn to exit, in milliseconds. */
+  durationMs: number;
+}
+
+/**
+ * `subagent_link` custom entry written into the parent session JSONL.
+ *
+ * @remarks
+ * Written at spawn time (not at exit) so the parent always knows which
+ * children were ever launched even if a child crashes before producing
+ * output. The entry is a single JSON line appended to the parent session
+ * file.
+ *
+ * @public
+ */
+export interface SubagentLinkEntry {
+  /** Entry type discriminator (always `"subagent_link"`). */
+  type: 'subagent_link';
+  /** Subagent identifier matching {@link SubagentHandle.subagentId}. */
+  subagentId: string;
+  /** Task identifier from {@link SubagentTask.taskId}. */
+  taskId: string;
+  /** Absolute path to the child session JSONL file. */
+  childSessionPath: string;
+  /** ISO-8601 timestamp captured when the child was spawned. */
+  startedAt: string;
+}
+
+/**
+ * Final result of a subagent's execution (legacy v1 shape).
+ *
+ * @remarks
+ * Preserved for back-compat with pre-ADR-035 §D6 callers. New code
+ * SHOULD await {@link SubagentHandle.exitPromise} (which resolves with
+ * a richer {@link SubagentExitResult}) instead. The harness still
+ * populates this field on every spawn so existing tests and callers
+ * keep working.
  *
  * @public
  */
@@ -530,18 +717,87 @@ export interface SubagentResult {
  *
  * @remarks
  * Returned synchronously from {@link Harness.spawnSubagent}. The caller
- * may await {@link result} to collect the final output, or invoke
- * {@link abort} to terminate the child early.
+ * may:
+ *
+ * - Await {@link exitPromise} to collect the rich {@link SubagentExitResult}
+ *   (preferred path, ADR-035 §D6).
+ * - Await {@link result} to collect the legacy {@link SubagentResult}
+ *   (preserved for back-compat).
+ * - Invoke {@link terminate} (preferred) or {@link abort} (legacy) to
+ *   stop the child early via the configured SIGTERM-then-SIGKILL
+ *   cleanup sequence.
+ * - Inspect {@link recentStderr} for the most recent stderr lines
+ *   captured by the harness — useful for post-mortem diagnostics
+ *   without injecting stderr into the parent LLM context.
  *
  * @public
  */
 export interface SubagentHandle {
+  /**
+   * Stable subagent identifier generated at spawn time.
+   *
+   * @remarks
+   * Format: `sub-{taskId}-{shortRandom}`. Used to correlate
+   * {@link SubagentStreamEvent} entries and `subagent_link` records
+   * with this handle. Always defined (the harness never returns a
+   * handle without one).
+   */
+  subagentId: string;
+  /** Task identifier from {@link SubagentTask.taskId} (or generated default). */
+  taskId: string;
+  /** Absolute path to the child session JSONL file on disk. */
+  childSessionPath: string;
   /** PID of the spawned process, or `null` if spawning did not yield one. */
   pid: number | null;
-  /** Promise resolving to the subagent's final output once the process exits. */
+  /** Wall-clock timestamp captured immediately after spawn. */
+  startedAt: Date;
+  /**
+   * Promise resolving to the rich exit result once the child process
+   * has fully terminated. NEVER rejects — failures are encoded in the
+   * resolved value (non-zero code, non-null signal, partial output in
+   * the session file).
+   */
+  exitPromise: Promise<SubagentExitResult>;
+  /**
+   * Promise resolving to the legacy {@link SubagentResult} shape.
+   *
+   * @remarks
+   * Preserved for back-compat. Resolves to the same exit code as
+   * {@link exitPromise} plus the full captured stdout / stderr buffers
+   * and a best-effort `parsed` field for callers that emit a single
+   * JSON document.
+   */
   result: Promise<SubagentResult>;
-  /** Synchronously terminate the subagent. Safe to call after exit. */
+  /**
+   * Terminate the subagent gracefully.
+   *
+   * @remarks
+   * Sends SIGTERM, waits for the configured grace window, then sends
+   * SIGKILL if the child is still alive. Idempotent — subsequent calls
+   * after the first are no-ops. Returns once the cleanup sequence has
+   * fully resolved.
+   */
+  terminate(): Promise<void>;
+  /**
+   * Synchronously trigger the cleanup sequence (legacy v1 alias for
+   * {@link terminate}).
+   *
+   * @remarks
+   * Preserved so existing callers that use `handle.abort()` keep
+   * working. Internally enqueues the same SIGTERM-then-SIGKILL flow as
+   * {@link terminate} but does not return the resulting promise.
+   */
   abort: () => void;
+  /**
+   * Snapshot of the most recent stderr lines captured for this child.
+   *
+   * @remarks
+   * Bounded ring buffer (last 100 lines) so memory cannot grow without
+   * bound under chatty stderr. Stderr is NEVER injected into the
+   * parent LLM context — this accessor is intended for diagnostics and
+   * post-mortem inspection only.
+   */
+  recentStderr(): string[];
 }
 
 /**
@@ -637,16 +893,25 @@ export interface Harness {
    * @remarks
    * For Pi: invokes `child_process.spawn` with the provider's configured
    * `capabilities.spawn.spawnCommand`, appending the task prompt as a
-   * trailing positional argument. The returned handle lets the caller await
-   * completion or abort early.
+   * trailing positional argument. The returned handle lets the caller
+   * await completion ({@link SubagentHandle.exitPromise}), terminate the
+   * child via the SIGTERM-then-SIGKILL cleanup sequence
+   * ({@link SubagentHandle.terminate}), and inspect recent stderr for
+   * post-mortem diagnostics ({@link SubagentHandle.recentStderr}).
+   *
+   * Per ADR-035 §D6, this is the **only** canonical subagent spawn path
+   * in CLEO. New callers MUST go through the harness instead of calling
+   * `child_process.spawn` directly so session attribution, streaming,
+   * and cleanup remain uniform.
    *
    * Optional — harnesses that cannot spawn other agents should omit this
    * method. Callers MUST feature-check before invoking.
    *
    * @param task - Subagent task specification.
+   * @param opts - Per-call streaming and cleanup overrides.
    * @returns A live subagent handle.
    */
-  spawnSubagent?(task: SubagentTask): Promise<SubagentHandle>;
+  spawnSubagent?(task: SubagentTask, opts?: SubagentSpawnOptions): Promise<SubagentHandle>;
 
   /**
    * Configure which models are available in the harness's model picker.

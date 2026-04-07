@@ -22,9 +22,20 @@
  * @packageDocumentation
  */
 
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { type Dirent, existsSync } from 'node:fs';
-import { cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  cp,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseDocument, validateDocument } from '@cleocode/cant';
@@ -45,8 +56,12 @@ import type {
   PromptEntry,
   SessionDocument,
   SessionSummary,
+  SubagentExitResult,
   SubagentHandle,
+  SubagentLinkEntry,
   SubagentResult,
+  SubagentSpawnOptions,
+  SubagentStreamEvent,
   SubagentTask,
   ThemeEntry,
   ValidateCantProfileResult,
@@ -124,6 +139,104 @@ async function atomicWriteJson(filePath: string, data: unknown): Promise<void> {
   const tmp = `${filePath}.tmp.${process.pid}`;
   await writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
   await rename(tmp, filePath);
+}
+
+// ── Subagent runtime constants & orphan tracker (ADR-035 §D6) ─────────
+
+/**
+ * Default SIGTERM grace window before SIGKILL fires.
+ *
+ * @remarks
+ * Per ADR-035 §D6 the configurable default is 5 seconds. Callers can
+ * override per-spawn via {@link SubagentSpawnOptions.terminateGraceMs}
+ * or globally via `settings.json:pi.subagent.terminateGraceMs`.
+ */
+const DEFAULT_TERMINATE_GRACE_MS = 5000;
+
+/** Maximum number of stderr lines retained per subagent for diagnostics. */
+const STDERR_RING_BUFFER_SIZE = 100;
+
+/**
+ * Internal record describing a live subagent so the module-level orphan
+ * sweeper can terminate stragglers on parent exit.
+ */
+interface ActiveSubagent {
+  child: ChildProcess;
+  subagentId: string;
+  terminate: () => void;
+}
+
+/**
+ * Set of currently-live subagents owned by this PiHarness module.
+ *
+ * @remarks
+ * Used by {@link ensureOrphanSweeperRegistered} so that on parent
+ * shutdown every still-running subagent receives the cleanup signal
+ * sequence. Entries are removed as soon as a child exits naturally.
+ */
+const activeSubagents = new Set<ActiveSubagent>();
+
+/** Tracks whether the process-exit orphan sweeper has been registered. */
+let orphanSweeperRegistered = false;
+
+/**
+ * Register a one-shot `process.on('exit', ...)` handler that terminates
+ * any still-active subagents when the parent process is shutting down.
+ *
+ * @remarks
+ * Idempotent — subsequent calls are no-ops. The handler walks
+ * {@link activeSubagents} and invokes each entry's terminate hook so
+ * the SIGTERM-then-SIGKILL sequence runs uniformly across crash and
+ * graceful shutdown paths. Synchronous because Node's `'exit'` event
+ * does not await async work.
+ */
+function ensureOrphanSweeperRegistered(): void {
+  if (orphanSweeperRegistered) return;
+  orphanSweeperRegistered = true;
+  const sweeper = (): void => {
+    for (const entry of activeSubagents) {
+      try {
+        entry.terminate();
+      } catch {
+        // Best-effort: a child that's already gone is fine.
+      }
+    }
+  };
+  process.on('exit', sweeper);
+}
+
+/**
+ * Generate a short unique suffix for subagent ids and ad-hoc task ids.
+ *
+ * @remarks
+ * Combines a timestamp with `Math.random` for collision resistance
+ * inside a single process. Not cryptographically strong — these ids are
+ * filesystem identifiers, not credentials.
+ */
+function generateShortId(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${ts}${rand}`;
+}
+
+/**
+ * Read `settings.json:pi.subagent.terminateGraceMs` from a settings blob.
+ *
+ * @remarks
+ * Tolerant of missing or non-numeric values — falls through to the
+ * supplied default when the path does not resolve to a positive finite
+ * number. Centralised here so both spawn-time defaulting and tests can
+ * share the lookup logic.
+ */
+function readTerminateGraceFromSettings(settings: unknown, fallback: number): number {
+  if (!isPlainObject(settings)) return fallback;
+  const piBlock = settings['pi'];
+  if (!isPlainObject(piBlock)) return fallback;
+  const subBlock = piBlock['subagent'];
+  if (!isPlainObject(subBlock)) return fallback;
+  const value = subBlock['terminateGraceMs'];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
+  return value;
 }
 
 // ── PiHarness ─────────────────────────────────────────────────────────
@@ -250,22 +363,83 @@ export class PiHarness implements Harness {
     await writeFile(filePath, stripped.length === 0 ? '' : `${stripped}\n`, 'utf8');
   }
 
-  // ── Subagent spawn ──────────────────────────────────────────────────
+  // ── Subagent spawn (ADR-035 §D6) ────────────────────────────────────
 
   /**
-   * {@inheritDoc Harness.spawnSubagent}
+   * Spawn a subagent through Pi's configured `spawnCommand` and return a
+   * live handle bound to the canonical streaming, attribution, and
+   * cleanup contract.
    *
    * @remarks
-   * Invokes Pi's configured `spawnCommand` (e.g.
-   * `["pi", "--mode", "json", "-p", "--no-session"]`) with the task prompt
-   * appended as the trailing positional argument. The {@link SubagentTask.targetProviderId}
-   * is a routing hint carried in the prompt stream; Pi's own extension
-   * layer dispatches to the correct inner agent.
+   * Per ADR-035 §D6 this is the **only** sanctioned subagent spawn path
+   * in CLEO. All historical direct `child_process.spawn` callers in
+   * subagent contexts (including the `cant-bridge.ts` Pi extension and
+   * the legacy CLEO orchestrator paths) MUST migrate to this method so
+   * the contract below holds uniformly. A custom biome rule banning
+   * raw `spawn()` from subagent code is planned for v3 cleanup but is
+   * intentionally NOT enforced in v2 to keep the migration incremental.
    *
-   * Throws immediately when the provider entry is missing a `spawnCommand`
-   * so callers see configuration errors early rather than at child-exit time.
+   * **Streaming semantics** — Pi's `--mode json` produces line-delimited
+   * JSON on stdout. The harness:
+   *
+   * - Line-buffers stdout, parses each line as JSON, and forwards a
+   *   `{ kind: 'message', subagentId, lineNumber, payload }`
+   *   {@link SubagentStreamEvent} via {@link SubagentSpawnOptions.onStream}.
+   *   Non-parseable lines increment a warning counter (recorded in the
+   *   child session as `{ type: 'raw' }`) but never crash the loop.
+   * - Line-buffers stderr separately, forwards each line as
+   *   `{ kind: 'stderr', subagentId, payload: { line } }`, and stores
+   *   it in a 100-line ring buffer accessible via
+   *   {@link SubagentHandle.recentStderr}. Stderr is **never** injected
+   *   into the parent LLM context per ADR-035 §D6.
+   * - Emits a final `{ kind: 'exit', subagentId, payload: SubagentExitResult }`
+   *   when the child terminates.
+   *
+   * **Session attribution** — Every spawn produces a child session JSONL
+   * file at
+   * `~/.pi/agent/sessions/subagents/subagent-{parentSessionId}-{taskId}.jsonl`.
+   * The header line records the subagentId, taskId, and parent linkage.
+   * When {@link SubagentTask.parentSessionPath} is supplied, a
+   * {@link SubagentLinkEntry} is appended to the parent session file as
+   * a JSONL line so listing the parent surfaces its children.
+   *
+   * **Exit propagation** — {@link SubagentHandle.exitPromise} resolves
+   * with `{ code, signal, childSessionPath, durationMs }` exactly once
+   * when the child exits. The promise NEVER rejects: failure is
+   * encoded by a non-zero `code`, a non-null `signal`, or partial
+   * output preserved in the child session file.
+   *
+   * **Cleanup** — {@link SubagentHandle.terminate} sends SIGTERM, waits
+   * the configured grace window, then sends SIGKILL if the child is
+   * still alive. The grace window is sourced from
+   * {@link SubagentSpawnOptions.terminateGraceMs} when supplied,
+   * otherwise from `settings.json:pi.subagent.terminateGraceMs`,
+   * otherwise from {@link DEFAULT_TERMINATE_GRACE_MS}. A
+   * `subagent_exit` entry with reason `terminated` is appended to the
+   * child session file when cleanup runs.
+   *
+   * **Concurrency** — Use the static helpers
+   * {@link PiHarness.raceSubagents} and
+   * {@link PiHarness.settleAllSubagents} to compose `parallel: race`
+   * and `parallel: settle` constructs from CANT workflows over multiple
+   * handles.
+   *
+   * **Orphan handling** — On the first spawn the harness registers a
+   * process-wide `'exit'` handler that terminates every still-active
+   * subagent so a parent crash never strands children.
+   *
+   * Throws immediately when the provider entry is missing a
+   * `spawnCommand` so callers see configuration errors early rather
+   * than at child-exit time.
+   *
+   * @param task - Subagent task specification.
+   * @param opts - Per-call streaming and cleanup overrides.
+   * @returns A live subagent handle.
    */
-  async spawnSubagent(task: SubagentTask): Promise<SubagentHandle> {
+  async spawnSubagent(
+    task: SubagentTask,
+    opts: SubagentSpawnOptions = {},
+  ): Promise<SubagentHandle> {
     const cmd = this.provider.capabilities.spawn.spawnCommand;
     if (cmd === null || cmd.length === 0) {
       throw new Error(
@@ -277,49 +451,398 @@ export class PiHarness implements Harness {
     if (typeof program !== 'string' || program.length === 0) {
       throw new Error('PiHarness.spawnSubagent: invalid spawnCommand (missing program)');
     }
+
+    // Resolve identity + paths up front so they are stable across the
+    // streaming + cleanup callbacks below.
+    const taskId = task.taskId ?? generateShortId();
+    const parentSessionId = task.parentSessionId ?? 'orphan';
+    const subagentId = `sub-${taskId}-${generateShortId().slice(0, 6)}`;
+    const childSessionPath = join(
+      getPiAgentDir(),
+      'sessions',
+      'subagents',
+      `subagent-${parentSessionId}-${taskId}.jsonl`,
+    );
+    await mkdir(dirname(childSessionPath), { recursive: true });
+
+    // Resolve the SIGTERM grace window: per-call override → settings.json
+    // → hardcoded default. Read settings via the public reader so the
+    // standard tolerant-merge contract applies.
+    let grace = opts.terminateGraceMs;
+    if (grace === undefined) {
+      try {
+        const settings = await this.readSettings({ kind: 'global' });
+        grace = readTerminateGraceFromSettings(settings, DEFAULT_TERMINATE_GRACE_MS);
+      } catch {
+        grace = DEFAULT_TERMINATE_GRACE_MS;
+      }
+    }
+    if (!Number.isFinite(grace) || grace < 0) {
+      grace = DEFAULT_TERMINATE_GRACE_MS;
+    }
+
+    const startedAt = new Date();
+    const startedAtIso = startedAt.toISOString();
+
+    // Write the child session header so `listSessions` and `showSession`
+    // can attribute the file even before the child has produced output.
+    const sessionHeader = {
+      type: 'session',
+      version: 3,
+      id: subagentId,
+      timestamp: startedAtIso,
+      cwd: opts.cwd ?? task.cwd ?? process.cwd(),
+      parentSession: task.parentSessionId ?? null,
+      taskId,
+      childSessionPath,
+    };
+    await writeFile(childSessionPath, `${JSON.stringify(sessionHeader)}\n`, 'utf8');
+
+    // Spawn the child. Per-call overrides win over task-level fields.
     const baseArgs = cmd.slice(1);
     const args = [...baseArgs, task.prompt];
-
     const child = spawn(program, args, {
-      cwd: task.cwd,
-      env: { ...process.env, ...task.env },
+      cwd: opts.cwd ?? task.cwd,
+      env: { ...process.env, ...task.env, ...opts.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let stdout = '';
-    let stderr = '';
+    // Streaming state — line buffers, captured aggregates, and the
+    // bounded stderr ring buffer.
+    let stdoutAccum = '';
+    let stderrAccum = '';
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    let stdoutLineNumber = 0;
+    let nonJsonLineCount = 0;
+    const stderrRing: string[] = [];
+
+    const safeOnStream = (event: SubagentStreamEvent): void => {
+      if (opts.onStream === undefined) return;
+      try {
+        opts.onStream(event);
+      } catch (err) {
+        // Never let user-callback errors abort the spawn loop. Record
+        // the failure as a stderr line so it surfaces in diagnostics.
+        const message = err instanceof Error ? err.message : String(err);
+        stderrRing.push(`[onStream] ${message}`);
+        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+      }
+    };
+
+    const writeChildSession = (entry: Record<string, unknown>): void => {
+      // Best-effort fire-and-forget append. We do NOT await here because
+      // the streaming loop must keep up with stdout chunks; ordering
+      // within the file is preserved by Node's append semantics for a
+      // single-writer file.
+      void appendFile(childSessionPath, `${JSON.stringify(entry)}\n`, 'utf8').catch(() => {
+        // Disk errors are recorded as a synthetic stderr line so they
+        // surface in `recentStderr` without aborting the child.
+        const synthetic = `[childSession] failed to append entry`;
+        stderrRing.push(synthetic);
+        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+      });
+    };
+
+    const flushStdoutBuffer = (final: boolean): void => {
+      let nlIdx = stdoutBuffer.indexOf('\n');
+      while (nlIdx !== -1) {
+        const line = stdoutBuffer.slice(0, nlIdx);
+        stdoutBuffer = stdoutBuffer.slice(nlIdx + 1);
+        this.handleStdoutLine(line, {
+          subagentId,
+          increment: () => ++stdoutLineNumber,
+          incrementNonJson: () => ++nonJsonLineCount,
+          writeChildSession,
+          safeOnStream,
+        });
+        nlIdx = stdoutBuffer.indexOf('\n');
+      }
+      // On final flush, drain any trailing partial line so the JSON
+      // parser still gets a chance at it.
+      if (final && stdoutBuffer.length > 0) {
+        const remainder = stdoutBuffer;
+        stdoutBuffer = '';
+        this.handleStdoutLine(remainder, {
+          subagentId,
+          increment: () => ++stdoutLineNumber,
+          incrementNonJson: () => ++nonJsonLineCount,
+          writeChildSession,
+          safeOnStream,
+        });
+      }
+    };
+
+    const flushStderrBuffer = (final: boolean): void => {
+      let nlIdx = stderrBuffer.indexOf('\n');
+      while (nlIdx !== -1) {
+        const line = stderrBuffer.slice(0, nlIdx);
+        stderrBuffer = stderrBuffer.slice(nlIdx + 1);
+        stderrRing.push(line);
+        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+        writeChildSession({ type: 'subagent_stderr', line });
+        safeOnStream({ kind: 'stderr', subagentId, payload: { line } });
+        nlIdx = stderrBuffer.indexOf('\n');
+      }
+      if (final && stderrBuffer.length > 0) {
+        const line = stderrBuffer;
+        stderrBuffer = '';
+        stderrRing.push(line);
+        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+        writeChildSession({ type: 'subagent_stderr', line });
+        safeOnStream({ kind: 'stderr', subagentId, payload: { line } });
+      }
+    };
+
     child.stdout?.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
+      const text = chunk.toString('utf8');
+      stdoutAccum += text;
+      stdoutBuffer += text;
+      flushStdoutBuffer(false);
     });
     child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+      const text = chunk.toString('utf8');
+      stderrAccum += text;
+      stderrBuffer += text;
+      flushStderrBuffer(false);
     });
 
-    const result: Promise<SubagentResult> = new Promise((resolve) => {
-      child.on('close', (exitCode) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(stdout);
-        } catch {
-          // Non-JSON stdout is fine — leave `parsed` undefined.
-        }
-        resolve({ exitCode, stdout, stderr, parsed });
-      });
-    });
+    // Cleanup state — single shared object so the terminate path,
+    // exitPromise resolver, and orphan sweeper all observe the same
+    // values without re-entrancy bugs.
+    let terminating = false;
+    let terminationReason: 'natural' | 'terminated' = 'natural';
+    let terminatePromise: Promise<void> | null = null;
 
+    const terminateImpl = (): Promise<void> => {
+      if (terminatePromise !== null) return terminatePromise;
+      terminating = true;
+      terminationReason = 'terminated';
+      terminatePromise = terminateSubagent(child, grace ?? DEFAULT_TERMINATE_GRACE_MS);
+      return terminatePromise;
+    };
+
+    // Synchronous variant used by the orphan sweeper (process 'exit' is
+    // synchronous and cannot await async work).
+    const terminateSync = (): void => {
+      if (terminating) return;
+      terminating = true;
+      terminationReason = 'terminated';
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // Already gone — fine.
+      }
+    };
+
+    // Track this subagent so the orphan sweeper can clean it up if the
+    // parent crashes before exit fires.
+    const activeRecord: ActiveSubagent = {
+      child,
+      subagentId,
+      terminate: terminateSync,
+    };
+    activeSubagents.add(activeRecord);
+    ensureOrphanSweeperRegistered();
+
+    // Wire up the legacy abort-signal channel so existing callers that
+    // pass `task.signal` keep working under the new cleanup contract.
     if (task.signal !== undefined) {
-      task.signal.addEventListener('abort', () => {
-        child.kill();
+      const onAbort = (): void => {
+        void terminateImpl();
+      };
+      if (task.signal.aborted) {
+        onAbort();
+      } else {
+        task.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
+    // Build the rich exit promise. Resolves on `'close'` (which fires
+    // after stdio streams have flushed) so we observe the final stdout
+    // chunk before resolving. NEVER rejects.
+    const exitPromise: Promise<SubagentExitResult> = new Promise((resolve) => {
+      child.on('close', (exitCode, signal) => {
+        // Flush any trailing partial lines from both streams so the
+        // child session file captures the full conversation.
+        flushStdoutBuffer(true);
+        flushStderrBuffer(true);
+
+        const durationMs = Date.now() - startedAt.getTime();
+        writeChildSession({
+          type: 'subagent_exit',
+          code: exitCode,
+          signal,
+          reason: terminationReason,
+          durationMs,
+          nonJsonLineCount,
+        });
+
+        activeSubagents.delete(activeRecord);
+
+        const result: SubagentExitResult = {
+          code: exitCode,
+          signal,
+          childSessionPath,
+          durationMs,
+        };
+        safeOnStream({ kind: 'exit', subagentId, payload: result });
+        resolve(result);
       });
+      // A spawn failure (e.g. ENOENT) emits 'error' before 'close'.
+      // Synthesise a deterministic exit so the promise still resolves
+      // and the file system state is consistent.
+      child.on('error', () => {
+        // 'close' will fire after 'error'; nothing else to do here.
+      });
+    });
+
+    // Build the legacy v1 result promise from the same data so existing
+    // callers (and the existing test suite) keep working unchanged.
+    const result: Promise<SubagentResult> = exitPromise.then(({ code }) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stdoutAccum);
+      } catch {
+        // Non-JSON aggregate is fine — leave parsed undefined.
+      }
+      return { exitCode: code, stdout: stdoutAccum, stderr: stderrAccum, parsed };
+    });
+
+    // Append the parent-side `subagent_link` entry. We do this AFTER the
+    // child has been spawned successfully so a spawn failure is not
+    // recorded as a live link in the parent file.
+    const linkEntry: SubagentLinkEntry = {
+      type: 'subagent_link',
+      subagentId,
+      taskId,
+      childSessionPath,
+      startedAt: startedAtIso,
+    };
+    if (task.parentSessionPath !== undefined && task.parentSessionPath.length > 0) {
+      try {
+        await writeSubagentLink(task.parentSessionPath, linkEntry);
+        safeOnStream({ kind: 'link', subagentId, payload: linkEntry });
+      } catch {
+        // Parent file unwritable — record diagnostically and continue.
+        // We do NOT fail the spawn because the child is already running.
+        stderrRing.push(`[link] failed to write subagent_link to parent`);
+        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+      }
     }
 
     return {
+      subagentId,
+      taskId,
+      childSessionPath,
       pid: child.pid ?? null,
+      startedAt,
+      exitPromise,
       result,
+      terminate: terminateImpl,
       abort: () => {
-        child.kill();
+        void terminateImpl();
       },
+      recentStderr: () => stderrRing.slice(),
     };
+  }
+
+  /**
+   * Race a set of subagent handles, returning the first one that exits.
+   *
+   * @remarks
+   * Maps CANT's `parallel: race` construct (per ADR-035 §D6) onto the
+   * canonical {@link spawnSubagent} contract. The losing handles are
+   * gracefully terminated via {@link SubagentHandle.terminate} once the
+   * first settles so no straggler children outlive the race.
+   *
+   * @param handles - Subagent handles to race.
+   * @returns The {@link SubagentExitResult} of the first child to exit.
+   * @throws When `handles` is empty (caller bug — a race over zero
+   *   children has no winner).
+   */
+  static async raceSubagents(handles: SubagentHandle[]): Promise<SubagentExitResult> {
+    if (handles.length === 0) {
+      throw new Error('PiHarness.raceSubagents: cannot race an empty handle list');
+    }
+    // Tag each promise with its index so we can identify the loser set.
+    const tagged = handles.map((handle, index) =>
+      handle.exitPromise.then((value) => ({ index, value })),
+    );
+    const winner = await Promise.race(tagged);
+    // Terminate the losers in parallel; ignore individual errors so a
+    // single stuck child cannot block the race resolution.
+    const losers: Promise<void>[] = [];
+    for (let i = 0; i < handles.length; i += 1) {
+      if (i === winner.index) continue;
+      const loser = handles[i];
+      if (loser === undefined) continue;
+      losers.push(loser.terminate().catch(() => undefined));
+    }
+    await Promise.all(losers);
+    return winner.value;
+  }
+
+  /**
+   * Settle a set of subagent handles, returning a parallel array of
+   * results.
+   *
+   * @remarks
+   * Maps CANT's `parallel: settle` construct (per ADR-035 §D6) onto the
+   * canonical {@link spawnSubagent} contract. Because
+   * {@link SubagentHandle.exitPromise} never rejects, every entry in
+   * the returned array is `{ status: 'fulfilled', value: ... }` under
+   * normal operation; the `PromiseSettledResult` shape is preserved
+   * for forward compatibility with future failure modes.
+   *
+   * @param handles - Subagent handles to settle.
+   * @returns Parallel array of settled exit results, one per input.
+   */
+  static async settleAllSubagents(
+    handles: SubagentHandle[],
+  ): Promise<PromiseSettledResult<SubagentExitResult>[]> {
+    return Promise.allSettled(handles.map((h) => h.exitPromise));
+  }
+
+  /**
+   * Per-line stdout dispatcher used by the streaming buffer flusher.
+   *
+   * @remarks
+   * Extracted as a private method so the line-handling logic stays
+   * close to {@link spawnSubagent} but does not bloat the parent
+   * function. Skips empty lines (a leading newline produces a zero-
+   * length entry that has no semantic meaning).
+   */
+  private handleStdoutLine(
+    rawLine: string,
+    ctx: {
+      subagentId: string;
+      increment: () => number;
+      incrementNonJson: () => number;
+      writeChildSession: (entry: Record<string, unknown>) => void;
+      safeOnStream: (event: SubagentStreamEvent) => void;
+    },
+  ): void {
+    // Pi prints `\r\n` on Windows and `\n` on POSIX; strip a trailing
+    // CR so JSON.parse never sees it.
+    const trimmed = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (trimmed.length === 0) return;
+    const lineNumber = ctx.increment();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      ctx.incrementNonJson();
+      ctx.writeChildSession({ type: 'raw', lineNumber, line: trimmed });
+      return;
+    }
+    ctx.writeChildSession({ type: 'custom_message', lineNumber, payload: parsed });
+    ctx.safeOnStream({
+      kind: 'message',
+      subagentId: ctx.subagentId,
+      lineNumber,
+      payload: parsed,
+    });
   }
 
   // ── Settings ────────────────────────────────────────────────────────
@@ -988,6 +1511,94 @@ export class PiHarness implements Harness {
       counts,
     };
   }
+}
+
+// ── Private subagent runtime helpers (ADR-035 §D6) ─────────────────────
+
+/**
+ * Terminate a child process via the canonical SIGTERM-then-SIGKILL
+ * cleanup sequence used by {@link PiHarness.spawnSubagent}.
+ *
+ * @remarks
+ * Sends SIGTERM, polls every 25 ms (or `min(graceMs, 25)` ms when the
+ * grace window is shorter than the poll interval, to keep tests fast),
+ * and escalates to SIGKILL once the grace window has elapsed if the
+ * child is still alive. Tolerates a child that has already exited at
+ * any point in the sequence — `child.kill` on a dead pid is a no-op.
+ *
+ * The promise resolves once the child has emitted `'close'` so callers
+ * can be sure the cleanup is complete before continuing.
+ */
+async function terminateSubagent(child: ChildProcess, graceMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // Already dead.
+    return;
+  }
+
+  const pollInterval = Math.min(25, Math.max(1, graceMs));
+  const deadline = Date.now() + graceMs;
+
+  await new Promise<void>((resolve) => {
+    const timer = setInterval(() => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        clearInterval(timer);
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // Already dead.
+        }
+        resolve();
+      }
+    }, pollInterval);
+
+    // Belt-and-braces: if 'close' fires before the polling tick, resolve
+    // immediately so callers do not wait the full grace window.
+    child.once('close', () => {
+      clearInterval(timer);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Append a {@link SubagentLinkEntry} to a parent session JSONL file.
+ *
+ * @remarks
+ * Creates the parent directory if needed and uses an atomic
+ * single-line append so the entry is well-formed under concurrent
+ * writers. Throws on disk errors so the caller can record the failure
+ * diagnostically; {@link PiHarness.spawnSubagent} catches the throw
+ * and surfaces it via the stderr ring buffer rather than aborting the
+ * spawn.
+ */
+async function writeSubagentLink(
+  parentSessionPath: string,
+  entry: SubagentLinkEntry,
+): Promise<void> {
+  await mkdir(dirname(parentSessionPath), { recursive: true });
+  // Wrap the typed entry as a Pi `custom` JSONL entry. The original
+  // `type` field is preserved as `subtype` so the parent session loader
+  // can still discriminate `subagent_link` records when listing.
+  const wrapped = {
+    type: 'custom',
+    subtype: entry.type,
+    subagentId: entry.subagentId,
+    taskId: entry.taskId,
+    childSessionPath: entry.childSessionPath,
+    startedAt: entry.startedAt,
+  };
+  const line = `${JSON.stringify(wrapped)}\n`;
+  await appendFile(parentSessionPath, line, 'utf8');
 }
 
 // ── Private session-header helper ──────────────────────────────────────
