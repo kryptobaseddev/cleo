@@ -35,6 +35,12 @@ export interface McpDetectOptions extends McpCommandBaseOptions {
 /**
  * Registers the `caamp mcp detect` subcommand.
  *
+ * @remarks
+ * Wires the `detect` subcommand into the supplied `mcp` parent Command,
+ * calling {@link detectMcpInstallations} to probe every MCP-capable
+ * provider and rendering the result through `runLafsCommand` as a
+ * LAFS envelope.
+ *
  * @param parent - Parent `mcp` Command to attach the subcommand to.
  *
  * @example

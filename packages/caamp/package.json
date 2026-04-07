@@ -29,6 +29,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint src tests",
     "lint:fix": "biome lint --write src tests",
+    "docs": "forge-ts check && forge-ts build --skip-api",
+    "docs:check": "forge-ts check",
     "docs:api": "typedoc",
     "docs:api:check": "typedoc --emit none",
     "research": "tsx scripts/provider-research.ts",
@@ -70,6 +72,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
+    "@forge-ts/cli": "0.23.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "25.5.0",
     "@vitest/coverage-v8": "^4.1.0",

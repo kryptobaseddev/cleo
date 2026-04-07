@@ -75,6 +75,13 @@ function inferPromptName(sourceDir: string): string {
 /**
  * Registers the `caamp pi prompts` command group.
  *
+ * @remarks
+ * Wires the `install`, `list`, and `remove` subcommands into the
+ * supplied `pi` parent Command. Routes each subcommand through
+ * {@link requirePiHarness} so Pi-absent callers fail with a stable
+ * LAFS envelope, then delegates to the {@link PiHarness} prompt
+ * verbs for filesystem operations across the three-tier hierarchy.
+ *
  * @param parent - The parent `pi` Command to attach the prompts group to.
  *
  * @example

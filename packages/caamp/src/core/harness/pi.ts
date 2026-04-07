@@ -302,7 +302,9 @@ export class PiHarness implements Harness {
 
   // ── Skills ──────────────────────────────────────────────────────────
 
-  /** {@inheritDoc Harness.installSkill} */
+  /**
+   * Install a skill directory into the resolved Pi skills location.
+   */
   async installSkill(sourcePath: string, skillName: string, scope: HarnessScope): Promise<void> {
     const targetDir = join(this.skillsDir(scope), skillName);
     await rm(targetDir, { recursive: true, force: true });
@@ -310,13 +312,17 @@ export class PiHarness implements Harness {
     await cp(sourcePath, targetDir, { recursive: true });
   }
 
-  /** {@inheritDoc Harness.removeSkill} */
+  /**
+   * Remove a skill directory from the resolved Pi skills location.
+   */
   async removeSkill(skillName: string, scope: HarnessScope): Promise<void> {
     const targetDir = join(this.skillsDir(scope), skillName);
     await rm(targetDir, { recursive: true, force: true });
   }
 
-  /** {@inheritDoc Harness.listSkills} */
+  /**
+   * List the installed skill directories at the given scope.
+   */
   async listSkills(scope: HarnessScope): Promise<string[]> {
     const dir = this.skillsDir(scope);
     if (!existsSync(dir)) return [];
@@ -326,7 +332,10 @@ export class PiHarness implements Harness {
 
   // ── Instructions ────────────────────────────────────────────────────
 
-  /** {@inheritDoc Harness.injectInstructions} */
+  /**
+   * Inject or replace a CAAMP-managed instruction block inside the Pi
+   * `AGENTS.md` file for the resolved scope.
+   */
   async injectInstructions(content: string, scope: HarnessScope): Promise<void> {
     const filePath = this.agentsMdPath(scope);
     await mkdir(dirname(filePath), { recursive: true });
@@ -350,7 +359,10 @@ export class PiHarness implements Harness {
     await writeFile(filePath, updated, 'utf8');
   }
 
-  /** {@inheritDoc Harness.removeInstructions} */
+  /**
+   * Remove the CAAMP-managed instruction block from the Pi `AGENTS.md`
+   * file at the resolved scope.
+   */
   async removeInstructions(scope: HarnessScope): Promise<void> {
     const filePath = this.agentsMdPath(scope);
     if (!existsSync(filePath)) return;
@@ -847,7 +859,9 @@ export class PiHarness implements Harness {
 
   // ── Settings ────────────────────────────────────────────────────────
 
-  /** {@inheritDoc Harness.readSettings} */
+  /**
+   * Read the Pi `settings.json` file for the resolved scope.
+   */
   async readSettings(scope: HarnessScope): Promise<unknown> {
     const filePath = this.settingsPath(scope);
     if (!existsSync(filePath)) return {};
@@ -859,7 +873,10 @@ export class PiHarness implements Harness {
     }
   }
 
-  /** {@inheritDoc Harness.writeSettings} */
+  /**
+   * Merge a partial patch into the Pi `settings.json` file for the
+   * resolved scope using an atomic write.
+   */
   async writeSettings(patch: Record<string, unknown>, scope: HarnessScope): Promise<void> {
     const filePath = this.settingsPath(scope);
     const current = await this.readSettings(scope);
@@ -868,7 +885,10 @@ export class PiHarness implements Harness {
     await atomicWriteJson(filePath, merged);
   }
 
-  /** {@inheritDoc Harness.configureModels} */
+  /**
+   * Persist the supplied model-name patterns into `settings.enabledModels`
+   * at the resolved scope.
+   */
   async configureModels(modelPatterns: string[], scope: HarnessScope): Promise<void> {
     await this.writeSettings({ enabledModels: modelPatterns }, scope);
   }
@@ -900,7 +920,10 @@ export class PiHarness implements Harness {
 
   // ── Extensions (Wave-1, T263) ───────────────────────────────────────
 
-  /** {@inheritDoc Harness.installExtension} */
+  /**
+   * Install a Pi extension `.ts` source file into the resolved tier's
+   * extensions directory, validating that it has a default export.
+   */
   async installExtension(
     sourcePath: string,
     name: string,
@@ -944,7 +967,9 @@ export class PiHarness implements Harness {
     return { targetPath, tier };
   }
 
-  /** {@inheritDoc Harness.removeExtension} */
+  /**
+   * Remove a Pi extension `.ts` source file from the resolved tier.
+   */
   async removeExtension(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean> {
     const dir = resolveTierDir({ tier, kind: 'extensions', projectDir });
     const targetPath = join(dir, `${name}.ts`);
@@ -953,7 +978,10 @@ export class PiHarness implements Harness {
     return true;
   }
 
-  /** {@inheritDoc Harness.listExtensions} */
+  /**
+   * List Pi extension files across every tier in precedence order,
+   * flagging shadowed entries from lower tiers.
+   */
   async listExtensions(projectDir?: string): Promise<ExtensionEntry[]> {
     const tiers = resolveAllTiers('extensions', projectDir);
     const out: ExtensionEntry[] = [];
@@ -988,7 +1016,10 @@ export class PiHarness implements Harness {
 
   // ── Sessions (Wave-1, T264) ─────────────────────────────────────────
 
-  /** {@inheritDoc Harness.listSessions} */
+  /**
+   * List Pi session JSONL files (including subagent children when
+   * requested), summarising only the header line per file.
+   */
   async listSessions(opts?: { includeSubagents?: boolean }): Promise<SessionSummary[]> {
     const rootDir = this.sessionsDir();
     if (!existsSync(rootDir)) return [];
@@ -1037,7 +1068,9 @@ export class PiHarness implements Harness {
     return summaries;
   }
 
-  /** {@inheritDoc Harness.showSession} */
+  /**
+   * Show the full entries of a single Pi session by id.
+   */
   async showSession(id: string): Promise<SessionDocument> {
     const summaries = await this.listSessions({ includeSubagents: true });
     const match = summaries.find((s) => s.id === id);
@@ -1058,7 +1091,10 @@ export class PiHarness implements Harness {
 
   // ── Models (Wave-1, T265) ───────────────────────────────────────────
 
-  /** {@inheritDoc Harness.readModelsConfig} */
+  /**
+   * Read the Pi `models.json` file for the resolved scope, tolerating
+   * missing or malformed files by returning an empty provider map.
+   */
   async readModelsConfig(scope: HarnessScope): Promise<PiModelsConfig> {
     const filePath = this.modelsConfigPath(scope);
     if (!existsSync(filePath)) return { providers: {} };
@@ -1085,13 +1121,19 @@ export class PiHarness implements Harness {
     }
   }
 
-  /** {@inheritDoc Harness.writeModelsConfig} */
+  /**
+   * Write the Pi `models.json` file for the resolved scope via an atomic
+   * tmp-then-rename sequence.
+   */
   async writeModelsConfig(config: PiModelsConfig, scope: HarnessScope): Promise<void> {
     const filePath = this.modelsConfigPath(scope);
     await atomicWriteJson(filePath, config);
   }
 
-  /** {@inheritDoc Harness.listModels} */
+  /**
+   * Compose a flat `ModelListEntry` list from `models.json` plus the
+   * `enabledModels` and default-model hints in `settings.json`.
+   */
   async listModels(scope: HarnessScope): Promise<ModelListEntry[]> {
     const models = await this.readModelsConfig(scope);
     const settings = await this.readSettings(scope);
@@ -1175,7 +1217,10 @@ export class PiHarness implements Harness {
 
   // ── Prompts (Wave-1, T266) ──────────────────────────────────────────
 
-  /** {@inheritDoc Harness.installPrompt} */
+  /**
+   * Install a Pi prompt directory (containing `prompt.md`) into the
+   * resolved tier's prompts directory.
+   */
   async installPrompt(
     sourceDir: string,
     name: string,
@@ -1211,7 +1256,10 @@ export class PiHarness implements Harness {
     return { targetPath, tier };
   }
 
-  /** {@inheritDoc Harness.listPrompts} */
+  /**
+   * List Pi prompt directories across every tier in precedence order,
+   * flagging shadowed entries from lower tiers.
+   */
   async listPrompts(projectDir?: string): Promise<PromptEntry[]> {
     const tiers = resolveAllTiers('prompts', projectDir);
     const out: PromptEntry[] = [];
@@ -1244,7 +1292,9 @@ export class PiHarness implements Harness {
     return out;
   }
 
-  /** {@inheritDoc Harness.removePrompt} */
+  /**
+   * Remove a Pi prompt directory from the resolved tier.
+   */
   async removePrompt(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean> {
     const dir = resolveTierDir({ tier, kind: 'prompts', projectDir });
     const targetPath = join(dir, name);
@@ -1255,7 +1305,11 @@ export class PiHarness implements Harness {
 
   // ── Themes (Wave-1, T267) ───────────────────────────────────────────
 
-  /** {@inheritDoc Harness.installTheme} */
+  /**
+   * Install a Pi theme file (`.ts`/`.tsx`/`.mts`/`.json`) into the
+   * resolved tier's themes directory, blocking same-stem conflicts
+   * unless `--force` is supplied.
+   */
   async installTheme(
     sourceFile: string,
     name: string,
@@ -1307,7 +1361,10 @@ export class PiHarness implements Harness {
     return { targetPath, tier };
   }
 
-  /** {@inheritDoc Harness.listThemes} */
+  /**
+   * List Pi theme files across every tier in precedence order, flagging
+   * shadowed entries from lower tiers.
+   */
   async listThemes(projectDir?: string): Promise<ThemeEntry[]> {
     const tiers = resolveAllTiers('themes', projectDir);
     const out: ThemeEntry[] = [];
@@ -1342,7 +1399,10 @@ export class PiHarness implements Harness {
     return out;
   }
 
-  /** {@inheritDoc Harness.removeTheme} */
+  /**
+   * Remove a Pi theme from the resolved tier, matching any of the
+   * supported theme extensions for the given name stem.
+   */
   async removeTheme(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean> {
     const dir = resolveTierDir({ tier, kind: 'themes', projectDir });
     let removed = false;
@@ -1359,14 +1419,14 @@ export class PiHarness implements Harness {
   // ── CANT profiles (Wave-1, T276) ────────────────────────────────────
 
   /**
-   * {@inheritDoc Harness.installCantProfile}
+   * Install a `.cant` profile into the resolved tier after passing it
+   * through the cant-core validator.
    *
-   * @remarks
-   * Validates the source via {@link validateCantProfile} before copying so
-   * we never persist a `.cant` file the runtime bridge cannot load. The
-   * target layout is `<tier-root>/cant/<name>.cant`, resolved through
-   * {@link resolveTierDir} so the project/user/global hierarchy stays
-   * consistent with the other Wave-1 verbs.
+   * Validates the source via {@link PiHarness.validateCantProfile}
+   * before copying so we never persist a `.cant` file the runtime bridge
+   * cannot load. The target layout is `<tier-root>/cant/<name>.cant`,
+   * resolved through `resolveTierDir` so the project/user/global
+   * hierarchy stays consistent with the other Wave-1 verbs.
    */
   async installCantProfile(
     sourcePath: string,
@@ -1417,7 +1477,9 @@ export class PiHarness implements Harness {
     return { targetPath, tier, counts: validation.counts };
   }
 
-  /** {@inheritDoc Harness.removeCantProfile} */
+  /**
+   * Remove a `.cant` profile from the resolved tier.
+   */
   async removeCantProfile(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean> {
     const dir = resolveTierDir({ tier, kind: 'cant', projectDir });
     const targetPath = join(dir, `${name}.cant`);
@@ -1427,10 +1489,10 @@ export class PiHarness implements Harness {
   }
 
   /**
-   * {@inheritDoc Harness.listCantProfiles}
+   * List installed `.cant` profiles across every tier in precedence
+   * order, parsing each file to extract section counts.
    *
-   * @remarks
-   * Walks every tier in {@link TIER_PRECEDENCE} order, parsing each
+   * Walks every tier in `TIER_PRECEDENCE` order, parsing each
    * discovered `.cant` file via cant-core to extract a
    * {@link CantProfileCounts} bag. Higher-precedence tiers shadow
    * lower-precedence entries with the same name; shadowed entries
@@ -1477,9 +1539,9 @@ export class PiHarness implements Harness {
   }
 
   /**
-   * {@inheritDoc Harness.validateCantProfile}
+   * Validate a `.cant` source file against cant-core's parser and
+   * 42-rule linter, returning section counts and per-diagnostic detail.
    *
-   * @remarks
    * Pure validator. Reads the file, runs `parseDocument` to derive
    * counts (when parsing succeeds) and `validateDocument` to collect
    * the 42-rule diagnostic feed. The two calls are kept independent so

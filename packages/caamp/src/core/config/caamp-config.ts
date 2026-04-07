@@ -293,6 +293,14 @@ export function setExclusivityMode(mode: ExclusivityMode): void {
  * environment variable (and falls back to the default when the env var is
  * unset or invalid). Idempotent — safe to call when no override is active.
  *
+ * @example
+ * ```typescript
+ * setExclusivityMode("force-pi");
+ * // ...run test...
+ * resetExclusivityModeOverride();
+ * // getExclusivityMode() now reads CAAMP_EXCLUSIVITY_MODE again
+ * ```
+ *
  * @public
  */
 export function resetExclusivityModeOverride(): void {

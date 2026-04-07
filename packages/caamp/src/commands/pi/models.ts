@@ -126,6 +126,12 @@ function parsePositiveInt(raw: string | undefined, name: string): number | undef
 /**
  * Registers the `caamp pi models` command group.
  *
+ * @remarks
+ * Wires the `list`, `add`, `remove`, `enable`, `disable`, and `default`
+ * subcommands into the supplied `pi` parent Command. Reads and writes
+ * Pi's dual-file `models.json` + `settings.json` hierarchy via the
+ * {@link PiHarness} three-tier model APIs.
+ *
  * @param parent - The parent `pi` Command to attach the models group to.
  *
  * @example

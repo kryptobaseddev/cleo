@@ -46,6 +46,12 @@ export interface McpListOptions extends McpCommandBaseOptions {
 /**
  * Registers the `caamp mcp list` subcommand.
  *
+ * @remarks
+ * Wires the `list` subcommand into the supplied `mcp` parent Command.
+ * Defaults to listing every MCP-capable provider via
+ * {@link listAllMcpServers}, or restricts to a single provider when
+ * `--provider <id>` is supplied via {@link listMcpServers}.
+ *
  * @param parent - Parent `mcp` Command to attach the subcommand to.
  *
  * @example

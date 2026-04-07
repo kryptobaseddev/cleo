@@ -77,6 +77,12 @@ function inferThemeName(sourceFile: string): string {
 /**
  * Registers the `caamp pi themes` command group.
  *
+ * @remarks
+ * Wires the `install`, `list`, and `remove` subcommands into the
+ * supplied `pi` parent Command. Delegates to the {@link PiHarness}
+ * theme verbs for filesystem operations across the three-tier
+ * hierarchy and accepts `.ts`/`.tsx`/`.mts`/`.json` theme files.
+ *
  * @param parent - The parent `pi` Command to attach the themes group to.
  *
  * @example

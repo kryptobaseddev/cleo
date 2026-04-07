@@ -105,6 +105,13 @@ export function getPrimaryHarness(): Harness | null {
  * @returns Array of harness instances, one per provider that implements
  * the {@link Harness} contract.
  *
+ * @example
+ * ```typescript
+ * for (const harness of getAllHarnesses()) {
+ *   console.log(harness.provider.id); // "pi", ...
+ * }
+ * ```
+ *
  * @public
  */
 export function getAllHarnesses(): Harness[] {
@@ -135,8 +142,9 @@ export function getAllHarnesses(): Harness[] {
  * dispatchers ({@link dispatchInstallSkillAcrossProviders},
  * {@link dispatchRemoveSkillAcrossProviders}) intentionally do not call
  * this function — they target every requested provider directly so that
- * users in `force-pi` mode can still `caamp skills install foo --agent
- * claude-code` while Pi is being installed.
+ * users in `force-pi` mode can still run
+ * `caamp skills install foo --agent claude-code` while Pi is being
+ * installed.
  *
  * The helper is intentionally defensive: registry/detection exceptions
  * are caught and treated as "Pi unknown" so stubbed test environments
@@ -293,6 +301,17 @@ export function resolveDefaultTargetProviders(
  *   legacy default-handling behavior.
  * @returns Merged install result across the harness and generic paths.
  *
+ * @example
+ * ```typescript
+ * const result = await dispatchInstallSkillAcrossProviders(
+ *   "/abs/path/to/skill",
+ *   "my-skill",
+ *   [getProvider("pi")!, getProvider("claude-code")!],
+ *   true,
+ * );
+ * console.log(result.linkedAgents); // e.g. ["pi", "claude-code"]
+ * ```
+ *
  * @public
  */
 export async function dispatchInstallSkillAcrossProviders(
@@ -375,6 +394,16 @@ export async function dispatchInstallSkillAcrossProviders(
  *   harness project scope falls back to `process.cwd()` and the generic
  *   uninstaller is invoked without a `projectDir` argument.
  * @returns Merged `{ removed, errors }` result across both dispatch paths.
+ *
+ * @example
+ * ```typescript
+ * const result = await dispatchRemoveSkillAcrossProviders(
+ *   "my-skill",
+ *   [getProvider("pi")!, getProvider("claude-code")!],
+ *   true,
+ * );
+ * console.log(result.removed); // providers the skill was removed from
+ * ```
  *
  * @public
  */

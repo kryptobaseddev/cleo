@@ -91,6 +91,18 @@ export interface InstallMcpServerResult {
  * @throws `Error` when the provider has no MCP capability or no
  *   project-scoped config path is available.
  *
+ * @example
+ * ```typescript
+ * const provider = getProvider("claude-code")!;
+ * const result = await installMcpServer(
+ *   provider,
+ *   "github",
+ *   { command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] },
+ *   { scope: "project", force: false },
+ * );
+ * console.log(result.installed, result.conflicted);
+ * ```
+ *
  * @public
  */
 export async function installMcpServer(

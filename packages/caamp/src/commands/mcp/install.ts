@@ -187,6 +187,13 @@ async function buildConfigFromOptions(
 /**
  * Registers the `caamp mcp install` subcommand.
  *
+ * @remarks
+ * Wires the `install <serverName>` subcommand into the supplied `mcp`
+ * parent Command. Accepts either an inline `-- command args...` form
+ * or a `--from <file>` JSON config and writes the resolved
+ * {@link McpServerConfig} into the target provider's MCP config file
+ * via {@link installMcpServer}.
+ *
  * @param parent - Parent `mcp` Command to attach the subcommand to.
  *
  * @example
