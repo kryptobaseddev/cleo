@@ -1,11 +1,39 @@
 //! Build script for cant-core: generates `src/generated/events.rs` from
 //! `packages/caamp/providers/hook-mappings.json` (the canonical SSoT for all
 //! event definitions).
+//!
+//! # Determinism
+//!
+//! The generator's output is piped through `rustfmt --edition 2024` before
+//! being written to disk. This guarantees that re-running the generator on
+//! an unchanged `hook-mappings.json` produces a byte-identical `events.rs`,
+//! so `cargo build` on a fresh checkout never dirties the working tree.
+//!
+//! If `rustfmt` is not available on `PATH` the generator falls back to
+//! writing the unformatted source and prints a `cargo:warning=` message —
+//! the build still succeeds, but the resulting file will drift against the
+//! committed copy. Every rustup toolchain ships with rustfmt, so this
+//! fallback should essentially never fire in practice.
+//!
+//! # Regeneration
+//!
+//! From the workspace root:
+//!
+//! ```sh
+//! cargo build -p cant-core
+//! git diff --exit-code crates/cant-core/src/generated/events.rs
+//! ```
+//!
+//! The second command must succeed (exit code 0) — a non-empty diff means
+//! `hook-mappings.json` has changed and the committed `events.rs` is stale.
+//! Stage the updated file and commit.
 
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 struct EventEntry {
     name: String,
@@ -20,19 +48,93 @@ fn main() {
     let json_path =
         Path::new(&manifest_dir).join("../../packages/caamp/providers/hook-mappings.json");
 
+    // Rerun if either the source of truth or the generator itself changes.
     println!("cargo:rerun-if-changed={}", json_path.display());
+    println!("cargo:rerun-if-changed=build.rs");
 
     let (entries, categories, sources) = parse_mappings(&json_path);
-    let code = generate_code(&entries, &categories, &sources);
+    let raw = generate_code(&entries, &categories, &sources);
+    let formatted = format_with_rustfmt(&raw);
 
     let out_dir = Path::new(&manifest_dir).join("src/generated");
     fs::create_dir_all(&out_dir).expect("Failed to create src/generated/");
-    fs::write(out_dir.join("events.rs"), &code).expect("Failed to write events.rs");
-    fs::write(
-        out_dir.join("mod.rs"),
+    write_if_changed(&out_dir.join("events.rs"), &formatted);
+    write_if_changed(
+        &out_dir.join("mod.rs"),
         "// @generated — DO NOT EDIT.\n\npub mod events;\n",
-    )
-    .expect("Failed to write mod.rs");
+    );
+}
+
+/// Writes `contents` to `path` only if it differs from the current on-disk
+/// contents. Avoids bumping mtimes (and triggering downstream rebuilds) when
+/// the generator produces byte-identical output across runs.
+fn write_if_changed(path: &Path, contents: &str) {
+    if let Ok(existing) = fs::read_to_string(path) {
+        if existing == contents {
+            return;
+        }
+    }
+    fs::write(path, contents)
+        .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
+}
+
+/// Pipes `source` through `rustfmt --edition 2024 --emit stdout` and returns
+/// the formatted output. Falls back to the unformatted source (and emits a
+/// `cargo:warning=`) if rustfmt is unavailable or exits non-zero. This keeps
+/// fresh `cargo build` invocations deterministic by matching whatever a
+/// `cargo fmt -p cant-core` pass would produce.
+fn format_with_rustfmt(source: &str) -> String {
+    let mut child = match Command::new("rustfmt")
+        .args(["--edition", "2024", "--emit", "stdout"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            println!(
+                "cargo:warning=cant-core build.rs: rustfmt not available ({e}); emitting unformatted events.rs"
+            );
+            return source.to_string();
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(e) = stdin.write_all(source.as_bytes()) {
+            println!(
+                "cargo:warning=cant-core build.rs: failed to pipe source into rustfmt ({e}); emitting unformatted events.rs"
+            );
+            return source.to_string();
+        }
+    }
+
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(e) => {
+            println!(
+                "cargo:warning=cant-core build.rs: rustfmt did not complete ({e}); emitting unformatted events.rs"
+            );
+            return source.to_string();
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!(
+            "cargo:warning=cant-core build.rs: rustfmt exited {} ({}); emitting unformatted events.rs",
+            output.status,
+            stderr.trim()
+        );
+        return source.to_string();
+    }
+
+    String::from_utf8(output.stdout).unwrap_or_else(|e| {
+        println!(
+            "cargo:warning=cant-core build.rs: rustfmt produced non-UTF-8 output ({e}); emitting unformatted events.rs"
+        );
+        source.to_string()
+    })
 }
 
 fn parse_mappings(json_path: &Path) -> (Vec<EventEntry>, BTreeSet<String>, BTreeSet<String>) {
@@ -99,7 +201,11 @@ fn generate_code(
     c.push_str(
         "// @generated — DO NOT EDIT. Source: packages/caamp/providers/hook-mappings.json\n",
     );
-    c.push_str("// Generated by crates/cant-core/build.rs\n\n");
+    c.push_str("// Generated by crates/cant-core/build.rs, formatted with rustfmt.\n");
+    c.push_str("// Regenerate with: `cargo build -p cant-core`\n");
+    c.push_str(
+        "// Drift check:  `cargo build -p cant-core && git diff --exit-code crates/cant-core/src/generated/events.rs`\n\n",
+    );
     c.push_str("use serde::{Deserialize, Serialize};\n\n");
 
     gen_category_enum(&mut c, categories);
