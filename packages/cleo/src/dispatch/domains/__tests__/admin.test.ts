@@ -490,13 +490,7 @@ describe('AdminHandler', () => {
     it('should call initProject for init', async () => {
       vi.mocked(initProject).mockResolvedValue({
         success: true,
-        data: {
-          initialized: true,
-          projectRoot: '/mock/project',
-          filesCreated: ['todo.json'],
-          skipped: [],
-          warnings: [],
-        },
+        data: { initialized: true, projectRoot: '/mock/project', filesCreated: ['todo.json'] },
       });
 
       const res = await handler.mutate('init', { projectName: 'test' });
