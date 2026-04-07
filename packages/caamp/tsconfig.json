@@ -21,5 +21,10 @@
     "isolatedModules": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../lafs/tsconfig.build.json" },
+    { "path": "../cant" }
+  ]
 }
