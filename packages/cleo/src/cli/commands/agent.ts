@@ -9,8 +9,25 @@
  *   cleo agent rotate-key <id> — rotate an agent's API key
  *   cleo agent poll       — one-shot message check
  *   cleo agent send       — send a message to an agent or conversation
+ *   cleo agent start      — start the daemon poller for an agent
+ *
+ * **Daemon vs. Pi session — important distinction.** The daemon spawned
+ * by `cleo agent start` ONLY polls SignalDock for inbound messages and
+ * keeps the cloud status indicator green. It does NOT execute CANT
+ * workflow profiles inside the daemon process. CANT workflow execution
+ * (sessions, parallel arms, conditionals, approval gates, discretion
+ * evaluation, etc.) lives entirely inside the
+ * `cant-bridge.ts` Pi extension at
+ * `packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`,
+ * which interprets `.cant` files via shell-out to the `cleo cant`
+ * command family. Operators who want profile-driven behaviour should
+ * start a Pi session and use `/cant:load <file>` followed by
+ * `/cant:run <file> <workflowName>`. The daemon and the Pi session are
+ * distinct runtimes with distinct purposes, by design (see ADR-035 §D5
+ * "Option Y" addendum).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.4
+ * @see .cleo/adrs/ADR-035-pi-v2-v3-harness.md §D5 + Addendum
  * @task T178
  */
 
@@ -23,6 +40,7 @@ import {
 } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
+import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
 
 /**
  * Register the `cleo agent` command group.
@@ -219,10 +237,42 @@ agent ${agentId}:
     });
 
   // --- cleo agent start ---
+  // Boot the SignalDock-poller daemon for an agent.
+  //
+  // Profile handling:
+  //   The `--cant <file>` option (or the default
+  //   `.cleo/agents/<agentId>.cant` lookup) is read for two reasons:
+  //
+  //   1. **Fail-fast validation**: if the file exists and the optional
+  //      `@cleocode/cant` validator is available in this build, the
+  //      file is parsed so malformed profiles surface as a status
+  //      string rather than blowing up later.
+  //   2. **Status surface**: the resulting status (`validated`,
+  //      `invalid (N errors)`, `loaded (unvalidated)`, or `none`) is
+  //      reported in the LAFS envelope so operators know the daemon
+  //      saw the file they expected.
+  //
+  //   The profile string is then DROPPED. The daemon does NOT execute
+  //   workflow profiles. Profile-driven behaviour (sessions, parallel
+  //   arms, conditionals, approval gates, discretion evaluation) runs
+  //   inside Pi sessions through the `cant-bridge.ts` Pi extension at
+  //   `packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`.
+  //   Operators who want profile execution should start a Pi session
+  //   and run `/cant:load <file>` followed by
+  //   `/cant:run <file> <workflowName>`.
+  //
+  //   See ADR-035 §D5 (Option Y addendum) for the architectural
+  //   rationale: there is exactly ONE workflow execution engine in
+  //   CleoOS — `cant-bridge.ts` — and it lives inside Pi by design.
   agent
     .command('start <agentId>')
-    .description('Start an agent — load profile, connect transport, enter work loop')
-    .option('--cant <file>', 'Path to .cant persona file')
+    .description(
+      'Start an agent daemon — polls SignalDock for messages. Profile is validated for fail-fast feedback only; CANT execution lives in Pi via cant-bridge.ts.',
+    )
+    .option(
+      '--cant <file>',
+      'Path to .cant persona file (validated only, NOT executed by the daemon)',
+    )
     .option('--poll-interval <ms>', 'Poll interval in milliseconds', '5000')
     .option('--no-heartbeat', 'Disable heartbeat service')
     .action(async (agentId: string, opts: Record<string, unknown>) => {
@@ -252,9 +302,13 @@ agent ${agentId}:
           return;
         }
 
-        // 2. Load and validate .cant profile if available
+        // 2. Read and (best-effort) validate the .cant profile.
+        //    This is FAIL-FAST GUARDING ONLY. The profile string is
+        //    used to compute a status field below, then dropped. The
+        //    daemon does not interpret the workflow body — see the
+        //    block comment above this command for why.
         let profile: string | null = null;
-        let cantValidation: { valid: boolean; errors: string[] } | null = null;
+        let cantValidation: ProfileValidation | null = null;
         const cantPath = (opts['cant'] as string) ?? join('.cleo', 'agents', `${agentId}.cant`);
         if (existsSync(cantPath)) {
           profile = readFileSync(cantPath, 'utf-8');
@@ -305,7 +359,9 @@ agent ${agentId}:
           // Offline is fine — LocalTransport works without cloud
         }
 
-        // 5. Start runtime services (transport auto-resolved: Local > SSE > HTTP)
+        // 5. Start runtime services (transport auto-resolved: Local > SSE > HTTP).
+        //    Note: createRuntime() does NOT receive the profile. The
+        //    daemon's job is purely SignalDock polling + cloud status.
         const pollInterval = Number(opts['pollInterval'] ?? 5000);
         const runtime = await createRuntime(registry, {
           agentId,
@@ -324,13 +380,9 @@ agent ${agentId}:
               displayName: credential.displayName,
               status: 'online',
               transport: runtime.transport.name,
-              profile: profile
-                ? cantValidation
-                  ? cantValidation.valid
-                    ? 'validated'
-                    : `invalid (${cantValidation.errors.length} errors)`
-                  : 'loaded (unvalidated)'
-                : 'none',
+              // Surfaced for operator visibility only — see
+              // computeProfileStatus tsdoc for the four possible values.
+              profile: computeProfileStatus(profile, cantValidation),
               services: {
                 poller: 'running',
                 heartbeat: runtime.heartbeat ? 'running' : 'disabled',
