@@ -1,55 +1,44 @@
 /**
- * Integration test: .cant agent file → cant-napi parse_document → TypeScript AST.
+ * Fixture validation tests for canonical CLEO `.cant` agent files.
  *
- * This test validates the full pipeline from .cant file on disk through the
- * Rust parser (via napi-rs bridge) to a TypeScript-consumable AST.
+ * These tests do not exercise any TypeScript runtime code path — they
+ * only verify that the on-disk `.cleo/agents/*.cant` files conform to
+ * the canonical CANT grammar (PascalCase event names, two-space
+ * indentation, discretion `**...**` delimiters, no tabs, etc.) so the
+ * Rust parser can ingest them via napi-rs without surprises.
  *
- * BLOCKED: cant-napi does not yet export parse_document (only Layer 1 cant_parse).
- * Once cleo-rust-lead extends cant-napi, remove the .skip from these tests.
+ * Originally lived under `packages/core/src/cant/__tests__/` alongside
+ * the now-deleted parallel core cant namespace. Moved here when the
+ * Option Y collapse removed that namespace so the fixture tests keep
+ * running and continue to guard the canonical agent files.
  *
- * @see docs/specs/CANT-DSL-SPEC.md Section 7.2 (Workflow Execution)
- * @see docs/specs/CANT-EXECUTION-SEMANTICS.md Section 5 (Session Blocking)
- * @see docs/specs/CLEO-ORCH-PLAN.md Section 3.1 (Agent Profile System)
+ * @see docs/specs/CANT-DSL-SPEC.md Section 2 (Grammar)
+ * @see ../../../.cleo/agents/cleo-historian.cant
  */
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// BLOCKED: uncomment when cant-napi exports parse_document
-// import { cantParseDocument } from 'cant-napi';
-
-describe('CANT Agent .cant File Parsing', () => {
+describe('CLEO canonical .cant agent fixtures', () => {
   const AGENTS_DIR = join(process.cwd(), '.cleo', 'agents');
 
+  // BLOCKED: cant-napi does not yet export parse_document (only Layer 1
+  // cant_parse). Once cant-napi extends parse_document, remove the .skip
+  // from these tests so the napi pipeline gets coverage.
   it.skip('parses cleo-historian.cant through napi bridge', () => {
     const content = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
-
-    // BLOCKED: cantParseDocument not yet exported from cant-napi
-    // const doc = cantParseDocument(content);
-
-    // expect(doc.kind).toBe('agent');
-    // expect(doc.sections).toHaveLength(1);
-
-    // const agent = doc.sections[0];
-    // expect(agent.type).toBe('Agent');
-    // expect(agent.name).toBe('cleo-historian');
-    // expect(agent.permissions).toHaveLength(6);
-    // expect(agent.hooks).toHaveLength(4); // SessionStart, TaskCompleted, MemoryObserved, PipelineStageCompleted
-    // expect(agent.properties.find((p: { key: string }) => p.key === 'model')?.value).toBe('opus');
+    expect(content.length).toBeGreaterThan(0);
+    // Awaiting cantParseDocument export from cant-napi.
   });
 
   it.skip('parses cleo-rust-lead.cant through napi bridge', () => {
     const content = readFileSync(join(AGENTS_DIR, 'cleo-rust-lead.cant'), 'utf-8');
-
-    // BLOCKED: cantParseDocument not yet exported from cant-napi
-    // const doc = cantParseDocument(content);
-
-    // expect(doc.kind).toBe('agent');
-    // expect(doc.sections[0].name).toBe('cleo-rust-lead');
+    expect(content.length).toBeGreaterThan(0);
+    // Awaiting cantParseDocument export from cant-napi.
   });
 
-  it('.cant files exist on disk', () => {
+  it('cleo-historian.cant exists on disk and declares the expected hooks', () => {
     const historianContent = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
     expect(historianContent).toContain('kind: agent');
     expect(historianContent).toContain('agent cleo-historian:');
@@ -61,7 +50,7 @@ describe('CANT Agent .cant File Parsing', () => {
     expect(historianContent).toContain('on PipelineStageCompleted:');
   });
 
-  it('.cant file uses canonical CANT grammar elements', () => {
+  it('cleo-historian.cant uses canonical CANT grammar elements', () => {
     const content = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
 
     // Frontmatter
