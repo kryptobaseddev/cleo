@@ -4,6 +4,86 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.8] - 2026-04-07
+
+### Highlights
+
+This release **closes the T261 epic** by completing the three remaining Pi v2+v3 workstreams that v2026.4.7 left for follow-up: T276 ships the missing `caamp pi cant install/remove/list/validate` verb subgroup, T277 upgrades `PiHarness.spawnSubagent` from the v1 minimal shape to the canonical ADR-035 D6 contract (line-buffered streaming, session attribution, idempotent SIGTERM/SIGKILL cleanup, concurrency helpers), and T278 adds the explicit `caamp.exclusivityMode` setting (ADR-035 D7) to govern Pi-vs-legacy runtime dispatch. All thirteen non-deleted T261 children are now done. Net change: +4083 LOC added across 14 files (5 new, 9 modified), zero LOC removed, +73 caamp tests (1428 → 1501), zero regressions.
+
+### Added
+
+#### CAAMP Wave 2 — `caamp pi cant *` verb subgroup (T276, ADR-035 D1)
+
+Completes the Pi verb surface that v2026.4.7 left out. `caamp pi cant` manages `.cant` profile files across the three-tier scope (project > user > global). Thin wrapper around the `@cleocode/cant` napi parser/validator — installed profiles are consumed at runtime by the `cant-bridge.ts` Pi extension via `/cant:load <file>`.
+
+- **4 new `caamp pi cant <verb>` commands** ([`packages/caamp/src/commands/pi/cant.ts`](packages/caamp/src/commands/pi/cant.ts), +482 LOC):
+  - `caamp pi cant install <file>` — validates the profile via `validateCantProfile` first and rejects invalid files with the cant-core 42-rule error IDs plus line/col coordinates. On success, copies into the resolved tier's `.cant/` directory. Conflict-on-write with `--force`.
+  - `caamp pi cant remove <name>` — three-tier scope-aware removal, idempotent.
+  - `caamp pi cant list` — lists installed profiles across all three tiers with shadow flagging when the same profile name exists at multiple tiers.
+  - `caamp pi cant validate <file>` — runs the validator without installing; returns a structured diagnostics envelope with severity-tagged findings.
+- **4 new `PiHarness` methods** ([`packages/caamp/src/core/harness/pi.ts`](packages/caamp/src/core/harness/pi.ts)): `installCantProfile`, `removeCantProfile`, `listCantProfiles`, `validateCantProfile`. All honour `requirePiHarness()` Pi-absent guard returning `E_NOT_FOUND_RESOURCE`.
+- **2 new module-level helpers** in `pi.ts`: `extractCantCounts` (totals statements, hooks, agents from a parsed profile), `normaliseSeverity` (clamps cant-core diagnostic severities to a stable enum).
+- **4 new exported types** in [`packages/caamp/src/core/harness/types.ts`](packages/caamp/src/core/harness/types.ts): `CantProfileCounts`, `CantProfileEntry`, `CantValidationDiagnostic`, `ValidateCantProfileResult`.
+- **New caamp dep** — `@cleocode/cant: workspace:*` (pulls `cant-napi` transitively).
+- **40 new tests** across 2 files: `tests/unit/harness/pi.test.ts` (+24 unit tests on the new harness methods, against real seed-agent fixtures), `tests/unit/commands/pi/cant-commands.test.ts` (+16 integration tests driving each verb through Commander `parseAsync`, +536 LOC). Covers happy paths, validator-rejection on install, three-tier shadow detection, missing-file branches, and Pi-absent fallback per ADR-035 D1.
+
+#### `PiHarness.spawnSubagent` v2 — canonical spawn path (T277, ADR-035 D6)
+
+Full upgrade from the v1 minimal shape (basic spawn + result promise) to the ADR-035 D6 contract. `spawnSubagent` is now the **single canonical subagent spawn path** for the entire CleoOS runtime, with line-buffered streaming, session attribution, exit propagation, idempotent cleanup, and concurrency helpers. Maps directly to CANT `parallel: race` / `parallel: settle` semantics.
+
+- **Line-buffered stdout streaming** ([`packages/caamp/src/core/harness/pi.ts`](packages/caamp/src/core/harness/pi.ts)) — `onStream` callback receives `{ kind: 'message', subagentId, lineNumber, payload }` for each parsed JSON line. Partial lines buffered until newline arrives; malformed JSON surfaces as a `{ kind: 'parse_error' }` event without crashing the consumer.
+- **Stderr buffering** — line-buffered, emitted as `{ kind: 'stderr', payload: { line } }` via `onStream`, **and** pushed into a 100-line ring buffer exposed via `SubagentHandle.recentStderr()`. Per ADR-035 D6: stderr is for operator diagnostics only and is **never routed to parent LLM context**.
+- **Exit propagation** — new `exitPromise` resolves **once** on child `'close'` with `{ code, signal, childSessionPath, durationMs }`. **Never rejects** — failure is encoded by non-zero `code`, non-null `signal`, or partial output in the session file. Legacy `result` promise preserved for back-compat with v1 consumers.
+- **Idempotent cleanup** — new `terminate(reason?)` is idempotent across multiple calls. Sends `SIGTERM`, polls every `min(25ms, graceMs)`, then escalates to `SIGKILL` after grace expires. Grace resolves from per-call `opts.terminateGraceMs` → `settings.json:pi.subagent.terminateGraceMs` → `DEFAULT_TERMINATE_GRACE_MS=5000`. Writes `{type:'subagent_exit', reason:'terminated'}` to the child session file before exit so postmortems can distinguish caller-terminated from naturally-completed runs.
+- **Session attribution** — child session JSONL written to `~/.pi/agent/sessions/subagents/subagent-{parentSessionId}-{taskId}.jsonl`. Header `{type:'header', subagentId, taskId, parentSessionId, startedAt}` written at spawn time. When `task.parentSessionPath` is supplied, a `{type:'custom', subtype:'subagent_link', subagentId, taskId, childSessionPath, startedAt}` line is appended to the parent session file so the parent transcript hyperlinks to the child.
+- **Concurrency helpers** — static `PiHarness.raceSubagents(handles[])` (Promise.race over `exitPromise[]`, terminates losers via the idempotent `terminate()` path) and static `PiHarness.settleAllSubagents(handles[])` (Promise.allSettled wrapper). These map 1:1 to CANT `parallel: race` and `parallel: settle` mode tokens.
+- **Orphan handling** — module-level `Set<ActiveSubagent>` plus an idempotent `process.on('exit', ...)` handler that SIGTERMs every outstanding subagent on parent process exit. Prevents zombies on `Ctrl+C` and crashed parents.
+- **New types in [`packages/caamp/src/core/harness/types.ts`](packages/caamp/src/core/harness/types.ts)** (+550 LOC across the file): `SubagentTask` (updated with `parentSessionPath`, `taskId` fields), `SubagentSpawnOptions` (`onStream`, `terminateGraceMs`, `signal`), `SubagentStreamEvent` (`message` | `stderr` | `parse_error`), `SubagentExitResult` (`code`, `signal`, `childSessionPath`, `durationMs`), `SubagentHandle` (updated with `exitPromise`, `terminate()`, `recentStderr()`), `SubagentLinkEntry`.
+- **16 new tests** in `tests/unit/harness/pi.test.ts` covering: stdout streaming with `onStream` callback ordering, stderr buffering and ring-buffer cap at 100 lines, session-file header + parent link write, exit propagation on natural close, exit propagation on caller-terminate, idempotent `terminate()` re-entry, SIGTERM grace then SIGKILL escalation, concurrency `raceSubagents` (winner + loser termination), `settleAllSubagents` ordering preservation, orphan-handler cleanup on parent exit.
+- **Legacy v1 API preserved** — the existing `result` promise and `abort()` method on `SubagentHandle` are still emitted unchanged. Existing v1 consumers (Conductor Loop, dispatch handlers) work without modification; v2 features are strictly additive.
+
+#### `caamp.exclusivityMode` setting — v3 exclusivity layer (T278, ADR-035 D7)
+
+70% of the v3 exclusivity layer was already shipped in v2026.4.5 (Pi registered with `priority: "primary"`, `resolveDefaultTargetProviders()` prefers Pi when installed). T278 adds the remaining 30% — an explicit mode setting that controls runtime dispatch behaviour and surfaces deprecation warnings.
+
+- **New `ExclusivityMode` type** ([`packages/caamp/src/core/config/caamp-config.ts`](packages/caamp/src/core/config/caamp-config.ts), new file +300 LOC): `'auto' | 'force-pi' | 'legacy'`, default `'auto'`. Dedicated config module with one-time warning latches, accessor/mutator API (`getExclusivityMode`, `setExclusivityMode`, `resetExclusivityModeOverride`, `isExclusivityMode`), and a reset helper for tests.
+- **New `PiRequiredError` class** with literal `code: 'E_NOT_FOUND_RESOURCE' as const` so `runLafsCommand` propagates it without rewriting to `E_INTERNAL_UNEXPECTED`.
+- **`resolveDefaultTargetProviders()` honours the mode** ([`packages/caamp/src/core/harness/index.ts`](packages/caamp/src/core/harness/index.ts), +168 LOC):
+  - `auto` + Pi installed → returns `[piProvider]` (v2026.4.7 behaviour, **bit-identical**, no warning).
+  - `auto` + Pi absent → legacy fallback list, one-time boot warning.
+  - `auto` + explicit non-Pi providers passed while Pi installed → returns the explicit list with a one-time deprecation warning.
+  - `force-pi` + Pi installed → returns `[piProvider]` (no warning).
+  - `force-pi` + Pi absent → **throws `PiRequiredError`** with `E_NOT_FOUND_RESOURCE`.
+  - `legacy` → pre-exclusivity behaviour, returns all installed providers in priority order.
+- **Install paths UNAFFECTED per ADR-035 D7** — `dispatchInstallSkillAcrossProviders()` and the other multi-provider install fan-outs continue to target every requested provider regardless of `exclusivityMode`. Only **runtime invocation** is gated by the mode. This is an explicit non-goal: CAAMP must remain a usable installer for non-Pi providers even on Pi-first systems.
+- **Env var override** — `CAAMP_EXCLUSIVITY_MODE` env var overrides the config setting at boot via the exported `EXCLUSIVITY_MODE_ENV_VAR` constant.
+- **New public exports** in [`packages/caamp/src/index.ts`](packages/caamp/src/index.ts): `ExclusivityMode`, `ResolveDefaultTargetProvidersOptions`, `DEFAULT_EXCLUSIVITY_MODE`, `EXCLUSIVITY_MODE_ENV_VAR`, `getExclusivityMode`, `setExclusivityMode`, `resetExclusivityModeOverride`, `isExclusivityMode`, `PiRequiredError`.
+- **17 new tests** in `tests/unit/core/harness/exclusivity-mode.test.ts` (+314 LOC) covering the full 3-mode × Pi-installed/absent matrix, warning latches (one-shot per process), env-var precedence, install-path unaffected verification, and `PiRequiredError` shape.
+- **Documentation** — README and `caamp.md` updated with the new setting, the three mode semantics, and the `CAAMP_EXCLUSIVITY_MODE` env override ([`packages/caamp/caamp.md`](packages/caamp/caamp.md) +35 LOC).
+
+### Changed
+
+- **`PiHarness.spawnSubagent` is now the single canonical subagent spawn path.** The v1 minimal shape is preserved for back-compat (consumers using `result` and `abort()` work unchanged), but new code paths (Conductor Loop subagent fan-out, CANT `parallel:` workflow nodes) should adopt `exitPromise`, `onStream`, and the static `PiHarness.raceSubagents` / `PiHarness.settleAllSubagents` helpers.
+- **`@cleocode/caamp` now depends on `@cleocode/cant`** as a workspace package — required by the T276 `caamp pi cant validate` pipeline. Pulls `cant-napi` transitively.
+
+### Architecture decisions
+
+See [ADR-035](.cleo/adrs/ADR-035-pi-v2-v3-harness.md) for the full audit trail. v2026.4.8 closes:
+
+- **D1** — three-tier scope (project > user > global) for `caamp pi cant *` verbs (T276).
+- **D6** — canonical subagent spawn contract: line-buffered streaming, session attribution, idempotent SIGTERM/SIGKILL cleanup, concurrency helpers, orphan handling, no rejects from `exitPromise` (T277).
+- **D7** — `caamp.exclusivityMode` setting governs runtime dispatch (`auto` / `force-pi` / `legacy`); install paths remain unaffected so CAAMP stays a usable installer for non-Pi providers (T278).
+
+With T276–T278 landed, the **T261 epic closes**. All thirteen non-deleted children are done: T262, T263, T264, T265, T266, T267, T273, T274, T275, T276, T277, T278, T279. (T268–T272 were deleted as MCP-bridge-as-Pi-extension was rejected per ADR-035 D4.)
+
+### Stats
+
+- **10 commits** since v2026.4.7 (`d765ac29`): `9bb03149`, `2a66f4fb`, `c7533da3`, `1ae20b9a` (T276 + merge), `36ca547e`, `da02ca97`, `6ab01046` (T277 + merge), `6427eb6d`, `87e1677b`, `217b88f9`, `f61f5910` (T278 + merge).
+- **Net LOC**: +4083 added, −80 removed (the −80 are localised refactors inside `pi.ts` and `harness/index.ts`; no files deleted).
+- **Files touched**: 14 total — 5 new (`commands/pi/cant.ts`, `core/config/caamp-config.ts`, `tests/unit/commands/pi/cant-commands.test.ts`, `tests/unit/core/harness/exclusivity-mode.test.ts`, plus the new harness method test additions in `tests/unit/harness/pi.test.ts`), 9 modified.
+- **Tests**: caamp **1428 → 1501** (+73). Breakdown: T276 +40 (24 unit + 16 integration), T277 +16, T278 +17.
+- **Zero regressions**, zero new stubs, zero `any`/`unknown`, full biome + typecheck + build + test gates passing.
+
 ## [2026.4.7] - 2026-04-07
 
 ### Highlights
