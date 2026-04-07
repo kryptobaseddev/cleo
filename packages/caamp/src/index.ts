@@ -18,6 +18,16 @@ export {
   selectProvidersByMinimumPriority,
   updateInstructionsSingleOperation,
 } from './core/advanced/orchestration.js';
+// Exclusivity / CAAMP-wide configuration (ADR-035 §D7)
+export {
+  DEFAULT_EXCLUSIVITY_MODE,
+  EXCLUSIVITY_MODE_ENV_VAR,
+  getExclusivityMode,
+  isExclusivityMode,
+  PiRequiredError,
+  resetExclusivityModeOverride,
+  setExclusivityMode,
+} from './core/config/caamp-config.js';
 // Formats
 export { readConfig, removeConfig, writeConfig } from './core/formats/index.js';
 export { deepMerge, ensureDir, getNestedValue } from './core/formats/utils.js';
@@ -36,6 +46,10 @@ export {
   PiHarness,
   resolveDefaultTargetProviders,
 } from './core/harness/index.js';
+export type {
+  ExclusivityMode,
+  ResolveDefaultTargetProvidersOptions,
+} from './core/harness/types.js';
 // Hooks normalizer
 export type {
   CanonicalEventDefinition,

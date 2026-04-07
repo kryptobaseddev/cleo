@@ -15,6 +15,14 @@
  */
 
 import type { Provider } from '../../types.js';
+import {
+  getExclusivityMode,
+  hasExplicitNonPiAutoWarned,
+  hasPiAbsentAutoWarned,
+  markExplicitNonPiAutoWarned,
+  markPiAbsentAutoWarned,
+  PiRequiredError,
+} from '../config/caamp-config.js';
 import { getInstalledProviders } from '../registry/detection.js';
 import { getAllProviders, getPrimaryProvider } from '../registry/providers.js';
 import {
@@ -23,7 +31,12 @@ import {
   type SkillInstallResult,
 } from '../skills/installer.js';
 import { PiHarness } from './pi.js';
-import type { Harness, HarnessScope } from './types.js';
+import type {
+  ExclusivityMode,
+  Harness,
+  HarnessScope,
+  ResolveDefaultTargetProvidersOptions,
+} from './types.js';
 
 /**
  * Return the harness implementation for a provider, or `null` if the
@@ -105,42 +118,56 @@ export function getAllHarnesses(): Harness[] {
 
 /**
  * Resolve the default set of target providers when the user has not passed
- * `--agent`.
+ * `--agent`, honouring the active {@link ExclusivityMode}.
  *
  * @remarks
- * Resolution policy:
+ * Resolution policy is layered. The active {@link ExclusivityMode} (read
+ * via {@link getExclusivityMode}) selects which branch of the matrix runs:
  *
- * 1. If the registry's primary harness (the provider with
- *    `priority === "primary"`) is installed on the current system,
- *    return `[primaryProvider]` so that commands dispatch to the
- *    primary harness by default.
- * 2. Otherwise, return the set of installed providers at priority
- *    `"primary"` or `"high"`. This restores the legacy "detected high-tier
- *    providers" fallback that CAAMP has always used when no primary
- *    harness is available.
- * 3. If the priority filter yields an empty list (e.g. in tests that stub
- *    providers without a `priority` field, or in fresh installs with only
- *    medium/low-tier providers detected), fall back to the full installed
- *    provider list so that commands retain a valid target.
+ * | Mode | Pi installed | Pi absent |
+ * |---|---|---|
+ * | `'auto'` (default) | Returns `[piProvider]`. Explicit non-Pi targets emit a one-time deprecation warning per process. | Falls back to installed primary/high-tier providers (legacy v2026.4.5 behaviour) and emits a one-time boot warning. |
+ * | `'force-pi'` | Returns `[piProvider]`. | Throws {@link PiRequiredError}. |
+ * | `'legacy'` | Returns the full installed provider list in priority order (matches pre-exclusivity behaviour). | Same. |
  *
- * This helper is intentionally defensive: it swallows registry-related
- * exceptions (returning an empty-primary-harness result) so stubbed test
- * environments that do not wire the full provider registry still behave
- * sensibly.
+ * **Install paths are unaffected.** Per ADR-035 §D7, this helper governs
+ * RUNTIME INVOCATION dispatch only. Skill and instruction install
+ * dispatchers ({@link dispatchInstallSkillAcrossProviders},
+ * {@link dispatchRemoveSkillAcrossProviders}) intentionally do not call
+ * this function — they target every requested provider directly so that
+ * users in `force-pi` mode can still `caamp skills install foo --agent
+ * claude-code` while Pi is being installed.
  *
+ * The helper is intentionally defensive: registry/detection exceptions
+ * are caught and treated as "Pi unknown" so stubbed test environments
+ * that do not wire the full registry still behave sensibly.
+ *
+ * @param options - Optional explicit provider selection (e.g. from
+ *   `--agent`) used by `auto`-mode deprecation warning detection. Omit to
+ *   request the implicit default resolution.
  * @returns Ordered list of providers to target by default.
+ * @throws {@link PiRequiredError} when mode is `'force-pi'` and Pi is not
+ *   installed.
  *
  * @example
  * ```typescript
+ * // Implicit default — used by `caamp skills list` and friends.
  * const targets = resolveDefaultTargetProviders();
- * if (targets.length === 0) {
- *   console.error("No target providers found. Use --agent or --all.");
- * }
+ *
+ * // Explicit user selection — emits a deprecation warning in `auto` mode
+ * // when the selection excludes Pi and Pi is installed.
+ * const explicit = resolveDefaultTargetProviders({
+ *   explicit: [getProvider('claude-code')!],
+ * });
  * ```
  *
  * @public
  */
-export function resolveDefaultTargetProviders(): Provider[] {
+export function resolveDefaultTargetProviders(
+  options: ResolveDefaultTargetProvidersOptions = {},
+): Provider[] {
+  const mode: ExclusivityMode = getExclusivityMode();
+
   let primary: Harness | null = null;
   try {
     primary = getPrimaryHarness();
@@ -148,23 +175,96 @@ export function resolveDefaultTargetProviders(): Provider[] {
     primary = null;
   }
 
-  const installed = getInstalledProviders();
+  let installed: Provider[];
+  try {
+    installed = getInstalledProviders();
+  } catch {
+    installed = [];
+  }
 
-  if (primary !== null) {
-    const primaryId = primary.provider.id;
-    const primaryInstalled = installed.some((p) => p.id === primaryId);
-    if (primaryInstalled) {
+  const primaryId = primary?.provider.id ?? null;
+  const primaryInstalled =
+    primaryId !== null && installed.some((provider) => provider.id === primaryId);
+  const explicit = options.explicit;
+  const explicitContainsPrimary =
+    explicit !== undefined && primaryId !== null
+      ? explicit.some((provider) => provider.id === primaryId)
+      : false;
+
+  // Inlined legacy fallback (v2026.4.5 algorithm). Used by `legacy` mode
+  // and by the `auto` + Pi-absent branch. Captured as a closure so the
+  // exclusivity matrix below has a single call site for both paths
+  // without introducing a new top-level symbol.
+  const legacyFallback = (): Provider[] => {
+    if (primary !== null && primaryInstalled) {
       return [primary.provider];
     }
+    const highTier = installed.filter(
+      (provider) => provider.priority === 'primary' || provider.priority === 'high',
+    );
+    if (highTier.length > 0) {
+      return highTier;
+    }
+    return installed;
+  };
+
+  // ── force-pi: Pi is mandatory at runtime invocation ─────────────────
+  if (mode === 'force-pi') {
+    if (primary === null || !primaryInstalled) {
+      throw new PiRequiredError();
+    }
+    return [primary.provider];
   }
 
-  const highTier = installed.filter(
-    (provider) => provider.priority === 'primary' || provider.priority === 'high',
-  );
-  if (highTier.length > 0) {
-    return highTier;
+  // ── legacy: pre-exclusivity behaviour, no warnings, no requirement ──
+  if (mode === 'legacy') {
+    if (explicit !== undefined) {
+      return explicit;
+    }
+    return legacyFallback();
   }
-  return installed;
+
+  // ── auto (default) ──────────────────────────────────────────────────
+  // Emit a one-time deprecation warning when an explicit non-Pi target is
+  // supplied while Pi is installed. This is the user-visible nudge that
+  // direct provider targeting will be deprecated in a future major.
+  if (
+    explicit !== undefined &&
+    explicit.length > 0 &&
+    !explicitContainsPrimary &&
+    primaryInstalled &&
+    !hasExplicitNonPiAutoWarned()
+  ) {
+    console.warn(
+      'Warning: Targeting a non-Pi provider explicitly is deprecated when Pi is installed. ' +
+        "Future versions will route all runtime commands through Pi. To suppress this warning, set caamp.exclusivityMode to 'legacy'.",
+    );
+    markExplicitNonPiAutoWarned();
+  }
+
+  // Honour an explicit selection verbatim once the warning (if any) has
+  // been emitted. This preserves the v2026.4.5 contract that explicit
+  // `--agent` flags target exactly what the user requested.
+  if (explicit !== undefined) {
+    return explicit;
+  }
+
+  if (primary !== null && primaryInstalled) {
+    return [primary.provider];
+  }
+
+  // Pi is not installed — fall back to the legacy detected-high-tier set
+  // and emit a one-time boot warning so the user knows orchestration is
+  // not engaged.
+  if (!hasPiAbsentAutoWarned()) {
+    console.warn(
+      'Warning: Pi is not installed. CAAMP is falling back to direct provider dispatch. ' +
+        'Install Pi (https://github.com/mariozechner/pi-coding-agent) to enable orchestration, ' +
+        "or set caamp.exclusivityMode to 'legacy' to suppress this warning.",
+    );
+    markPiAbsentAutoWarned();
+  }
+  return legacyFallback();
 }
 
 /**
