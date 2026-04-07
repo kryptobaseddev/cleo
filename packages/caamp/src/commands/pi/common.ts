@@ -88,6 +88,13 @@ export interface PiCommandBaseOptions {
  * @returns A PiHarness bound to the resolved Pi provider entry.
  * @throws `LAFSCommandError` when Pi is not installed.
  *
+ * @example
+ * ```typescript
+ * // Inside a `caamp pi <verb>` command action:
+ * const harness = requirePiHarness();
+ * const skills = await harness.listSkills({ kind: "global" });
+ * ```
+ *
  * @public
  */
 export function requirePiHarness(): PiHarness {
@@ -138,6 +145,13 @@ export function requirePiHarness(): PiHarness {
  * @returns A resolved {@link HarnessTier}.
  * @throws `LAFSCommandError` when `raw` is set to an invalid value.
  *
+ * @example
+ * ```typescript
+ * parseScope(undefined, "project"); // "project"
+ * parseScope("user", "project");    // "user"
+ * parseScope("weird", "project");   // throws LAFSCommandError(E_VALIDATION_SCHEMA)
+ * ```
+ *
  * @public
  */
 export function parseScope(raw: string | undefined, defaultTier: HarnessTier): HarnessTier {
@@ -163,6 +177,13 @@ export function parseScope(raw: string | undefined, defaultTier: HarnessTier): H
  * @param tier - Resolved tier the verb is targeting.
  * @param explicit - The raw `--project-dir` option value.
  * @returns Absolute project dir when `tier === 'project'`, else `undefined`.
+ *
+ * @example
+ * ```typescript
+ * resolveProjectDir("project", undefined);  // process.cwd()
+ * resolveProjectDir("project", "/tmp/app"); // "/tmp/app"
+ * resolveProjectDir("user", "/tmp/app");    // undefined
+ * ```
  *
  * @public
  */

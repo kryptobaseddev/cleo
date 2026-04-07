@@ -81,6 +81,13 @@ export interface RemoveMcpServerResult {
  * @param opts - Removal options.
  * @returns Structured result describing whether the entry was removed.
  *
+ * @example
+ * ```typescript
+ * const provider = getProvider("claude-code")!;
+ * const result = await removeMcpServer(provider, "my-server", { scope: "project" });
+ * console.log(result.removed); // true | false
+ * ```
+ *
  * @public
  */
 export async function removeMcpServer(
@@ -143,6 +150,13 @@ export async function removeMcpServer(
  * @param serverName - Server name/key to remove from every provider.
  * @param opts - Removal options applied uniformly to every provider.
  * @returns Array of per-provider removal results.
+ *
+ * @example
+ * ```typescript
+ * const results = await removeMcpServerFromAll("my-server", { scope: "global" });
+ * const removed = results.filter((r) => r.removed);
+ * console.log(`Removed from ${removed.length} providers`);
+ * ```
  *
  * @public
  */

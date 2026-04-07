@@ -14,10 +14,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 /**
- * Result of resolving @import lines in content.
+ * Result of resolving `@import` lines in content.
  */
 export interface ResolvedImports {
-  /** Content with @import lines replaced by their resolved markdown. */
+  /** Content with `@import` lines replaced by their resolved markdown. */
   resolvedContent: string;
   /** Absolute paths of successfully resolved .cant files. */
   importedFiles: string[];
@@ -36,14 +36,15 @@ export interface ResolvedImports {
 const CANT_IMPORT_PATTERN = /^@import\s+["']?([^"'\s]+\.cant)["']?(?:\s+as\s+(\w+))?$/;
 
 /**
- * Resolve @import *.cant references in instruction file content.
+ * Resolve `@import *.cant` references in instruction file content.
  *
- * Scans each line for @import directives pointing to .cant files.
- * For each match, reads and parses the .cant file, converts its
- * definitions to markdown, and replaces the @import line with
+ * @remarks
+ * Scans each line for `@import` directives pointing to `.cant` files.
+ * For each match, reads and parses the `.cant` file, converts its
+ * definitions to markdown, and replaces the `@import` line with
  * the generated content.
  *
- * Lines that don't match the .cant import pattern are left unchanged.
+ * Lines that don't match the `.cant` import pattern are left unchanged.
  *
  * @param content - Raw instruction file content
  * @param projectRoot - Absolute path to the project root directory
@@ -60,6 +61,8 @@ const CANT_IMPORT_PATTERN = /^@import\s+["']?([^"'\s]+\.cant)["']?(?:\s+as\s+(\w
  * // - **Model**: opus
  * // ...
  * ```
+ *
+ * @public
  */
 export function resolveCantImports(content: string, projectRoot: string): ResolvedImports {
   const lines = content.split('\n');
@@ -111,14 +114,15 @@ export function resolveCantImports(content: string, projectRoot: string): Resolv
 }
 
 /**
- * Convert a .cant file's content to markdown equivalent.
+ * Convert a `.cant` file's content to markdown equivalent.
  *
+ * @remarks
  * Parses the frontmatter to determine the document kind,
  * then converts the body into structured markdown that
  * providers can consume (headings, bullet lists, code blocks).
  *
- * @param cantContent - Raw .cant file content
- * @returns Markdown representation of the .cant definitions
+ * @param cantContent - Raw `.cant` file content
+ * @returns Markdown representation of the `.cant` definitions
  *
  * @example
  * ```typescript
@@ -133,6 +137,8 @@ export function resolveCantImports(content: string, projectRoot: string): Resolv
  * `);
  * // Returns markdown with ## Agent: ops-lead heading
  * ```
+ *
+ * @public
  */
 export function cantToMarkdown(cantContent: string): string {
   const { kind, body } = parseFrontmatter(cantContent);

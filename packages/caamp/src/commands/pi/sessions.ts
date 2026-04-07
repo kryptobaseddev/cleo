@@ -173,6 +173,12 @@ function extractMessageContent(content: unknown): string | null {
 /**
  * Registers the `caamp pi sessions` command group.
  *
+ * @remarks
+ * Wires the `list`, `show`, `export`, and `resume` subcommands into the
+ * supplied `pi` parent Command. Delegates to {@link PiHarness.listSessions}
+ * and {@link PiHarness.showSession} for discovery and read paths, and
+ * shells out to Pi directly for the resume verb.
+ *
  * @param parent - The parent `pi` Command to attach the sessions group to.
  *
  * @example

@@ -84,6 +84,12 @@ export interface McpCommandBaseOptions {
  * @throws `LAFSCommandError` when the provider is unknown or has no
  *   MCP capability.
  *
+ * @example
+ * ```typescript
+ * const provider = requireMcpProvider("claude-code");
+ * console.log(provider.toolName); // "Claude Code"
+ * ```
+ *
  * @public
  */
 export function requireMcpProvider(providerId: string): Provider {
@@ -122,6 +128,13 @@ export function requireMcpProvider(providerId: string): Provider {
  * @returns A resolved {@link McpScope}.
  * @throws `LAFSCommandError` when `raw` is set to an invalid value.
  *
+ * @example
+ * ```typescript
+ * parseScope(undefined, "project"); // "project"
+ * parseScope("global", "project");  // "global"
+ * parseScope("weird", "project");   // throws LAFSCommandError(E_VALIDATION_SCHEMA)
+ * ```
+ *
  * @public
  */
 export function parseScope(raw: string | undefined, defaultScope: McpScope): McpScope {
@@ -149,6 +162,13 @@ export function parseScope(raw: string | undefined, defaultScope: McpScope): Mcp
  * @param explicit - The raw `--project-dir` option value.
  * @returns Absolute project dir for `project`, else `undefined`.
  *
+ * @example
+ * ```typescript
+ * resolveProjectDir("project", undefined);  // process.cwd()
+ * resolveProjectDir("project", "/tmp/app"); // "/tmp/app"
+ * resolveProjectDir("global", "/tmp/app");  // undefined
+ * ```
+ *
  * @public
  */
 export function resolveProjectDir(
@@ -173,6 +193,12 @@ export function resolveProjectDir(
  * @param raw - Single `KEY=VALUE` token from Commander.
  * @returns Tuple of `[key, value]`.
  * @throws `LAFSCommandError` when the token is malformed.
+ *
+ * @example
+ * ```typescript
+ * parseEnvAssignment("GITHUB_TOKEN=ghp_abc"); // ["GITHUB_TOKEN", "ghp_abc"]
+ * parseEnvAssignment("NO_EQUALS");            // throws LAFSCommandError
+ * ```
  *
  * @public
  */

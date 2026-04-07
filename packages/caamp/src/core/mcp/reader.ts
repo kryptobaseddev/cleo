@@ -91,6 +91,13 @@ export interface McpDetectionEntry {
  * @param projectDir - Project directory used for the `project` scope.
  * @returns The absolute config file path, or `null` when unavailable.
  *
+ * @example
+ * ```typescript
+ * const claudeCode = getProvider("claude-code")!;
+ * const path = resolveMcpConfigPath(claudeCode, "project", "/tmp/app");
+ * // e.g. "/tmp/app/.mcp.json"
+ * ```
+ *
  * @public
  */
 export function resolveMcpConfigPath(
@@ -129,6 +136,15 @@ export function resolveMcpConfigPath(
  * @param projectDir - Project directory used for the `project` scope
  *   (defaults to `process.cwd()`).
  * @returns Array of MCP server entries, or `[]` when nothing was found.
+ *
+ * @example
+ * ```typescript
+ * const provider = getProvider("claude-code")!;
+ * const entries = await listMcpServers(provider, "project");
+ * for (const entry of entries) {
+ *   console.log(entry.name, entry.configPath);
+ * }
+ * ```
  *
  * @public
  */
@@ -205,6 +221,14 @@ export type McpServerEntriesByProvider = Map<string, McpServerEntry[]>;
  * @param projectDir - Project directory used for the `project` scope.
  * @returns Map of provider id → server entries.
  *
+ * @example
+ * ```typescript
+ * const byProvider = await listAllMcpServers("global");
+ * for (const [providerId, entries] of byProvider) {
+ *   console.log(`${providerId}: ${entries.length} server(s)`);
+ * }
+ * ```
+ *
  * @public
  */
 export async function listAllMcpServers(
@@ -234,6 +258,13 @@ export async function listAllMcpServers(
  * @param scope - Scope to probe.
  * @param projectDir - Project directory used for the `project` scope.
  * @returns Array of detection entries, one per MCP-capable provider.
+ *
+ * @example
+ * ```typescript
+ * const hits = await detectMcpInstallations("project");
+ * const installed = hits.filter((h) => h.exists);
+ * console.log(`MCP found on ${installed.length} providers`);
+ * ```
  *
  * @public
  */

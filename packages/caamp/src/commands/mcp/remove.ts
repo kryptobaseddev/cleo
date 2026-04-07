@@ -43,6 +43,12 @@ export interface McpRemoveOptions extends McpCommandBaseOptions {
 /**
  * Registers the `caamp mcp remove` subcommand.
  *
+ * @remarks
+ * Wires the `remove <serverName>` subcommand into the supplied `mcp`
+ * parent Command. Targets a single provider via {@link removeMcpServer}
+ * or fans out to every MCP-capable provider via
+ * {@link removeMcpServerFromAll} when `--all-providers` is supplied.
+ *
  * @param parent - Parent `mcp` Command to attach the subcommand to.
  *
  * @example

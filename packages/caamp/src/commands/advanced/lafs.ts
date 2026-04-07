@@ -204,7 +204,6 @@ export function emitError(operation: string, error: unknown, mvi: MVILevel = 'st
  * @param command - The LAFS operation identifier
  * @param mvi - The minimum viable information level
  * @param action - The async function to execute
- * @returns Resolves when the action completes and output is emitted
  *
  * @example
  * ```typescript
