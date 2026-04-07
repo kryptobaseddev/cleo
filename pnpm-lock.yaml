@@ -99,6 +99,9 @@ importers:
 
   packages/caamp:
     dependencies:
+      '@cleocode/cant':
+        specifier: workspace:*
+        version: link:../cant
       '@cleocode/lafs':
         specifier: workspace:*
         version: link:../lafs

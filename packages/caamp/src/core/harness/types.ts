@@ -122,6 +122,125 @@ export interface HarnessInstallOptions {
 }
 
 /**
+ * Counts of top-level CANT sections discovered in a `.cant` file.
+ *
+ * @remarks
+ * Returned by {@link Harness.listCantProfiles} and
+ * {@link Harness.validateCantProfile} so that callers can surface a
+ * concise summary of every profile (agents, workflows, pipelines,
+ * top-level hooks, and skill references declared by an agent's
+ * `skills:` property) without reading the full document body.
+ *
+ * The cant-core AST tags every section as a single-key wrapper
+ * (`{ Agent: { ... } }`, `{ Workflow: { ... } }`, etc.), so these
+ * counters are derived by walking `document.sections` and bucketing
+ * by tag. `skillCount` aggregates the unique skill names declared
+ * across every Agent section's `skills:` property — it is NOT a
+ * count of standalone `skill { ... }` blocks because cant-core does
+ * not currently expose those at the document level.
+ *
+ * @public
+ */
+export interface CantProfileCounts {
+  /** Number of `agent { ... }` sections in the document. */
+  agentCount: number;
+  /** Number of `workflow { ... }` sections in the document. */
+  workflowCount: number;
+  /** Number of `pipeline { ... }` sections in the document. */
+  pipelineCount: number;
+  /**
+   * Number of hook bodies discovered. Top-level `Hook` sections plus
+   * the `hooks` array nested inside every Agent section are summed.
+   */
+  hookCount: number;
+  /**
+   * Number of distinct skill names referenced via an Agent section's
+   * `skills:` property (e.g. `skills: ["ct-cleo", "ct-task-executor"]`).
+   * The count is de-duplicated across agents within a single document.
+   */
+  skillCount: number;
+}
+
+/**
+ * Metadata describing a `.cant` profile installed at one of the three
+ * Pi harness tiers.
+ *
+ * @remarks
+ * Returned by {@link Harness.listCantProfiles}. Mirrors the shape of
+ * {@link ExtensionEntry} so consumers can render both with the same
+ * UI primitives, but adds a {@link counts} bag with parsed AST stats
+ * so the list output can summarise each profile without forcing the
+ * caller to re-parse every file.
+ *
+ * @public
+ */
+export interface CantProfileEntry {
+  /** Profile name (basename of the `.cant` file without the extension). */
+  name: string;
+  /** Tier at which this entry lives. */
+  tier: HarnessTier;
+  /** Absolute on-disk path to the `.cant` file. */
+  sourcePath: string;
+  /** Parsed section counts for the profile. */
+  counts: CantProfileCounts;
+  /**
+   * When `true`, this entry is shadowed by a higher-precedence entry
+   * with the same name. Mirrors the shadow flag emitted by
+   * {@link Harness.listExtensions} so the same UI logic applies.
+   * @defaultValue false
+   */
+  shadowedByHigherTier?: boolean;
+}
+
+/**
+ * Diagnostic emitted by the cant-core 42-rule validator, normalised to
+ * the harness layer's vocabulary.
+ *
+ * @remarks
+ * Mirrors the `NativeDiagnostic` shape exported by `@cleocode/cant`'s
+ * native loader. Captured here as a first-class harness type so callers
+ * never have to import from `@cleocode/cant` directly to consume
+ * {@link Harness.validateCantProfile} results.
+ *
+ * @public
+ */
+export interface CantValidationDiagnostic {
+  /** Cant-core rule id (`PARSE`, `S01`, `P06`, ...). */
+  ruleId: string;
+  /** Human-readable diagnostic message. */
+  message: string;
+  /** 1-based line number where the diagnostic was emitted. */
+  line: number;
+  /** 1-based column number where the diagnostic was emitted. */
+  col: number;
+  /** Severity bucket from cant-core (`error`, `warning`, `info`, `hint`). */
+  severity: 'error' | 'warning' | 'info' | 'hint';
+}
+
+/**
+ * Result of validating a `.cant` profile via the cant-core 42-rule
+ * engine.
+ *
+ * @remarks
+ * Returned by {@link Harness.validateCantProfile}. The `valid` flag is
+ * `true` only when no error-severity diagnostics were emitted (warnings
+ * are tolerated, matching cant-core's own definition). The
+ * {@link counts} bag is populated only when parsing succeeded — when
+ * the file is so broken cant-core cannot produce a document, every
+ * counter is `0` and the diagnostics array carries the parse errors.
+ *
+ * @public
+ */
+export interface ValidateCantProfileResult {
+  /** Whether validation passed (no error-severity diagnostics). */
+  valid: boolean;
+  /** All diagnostics emitted by the 42-rule engine, in source order. */
+  errors: CantValidationDiagnostic[];
+  /** Section counts for the profile (zero when parsing failed). */
+  counts: CantProfileCounts;
+}
+
+/**
  * Summary header extracted from the first line of a Pi session JSONL file.
  *
  * @remarks
@@ -659,4 +778,78 @@ export interface Harness {
 
   /** Remove a Pi theme by name from the given tier. */
   removeTheme?(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean>;
+
+  /**
+   * Install a CANT profile (`.cant` file) into the given tier.
+   *
+   * @remarks
+   * Per ADR-035 §D5 (CANT single engine), CANT profiles are first-class
+   * Pi assets consumed by the canonical `cant-bridge.ts` extension via
+   * `/cant:load <file>` at runtime. This verb copies a source `.cant`
+   * file into the requested tier so the bridge can discover it.
+   *
+   * Implementations MUST validate the source via cant-core's 42-rule
+   * engine before copying — invalid `.cant` files are rejected. The
+   * conflict-on-write rule from §D1 cross-cutting concerns applies:
+   * existing targets cause an error unless `opts.force` is set.
+   *
+   * Optional on the interface because only first-class harnesses with a
+   * native CANT bridge support this verb.
+   *
+   * @param sourcePath - Absolute path to the source `.cant` file on disk.
+   * @param name - Profile name (used as the target file basename).
+   * @param tier - Target tier (`project`/`user`/`global`).
+   * @param projectDir - Project directory (required when `tier='project'`).
+   * @param opts - Install options (see {@link HarnessInstallOptions}).
+   */
+  installCantProfile?(
+    sourcePath: string,
+    name: string,
+    tier: HarnessTier,
+    projectDir?: string,
+    opts?: HarnessInstallOptions,
+  ): Promise<{ targetPath: string; tier: HarnessTier; counts: CantProfileCounts }>;
+
+  /**
+   * Remove a CANT profile by name from the given tier.
+   *
+   * @remarks
+   * Missing files are tolerated silently so the verb is usable as an
+   * idempotent "ensure absent" operation.
+   *
+   * @param name - Profile name (basename without `.cant`).
+   * @param tier - Target tier to remove from.
+   * @param projectDir - Project directory (required when `tier='project'`).
+   * @returns `true` when a file was removed, `false` when none existed.
+   */
+  removeCantProfile?(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean>;
+
+  /**
+   * List CANT profiles across all tiers, precedence-ordered.
+   *
+   * @remarks
+   * Walks every tier in {@link HarnessTier} precedence order
+   * (project → user → global) and parses each `.cant` file to extract
+   * its section counts. Higher-precedence tiers shadow lower-precedence
+   * entries with the same name; the {@link CantProfileEntry.shadowedByHigherTier}
+   * flag indicates shadowed copies so callers can warn about
+   * cross-tier name collisions per ADR-035 §D1.
+   *
+   * @param projectDir - Project directory for the `project` tier. When
+   *   omitted the `project` tier is skipped rather than failing.
+   */
+  listCantProfiles?(projectDir?: string): Promise<CantProfileEntry[]>;
+
+  /**
+   * Validate a `.cant` file via cant-core's 42-rule engine without
+   * installing anything.
+   *
+   * @remarks
+   * Pure helper used by `caamp pi cant validate <path>`. Reads the file,
+   * parses it, runs the validator, and returns a structured
+   * {@link ValidateCantProfileResult}. Never mutates state on disk.
+   *
+   * @param sourcePath - Absolute path to the `.cant` file on disk.
+   */
+  validateCantProfile?(sourcePath: string): Promise<ValidateCantProfileResult>;
 }

@@ -36,6 +36,12 @@ export {
   PiHarness,
   resolveDefaultTargetProviders,
 } from './core/harness/index.js';
+export type {
+  CantProfileCounts,
+  CantProfileEntry,
+  CantValidationDiagnostic,
+  ValidateCantProfileResult,
+} from './core/harness/types.js';
 // Hooks normalizer
 export type {
   CanonicalEventDefinition,
