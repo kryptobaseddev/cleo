@@ -281,51 +281,6 @@ export interface ModelListEntry {
 }
 
 /**
- * Declarative description of an MCP server that should be bridged into a
- * harness's native extension mechanism.
- *
- * @remarks
- * This is a harness-agnostic input shape. Fields mirror the MCP
- * configuration surface: stdio transports use {@link command} + {@link args},
- * remote transports use {@link url} + optional {@link headers}, and all
- * transports may carry environment variables via {@link env}.
- *
- * Harnesses that cannot host MCP servers as extensions will throw or omit
- * the {@link Harness.installMcpAsExtension} method entirely.
- *
- * @public
- */
-export interface McpServerSpec {
-  /** Logical name of the MCP server (e.g. `"filesystem"`, `"brave-search"`). */
-  name: string;
-  /**
-   * Command to launch the server over stdio transport.
-   * @defaultValue undefined
-   */
-  command?: string;
-  /**
-   * Arguments for the stdio command.
-   * @defaultValue undefined
-   */
-  args?: string[];
-  /**
-   * URL for SSE/HTTP transports.
-   * @defaultValue undefined
-   */
-  url?: string;
-  /**
-   * Environment variables for the server process.
-   * @defaultValue undefined
-   */
-  env?: Record<string, string>;
-  /**
-   * HTTP headers for remote transports.
-   * @defaultValue undefined
-   */
-  headers?: Record<string, string>;
-}
-
-/**
  * Description of a subagent task to be spawned under a harness.
  *
  * @remarks
@@ -412,9 +367,9 @@ export interface SubagentHandle {
  * harness; the interface is shaped so future harnesses (Goose, OpenCode, ...)
  * can be added without changing any caller code.
  *
- * Optional methods ({@link installMcpAsExtension}, {@link spawnSubagent},
- * {@link configureModels}) may be omitted by harnesses that cannot support
- * them. Callers MUST feature-check before invoking.
+ * Optional methods ({@link spawnSubagent}, {@link configureModels}) may be
+ * omitted by harnesses that cannot support them. Callers MUST feature-check
+ * before invoking.
  *
  * @public
  */
@@ -488,23 +443,6 @@ export interface Harness {
    * @param scope - Instruction file scope.
    */
   removeInstructions(scope: HarnessScope): Promise<void>;
-
-  /**
-   * Install an MCP server as a harness extension.
-   *
-   * @remarks
-   * For legacy providers with a native MCP config file, this is a
-   * passthrough. For Pi it generates a TypeScript extension file under
-   * `extensions/` that wraps the MCP server as a Pi tool via
-   * `pi.registerTool()`.
-   *
-   * Optional — harnesses that cannot host MCP bridges should omit this
-   * method. Callers MUST feature-check before invoking.
-   *
-   * @param server - Server spec to bridge.
-   * @param scope - Install scope.
-   */
-  installMcpAsExtension?(server: McpServerSpec, scope: HarnessScope): Promise<void>;
 
   /**
    * Spawn a subagent under this harness's control.

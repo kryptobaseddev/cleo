@@ -4,10 +4,12 @@
  * esbuild configuration for the @cleocode monorepo.
  *
  * Produces three bundles:
- *   1. packages/core/dist/index.js       — core standalone (npm publish)
+ *   1. packages/core/dist/index.js     — core standalone (npm publish)
  *   2. packages/cleo/dist/cli/index.js — CLI entry point (npm publish)
- *      packages/cleo/dist/mcp/index.js — MCP entry point (npm publish)
- *   3. packages/adapters/dist/index.js    — adapters bundle
+ *   3. packages/adapters/dist/index.js — adapters bundle
+ *
+ * NOTE: there is no MCP runtime bundle. MCP is not a first-class CleoOS
+ * primitive; see ADR-035 §D4 (Option Y addendum) for the rationale.
  */
 
 import * as esbuild from 'esbuild';
@@ -27,7 +29,6 @@ const isWatch = process.argv.includes('--watch');
 const sharedExternals = [
   'proper-lockfile',
   'write-file-atomic',
-  '@modelcontextprotocol/sdk',
   'pino',
   'pino-roll',
   'pino-pretty',

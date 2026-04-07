@@ -24,7 +24,6 @@ export { deepMerge, ensureDir, getNestedValue } from './core/formats/utils.js';
 export type {
   Harness,
   HarnessScope,
-  McpServerSpec,
   SubagentHandle,
   SubagentResult,
   SubagentTask,

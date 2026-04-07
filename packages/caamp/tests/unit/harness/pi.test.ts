@@ -350,62 +350,6 @@ describe("PiHarness instructions (project)", () => {
   });
 });
 
-// ── MCP-as-extension scaffold ───────────────────────────────────────
-
-describe("PiHarness installMcpAsExtension", () => {
-  it("writes a Pi extension scaffold under extensions/ (global)", async () => {
-    const harness = makeHarness();
-    await harness.installMcpAsExtension(
-      {
-        name: "filesystem",
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-        env: { FOO: "bar" },
-      },
-      { kind: "global" },
-    );
-
-    const filePath = join(piRoot, "extensions", "mcp-filesystem.ts");
-    expect(existsSync(filePath)).toBe(true);
-    const src = await readFile(filePath, "utf8");
-    expect(src).toContain("AUTO-GENERATED");
-    expect(src).toContain("export default");
-    expect(src).toContain("registerTool");
-    expect(src).toContain("mcp_filesystem");
-    expect(src).toContain('"@modelcontextprotocol/server-filesystem"');
-    expect(src).toContain('"FOO": "bar"');
-  });
-
-  it("supports remote MCP servers with url + headers (project scope)", async () => {
-    const harness = makeHarness();
-    const scope: HarnessScope = { kind: "project", projectDir };
-    await harness.installMcpAsExtension(
-      {
-        name: "remote-svc",
-        url: "https://example.com/mcp",
-        headers: { "X-Key": "secret" },
-      },
-      scope,
-    );
-
-    const filePath = join(projectDir, ".pi", "extensions", "mcp-remote-svc.ts");
-    expect(existsSync(filePath)).toBe(true);
-    const src = await readFile(filePath, "utf8");
-    expect(src).toContain("https://example.com/mcp");
-    expect(src).toContain("X-Key");
-  });
-
-  it("overwrites the scaffold on re-install", async () => {
-    const harness = makeHarness();
-    const scope: HarnessScope = { kind: "global" };
-    await harness.installMcpAsExtension({ name: "svc", command: "old" }, scope);
-    await harness.installMcpAsExtension({ name: "svc", command: "new" }, scope);
-    const src = await readFile(join(piRoot, "extensions", "mcp-svc.ts"), "utf8");
-    expect(src).toContain('"command": "new"');
-    expect(src).not.toContain('"command": "old"');
-  });
-});
-
 // ── Settings ────────────────────────────────────────────────────────
 
 describe("PiHarness settings", () => {
@@ -808,15 +752,6 @@ describe("three-tier scope helper", () => {
         process.env["CLEO_HOME"] = originalCleoHome;
       }
     }
-  });
-});
-
-// ── MCP bridge placeholder (T268 scaffolding) ───────────────────────
-
-describe("MCP bridge placeholder", () => {
-  it("isBridgeAvailable returns false until T268 lands the real runtime", async () => {
-    const { isBridgeAvailable } = await import("../../../src/core/harness/mcp/index.js");
-    expect(isBridgeAvailable()).toBe(false);
   });
 });
 

@@ -333,7 +333,6 @@ export { PiHarness } from './pi.js';
 export type {
   Harness,
   HarnessScope,
-  McpServerSpec,
   SubagentHandle,
   SubagentResult,
   SubagentTask,
