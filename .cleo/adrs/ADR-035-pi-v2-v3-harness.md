@@ -93,72 +93,51 @@ Validation: `enable`/`default` cross-check that the referenced model exists in `
 
 > **Spec hook for T265 (`caamp pi models`)**: Six verbs above. NEVER write a model definition to `settings.json` or an enable/disable list to `models.json`. Each mutation is atomic and validated against the other file.
 
-### D4 — MCP wire protocol: stdio JSON-RPC, lifecycle-bound to Pi sessions
+### D4 — MCP status in CleoOS: legacy interop only
 
-Pi does not speak MCP. We bridge it as a Pi extension that owns one MCP subprocess per configured server. The bridge is real JSON-RPC, not a scaffold, and runs entirely in TypeScript using `@modelcontextprotocol/sdk` (the official package; no in-house re-implementation).
+MCP is not a first-class CleoOS primitive. Pi extensions strictly
+dominate MCP tools on every axis: hooks (22 events vs 0), slash
+commands (vs none), system-prompt injection (vs none), tool blocking
+and rewriting (vs none), custom renderers (vs none), provider
+registration (vs none), keybindings (vs none), direct TypeScript
+function calls (vs JSON-RPC framing + subprocess overhead per call).
 
-The bridge runtime lives **inside CAAMP** at `packages/caamp/src/core/harness/mcp/` (next to `pi.ts`, since the harness owns Pi-targeting logic). It is **not a new top-level package**. The generated Pi extension files under `extensions/mcp-<name>.ts` are thin shims that import the bridge runtime via `@cleocode/caamp/harness/mcp` and call `attach(pi, serverConfig)`. This keeps the bridge testable in isolation (it has its own `__tests__/` directory under `harness/mcp/`) without growing the monorepo's package surface.
+MCP solves multi-client coordination — the scenario where many
+independent agents (Claude Desktop, Cursor, Zed, Claude Code, etc.)
+need to share tool servers. CleoOS is a single-client architecture:
+Pi is the only harness CLEO routes through. The multi-client
+problem MCP solves does not exist here.
 
-Lifecycle:
+If a user wants a specific existing MCP server's functionality
+inside Pi, the correct answer is "write a Pi extension." The
+existing MCP server source is a reference implementation, not a
+runtime target. CAAMP does not ship an MCP bridge runtime, and
+`installMcpAsExtension` has been removed from PiHarness in this PR.
 
-1. **`caamp pi mcp install <server>`** (which is `installMcpAsExtension` upgraded from scaffold to real generator) writes a TypeScript extension file under `extensions/mcp-<name>.ts`. The shim imports the bridge runtime from `@cleocode/caamp/harness/mcp` and exports a default function that calls `attach(pi, serverConfig)`.
-2. On Pi's `session_start` hook, the bridge spawns the configured MCP server as a child process via stdio (or, when configured, attaches to an HTTP/SSE endpoint — see below).
-3. The bridge issues the MCP `initialize` JSON-RPC request and waits for the response. On failure, it logs and disables the server for this session (does NOT crash Pi).
-4. The bridge calls MCP `tools/list`, then for each returned tool calls `pi.registerTool()` translating the MCP JSON Schema to Pi's tool definition shape. Tool names are namespaced as `mcp.<server>.<tool>` to prevent collisions.
-5. When a registered tool is invoked by the LLM, the bridge forwards it as an MCP `tools/call` request and translates the response (text, image, resource references) into Pi's tool result format.
-6. On Pi's `session_shutdown` hook, the bridge sends MCP `shutdown` and SIGTERMs the child. After 5 seconds without exit, SIGKILL.
-7. **Crash recovery**: if the child process exits unexpectedly mid-session, retry once with 1 s backoff. If retry fails, mark all tools from that server as unavailable for the rest of the session and log a single warning.
+If future demand justifies a migration ramp, the shape would be a
+one-shot `caamp pi extensions import-mcp <source>` converter that
+reads an MCP server's tool schema and emits a native Pi extension
+`.ts` file. That is optional future work, not a runtime bridge.
 
-Transport variants:
-- **stdio (T269/T270/T271)**: ships in v2. Default and required.
-- **HTTP/SSE (T272)**: ships behind the stdio milestone. Same `attach` API; transport is selected by `serverConfig.transport`. Deferred because most production MCP servers (filesystem, git, postgres, etc.) are stdio-first.
+### D5 — CANT execution: single engine, cant-bridge.ts as canonical
 
-> **Spec hook for T268 (MCP-as-Pi-extension bridge)**: Real `@modelcontextprotocol/sdk` JSON-RPC client lives at `packages/caamp/src/core/harness/mcp/` (no new top-level package). Stdio transport in v2. Tool names namespaced `mcp.<server>.<tool>`. Crash recovery: retry once, then mark unavailable. T269 ships the JSON-RPC client + initialize handshake. T270 ships the schema translator. T271 ships the subprocess lifecycle manager. T272 adds HTTP/SSE.
+CANT workflow execution lives entirely in
+`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts` —
+a 989-line Pi extension that interprets all 16 workflow statement
+types via `pi.exec` shell-out to `cleo cant parse/validate/execute`.
+It does NOT import from `@cleocode/*`; it is architecturally pure.
 
-### D5 — CANT loading: wire the existing topology, add no new packages
+The previously-planned parallel `@cleocode/core/cant/WorkflowExecutor`
+namespace has been DELETED in this PR. It was dead code with zero
+production callers and strictly duplicate with cant-bridge.ts. Two
+engines would have diverged; one engine is simpler and correct.
 
-**Correction from earlier draft**: this ADR initially proposed a new `@cleocode/cant-runtime-bridge` package. **That was wrong** — both halves of the bridge already exist and only need to be wired together. The actual CANT topology in the codebase today is:
-
-| Layer | Package / Path | Responsibility | State |
-|-------|----------------|----------------|-------|
-| Rust parser/validator | `crates/cant-core` | parse, AST, 42-rule validation | shipped |
-| Rust pipeline executor | `crates/cant-runtime` | deterministic subprocess pipelines (no LLM, no discretion) | shipped |
-| napi bindings | `crates/cant-napi` | exports `cant_parse`, `cant_parse_document`, `cant_validate_document`, `cant_extract_agent_profiles`, `cant_execute_pipeline` | shipped |
-| TS parser wrapper | `@cleocode/cant` (`packages/cant`) | loads the napi `.node` file; exports `parseDocument`, `validateDocument`, `listSections`, `executePipeline`, `migrateMarkdown` | shipped |
-| TS workflow executor | `@cleocode/core` `cant/` namespace (`packages/core/src/cant/`) | `WorkflowExecutor`, `ApprovalManager`, `executeParallel`, `DefaultDiscretionEvaluator` — handles workflows (LLM calls, discretion, approval gates, parallel arms) and DELEGATES pipeline subprocess work down to `cant-napi` → `cant-runtime` | **shipped but dead code** (no production caller) |
-| User-facing CLI | `cleo cant parse|validate|list|execute` (`packages/cleo/src/cli/commands/cant.ts`) | dynamically imports `@cleocode/cant`, calls its API | shipped, working ✓ |
-| Agent runtime | `@cleocode/runtime` `createRuntime()` (`packages/runtime/src/index.ts`) | poller, heartbeat, key rotation, SSE — **does not currently accept a CANT profile** | shipped, **missing the wire** |
-| Agent CLI | `cleo agent start <id>` (`packages/cleo/src/cli/commands/agent.ts`) | reads `.cant` file at line 260 into a `profile` string variable that is **never used** to drive runtime behaviour | shipped, **broken wire** |
-
-**Where `cant-cli` lives**: it does not. The standalone Rust binary was deleted in T282 (per the comment in `packages/cleo/src/cli/commands/cant.ts:11–14` and `crates/cant-napi/src/lib.rs:447`). Pipeline execution now flows CLI → `@cleocode/cant` → `cant-napi` → `cant-runtime`. Single execution path, zero subprocess overhead, single binary distribution. The user-facing entrypoint is `cleo cant execute --pipeline <name>` and that path is fully wired today.
-
-**The actual bug** is narrower than "the runtime bridge is broken" implies in memory:
-
-1. `WorkflowExecutor` in `@cleocode/core/cant` has zero production callers — only its own test files reference it. Grep confirms.
-2. `cleo agent start` reads a `.cant` file into a string variable that is then dropped (`packages/cleo/src/cli/commands/agent.ts:258–262`).
-3. `createRuntime()` in `@cleocode/runtime` has no `profile` or `executor` parameter in its `RuntimeConfig` interface (`packages/runtime/src/index.ts:31`).
-
-**The fix**, with no new packages and no new modules beyond the natural seams:
-
-1. **Extend `RuntimeConfig`** in `@cleocode/runtime` to accept `{ profile?: ParsedCantDocument, workflowExecutor?: WorkflowExecutor }`. Both optional for back-compat with callers that don't supply a profile.
-2. **Extend `createRuntime()`** to instantiate the runtime's CANT integration: when `profile` is supplied, walk the AST, register agent/protocol/workflow handlers against the runtime's tool/event surface, and store the executor for invocation when workflow gates are reached.
-3. **Fix `cleo agent start`** to import `parseDocument` from `@cleocode/cant`, parse the read profile, instantiate `WorkflowExecutor` from `@cleocode/core` (`cant/` namespace), and pass both to `createRuntime({ profile, workflowExecutor, ... })`.
-4. **Build the Pi extension** at `$CLEO_HOME/pi-extensions/cant-loader.ts` that does **the same imports**: parse via `@cleocode/cant`, instantiate `WorkflowExecutor` from `@cleocode/core`, and register the resulting handlers against Pi's extension API (`pi.registerTool`, `pi.on('before_tool_call', ...)`, etc.). The Pi extension and `cleo agent start` are two callers of the same two existing packages — there is no shared loader module to extract because the share already exists at the package boundary.
-
-AST → Pi mappings (used by both the runtime and the Pi extension):
-- **Agent definition** → tool registered as `agent.<name>` whose execution invokes the agent's defined actions.
-- **Protocol definition** → `before_tool_call` validator that blocks calls violating the protocol with the protocol's error message.
-- **Workflow definition** → command `/workflow <name>` (or runtime tool, depending on caller) that invokes `WorkflowExecutor.execute(workflowAst, ctx)`. The executor handles parallel arms, discretion, and approval gates internally; pipeline steps inside the workflow delegate further to `cant-napi.cant_execute_pipeline` so the Rust runtime owns the deterministic subprocess work.
-- **Token/property definitions** → session-scoped variables registered with the runtime's variable resolver.
-
-Parse-time vs run-time: parsing happens at agent or extension **startup** (lazy enough that an unused profile costs nothing). Handler registration happens after parse, before the LLM gets control. Workflow *execution* happens at LLM-invocation time inside `WorkflowExecutor`. Pipeline subprocess work happens inside `cant-runtime` via the napi bridge. Each layer keeps its existing responsibility; the only changes are the **two glue calls** in `createRuntime` and `cleo agent start`, and the **one new Pi extension file**.
-
-**This is the whole T275 deliverable, not a side-effect of it.** My earlier draft framed the `cleo agent start` fix as a "free side-effect" because I thought there was a bridge package to build. There is no such package. T275 *is* the wire-up. T274 reduces to "add a typed `loadCantFile(path)` convenience export to `@cleocode/cant` that wraps `parseDocument` plus validation in one call" — small, additive, no new package.
-
-> **Spec hook for T273–T276 (CANT bridge)**:
-> - **T274** adds a typed `loadCantFile(path)` convenience export to `@cleocode/cant` that combines `parseDocument` + `validateDocument` and returns a typed AST. No new package; extends the existing one.
-> - **T275** is the wire-up: extend `RuntimeConfig` and `createRuntime()` in `@cleocode/runtime` to accept `{ profile, workflowExecutor }`; fix `cleo agent start` to instantiate them via `@cleocode/cant` + `@cleocode/core/cant` and pass them in; ship the Pi extension at `$CLEO_HOME/pi-extensions/cant-loader.ts` that uses the **same two imports**. Tests must verify (a) the cleo-subagent.cant fixture loads in `cleo agent start` and registers tools, and (b) the same fixture loads in a Pi session and produces identical tool registrations.
-> - **T276** ships `caamp pi cant install/list/remove` verbs honouring the universal scope+conflict rule from D1.
+The `cleo agent start` daemon does NOT execute workflow profiles
+internally — it only polls SignalDock for messages. Profile-driven
+behaviour (hooks, workflows, skill injection) runs inside Pi sessions
+when the user loads the profile via `/cant:load <file>` and invokes
+workflows via `/cant:run <file> <workflowName>`. The daemon and the
+Pi session are distinct runtimes with distinct purposes.
 
 ### D6 — Subagent spawn: PiHarness.spawnSubagent is the only path
 
@@ -227,8 +206,8 @@ Migration story:
 | 1 | Extension/prompts/themes scope | Three tiers: project > user > global. Conflict-on-write errors unless `--force`. Pi unmodified; CleoOS hub is the third tier. | Honours Pi's two-tier reality, adds CleoOS hub, no Pi changes required. |
 | 2 | JSONL parsing | Per-verb: list reads line-1 only, show loads-all, export streams, resume shells out to Pi. | Avoids loading multi-MB files for cheap operations; never reimplements Pi-owned semantics. |
 | 3 | Models authority | `models.json` = definitions; `settings.json:enabledModels` = selection. Verbs are partitioned, never duplicate. | Pi's split is intentional and works; trying to merge introduces sync bugs. |
-| 4 | MCP wire protocol | Real `@modelcontextprotocol/sdk` JSON-RPC over stdio in v2, HTTP/SSE deferred behind stdio. Lifecycle bound to Pi `session_start`/`session_shutdown`. Tool names namespaced. | Pi doesn't speak MCP; we add it as an extension, the standard SDK is the lowest-risk path. |
-| 5 | CANT loading | Wire the existing topology: extend `createRuntime({ profile, workflowExecutor })` and fix `cleo agent start` to instantiate `@cleocode/cant` parser + `@cleocode/core/cant`'s `WorkflowExecutor` (today's dead code) and pass them in. The Pi extension uses the same two imports. **No new packages.** | The bridge isn't missing — both halves exist; only the glue is missing. WorkflowExecutor has zero production callers today, which is the actual bug. |
+| 4 | MCP status | Not a first-class CleoOS primitive. CAAMP ships no MCP runtime bridge; `installMcpAsExtension` removed from PiHarness. Pi extensions strictly dominate MCP tools. | MCP solves multi-client coordination — CleoOS is single-client (Pi). The problem MCP solves does not exist here. |
+| 5 | CANT execution | Single engine: `cant-bridge.ts` Pi extension shells out to `cleo cant parse/validate/execute` for all 16 workflow statement types. No `@cleocode/*` import. The parallel `@cleocode/core/cant/WorkflowExecutor` namespace is **deleted** (was dead code, zero production callers). | Two engines would diverge; one canonical engine is simpler and correct. The Pi extension is pure architecturally. |
 | 6 | Spawn mechanics | `PiHarness.spawnSubagent` is the only spawn path. Streaming via line-delimited JSON `custom_message` entries. Sessions linked via `subagent_link` custom entries. SIGTERM + 5 s grace + SIGKILL. | Consolidates today's scattered direct-spawn calls; mirrors Pi's own subagent example as the convention. |
 | 7 | v3 exclusivity | `caamp.exclusivityMode` setting with `auto`/`force-pi`/`legacy`. Affects runtime invocation only — skill/instruction install paths unchanged. | Allows incremental migration; preserves all existing scripts; lets `force-pi` enforce purity for users who want it. |
 
@@ -270,95 +249,30 @@ Migration story:
 
 **A8 — Spawn subagents via Pi's slash-command system (`pi /sub`) rather than direct `child_process.spawn()`.** Rejected for v2. Pi's `/sub` command (in `pi-ext/extensions/subagent-widget.ts`) is itself a thin wrapper around `child_process.spawn()`; routing through it adds an extra layer with no semantic gain and makes error propagation harder to reason about. Direct spawn from `PiHarness.spawnSubagent` is simpler. We can revisit if Pi ever exposes a first-class subagent API.
 
-## Addendum: CANT Runtime Completeness Audit (2026-04-07)
+## Addendum (2026-04-07): Option Y collapse
 
-After the initial draft of this ADR, a deep sanity audit of the CANT DSL implementation was performed to ensure the executor covers all constructs the Rust source of truth defines. The audit revealed a significant gap between the Rust side (production-ready) and the TypeScript side (mostly dead code), and produced a new sibling epic **T287** (CANT runtime completeness) with 10 subtasks (T288–T297) whose collective completion is a prerequisite for T273/T275 to ship meaningfully.
+After the initial draft of this ADR, an owner audit revealed that
+`cant-bridge.ts` (Pi extension, shipped v2026.4.6) already implements
+all 16 workflow statement types via CLI shell-out, and the parallel
+`@cleocode/core/cant` WorkflowExecutor namespace was dead code with
+zero production callers. The architectural dilemma was whether to:
 
-### Rust side — source of truth, production-ready
+1. Keep both Path A (cant-bridge.ts) and Path B (WorkflowExecutor)
+2. Collapse to Path A only, delete the dead code
+3. Collapse to Path B only, rewrite cant-bridge.ts as a thin shim
 
-`crates/cant-core/src/dsl/ast.rs` + `ast_orchestration.rs` define the canonical AST:
+Owner chose Option 2 (collapse to Path A). This PR:
 
-- **8 top-level sections**: Agent, Skill, Hook, Workflow, Pipeline, Import, Binding, Comment
-- **16 workflow statement types** inside `WorkflowDef.body`: Binding, Expression, Directive, Property, Comment, Session, Parallel, Conditional, Repeat, ForLoop, LoopUntil, TryCatch, ApprovalGate, Pipeline, PipeStep, Output
-- **7 value types**: String, Number, Boolean, Array, Identifier, Duration, ProseBlock
-- **13 expression variants**: Name, String (with interpolations), Number, Boolean, Duration, TaskRef, Address, Array, PropertyAccess, Comparison, Logical, Negation, Interpolation
-- **31 canonical CAAMP events**: 16 provider + 15 domain (validated by rule S06/H01)
-- **42 validation rules**: S01-S13 scope, P01-P07 pipeline purity, T01-T07 types, H01-H04 hooks, W01-W11 workflow limits
+- Deletes `packages/core/src/cant/*` entirely (1489 LOC removed)
+- Removes all MCP traces from CAAMP (Pi extensions strictly dominate
+  MCP tools; MCP is not a first-class CleoOS primitive)
+- Documents that `cleo agent start`'s daemon is Pi-independent and
+  its profile validation is a fail-fast guard, not an execution step
+- cant-bridge.ts remains the single canonical executor for CANT
+  workflows inside Pi sessions
 
-`crates/cant-runtime` handles deterministic subprocess pipelines only. All LLM/discretion/approval/parallel/loops/conditionals are delegated up to TypeScript per the architecture comment in `crates/cant-runtime/src/lib.rs:20-37`. `crates/cant-napi` exports the full surface to JavaScript: `cant_parse`, `cant_parse_document`, `cant_validate_document`, `cant_extract_agent_profiles`, `cant_execute_pipeline` (async).
-
-**Zero TODOs, FIXMEs, XXX, HACK, `unimplemented!()`, or `todo!()` macros exist in any `cant-*` crate.** The Rust side is complete and correct.
-
-### TypeScript side — ships but is dead code
-
-`packages/core/src/cant/` contains 1489 LOC of workflow execution machinery (workflow-executor.ts 619, approval.ts 219, discretion.ts 150, context-builder.ts 136, parallel-runner.ts 206, types.ts 159) that is fully exported through `@cleocode/core` but **has zero production callers**. Grep confirms only test files reference `WorkflowExecutor`.
-
-Coverage matrix for the 16 workflow statement types (from the audit):
-
-| # | Statement | Handler | Status |
-|---|-----------|---------|--------|
-| 1 | Binding | `executeBinding` | ✅ implemented |
-| 2 | Expression | — | ⛔ **no handler** — falls through as unknown |
-| 3 | Directive | `executeDirective` | ⚠️ stub, returns `{stub: true}` (workflow-executor.ts:514–537) |
-| 4 | Property | — | ⛔ **no handler** |
-| 5 | Comment | recognized as noop | ✅ |
-| 6 | Session | `executeSession` | ⚠️ stub, returns `{stub: true}` (workflow-executor.ts:317–334) |
-| 7 | Parallel | `executeParallelBlock` | ✅ implemented via `parallel-runner.ts` (all/race/settle) |
-| 8 | Conditional | `executeConditional` | ✅ control flow OK but condition evaluator is broken (see below) |
-| 9 | Repeat | `executeRepeat` | ✅ implemented |
-| 10 | ForLoop | `executeForLoop` | ✅ implemented |
-| 11 | LoopUntil | `executeLoopUntil` | ✅ implemented (with 10k max-iteration guard) |
-| 12 | TryCatch | `executeTryCatch` | ✅ implemented |
-| 13 | ApprovalGate | `executeApprovalGate` | ✅ token generation works; session suspension deferred |
-| 14 | Pipeline | `executePipeline` | ⚠️ **stub**, returns `{stub: true}` (workflow-executor.ts:336–351) — **does NOT call `cant_execute_pipeline` napi** |
-| 15 | PipeStep | — | ⛔ **no handler** |
-| 16 | Output | `executeOutput` | ✅ implemented |
-
-**Critical additional defects:**
-
-1. **`evaluateCondition` (workflow-executor.ts:562–564)** returns `true` for every non-discretion condition. Every `if status == "approved":`, every `elif count > 5:`, every `loop: ... until done:` silently takes the true branch. The stub comment literally says: `// For regular expressions, return true as a stub / // Real implementation would evaluate the expression against the scope / return true;`
-2. **`DefaultDiscretionEvaluator.evaluate` (discretion.ts:46–49)** is hardcoded `return true`. Every `**prose**` discretion block always passes. No LLM backend is wired.
-3. **`DiscretionContext.precedingResults` and `taskRefs` (workflow-executor.ts:551–559)** are hardcoded `{}` and `[]`. The context object passed to discretion evaluators gives the LLM zero visibility into prior step results or active task context.
-4. **Zero production callers.** The Workflow­Executor is exported but never imported outside its own test file (which is `.skip()`ped pending `cant_parse_document` being wired through). `grep -rn WorkflowExecutor packages --include=*.ts` finds only `packages/core/src/cant/{index.ts,workflow-executor.ts}` plus tests.
-5. **`createRuntime` in `@cleocode/runtime` (packages/runtime/src/index.ts:31)** has no `profile` or `workflowExecutor` field in its `RuntimeConfig` interface. The runtime can't receive a profile even if a caller wanted to supply one.
-6. **`cleo agent start` (packages/cleo/src/cli/commands/agent.ts:258–262)** reads the `.cant` profile into a string variable `profile`, passes it to the validate helper, and then *drops it*. The profile never reaches `createRuntime()`.
-7. **`loadCantDocument` and `loadMigrateEngine` (packages/cleo/src/cli/commands/cant.ts:306–324 and 336–352)** duplicate the same 3-path dynamic-import fallback dance. ~30 lines of copy-paste.
-
-### The T287 epic closes all of these
-
-Epic **T287** (CANT runtime completeness) was created 2026-04-07 as a sibling to T261. Its 10 subtasks correspond one-to-one with the defects above, plus the test suite and the runtime wire-up:
-
-| Task | Scope | Closes |
-|------|-------|--------|
-| T288 | Real expression evaluator for `evaluateCondition` | Defect 1 (broken condition evaluator) — Wave 1, blocks others |
-| T289 | Add Expression / Property / PipeStep handlers | Missing-handler gaps for statements 2, 4, 15 |
-| T290 | Wire `executePipeline` to `cant_execute_pipeline` napi | Stub for statement 14 |
-| T291 | Wire `executeSession` to CLEO session machinery | Stub for statement 6 |
-| T292 | Wire `executeDirective` to CLEO ops dispatcher | Stub for statement 3 |
-| T293 | LLM-backed `DefaultDiscretionEvaluator` via `@anthropic-ai/sdk` | Defect 2 (hardcoded discretion) |
-| T294 | Populate `DiscretionContext.precedingResults` + `taskRefs` | Defect 3 (empty context) |
-| T295 | Expand `RuntimeConfig` + hook dispatch in `AgentPoller` | Defect 5 (runtime has no profile support) |
-| T296 | Fix `cleo agent start` to pass profile + executor + comprehensive test suite | Defects 4 and 6 (dead code, no tests) |
-| T297 | Dedupe `loadCantDocument` / `loadMigrateEngine` | Defect 7 (DRY cleanup) |
-
-**Dependency flow**: T288 is Wave 1 (blocks most others because conditions are everywhere). T289/T290/T291/T292/T293/T297 are Wave 2 (parallel after T288). T294 is Wave 2 (depends on T288). T295 is Wave 3 (depends on T288/T289). T296 is Wave 4 (depends on everything).
-
-T273 (Wave 2 CANT bridge parent) and T275 (Pi extension bridge) now depend on T287 completion. Practically: T287 ships first (or in parallel with T274), then T275 can wire the Pi extension against a working executor, then T273 integrates and tests end-to-end.
-
-**Zero new packages are added by any T287 subtask.** All work lives in existing `@cleocode/cant`, `@cleocode/core`, `@cleocode/runtime`, `@cleocode/cleo`, and `@cleocode/adapters` packages, matching D5's core principle.
-
-### Consequences of the addendum
-
-**Positive:**
-- The 1489 LOC of WorkflowExecutor machinery stops being dead code and starts driving real agent behaviour via CANT profiles.
-- Silent bugs (condition-always-true, discretion-always-true, pipeline-stub) are closed before they ship to users.
-- The runtime wire-up (profile → AgentPoller hook dispatch) realises the long-standing vision of "`.cant` profiles define agent behaviour" that has been pending since the CANT DSL landed.
-- Test coverage goes from zero workflow execution tests to comprehensive suite covering all 16 statement types, 3 join strategies, approval state machine, scope chain, template resolution, and integration.
-
-**Negative:**
-- T273 ships later. The Pi extension cannot integrate against a working executor until T287 lands. Wave 2 becomes serial behind T287 rather than parallel with other Pi verbs.
-- T287 adds 10 new subtasks to the in-flight work for this PR. Size estimate grew from "medium" (T273/T275 alone) to "large + medium" (T287 + T273/T275).
-- The session and directive wire-ups (T291/T292) pull in the packages/adapters and packages/cleo/src/dispatch surfaces — cross-package refactoring risk.
+The T287 epic that would have activated the dead code has been
+deleted. T268-T272 (MCP bridge) have been deleted.
 
 ## Related
 
