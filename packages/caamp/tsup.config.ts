@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     cli: "src/cli.ts",
     index: "src/index.ts",
+    "harness/mcp/index": "src/core/harness/mcp/index.ts",
   },
   format: ["esm"],
   target: "node20",

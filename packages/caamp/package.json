@@ -12,6 +12,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./harness/mcp": {
+      "import": "./dist/harness/mcp/index.js",
+      "types": "./dist/harness/mcp/index.d.ts"
     }
   },
   "files": [
@@ -60,6 +64,7 @@
   "dependencies": {
     "@cleocode/lafs": "workspace:*",
     "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^14.0.0",
     "env-paths": "^4.0.0",
     "gray-matter": "^4.0.3",
