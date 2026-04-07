@@ -19,5 +19,5 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "schemas/**/*.json"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "examples"]
 }

@@ -8,28 +8,77 @@ coverage/
 .cleo/brain.db*
 .cleo/logs/
 
-# Root-level tsc artifacts from config files (drizzle, vitest)
+# ---------------------------------------------------------------------------
+# TypeScript compile artifacts — source dirs must ONLY contain .ts files.
+# All emitted .js/.d.ts/.d.ts.map/.js.map belongs in each package's dist/.
+# These patterns are intentionally broad to prevent recurrence.
+# ---------------------------------------------------------------------------
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
+# Test artifacts anywhere in the monorepo
+**/__tests__/**/*.js
+**/__tests__/**/*.js.map
+**/__tests__/**/*.d.ts
+**/__tests__/**/*.d.ts.map
+**/*.test.js
+**/*.test.js.map
+**/*.test.d.ts
+**/*.test.d.ts.map
+
+# Package-root / project-root config file compile artifacts
+# (matches forge-ts.config.*, vitest.config.*, tsup.config.*, drizzle.config.*)
+/forge-ts.config.js
+/forge-ts.config.js.map
+/forge-ts.config.d.ts
+/forge-ts.config.d.ts.map
 /vitest.config.js
+/vitest.config.js.map
 /vitest.config.d.ts
 /vitest.config.d.ts.map
-/vitest.config.js.map
+packages/*/forge-ts.config.js
+packages/*/forge-ts.config.js.map
+packages/*/forge-ts.config.d.ts
+packages/*/forge-ts.config.d.ts.map
+packages/*/vitest.config.js
+packages/*/vitest.config.js.map
+packages/*/vitest.config.d.ts
+packages/*/vitest.config.d.ts.map
+packages/*/tsup.config.js
+packages/*/tsup.config.js.map
+packages/*/tsup.config.d.ts
+packages/*/tsup.config.d.ts.map
 /drizzle/*.config.js
+/drizzle/*.config.js.map
 /drizzle/*.config.d.ts
 /drizzle/*.config.d.ts.map
-/drizzle/*.config.js.map
+
+# Script file compile artifacts (scripts are .ts sources; compiled siblings are junk)
+packages/*/scripts/**/*.js
+packages/*/scripts/**/*.js.map
+packages/*/scripts/**/*.d.ts
+packages/*/scripts/**/*.d.ts.map
+
+# Examples: .ts sources only; compiled siblings are junk
+packages/*/examples/**/*.js
+packages/*/examples/**/*.js.map
+packages/*/examples/**/*.d.ts
+packages/*/examples/**/*.d.ts.map
+
+# Intentionally tracked hand-written files that match the patterns above
+# (do NOT ignore these — they are the real entry points):
+!packages/cleo/bin/postinstall.js
+!packages/skills/index.js
+!packages/skills/index.d.ts
+
+# Misc noise
 clawmsgr-agent.json
-clawmsgr-*.json
-clawmsgr-*.json
 clawmsgr-*.json
 
 # Rust build artifacts
 target/
-clawmsgr-*.json
-clawmsgr-*.json
-clawmsgr-*.json
-clawmsgr-*.json
-clawmsgr-*.json
-clawmsgr-*.json
 types.js
 
 # Rust coverage

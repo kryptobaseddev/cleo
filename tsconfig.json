@@ -9,21 +9,18 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
-    "composite": true
+    "noEmit": true
   },
+  "files": [],
   "references": [
     { "path": "./packages/contracts" },
-    { "path": "./packages/lafs" },
+    { "path": "./packages/lafs/tsconfig.build.json" },
     { "path": "./packages/caamp" },
     { "path": "./packages/core" },
     { "path": "./packages/adapters" },
     { "path": "./packages/cleo" }
-  ],
-  "exclude": ["node_modules", "dist", "drizzle", "packages/skills/scripts", "editors"]
+  ]
 }

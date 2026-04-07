@@ -12,6 +12,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "ignoreDeprecations": "6.0",
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
       "@cleocode/contracts": ["packages/contracts/src/index.ts"],
