@@ -62,6 +62,41 @@ Single source of truth for 44+ AI coding agents in `providers/registry.json`.
 - File paths (global and project scopes)
 - Supported transports and capabilities
 
+### 3.4 Exclusivity Mode (Pi-first runtime)
+
+CAAMP supports three exclusivity modes for runtime command dispatch, introduced
+by ADR-035 §D7. The mode controls how `resolveDefaultTargetProviders()` selects
+target providers when CAAMP needs to invoke an underlying agent.
+
+| Mode | Pi installed | Pi absent |
+|------|--------------|-----------|
+| `auto` (default) | Returns Pi as the sole runtime target. Explicit `--agent <non-pi>` selections are honoured but emit a one-time deprecation warning per process. | Falls back to detected high-priority providers and emits a one-time boot warning so users know orchestration is not engaged. |
+| `force-pi` | Returns Pi as the sole runtime target. | Throws `PiRequiredError` (LAFS code `E_NOT_FOUND_RESOURCE`); the CLI surfaces this as exit code 4. |
+| `legacy` | Returns Pi (matches v2026.4.5 behaviour exactly). | Returns the detected high-priority provider set. No warnings, no hard requirement. |
+
+Set the mode via the `CAAMP_EXCLUSIVITY_MODE` environment variable:
+
+```bash
+export CAAMP_EXCLUSIVITY_MODE=force-pi
+caamp skills list
+```
+
+Or programmatically (e.g. from a wrapper script that imports `@cleocode/caamp`):
+
+```typescript
+import { setExclusivityMode } from "@cleocode/caamp";
+setExclusivityMode("force-pi");
+```
+
+**Important — install paths are unaffected.** Skill and instruction install
+operations (`caamp skills install`, `caamp instructions inject`, etc.) always
+dispatch to the requested provider set regardless of the exclusivity mode. This
+guarantee is critical: a user in `force-pi` mode can still bootstrap by running
+`caamp skills install foo --agent claude-code` while Pi is being installed.
+Only the runtime invocation paths honour the setting.
+
+See ADR-035 §D7 for the full design rationale.
+
 ---
 
 ## 4. CLI Interface
