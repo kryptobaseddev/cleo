@@ -9,6 +9,7 @@ import { registerAdvancedCommands } from './commands/advanced/index.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerInstructionsCommands } from './commands/instructions/index.js';
+import { registerMcpCommands } from './commands/mcp/index.js';
 import { registerPiCommands } from './commands/pi/index.js';
 import { registerProvidersCommand } from './commands/providers.js';
 import { registerSkillsCommands } from './commands/skills/index.js';
@@ -39,6 +40,7 @@ registerInstructionsCommands(program);
 registerConfigCommand(program);
 registerDoctorCommand(program);
 registerAdvancedCommands(program);
+registerMcpCommands(program);
 registerPiCommands(program);
 
 function toError(error: unknown): Error {

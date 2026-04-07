@@ -100,6 +100,25 @@ export {
 } from './core/instructions/templates.js';
 // Logger
 export { isQuiet, isVerbose, setQuiet, setVerbose } from './core/logger.js';
+// MCP server config management
+export type {
+  InstallMcpServerOptions,
+  InstallMcpServerResult,
+  McpDetectionEntry,
+  McpScope,
+  McpServerEntriesByProvider,
+  RemoveMcpServerOptions,
+  RemoveMcpServerResult,
+} from './core/mcp/index.js';
+export {
+  detectMcpInstallations,
+  installMcpServer,
+  listAllMcpServers,
+  listMcpServers,
+  removeMcpServer,
+  removeMcpServerFromAll,
+  resolveMcpConfigPath,
+} from './core/mcp/index.js';
 // Marketplace
 export { MarketplaceClient } from './core/marketplace/client.js';
 export type { MarketplaceResult } from './core/marketplace/types.js';
