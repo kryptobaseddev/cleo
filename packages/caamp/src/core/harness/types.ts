@@ -16,6 +16,7 @@
  */
 
 import type { Provider } from '../../types.js';
+import type { HarnessTier } from './scope.js';
 
 /**
  * Scope at which a harness operation should be performed.
@@ -26,9 +27,258 @@ import type { Provider } from '../../types.js';
  * the caller to provide the absolute project directory path — the harness
  * does not infer cwd.
  *
+ * This two-tier scope is the legacy shape used by the skill and
+ * instructions install paths. Pi-specific Wave-1 verbs (extensions,
+ * sessions, models, prompts, themes) use the three-tier
+ * {@link HarnessTier} hierarchy introduced in ADR-035 §D1 alongside this
+ * type — the two coexist and neither replaces the other.
+ *
  * @public
  */
 export type HarnessScope = { kind: 'global' } | { kind: 'project'; projectDir: string };
+
+/**
+ * Metadata describing a Pi extension discovered on disk.
+ *
+ * @remarks
+ * Returned by {@link Harness.listExtensions}. The `tier` records which
+ * tier the extension lives at so that callers can surface the
+ * precedence story in their output.
+ *
+ * @public
+ */
+export interface ExtensionEntry {
+  /** Extension name (file basename without the `.ts` extension). */
+  name: string;
+  /** Tier at which this entry lives. */
+  tier: HarnessTier;
+  /** Absolute on-disk path to the extension file. */
+  path: string;
+  /**
+   * When `true`, this entry is shadowed by a higher-precedence entry
+   * with the same name. Exposed so list output can warn about
+   * cross-tier name collisions per ADR-035 §D1.
+   * @defaultValue false
+   */
+  shadowed?: boolean;
+}
+
+/**
+ * Metadata describing a Pi prompt directory discovered on disk.
+ *
+ * @remarks
+ * Returned by {@link Harness.listPrompts}. Prompts are directories
+ * containing a `prompt.md` plus optional metadata. The list operation
+ * reads only the directory listing — never the prompt bodies — to keep
+ * token usage minimal per ADR-035 §D1.
+ *
+ * @public
+ */
+export interface PromptEntry {
+  /** Prompt name (directory basename). */
+  name: string;
+  /** Tier at which this entry lives. */
+  tier: HarnessTier;
+  /** Absolute on-disk path to the prompt directory. */
+  path: string;
+  /** See {@link ExtensionEntry.shadowed}. @defaultValue false */
+  shadowed?: boolean;
+}
+
+/**
+ * Metadata describing a Pi theme discovered on disk.
+ *
+ * @remarks
+ * Returned by {@link Harness.listThemes}. Themes are single `.ts` or
+ * `.json` files matching Pi's native theme module shape.
+ *
+ * @public
+ */
+export interface ThemeEntry {
+  /** Theme name (file basename without the extension). */
+  name: string;
+  /** Tier at which this entry lives. */
+  tier: HarnessTier;
+  /** Absolute on-disk path to the theme file. */
+  path: string;
+  /** File extension of the theme file (e.g. `".ts"`, `".json"`). */
+  fileExt: string;
+  /** See {@link ExtensionEntry.shadowed}. @defaultValue false */
+  shadowed?: boolean;
+}
+
+/**
+ * Options accepted by the Pi install verbs (extensions, prompts, themes).
+ *
+ * @public
+ */
+export interface HarnessInstallOptions {
+  /**
+   * When `true`, overwrite an existing file at the target tier. When
+   * `false` (the default) the install verb throws if the target exists.
+   * @defaultValue false
+   */
+  force?: boolean;
+}
+
+/**
+ * Summary header extracted from the first line of a Pi session JSONL file.
+ *
+ * @remarks
+ * Per ADR-035 §D2, `list`-style session operations read only line 1 of
+ * each `*.jsonl` file — never the full body — so this shape is what
+ * callers consume when enumerating sessions. The full session loader
+ * returns raw JSONL line strings as a separate type
+ * ({@link SessionDocument}).
+ *
+ * @public
+ */
+export interface SessionSummary {
+  /** Session identifier as recorded in the line-1 header. */
+  id: string;
+  /** Session version as recorded in the line-1 header (e.g. `3`). */
+  version: number;
+  /** ISO-8601 timestamp from the line-1 header, or `null` when absent. */
+  timestamp: string | null;
+  /** Working directory recorded when the session was created. */
+  cwd: string | null;
+  /** Parent session id, if this session was forked from another. */
+  parentSession: string | null;
+  /** Absolute path to the session JSONL file on disk. */
+  filePath: string;
+  /** File modification time in milliseconds since the epoch. */
+  mtimeMs: number;
+}
+
+/**
+ * Raw content of a Pi session JSONL file, preserved line-by-line.
+ *
+ * @remarks
+ * Returned by {@link Harness.showSession} when a caller needs the full
+ * body. Each element is one JSONL line as a string (empty trailing
+ * lines are stripped). Callers that need typed entries parse each line
+ * themselves; the harness does not impose a type on entry bodies
+ * because Pi's own entry schema is open-ended (`message`, `thinking`,
+ * `custom`, etc.) and we do not want to fall behind Pi's schema
+ * evolution.
+ *
+ * @public
+ */
+export interface SessionDocument {
+  /** Header summary (same shape as {@link SessionSummary}). */
+  summary: SessionSummary;
+  /** Raw JSONL lines in file order, excluding the line-1 header. */
+  entries: string[];
+}
+
+/**
+ * Pi model definition as recorded under `models.json:providers[].models`.
+ *
+ * @remarks
+ * Mirrors the `ModelDefinition` schema in
+ * `@mariozechner/pi-coding-agent`'s model-registry. Fields are typed
+ * loosely because Pi's schema is evolving (see ADR-035 §D3); the keys
+ * captured here are the minimum a CAAMP verb needs to reason about.
+ *
+ * @public
+ */
+export interface PiModelDefinition {
+  /** Model id within the provider (e.g. `"claude-opus-4-20250514"`). */
+  id: string;
+  /** Human-readable model name. */
+  name: string;
+  /**
+   * Whether the model supports reasoning/thinking tokens.
+   * @defaultValue undefined
+   */
+  reasoning?: boolean;
+  /**
+   * Allowed input modalities (e.g. `["text"]`, `["text", "image"]`).
+   * @defaultValue undefined
+   */
+  input?: Array<'text' | 'image'>;
+  /**
+   * Context window size in tokens.
+   * @defaultValue undefined
+   */
+  contextWindow?: number;
+  /**
+   * Maximum output tokens.
+   * @defaultValue undefined
+   */
+  maxTokens?: number;
+}
+
+/**
+ * Pi provider block as recorded under `models.json:providers[id]`.
+ *
+ * @remarks
+ * Mirrors the `ProviderConfig` schema in Pi's model-registry.
+ *
+ * @public
+ */
+export interface PiModelProvider {
+  /**
+   * Custom base URL for the provider (overrides default).
+   * @defaultValue undefined
+   */
+  baseUrl?: string;
+  /**
+   * API key or `$ENV_VAR` reference.
+   * @defaultValue undefined
+   */
+  apiKey?: string;
+  /**
+   * Custom model definitions declared by the user.
+   * @defaultValue undefined
+   */
+  models?: PiModelDefinition[];
+}
+
+/**
+ * Entire `models.json` document shape used by Pi.
+ *
+ * @remarks
+ * Mirrors the `ModelsConfig` schema in Pi's model-registry. CAAMP reads
+ * and writes this file through {@link Harness.readModelsConfig} /
+ * {@link Harness.writeModelsConfig}.
+ *
+ * @public
+ */
+export interface PiModelsConfig {
+  /** Map of provider id → provider block. */
+  providers: Record<string, PiModelProvider>;
+}
+
+/**
+ * A model entry as surfaced by {@link Harness.listModels}.
+ *
+ * @remarks
+ * Models are reported as a union of `models.json`-defined custom models
+ * and `settings.json:enabledModels` selections, with flags that record
+ * whether each entry is currently enabled and whether it is the
+ * configured default.
+ *
+ * @public
+ */
+export interface ModelListEntry {
+  /** Provider id (e.g. `"anthropic"`). */
+  provider: string;
+  /** Model id within the provider. */
+  id: string;
+  /** Human-readable name, from `models.json` when available. */
+  name: string | null;
+  /** `true` when the model is present in `settings.json:enabledModels`. */
+  enabled: boolean;
+  /** `true` when the model is the configured default. */
+  isDefault: boolean;
+  /**
+   * `true` when this model is defined in `models.json` (custom). When
+   * `false`, the entry originates from `settings.json:enabledModels`
+   * only and is assumed to resolve against Pi's built-in registry.
+   */
+  custom: boolean;
+}
 
 /**
  * Declarative description of an MCP server that should be bridged into a
@@ -309,4 +559,166 @@ export interface Harness {
    * @param scope - Settings scope.
    */
   writeSettings(patch: Record<string, unknown>, scope: HarnessScope): Promise<void>;
+
+  // ── Wave-1 three-tier verbs (ADR-035 §D1) ────────────────────────────
+
+  /**
+   * Install a Pi extension TypeScript file from a local source path into
+   * the given tier.
+   *
+   * @remarks
+   * Per ADR-035 §D1 and the spec hook for T263, install verbs:
+   * - Validate that the source is a `.ts` file with an `export default`.
+   * - Copy (not symlink) the file into the target tier's extensions dir.
+   * - Error by default when the target already exists; the caller may
+   *   pass `opts.force = true` to enable overwrite.
+   *
+   * Optional on the interface because only first-class harnesses with a
+   * native extension mechanism support this verb.
+   *
+   * @param sourcePath - Absolute path to the source `.ts` file on disk.
+   * @param name - Extension name (used as the target file basename).
+   * @param tier - Target tier (`project`/`user`/`global`).
+   * @param projectDir - Project directory (required when `tier='project'`).
+   * @param opts - Install options (see {@link HarnessInstallOptions}).
+   */
+  installExtension?(
+    sourcePath: string,
+    name: string,
+    tier: HarnessTier,
+    projectDir?: string,
+    opts?: HarnessInstallOptions,
+  ): Promise<{ targetPath: string; tier: HarnessTier }>;
+
+  /**
+   * Remove a Pi extension by name from the given tier.
+   *
+   * @remarks
+   * Missing files are tolerated silently so the verb is usable as an
+   * idempotent "ensure absent" operation.
+   *
+   * @param name - Extension name (basename without `.ts`).
+   * @param tier - Target tier to remove from.
+   * @param projectDir - Project directory (required when `tier='project'`).
+   * @returns `true` when a file was removed, `false` when none existed.
+   */
+  removeExtension?(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean>;
+
+  /**
+   * List Pi extensions across all tiers, precedence-ordered.
+   *
+   * @remarks
+   * Entries are returned in precedence order (project → user → global).
+   * Higher-precedence tiers shadow lower-precedence entries with the
+   * same name; the returned {@link ExtensionEntry.shadowed} flag
+   * indicates shadowed copies so the caller can surface cross-tier name
+   * collisions per ADR-035 §D1.
+   *
+   * @param projectDir - Project directory for the `project` tier. When
+   *   omitted the `project` tier is skipped rather than failing.
+   */
+  listExtensions?(projectDir?: string): Promise<ExtensionEntry[]>;
+
+  /**
+   * List Pi sessions from the user-tier sessions directory.
+   *
+   * @remarks
+   * Per ADR-035 §D2, MUST read only line 1 of each `*.jsonl` file. The
+   * result is sorted by `mtimeMs` descending so the most recent
+   * sessions appear first.
+   *
+   * @param opts - Options controlling which directories to scan.
+   */
+  listSessions?(opts?: { includeSubagents?: boolean }): Promise<SessionSummary[]>;
+
+  /**
+   * Load a Pi session's full body by id.
+   *
+   * @remarks
+   * Reads the entire file as-is. The caller is responsible for
+   * formatting / filtering; the harness only guarantees that the
+   * returned `entries` are the raw JSONL lines in file order.
+   *
+   * @param id - Session id as recorded in the line-1 header.
+   */
+  showSession?(id: string): Promise<SessionDocument>;
+
+  /**
+   * List every model known to Pi — both custom (`models.json`) and
+   * enabled selections (`settings.json:enabledModels`).
+   *
+   * @remarks
+   * Per ADR-035 §D3, this is a read-only union with per-entry flags.
+   * Mutation verbs (`add`, `remove`, `enable`, `disable`, `default`)
+   * are separate methods to preserve the dual-file authority model.
+   *
+   * @param scope - Legacy two-tier scope (global/project) that
+   *   determines which `models.json` and `settings.json` files to read.
+   */
+  listModels?(scope: HarnessScope): Promise<ModelListEntry[]>;
+
+  /**
+   * Read `models.json` for the given scope.
+   *
+   * @remarks
+   * Missing files resolve to `{ providers: {} }`. Malformed JSON also
+   * resolves to the empty config rather than throwing, matching
+   * {@link Harness.readSettings}'s tolerant contract.
+   */
+  readModelsConfig?(scope: HarnessScope): Promise<PiModelsConfig>;
+
+  /**
+   * Write `models.json` for the given scope atomically.
+   *
+   * @remarks
+   * The full config is written, not merged. Callers should read, patch,
+   * then write. Uses an atomic tmp-then-rename sequence so a crash
+   * mid-write cannot corrupt the file.
+   */
+  writeModelsConfig?(config: PiModelsConfig, scope: HarnessScope): Promise<void>;
+
+  /**
+   * Install a Pi prompt from a source directory into the given tier.
+   *
+   * @remarks
+   * Per ADR-035 §D1 and the spec hook for T266, the source is a
+   * directory containing `prompt.md` plus optional metadata. The
+   * directory is copied recursively into the target tier. Conflict
+   * handling mirrors {@link installExtension}.
+   */
+  installPrompt?(
+    sourceDir: string,
+    name: string,
+    tier: HarnessTier,
+    projectDir?: string,
+    opts?: HarnessInstallOptions,
+  ): Promise<{ targetPath: string; tier: HarnessTier }>;
+
+  /** List Pi prompts across all tiers. */
+  listPrompts?(projectDir?: string): Promise<PromptEntry[]>;
+
+  /** Remove a Pi prompt by name from the given tier. */
+  removePrompt?(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean>;
+
+  /**
+   * Install a Pi theme from a source file into the given tier.
+   *
+   * @remarks
+   * Per ADR-035 §D1 and the spec hook for T267. The source may be a
+   * `.ts` TypeScript theme module or a `.json` theme file; the file
+   * extension is preserved so Pi picks the right loader.
+   */
+  installTheme?(
+    sourceFile: string,
+    name: string,
+    tier: HarnessTier,
+    projectDir?: string,
+    opts?: HarnessInstallOptions,
+  ): Promise<{ targetPath: string; tier: HarnessTier }>;
+
+  /** List Pi themes across all tiers. */
+  listThemes?(projectDir?: string): Promise<ThemeEntry[]>;
+
+  /** Remove a Pi theme by name from the given tier. */
+  removeTheme?(name: string, tier: HarnessTier, projectDir?: string): Promise<boolean>;
 }
