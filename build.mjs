@@ -170,6 +170,14 @@ async function build() {
   });
   console.log('  -> packages/contracts/dist/');
 
+  // CANT depends on @cleocode/contracts and @cleocode/lafs — both are built above.
+  console.log('Building @cleocode/cant...');
+  execFileSync('pnpm', ['--filter', '@cleocode/cant', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/cant/dist/');
+
   console.log('Building @cleocode/core...');
   await esbuild.build(coreBuildOptions);
   console.log('  -> packages/core/dist/index.js');
@@ -182,6 +190,14 @@ async function build() {
     cwd: __dirname,
   });
   console.log('  -> packages/core/dist/*.d.ts');
+
+  // Runtime depends on @cleocode/contracts and @cleocode/core — both built above.
+  console.log('Building @cleocode/runtime...');
+  execFileSync('pnpm', ['--filter', '@cleocode/runtime', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/runtime/dist/');
 
   console.log('Building @cleocode/adapters...');
   await esbuild.build(adaptersBuildOptions);

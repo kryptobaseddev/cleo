@@ -100,7 +100,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/adapters packages/cleo packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/runtime packages/adapters packages/cleo packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -120,6 +120,8 @@ jobs:
             "packages/contracts/dist/index.js"
             "packages/caamp/dist/index.js"
             "packages/lafs/dist/src/index.js"
+            "packages/cant/dist/index.js"
+            "packages/runtime/dist/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
           )
@@ -183,6 +185,24 @@ jobs:
           for extra in providers README.md LICENSE; do
             [[ -e "packages/caamp/$extra" ]] && cp -r "packages/caamp/$extra" "$STAGING/packages/caamp/" || true
           done
+
+          # CANT package
+          if [[ -d packages/cant/dist ]]; then
+            mkdir -p "$STAGING/packages/cant"
+            cp -r packages/cant/dist packages/cant/package.json "$STAGING/packages/cant/"
+            for extra in wasm README.md LICENSE; do
+              [[ -e "packages/cant/$extra" ]] && cp -r "packages/cant/$extra" "$STAGING/packages/cant/" || true
+            done
+          fi
+
+          # Runtime package
+          if [[ -d packages/runtime/dist ]]; then
+            mkdir -p "$STAGING/packages/runtime"
+            cp -r packages/runtime/dist packages/runtime/package.json "$STAGING/packages/runtime/"
+            for extra in README.md LICENSE; do
+              [[ -e "packages/runtime/$extra" ]] && cp -r "packages/runtime/$extra" "$STAGING/packages/runtime/" || true
+            done
+          fi
 
           # Adapters package
           if [[ -d packages/adapters/dist ]]; then
@@ -270,9 +290,18 @@ jobs:
       - name: Publish packages to npm
         env:
           TAG: ${{ steps.version.outputs.dist_tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
-          FAILED=0
+          FAILED_PKGS=()
+
+          # Returns 0 if @cleocode/$1 is already at $VERSION on npm (idempotent re-runs)
+          already_published() {
+            local pkg="$1"
+            local current
+            current=$(npm view "@cleocode/$pkg" version 2>/dev/null || echo "")
+            [[ "$current" == "$VERSION" ]]
+          }
 
           publish_pkg() {
             local pkg="$1"
@@ -285,23 +314,47 @@ jobs:
               echo "SKIP: no dist (may be type-only)"
               return 0
             fi
+            if already_published "$pkg"; then
+              echo "SKIP: @cleocode/$pkg@$VERSION already on npm (idempotent re-run)"
+              return 0
+            fi
             pushd "packages/$pkg" > /dev/null
             if pnpm publish $PUBLISH_ARGS; then
-              echo "OK: @cleocode/$pkg published"
+              echo "OK: @cleocode/$pkg@$VERSION published"
             else
-              echo "WARN: @cleocode/$pkg publish failed (may already be published)"
-              FAILED=$((FAILED + 1))
+              # Re-check after failure: if the version is now on npm, treat as success
+              # (handles race conditions and transient errors). Otherwise record failure.
+              if already_published "$pkg"; then
+                echo "OK: @cleocode/$pkg@$VERSION present on npm after retry-check"
+              else
+                echo "FAIL: @cleocode/$pkg publish failed"
+                FAILED_PKGS+=("$pkg")
+              fi
             fi
             popd > /dev/null
           }
 
+          # Publish in dependency order:
+          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → cleo
           publish_pkg contracts
           publish_pkg lafs
-          publish_pkg caamp
           publish_pkg core
+          publish_pkg caamp
+          publish_pkg cant
+          publish_pkg runtime
           publish_pkg adapters
           publish_pkg agents
           publish_pkg skills
           publish_pkg cleo
 
-          echo "Publish complete. Packages with issues: $FAILED"
+          if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
+            echo "::error::Publish step failed for: ${FAILED_PKGS[*]}"
+            echo "Common causes:"
+            echo "  - npm Trusted Publisher not configured for @cleocode/<pkg>"
+            echo "    Fix: npmjs.com → package → Settings → Publishing access"
+            echo "         → Add GitHub Actions trusted publisher (org=kryptobaseddev,"
+            echo "         repo=cleo, workflow=.github/workflows/release.yml)"
+            echo "  - Package marked private or missing publishConfig.access=public"
+            exit 1
+          fi
+          echo "All packages published OK"
