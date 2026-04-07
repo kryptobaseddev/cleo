@@ -921,10 +921,27 @@ describe("core/sources/gitlab - branch coverage", () => {
   });
 
   it("fetchGitLabRawFile returns null on fetch failure", async () => {
-    const { fetchGitLabRawFile } = await import("../../src/core/sources/gitlab.js");
-    const result = await fetchGitLabRawFile("nonexistent-owner-xxx", "nonexistent-repo-xxx", "README.md", "main");
-    // Either null or throws - both are valid
-    expect(result).toBeNull();
+    // Mock fetchWithTimeout to simulate a non-OK response — avoids real network
+    // dependency and GitLab's redirect-to-login behavior on missing repos.
+    vi.doMock("../../src/core/network/fetch.js", () => ({
+      fetchWithTimeout: vi.fn().mockResolvedValue(
+        new Response(null, { status: 404, statusText: "Not Found" }),
+      ),
+    }));
+    vi.resetModules();
+    try {
+      const { fetchGitLabRawFile } = await import("../../src/core/sources/gitlab.js");
+      const result = await fetchGitLabRawFile(
+        "nonexistent-owner-xxx",
+        "nonexistent-repo-xxx",
+        "README.md",
+        "main",
+      );
+      expect(result).toBeNull();
+    } finally {
+      vi.doUnmock("../../src/core/network/fetch.js");
+      vi.resetModules();
+    }
   });
 });
 

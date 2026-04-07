@@ -35,7 +35,7 @@ vi.mock("../../src/core/registry/detection.js", () => ({
   detectAllProviders: mocks.detectAllProviders,
 }));
 
-vi.mock("../../src/core/mcp/lock.js", () => ({
+vi.mock("../../src/core/lock-utils.js", () => ({
   readLockFile: mocks.readLockFile,
 }));
 
