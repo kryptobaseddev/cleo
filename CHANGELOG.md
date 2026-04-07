@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.3] - 2026-04-06
+
+### Added
+- **LAFS native Rust validation** ([cbe235d5](https://github.com/kryptobaseddev/cleo/commit/cbe235d5)): replaces AJV with `jsonschema` crate via napi-rs binding (`crates/lafs-napi`); embedded schema cached in `OnceLock`, transparent AJV fallback when native binding unavailable
+- **CAAMP doctor lock-file diagnostics**: restored `Lock File` section reporting orphaned skill entries, untracked skills on disk, and lock-vs-symlink agent-list mismatches (uses `core/lock-utils.js` after MCP cleanup)
+
+### Fixed
+- **CI unit-test failures** ([91a7f480](https://github.com/kryptobaseddev/cleo/commit/91a7f480)): caamp `tests/unit/` was pulled into root vitest by `cbe235d5` for the first time, exposing 11 stale `doctor.test.ts` failures (referencing the lock-file section removed in `480fa01a`) and 1 flaky `core-coverage-gaps.test.ts` GitLab test that hit real `gitlab.com` and got the sign-in HTML on a non-existent repo. Doctor checks restored, GitLab fetch mocked.
+- **LAFS schema loading** ([22e0ad98](https://github.com/kryptobaseddev/cleo/commit/22e0ad98)): lazy-load envelope schema JSON, AJV-specific TSDoc cleaned up
+- **Pipeline lifecycle** ([fde8c401](https://github.com/kryptobaseddev/cleo/commit/fde8c401)): enforce forward-only RCASD-IVTR stage transitions
+- **Status transitions and gate enforcement** ([7f5be7d3](https://github.com/kryptobaseddev/cleo/commit/7f5be7d3)): config-aware verification gates, session-end memory bridge auto-refresh
+- **Lint** ([a137fc14](https://github.com/kryptobaseddev/cleo/commit/a137fc14)): sort `internal.ts` exports for biome compliance
+
+### Changed
+- **LAFS docs audit** ([db53dee2](https://github.com/kryptobaseddev/cleo/commit/db53dee2)): comprehensive cleanup of stale documentation
+- **LAFS cleanup** ([1b714b08](https://github.com/kryptobaseddev/cleo/commit/1b714b08)): removed ~6k lines of cruft from pre-monorepo era
+
 ## [2026.4.2] - 2026-04-05
 
 ### Fixed
