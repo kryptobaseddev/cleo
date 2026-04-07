@@ -4,8 +4,25 @@ dist/
 .pnpm-debug.log
 coverage/
 .test-*
-.cleo/tasks.db*
-.cleo/brain.db*
+
+# ---------------------------------------------------------------------------
+# CLEO runtime data — NEVER track (ADR-013 §9, T5158)
+# ---------------------------------------------------------------------------
+# Runtime databases corrupt on branch switch because of WAL-mode sidecar
+# files. Config + project-info are regenerated from defaults by `cleo init`.
+# Recovery is provided by VACUUM INTO snapshots at .cleo/backups/sqlite/
+# (auto-rotated, 10 per DB, refreshed on every `cleo session end`) plus
+# on-demand full-4-file snapshots via `cleo backup add` / `cleo backup list`
+# / `cleo restore backup`. See .cleo/adrs/ADR-013 for full rationale.
+.cleo/tasks.db
+.cleo/tasks.db-wal
+.cleo/tasks.db-shm
+.cleo/brain.db
+.cleo/brain.db-wal
+.cleo/brain.db-shm
+.cleo/config.json
+.cleo/project-info.json
+.cleo/backups/
 .cleo/logs/
 
 # ---------------------------------------------------------------------------

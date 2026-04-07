@@ -1,14 +1,23 @@
 # .cleo/.gitignore — Deny-by-default for CLEO project data
 # Ignore everything, then explicitly allow only tracked files.
+#
+# ADR-013 §9 (2026-04-07, T5158):
+#   - tasks.db / brain.db / config.json / project-info.json are NOT tracked
+#     in EITHER the project git repo OR the isolated .cleo/.git checkpoint
+#     repo. They are regenerated deterministically by `cleo init` and are
+#     backed up via VACUUM INTO snapshots (SQLite) + atomic copies (JSON)
+#     stored under .cleo/backups/. See the ADR for the full recovery story.
+#   - Because git treats nested .gitignore allow rules (`!foo`) as
+#     overriding parent-repo ignore rules, this file must NOT re-include
+#     those four files — doing so would unignore them at the project
+#     repository level and re-open the T5158 data-loss vector.
 
 # Step 1: Ignore everything
 *
 
 # Allow list
 !.gitignore
-!config.json
 !project-context.json
-!project-info.json
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 !adrs/
@@ -18,11 +27,13 @@
 !agent-outputs/
 !agent-outputs/**
 
-# Explicit deny safety net
+# Explicit deny safety net — databases, backups, and untracked runtime files
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
+config.json
+project-info.json
 log.json
 bypass-log.json
 qa-log.json
