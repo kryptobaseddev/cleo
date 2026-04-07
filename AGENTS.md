@@ -66,3 +66,28 @@ If ANY gate fails, FIX IT before completing. Do NOT mark a task done with failin
 - Leaving `console.log` in production code
 - Adding imports without checking if they break circular dependencies
 - Modifying test expectations to match broken code instead of fixing the code
+
+## Runtime Data Safety (ADR-013 §9)
+
+`.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and
+`.cleo/project-info.json` are **not tracked in git** — committing them
+risks data loss on branch switch because git overwrites the live file
+while SQLite's WAL sidecars remain out of sync.
+
+- **Manual snapshot**: `cleo backup add` captures all four files using
+  `VACUUM INTO` (SQLite) + atomic tmp-then-rename (JSON).
+- **Auto snapshot**: every `cleo session end` triggers
+  `vacuumIntoBackupAll` which writes `tasks-YYYYMMDD-HHmmss.db` and
+  `brain-YYYYMMDD-HHmmss.db` under `.cleo/backups/sqlite/` (10 snapshots
+  per DB, oldest rotated out).
+- **List snapshots**: `cleo backup list`
+- **Restore**: `cleo restore backup --file tasks.db` (or brain.db /
+  config.json / project-info.json)
+- **Fresh clones**: `cleo init` recreates config.json and
+  project-info.json from code defaults. `tasks.db` and `brain.db` are
+  created empty on first database access.
+
+NEVER run `git add .cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`,
+or `.cleo/project-info.json` — the root and nested `.gitignore` files
+are configured to block this, but manual overrides will re-open the
+T5158 data-loss vector.

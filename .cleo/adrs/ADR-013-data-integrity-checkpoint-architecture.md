@@ -166,3 +166,73 @@ After two data loss incidents caused by git tracking `.cleo/tasks.db`, the follo
 3. **ADR status**: Updated from "proposed" to "accepted".
 
 4. **Init wiring** (`src/core/init.ts`): Already handled — `initGitHooks()` installs both `commit-msg` and `pre-commit` hooks from `.cleo/templates/git-hooks/`.
+
+---
+
+## 9. Resolution — 2026-04-07 (T5158)
+
+**Status**: RESOLVED. `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and `.cleo/project-info.json` are no longer tracked in the project git repo.
+
+### Why the 2026-03-01 guards were insufficient
+
+The safety guards documented in §8 caught new *stages* of the DB files but did nothing about the four files that were **already in the index** from pre-T5158 commits. Every `git checkout` between branches whose histories differed still overwrote the live DB with a stale blob, and the runtime logger continued to emit `tasks.db is tracked by project git — this risks data loss on branch switch` on every single command invocation. The nested `.cleo/.gitignore` also retained `!config.json` and `!project-info.json` re-include rules, which overrode any parent-repo deny lines for those two paths.
+
+### What was done
+
+1. **Untracked four files via `git rm --cached`**:
+   - `.cleo/tasks.db`
+   - `.cleo/brain.db`
+   - `.cleo/config.json`
+   - `.cleo/project-info.json`
+
+   `git rm --cached` removes the files from the git index while preserving the local on-disk copies — no data is destroyed by this operation.
+
+2. **Updated the root `.gitignore`** to explicitly deny `.cleo/tasks.db*`, `.cleo/brain.db*`, `.cleo/config.json`, `.cleo/project-info.json`, and `.cleo/backups/` with a comment block referencing this ADR section.
+
+3. **Updated `.cleo/.gitignore` and its source template** (`packages/core/templates/cleo-gitignore` + the `CLEO_GITIGNORE_FALLBACK` constant in `packages/core/src/scaffold.ts`) to drop the `!config.json` / `!project-info.json` allow rules and add explicit `config.json` / `project-info.json` deny lines. Git's nested-.gitignore rule makes this critical: a nested `!foo` overrides any parent ignore, so the only safe way to ignore these files at the project repo level is to NOT re-include them in the nested file.
+
+4. **Extended `sqlite-backup.ts`** to snapshot both `tasks.db` AND `brain.db` via `VACUUM INTO`. New exports:
+   - `vacuumIntoBackupAll({ cwd?, force? })` — snapshots all registered SQLite databases (currently tasks.db + brain.db) with independent 30s debounce per target.
+   - `listBrainBackups(cwd?)` — lists `brain-YYYYMMDD-HHmmss.db` snapshots newest-first.
+   - `listSqliteBackupsAll(cwd?)` — aggregated listing keyed by prefix.
+
+5. **Rewrote `packages/core/src/system/backup.ts`** to use `VACUUM INTO` via `getNativeDb()` / `getBrainNativeDb()` for SQLite files (replacing the unsafe `readFileSync/writeFileSync` pattern) and atomic tmp-then-rename for JSON files. This makes `cleo backup add` produce WAL-consistent snapshots of all four files in a single call.
+
+6. **Registered an auto-snapshot hook** in `packages/core/src/hooks/handlers/session-hooks.ts`:
+   ```
+   backup-session-end (priority 10) → vacuumIntoBackupAll({ force: true })
+   ```
+   Runs on every `cleo session end` AFTER the brain/memory-bridge handler (priority 100) has written the SessionEnd observation into `brain.db`. This guarantees a fresh recovery point at every session boundary.
+
+7. **Updated the runtime tracking warning** in `packages/core/src/store/sqlite.ts` to reference the new workflow (`cleo backup add`, `.cleo/backups/sqlite/`) and added a comment block explaining that the warning is retained as a regression guard.
+
+8. **Added regression tests**:
+   - `packages/core/src/store/__tests__/sqlite-backup.test.ts` — now covers brain.db snapshots, per-prefix rotation, `vacuumIntoBackupAll`, and `listSqliteBackupsAll`.
+   - `packages/core/src/system/__tests__/backup.test.ts` (new) — validates VACUUM INTO call ordering, atomic JSON writes, sidecar metadata, and restore behavior.
+   - `packages/cleo/src/cli/commands/__tests__/init-gitignore.test.ts` — asserts the template NEVER re-includes `config.json` / `project-info.json` and DOES explicit-deny them.
+
+### Recovery story (for users affected by corruption or rollback)
+
+All four runtime files are now recoverable via out-of-band mechanisms instead of git:
+
+| File                       | Recovery mechanism                                                                 |
+|----------------------------|------------------------------------------------------------------------------------|
+| `tasks.db`                 | `.cleo/backups/sqlite/tasks-YYYYMMDD-HHmmss.db` (auto-snapshotted every session end, rotated to 10 copies) |
+| `brain.db`                 | `.cleo/backups/sqlite/brain-YYYYMMDD-HHmmss.db` (same rotation)                    |
+| `config.json`              | Regenerated from defaults by `cleo init`; captured in `cleo backup add` snapshots  |
+| `project-info.json`        | Regenerated from defaults by `cleo init`; captured in `cleo backup add` snapshots  |
+
+CLI verbs:
+- `cleo backup add` — creates a full 4-file snapshot under `.cleo/backups/snapshot/` with a `.meta.json` sidecar
+- `cleo backup list` — lists all known snapshots (snapshot, safety, migration types)
+- `cleo restore backup --file <name>` — restores a single file from its most recent operational backup
+- Automatic: `vacuumIntoBackupAll` runs on `SessionEnd` and also on every safe task mutation via `data-safety.ts` → `triggerCheckpoint`
+
+Cross-machine sync of `brain.db` via git is no longer supported (and was always a misuse of git — binary files don't diff). Users who relied on this should use `cleo observe` + `cleo memory find` across machines, or export/import via `cleo export` + the `restore` CLI.
+
+### Related tasks
+
+- **T5158** — this resolution (backup extension, session-end hook, ADR update)
+- **T4867** — parent epic
+- **T4873, T4874** — original VACUUM INTO implementation
+- **T5188** — runtime detection warning
