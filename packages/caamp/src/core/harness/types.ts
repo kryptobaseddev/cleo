@@ -38,6 +38,74 @@ import type { HarnessTier } from './scope.js';
 export type HarnessScope = { kind: 'global' } | { kind: 'project'; projectDir: string };
 
 /**
+ * Options accepted by `resolveDefaultTargetProviders` (defined in
+ * `./index.ts`).
+ *
+ * @remarks
+ * Both fields are optional. When the entire options object is omitted the
+ * helper behaves exactly as it did pre-ADR-035 §D7 in `auto` mode with Pi
+ * installed — the no-regression contract for existing callers.
+ *
+ * Lives here in `types.ts` rather than next to the function so that
+ * downstream packages can `import type { ResolveDefaultTargetProvidersOptions }`
+ * without pulling in the harness dispatcher's runtime imports.
+ *
+ * @public
+ */
+export interface ResolveDefaultTargetProvidersOptions {
+  /**
+   * Explicit list of providers requested by the user (e.g. via `--agent`).
+   *
+   * @remarks
+   * When supplied, this list signals that the caller is honouring an
+   * explicit user selection rather than asking for the implicit default.
+   * In `auto` mode, an explicit list that excludes Pi while Pi is installed
+   * triggers a one-time deprecation warning per process. In `force-pi`
+   * mode the explicit list is ignored if it does not contain Pi (Pi is
+   * still required). In `legacy` mode the list is returned verbatim with
+   * no warning.
+   *
+   * Pass `undefined` (or omit entirely) to request the implicit default
+   * resolution.
+   *
+   * @defaultValue undefined
+   */
+  explicit?: Provider[];
+}
+
+/**
+ * Controls how `resolveDefaultTargetProviders` (defined in `./index.ts`)
+ * selects target providers at runtime invocation time.
+ *
+ * @remarks
+ * Introduced by ADR-035 §D7 ("v3 exclusivity") to give users an explicit
+ * knob over how aggressively CAAMP routes runtime commands through Pi
+ * versus other installed providers.
+ *
+ * - `'auto'` (default) — Pi is preferred when installed; explicit
+ *   `--agent <non-pi>` selections are still honoured but emit a one-time
+ *   deprecation warning per process. Behaviourally identical to v2026.4.5
+ *   when no explicit non-Pi target is supplied.
+ * - `'force-pi'` — Pi is required at runtime invocation. The dispatcher
+ *   throws with an `E_NOT_FOUND_RESOURCE`-shaped error when Pi is not
+ *   installed; callers decide whether to surface this as an exit code 4
+ *   or render a remediation hint.
+ * - `'legacy'` — Pre-exclusivity behaviour. No deprecation warnings, no
+ *   hard requirement on Pi. Matches the resolution order CAAMP shipped
+ *   before ADR-035 §D7 landed; preserved so users with brittle scripts
+ *   can pin until they migrate.
+ *
+ * **Important**: this setting affects RUNTIME INVOCATION paths only. Skill
+ * and instruction install paths
+ * (e.g. {@link dispatchInstallSkillAcrossProviders} and friends) are
+ * UNAFFECTED and continue to dispatch to multiple providers regardless of
+ * mode. See ADR-035 §D7 for the full design rationale.
+ *
+ * @public
+ */
+export type ExclusivityMode = 'auto' | 'force-pi' | 'legacy';
+
+/**
  * Metadata describing a Pi extension discovered on disk.
  *
  * @remarks
