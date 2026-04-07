@@ -1390,3 +1390,475 @@ describe("PiHarness themes", () => {
     expect(await harness.removeTheme("ghost", "user")).toBe(false);
   });
 });
+
+// ── ADR-035 §D6 — spawnSubagent upgrade (T277) ──────────────────────
+
+/**
+ * Helper: build a Pi provider whose spawnCommand executes a `node -e`
+ * snippet so subagent tests do not depend on a real `pi` binary being
+ * installed on the host. The snippet receives the task prompt as its
+ * trailing positional argument (`process.argv[1]`) so each test can
+ * shape its own mock subagent behaviour.
+ */
+function makeMockPiHarness(snippet: string): PiHarness {
+  const base = getProvider("pi");
+  if (!base) throw new Error("pi provider missing");
+  const spawnCap: ProviderSpawnCapability = {
+    ...base.capabilities.spawn,
+    spawnCommand: [process.execPath, "-e", snippet],
+  };
+  const provider: Provider = {
+    ...base,
+    capabilities: { ...base.capabilities, spawn: spawnCap },
+  };
+  return new PiHarness(provider);
+}
+
+describe("PiHarness spawnSubagent — streaming", () => {
+  it("forwards parsed JSON stdout lines as message events with line numbers", async () => {
+    const snippet = [
+      "process.stdout.write(JSON.stringify({type:'message',content:'one'})+'\\n');",
+      "process.stdout.write(JSON.stringify({type:'message',content:'two'})+'\\n');",
+      "process.stdout.write(JSON.stringify({type:'message_end'})+'\\n');",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+
+    const events: Array<{ kind: string; lineNumber?: number; payload: unknown }> = [];
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "stream-test",
+        parentSessionId: "parent-1",
+        prompt: "noop",
+      },
+      {
+        onStream: (event) => {
+          events.push({
+            kind: event.kind,
+            lineNumber: event.lineNumber,
+            payload: event.payload,
+          });
+        },
+      },
+    );
+    const exit = await handle.exitPromise;
+    expect(exit.code).toBe(0);
+
+    const messageEvents = events.filter((e) => e.kind === "message");
+    expect(messageEvents).toHaveLength(3);
+    expect(messageEvents[0]?.lineNumber).toBe(1);
+    expect(messageEvents[1]?.lineNumber).toBe(2);
+    expect(messageEvents[2]?.lineNumber).toBe(3);
+    const firstPayload = messageEvents[0]?.payload as { content: string };
+    expect(firstPayload.content).toBe("one");
+
+    // Exit event also fires once.
+    const exitEvents = events.filter((e) => e.kind === "exit");
+    expect(exitEvents).toHaveLength(1);
+  });
+
+  it("non-JSON stdout lines do not crash the streamer and are not forwarded as messages", async () => {
+    const snippet = [
+      "process.stdout.write('not-json line\\n');",
+      "process.stdout.write(JSON.stringify({type:'message',content:'real'})+'\\n');",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+
+    const messages: unknown[] = [];
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "non-json",
+        parentSessionId: "parent-2",
+        prompt: "noop",
+      },
+      {
+        onStream: (event) => {
+          if (event.kind === "message") messages.push(event.payload);
+        },
+      },
+    );
+    await handle.exitPromise;
+    expect(messages).toHaveLength(1);
+    const only = messages[0] as { content: string };
+    expect(only.content).toBe("real");
+  });
+});
+
+describe("PiHarness spawnSubagent — session attribution", () => {
+  it("creates the child session JSONL at the canonical subagents/ path", async () => {
+    const harness = makeMockPiHarness(
+      "process.stdout.write(JSON.stringify({type:'message',content:'hi'})+'\\n');",
+    );
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "attrib-1",
+      parentSessionId: "parent-attrib",
+      prompt: "noop",
+    });
+    await handle.exitPromise;
+
+    const expected = join(
+      piRoot,
+      "sessions",
+      "subagents",
+      "subagent-parent-attrib-attrib-1.jsonl",
+    );
+    expect(handle.childSessionPath).toBe(expected);
+    expect(existsSync(expected)).toBe(true);
+    const body = await readFile(expected, "utf8");
+    const lines = body.split("\n").filter((l) => l.length > 0);
+    // Header line + at least one custom_message + subagent_exit.
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    const header = JSON.parse(lines[0] ?? "{}");
+    expect(header.type).toBe("session");
+    expect(header.id).toBe(handle.subagentId);
+    expect(header.taskId).toBe("attrib-1");
+    expect(header.parentSession).toBe("parent-attrib");
+  });
+
+  it("appends a subagent_link entry to the parent session file when parentSessionPath is supplied", async () => {
+    const harness = makeMockPiHarness(
+      "process.stdout.write(JSON.stringify({type:'message',content:'hi'})+'\\n');",
+    );
+
+    // Seed a parent session file so the link append has something to grow.
+    const parentDir = join(piRoot, "sessions");
+    await mkdir(parentDir, { recursive: true });
+    const parentPath = join(parentDir, "parent-link.jsonl");
+    await writeFile(
+      parentPath,
+      `${JSON.stringify({ type: "session", version: 3, id: "parent-link", timestamp: "2026-04-07T00:00:00Z" })}\n`,
+      "utf8",
+    );
+
+    const linkEvents: unknown[] = [];
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "link-1",
+        parentSessionId: "parent-link",
+        parentSessionPath: parentPath,
+        prompt: "noop",
+      },
+      {
+        onStream: (event) => {
+          if (event.kind === "link") linkEvents.push(event.payload);
+        },
+      },
+    );
+    await handle.exitPromise;
+
+    // Parent session file now contains the link record.
+    const parentBody = await readFile(parentPath, "utf8");
+    const lines = parentBody.split("\n").filter((l) => l.length > 0);
+    expect(lines).toHaveLength(2);
+    const linkLine = JSON.parse(lines[1] ?? "{}");
+    expect(linkLine.type).toBe("custom");
+    expect(linkLine.subtype).toBe("subagent_link");
+    expect(linkLine.subagentId).toBe(handle.subagentId);
+    expect(linkLine.taskId).toBe("link-1");
+    expect(linkLine.childSessionPath).toBe(handle.childSessionPath);
+
+    // The link stream event also fired exactly once.
+    expect(linkEvents).toHaveLength(1);
+  });
+
+  it("survives a missing parent session path without aborting the spawn", async () => {
+    const harness = makeMockPiHarness(
+      "process.stdout.write(JSON.stringify({type:'message',content:'hi'})+'\\n');",
+    );
+    // Pass a parentSessionPath whose parent directory cannot be created
+    // (an existing file blocks `mkdir -p` from creating a child dir).
+    const blockerFile = join(uniqueRoot, "blocker.txt");
+    await writeFile(blockerFile, "hi", "utf8");
+    const badParent = join(blockerFile, "child-session.jsonl");
+
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "miss-1",
+      parentSessionId: "p",
+      parentSessionPath: badParent,
+      prompt: "noop",
+    });
+    const exit = await handle.exitPromise;
+    expect(exit.code).toBe(0);
+    // Failure surfaced through recentStderr rather than throwing.
+    const recent = handle.recentStderr();
+    expect(recent.some((line) => line.includes("[link]"))).toBe(true);
+  });
+});
+
+describe("PiHarness spawnSubagent — exit propagation", () => {
+  it("non-zero exit resolves exitPromise (never rejects) with the captured code", async () => {
+    const harness = makeMockPiHarness("process.exit(7);");
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "exit-7",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    // Use a try/catch to assert no rejection.
+    let rejected = false;
+    let exit: Awaited<typeof handle.exitPromise> | null = null;
+    try {
+      exit = await handle.exitPromise;
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).toBe(false);
+    expect(exit?.code).toBe(7);
+    expect(exit?.signal).toBeNull();
+    expect(exit?.childSessionPath).toBe(handle.childSessionPath);
+    expect(typeof exit?.durationMs).toBe("number");
+  });
+
+  it("legacy result promise still resolves with stdout/stderr/parsed for back-compat", async () => {
+    const harness = makeMockPiHarness(
+      "process.stdout.write(JSON.stringify({hello:'world'}));",
+    );
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "legacy",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    const result = await handle.result;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("hello");
+    const parsed = result.parsed as { hello: string };
+    expect(parsed.hello).toBe("world");
+  });
+});
+
+describe("PiHarness spawnSubagent — cleanup SIGTERM+SIGKILL", () => {
+  it("terminate() escalates from SIGTERM to SIGKILL when grace expires", async () => {
+    // The mock subagent installs a SIGTERM handler that ignores the
+    // signal so the harness must escalate to SIGKILL to actually kill
+    // the process. The script also writes a single JSON line so the
+    // streamer gets exercised end-to-end.
+    const snippet = [
+      "process.on('SIGTERM',()=>{});",
+      "process.stdout.write(JSON.stringify({type:'ready'})+'\\n');",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "kill-1",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      { terminateGraceMs: 50 },
+    );
+
+    // Give the child a moment to install the SIGTERM handler.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await handle.terminate();
+    const exit = await handle.exitPromise;
+    // SIGKILL exit on POSIX surfaces as signal 'SIGKILL' (or null code).
+    expect(exit.signal === "SIGKILL" || exit.code !== 0).toBe(true);
+  });
+
+  it("terminate() is idempotent — calling twice returns the same resolved promise", async () => {
+    const snippet = [
+      "process.on('SIGTERM',()=>{});",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "kill-2",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      { terminateGraceMs: 30 },
+    );
+    const first = handle.terminate();
+    const second = handle.terminate();
+    expect(first).toBe(second);
+    await first;
+    await handle.exitPromise;
+  });
+
+  it("legacy abort() reuses the cleanup sequence", async () => {
+    const snippet = [
+      "process.on('SIGTERM',()=>{});",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "kill-3",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      { terminateGraceMs: 30 },
+    );
+    handle.abort();
+    const exit = await handle.exitPromise;
+    expect(exit.signal !== null || exit.code !== 0).toBe(true);
+  });
+
+  it("reads grace window from settings.json when not overridden per call", async () => {
+    const snippet = [
+      "process.on('SIGTERM',()=>{});",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+    // Set a tiny grace window via settings so the test still terminates quickly.
+    await harness.writeSettings(
+      { pi: { subagent: { terminateGraceMs: 25 } } },
+      { kind: "global" },
+    );
+
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "settings-grace",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await handle.terminate();
+    const exit = await handle.exitPromise;
+    expect(exit.signal !== null || exit.code !== 0).toBe(true);
+  });
+});
+
+describe("PiHarness spawnSubagent — stderr buffering", () => {
+  it("captures stderr lines into recentStderr without injecting them as message events", async () => {
+    const snippet = [
+      "process.stderr.write('warn line one\\n');",
+      "process.stderr.write('warn line two\\n');",
+      "process.stdout.write(JSON.stringify({type:'message',content:'real'})+'\\n');",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+
+    const events: Array<{ kind: string; payload: unknown }> = [];
+    const handle = await harness.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "stderr-1",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      {
+        onStream: (event) => {
+          events.push({ kind: event.kind, payload: event.payload });
+        },
+      },
+    );
+    await handle.exitPromise;
+
+    const stderrLines = handle.recentStderr();
+    expect(stderrLines).toContain("warn line one");
+    expect(stderrLines).toContain("warn line two");
+
+    // stderr fired as 'stderr' events, not 'message' events.
+    const stderrEvents = events.filter((e) => e.kind === "stderr");
+    expect(stderrEvents).toHaveLength(2);
+    const messageEvents = events.filter((e) => e.kind === "message");
+    expect(messageEvents).toHaveLength(1);
+  });
+
+  it("recentStderr is bounded to the last 100 lines", async () => {
+    // Emit 120 stderr lines so the ring buffer must drop the oldest 20.
+    const snippet = [
+      "for(let i=0;i<120;i++){process.stderr.write('line-'+i+'\\n');}",
+    ].join("");
+    const harness = makeMockPiHarness(snippet);
+
+    const handle = await harness.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "stderr-ring",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    await handle.exitPromise;
+    const recent = handle.recentStderr();
+    expect(recent).toHaveLength(100);
+    expect(recent[0]).toBe("line-20");
+    expect(recent[recent.length - 1]).toBe("line-119");
+  });
+});
+
+describe("PiHarness concurrency helpers", () => {
+  it("raceSubagents resolves with the fastest exit and terminates losers", async () => {
+    // Three children with staggered exit delays. The fastest exits in
+    // 30ms; the slower ones would idle for 1s if not cleaned up.
+    const fast = makeMockPiHarness("setTimeout(()=>process.exit(0),30);");
+    const slowA = makeMockPiHarness(
+      "process.on('SIGTERM',()=>process.exit(143));setTimeout(()=>{},1000);",
+    );
+    const slowB = makeMockPiHarness(
+      "process.on('SIGTERM',()=>process.exit(143));setTimeout(()=>{},1000);",
+    );
+
+    const fastHandle = await fast.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "fast",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    const slowHandleA = await slowA.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "slowA",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      { terminateGraceMs: 50 },
+    );
+    const slowHandleB = await slowB.spawnSubagent(
+      {
+        targetProviderId: "claude-code",
+        taskId: "slowB",
+        parentSessionId: "p",
+        prompt: "noop",
+      },
+      { terminateGraceMs: 50 },
+    );
+
+    const winner = await PiHarness.raceSubagents([slowHandleA, fastHandle, slowHandleB]);
+    expect(winner.code).toBe(0);
+
+    // Losers must have been terminated.
+    const losers = await Promise.all([slowHandleA.exitPromise, slowHandleB.exitPromise]);
+    for (const loser of losers) {
+      expect(loser.code !== 0 || loser.signal !== null).toBe(true);
+    }
+  });
+
+  it("raceSubagents throws on an empty handle list", async () => {
+    await expect(PiHarness.raceSubagents([])).rejects.toThrow(/empty/);
+  });
+
+  it("settleAllSubagents resolves with one entry per handle", async () => {
+    const a = makeMockPiHarness("process.exit(0);");
+    const b = makeMockPiHarness("process.exit(2);");
+
+    const ha = await a.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "settle-a",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+    const hb = await b.spawnSubagent({
+      targetProviderId: "claude-code",
+      taskId: "settle-b",
+      parentSessionId: "p",
+      prompt: "noop",
+    });
+
+    const settled = await PiHarness.settleAllSubagents([ha, hb]);
+    expect(settled).toHaveLength(2);
+    expect(settled[0]?.status).toBe("fulfilled");
+    expect(settled[1]?.status).toBe("fulfilled");
+    if (settled[0]?.status === "fulfilled") expect(settled[0].value.code).toBe(0);
+    if (settled[1]?.status === "fulfilled") expect(settled[1].value.code).toBe(2);
+  });
+});
