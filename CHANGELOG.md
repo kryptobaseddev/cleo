@@ -4,6 +4,88 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.7] - 2026-04-07
+
+### Highlights
+
+This release ships the Wave 1 `caamp pi *` verb surface (19 verbs across 5 subgroups, backed by 14 new `PiHarness` methods), rebuilds the `caamp mcp *` command group that was accidentally swept up in the April 3 CLI-only migration (4 verbs covering 44 MCP-capable providers across JSON/JSONC/YAML/TOML), and collapses CANT runtime execution to a single canonical engine (the `cant-bridge.ts` Pi extension) by deleting ~1594 LOC of dead `@cleocode/core/cant` duplicate code. Net change across the release: roughly +5000 LOC added, −1594 LOC removed, +203 new tests, zero regressions.
+
+### Added
+
+#### CAAMP Wave 1 — `caamp pi *` verb surface (T263–T267, ADR-035 D1–D3)
+
+- **19 new `caamp pi <verb>` commands** across five subgroups, wired through `runLafsCommand` so every output is a LAFS envelope with canonical error codes ([`packages/caamp/src/commands/pi/`](packages/caamp/src/commands/pi/)):
+  - `caamp pi extensions list|install|remove` (T263) — install supports local file paths, raw HTTPS URLs, GitHub/GitLab shorthand, and URL forms. Conflict-on-write with `--force`, `--scope project|user|global`, `--name` override, shadow-flag reporting on list.
+  - `caamp pi sessions list|show|export|resume` (T264) — list reads line 1 only per ADR-035 D2. Export streams line-by-line with optional Markdown transcription. Resume shells out to `pi --session <id>` (never reimplements Pi's lifecycle).
+  - `caamp pi models list|add|remove|enable|disable|default` (T265) — strict dual-file authority per ADR-035 D3: `add`/`remove` mutate `models.json`, `enable`/`disable` mutate `settings.json:enabledModels`, `default` mutates `defaultModel` + `defaultProvider`. Numeric flag validation for `--context-window` and `--max-tokens`.
+  - `caamp pi prompts install|list|remove` (T266) — directory-based install (requires `prompt.md`), token-efficient list (directory listing only).
+  - `caamp pi themes install|list|remove` (T267) — single-file install accepting `.ts`/`.tsx`/`.mts`/`.json`, cross-extension conflict handling.
+- **14 new `PiHarness` methods** ([`packages/caamp/src/core/harness/pi.ts`](packages/caamp/src/core/harness/pi.ts), +569 LOC): `installExtension`, `removeExtension`, `listExtensions`, `listSessions`, `showSession`, `readModelsConfig`, `writeModelsConfig`, `listModels`, `installPrompt`, `listPrompts`, `removePrompt`, `installTheme`, `listThemes`, `removeTheme`. `listSessions` reads ONLY line 1 of each `*.jsonl` via a buffered file handle — never loads full session bodies for listings.
+- **Three-tier scope resolver** at [`packages/caamp/src/core/harness/scope.ts`](packages/caamp/src/core/harness/scope.ts) (+278 LOC) — single source of truth for project > user > global path resolution. Exports `resolveTierDir`, `resolveAllTiers`, `TIER_PRECEDENCE`. Honours `$PI_CODING_AGENT_DIR` and `$CLEO_HOME` with XDG/Windows/darwin platform fallbacks.
+- **New type exports** in [`packages/caamp/src/core/harness/types.ts`](packages/caamp/src/core/harness/types.ts): `ExtensionEntry`, `PromptEntry`, `ThemeEntry`, `HarnessInstallOptions`, `SessionSummary`, `SessionDocument`, `PiModelDefinition`, `PiModelProvider`, `PiModelsConfig`, `ModelListEntry`, `HarnessTier`. Legacy `HarnessScope` preserved for back-compat.
+- **Pi-absent fallback** per ADR-035: every verb calls `requirePiHarness()` in [`packages/caamp/src/commands/pi/common.ts`](packages/caamp/src/commands/pi/common.ts), which throws `E_NOT_FOUND_RESOURCE` with "Pi is not installed. Run: caamp providers install pi" when Pi is absent.
+- **Error-code hygiene** — `PI_ERROR_CODES` constants map in `common.ts` registers `E_VALIDATION_SCHEMA` (caller input), `E_NOT_FOUND_RESOURCE` (missing resources), and `E_TRANSIENT_UPSTREAM` (network/resume failures) so `runLafsCommand` never rewrites them to `E_INTERNAL_UNEXPECTED`.
+- **154 new unit tests** across 3 files: `harness/pi.test.ts` (+103 harness tests, now 911 LOC total), `commands/pi/common.test.ts` (8 tests), `commands/pi/commands.test.ts` (43 integration-style tests driving each verb through Commander `parseAsync`). Covers every verb's happy path plus input-rejection branches, three-tier shadow detection, malformed session headers, models round-trip + default fallthrough, prompt rejection on missing `prompt.md`, theme cross-extension conflicts, and platform-specific Windows/darwin branches via `process.platform` stub.
+
+#### CAAMP `caamp mcp *` commands restored (Option C)
+
+CAAMP's original design promise was *"a unified provider registry and package manager for AI coding agents. It replaces the need to manually configure each agent's MCP servers, skills, and instruction files individually — handling the differences in config formats (JSON, JSONC, YAML, TOML), config keys (`mcpServers`, `mcp_servers`, `extensions`, `mcp`, `servers`, `context_servers`), and file paths across all supported providers."* This feature was deleted in `480fa01a` during the CLI-only migration. Option C rebuilds it lean on top of the still-existing `core/formats/*`, `core/paths/agents.ts`, and `core/registry/types.ts` infrastructure.
+
+- **4 new `caamp mcp <verb>` commands** ([`packages/caamp/src/commands/mcp/`](packages/caamp/src/commands/mcp/), 14 files, +2661 LOC):
+  - `caamp mcp list [--provider <id>]` — enumerate installed MCP servers (format-agnostic read through `core/formats/*`).
+  - `caamp mcp install --provider <id> <name> -- <command> [args...]` — writes MCP server config into the provider's native config file. Conflict-on-write; supports `--scope project|user|global`, `--env KEY=VAL` (repeatable), `--force`.
+  - `caamp mcp remove --provider <id> <name>` (single provider) or `--all-providers <name>` (idempotent removal across every MCP-capable provider).
+  - `caamp mcp detect` — lightweight filesystem probe of every MCP-capable provider, reporting installed servers per provider.
+- **Library API** — 7 new functions + 6 new types exported from `@cleocode/caamp`:
+  - `core/mcp/reader.ts` (+274 LOC): `readMcpServers`, `readAllMcpServers`, plus `McpServerRecord` and `ProviderMcpReadResult` types.
+  - `core/mcp/installer.ts` (+138 LOC): `installMcpServer` with options-object signature (`{ provider, name, command, args, env, scope, projectDir, force }`).
+  - `core/mcp/remover.ts` (+164 LOC): `removeMcpServer`, `removeMcpServerFromAll`.
+  - `core/mcp/index.ts` (+37 LOC): package barrel re-exports.
+- **Provider coverage** — 44 of 45 providers in [`providers/registry.json`](packages/caamp/providers/registry.json) enumerated (all except `pi`, which has no `capabilities.mcp`).
+- **Format coverage** — JSON (41 providers), JSONC (1 — `zed` at `context_servers`), YAML (2 — `goose` at `extensions`, `swe-agent`), TOML (1 — `codex` at `mcp_servers`). Dot-notation key paths exercised: `mcpServers`, `mcp_servers`, `extensions`, `mcp`, `servers`, `context_servers`, `amp.mcpServers`.
+- **49 new tests** across 4 files: `tests/unit/commands/mcp/commands.test.ts` (22 Commander-drive integration tests, +707 LOC), `tests/unit/mcp-reader.test.ts` (+188 LOC), `tests/unit/mcp-installer.test.ts` (+187 LOC), `tests/unit/mcp-remover.test.ts` (+146 LOC). Covers happy paths, conflict-on-write, idempotency, and JSON/JSONC/TOML format round-trips through the format-agnostic substrate.
+- **Docs refreshed** — [`packages/caamp/README.md`](packages/caamp/README.md), [`packages/caamp/caamp.md`](packages/caamp/caamp.md), [`packages/caamp/docs/ADVANCED-RECIPES.md`](packages/caamp/docs/ADVANCED-RECIPES.md) updated for the new `--provider <id> -- <command>` shape and the options-object `installMcpServer` signature.
+- **Zero new external dependencies** — `@modelcontextprotocol/sdk` is NOT added. CAAMP treats MCP server configs as plain data records and doesn't speak MCP itself.
+
+#### ADR-035 — Pi v2+v3 harness architecture decision record
+
+- **[ADR-035](.cleo/adrs/ADR-035-pi-v2-v3-harness.md)** (+373 LOC) — complete audit trail for the Pi harness architecture, including decisions D1 (three-tier scope project > user > global), D2 (line-1-only session JSONL listing for token efficiency), D3 (dual-file models authority — `models.json` for definitions + `settings.json:enabledModels` for selection), D4 (MCP-as-Pi-extension rejected; config-file management for non-Pi providers remains a first-class CAAMP concern), D5 (single CANT execution engine via `cant-bridge.ts`, `@cleocode/core/cant` deleted).
+- Manifest updated: [`.cleo/adrs/MANIFEST.jsonl`](.cleo/adrs/MANIFEST.jsonl).
+
+### Changed
+
+- **`cleo agent start` profile handling documented as Pi-independent** — the `cleo agent start` daemon polls SignalDock for messages and never executes the `.cant` profile internally. Profile-driven workflow execution lives entirely inside Pi sessions via the `cant-bridge.ts` extension. The daemon's profile read is a fail-fast guard plus an operator-visible status string, not an execution step. A comprehensive block comment above the start verb explains the daemon vs. Pi-session split and points operators at `/cant:load` and `/cant:run` for profile execution ([`packages/cleo/src/cli/commands/agent.ts`](packages/cleo/src/cli/commands/agent.ts)).
+- **`agent-profile-status.ts` extracted** as a pure helper ([`packages/cleo/src/cli/commands/agent-profile-status.ts`](packages/cleo/src/cli/commands/agent-profile-status.ts), +112 LOC) computing the four-state status string (`none` / `loaded (unvalidated)` / `validated` / `invalid (N errors)`) without spinning up `createRuntime`, the registry, or `fetch`. Plus 8 unit tests covering all four status branches and edge cases.
+
+### Removed
+
+- **`packages/core/src/cant/*`** (−1574 LOC across 7 files) — dead `@cleocode/core/cant` `WorkflowExecutor` namespace with zero production callers. Strictly duplicate with the `cant-bridge.ts` Pi extension shipped in v2026.4.6, which already implements all 16 workflow statement types via shell-out to `cleo cant parse/validate/execute`. Deletes `approval.ts`, `context-builder.ts`, `discretion.ts`, `index.ts`, `parallel-runner.ts`, `types.ts`, and `workflow-executor.ts` (618 LOC alone). On-disk `.cant` agent fixture validation tests moved from `packages/core/src/cant/__tests__/` to `packages/cant/tests/` since they exercise grammar fixtures, not the deleted namespace. See ADR-035 D5.
+- **MCP bridge placeholder** at `packages/caamp/src/core/harness/mcp/index.ts` (−53 LOC). The placeholder was a one-day stopgap that unblocked the `tsup` build when a stale `tsup.config.ts` entry point referenced a file that had never been created on disk (causing `pnpm run build` to fail on fresh checkouts). Replaced by actual deletion of both the stale entry point and the placeholder.
+- **`installMcpAsExtension` scaffold** and its private `extensionsDir` helper from `PiHarness` (−79 LOC).
+- **`McpServerSpec` type** from `harness/types.ts` and its re-exports from `harness/index.ts` and `src/index.ts` (−68 LOC).
+- **`installMcpAsExtension` method** from the `Harness` interface.
+- **`mcp` keyword** from [`packages/caamp/package.json`](packages/caamp/package.json) — positioning statement; MCP config-file management for non-Pi providers remains a first-class CAAMP concern, but MCP itself is not a first-class CleoOS primitive.
+- **`@modelcontextprotocol/sdk`** from `build.mjs` externals (was prep for the never-shipped bridge; no source actually imports it).
+- **MCP scaffold tests** and the Wave 1 `isBridgeAvailable` smoke test from `tests/unit/harness/pi.test.ts` (−65 LOC). See ADR-035 D4 for rationale: Pi extensions strictly dominate MCP tools on every axis (hooks, slash commands, prompt injection, blocking/rewriting, renderers, providers, keybindings, direct TS calls vs JSON-RPC framing). MCP solves multi-client coordination — CleoOS is single-client (Pi).
+
+### Fixed
+
+- **Broken main build on fresh checkouts** — the pre-existing botched commit `3deba942 fix(caamp): add MCP bridge placeholder so build resolves harness/mcp entry` added a placeholder to unblock a `tsup.config.ts` entry point that referenced a file never added to any commit. Fresh checkouts between `b57eb74e` and `3deba942` failed `pnpm run build`. The Wave 1 merge and the subsequent Option Y cleanup (commit `96d6a1ae`) resolve this by deleting both the stale `tsup` entry and the placeholder file.
+
+### Architecture decisions
+
+See [ADR-035](.cleo/adrs/ADR-035-pi-v2-v3-harness.md) for the full audit trail, especially:
+
+- **D4 Option Y collapse** — MCP is legacy interop only for Pi harness; CAAMP's config-file management for the 44 non-Pi MCP-capable providers remains a first-class concern (hence the restored `caamp mcp *` surface).
+- **D5 Option Y collapse** — Single CANT execution engine lives in `cant-bridge.ts`; `@cleocode/core/cant` has been deleted.
+
+### Stats
+
+- **15 commits** since v2026.4.6 (`b57eb74e`): `b71c77eb`, `3deba942`, `c49bbccf`, `d1d2466d`, `9b2e9ddc`, `3fc5ff28`, `b46a7a1b`, `55f56a06`, `96d6a1ae`, `d952db8e`, `cd1a1a4e`, `0f5719e0`, `af5b2501`, `9fbb026b`, `ebd1ac93`.
+- **Net LOC**: ~+5000 added, −1594 removed.
+- **Tests**: caamp 1379 → 1428 (+49 MCP tests; +154 Pi Wave 1 tests offset by −65 scaffold test deletions). Full monorepo test count increases by +203 from Wave 1 + MCP + `agent-profile-status` additions.
+- **Zero regressions**, zero new stubs, zero `any`/`unknown`, full biome + typecheck + build + test gates passing.
+
 ## [2026.4.6] - 2026-04-07
 
 ### CleoOS — autonomous orchestration is now real
