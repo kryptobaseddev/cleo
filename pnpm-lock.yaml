@@ -133,6 +133,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.4.8
         version: 2.4.8
+      '@forge-ts/cli':
+        specifier: 0.23.0
+        version: 0.23.0
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -343,7 +346,7 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.0.0
-        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.2)
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(lightningcss@1.32.0)
@@ -577,6 +580,11 @@ packages:
 
   '@cleocode/lafs-protocol@1.8.0':
     resolution: {integrity: sha512-rIZgtQvG9Odom0oeP4ng/pmCcpZ0J3W0pt1lMj3qgudCLV/yeRUOpShBjoReA3YJPmm27fbm4XAVel2jnWG0FQ==}
+    hasBin: true
+
+  '@cleocode/lafs@2026.4.9':
+    resolution: {integrity: sha512-9htqNRQfVxBc22WQDipGgdkOkzn6vtmbxgJvZo8RS7ALw8XhnzCglq+ZeC8T1PufPz6NgIfQywkHlLzWgp7vTg==}
+    engines: {node: '>=22.0.0'}
     hasBin: true
 
   '@codluv/versionguard@0.2.0':
@@ -1049,12 +1057,24 @@ packages:
   '@forge-ts/api@0.19.5':
     resolution: {integrity: sha512-sP883LOTCuCm8GCKRO4dkPIpPRRrrGCo2CjN8GarBsfQ1/oWLk5R3d77SNw8gDswRhzn5PMWGIdEf0i6KUhESg==}
 
+  '@forge-ts/api@0.23.0':
+    resolution: {integrity: sha512-mCbf+8Jn93EDEvGb8v/k6PVedv3EVIH2Ty95DpdeYzfJyA+EKoUzZmLoI8nbX6u6quEu8FtA3D5YAp0Yd2Yu8g==}
+    engines: {node: '>=22.0.0'}
+
   '@forge-ts/cli@0.19.5':
     resolution: {integrity: sha512-zqpqjGx1VoBi7BLrmry07srSiY6fSSP+4SJpQjz9rTbUDFuF8xr336J8a6A1fRduPfKUY7PFEXiBl++qkpyqJw==}
     hasBin: true
 
+  '@forge-ts/cli@0.23.0':
+    resolution: {integrity: sha512-aBiirXew9oWLBf8IEgUda/f9VfxuJT/2mRF56J9ccYHzKJxD+s7nyZ1Z5qghMnTjlH3lWsqwX/e5AxEPe0qyig==}
+    hasBin: true
+
   '@forge-ts/core@0.19.5':
     resolution: {integrity: sha512-EuWPdGpe50GWVOkvBDCSDNgX2xViyn3DmmashXI7YvWsdC3yNHoSBa0EOLDVtiXbpySJwlbIMg+gzl2x2xMsww==}
+    engines: {node: '>=22.0.0'}
+
+  '@forge-ts/core@0.23.0':
+    resolution: {integrity: sha512-kRqpy40KDpEaXYYxNSOqGtd0PcVtPc0lu8kQRdVQzD5FPcAZ3eSNvZq+BYvDuMuKdZY3OAhGNFA85gPh2BPZIg==}
     engines: {node: '>=22.0.0'}
 
   '@forge-ts/core@0.6.6':
@@ -1063,11 +1083,23 @@ packages:
   '@forge-ts/doctest@0.19.5':
     resolution: {integrity: sha512-TphGfQ28eyU39Kv89bDTnQod+q29CMkhwLDOfCM5WZQlKsxiJjr/FsX01IBorHVba8gfx2OMNXlwXkEaO0N5gw==}
 
+  '@forge-ts/doctest@0.23.0':
+    resolution: {integrity: sha512-AEF45WjXq7FekliGtpoMklMxo9M+cM6Zi7OTmPFVQzk9ywOGq9Z7MDYoMzrdPqNuqzNksdblb28EO36Imakxog==}
+    engines: {node: '>=22.0.0'}
+
   '@forge-ts/enforcer@0.19.5':
     resolution: {integrity: sha512-4obzHT1se81pZDJ9nXvYPi7zZ9IIi0528d//SI4dRfvxd8OMFcLy212dmCE9FwyXIoBA/SsSZ/MdY6W8cQJrAQ==}
 
+  '@forge-ts/enforcer@0.23.0':
+    resolution: {integrity: sha512-9k3JA1eABGyvSMhsj9Qx/X7cOHZIg/SwON64d9UntKIyqMEeyj+P3kLHYGq2xcBJRrpu+Mhxa6KrCb7SsWoZzg==}
+    engines: {node: '>=22.0.0'}
+
   '@forge-ts/gen@0.19.5':
     resolution: {integrity: sha512-YNU6uF1iR51ueI6YqfzeCccgAbmuQQiaMxacKvjRshQwI+0RqXQVmVB2xgMRozQL+wGDC56okqYqn0HMdejkqA==}
+
+  '@forge-ts/gen@0.23.0':
+    resolution: {integrity: sha512-sdWOg1ezs0EmW2yKEQkGZnhssGWkor9D3PtZuUZoz/MDI4lDLAiy4+eVtyvIkMNF4w9+WWRmzgf4ZLA6Ks6zVQ==}
+    engines: {node: '>=18'}
 
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
@@ -1947,6 +1979,11 @@ packages:
 
   citty@0.2.1:
     resolution: {integrity: sha512-kEV95lFBhQgtogAPlQfJJ0WGVSokvLr/UEoFPiKKOXF7pl98HfUVUD0ejsuTCld/9xH9vogSywZ5KqHzXrZpqg==}
+
+  ckm-sdk@2026.3.3:
+    resolution: {integrity: sha512-KK/HrtUpX7mgLgPVgC9bdzO0TOqBD/qnvowTKcTkR1sDCCmZPXBHn0efDUTLDjf+1pTSe05j8abvBDLcYMFv5A==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   color-convert@2.0.1:
     resolution: {integrity: sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==}
@@ -3926,6 +3963,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   uc.micro@2.1.0:
     resolution: {integrity: sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A==}
 
@@ -4592,6 +4634,17 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
+  '@cleocode/lafs@2026.4.9':
+    dependencies:
+      '@a2a-js/sdk': 0.3.13(express@5.2.1)
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
+      express: 5.2.1
+    transitivePeerDependencies:
+      - '@bufbuild/protobuf'
+      - '@grpc/grpc-js'
+      - supports-color
+
   '@codluv/versionguard@0.2.0':
     dependencies:
       chalk: 5.6.2
@@ -4846,6 +4899,10 @@ snapshots:
     dependencies:
       '@forge-ts/core': 0.19.5
 
+  '@forge-ts/api@0.23.0':
+    dependencies:
+      '@forge-ts/core': 0.23.0
+
   '@forge-ts/cli@0.19.5':
     dependencies:
       '@cleocode/lafs-protocol': 1.8.0
@@ -4861,11 +4918,32 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
+  '@forge-ts/cli@0.23.0':
+    dependencies:
+      '@cleocode/lafs': 2026.4.9
+      '@forge-ts/api': 0.23.0
+      '@forge-ts/core': 0.23.0
+      '@forge-ts/doctest': 0.23.0
+      '@forge-ts/enforcer': 0.23.0
+      '@forge-ts/gen': 0.23.0
+      citty: 0.2.1
+      consola: 3.4.2
+    transitivePeerDependencies:
+      - '@bufbuild/protobuf'
+      - '@grpc/grpc-js'
+      - supports-color
+
   '@forge-ts/core@0.19.5':
     dependencies:
       '@microsoft/tsdoc': 0.16.0
       '@microsoft/tsdoc-config': 0.18.1
       typescript: 5.9.3
+
+  '@forge-ts/core@0.23.0':
+    dependencies:
+      '@microsoft/tsdoc': 0.16.0
+      '@microsoft/tsdoc-config': 0.18.1
+      typescript: 6.0.2
 
   '@forge-ts/core@0.6.6':
     dependencies:
@@ -4876,13 +4954,36 @@ snapshots:
     dependencies:
       '@forge-ts/core': 0.19.5
 
+  '@forge-ts/doctest@0.23.0':
+    dependencies:
+      '@forge-ts/core': 0.23.0
+
   '@forge-ts/enforcer@0.19.5':
     dependencies:
       '@forge-ts/core': 0.19.5
 
+  '@forge-ts/enforcer@0.23.0':
+    dependencies:
+      '@forge-ts/core': 0.23.0
+
   '@forge-ts/gen@0.19.5':
     dependencies:
       '@forge-ts/core': 0.19.5
+      gray-matter: 4.0.3
+      remark-frontmatter: 5.0.0
+      remark-gfm: 4.0.1
+      remark-mdx: 3.1.1
+      remark-parse: 11.0.0
+      remark-stringify: 11.0.0
+      unified: 11.0.5
+      unist-util-visit: 5.1.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@forge-ts/gen@0.23.0':
+    dependencies:
+      '@forge-ts/core': 0.23.0
+      ckm-sdk: 2026.3.3
       gray-matter: 4.0.3
       remark-frontmatter: 5.0.0
       remark-gfm: 4.0.1
@@ -5756,6 +5857,8 @@ snapshots:
   chownr@1.1.4: {}
 
   citty@0.2.1: {}
+
+  ckm-sdk@2026.3.3: {}
 
   color-convert@2.0.1:
     dependencies:
@@ -8005,6 +8108,34 @@ snapshots:
       - tsx
       - yaml
 
+  tsup@8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.2):
+    dependencies:
+      bundle-require: 5.1.0(esbuild@0.27.4)
+      cac: 6.7.14
+      chokidar: 4.0.3
+      consola: 3.4.2
+      debug: 4.4.3
+      esbuild: 0.27.4
+      fix-dts-default-cjs-exports: 1.0.1
+      joycon: 3.1.1
+      picocolors: 1.1.1
+      postcss-load-config: 6.0.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(yaml@2.8.2)
+      resolve-from: 5.0.0
+      rollup: 4.60.0
+      source-map: 0.7.6
+      sucrase: 3.35.1
+      tinyexec: 0.3.2
+      tinyglobby: 0.2.15
+      tree-kill: 1.2.2
+    optionalDependencies:
+      postcss: 8.5.8
+      typescript: 6.0.2
+    transitivePeerDependencies:
+      - jiti
+      - supports-color
+      - tsx
+      - yaml
+
   tsx@4.21.0:
     dependencies:
       esbuild: 0.27.4
@@ -8036,6 +8167,8 @@ snapshots:
   typescript@5.9.3: {}
 
   typescript@6.0.1-rc: {}
+
+  typescript@6.0.2: {}
 
   uc.micro@2.1.0: {}
 

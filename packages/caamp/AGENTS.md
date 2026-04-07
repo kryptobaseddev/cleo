@@ -104,6 +104,62 @@ tests/
 | `servers` | vscode |
 | `context_servers` | zed |
 
+## Documentation (forge-ts — Generated from Source)
+
+**`docs/API-REFERENCE.md` is NOT hand-maintained.** The canonical API
+reference is generated from TSDoc in `src/…` via
+[forge-ts](https://github.com/kryptobaseddev/forge-ts) and written to:
+
+- `docs/generated/api-reference.md` — full single-file markdown API
+  reference (every exported symbol).
+- `docs/generated/llms.txt` / `docs/generated/llms-full.txt` — agent
+  digests consumed by `@cleocode/cleo`.
+- `docs/generated/SKILL-caamp/` — skill package scaffolding.
+
+### Regenerate
+
+```bash
+# Full doc build (runs TSDoc coverage gate, then regenerates everything):
+pnpm run docs
+
+# Coverage gate only (fast, no filesystem writes):
+pnpm run docs:check
+```
+
+`pnpm run docs` is equivalent to `forge-ts check && forge-ts build --skip-api`.
+If the check fails, the build does not run — fix the reported TSDoc
+gaps in source, then rerun.
+
+### Rules
+
+1. **Never edit `docs/generated/*` by hand.** Every run of `pnpm run docs`
+   overwrites it.
+2. **Every exported symbol needs TSDoc.** The enforced rules in
+   `forge-ts.config.ts` require summary, `@param`, `@returns`,
+   `@example`, and class/interface member docs on all public exports.
+   Violations block doc regeneration.
+3. **Change docs by changing source.** If the generated file is wrong,
+   the fix lives in the TSDoc comment on the corresponding symbol.
+4. **Keep `docs/API-REFERENCE.md` as a pointer only.** It is a short
+   redirect document that links to `docs/generated/api-reference.md`
+   and documents the regeneration workflow; do not add API content to
+   it.
+
+### Adding a new export
+
+1. Add the symbol in `src/…` with a full TSDoc block (summary, `@param`,
+   `@returns`, `@example`, and `@public`).
+2. Re-export it from `src/index.ts`.
+3. Run `pnpm run docs:check` to verify the coverage gate still passes.
+4. Run `pnpm run docs` to regenerate `docs/generated/*`.
+5. Commit the source change and the regenerated files together.
+
+### Configuration
+
+`forge-ts.config.ts` is the single source of truth for which rules are
+enforced. Do NOT downgrade enforced rules to paper over coverage gaps;
+fix the underlying TSDoc gap in source instead.
+
 ## Release Workflow
 
 - Release workflow triggers on GitHub Release `published` events, **not** tag pushes.
