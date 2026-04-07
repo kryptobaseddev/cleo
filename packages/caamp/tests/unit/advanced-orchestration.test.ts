@@ -44,7 +44,14 @@ import {
 
 let testDir: string;
 
-function makeProvider(id: string, overrides: Partial<Provider> = {}): Provider {
+type MakeProviderOverrides = Partial<Omit<Provider, "capabilities">> & {
+  configFormat?: "json" | "jsonc" | "yaml" | "toml";
+  capabilities?: Partial<Provider["capabilities"]>;
+};
+
+function makeProvider(id: string, overrides: MakeProviderOverrides = {}): Provider {
+  const { configFormat, capabilities: capOverrides, ...rest } = overrides;
+  const resolvedFormat = configFormat ?? "json";
   return {
     id,
     toolName: id,
@@ -54,20 +61,43 @@ function makeProvider(id: string, overrides: Partial<Provider> = {}): Provider {
     pathGlobal: join(testDir, "global", id),
     pathProject: ".",
     instructFile: "AGENTS.md",
-    configKey: "mcpServers",
-    configFormat: "json",
-    configPathGlobal: join(testDir, "global", id, "config.json"),
-    configPathProject: `.config/${id}.json`,
     pathSkills: join(testDir, "skills", id, "global"),
     pathProjectSkills: `.skills/${id}`,
     detection: { methods: ["binary"], binary: id },
-    supportedTransports: ["stdio", "http", "sse"],
-    supportsHeaders: true,
     priority: "medium",
     status: "active",
     agentSkillsCompatible: true,
-    capabilities: { skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" }, hooks: { supported: [], hookConfigPath: null, hookFormat: null }, spawn: { supportsSubagents: false, supportsProgrammaticSpawn: false, supportsInterAgentComms: false, supportsParallelSpawn: false, spawnMechanism: null } },
-    ...overrides,
+    capabilities: {
+      mcp: {
+        configKey: "mcpServers",
+        configFormat: resolvedFormat,
+        configPathGlobal: join(testDir, "global", id, "config.json"),
+        configPathProject: `.config/${id}.json`,
+        supportedTransports: ["stdio", "http", "sse"],
+        supportsHeaders: true,
+      },
+      harness: null,
+      skills: { agentsGlobalPath: null, agentsProjectPath: null, precedence: "vendor-only" },
+      hooks: {
+        supported: [],
+        hookConfigPath: null,
+        hookConfigPathProject: null,
+        hookFormat: null,
+        nativeEventCatalog: "canonical",
+        canInjectSystemPrompt: false,
+        canBlockTools: false,
+      },
+      spawn: {
+        supportsSubagents: false,
+        supportsProgrammaticSpawn: false,
+        supportsInterAgentComms: false,
+        supportsParallelSpawn: false,
+        spawnMechanism: null,
+        spawnCommand: null,
+      },
+      ...capOverrides,
+    },
+    ...rest,
   };
 }
 

@@ -4,12 +4,12 @@
 
 import { readFile } from 'node:fs/promises';
 import type { SkillBatchOperation } from '../../core/advanced/orchestration.js';
-import { getInstalledProviders } from '../../core/registry/detection.js';
+import { resolveDefaultTargetProviders } from '../../core/harness/index.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider, ProviderPriority } from '../../types.js';
 import { LAFSCommandError } from './lafs.js';
 
-const VALID_PRIORITIES = new Set<ProviderPriority>(['high', 'medium', 'low']);
+const VALID_PRIORITIES = new Set<ProviderPriority>(['primary', 'high', 'medium', 'low']);
 
 /**
  * Options for resolving which providers to target in advanced commands.
@@ -47,7 +47,7 @@ export function parsePriority(value: string): ProviderPriority {
     throw new LAFSCommandError(
       'E_ADVANCED_VALIDATION_PRIORITY',
       `Invalid tier: ${value}`,
-      'Use one of: high, medium, low.',
+      'Use one of: primary, high, medium, low.',
     );
   }
   return value as ProviderPriority;
@@ -77,7 +77,7 @@ export function resolveProviders(options: ProviderTargetOptions): Provider[] {
 
   const targetAgents = options.agent ?? [];
   if (targetAgents.length === 0) {
-    return getInstalledProviders();
+    return resolveDefaultTargetProviders();
   }
 
   const providers = targetAgents

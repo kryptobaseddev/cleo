@@ -380,13 +380,43 @@ export function getAgentsLinksDir(scope: PathScope = 'global', projectDir?: stri
 }
 
 /**
+ * Resolve the CLEO home directory for template path expansion.
+ *
+ * @remarks
+ * Honors the `CLEO_HOME` environment variable when set. Otherwise falls
+ * back to a platform-appropriate data directory for the `cleo` app name
+ * (e.g. `~/.local/share/cleo` on Linux, `~/Library/Application Support/cleo`
+ * on macOS, `%LOCALAPPDATA%\cleo\Data` on Windows). This mirrors the
+ * resolution strategy used by the `@cleocode/core` package's `getCleoHome`
+ * helper but is duplicated here to avoid a cross-package runtime dependency.
+ *
+ * @internal
+ */
+function getCleoHomeForTemplate(): string {
+  const envOverride = process.env['CLEO_HOME'];
+  if (envOverride && envOverride.trim().length > 0) {
+    return envOverride.trim();
+  }
+  const home = getPlatformLocations().home;
+  if (process.platform === 'win32') {
+    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
+    return join(localAppData, 'cleo', 'Data');
+  }
+  if (process.platform === 'darwin') {
+    return join(home, 'Library', 'Application Support', 'cleo');
+  }
+  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+  return join(xdgData, 'cleo');
+}
+
+/**
  * Resolves a registry template path by substituting platform variables.
  *
  * @remarks
  * Replaces template variables like `$HOME`, `$CONFIG`, `$VSCODE_CONFIG`,
- * `$ZED_CONFIG`, `$CLAUDE_DESKTOP_CONFIG`, and `$AGENTS_HOME` with their
- * actual platform-specific values. Used to resolve paths from the provider
- * registry JSON.
+ * `$ZED_CONFIG`, `$CLAUDE_DESKTOP_CONFIG`, `$AGENTS_HOME`, and `$CLEO_HOME`
+ * with their actual platform-specific values. Used to resolve paths from
+ * the provider registry JSON.
  *
  * @param template - The template string containing `$VARIABLE` placeholders
  * @returns The resolved absolute path with all variables expanded
@@ -407,7 +437,8 @@ export function resolveRegistryTemplatePath(template: string): string {
     .replace(/\$VSCODE_CONFIG/g, locations.vscodeConfig)
     .replace(/\$ZED_CONFIG/g, locations.zedConfig)
     .replace(/\$CLAUDE_DESKTOP_CONFIG/g, locations.claudeDesktopConfig)
-    .replace(/\$AGENTS_HOME/g, getAgentsHome());
+    .replace(/\$AGENTS_HOME/g, getAgentsHome())
+    .replace(/\$CLEO_HOME/g, getCleoHomeForTemplate());
 }
 
 /**
@@ -439,13 +470,17 @@ export function resolveProviderConfigPath(
   scope: PathScope,
   projectDir = process.cwd(),
 ): string | null {
-  if (scope === 'global') {
-    return provider.configPathGlobal;
-  }
-  if (!provider.configPathProject) {
+  const mcp = provider.capabilities.mcp;
+  if (!mcp) {
     return null;
   }
-  return resolveProjectPath(provider.configPathProject, projectDir);
+  if (scope === 'global') {
+    return mcp.configPathGlobal;
+  }
+  if (!mcp.configPathProject) {
+    return null;
+  }
+  return resolveProjectPath(mcp.configPathProject, projectDir);
 }
 
 /**
@@ -475,7 +510,7 @@ export function resolvePreferredConfigScope(
   if (useGlobalFlag) {
     return 'global';
   }
-  return provider.configPathProject ? 'project' : 'global';
+  return provider.capabilities.mcp?.configPathProject ? 'project' : 'global';
 }
 
 /**

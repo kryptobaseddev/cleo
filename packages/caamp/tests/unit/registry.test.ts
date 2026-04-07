@@ -37,7 +37,7 @@ describe("Provider Registry", () => {
   });
 
   it("returns registry version", () => {
-    expect(getRegistryVersion()).toBe("1.1.0");
+    expect(getRegistryVersion()).toBe("2.0.0");
   });
 
   it("gets provider by ID", () => {
@@ -108,24 +108,33 @@ describe("Provider Registry", () => {
     const claude = getProvider("claude-code");
     expect(claude).toBeDefined();
     expect(claude?.pathGlobal).not.toContain("$HOME");
-    expect(claude?.configPathGlobal).not.toContain("$HOME");
+    expect(claude?.capabilities.mcp?.configPathGlobal).not.toContain("$HOME");
     expect(claude?.pathSkills).not.toContain("$HOME");
   });
 
   it("has correct config keys per provider", () => {
-    expect(getProvider("claude-code")?.configKey).toBe("mcpServers");
-    expect(getProvider("codex")?.configKey).toBe("mcp_servers");
-    expect(getProvider("goose")?.configKey).toBe("extensions");
-    expect(getProvider("opencode")?.configKey).toBe("mcp");
-    expect(getProvider("vscode")?.configKey).toBe("servers");
-    expect(getProvider("zed")?.configKey).toBe("context_servers");
+    expect(getProvider("claude-code")?.capabilities.mcp?.configKey).toBe("mcpServers");
+    expect(getProvider("codex")?.capabilities.mcp?.configKey).toBe("mcp_servers");
+    expect(getProvider("goose")?.capabilities.mcp?.configKey).toBe("extensions");
+    expect(getProvider("opencode")?.capabilities.mcp?.configKey).toBe("mcp");
+    expect(getProvider("vscode")?.capabilities.mcp?.configKey).toBe("servers");
+    expect(getProvider("zed")?.capabilities.mcp?.configKey).toBe("context_servers");
   });
 
   it("has correct config formats per provider", () => {
-    expect(getProvider("claude-code")?.configFormat).toBe("json");
-    expect(getProvider("goose")?.configFormat).toBe("yaml");
-    expect(getProvider("codex")?.configFormat).toBe("toml");
-    expect(getProvider("zed")?.configFormat).toBe("jsonc");
+    expect(getProvider("claude-code")?.capabilities.mcp?.configFormat).toBe("json");
+    expect(getProvider("goose")?.capabilities.mcp?.configFormat).toBe("yaml");
+    expect(getProvider("codex")?.capabilities.mcp?.configFormat).toBe("toml");
+    expect(getProvider("zed")?.capabilities.mcp?.configFormat).toBe("jsonc");
+  });
+
+  it("has no MCP capability block for Pi (extension-based harness)", () => {
+    const pi = getProvider("pi");
+    expect(pi).toBeDefined();
+    expect(pi?.capabilities.mcp).toBeNull();
+    expect(pi?.priority).toBe("primary");
+    expect(pi?.capabilities.harness).not.toBeNull();
+    expect(pi?.capabilities.harness?.kind).toBe("orchestrator");
   });
 
   describe("capabilities", () => {

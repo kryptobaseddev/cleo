@@ -59,7 +59,7 @@ export function registerAdvancedProviders(parent: Command): void {
                 id: provider.id,
                 priority: provider.priority,
                 status: provider.status,
-                configFormat: provider.configFormat,
+                configFormat: provider.capabilities.mcp?.configFormat ?? null,
               })),
         };
       }),

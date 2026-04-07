@@ -103,8 +103,16 @@ function checkRegistry(): SectionResult {
 
     const malformed: string[] = [];
     for (const p of providers) {
-      if (!p.id || !p.toolName || !p.configKey || !p.configFormat) {
+      // Core fields must exist on every provider. MCP fields only apply to
+      // providers that declare `capabilities.mcp`; providers without MCP
+      // integration (like Pi, which uses extensions) are valid without them.
+      if (!p.id || !p.toolName) {
         malformed.push(p.id || '(unknown)');
+        continue;
+      }
+      const mcp = p.capabilities.mcp;
+      if (mcp && (!mcp.configKey || !mcp.configFormat)) {
+        malformed.push(p.id);
       }
     }
 
@@ -357,7 +365,15 @@ async function checkConfigFiles(): Promise<SectionResult> {
 
   for (const r of installed) {
     const provider = r.provider;
-    const configPath = provider.configPathGlobal;
+    const mcp = provider.capabilities.mcp;
+    if (!mcp) {
+      checks.push({
+        label: `${provider.id}: no MCP integration (extension-based harness)`,
+        status: 'pass',
+      });
+      continue;
+    }
+    const configPath = mcp.configPathGlobal;
 
     if (!existsSync(configPath)) {
       checks.push({
@@ -369,7 +385,7 @@ async function checkConfigFiles(): Promise<SectionResult> {
     }
 
     try {
-      await readConfig(configPath, provider.configFormat);
+      await readConfig(configPath, mcp.configFormat);
       const relPath = configPath.replace(homedir(), '~');
       checks.push({
         label: `${provider.id}: ${relPath} readable`,
@@ -478,9 +494,11 @@ export function registerDoctorCommand(program: Command): void {
         // Build result for LAFS envelope
         const npmVersion = getNpmVersion() ?? 'not found';
         const allProviders = getAllProviders();
-        const malformedCount = allProviders.filter(
-          (p) => !p.id || !p.toolName || !p.configKey || !p.configFormat,
-        ).length;
+        const malformedCount = allProviders.filter((p) => {
+          if (!p.id || !p.toolName) return true;
+          const mcp = p.capabilities.mcp;
+          return mcp !== null && (!mcp.configKey || !mcp.configFormat);
+        }).length;
         const detectionResults = detectAllProviders();
         const installedProviders = detectionResults.filter((r) => r.installed);
         const { canonicalCount, brokenCount, staleCount } = countSkillIssues();

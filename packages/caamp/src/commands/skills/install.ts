@@ -6,6 +6,10 @@ import { existsSync } from 'node:fs';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import {
+  dispatchInstallSkillAcrossProviders,
+  resolveDefaultTargetProviders,
+} from '../../core/harness/index.js';
+import {
   buildEnvelope,
   ErrorCategories,
   ErrorCodes,
@@ -22,7 +26,6 @@ import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getProvider } from '../../core/registry/providers.js';
 import * as catalog from '../../core/skills/catalog.js';
 import { discoverSkill } from '../../core/skills/discovery.js';
-import { installSkill } from '../../core/skills/installer.js';
 import { recordSkillInstall } from '../../core/skills/lock.js';
 import { cloneRepo } from '../../core/sources/github.js';
 import { cloneGitLabRepo } from '../../core/sources/gitlab.js';
@@ -124,7 +127,9 @@ export function registerSkillsInstall(parent: Command): void {
           process.exit(1);
         }
 
-        // Determine target providers
+        // Determine target providers. Default (no --agent, no --all) prefers
+        // the registry's primary harness when it is installed; otherwise it
+        // falls back to the legacy installed-providers list.
         let providers: Provider[];
 
         if (opts.all) {
@@ -134,7 +139,7 @@ export function registerSkillsInstall(parent: Command): void {
             .map((a) => getProvider(a))
             .filter((p): p is Provider => p !== undefined);
         } else {
-          providers = getInstalledProviders();
+          providers = resolveDefaultTargetProviders();
         }
 
         if (providers.length === 0) {
@@ -349,7 +354,12 @@ export function registerSkillsInstall(parent: Command): void {
             process.exit(1);
           }
 
-          const result = await installSkill(localPath, skillName!, providers, opts.global ?? false);
+          const result = await dispatchInstallSkillAcrossProviders(
+            localPath,
+            skillName!,
+            providers,
+            opts.global ?? false,
+          );
 
           if (result.success) {
             // Record in lock file
@@ -490,7 +500,7 @@ async function handleProfileInstall(
   for (const name of profileSkills) {
     const skillDir = catalog.getSkillDir(name);
     try {
-      const result = await installSkill(skillDir, name, providers, isGlobal);
+      const result = await dispatchInstallSkillAcrossProviders(skillDir, name, providers, isGlobal);
 
       if (result.success) {
         if (format === 'human') {

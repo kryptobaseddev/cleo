@@ -4,6 +4,7 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
+import { dispatchInstallSkillAcrossProviders } from '../../core/harness/index.js';
 import {
   ErrorCategories,
   ErrorCodes,
@@ -13,7 +14,6 @@ import {
 } from '../../core/lafs.js';
 import { isHuman } from '../../core/logger.js';
 import { getProvider } from '../../core/registry/providers.js';
-import { installSkill } from '../../core/skills/installer.js';
 import { checkSkillUpdate, getTrackedSkills, recordSkillInstall } from '../../core/skills/lock.js';
 import { cloneRepo } from '../../core/sources/github.js';
 import { cloneGitLabRepo } from '../../core/sources/gitlab.js';
@@ -209,7 +209,7 @@ export function registerSkillsUpdate(parent: Command): void {
               continue;
             }
 
-            const installResult = await installSkill(
+            const installResult = await dispatchInstallSkillAcrossProviders(
               localPath,
               skill.name,
               providers,

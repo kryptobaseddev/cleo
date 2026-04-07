@@ -7,9 +7,9 @@ import type { LAFSErrorCategory } from '@cleocode/lafs';
 import { resolveOutputFormat } from '@cleocode/lafs';
 import type { Command } from 'commander';
 import pc from 'picocolors';
+import { resolveDefaultTargetProviders } from '../../core/harness/index.js';
 import { isHuman } from '../../core/logger.js';
 import { resolveProviderSkillsDir } from '../../core/paths/standard.js';
-import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getProvider } from '../../core/registry/providers.js';
 import { discoverSkillsMulti } from '../../core/skills/discovery.js';
 
@@ -90,10 +90,10 @@ export function registerSkillsList(parent: Command): void {
           ? [resolveProviderSkillsDir(provider, 'global')]
           : [resolveProviderSkillsDir(provider, 'project')];
       } else if (opts.global) {
-        const providers = getInstalledProviders();
+        const providers = resolveDefaultTargetProviders();
         dirs = providers.map((p) => resolveProviderSkillsDir(p, 'global')).filter(Boolean);
       } else {
-        const providers = getInstalledProviders();
+        const providers = resolveDefaultTargetProviders();
         dirs = providers.map((p) => resolveProviderSkillsDir(p, 'project')).filter(Boolean);
       }
 

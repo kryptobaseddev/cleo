@@ -185,7 +185,7 @@ describe("core/paths/standard - uncovered lines", () => {
   it("resolvePreferredConfigScope returns global when useGlobalFlag is true", async () => {
     const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
     const provider = {
-      configPathProject: ".test/config.json",
+      capabilities: { mcp: { configPathProject: ".test/config.json" } },
     } as any;
 
     expect(resolvePreferredConfigScope(provider, true)).toBe("global");
@@ -193,14 +193,25 @@ describe("core/paths/standard - uncovered lines", () => {
 
   it("resolvePreferredConfigScope returns project when provider has project path", async () => {
     const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
-    const provider = { configPathProject: ".test/config.json" } as any;
+    const provider = {
+      capabilities: { mcp: { configPathProject: ".test/config.json" } },
+    } as any;
 
     expect(resolvePreferredConfigScope(provider)).toBe("project");
   });
 
   it("resolvePreferredConfigScope returns global when provider lacks project path", async () => {
     const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
-    const provider = { configPathProject: null } as any;
+    const provider = {
+      capabilities: { mcp: { configPathProject: null } },
+    } as any;
+
+    expect(resolvePreferredConfigScope(provider)).toBe("global");
+  });
+
+  it("resolvePreferredConfigScope returns global when provider has no MCP integration", async () => {
+    const { resolvePreferredConfigScope } = await import("../../src/core/paths/standard.js");
+    const provider = { capabilities: { mcp: null } } as any;
 
     expect(resolvePreferredConfigScope(provider)).toBe("global");
   });

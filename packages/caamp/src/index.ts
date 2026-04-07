@@ -21,6 +21,22 @@ export {
 // Formats
 export { readConfig, removeConfig, writeConfig } from './core/formats/index.js';
 export { deepMerge, ensureDir, getNestedValue } from './core/formats/utils.js';
+export type {
+  Harness,
+  HarnessScope,
+  McpServerSpec,
+  SubagentHandle,
+  SubagentResult,
+  SubagentTask,
+} from './core/harness/index.js';
+// Harness layer
+export {
+  getAllHarnesses,
+  getHarnessFor,
+  getPrimaryHarness,
+  PiHarness,
+  resolveDefaultTargetProviders,
+} from './core/harness/index.js';
 // Hooks normalizer
 export type {
   CanonicalEventDefinition,
@@ -129,6 +145,7 @@ export {
   getCommonHookEvents,
   getEffectiveSkillsPaths,
   getInstructionFiles,
+  getPrimaryProvider,
   getProvider,
   getProviderCapabilities,
   getProviderCount,
@@ -235,16 +252,23 @@ export type {
   LockEntry,
   MarketplaceSearchResult,
   MarketplaceSkill,
+  McpConfigFormat,
   McpServerConfig,
   McpServerEntry,
+  McpTransportType,
   ParsedSource,
   Provider,
   ProviderCapabilities,
+  ProviderHarnessCapability,
   ProviderHooksCapability,
+  ProviderMcpCapability,
   ProviderPriority,
   ProviderSkillsCapability,
   ProviderSpawnCapability,
   ProviderStatus,
+  RegistryHarnessKind,
+  RegistryHookCatalog,
+  RegistryHookFormat,
   SkillEntry,
   // Primary SkillLibrary types
   SkillLibrary,

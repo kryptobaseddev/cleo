@@ -19,6 +19,7 @@ import { installSkill, removeSkill } from '../skills/installer.js';
 type Scope = 'project' | 'global';
 
 const PRIORITY_ORDER: Record<ProviderPriority, number> = {
+  primary: -1,
   high: 0,
   medium: 1,
   low: 2,
@@ -446,7 +447,13 @@ export async function updateInstructionsSingleOperation(
       file: filePath,
       action,
       providers: selected.map((provider) => provider.id),
-      configFormats: Array.from(new Set(selected.map((provider) => provider.configFormat))),
+      configFormats: Array.from(
+        new Set(
+          selected
+            .map((provider) => provider.capabilities.mcp?.configFormat)
+            .filter((f): f is ConfigFormat => f !== undefined),
+        ),
+      ),
     });
   }
 

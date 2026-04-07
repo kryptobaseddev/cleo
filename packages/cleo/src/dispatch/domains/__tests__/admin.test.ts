@@ -168,6 +168,7 @@ describe('AdminHandler', () => {
   describe('getSupportedOperations', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
+      // Phase 1 added 'paths' (admin.paths)
       expect(ops.query).toEqual([
         'version',
         'health',
@@ -176,6 +177,7 @@ describe('AdminHandler', () => {
         'stats',
         'context',
         'runtime',
+        'paths',
         'job',
         'dash',
         'log',
@@ -194,8 +196,10 @@ describe('AdminHandler', () => {
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
+      // Phase 1 added 'scaffold-hub' (admin.scaffold-hub)
       expect(ops.mutate).toEqual([
         'init',
+        'scaffold-hub',
         'config.set',
         'config.set-preset',
         'backup',
@@ -486,7 +490,13 @@ describe('AdminHandler', () => {
     it('should call initProject for init', async () => {
       vi.mocked(initProject).mockResolvedValue({
         success: true,
-        data: { initialized: true, projectRoot: '/mock/project', filesCreated: ['todo.json'] },
+        data: {
+          initialized: true,
+          projectRoot: '/mock/project',
+          filesCreated: ['todo.json'],
+          skipped: [],
+          warnings: [],
+        },
       });
 
       const res = await handler.mutate('init', { projectName: 'test' });

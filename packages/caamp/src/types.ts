@@ -106,6 +106,7 @@ export type ConfigFormat = 'json' | 'jsonc' | 'yaml' | 'toml';
  * - `"stdio"` - Standard input/output (local process)
  * - `"sse"` - Server-Sent Events (remote)
  * - `"http"` - HTTP/Streamable HTTP (remote)
+ * - `"websocket"` - WebSocket full-duplex (remote)
  *
  * @example
  * ```typescript
@@ -114,7 +115,7 @@ export type ConfigFormat = 'json' | 'jsonc' | 'yaml' | 'toml';
  *
  * @public
  */
-export type TransportType = 'stdio' | 'sse' | 'http';
+export type TransportType = 'stdio' | 'sse' | 'http' | 'websocket';
 
 // ── Detection ───────────────────────────────────────────────────────
 
@@ -178,7 +179,69 @@ export interface DetectionConfig {
 // ── Provider Capabilities ────────────────────────────────────────────
 
 // Re-export capability enums from registry types for convenience
-export type { HookEvent, SkillsPrecedence, SpawnMechanism } from './core/registry/types.js';
+export type {
+  HookEvent,
+  McpConfigFormat,
+  McpTransportType,
+  RegistryHarnessKind,
+  RegistryHookCatalog,
+  RegistryHookFormat,
+  SkillsPrecedence,
+  SpawnMechanism,
+} from './core/registry/types.js';
+
+/**
+ * Resolved MCP server integration metadata for a provider.
+ *
+ * @remarks
+ * Present only for providers that consume MCP servers via a per-agent
+ * config file. Providers that use extensions instead of MCP configs
+ * (e.g. Pi) omit this block. Template variables in paths are expanded
+ * at registry load time.
+ *
+ * @public
+ */
+export interface ProviderMcpCapability {
+  /** Dot-notation key path for MCP server config (e.g. `"mcpServers"`). */
+  configKey: string;
+  /** Resolved config file format. */
+  configFormat: ConfigFormat;
+  /** Resolved global config file path. */
+  configPathGlobal: string;
+  /** Project-relative config file path, or `null` if unsupported. */
+  configPathProject: string | null;
+  /** MCP transport protocols this provider supports. */
+  supportedTransports: TransportType[];
+  /** Whether the provider supports custom HTTP headers for remote MCP servers. */
+  supportsHeaders: boolean;
+}
+
+/**
+ * Resolved first-class harness capability for a provider.
+ *
+ * @remarks
+ * Present only for providers that act as orchestrators or standalone
+ * harnesses. Paths under {@link extensionsPath} and {@link globalExtensionsHub}
+ * are resolved with platform template expansion at load time.
+ *
+ * @public
+ */
+export interface ProviderHarnessCapability {
+  /** Harness kind (`"orchestrator"` or `"standalone"`). */
+  kind: import('./core/registry/types.js').RegistryHarnessKind;
+  /** Provider ids this harness can spawn as subagents. Empty for standalone. */
+  spawnTargets: string[];
+  /** Whether the harness drives a CleoOS conductor loop. */
+  supportsConductorLoop: boolean;
+  /** Whether the harness accepts stage guidance injection. */
+  supportsStageGuidance: boolean;
+  /** Whether the harness bridges CANT events. */
+  supportsCantBridge: boolean;
+  /** Resolved path to the harness's runtime extensions directory. */
+  extensionsPath: string;
+  /** Resolved CLEO-managed shared extensions hub path, if configured. */
+  globalExtensionsHub: string | null;
+}
 
 /**
  * Resolved skills capability for a provider at runtime.
@@ -204,18 +267,29 @@ export interface ProviderSkillsCapability {
  *
  * @remarks
  * Describes which hook lifecycle events a provider supports and where
- * the hook configuration file is located. The hook format indicates how
- * the configuration should be read and written.
+ * the hook configuration file (or extensions directory) is located. The
+ * hook format indicates how the configuration should be read and written;
+ * the `"typescript-directory"` value denotes providers (like Pi) whose
+ * hooks are compiled from a directory of TypeScript files rather than
+ * a single config file.
  *
  * @public
  */
 export interface ProviderHooksCapability {
   /** Hook lifecycle events this provider supports. */
   supported: import('./core/registry/types.js').HookEvent[];
-  /** Resolved path to hook configuration file, or `null`. */
+  /** Resolved path to the hook configuration file or directory, or `null`. */
   hookConfigPath: string | null;
-  /** Format of the hook config file. */
-  hookFormat: 'json' | 'yaml' | 'toml' | 'javascript' | null;
+  /** Resolved project-relative hook configuration path, or `null`. */
+  hookConfigPathProject: string | null;
+  /** Format of the hook config. */
+  hookFormat: import('./core/registry/types.js').RegistryHookFormat | null;
+  /** Which native event catalog this provider's hooks are drawn from. */
+  nativeEventCatalog: import('./core/registry/types.js').RegistryHookCatalog;
+  /** Whether hooks may inject or modify the system prompt. */
+  canInjectSystemPrompt: boolean;
+  /** Whether hooks may block tool calls. */
+  canBlockTools: boolean;
 }
 
 /**
@@ -239,19 +313,31 @@ export interface ProviderSpawnCapability {
   supportsParallelSpawn: boolean;
   /** Mechanism used for spawning. */
   spawnMechanism: import('./core/registry/types.js').SpawnMechanism | null;
+  /**
+   * Literal command-line invocation used by the harness to spawn a child
+   * worker. Only meaningful when `spawnMechanism === "native-child-process"`.
+   */
+  spawnCommand: string[] | null;
 }
 
 /**
- * Aggregate provider capabilities for skills, hooks, and spawn.
+ * Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
  *
  * @remarks
- * Groups the three capability dimensions into a single object that is
- * always populated on the resolved {@link Provider} interface at runtime.
- * Unlike the raw registry type, all three fields are required here.
+ * Groups the capability dimensions into a single object on the resolved
+ * {@link Provider} interface at runtime. Skills, hooks, and spawn are
+ * always populated (with safe defaults when absent from the registry).
+ * MCP and harness are optional because not every provider is an MCP
+ * consumer (e.g. Pi uses extensions instead) and not every provider is
+ * a first-class harness (most are pure spawn targets).
  *
  * @public
  */
 export interface ProviderCapabilities {
+  /** MCP server integration, when the provider consumes MCP via a config file. */
+  mcp: ProviderMcpCapability | null;
+  /** Harness role, present only for orchestrators and standalone harnesses. */
+  harness: ProviderHarnessCapability | null;
   /** Skills path resolution and precedence. */
   skills: ProviderSkillsCapability;
   /** Hook/lifecycle event support. */
@@ -262,43 +348,31 @@ export interface ProviderCapabilities {
 
 // ── Provider ────────────────────────────────────────────────────────
 
-/**
- * Priority tier for a provider, used for sorting and default selection.
- *
- * - `"high"` - Major, widely-used agents
- * - `"medium"` - Established but less common agents
- * - `"low"` - Niche or experimental agents
- *
- * @public
- */
-export type ProviderPriority = 'high' | 'medium' | 'low';
+// Priority and status enums are defined in the registry types module to
+// avoid duplication; they are the same for raw JSON and resolved runtime.
+import type { ProviderPriority, ProviderStatus } from './core/registry/types.js';
 
-/**
- * Lifecycle status of a provider in the registry.
- *
- * - `"active"` - Fully supported
- * - `"beta"` - Supported but may have rough edges
- * - `"deprecated"` - Still present but no longer recommended
- * - `"planned"` - Not yet implemented
- *
- * @public
- */
-export type ProviderStatus = 'active' | 'beta' | 'deprecated' | 'planned';
+export type { ProviderPriority, ProviderStatus } from './core/registry/types.js';
 
 /**
  * A resolved AI agent provider definition with platform-specific paths.
  *
  * @remarks
  * Providers are loaded from `providers/registry.json` and resolved at runtime
- * to expand platform-specific path variables (`$HOME`, `$CONFIG`, etc.).
- * This is the primary type used throughout the CAAMP codebase for working
- * with provider configurations.
+ * to expand platform-specific path variables (`$HOME`, `$CONFIG`, `$CLEO_HOME`,
+ * etc.). This is the primary type used throughout the CAAMP codebase for
+ * working with provider configurations.
+ *
+ * MCP server integration metadata (config key, format, paths, transports,
+ * headers) lives on {@link ProviderCapabilities.mcp} rather than at the
+ * top level. Providers that do not consume MCP servers (e.g. Pi, which uses
+ * TypeScript extensions) have `capabilities.mcp === null`.
  *
  * @example
  * ```typescript
  * const provider = getProvider("claude-code");
- * if (provider) {
- *   console.log(provider.configPathGlobal);
+ * if (provider?.capabilities.mcp) {
+ *   console.log(provider.capabilities.mcp.configPathGlobal);
  * }
  * ```
  *
@@ -324,15 +398,6 @@ export interface Provider {
   /** Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`). */
   instructFile: string;
 
-  /** Dot-notation key path for MCP server config (e.g. `"mcpServers"`). */
-  configKey: string;
-  /** Config file format used by this provider. */
-  configFormat: ConfigFormat;
-  /** Resolved global config file path. */
-  configPathGlobal: string;
-  /** Project-relative config file path, or `null` if unsupported. */
-  configPathProject: string | null;
-
   /** Resolved global skills directory path. */
   pathSkills: string;
   /** Project-relative skills directory path. */
@@ -341,11 +406,6 @@ export interface Provider {
   /** Detection configuration for auto-discovering this provider. */
   detection: DetectionConfig;
 
-  /** MCP transport protocols this provider supports. */
-  supportedTransports: TransportType[];
-  /** Whether the provider supports custom HTTP headers for remote MCP servers. */
-  supportsHeaders: boolean;
-
   /** Priority tier for sorting and default selection. */
   priority: ProviderPriority;
   /** Lifecycle status in the registry. */
@@ -353,7 +413,7 @@ export interface Provider {
   /** Whether the provider is compatible with the Agent Skills standard. */
   agentSkillsCompatible: boolean;
 
-  /** Provider capabilities for skills, hooks, and spawn. Always populated at runtime. */
+  /** Provider capabilities (MCP, harness, skills, hooks, spawn). Always populated at runtime. */
   capabilities: ProviderCapabilities;
 }
 

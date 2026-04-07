@@ -4,6 +4,11 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
+import {
+  getHarnessFor,
+  type HarnessScope,
+  resolveDefaultTargetProviders,
+} from '../../core/harness/index.js';
 import { injectAll } from '../../core/instructions/injector.js';
 import {
   generateInjectionContent,
@@ -16,7 +21,6 @@ import {
   outputSuccess,
   resolveFormat,
 } from '../../core/lafs.js';
-import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider } from '../../types.js';
 
@@ -94,7 +98,7 @@ export function registerInstructionsInject(parent: Command): void {
             .map((a) => getProvider(a))
             .filter((p): p is Provider => p !== undefined);
         } else {
-          providers = getInstalledProviders();
+          providers = resolveDefaultTargetProviders();
         }
 
         if (providers.length === 0) {
@@ -142,7 +146,48 @@ export function registerInstructionsInject(parent: Command): void {
           return;
         }
 
-        const results = await injectAll(providers, process.cwd(), scope, content);
+        // Split targets into harness-backed providers and generic providers
+        // so that each harness's native injection path is used when
+        // available, while generic providers continue through the shared
+        // marker-based injector.
+        const harnessProviders: Provider[] = [];
+        const genericProviders: Provider[] = [];
+        for (const p of providers) {
+          if (getHarnessFor(p) !== null) {
+            harnessProviders.push(p);
+          } else {
+            genericProviders.push(p);
+          }
+        }
+
+        const results: Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'> =
+          new Map();
+        const harnessScope: HarnessScope =
+          scope === 'global' ? { kind: 'global' } : { kind: 'project', projectDir: process.cwd() };
+        for (const provider of harnessProviders) {
+          const harness = getHarnessFor(provider);
+          if (harness === null) continue;
+          try {
+            await harness.injectInstructions(content, harnessScope);
+            // Harness does not report back a file-level action; record a
+            // synthetic "updated" entry keyed by provider id so downstream
+            // reporting has something to show.
+            results.set(`${provider.id}:AGENTS.md`, 'updated');
+          } catch (err) {
+            if (format === 'human') {
+              console.log(
+                pc.red(`  x ${provider.id}: ${err instanceof Error ? err.message : String(err)}`),
+              );
+            }
+          }
+        }
+
+        if (genericProviders.length > 0) {
+          const genericResults = await injectAll(genericProviders, process.cwd(), scope, content);
+          for (const [file, action] of genericResults) {
+            results.set(file, action);
+          }
+        }
 
         const injected: string[] = [];
         for (const [file] of results) {

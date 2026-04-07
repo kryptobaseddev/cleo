@@ -268,16 +268,23 @@ export function registerProvidersCommand(program: Command): void {
       console.log(`  Priority:        ${provider.priority}`);
       console.log();
       console.log(`  Instruction:     ${provider.instructFile}`);
-      console.log(`  Config format:   ${provider.configFormat}`);
-      console.log(`  Config key:      ${provider.configKey}`);
-      console.log(`  Transports:      ${provider.supportedTransports.join(', ')}`);
-      console.log(`  Headers:         ${provider.supportsHeaders ? 'yes' : 'no'}`);
+      const mcp = provider.capabilities.mcp;
+      if (mcp) {
+        console.log(`  Config format:   ${mcp.configFormat}`);
+        console.log(`  Config key:      ${mcp.configKey}`);
+        console.log(`  Transports:      ${mcp.supportedTransports.join(', ')}`);
+        console.log(`  Headers:         ${mcp.supportsHeaders ? 'yes' : 'no'}`);
+      } else {
+        console.log(`  MCP integration: ${pc.dim('(none — extension-based harness)')}`);
+      }
       console.log();
       console.log(pc.dim('  Paths:'));
       console.log(`  Global dir:      ${provider.pathGlobal}`);
       console.log(`  Project dir:     ${provider.pathProject || '(none)'}`);
-      console.log(`  Global config:   ${provider.configPathGlobal}`);
-      console.log(`  Project config:  ${provider.configPathProject || '(none)'}`);
+      if (mcp) {
+        console.log(`  Global config:   ${mcp.configPathGlobal}`);
+        console.log(`  Project config:  ${mcp.configPathProject || '(none)'}`);
+      }
       console.log(`  Global skills:   ${provider.pathSkills}`);
       console.log(`  Project skills:  ${provider.pathProjectSkills || '(none)'}`);
       console.log();

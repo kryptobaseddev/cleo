@@ -201,7 +201,7 @@ export function parseSource(input: string): ParsedSource {
       type: 'library',
       value: input,
       inferredName: inferName(input, 'library'),
-      owner: libraryMatch[1], // This will be the package name, e.g. @cleocode/ct-skills
+      owner: libraryMatch[1], // This will be the package name, e.g. @cleocode/skills
       repo: libraryMatch[2], // This will be the skill name, e.g. ct-research-agent
     };
   }

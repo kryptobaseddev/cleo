@@ -1,8 +1,8 @@
 {
   "$schema": "./hook-mappings.schema.json",
-  "version": "1.0.0",
-  "lastUpdated": "2026-03-24",
-  "description": "CAAMP canonical hook event mappings to provider-native event names",
+  "version": "2.0.0",
+  "lastUpdated": "2026-04-06",
+  "description": "CAAMP canonical hook event mappings to provider-native event names. The top-level `canonicalEvents` block is the CAAMP taxonomy that all providers translate to/from. The sibling `piEventCatalog` block is Pi's native lifecycle catalog, consulted when a provider's `capabilities.hooks.nativeEventCatalog` is `\"pi\"`.",
   "canonicalEvents": {
     "SessionStart": {
       "category": "session",
@@ -428,5 +428,29 @@
       },
       "providerOnlyEvents": []
     }
+  },
+  "piEventCatalog": {
+    "session_start":            { "canonicalEquivalent": "SessionStart",  "category": "session", "description": "Pi session created" },
+    "session_shutdown":         { "canonicalEquivalent": "SessionEnd",    "category": "session", "description": "Pi session ended" },
+    "session_switch":           { "canonicalEquivalent": null,             "category": "session", "description": "User switched between sessions in interactive mode" },
+    "session_fork":             { "canonicalEquivalent": null,             "category": "session", "description": "User forked a session" },
+    "before_agent_start":       { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop is about to start a new turn" },
+    "agent_start":              { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop started a new turn" },
+    "agent_end":                { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop finished a turn" },
+    "turn_start":               { "canonicalEquivalent": null,             "category": "agent",   "description": "Conversation turn started" },
+    "turn_end":                 { "canonicalEquivalent": null,             "category": "agent",   "description": "Conversation turn ended" },
+    "message_start":            { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message started" },
+    "message_update":           { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message chunk received" },
+    "message_end":              { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message ended" },
+    "context":                  { "canonicalEquivalent": null,             "category": "context", "description": "Context (system prompt + history) is being assembled" },
+    "before_provider_request":  { "canonicalEquivalent": "PreModel",       "category": "agent",   "description": "About to call the LLM provider" },
+    "tool_call":                { "canonicalEquivalent": "PreToolUse",    "category": "tool",    "description": "Tool is about to be called" },
+    "tool_result":              { "canonicalEquivalent": "PostToolUse",   "category": "tool",    "description": "Tool result received" },
+    "tool_execution_start":     { "canonicalEquivalent": "PreToolUse",    "category": "tool",    "description": "Tool execution started (separate from tool_call)" },
+    "tool_execution_end":       { "canonicalEquivalent": "PostToolUse",   "category": "tool",    "description": "Tool execution ended" },
+    "input":                    { "canonicalEquivalent": "PromptSubmit",  "category": "prompt",  "description": "User submitted input" },
+    "user_bash":                { "canonicalEquivalent": null,             "category": "tool",    "description": "User ran a bash command directly" },
+    "model_select":             { "canonicalEquivalent": null,             "category": "agent",   "description": "User changed the active model" },
+    "resources_discover":       { "canonicalEquivalent": null,             "category": "context", "description": "Pi is discovering skills/extensions/themes" }
   }
 }

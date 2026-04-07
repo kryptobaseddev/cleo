@@ -35,7 +35,7 @@ const require = createRequire(import.meta.url);
  *
  * @example
  * ```typescript
- * const library = loadLibraryFromModule("/home/user/.agents/libraries/ct-skills");
+ * const library = loadLibraryFromModule("/home/user/.agents/libraries/cleocode-skills");
  * console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
  * ```
  *
@@ -111,7 +111,7 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
  *
  * @example
  * ```typescript
- * const library = buildLibraryFromFiles("/home/user/.agents/libraries/ct-skills");
+ * const library = buildLibraryFromFiles("/home/user/.agents/libraries/cleocode-skills");
  * const coreSkills = library.getCoreSkills();
  * console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
  * ```
@@ -292,7 +292,7 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
     },
 
     listProtocols(): string[] {
-      // Check root protocols/ first (ct-skills layout), fall back to skills/protocols/
+      // Check root protocols/ first (root-level layout), fall back to skills/protocols/
       const rootProtocols = discoverFiles(join(root, 'protocols'), '.md');
       if (rootProtocols.length > 0) return rootProtocols;
       return discoverFiles(join(root, 'skills', 'protocols'), '.md');

@@ -4,6 +4,7 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
+import { resolveDefaultTargetProviders } from '../../core/harness/index.js';
 import { checkAllInjections } from '../../core/instructions/injector.js';
 import {
   ErrorCategories,
@@ -12,7 +13,6 @@ import {
   outputSuccess,
   resolveFormat,
 } from '../../core/lafs.js';
-import { getInstalledProviders } from '../../core/registry/detection.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider } from '../../types.js';
 
@@ -86,7 +86,7 @@ export function registerInstructionsCheck(parent: Command): void {
             .map((a) => getProvider(a))
             .filter((p): p is Provider => p !== undefined);
         } else {
-          providers = getInstalledProviders();
+          providers = resolveDefaultTargetProviders();
         }
 
         const scope = opts.global ? ('global' as const) : ('project' as const);

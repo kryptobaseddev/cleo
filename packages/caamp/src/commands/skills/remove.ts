@@ -5,6 +5,10 @@
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import {
+  dispatchRemoveSkillAcrossProviders,
+  resolveDefaultTargetProviders,
+} from '../../core/harness/index.js';
+import {
   ErrorCategories,
   ErrorCodes,
   emitJsonError,
@@ -12,8 +16,7 @@ import {
   resolveFormat,
 } from '../../core/lafs.js';
 import { isHuman } from '../../core/logger.js';
-import { getInstalledProviders } from '../../core/registry/detection.js';
-import { listCanonicalSkills, removeSkill } from '../../core/skills/installer.js';
+import { listCanonicalSkills } from '../../core/skills/installer.js';
 import { removeSkillFromLock } from '../../core/skills/lock.js';
 
 /**
@@ -69,10 +72,14 @@ export function registerSkillsRemove(parent: Command): void {
           process.exit(1);
         }
 
-        const providers = getInstalledProviders();
+        const providers = resolveDefaultTargetProviders();
 
         if (name) {
-          const result = await removeSkill(name, providers, opts.global ?? false);
+          const result = await dispatchRemoveSkillAcrossProviders(
+            name,
+            providers,
+            opts.global ?? false,
+          );
 
           const removed = result.removed;
           const count = {

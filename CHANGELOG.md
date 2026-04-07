@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.5] - 2026-04-06
+
+### ⚠ BREAKING CHANGES — v3 harness architecture
+
+The CAAMP provider model has been generalised so that Pi (`@mariozechner/pi-coding-agent`) is the first-class primary harness CLEO is built around and optimises for. Other providers continue to work as spawn targets, but MCP-as-config-file is no longer the load-bearing assumption.
+
+**Registry schema v2.0.0** — all provider data reshaped. If you consume `@cleocode/caamp` as a library and read the resolved `Provider` type, you MUST update your code:
+
+- The six top-level MCP fields (`configKey`, `configFormat`, `configPathGlobal`, `configPathProject`, `supportedTransports`, `supportsHeaders`) have been **removed from `Provider`**. They now live under `provider.capabilities.mcp`, which is `ProviderMcpCapability | null`. Providers without MCP integration (Pi) have `capabilities.mcp === null`.
+- `ProviderPriority` gained `'primary'` as a new tier above `'high'`. Exactly one provider per registry may have priority `'primary'` (today: Pi).
+- New optional `provider.capabilities.harness: ProviderHarnessCapability | null` — populated for first-class harnesses (today: Pi). Describes the harness kind (`orchestrator` / `standalone`), spawn targets, extension paths, and CLEO-integration flags.
+- `RegistrySpawnCapability.spawnMechanism` gained `'native-child-process'`. New optional `spawnCommand: string[] | null` captures the literal invocation (Pi: `["pi", "--mode", "json", "-p", "--no-session"]`).
+- `RegistryHooksCapability.hookFormat` gained `'typescript-directory'`. New fields: `hookConfigPathProject`, `nativeEventCatalog` (`'canonical' | 'pi'`), `canInjectSystemPrompt`, `canBlockTools`.
+- Pi's hook events use a separate `pi` catalog in `providers/hook-mappings.json` (sibling of the existing `canonicalEvents` map) since Pi's native event names don't map cleanly to the canonical catalog.
+
+### Added
+
+- **Pi harness layer** ([`packages/caamp/src/core/harness/`](packages/caamp/src/core/harness/)): new abstraction for first-class harnesses. Exports `Harness` interface, `getHarnessFor(provider)`, `getPrimaryHarness()`, `getAllHarnesses()`, `PiHarness` class, and `resolveDefaultTargetProviders()` helper. `PiHarness` implements the full contract against `~/.pi/agent/` and `.pi/` — skills install via copy (not symlink), instructions injected into `AGENTS.md` with marker blocks, settings managed atomically, MCP servers can be scaffolded as Pi extensions, and subagents are spawned via `child_process.spawn('pi', ...)`. 37 new unit tests cover the roundtrip.
+- **`getPrimaryProvider()`** query function in the registry, returning the provider with `priority === 'primary'`.
+- **Registry migration script** (`packages/caamp/scripts/migrate-registry-v2.mjs`): idempotent, ES-module, zero-dep migrator that moved 264 MCP fields (44 providers × 6 fields) into `capabilities.mcp`, bumped registry to v2.0.0, and rewrote Pi's entry with the harness capability block.
+- **Pi-primary default resolution** across all CAAMP commands: when no `--agent` flag is given, commands target the primary harness if installed, falling back to the high-priority installed set. Applies to `caamp skills install|remove|update|list`, `caamp instructions inject|check|update`, and `caamp advanced` operations.
+- **Harness dispatch** in `skills install/remove/update` and `instructions inject/update`: if the target provider has a harness, the command calls the harness method directly (bypassing the generic MCP-config-file path). Generic providers continue to use the existing code paths unchanged.
+- **`$CLEO_HOME` template variable** support in registry path resolution, honouring `CLEO_HOME` env var with XDG/macOS/Windows fallbacks to support Pi's `globalExtensionsHub`.
+
+### Changed
+
+- **`registry.json` version bumped `1.1.0` → `2.0.0`.** All 44 non-Pi providers migrated to the new capability shape. Pi entry rewritten with `priority: "primary"`, no `capabilities.mcp`, full `capabilities.harness` populated.
+- **`hook-mappings.json` version bumped `1.0.0` → `2.0.0`.** Added 22-entry `piEventCatalog` sibling key mapping Pi's native events (`session_start`, `before_agent_start`, `tool_execution_start`, …) to their canonical equivalents where they exist.
+- **`doctor` command**: now treats missing `capabilities.mcp` as "valid, extension-based harness" rather than a validation failure. Config-file checks emit a pass for harness-based providers.
+- **`providers show`** and **`config show`**: gracefully render `(none — extension-based harness)` for providers without an `mcp` capability.
+- **CLEO consumers** (`packages/core/src/metrics/__tests__/provider-detection.test.ts`): updated provider-detection test fixture to the new capability shape.
+
+### Fixed
+
+- **Pre-existing `admin.test.ts` drift** in `packages/cleo/src/dispatch/domains/__tests__/`: `initProject` mock was missing `skipped` and `warnings` fields required by the current return type.
+- **Pre-existing Rust formatting drift** in `crates/cant-core/src/generated/events.rs` surfaced by `cargo fmt` gate; reformatted.
+
+### Migration for library consumers
+
+If you import `Provider` from `@cleocode/caamp`:
+
+```diff
+- const key = provider.configKey;
+- const fmt = provider.configFormat;
+- const path = provider.configPathGlobal;
++ const mcp = provider.capabilities.mcp;
++ if (!mcp) { /* provider has no MCP integration (e.g. Pi) */ return; }
++ const { configKey, configFormat, configPathGlobal } = mcp;
+```
+
+The old top-level fields are **gone**, not deprecated. There is no compat shim — this is a straight v3 move.
+
 ## [2026.4.4] - 2026-04-06
 
 ### Fixed

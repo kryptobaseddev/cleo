@@ -9,16 +9,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  ConfigFormat,
   DetectionMethod,
   Provider,
   ProviderCapabilities,
+  ProviderHarnessCapability,
   ProviderHooksCapability,
-  ProviderPriority,
+  ProviderMcpCapability,
   ProviderSkillsCapability,
   ProviderSpawnCapability,
-  ProviderStatus,
-  TransportType,
 } from '../../types.js';
 import {
   type PathScope,
@@ -28,11 +26,16 @@ import {
 } from '../paths/standard.js';
 import type {
   HookEvent,
+  ProviderPriority,
   ProviderRegistry,
+  ProviderStatus,
   RegistryCapabilities,
+  RegistryHarnessCapability,
+  RegistryHooksCapability,
+  RegistryMcpIntegration,
   RegistryProvider,
+  RegistrySpawnCapability,
   SkillsPrecedence,
-  SpawnMechanism,
 } from './types.js';
 
 // ── Capability Defaults ──────────────────────────────────────────────
@@ -46,7 +49,11 @@ const DEFAULT_SKILLS_CAPABILITY: ProviderSkillsCapability = {
 const DEFAULT_HOOKS_CAPABILITY: ProviderHooksCapability = {
   supported: [],
   hookConfigPath: null,
+  hookConfigPathProject: null,
   hookFormat: null,
+  nativeEventCatalog: 'canonical',
+  canInjectSystemPrompt: false,
+  canBlockTools: false,
 };
 
 const DEFAULT_SPAWN_CAPABILITY: ProviderSpawnCapability = {
@@ -55,7 +62,56 @@ const DEFAULT_SPAWN_CAPABILITY: ProviderSpawnCapability = {
   supportsInterAgentComms: false,
   supportsParallelSpawn: false,
   spawnMechanism: null,
+  spawnCommand: null,
 };
+
+function resolveMcpCapability(raw: RegistryMcpIntegration): ProviderMcpCapability {
+  return {
+    configKey: raw.configKey,
+    configFormat: raw.configFormat,
+    configPathGlobal: resolveRegistryTemplatePath(raw.configPathGlobal),
+    configPathProject: raw.configPathProject,
+    supportedTransports: [...raw.supportedTransports],
+    supportsHeaders: raw.supportsHeaders,
+  };
+}
+
+function resolveHarnessCapability(raw: RegistryHarnessCapability): ProviderHarnessCapability {
+  return {
+    kind: raw.kind,
+    spawnTargets: [...raw.spawnTargets],
+    supportsConductorLoop: raw.supportsConductorLoop,
+    supportsStageGuidance: raw.supportsStageGuidance,
+    supportsCantBridge: raw.supportsCantBridge,
+    extensionsPath: resolveRegistryTemplatePath(raw.extensionsPath),
+    globalExtensionsHub: raw.globalExtensionsHub
+      ? resolveRegistryTemplatePath(raw.globalExtensionsHub)
+      : null,
+  };
+}
+
+function resolveHooksCapability(raw: RegistryHooksCapability): ProviderHooksCapability {
+  return {
+    supported: [...raw.supported],
+    hookConfigPath: raw.hookConfigPath ? resolveRegistryTemplatePath(raw.hookConfigPath) : null,
+    hookConfigPathProject: raw.hookConfigPathProject ?? null,
+    hookFormat: raw.hookFormat,
+    nativeEventCatalog: raw.nativeEventCatalog ?? 'canonical',
+    canInjectSystemPrompt: raw.canInjectSystemPrompt ?? false,
+    canBlockTools: raw.canBlockTools ?? false,
+  };
+}
+
+function resolveSpawnCapability(raw: RegistrySpawnCapability): ProviderSpawnCapability {
+  return {
+    supportsSubagents: raw.supportsSubagents,
+    supportsProgrammaticSpawn: raw.supportsProgrammaticSpawn,
+    supportsInterAgentComms: raw.supportsInterAgentComms,
+    supportsParallelSpawn: raw.supportsParallelSpawn,
+    spawnMechanism: raw.spawnMechanism,
+    spawnCommand: raw.spawnCommand ? [...raw.spawnCommand] : null,
+  };
+}
 
 function resolveCapabilities(raw?: RegistryCapabilities): ProviderCapabilities {
   const skills: ProviderSkillsCapability = raw?.skills
@@ -69,26 +125,20 @@ function resolveCapabilities(raw?: RegistryCapabilities): ProviderCapabilities {
     : { ...DEFAULT_SKILLS_CAPABILITY };
 
   const hooks: ProviderHooksCapability = raw?.hooks
-    ? {
-        supported: raw.hooks.supported as HookEvent[],
-        hookConfigPath: raw.hooks.hookConfigPath
-          ? resolveRegistryTemplatePath(raw.hooks.hookConfigPath)
-          : null,
-        hookFormat: raw.hooks.hookFormat as ProviderHooksCapability['hookFormat'],
-      }
+    ? resolveHooksCapability(raw.hooks)
     : { ...DEFAULT_HOOKS_CAPABILITY, supported: [] };
 
   const spawn: ProviderSpawnCapability = raw?.spawn
-    ? {
-        supportsSubagents: raw.spawn.supportsSubagents,
-        supportsProgrammaticSpawn: raw.spawn.supportsProgrammaticSpawn,
-        supportsInterAgentComms: raw.spawn.supportsInterAgentComms,
-        supportsParallelSpawn: raw.spawn.supportsParallelSpawn,
-        spawnMechanism: raw.spawn.spawnMechanism as SpawnMechanism | null,
-      }
+    ? resolveSpawnCapability(raw.spawn)
     : { ...DEFAULT_SPAWN_CAPABILITY };
 
-  return { skills, hooks, spawn };
+  const mcp: ProviderMcpCapability | null = raw?.mcp ? resolveMcpCapability(raw.mcp) : null;
+
+  const harness: ProviderHarnessCapability | null = raw?.harness
+    ? resolveHarnessCapability(raw.harness)
+    : null;
+
+  return { mcp, harness, skills, hooks, spawn };
 }
 
 function findRegistryPath(): string {
@@ -110,10 +160,6 @@ function resolveProvider(raw: RegistryProvider): Provider {
     pathGlobal: resolveRegistryTemplatePath(raw.pathGlobal),
     pathProject: raw.pathProject,
     instructFile: raw.instructFile,
-    configKey: raw.configKey,
-    configFormat: raw.configFormat as ConfigFormat,
-    configPathGlobal: resolveRegistryTemplatePath(raw.configPathGlobal),
-    configPathProject: raw.configPathProject,
     pathSkills: resolveRegistryTemplatePath(raw.pathSkills),
     pathProjectSkills: raw.pathProjectSkills,
     detection: {
@@ -123,10 +169,8 @@ function resolveProvider(raw: RegistryProvider): Provider {
       appBundle: raw.detection.appBundle,
       flatpakId: raw.detection.flatpakId,
     },
-    supportedTransports: raw.supportedTransports as TransportType[],
-    supportsHeaders: raw.supportsHeaders,
-    priority: raw.priority as ProviderPriority,
-    status: raw.status as ProviderStatus,
+    priority: raw.priority,
+    status: raw.status,
     agentSkillsCompatible: raw.agentSkillsCompatible,
     capabilities: resolveCapabilities(raw.capabilities),
   };
@@ -244,8 +288,10 @@ export function resolveAlias(idOrAlias: string): string {
  * @remarks
  * Provider priority is assigned in `providers/registry.json` and indicates the
  * relative importance of a provider for detection ordering and display.
+ * Callers filtering by `"primary"` should expect zero or one result; the
+ * registry loader does not enforce the single-primary invariant.
  *
- * @param priority - Priority level to filter by (`"high"`, `"medium"`, or `"low"`)
+ * @param priority - Priority level to filter by (`"primary"`, `"high"`, `"medium"`, or `"low"`)
  * @returns Array of providers matching the given priority
  *
  * @example
@@ -258,6 +304,32 @@ export function resolveAlias(idOrAlias: string): string {
  */
 export function getProvidersByPriority(priority: ProviderPriority): Provider[] {
   return getAllProviders().filter((p) => p.priority === priority);
+}
+
+/**
+ * Get the single primary harness provider, if any is registered.
+ *
+ * @remarks
+ * Returns the provider with `priority === "primary"`. By convention a
+ * registry defines at most one primary harness; this function returns
+ * the first match if the invariant is violated and logs no warning. Use
+ * {@link getProvidersByPriority} instead if you need to diagnose
+ * duplicates.
+ *
+ * @returns The primary provider, or `undefined` if none is registered
+ *
+ * @example
+ * ```typescript
+ * const primary = getPrimaryProvider();
+ * if (primary) {
+ *   console.log(`Primary harness: ${primary.toolName}`);
+ * }
+ * ```
+ *
+ * @public
+ */
+export function getPrimaryProvider(): Provider | undefined {
+  return getAllProviders().find((p) => p.priority === 'primary');
 }
 
 /**
@@ -360,7 +432,7 @@ export function getProviderCount(): number {
  * The version is read from the top-level `version` field in `providers/registry.json`
  * and follows semver conventions. It is bumped when provider definitions change.
  *
- * @returns Version string from `providers/registry.json` (e.g. `"1.0.0"`)
+ * @returns Version string from `providers/registry.json` (e.g. `"2.0.0"`)
  *
  * @example
  * ```typescript
@@ -498,8 +570,8 @@ export function getSpawnCapableProviders(): Provider[] {
  *
  * @remarks
  * The spawn capability has four boolean flags that can be queried independently.
- * The `spawnMechanism` string field is excluded from the flag type since it is
- * not a boolean check.
+ * The `spawnMechanism` and `spawnCommand` fields are excluded from the flag
+ * type since they are not boolean checks.
  *
  * @param flag - One of the four boolean flags on {@link ProviderSpawnCapability}
  *              (`"supportsSubagents"`, `"supportsProgrammaticSpawn"`,
@@ -517,7 +589,7 @@ export function getSpawnCapableProviders(): Provider[] {
  * @public
  */
 export function getProvidersBySpawnCapability(
-  flag: keyof Omit<ProviderSpawnCapability, 'spawnMechanism'>,
+  flag: keyof Omit<ProviderSpawnCapability, 'spawnMechanism' | 'spawnCommand'>,
 ): Provider[] {
   return getAllProviders().filter((p) => p.capabilities.spawn[flag] === true);
 }
@@ -688,7 +760,8 @@ export function buildSkillsMap(): Array<{
  *
  * @remarks
  * Shorthand for `getProvider(idOrAlias)?.capabilities`. Returns the full
- * capabilities object containing skills, hooks, and spawn sub-objects.
+ * capabilities object containing mcp, harness, skills, hooks, and spawn
+ * sub-objects.
  *
  * @param idOrAlias - Provider ID or alias
  * @returns The provider's capabilities, or undefined if not found

@@ -179,32 +179,94 @@ describe("paths standard", () => {
   });
 
   describe("resolveProviderConfigPath", () => {
+    const buildMcpProvider = (
+      configPathGlobal: string,
+      configPathProject: string | null,
+    ): Provider =>
+      ({
+        capabilities: {
+          mcp: {
+            configKey: "mcpServers",
+            configFormat: "json",
+            configPathGlobal,
+            configPathProject,
+            supportedTransports: ["stdio"],
+            supportsHeaders: false,
+          },
+          harness: null,
+          skills: { precedence: "vendor-only", agentsGlobalPath: null, agentsProjectPath: null },
+          hooks: {
+            supported: [],
+            hookConfigPath: null,
+            hookConfigPathProject: null,
+            hookFormat: null,
+            nativeEventCatalog: "canonical",
+            canInjectSystemPrompt: false,
+            canBlockTools: false,
+          },
+          spawn: {
+            supportsSubagents: false,
+            supportsProgrammaticSpawn: false,
+            supportsInterAgentComms: false,
+            supportsParallelSpawn: false,
+            spawnMechanism: null,
+            spawnCommand: null,
+          },
+        },
+      } as unknown as Provider);
+
     it("returns global config path from provider", () => {
-      const mockProvider = {
-        configPathGlobal: "/home/user/.claude/config.json",
-        configPathProject: ".claude/config.json",
-      } as Provider;
+      const mockProvider = buildMcpProvider(
+        "/home/user/.claude/config.json",
+        ".claude/config.json",
+      );
       const result = resolveProviderConfigPath(mockProvider, "global");
       expect(result).toBe("/home/user/.claude/config.json");
     });
 
     it("returns project config path resolved under project root", () => {
-      const mockProvider = {
-        configPathGlobal: "/home/user/.claude/config.json",
-        configPathProject: ".claude/config.json",
-      } as Provider;
+      const mockProvider = buildMcpProvider(
+        "/home/user/.claude/config.json",
+        ".claude/config.json",
+      );
       const result = resolveProviderConfigPath(mockProvider, "project", "/proj");
       expect(result).toContain(".claude");
       expect(result).toContain("config.json");
     });
 
     it("returns null for project scope when provider has no project config", () => {
-      const mockProvider = {
-        configPathGlobal: "/home/user/.windsurf/config.json",
-        configPathProject: null,
-      } as Provider;
+      const mockProvider = buildMcpProvider("/home/user/.windsurf/config.json", null);
       const result = resolveProviderConfigPath(mockProvider, "project", "/proj");
       expect(result).toBeNull();
+    });
+
+    it("returns null when provider has no MCP integration at all", () => {
+      const mockProvider = {
+        capabilities: {
+          mcp: null,
+          harness: null,
+          skills: { precedence: "vendor-only", agentsGlobalPath: null, agentsProjectPath: null },
+          hooks: {
+            supported: [],
+            hookConfigPath: null,
+            hookConfigPathProject: null,
+            hookFormat: null,
+            nativeEventCatalog: "canonical",
+            canInjectSystemPrompt: false,
+            canBlockTools: false,
+          },
+          spawn: {
+            supportsSubagents: false,
+            supportsProgrammaticSpawn: false,
+            supportsInterAgentComms: false,
+            supportsParallelSpawn: false,
+            spawnMechanism: null,
+            spawnCommand: null,
+          },
+        },
+      } as unknown as Provider;
+      expect(resolveProviderConfigPath(mockProvider, "global")).toBeNull();
+      expect(resolveProviderConfigPath(mockProvider, "project", "/proj")).toBeNull();
     });
   });
 
@@ -280,18 +342,29 @@ describe("paths standard", () => {
       agentsProjectPath: string | null = null,
     ): ProviderCapabilities {
       return {
+        mcp: null,
+        harness: null,
         skills: {
           precedence: precedence as ProviderCapabilities["skills"]["precedence"],
           agentsGlobalPath,
           agentsProjectPath,
         },
-        hooks: { supported: [], hookConfigPath: null, hookFormat: null },
+        hooks: {
+          supported: [],
+          hookConfigPath: null,
+          hookConfigPathProject: null,
+          hookFormat: null,
+          nativeEventCatalog: "canonical",
+          canInjectSystemPrompt: false,
+          canBlockTools: false,
+        },
         spawn: {
           supportsSubagents: false,
           supportsProgrammaticSpawn: false,
           supportsInterAgentComms: false,
           supportsParallelSpawn: false,
           spawnMechanism: null,
+          spawnCommand: null,
         },
       };
     }

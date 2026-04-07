@@ -89,7 +89,24 @@ export function registerConfigCommand(program: Command): void {
         }
 
         const scope = opts.global ? 'global' : 'project';
-        const configPath = resolveProviderConfigPath(provider, scope) ?? provider.configPathGlobal;
+        const mcp = provider.capabilities.mcp;
+        if (!mcp) {
+          const message = `${provider.toolName} has no MCP config integration (extension-based harness)`;
+          if (format === 'json') {
+            emitJsonError(
+              operation,
+              mvi,
+              ErrorCodes.PROVIDER_NOT_FOUND,
+              message,
+              ErrorCategories.VALIDATION,
+              { providerId },
+            );
+          } else {
+            console.log(pc.dim(message));
+          }
+          process.exit(1);
+        }
+        const configPath = resolveProviderConfigPath(provider, scope) ?? mcp.configPathGlobal;
 
         if (!existsSync(configPath)) {
           const message = `No config file at: ${configPath}`;
@@ -112,13 +129,13 @@ export function registerConfigCommand(program: Command): void {
         }
 
         try {
-          const data = await readConfig(configPath, provider.configFormat);
+          const data = await readConfig(configPath, mcp.configFormat);
 
           if (format === 'json') {
             outputSuccess(operation, mvi, {
               provider: provider.id,
               config: data,
-              format: provider.configFormat,
+              format: mcp.configFormat,
               scope,
             });
             return;
@@ -160,15 +177,23 @@ export function registerConfigCommand(program: Command): void {
         process.exit(1);
       }
 
+      const mcp = provider.capabilities.mcp;
+      if (!mcp) {
+        console.error(
+          pc.red(`${provider.toolName} has no MCP config integration (extension-based harness)`),
+        );
+        process.exit(1);
+      }
+
       if (scope === 'global') {
-        console.log(provider.configPathGlobal);
+        console.log(mcp.configPathGlobal);
       } else {
         const projectPath = resolveProviderConfigPath(provider, 'project');
         if (projectPath) {
           console.log(projectPath);
         } else {
           console.log(pc.dim(`${provider.toolName} has no project-level config`));
-          console.log(provider.configPathGlobal);
+          console.log(mcp.configPathGlobal);
         }
       }
     });
