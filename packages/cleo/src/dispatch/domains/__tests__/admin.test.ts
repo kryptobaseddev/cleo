@@ -168,7 +168,6 @@ describe('AdminHandler', () => {
   describe('getSupportedOperations', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
-      // Phase 1 added 'paths' (admin.paths)
       expect(ops.query).toEqual([
         'version',
         'health',
@@ -177,7 +176,6 @@ describe('AdminHandler', () => {
         'stats',
         'context',
         'runtime',
-        'paths',
         'job',
         'dash',
         'log',
@@ -196,10 +194,8 @@ describe('AdminHandler', () => {
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
-      // Phase 1 added 'scaffold-hub' (admin.scaffold-hub)
       expect(ops.mutate).toEqual([
         'init',
-        'scaffold-hub',
         'config.set',
         'config.set-preset',
         'backup',
