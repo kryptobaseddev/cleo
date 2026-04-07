@@ -13,6 +13,11 @@
  */
 
 export type {
+  InstallMcpServerOptions,
+  InstallMcpServerResult,
+} from './installer.js';
+export { installMcpServer } from './installer.js';
+export type {
   McpDetectionEntry,
   McpScope,
   McpServerEntriesByProvider,
@@ -23,12 +28,6 @@ export {
   listMcpServers,
   resolveMcpConfigPath,
 } from './reader.js';
-
-export type {
-  InstallMcpServerOptions,
-  InstallMcpServerResult,
-} from './installer.js';
-export { installMcpServer } from './installer.js';
 
 export type {
   RemoveMcpServerOptions,

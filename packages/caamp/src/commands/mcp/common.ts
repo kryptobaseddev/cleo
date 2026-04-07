@@ -20,8 +20,8 @@
  * @packageDocumentation
  */
 
-import { getProvider } from '../../core/registry/providers.js';
 import type { McpScope } from '../../core/mcp/index.js';
+import { getProvider } from '../../core/registry/providers.js';
 import type { Provider } from '../../types.js';
 import { LAFSCommandError } from '../advanced/lafs.js';
 

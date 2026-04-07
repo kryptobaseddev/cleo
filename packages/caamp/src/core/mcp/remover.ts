@@ -65,12 +65,7 @@ export interface RemoveMcpServerResult {
    *
    * Set to `null` when `removed` is `true`.
    */
-  reason:
-    | 'no-mcp-capability'
-    | 'no-config-path'
-    | 'file-missing'
-    | 'entry-missing'
-    | null;
+  reason: 'no-mcp-capability' | 'no-config-path' | 'file-missing' | 'entry-missing' | null;
 }
 
 /**

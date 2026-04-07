@@ -100,6 +100,9 @@ export {
 } from './core/instructions/templates.js';
 // Logger
 export { isQuiet, isVerbose, setQuiet, setVerbose } from './core/logger.js';
+// Marketplace
+export { MarketplaceClient } from './core/marketplace/client.js';
+export type { MarketplaceResult } from './core/marketplace/types.js';
 // MCP server config management
 export type {
   InstallMcpServerOptions,
@@ -119,9 +122,6 @@ export {
   removeMcpServerFromAll,
   resolveMcpConfigPath,
 } from './core/mcp/index.js';
-// Marketplace
-export { MarketplaceClient } from './core/marketplace/client.js';
-export type { MarketplaceResult } from './core/marketplace/types.js';
 // Canonical path utilities
 export {
   getAgentsConfigPath,

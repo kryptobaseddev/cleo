@@ -51,9 +51,7 @@ import { registerMcpRemoveCommand } from './remove.js';
  * @public
  */
 export function registerMcpCommands(program: Command): void {
-  const mcp = program
-    .command('mcp')
-    .description('MCP server config management across providers');
+  const mcp = program.command('mcp').description('MCP server config management across providers');
 
   registerMcpDetectCommand(mcp);
   registerMcpListCommand(mcp);
