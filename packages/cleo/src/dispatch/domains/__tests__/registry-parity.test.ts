@@ -92,7 +92,9 @@ vi.mock('../../lib/engine.js', () => {
     systemDoctor: mockFn(),
     systemFix: mockFn(),
     systemInjectGenerate: mockFn(),
-    systemBackup: mockSync(),
+    // T5158: systemBackup is async so tasks.db + brain.db can be opened
+    // before VACUUM INTO runs.
+    systemBackup: mockFn(),
     systemRestore: mockSync(),
     backupRestore: mockFn(),
     systemMigrate: mockFn(),

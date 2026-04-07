@@ -48,11 +48,21 @@ vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   }),
 }));
 
-// Mock SQLite writes
+// Mock SQLite writes.
+// T5158: session-hooks.ts (auto-registered via handlers/index.ts) now imports
+// sqlite-backup.ts, which consumes getNativeDb() at module load. The mock
+// must declare it so Vitest doesn't throw on hoisted factory evaluation.
 vi.mock('../../../../../core/src/store/sqlite.js', () => ({
   getDb: vi.fn().mockResolvedValue({
     insert: mockInsert,
   }),
+  getNativeDb: vi.fn().mockReturnValue(null),
+}));
+
+// T5158: sqlite-backup.ts also imports getBrainNativeDb — mock it so the
+// audit test does not have to spin up a real brain.db handle.
+vi.mock('../../../../../core/src/store/brain-sqlite.js', () => ({
+  getBrainNativeDb: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../../../../../core/src/store/tasks-schema.js', async (importOriginal) => {

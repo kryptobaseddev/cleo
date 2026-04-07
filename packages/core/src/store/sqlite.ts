@@ -328,7 +328,21 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     // causing data loss when the WAL contained uncommitted writes.
     await autoRecoverFromBackup(nativeDb, dbPath, cwd);
 
-    // Check if tasks.db or its WAL/SHM are dangerously tracked by git (ADR-013, T5158, T5188)
+    // Check if tasks.db or its WAL/SHM are dangerously tracked by git (ADR-013, T5158, T5188).
+    //
+    // As of ADR-013 §9 (2026-04-07) the canonical resolution is:
+    //   1. `.cleo/tasks.db` + WAL/SHM and `.cleo/brain.db` + WAL/SHM are
+    //      git-ignored at the project root and untracked via `git rm --cached`.
+    //   2. Recovery is provided by VACUUM INTO snapshots in
+    //      `.cleo/backups/sqlite/` (auto-rotated, 10 per DB, refreshed on
+    //      every `cleo session end` via the backup-session-end hook).
+    //   3. Full 4-file snapshots (including config.json + project-info.json)
+    //      are created on demand via `cleo backup add` / listed via
+    //      `cleo backup list` / restored via `cleo restore backup`.
+    //
+    // The warning below is retained as a regression guard: if someone
+    // accidentally re-stages the DB into project git, this warning fires at
+    // every process startup so they fix it before real data loss occurs.
     if (!_gitTrackingChecked) {
       _gitTrackingChecked = true;
       try {
@@ -343,12 +357,14 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
               cwd: gitCwd,
               stdio: 'pipe',
             });
-            // If we get here, the file IS tracked — that's dangerous
+            // If we get here, the file IS tracked — that's dangerous.
             const basename = fileToCheck.split(/[\\/]/).pop();
+            const relPath = fileToCheck.replace(gitCwd + sep, '');
             log.warn(
               { path: fileToCheck },
               `${basename} is tracked by project git — this risks data loss on branch switch. ` +
-                `Run: git rm --cached ${fileToCheck.replace(gitCwd + sep, '')} (see ADR-013, T5188)`,
+                `Resolution (ADR-013 §9): \`git rm --cached ${relPath}\` and rely on ` +
+                `\`.cleo/backups/sqlite/\` snapshots + \`cleo backup add\` for recovery.`,
             );
           } catch {
             // Exit code 1 = not tracked = good

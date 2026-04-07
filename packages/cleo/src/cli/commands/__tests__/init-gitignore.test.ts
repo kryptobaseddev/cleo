@@ -41,22 +41,40 @@ describe('cleo-gitignore template', () => {
     // Key patterns that should be present (deny-by-default template)
     expect(content).toContain('*'); // Step 1: ignore everything
     expect(content).toContain('!.gitignore'); // Allow list
-    expect(content).toContain('!config.json');
+    expect(content).toContain('!project-context.json'); // detected project facts are tracked
     expect(content).toContain('.backups/');
     expect(content).toContain('metrics/');
     expect(content).toContain('*.db');
     expect(content).toContain('*.db-journal');
     expect(content).toContain('*.db-wal');
     expect(content).toContain('*.db-shm');
+    // ADR-013 §9 / T5158 — runtime config snapshots must be denied explicitly
+    // so nested-.gitignore allow rules cannot unignore them at the project
+    // repository level.
+    expect(content).toMatch(/^config\.json$/m);
+    expect(content).toMatch(/^project-info\.json$/m);
+  });
+
+  it('template does NOT re-include config.json or project-info.json', async () => {
+    const content = await readFile(templatePath, 'utf-8');
+
+    // ADR-013 §9 / T5158 — these re-include rules previously allowed
+    // config.json and project-info.json to be staged in the project git
+    // repo despite being declared runtime state. The fix is to drop the
+    // allow rules entirely.
+    expect(content).not.toMatch(/^!config\.json$/m);
+    expect(content).not.toMatch(/^!project-info\.json$/m);
   });
 
   it('template does NOT ignore core tracked files', async () => {
     const content = await readFile(templatePath, 'utf-8');
     const lines = content.split('\n').filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
 
-    // These patterns should NOT appear as active ignore rules
-    // (they should be tracked)
-    const trackedFiles = ['todo.json', 'todo-archive.json', 'config.json', 'sessions.json'];
+    // These patterns should NOT appear as active ignore rules — they are
+    // historically tracked data files from the pre-SQLite era that remained
+    // allow-listed. (config.json and project-info.json DO appear as denies
+    // post-ADR-013 §9 — covered by the dedicated test above.)
+    const trackedFiles = ['todo.json', 'todo-archive.json', 'sessions.json'];
     for (const tracked of trackedFiles) {
       const hasExactIgnore = lines.some((l) => l.trim() === tracked);
       expect(hasExactIgnore).toBe(false);

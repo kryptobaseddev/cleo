@@ -673,8 +673,9 @@ export class AdminHandler implements DomainHandler {
             });
             return wrapResult(result, 'mutate', 'admin', operation, startTime);
           }
-          // Default: create backup
-          const result = systemBackup(
+          // Default: create backup (T5158: async so tasks.db + brain.db
+          // can be opened via drizzle accessors before VACUUM INTO runs).
+          const result = await systemBackup(
             projectRoot,
             params as { type?: string; note?: string } | undefined,
           );

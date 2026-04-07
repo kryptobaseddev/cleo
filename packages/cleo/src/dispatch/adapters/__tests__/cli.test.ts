@@ -58,7 +58,8 @@ vi.mock('../../lib/engine.js', () => ({
   systemSequence: vi.fn(() => ({ success: true, data: {} })),
   systemHealth: vi.fn(() => ({ success: true, data: {} })),
   systemInjectGenerate: vi.fn(() => ({ success: true, data: {} })),
-  systemBackup: vi.fn(() => ({ success: true, data: {} })),
+  // T5158: systemBackup is async
+  systemBackup: vi.fn(async () => ({ success: true, data: {} })),
   systemRestore: vi.fn(() => ({ success: true, data: {} })),
   systemMigrate: vi.fn(() => ({ success: true, data: {} })),
   systemCleanup: vi.fn(() => ({ success: true, data: {} })),

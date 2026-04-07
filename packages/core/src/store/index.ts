@@ -61,6 +61,13 @@ export {
   SafetyDataAccessor,
   wrapWithSafety,
 } from './safety-data-accessor.js';
+export {
+  listBrainBackups,
+  listSqliteBackups,
+  listSqliteBackupsAll,
+  vacuumIntoBackup,
+  vacuumIntoBackupAll,
+} from './sqlite-backup.js';
 
 /**
  * Get a StoreProvider instance for the given working directory.

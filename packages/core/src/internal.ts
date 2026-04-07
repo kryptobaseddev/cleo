@@ -425,6 +425,13 @@ export {
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
+export {
+  listBrainBackups,
+  listSqliteBackups,
+  listSqliteBackupsAll,
+  vacuumIntoBackup,
+  vacuumIntoBackupAll,
+} from './store/sqlite-backup.js';
 export { createTask, getTask } from './store/task-store.js';
 export {
   auditLog,

@@ -517,7 +517,9 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemBackup for backup', async () => {
-      vi.mocked(systemBackup).mockReturnValue({
+      // T5158: systemBackup is async so tasks.db + brain.db can be opened
+      // via drizzle accessors before VACUUM INTO runs.
+      vi.mocked(systemBackup).mockResolvedValue({
         success: true,
         data: {
           backupId: 'snap-1',
@@ -668,7 +670,8 @@ describe('AdminHandler', () => {
     });
 
     it('should include correct _meta on mutate', async () => {
-      vi.mocked(systemBackup).mockReturnValue({
+      // T5158: async systemBackup — see test above.
+      vi.mocked(systemBackup).mockResolvedValue({
         success: true,
         data: {
           backupId: 'snap-2',

@@ -1180,14 +1180,21 @@ export function systemCompliance(
 
 /**
  * Create a backup of CLEO data files.
+ *
+ * Async because `createBackup` (T5158) now opens tasks.db + brain.db via
+ * their drizzle accessors before snapshotting so both databases are
+ * captured even when the current CLI command path hasn't already opened
+ * them (e.g. `cleo backup add` in a fresh process).
+ *
  * @task T4631
+ * @task T5158
  */
-export function systemBackup(
+export async function systemBackup(
   projectRoot: string,
   params?: { type?: string; note?: string },
-): EngineResult<import('@cleocode/core/internal').BackupResult> {
+): Promise<EngineResult<import('@cleocode/core/internal').BackupResult>> {
   try {
-    const result = createBackup(projectRoot, params);
+    const result = await createBackup(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
