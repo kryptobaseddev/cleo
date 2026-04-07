@@ -9,13 +9,21 @@ import {
   getPrimaryHarness,
   PiHarness,
 } from "../../../src/core/harness/index.js";
+import {
+  resolveAllTiers,
+  resolveTierDir,
+  TIER_PRECEDENCE,
+} from "../../../src/core/harness/scope.js";
 import type { HarnessScope } from "../../../src/core/harness/types.js";
 import { getProvider, resetRegistry } from "../../../src/core/registry/providers.js";
 import type { Provider, ProviderSpawnCapability } from "../../../src/types.js";
 
 let piRoot: string;
 let projectDir: string;
+let cleoHomeRoot: string;
+let uniqueRoot: string;
 let savedPiDir: string | undefined;
+let savedCleoHome: string | undefined;
 
 function makeHarness(): PiHarness {
   const provider = getProvider("pi");
@@ -27,13 +35,18 @@ beforeEach(async () => {
   resetRegistry();
   // Unique tmpdir per test to avoid cross-pollution.
   const unique = `caamp-pi-harness-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  piRoot = join(tmpdir(), unique, "pi-agent");
-  projectDir = join(tmpdir(), unique, "project");
+  uniqueRoot = join(tmpdir(), unique);
+  piRoot = join(uniqueRoot, "pi-agent");
+  projectDir = join(uniqueRoot, "project");
+  cleoHomeRoot = join(uniqueRoot, "cleo-home");
   await mkdir(piRoot, { recursive: true });
   await mkdir(projectDir, { recursive: true });
+  await mkdir(cleoHomeRoot, { recursive: true });
 
   savedPiDir = process.env["PI_CODING_AGENT_DIR"];
+  savedCleoHome = process.env["CLEO_HOME"];
   process.env["PI_CODING_AGENT_DIR"] = piRoot;
+  process.env["CLEO_HOME"] = cleoHomeRoot;
 });
 
 afterEach(async () => {
@@ -42,7 +55,12 @@ afterEach(async () => {
   } else {
     process.env["PI_CODING_AGENT_DIR"] = savedPiDir;
   }
-  await rm(join(tmpdir(), piRoot.split("/").slice(-2, -1)[0] ?? ""), {
+  if (savedCleoHome === undefined) {
+    delete process.env["CLEO_HOME"];
+  } else {
+    process.env["CLEO_HOME"] = savedCleoHome;
+  }
+  await rm(uniqueRoot, {
     recursive: true,
     force: true,
   }).catch(() => {});
@@ -548,5 +566,892 @@ describe("PiHarness spawnSubagent", () => {
     expect(typeof handle.pid === "number" || handle.pid === null).toBe(true);
     const result = await handle.result;
     expect(result.exitCode).toBe(0);
+  });
+});
+
+// ── Wave-1 — three-tier scope helper (ADR-035 §D1) ──────────────────
+
+describe("three-tier scope helper", () => {
+  it("TIER_PRECEDENCE orders project → user → global", () => {
+    expect(TIER_PRECEDENCE).toEqual(["project", "user", "global"]);
+  });
+
+  it("resolveTierDir('project', 'extensions', projectDir) → <projectDir>/.pi/extensions", () => {
+    const dir = resolveTierDir({
+      tier: "project",
+      kind: "extensions",
+      projectDir,
+    });
+    expect(dir).toBe(join(projectDir, ".pi", "extensions"));
+  });
+
+  it("resolveTierDir('user', 'extensions') → <piRoot>/extensions (honours PI_CODING_AGENT_DIR)", () => {
+    const dir = resolveTierDir({ tier: "user", kind: "extensions" });
+    expect(dir).toBe(join(piRoot, "extensions"));
+  });
+
+  it("resolveTierDir('global', 'extensions') → <CLEO_HOME>/pi-extensions", () => {
+    const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+    expect(dir).toBe(join(cleoHomeRoot, "pi-extensions"));
+  });
+
+  it("resolveTierDir('project') throws without projectDir", () => {
+    expect(() => resolveTierDir({ tier: "project", kind: "extensions" })).toThrow(
+      /projectDir/,
+    );
+    expect(() =>
+      resolveTierDir({ tier: "project", kind: "extensions", projectDir: "" }),
+    ).toThrow(/projectDir/);
+  });
+
+  it("resolveTierDir resolves prompts and themes to their own subpaths", () => {
+    expect(resolveTierDir({ tier: "user", kind: "prompts" })).toBe(join(piRoot, "prompts"));
+    expect(resolveTierDir({ tier: "user", kind: "themes" })).toBe(join(piRoot, "themes"));
+    expect(resolveTierDir({ tier: "global", kind: "prompts" })).toBe(
+      join(cleoHomeRoot, "pi-prompts"),
+    );
+    expect(resolveTierDir({ tier: "global", kind: "themes" })).toBe(
+      join(cleoHomeRoot, "pi-themes"),
+    );
+  });
+
+  it("resolveTierDir resolves sessions and cant kinds to the right buckets", () => {
+    expect(resolveTierDir({ tier: "user", kind: "sessions" })).toBe(join(piRoot, "sessions"));
+    expect(resolveTierDir({ tier: "user", kind: "cant" })).toBe(join(piRoot, "cant"));
+    expect(resolveTierDir({ tier: "global", kind: "sessions" })).toBe(
+      join(cleoHomeRoot, "pi-sessions"),
+    );
+    expect(resolveTierDir({ tier: "global", kind: "cant" })).toBe(
+      join(cleoHomeRoot, "pi-cant"),
+    );
+    expect(resolveTierDir({ tier: "project", kind: "cant", projectDir })).toBe(
+      join(projectDir, ".pi", "cant"),
+    );
+  });
+
+  it("resolveAllTiers returns all three entries when projectDir is supplied", () => {
+    const tiers = resolveAllTiers("extensions", projectDir);
+    expect(tiers.map((t) => t.tier)).toEqual(["project", "user", "global"]);
+    expect(tiers[0]?.dir).toBe(join(projectDir, ".pi", "extensions"));
+    expect(tiers[1]?.dir).toBe(join(piRoot, "extensions"));
+    expect(tiers[2]?.dir).toBe(join(cleoHomeRoot, "pi-extensions"));
+  });
+
+  it("resolveAllTiers skips the project tier when projectDir is omitted", () => {
+    const tiers = resolveAllTiers("extensions");
+    expect(tiers.map((t) => t.tier)).toEqual(["user", "global"]);
+  });
+
+  it("resolveTierDir honours $PI_CODING_AGENT_DIR expansion (~ and ~/subpath)", () => {
+    // Test the home-relative resolution branches used by the scope
+    // helper when users set PI_CODING_AGENT_DIR=~/custom.
+    const original = process.env["PI_CODING_AGENT_DIR"];
+    try {
+      process.env["PI_CODING_AGENT_DIR"] = "~";
+      const bare = resolveTierDir({ tier: "user", kind: "extensions" });
+      expect(bare.endsWith("/extensions") || bare.endsWith("\\extensions")).toBe(true);
+
+      process.env["PI_CODING_AGENT_DIR"] = "~/caamp-tier-test";
+      const sub = resolveTierDir({ tier: "user", kind: "prompts" });
+      expect(sub.includes("caamp-tier-test")).toBe(true);
+      expect(sub.endsWith(join("caamp-tier-test", "prompts"))).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env["PI_CODING_AGENT_DIR"];
+      } else {
+        process.env["PI_CODING_AGENT_DIR"] = original;
+      }
+    }
+  });
+
+  it("resolveTierDir for user tier falls back to ~/.pi/agent when env is unset", () => {
+    const original = process.env["PI_CODING_AGENT_DIR"];
+    try {
+      delete process.env["PI_CODING_AGENT_DIR"];
+      const dir = resolveTierDir({ tier: "user", kind: "extensions" });
+      expect(dir.endsWith(join(".pi", "agent", "extensions"))).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env["PI_CODING_AGENT_DIR"];
+      } else {
+        process.env["PI_CODING_AGENT_DIR"] = original;
+      }
+    }
+  });
+
+  it("resolveTierDir for global tier falls back to platform defaults when CLEO_HOME is unset", () => {
+    const original = process.env["CLEO_HOME"];
+    const originalXdg = process.env["XDG_DATA_HOME"];
+    try {
+      delete process.env["CLEO_HOME"];
+      delete process.env["XDG_DATA_HOME"];
+      const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+      // The fallback path is platform-specific; assert it ends with the
+      // expected asset suffix so the test is portable.
+      expect(dir.endsWith(join("pi-extensions"))).toBe(true);
+      // And contains `cleo` somewhere in the path.
+      expect(dir.includes("cleo")).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env["CLEO_HOME"];
+      } else {
+        process.env["CLEO_HOME"] = original;
+      }
+      if (originalXdg === undefined) {
+        delete process.env["XDG_DATA_HOME"];
+      } else {
+        process.env["XDG_DATA_HOME"] = originalXdg;
+      }
+    }
+  });
+
+  it("resolveTierDir for global tier honours XDG_DATA_HOME on non-Windows/darwin", () => {
+    // Skipped on Windows/darwin because the XDG branch is not reached
+    // on those platforms by design.
+    if (process.platform === "win32" || process.platform === "darwin") return;
+    const original = process.env["CLEO_HOME"];
+    const originalXdg = process.env["XDG_DATA_HOME"];
+    try {
+      delete process.env["CLEO_HOME"];
+      process.env["XDG_DATA_HOME"] = "/tmp/caamp-xdg-test";
+      const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+      expect(dir).toBe(join("/tmp/caamp-xdg-test", "cleo", "pi-extensions"));
+    } finally {
+      if (original === undefined) {
+        delete process.env["CLEO_HOME"];
+      } else {
+        process.env["CLEO_HOME"] = original;
+      }
+      if (originalXdg === undefined) {
+        delete process.env["XDG_DATA_HOME"];
+      } else {
+        process.env["XDG_DATA_HOME"] = originalXdg;
+      }
+    }
+  });
+
+  it("resolveTierDir for global tier treats whitespace-only CLEO_HOME as unset", () => {
+    const original = process.env["CLEO_HOME"];
+    try {
+      process.env["CLEO_HOME"] = "   ";
+      const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+      expect(dir.endsWith(join("pi-extensions"))).toBe(true);
+      expect(dir).not.toContain("   ");
+    } finally {
+      if (original === undefined) {
+        delete process.env["CLEO_HOME"];
+      } else {
+        process.env["CLEO_HOME"] = original;
+      }
+    }
+  });
+
+  it("resolveTierDir falls back to AppData when LOCALAPPDATA is unset on Windows", () => {
+    // Stub process.platform through a property descriptor rewrite so
+    // the scope helper's Windows branch is reachable on any host. We
+    // restore the original descriptor in `finally` to keep downstream
+    // tests isolated.
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    const originalCleoHome = process.env["CLEO_HOME"];
+    const originalLocalAppData = process.env["LOCALAPPDATA"];
+    try {
+      Object.defineProperty(process, "platform", {
+        value: "win32",
+        configurable: true,
+      });
+      delete process.env["CLEO_HOME"];
+      delete process.env["LOCALAPPDATA"];
+      const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+      expect(dir.includes("AppData")).toBe(true);
+      expect(dir.endsWith(join("cleo", "Data", "pi-extensions"))).toBe(true);
+
+      // LOCALAPPDATA set branch.
+      process.env["LOCALAPPDATA"] = "C:\\CustomAppData";
+      const withLad = resolveTierDir({ tier: "global", kind: "extensions" });
+      expect(withLad.startsWith("C:\\CustomAppData")).toBe(true);
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+      if (originalCleoHome === undefined) {
+        delete process.env["CLEO_HOME"];
+      } else {
+        process.env["CLEO_HOME"] = originalCleoHome;
+      }
+      if (originalLocalAppData === undefined) {
+        delete process.env["LOCALAPPDATA"];
+      } else {
+        process.env["LOCALAPPDATA"] = originalLocalAppData;
+      }
+    }
+  });
+
+  it("resolveTierDir falls back to ~/Library/Application Support on darwin", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    const originalCleoHome = process.env["CLEO_HOME"];
+    try {
+      Object.defineProperty(process, "platform", {
+        value: "darwin",
+        configurable: true,
+      });
+      delete process.env["CLEO_HOME"];
+      const dir = resolveTierDir({ tier: "global", kind: "extensions" });
+      expect(dir.includes(join("Library", "Application Support"))).toBe(true);
+      expect(dir.endsWith("pi-extensions")).toBe(true);
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+      if (originalCleoHome === undefined) {
+        delete process.env["CLEO_HOME"];
+      } else {
+        process.env["CLEO_HOME"] = originalCleoHome;
+      }
+    }
+  });
+});
+
+// ── MCP bridge placeholder (T268 scaffolding) ───────────────────────
+
+describe("MCP bridge placeholder", () => {
+  it("isBridgeAvailable returns false until T268 lands the real runtime", async () => {
+    const { isBridgeAvailable } = await import("../../../src/core/harness/mcp/index.js");
+    expect(isBridgeAvailable()).toBe(false);
+  });
+});
+
+// ── Wave-1 — Extensions (ADR-035 §D1, T263) ─────────────────────────
+
+describe("PiHarness extensions", () => {
+  async function writeExtensionSource(name = "demo"): Promise<string> {
+    const srcDir = join(uniqueRoot, `ext-src-${Math.random().toString(36).slice(2)}`);
+    await mkdir(srcDir, { recursive: true });
+    const srcPath = join(srcDir, `${name}.ts`);
+    await writeFile(
+      srcPath,
+      `// Pi extension\nexport default function (_pi: unknown) { /* noop */ }\n`,
+      "utf8",
+    );
+    return srcPath;
+  }
+
+  it("installExtension copies a .ts file into the project tier", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource();
+    const result = await harness.installExtension(src, "demo", "project", projectDir);
+    expect(result.tier).toBe("project");
+    expect(result.targetPath).toBe(join(projectDir, ".pi", "extensions", "demo.ts"));
+    expect(existsSync(result.targetPath)).toBe(true);
+    const contents = await readFile(result.targetPath, "utf8");
+    expect(contents).toContain("export default");
+  });
+
+  it("installExtension copies into the user tier (Pi-native global)", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource("uext");
+    const result = await harness.installExtension(src, "uext", "user");
+    expect(result.targetPath).toBe(join(piRoot, "extensions", "uext.ts"));
+    expect(existsSync(result.targetPath)).toBe(true);
+  });
+
+  it("installExtension copies into the global tier (CleoOS hub)", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource("gext");
+    const result = await harness.installExtension(src, "gext", "global");
+    expect(result.targetPath).toBe(join(cleoHomeRoot, "pi-extensions", "gext.ts"));
+    expect(existsSync(result.targetPath)).toBe(true);
+  });
+
+  it("installExtension errors by default on existing target", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource();
+    await harness.installExtension(src, "demo", "user");
+    await expect(harness.installExtension(src, "demo", "user")).rejects.toThrow(
+      /already exists/,
+    );
+  });
+
+  it("installExtension overwrites with { force: true }", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource();
+    await harness.installExtension(src, "demo", "user");
+    await expect(
+      harness.installExtension(src, "demo", "user", undefined, { force: true }),
+    ).resolves.toMatchObject({ tier: "user" });
+  });
+
+  it("installExtension rejects a non-existent source file", async () => {
+    const harness = makeHarness();
+    await expect(
+      harness.installExtension(join(uniqueRoot, "missing.ts"), "demo", "user"),
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it("installExtension rejects non-regular-file sources", async () => {
+    const harness = makeHarness();
+    const dir = join(uniqueRoot, "ext-dir");
+    await mkdir(dir, { recursive: true });
+    await expect(harness.installExtension(dir, "demo", "user")).rejects.toThrow(
+      /not a regular file/,
+    );
+  });
+
+  it("installExtension rejects non-TypeScript source files", async () => {
+    const harness = makeHarness();
+    const bad = join(uniqueRoot, "bad.js");
+    await writeFile(bad, "export default function () {}\n", "utf8");
+    await expect(harness.installExtension(bad, "bad", "user")).rejects.toThrow(
+      /TypeScript/,
+    );
+  });
+
+  it("installExtension rejects sources missing 'export default'", async () => {
+    const harness = makeHarness();
+    const bad = join(uniqueRoot, "bad.ts");
+    await writeFile(bad, "// no default export here\n", "utf8");
+    await expect(harness.installExtension(bad, "bad", "user")).rejects.toThrow(
+      /export default/,
+    );
+  });
+
+  it("removeExtension deletes an installed extension and returns true", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource();
+    await harness.installExtension(src, "demo", "user");
+    expect(await harness.removeExtension("demo", "user")).toBe(true);
+    expect(existsSync(join(piRoot, "extensions", "demo.ts"))).toBe(false);
+  });
+
+  it("removeExtension returns false when the target does not exist", async () => {
+    const harness = makeHarness();
+    expect(await harness.removeExtension("nope", "user")).toBe(false);
+  });
+
+  it("listExtensions walks all three tiers and flags shadowed entries", async () => {
+    const harness = makeHarness();
+    const srcA = await writeExtensionSource("alpha");
+    const srcB = await writeExtensionSource("beta");
+    const srcC = await writeExtensionSource("gamma");
+
+    // Project wins for `alpha` (also in user), user wins for `beta` (also in global).
+    await harness.installExtension(srcA, "alpha", "project", projectDir);
+    await harness.installExtension(srcA, "alpha", "user");
+    await harness.installExtension(srcB, "beta", "user");
+    await harness.installExtension(srcB, "beta", "global");
+    await harness.installExtension(srcC, "gamma", "global");
+
+    const listed = await harness.listExtensions(projectDir);
+    const byName = new Map<string, typeof listed>();
+    for (const entry of listed) {
+      const existing = byName.get(entry.name) ?? [];
+      existing.push(entry);
+      byName.set(entry.name, existing);
+    }
+
+    // alpha: one project (non-shadowed) + one user (shadowed)
+    const alphaEntries = byName.get("alpha") ?? [];
+    expect(alphaEntries).toHaveLength(2);
+    const alphaProject = alphaEntries.find((e) => e.tier === "project");
+    const alphaUser = alphaEntries.find((e) => e.tier === "user");
+    expect(alphaProject?.shadowed).toBe(false);
+    expect(alphaUser?.shadowed).toBe(true);
+
+    // beta: user (non-shadowed) + global (shadowed)
+    const betaEntries = byName.get("beta") ?? [];
+    expect(betaEntries).toHaveLength(2);
+    expect(betaEntries.find((e) => e.tier === "user")?.shadowed).toBe(false);
+    expect(betaEntries.find((e) => e.tier === "global")?.shadowed).toBe(true);
+
+    // gamma: global only (non-shadowed)
+    const gammaEntries = byName.get("gamma") ?? [];
+    expect(gammaEntries).toHaveLength(1);
+    expect(gammaEntries[0]?.shadowed).toBe(false);
+  });
+
+  it("listExtensions returns [] when no extension dirs exist", async () => {
+    const harness = makeHarness();
+    const listed = await harness.listExtensions(projectDir);
+    expect(listed).toEqual([]);
+  });
+
+  it("listExtensions ignores non-.ts files inside the extensions dir", async () => {
+    const harness = makeHarness();
+    const src = await writeExtensionSource();
+    await harness.installExtension(src, "keep", "user");
+    await writeFile(join(piRoot, "extensions", "README.md"), "hi\n", "utf8");
+
+    const listed = await harness.listExtensions();
+    expect(listed.map((e) => e.name)).toEqual(["keep"]);
+  });
+});
+
+// ── Wave-1 — Sessions (ADR-035 §D2, T264) ───────────────────────────
+
+describe("PiHarness sessions", () => {
+  async function seedSession(
+    id: string,
+    version = 3,
+    extra: Record<string, unknown> = {},
+    subdir?: string,
+  ): Promise<string> {
+    const baseDir = subdir !== undefined ? join(piRoot, "sessions", subdir) : join(piRoot, "sessions");
+    await mkdir(baseDir, { recursive: true });
+    const filePath = join(baseDir, `${id}.jsonl`);
+    const header = JSON.stringify({
+      type: "session",
+      version,
+      id,
+      timestamp: "2026-04-07T00:00:00.000Z",
+      cwd: "/home/alice/work",
+      ...extra,
+    });
+    const body = [
+      header,
+      JSON.stringify({ type: "message", role: "user", content: "hello" }),
+      JSON.stringify({ type: "message", role: "assistant", content: "world" }),
+      "",
+    ].join("\n");
+    await writeFile(filePath, body, "utf8");
+    return filePath;
+  }
+
+  it("listSessions reads only line 1 of each JSONL file and sorts by mtime desc", async () => {
+    const harness = makeHarness();
+    await seedSession("sess-a");
+    // Force a slight mtime gap without relying on fs precision.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await seedSession("sess-b");
+
+    const listed = await harness.listSessions();
+    expect(listed).toHaveLength(2);
+    expect(listed[0]?.id).toBe("sess-b");
+    expect(listed[1]?.id).toBe("sess-a");
+    expect(listed[0]?.version).toBe(3);
+    expect(listed[0]?.cwd).toBe("/home/alice/work");
+  });
+
+  it("listSessions returns [] when the sessions dir is missing", async () => {
+    const harness = makeHarness();
+    expect(await harness.listSessions()).toEqual([]);
+  });
+
+  it("listSessions tolerates malformed headers by falling back to file stem", async () => {
+    const harness = makeHarness();
+    await mkdir(join(piRoot, "sessions"), { recursive: true });
+    // Write a file whose first line has no id field.
+    await writeFile(
+      join(piRoot, "sessions", "orphan.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3 })}\n`,
+      "utf8",
+    );
+    const listed = await harness.listSessions();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.id).toBe("orphan");
+  });
+
+  it("listSessions tolerates an unparseable first line and drops the file", async () => {
+    const harness = makeHarness();
+    await mkdir(join(piRoot, "sessions"), { recursive: true });
+    await writeFile(join(piRoot, "sessions", "bogus.jsonl"), "not json\n", "utf8");
+    const listed = await harness.listSessions();
+    expect(listed).toHaveLength(0);
+  });
+
+  it("listSessions includes the subagents/ subdir by default", async () => {
+    const harness = makeHarness();
+    await seedSession("sess-parent");
+    await seedSession("sess-child", 3, { parentSession: "sess-parent" }, "subagents");
+    const listed = await harness.listSessions();
+    const ids = listed.map((s) => s.id).sort();
+    expect(ids).toEqual(["sess-child", "sess-parent"]);
+    expect(listed.find((s) => s.id === "sess-child")?.parentSession).toBe("sess-parent");
+  });
+
+  it("listSessions skips the subagents/ subdir when includeSubagents is false", async () => {
+    const harness = makeHarness();
+    await seedSession("sess-parent");
+    await seedSession("sess-child", 3, { parentSession: "sess-parent" }, "subagents");
+    const listed = await harness.listSessions({ includeSubagents: false });
+    expect(listed.map((s) => s.id)).toEqual(["sess-parent"]);
+  });
+
+  it("showSession loads the full body and returns entries minus the header", async () => {
+    const harness = makeHarness();
+    await seedSession("sess-a");
+    const doc = await harness.showSession("sess-a");
+    expect(doc.summary.id).toBe("sess-a");
+    expect(doc.entries).toHaveLength(2);
+    expect(doc.entries[0]).toContain('"role":"user"');
+    expect(doc.entries[1]).toContain('"role":"assistant"');
+  });
+
+  it("showSession throws with a clear error for unknown ids", async () => {
+    const harness = makeHarness();
+    await expect(harness.showSession("missing")).rejects.toThrow(/missing/);
+  });
+});
+
+// ── Wave-1 — Models (ADR-035 §D3, T265) ─────────────────────────────
+
+describe("PiHarness models", () => {
+  const globalScope: HarnessScope = { kind: "global" };
+
+  it("readModelsConfig returns empty providers when models.json is missing", async () => {
+    const harness = makeHarness();
+    const config = await harness.readModelsConfig(globalScope);
+    expect(config).toEqual({ providers: {} });
+  });
+
+  it("readModelsConfig returns empty providers when models.json is malformed", async () => {
+    const harness = makeHarness();
+    await writeFile(join(piRoot, "models.json"), "not json", "utf8");
+    expect(await harness.readModelsConfig(globalScope)).toEqual({ providers: {} });
+  });
+
+  it("readModelsConfig ignores non-object providers entries", async () => {
+    const harness = makeHarness();
+    await writeFile(
+      join(piRoot, "models.json"),
+      JSON.stringify({
+        providers: {
+          anthropic: { models: [{ id: "claude-opus", name: "Opus" }] },
+          bogus: "not-an-object",
+        },
+      }),
+      "utf8",
+    );
+    const config = await harness.readModelsConfig(globalScope);
+    expect(Object.keys(config.providers)).toEqual(["anthropic"]);
+  });
+
+  it("writeModelsConfig persists atomically and round-trips", async () => {
+    const harness = makeHarness();
+    await harness.writeModelsConfig(
+      {
+        providers: {
+          anthropic: {
+            models: [{ id: "claude-opus-4", name: "Opus 4", reasoning: true }],
+          },
+        },
+      },
+      globalScope,
+    );
+    const raw = await readFile(join(piRoot, "models.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.providers.anthropic.models[0].id).toBe("claude-opus-4");
+    expect(parsed.providers.anthropic.models[0].reasoning).toBe(true);
+
+    // Round-trip through readModelsConfig.
+    const roundtrip = await harness.readModelsConfig(globalScope);
+    expect(roundtrip.providers["anthropic"]?.models?.[0]?.id).toBe("claude-opus-4");
+  });
+
+  it("listModels unions custom models with enabledModels and defaults", async () => {
+    const harness = makeHarness();
+    await harness.writeModelsConfig(
+      {
+        providers: {
+          anthropic: {
+            models: [
+              { id: "claude-opus-4", name: "Opus 4" },
+              { id: "claude-sonnet-4", name: "Sonnet 4" },
+            ],
+          },
+        },
+      },
+      globalScope,
+    );
+    await harness.writeSettings(
+      {
+        enabledModels: ["anthropic:claude-opus-4", "openai:gpt-5"],
+        defaultProvider: "anthropic",
+        defaultModel: "claude-sonnet-4",
+      },
+      globalScope,
+    );
+
+    const listed = await harness.listModels(globalScope);
+    const byKey = new Map(listed.map((e) => [`${e.provider}:${e.id}`, e]));
+
+    const opus = byKey.get("anthropic:claude-opus-4");
+    expect(opus).toBeDefined();
+    expect(opus?.enabled).toBe(true);
+    expect(opus?.isDefault).toBe(false);
+    expect(opus?.custom).toBe(true);
+
+    const sonnet = byKey.get("anthropic:claude-sonnet-4");
+    expect(sonnet?.isDefault).toBe(true);
+    expect(sonnet?.custom).toBe(true);
+
+    const gpt = byKey.get("openai:gpt-5");
+    expect(gpt).toBeDefined();
+    expect(gpt?.custom).toBe(false);
+    expect(gpt?.enabled).toBe(true);
+  });
+
+  it("listModels surfaces a defaultModel even when it is not in enabledModels or models.json", async () => {
+    const harness = makeHarness();
+    await harness.writeSettings(
+      { defaultProvider: "anthropic", defaultModel: "claude-haiku-4" },
+      globalScope,
+    );
+    const listed = await harness.listModels(globalScope);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.provider).toBe("anthropic");
+    expect(listed[0]?.id).toBe("claude-haiku-4");
+    expect(listed[0]?.isDefault).toBe(true);
+    expect(listed[0]?.enabled).toBe(false);
+    expect(listed[0]?.custom).toBe(false);
+  });
+
+  it("listModels treats provider/* globs as matching all ids in that provider", async () => {
+    const harness = makeHarness();
+    await harness.writeModelsConfig(
+      {
+        providers: {
+          anthropic: { models: [{ id: "claude-opus-4", name: "Opus 4" }] },
+        },
+      },
+      globalScope,
+    );
+    await harness.writeSettings({ enabledModels: ["anthropic/*"] }, globalScope);
+
+    const listed = await harness.listModels(globalScope);
+    const opus = listed.find((e) => e.id === "claude-opus-4");
+    expect(opus?.enabled).toBe(true);
+  });
+
+  it("listModels skips glob-only enabledModels selections", async () => {
+    const harness = makeHarness();
+    await harness.writeSettings({ enabledModels: ["anthropic/*"] }, globalScope);
+    const listed = await harness.listModels(globalScope);
+    expect(listed).toEqual([]);
+  });
+});
+
+// ── Wave-1 — Prompts (ADR-035 §D1, T266) ────────────────────────────
+
+describe("PiHarness prompts", () => {
+  async function writePromptSource(name = "demo-prompt"): Promise<string> {
+    const srcDir = join(uniqueRoot, `prompt-src-${name}`);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(srcDir, "prompt.md"), `# ${name}\n\nBody.\n`, "utf8");
+    await writeFile(join(srcDir, "meta.json"), `{"version":"1"}\n`, "utf8");
+    return srcDir;
+  }
+
+  it("installPrompt copies the full prompt directory into the tier", async () => {
+    const harness = makeHarness();
+    const src = await writePromptSource();
+    const result = await harness.installPrompt(src, "demo-prompt", "user");
+    expect(result.targetPath).toBe(join(piRoot, "prompts", "demo-prompt"));
+    expect(existsSync(join(result.targetPath, "prompt.md"))).toBe(true);
+    expect(existsSync(join(result.targetPath, "meta.json"))).toBe(true);
+  });
+
+  it("installPrompt rejects a source that is not a directory", async () => {
+    const harness = makeHarness();
+    const file = join(uniqueRoot, "not-a-dir.md");
+    await writeFile(file, "hi", "utf8");
+    await expect(harness.installPrompt(file, "x", "user")).rejects.toThrow(/not a directory/);
+  });
+
+  it("installPrompt rejects a source directory without prompt.md", async () => {
+    const harness = makeHarness();
+    const dir = join(uniqueRoot, "empty-prompt");
+    await mkdir(dir, { recursive: true });
+    await expect(harness.installPrompt(dir, "x", "user")).rejects.toThrow(/prompt\.md/);
+  });
+
+  it("installPrompt rejects a missing source directory", async () => {
+    const harness = makeHarness();
+    await expect(
+      harness.installPrompt(join(uniqueRoot, "nope"), "x", "user"),
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it("installPrompt errors on existing target unless --force is set", async () => {
+    const harness = makeHarness();
+    const src = await writePromptSource();
+    await harness.installPrompt(src, "dup", "user");
+    await expect(harness.installPrompt(src, "dup", "user")).rejects.toThrow(/already exists/);
+    await expect(
+      harness.installPrompt(src, "dup", "user", undefined, { force: true }),
+    ).resolves.toMatchObject({ tier: "user" });
+  });
+
+  it("listPrompts walks tiers and surfaces shadow flags for name collisions", async () => {
+    const harness = makeHarness();
+    const src = await writePromptSource("dup");
+    const src2 = await writePromptSource("only-global");
+    await harness.installPrompt(src, "dup", "project", projectDir);
+    await harness.installPrompt(src, "dup", "user");
+    await harness.installPrompt(src2, "only-global", "global");
+
+    const listed = await harness.listPrompts(projectDir);
+    const dupEntries = listed.filter((e) => e.name === "dup");
+    expect(dupEntries).toHaveLength(2);
+    expect(dupEntries.find((e) => e.tier === "project")?.shadowed).toBe(false);
+    expect(dupEntries.find((e) => e.tier === "user")?.shadowed).toBe(true);
+    const only = listed.find((e) => e.name === "only-global");
+    expect(only?.tier).toBe("global");
+    expect(only?.shadowed).toBe(false);
+  });
+
+  it("listPrompts returns [] when no prompts exist in any tier", async () => {
+    const harness = makeHarness();
+    expect(await harness.listPrompts(projectDir)).toEqual([]);
+  });
+
+  it("listPrompts ignores regular files in the prompts dir", async () => {
+    const harness = makeHarness();
+    await mkdir(join(piRoot, "prompts"), { recursive: true });
+    await writeFile(join(piRoot, "prompts", "README.md"), "readme", "utf8");
+    expect(await harness.listPrompts(projectDir)).toEqual([]);
+  });
+
+  it("removePrompt deletes a prompt directory and returns true", async () => {
+    const harness = makeHarness();
+    const src = await writePromptSource();
+    await harness.installPrompt(src, "demo-prompt", "user");
+    expect(await harness.removePrompt("demo-prompt", "user")).toBe(true);
+    expect(existsSync(join(piRoot, "prompts", "demo-prompt"))).toBe(false);
+  });
+
+  it("removePrompt returns false when the target is missing", async () => {
+    const harness = makeHarness();
+    expect(await harness.removePrompt("nope", "user")).toBe(false);
+  });
+});
+
+// ── Wave-1 — Themes (ADR-035 §D1, T267) ─────────────────────────────
+
+describe("PiHarness themes", () => {
+  async function writeThemeTs(name = "neon"): Promise<string> {
+    const srcPath = join(uniqueRoot, `${name}.ts`);
+    await writeFile(
+      srcPath,
+      `export default { name: "${name}", vars: {}, colors: {} };\n`,
+      "utf8",
+    );
+    return srcPath;
+  }
+
+  async function writeThemeJson(name = "neon-json"): Promise<string> {
+    const srcPath = join(uniqueRoot, `${name}.json`);
+    await writeFile(
+      srcPath,
+      JSON.stringify({ name, vars: {}, colors: {} }, null, 2),
+      "utf8",
+    );
+    return srcPath;
+  }
+
+  it("installTheme copies a .ts theme into the user tier", async () => {
+    const harness = makeHarness();
+    const src = await writeThemeTs();
+    const result = await harness.installTheme(src, "neon", "user");
+    expect(result.targetPath).toBe(join(piRoot, "themes", "neon.ts"));
+    expect(existsSync(result.targetPath)).toBe(true);
+  });
+
+  it("installTheme copies a .json theme into the user tier", async () => {
+    const harness = makeHarness();
+    const src = await writeThemeJson();
+    const result = await harness.installTheme(src, "neon-json", "user");
+    expect(result.targetPath).toBe(join(piRoot, "themes", "neon-json.json"));
+    expect(existsSync(result.targetPath)).toBe(true);
+  });
+
+  it("installTheme rejects non-theme file extensions", async () => {
+    const harness = makeHarness();
+    const src = join(uniqueRoot, "bad.yaml");
+    await writeFile(src, "name: bad\n", "utf8");
+    await expect(harness.installTheme(src, "bad", "user")).rejects.toThrow(/expected a theme file/);
+  });
+
+  it("installTheme rejects a missing source", async () => {
+    const harness = makeHarness();
+    await expect(
+      harness.installTheme(join(uniqueRoot, "nope.ts"), "x", "user"),
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it("installTheme rejects a non-file source", async () => {
+    const harness = makeHarness();
+    const dir = join(uniqueRoot, "dir-theme");
+    await mkdir(dir, { recursive: true });
+    await expect(harness.installTheme(dir, "x", "user")).rejects.toThrow(/not a regular file/);
+  });
+
+  it("installTheme errors on existing target unless --force", async () => {
+    const harness = makeHarness();
+    const src = await writeThemeTs();
+    await harness.installTheme(src, "neon", "user");
+    await expect(harness.installTheme(src, "neon", "user")).rejects.toThrow(/already exists/);
+    await expect(
+      harness.installTheme(src, "neon", "user", undefined, { force: true }),
+    ).resolves.toMatchObject({ tier: "user" });
+  });
+
+  it("installTheme blocks cross-extension collisions (.ts vs .json) without --force", async () => {
+    const harness = makeHarness();
+    const tsSrc = await writeThemeTs("collide");
+    const jsonSrc = await writeThemeJson("collide");
+    await harness.installTheme(tsSrc, "collide", "user");
+    await expect(harness.installTheme(jsonSrc, "collide", "user")).rejects.toThrow(
+      /conflicting theme/,
+    );
+    // With --force the conflicting .ts should be removed.
+    await harness.installTheme(jsonSrc, "collide", "user", undefined, { force: true });
+    expect(existsSync(join(piRoot, "themes", "collide.json"))).toBe(true);
+    expect(existsSync(join(piRoot, "themes", "collide.ts"))).toBe(false);
+  });
+
+  it("listThemes walks tiers and reports fileExt per entry", async () => {
+    const harness = makeHarness();
+    const tsSrc = await writeThemeTs("alpha");
+    const jsonSrc = await writeThemeJson("beta");
+    await harness.installTheme(tsSrc, "alpha", "project", projectDir);
+    await harness.installTheme(jsonSrc, "beta", "user");
+
+    const listed = await harness.listThemes(projectDir);
+    const alpha = listed.find((t) => t.name === "alpha");
+    const beta = listed.find((t) => t.name === "beta");
+    expect(alpha?.fileExt).toBe(".ts");
+    expect(alpha?.tier).toBe("project");
+    expect(beta?.fileExt).toBe(".json");
+    expect(beta?.tier).toBe("user");
+  });
+
+  it("listThemes flags shadowed entries across tiers", async () => {
+    const harness = makeHarness();
+    const src = await writeThemeTs("dup");
+    await harness.installTheme(src, "dup", "project", projectDir);
+    await harness.installTheme(src, "dup", "user");
+    const listed = await harness.listThemes(projectDir);
+    const dupEntries = listed.filter((e) => e.name === "dup");
+    expect(dupEntries.find((e) => e.tier === "project")?.shadowed).toBe(false);
+    expect(dupEntries.find((e) => e.tier === "user")?.shadowed).toBe(true);
+  });
+
+  it("listThemes ignores unrecognised file extensions", async () => {
+    const harness = makeHarness();
+    await mkdir(join(piRoot, "themes"), { recursive: true });
+    await writeFile(join(piRoot, "themes", "notes.md"), "# notes\n", "utf8");
+    expect(await harness.listThemes(projectDir)).toEqual([]);
+  });
+
+  it("removeTheme deletes both .ts and .json variants and returns true when any existed", async () => {
+    const harness = makeHarness();
+    const src = await writeThemeTs("doomed");
+    await harness.installTheme(src, "doomed", "user");
+    expect(await harness.removeTheme("doomed", "user")).toBe(true);
+    expect(existsSync(join(piRoot, "themes", "doomed.ts"))).toBe(false);
+  });
+
+  it("removeTheme returns false when the target is missing", async () => {
+    const harness = makeHarness();
+    expect(await harness.removeTheme("ghost", "user")).toBe(false);
   });
 });
