@@ -7,6 +7,9 @@
  * T138: Triggers memory bridge refresh on session start and end.
  * T139: Regenerates bridge with session scope on start.
  * T144: Extracts transcript observations on session end.
+ * T5158: Auto-snapshots SQLite databases (tasks.db + brain.db) via
+ *        VACUUM INTO on SessionEnd to preserve a recovery point now that
+ *        the databases are no longer tracked in project git (ADR-013).
  */
 
 import { hooks } from '../registry.js';
@@ -99,6 +102,35 @@ export async function handleSessionEnd(
   await maybeRefreshMemoryBridge(projectRoot);
 }
 
+/**
+ * Handle SessionEnd - snapshot SQLite databases to `.cleo/backups/sqlite/`.
+ *
+ * ADR-013 / T5158: `.cleo/tasks.db` and `.cleo/brain.db` are NOT tracked in
+ * project git, so we need an out-of-band recovery mechanism. This handler
+ * calls `vacuumIntoBackupAll` with `force: true` at every session end to
+ * guarantee a fresh point-in-time snapshot of both databases.
+ *
+ * Rotation (MAX_SNAPSHOTS = 10 per database) is handled inside
+ * `sqlite-backup.ts`. Failures here are non-fatal: a backup error must
+ * never block session end.
+ *
+ * The `vacuumIntoBackupAll` import is deferred to call time so tests that
+ * auto-load session-hooks (e.g. via `handlers/index.ts`) do not have to
+ * mock every transitive dependency of `sqlite-backup.ts` at hoisted
+ * `vi.mock` time.
+ */
+export async function handleSessionEndBackup(
+  projectRoot: string,
+  _payload: SessionEndPayload,
+): Promise<void> {
+  try {
+    const { vacuumIntoBackupAll } = await import('../../store/sqlite-backup.js');
+    await vacuumIntoBackupAll({ cwd: projectRoot, force: true });
+  } catch {
+    // Backup failures are best-effort — never block session end on them.
+  }
+}
+
 // Register handlers on module load
 hooks.register({
   id: 'brain-session-start',
@@ -112,4 +144,14 @@ hooks.register({
   event: 'SessionEnd',
   handler: handleSessionEnd,
   priority: 100,
+});
+
+// Lower priority (10) runs AFTER the brain/memory-bridge handlers so the
+// snapshot captures the most up-to-date brain.db state including the
+// SessionEnd observation just written by handleSessionEnd above.
+hooks.register({
+  id: 'backup-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndBackup,
+  priority: 10,
 });
