@@ -1390,3 +1390,284 @@ describe("PiHarness themes", () => {
     expect(await harness.removeTheme("ghost", "user")).toBe(false);
   });
 });
+
+// ── CANT profile methods (T276) ───────────────────────────────────────
+
+describe("PiHarness cant profile methods", () => {
+  /**
+   * Resolve the seed-agent fixtures directory using import.meta.url so
+   * the path stays valid regardless of vitest's working directory.
+   */
+  function seedAgentsDir(): string {
+    const here = new URL(".", import.meta.url).pathname;
+    // tests/unit/harness → ../../../.. = repo root packages/caamp/
+    // then → ../agents/seed-agents
+    return join(here, "..", "..", "..", "..", "agents", "seed-agents");
+  }
+
+  /** Path to the canonical valid seed-agent fixture. */
+  function validSeedAgent(): string {
+    return join(seedAgentsDir(), "cleo-dev.cant");
+  }
+
+  /** Path to a second seed-agent fixture used for cross-tier tests. */
+  function secondSeedAgent(): string {
+    return join(seedAgentsDir(), "cleo-historian.cant");
+  }
+
+  /**
+   * Write an intentionally broken `.cant` file under the test tmpdir
+   * and return its path. Used to drive the validation-failure paths.
+   */
+  async function writeBrokenCant(name = "broken"): Promise<string> {
+    const file = join(uniqueRoot, `${name}.cant`);
+    await writeFile(file, "this is not valid cant\n: missing colons\n", "utf8");
+    return file;
+  }
+
+  describe("validateCantProfile", () => {
+    it("returns valid=true with non-zero counts for a known-good seed-agent", async () => {
+      const harness = makeHarness();
+      const result = await harness.validateCantProfile(validSeedAgent());
+      expect(result.valid).toBe(true);
+      expect(result.errors.filter((e) => e.severity === "error")).toEqual([]);
+      expect(result.counts.agentCount).toBe(1);
+      expect(result.counts.hookCount).toBeGreaterThan(0);
+    });
+
+    it("returns valid=false with diagnostics for a broken file", async () => {
+      const harness = makeHarness();
+      const broken = await writeBrokenCant();
+      const result = await harness.validateCantProfile(broken);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      // cant-core surfaces parse failures with ruleId === "PARSE".
+      expect(result.errors[0]?.ruleId).toBe("PARSE");
+      expect(result.errors[0]?.severity).toBe("error");
+    });
+
+    it("throws when the source file does not exist", async () => {
+      const harness = makeHarness();
+      await expect(harness.validateCantProfile(join(uniqueRoot, "nope.cant"))).rejects.toThrow(
+        /does not exist/,
+      );
+    });
+
+    it("throws when the source path is a directory", async () => {
+      const harness = makeHarness();
+      const dir = join(uniqueRoot, "dir.cant");
+      await mkdir(dir, { recursive: true });
+      await expect(harness.validateCantProfile(dir)).rejects.toThrow(/not a regular file/);
+    });
+
+    it("normalises severity strings to the typed union", async () => {
+      const harness = makeHarness();
+      const broken = await writeBrokenCant();
+      const result = await harness.validateCantProfile(broken);
+      for (const diag of result.errors) {
+        expect(["error", "warning", "info", "hint"]).toContain(diag.severity);
+      }
+    });
+  });
+
+  describe("installCantProfile", () => {
+    it("copies a valid seed-agent into the user tier with parsed counts", async () => {
+      const harness = makeHarness();
+      const result = await harness.installCantProfile(validSeedAgent(), "cleo-dev", "user");
+      expect(result.tier).toBe("user");
+      expect(result.targetPath).toBe(join(piRoot, "cant", "cleo-dev.cant"));
+      expect(existsSync(result.targetPath)).toBe(true);
+      expect(result.counts.agentCount).toBe(1);
+      expect(result.counts.hookCount).toBeGreaterThan(0);
+      // Roundtrip: the installed file body must equal the source body.
+      const written = await readFile(result.targetPath, "utf8");
+      const original = await readFile(validSeedAgent(), "utf8");
+      expect(written).toBe(original);
+    });
+
+    it("copies a valid seed-agent into the project tier", async () => {
+      const harness = makeHarness();
+      const result = await harness.installCantProfile(
+        validSeedAgent(),
+        "cleo-dev",
+        "project",
+        projectDir,
+      );
+      expect(result.tier).toBe("project");
+      expect(result.targetPath).toBe(join(projectDir, ".pi", "cant", "cleo-dev.cant"));
+      expect(existsSync(result.targetPath)).toBe(true);
+    });
+
+    it("copies a valid seed-agent into the global (CleoOS hub) tier", async () => {
+      const harness = makeHarness();
+      const result = await harness.installCantProfile(validSeedAgent(), "cleo-dev", "global");
+      expect(result.tier).toBe("global");
+      expect(result.targetPath).toBe(join(cleoHomeRoot, "pi-cant", "cleo-dev.cant"));
+      expect(existsSync(result.targetPath)).toBe(true);
+    });
+
+    it("rejects an invalid .cant file before copying", async () => {
+      const harness = makeHarness();
+      const broken = await writeBrokenCant();
+      await expect(harness.installCantProfile(broken, "broken", "user")).rejects.toThrow(
+        /failed cant-core validation/,
+      );
+      expect(existsSync(join(piRoot, "cant", "broken.cant"))).toBe(false);
+    });
+
+    it("rejects a non-.cant source extension", async () => {
+      const harness = makeHarness();
+      const wrongExt = join(uniqueRoot, "wrong.txt");
+      await writeFile(wrongExt, "agent foo:\n", "utf8");
+      await expect(harness.installCantProfile(wrongExt, "wrong", "user")).rejects.toThrow(
+        /expected a CANT source file/,
+      );
+    });
+
+    it("errors on existing target unless force=true", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "cleo-dev", "user");
+      await expect(
+        harness.installCantProfile(validSeedAgent(), "cleo-dev", "user"),
+      ).rejects.toThrow(/already exists/);
+      // With --force the install must succeed.
+      const result = await harness.installCantProfile(
+        validSeedAgent(),
+        "cleo-dev",
+        "user",
+        undefined,
+        { force: true },
+      );
+      expect(result.tier).toBe("user");
+    });
+
+    it("rejects a missing source path", async () => {
+      const harness = makeHarness();
+      await expect(
+        harness.installCantProfile(join(uniqueRoot, "ghost.cant"), "ghost", "user"),
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it("rejects a directory source path", async () => {
+      const harness = makeHarness();
+      const dir = join(uniqueRoot, "dir.cant");
+      await mkdir(dir, { recursive: true });
+      await expect(harness.installCantProfile(dir, "dir", "user")).rejects.toThrow(
+        /not a regular file/,
+      );
+    });
+  });
+
+  describe("removeCantProfile", () => {
+    it("returns true and deletes the file when present", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "cleo-dev", "user");
+      const removed = await harness.removeCantProfile("cleo-dev", "user");
+      expect(removed).toBe(true);
+      expect(existsSync(join(piRoot, "cant", "cleo-dev.cant"))).toBe(false);
+    });
+
+    it("returns false (idempotent) when the target is missing", async () => {
+      const harness = makeHarness();
+      expect(await harness.removeCantProfile("ghost", "user")).toBe(false);
+    });
+
+    it("removes from the project tier without affecting other tiers", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "cleo-dev", "user");
+      await harness.installCantProfile(validSeedAgent(), "cleo-dev", "project", projectDir);
+      const removed = await harness.removeCantProfile("cleo-dev", "project", projectDir);
+      expect(removed).toBe(true);
+      expect(existsSync(join(projectDir, ".pi", "cant", "cleo-dev.cant"))).toBe(false);
+      // The user-tier copy must survive.
+      expect(existsSync(join(piRoot, "cant", "cleo-dev.cant"))).toBe(true);
+    });
+  });
+
+  describe("listCantProfiles", () => {
+    it("returns an empty array when nothing is installed", async () => {
+      const harness = makeHarness();
+      const entries = await harness.listCantProfiles(projectDir);
+      expect(entries).toEqual([]);
+    });
+
+    it("walks all three tiers in precedence order", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "in-project", "project", projectDir);
+      await harness.installCantProfile(validSeedAgent(), "in-user", "user");
+      await harness.installCantProfile(validSeedAgent(), "in-global", "global");
+      const entries = await harness.listCantProfiles(projectDir);
+      const tiers = entries.map((e) => e.tier);
+      // Project entries must precede user entries, which must precede global.
+      expect(tiers.indexOf("project")).toBeLessThan(tiers.indexOf("user"));
+      expect(tiers.indexOf("user")).toBeLessThan(tiers.indexOf("global"));
+      expect(entries.find((e) => e.name === "in-project")?.tier).toBe("project");
+      expect(entries.find((e) => e.name === "in-user")?.tier).toBe("user");
+      expect(entries.find((e) => e.name === "in-global")?.tier).toBe("global");
+    });
+
+    it("flags shadowed entries when the same name appears at multiple tiers", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "shared", "project", projectDir);
+      await harness.installCantProfile(validSeedAgent(), "shared", "user");
+      await harness.installCantProfile(validSeedAgent(), "shared", "global");
+      const entries = await harness.listCantProfiles(projectDir);
+      const shared = entries.filter((e) => e.name === "shared");
+      expect(shared).toHaveLength(3);
+      // Project tier wins; user/global are shadowed.
+      expect(shared.find((e) => e.tier === "project")?.shadowedByHigherTier).toBeUndefined();
+      expect(shared.find((e) => e.tier === "user")?.shadowedByHigherTier).toBe(true);
+      expect(shared.find((e) => e.tier === "global")?.shadowedByHigherTier).toBe(true);
+    });
+
+    it("populates per-entry counts from cant-core parsing", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "cleo-dev", "user");
+      await harness.installCantProfile(secondSeedAgent(), "cleo-historian", "user");
+      const entries = await harness.listCantProfiles(projectDir);
+      const dev = entries.find((e) => e.name === "cleo-dev");
+      const historian = entries.find((e) => e.name === "cleo-historian");
+      expect(dev?.counts.agentCount).toBe(1);
+      expect(dev?.counts.hookCount).toBeGreaterThan(0);
+      expect(historian?.counts.agentCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it("ignores files without a .cant extension", async () => {
+      const harness = makeHarness();
+      const dir = join(piRoot, "cant");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "notes.md"), "# notes\n", "utf8");
+      const entries = await harness.listCantProfiles(projectDir);
+      expect(entries).toEqual([]);
+    });
+
+    it("skips the project tier when projectDir is undefined", async () => {
+      const harness = makeHarness();
+      await harness.installCantProfile(validSeedAgent(), "in-user", "user");
+      const entries = await harness.listCantProfiles();
+      // Only the user-tier entry should be visible.
+      expect(entries.every((e) => e.tier !== "project")).toBe(true);
+      expect(entries.find((e) => e.name === "in-user")).toBeDefined();
+    });
+  });
+
+  describe("counts extraction", () => {
+    it("extracts a positive skillCount when an agent declares skills", async () => {
+      const harness = makeHarness();
+      // cleo-dev.cant declares skills: ["ct-cleo", "ct-task-executor", ...]
+      const result = await harness.validateCantProfile(validSeedAgent());
+      expect(result.counts.skillCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it("returns zero counts for a parse-failed file", async () => {
+      const harness = makeHarness();
+      const broken = await writeBrokenCant("zero-counts");
+      const result = await harness.validateCantProfile(broken);
+      expect(result.counts.agentCount).toBe(0);
+      expect(result.counts.workflowCount).toBe(0);
+      expect(result.counts.pipelineCount).toBe(0);
+      expect(result.counts.hookCount).toBe(0);
+      expect(result.counts.skillCount).toBe(0);
+    });
+  });
+});
