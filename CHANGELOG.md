@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.4] - 2026-04-06
+
+### Fixed
+- **`@cleocode/cant` and `@cleocode/runtime` npm publish**: added missing `repository.url` field to `packages/cant/package.json` and `packages/runtime/package.json`. Without it, npm sigstore provenance verification rejected publishes with `422 Unprocessable Entity — Error verifying sigstore provenance bundle: "repository.url" is "", expected to match "https://github.com/kryptobaseddev/cleo"`. These two packages were stuck on npm at 2026.4.1 (cant) and 2026.4.0 (runtime) for this reason. v2026.4.4 brings them current alongside the rest of the workspace.
+- **`@cleocode/cant` publishConfig**: added explicit `publishConfig.access = public` so the scoped package always publishes publicly regardless of npm CLI defaults.
+
 ## [2026.4.3] - 2026-04-06
 
 ### Added
