@@ -12,7 +12,14 @@ import { fileURLToPath } from 'node:url';
 import {
   detectAndRemoveLegacyGlobalFiles,
   detectAndRemoveStrayProjectNexus,
+  ensureConduitDb,
+  ensureGlobalSignaldockDb,
+  getGlobalSalt,
+  getLogger,
   getProjectRoot,
+  migrateSignaldockToConduit,
+  needsSignaldockToConduitMigration,
+  validateGlobalSalt,
 } from '@cleocode/core/internal';
 import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
@@ -399,6 +406,74 @@ for (const shim of rootShim._subcommands) {
     detectAndRemoveStrayProjectNexus(getProjectRoot());
   } catch {
     // Non-fatal: stray-nexus cleanup must never break the CLI startup path.
+  }
+
+  // ---------------------------------------------------------------------------
+  // T310 startup sequence (spec §4.6) — runs AFTER v2026.4.11 cleanups and
+  // BEFORE any DB accessor is called so the first command sees the new topology.
+  // All steps are non-fatal: errors are logged and CLI continues normally.
+  // ---------------------------------------------------------------------------
+  const _startupLog = getLogger('cli-startup');
+
+  // Step 2: One-shot T310 signaldock → conduit migration (T358 / ADR-037 §8).
+  // Guarded by needsSignaldockToConduitMigration for efficiency; the check is
+  // idempotent — migration is skipped silently once conduit.db exists (TC-067).
+  try {
+    const _projectRootForMigration = getProjectRoot();
+    if (needsSignaldockToConduitMigration(_projectRootForMigration)) {
+      const migrationResult = migrateSignaldockToConduit(_projectRootForMigration);
+      if (migrationResult.status === 'failed') {
+        _startupLog.error(
+          { errors: migrationResult.errors, projectRoot: _projectRootForMigration },
+          'T310 migration: signaldock → conduit failed — CLI continues, run `cleo doctor` to diagnose',
+        );
+      }
+    }
+  } catch (err) {
+    // getProjectRoot() throws with E_NO_PROJECT when run outside a project directory.
+    // Migration is per-project so we skip silently in that case.
+    if (err instanceof Error && err.message.includes('E_NO_PROJECT')) {
+      // Expected for global commands (e.g. `cleo session status`) — no-op.
+    } else {
+      _startupLog.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        'T310 migration startup check threw unexpectedly — CLI continues',
+      );
+    }
+  }
+
+  // Step 3: Ensure conduit.db exists on fresh install (idempotent, project-scoped).
+  try {
+    ensureConduitDb(getProjectRoot());
+  } catch {
+    // Non-fatal: may throw E_NO_PROJECT outside a project; conduit.db is optional
+    // for global commands.
+  }
+
+  // Step 4: Ensure global signaldock.db exists (idempotent, global-tier).
+  try {
+    await ensureGlobalSignaldockDb();
+  } catch (err) {
+    _startupLog.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'T310 startup: ensureGlobalSignaldockDb failed — CLI continues',
+    );
+  }
+
+  // Step 5: Validate global-salt integrity and log 4-byte hex fingerprint (spec §4.6).
+  try {
+    validateGlobalSalt();
+    // Log first 4 bytes of the salt as a hex fingerprint for diagnosability.
+    // getGlobalSalt() generates the salt on first call if absent; validation above
+    // already confirmed the file is well-formed (or absent — first-run path).
+    const salt = getGlobalSalt();
+    const fingerprint = salt.subarray(0, 4).toString('hex');
+    _startupLog.info({ fingerprint }, 'global-salt fingerprint');
+  } catch (err) {
+    _startupLog.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'T310 startup: validateGlobalSalt failed — CLI continues, run `cleo doctor` to diagnose',
+    );
   }
 
   // Handle -V as alias for --version (citty handles --version but not -V)

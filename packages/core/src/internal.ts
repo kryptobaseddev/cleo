@@ -861,6 +861,30 @@ export { createSqliteDataAccessor } from './store/sqlite-data-accessor.js';
 export { checkRootGitignore } from './validation/doctor/checks.js';
 
 // ---------------------------------------------------------------------------
+// T310 startup sequence exports (required by cli/index.ts T360 wire-up)
+// ---------------------------------------------------------------------------
+
+// Conduit DB lifecycle — ensureConduitDb is called at every CLI startup (step 3)
+export type { ProjectAgentRef } from './store/conduit-sqlite.js';
+export {
+  CONDUIT_DB_FILENAME,
+  CONDUIT_SCHEMA_VERSION,
+  checkConduitDbHealth,
+  ensureConduitDb,
+  getConduitDbPath,
+  getConduitNativeDb,
+} from './store/conduit-sqlite.js';
+
+// Global-salt lifecycle — validateGlobalSalt and getGlobalSalt used at startup (step 5)
+export {
+  GLOBAL_SALT_FILENAME,
+  GLOBAL_SALT_SIZE,
+  getGlobalSalt,
+  getGlobalSaltPath,
+  validateGlobalSalt,
+} from './store/global-salt.js';
+
+// ---------------------------------------------------------------------------
 // Agent Registry + Conduit (T170 Unification)
 // ---------------------------------------------------------------------------
 
