@@ -32,6 +32,8 @@
 !consensus/**
 !specs/
 !specs/**
+!decomposition/
+!decomposition/**
 
 # Explicit deny safety net — databases, backups, and untracked runtime files
 *.db
