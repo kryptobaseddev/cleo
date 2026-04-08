@@ -135,7 +135,7 @@ LAFS is the LLM-Agent-First Specification.
 
 It is not a runtime, not a provider, and not a transport. It is the response contract that makes tools and agents speak in a consistent, machine-parseable form: structured envelopes, stable metadata, deterministic errors, field selection, and progressive disclosure.
 
-MCP defines how tools are discovered and invoked.
+The `cleo` CLI defines how CLEO is invoked.
 A2A defines how agents communicate and delegate.
 **LAFS defines the shape of what comes back.**
 
@@ -157,7 +157,7 @@ But every expedition needs a camp.
 
 That camp is **CAAMP**.
 
-CAAMP, in practical terms, is the unified provider registry and package manager for AI coding agents. It helps developers manage skills, MCP servers, instruction-file injection, agent configuration, and multi-provider setup without hand-editing fifty different configuration formats like a cursed scribe in a windowless tower.
+CAAMP, in practical terms, is the unified provider registry and package manager for AI coding agents. It helps developers manage skills, downstream MCP server configurations, instruction-file injection, agent configuration, and multi-provider setup without hand-editing fifty different configuration formats like a cursed scribe in a windowless tower.
 
 CAAMP is not a fifth core system replacing BRAIN, LOOM, NEXUS, or LAFS.
 
@@ -177,7 +177,7 @@ In the myth:
 In practical terms, CAAMP matters because it brings together four operational realities of modern AI development:
 
 - skills management,
-- MCP server management,
+- downstream MCP server configuration management,
 - instruction-file injection,
 - and provider registry/configuration.
 
@@ -243,7 +243,7 @@ CLEO routes work, binds context, applies policy, governs sequence, coordinates a
 
 This is the camp.
 
-CAAMP manages the ecosystem of skills, provider definitions, MCP server registrations, and instruction injection. If CLEO is the commanding mind, CAAMP is the quartermaster making sure the troops have tools, maps, and the correct boots.
+CAAMP manages the ecosystem of skills, provider definitions, downstream MCP server configuration entries, and instruction injection. If CLEO is the commanding mind, CAAMP is the quartermaster making sure the troops have tools, maps, and the correct boots.
 
 ### The Memory Layer: BRAIN
 
@@ -382,7 +382,7 @@ For all the story, the practical reading is clear:
 - **LOOM** is structured lifecycle execution.
 - **NEXUS** is cross-project coordination.
 - **LAFS** is the provider-neutral response contract.
-- **CAAMP** is the provisioning camp for providers, skills, MCP servers, and instruction injection.
+- **CAAMP** is the provisioning camp for providers, skills, downstream MCP server configurations, and instruction injection.
 
 Together, they form an LLM-agent-first system that can organize, mobilize, and remember software work at the scale modern AI development demands.
 
