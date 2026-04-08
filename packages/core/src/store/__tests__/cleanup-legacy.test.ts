@@ -1,11 +1,14 @@
 /**
- * Unit tests for detectAndRemoveLegacyGlobalFiles().
+ * Unit tests for detectAndRemoveLegacyGlobalFiles() and
+ * detectAndRemoveStrayProjectNexus().
  *
  * All filesystem interactions occur inside a fresh tmp directory per test.
- * The `cleoHomeOverride` parameter is used instead of mocking `getCleoHome()`
- * to keep tests hermetic and avoid global module state side-effects.
+ * The `cleoHomeOverride` / `projectRoot` parameters are used instead of
+ * mocking `getCleoHome()` to keep tests hermetic and avoid global module
+ * state side-effects.
  *
  * @task T304
+ * @task T307
  * @epic T299
  */
 
@@ -13,7 +16,10 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectAndRemoveLegacyGlobalFiles } from '../cleanup-legacy.js';
+import {
+  detectAndRemoveLegacyGlobalFiles,
+  detectAndRemoveStrayProjectNexus,
+} from '../cleanup-legacy.js';
 
 // ---------------------------------------------------------------------------
 // Logger mock — prevents pino from trying to open real log files during tests
@@ -170,5 +176,93 @@ describe('detectAndRemoveLegacyGlobalFiles', () => {
     // The normal file should still be removed
     expect(result.removed).toContain('nexus-pre-cleo.db.bak');
     expect(existsSync(join(tmpHome, 'nexus-pre-cleo.db.bak'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectAndRemoveStrayProjectNexus (T307)
+// ---------------------------------------------------------------------------
+
+describe('detectAndRemoveStrayProjectNexus', () => {
+  let tmpProjectRoot: string;
+
+  beforeEach(() => {
+    // Create a fake project root with a .cleo sub-directory
+    tmpProjectRoot = mkdtempSync(join(tmpdir(), 'cleo-stray-nexus-test-'));
+    mkdirSync(join(tmpProjectRoot, '.cleo'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpProjectRoot, { recursive: true, force: true });
+  });
+
+  it('removes the stray nexus.db when it is present', () => {
+    const strayPath = join(tmpProjectRoot, '.cleo', 'nexus.db');
+    writeFileSync(strayPath, ''); // zero-byte stray (mirrors the real incident)
+
+    expect(existsSync(strayPath)).toBe(true);
+
+    const result = detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+
+    expect(result.removed).toBe(true);
+    expect(result.path).toBe(strayPath);
+    expect(existsSync(strayPath)).toBe(false);
+  });
+
+  it('is a no-op when no stray nexus.db is present', () => {
+    const strayPath = join(tmpProjectRoot, '.cleo', 'nexus.db');
+
+    // Sanity: file does not exist
+    expect(existsSync(strayPath)).toBe(false);
+
+    const result = detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+
+    expect(result.removed).toBe(false);
+    expect(result.path).toBe(strayPath);
+    // Still does not exist
+    expect(existsSync(strayPath)).toBe(false);
+  });
+
+  it('is idempotent: second call is a no-op after first removed the file', () => {
+    const strayPath = join(tmpProjectRoot, '.cleo', 'nexus.db');
+    writeFileSync(strayPath, '');
+
+    const first = detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+    expect(first.removed).toBe(true);
+
+    const second = detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+    expect(second.removed).toBe(false);
+    expect(second.path).toBe(strayPath);
+  });
+
+  it('does not remove other .cleo files when removing the stray', () => {
+    const strayPath = join(tmpProjectRoot, '.cleo', 'nexus.db');
+    const tasksPath = join(tmpProjectRoot, '.cleo', 'tasks.db');
+    const configPath = join(tmpProjectRoot, '.cleo', 'config.json');
+
+    writeFileSync(strayPath, '');
+    writeFileSync(tasksPath, 'placeholder');
+    writeFileSync(configPath, '{}');
+
+    detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+
+    expect(existsSync(strayPath)).toBe(false);
+    // Sibling live files must be untouched
+    expect(existsSync(tasksPath)).toBe(true);
+    expect(existsSync(configPath)).toBe(true);
+  });
+
+  it('returns removed: false when the stray exists as a directory (non-fatal)', () => {
+    // Create a directory named nexus.db to simulate an unlinkSync EISDIR failure
+    const strayPath = join(tmpProjectRoot, '.cleo', 'nexus.db');
+    mkdirSync(strayPath);
+
+    const result = detectAndRemoveStrayProjectNexus(tmpProjectRoot);
+
+    // Cannot unlink a directory — should return removed: false without throwing
+    expect(result.removed).toBe(false);
+    expect(result.path).toBe(strayPath);
+    // The directory is still there (we didn't rmdir)
+    expect(existsSync(strayPath)).toBe(true);
   });
 });

@@ -1,21 +1,30 @@
 /**
- * Idempotent one-shot cleanup of legacy global-tier files.
+ * Idempotent cleanup of legacy and stray CLEO database files.
  *
- * Detects and removes stale files left at the global CLEO home directory
- * (`getCleoHome()`) by pre-v2026.4.11 naming migrations. Safe to call on
- * repeat invocations — existence-checks guard every deletion.
+ * Provides two independent cleanup functions:
  *
- * Files targeted (see ADR-036 §Decision/Global-Tier table):
- *   - workspace.db              (pre-nexus naming relic)
- *   - workspace.db.bak-pre-rename  (safety copy from a long-landed rename)
- *   - workspace.db-shm          (SQLite shared-memory sidecar of workspace.db)
- *   - workspace.db-shm-wal      (SQLite WAL sidecar of workspace.db)
- *   - nexus-pre-cleo.db.bak     (pre-CLEO backup of nexus — migration complete)
+ * 1. {@link detectAndRemoveLegacyGlobalFiles} — removes stale files left at
+ *    the global CLEO home directory (`getCleoHome()`) by pre-v2026.4.11
+ *    naming migrations. Safe to call on repeat invocations — existence-checks
+ *    guard every deletion.
  *
- * Live files (nexus.db, signaldock.db, machine-key, config.json, etc.) are
- * NEVER touched. The function only acts on the explicit LEGACY_FILES list.
+ *    Files targeted (see ADR-036 §Decision/Global-Tier table):
+ *      - workspace.db              (pre-nexus naming relic)
+ *      - workspace.db.bak-pre-rename  (safety copy from a long-landed rename)
+ *      - workspace.db-shm          (SQLite shared-memory sidecar of workspace.db)
+ *      - workspace.db-shm-wal      (SQLite WAL sidecar of workspace.db)
+ *      - nexus-pre-cleo.db.bak     (pre-CLEO backup of nexus — migration complete)
+ *
+ *    Live files (nexus.db, signaldock.db, machine-key, config.json, etc.) are
+ *    NEVER touched. The function only acts on the explicit LEGACY_FILES list.
+ *
+ * 2. {@link detectAndRemoveStrayProjectNexus} — removes a stray
+ *    `{projectRoot}/.cleo/nexus.db` that violates ADR-036's global-only
+ *    nexus contract. Some pre-v2026.4.11 code path accidentally created a
+ *    zero-byte nexus.db at project tier; this cleans it up on first run.
  *
  * @task T304
+ * @task T307
  * @epic T299
  * @adr ADR-036
  * @why v2026.4.10 left workspace.db and pre-cleo backups at global tier;
@@ -117,4 +126,83 @@ export function detectAndRemoveLegacyGlobalFiles(cleoHomeOverride?: string): Leg
   }
 
   return { removed, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Project-tier stray nexus.db cleanup (T307)
+// ---------------------------------------------------------------------------
+
+/** Result returned by {@link detectAndRemoveStrayProjectNexus}. */
+export interface StrayNexusCleanupResult {
+  /** Whether a stray nexus.db was found and deleted. */
+  removed: boolean;
+  /** Absolute path that was checked (and removed if `removed` is true). */
+  path: string;
+}
+
+/**
+ * Detect and remove a stray project-tier `.cleo/nexus.db` file.
+ *
+ * ADR-036 declares nexus.db as **global-only** — it lives exclusively under
+ * `getCleoHome()` (e.g. `~/.local/share/cleo/nexus.db` on Linux). A
+ * zero-byte stray was discovered at `/mnt/projects/cleocode/.cleo/nexus.db`
+ * (created 2026-03-31), likely produced by an early `cleo init` / `cleo
+ * nexus init` invocation that ran before the canonical path was fully wired
+ * through `getNexusDbPath()`.
+ *
+ * This function is idempotent: calling it when no stray file exists is a
+ * no-op. It is designed to be called once per CLI startup (alongside
+ * {@link detectAndRemoveLegacyGlobalFiles}) so that users who upgrade to
+ * v2026.4.11 have the stray silently cleaned up on the first `cleo` run.
+ *
+ * @param projectRoot - Absolute path to the project root directory. When
+ *   omitted the caller is responsible for supplying the current project
+ *   root from `getProjectRoot()`. An override parameter is accepted here to
+ *   keep tests hermetic (avoids reading live `process.cwd()` state).
+ * @returns A {@link StrayNexusCleanupResult} indicating whether a file was
+ *   removed and the absolute path that was checked.
+ *
+ * @example
+ * ```typescript
+ * // Production usage
+ * import { getProjectRoot } from '../paths.js';
+ * const result = detectAndRemoveStrayProjectNexus(getProjectRoot());
+ * if (result.removed) {
+ *   // Stray project-tier nexus.db has been cleaned up
+ * }
+ *
+ * // Test usage (hermetic)
+ * const result = detectAndRemoveStrayProjectNexus('/tmp/fake-project-root');
+ * ```
+ *
+ * @task T307
+ * @epic T299
+ * @adr ADR-036
+ * @why ADR-036 §Decision/Global-Tier: nexus.db is global-only. A stray
+ *   project-tier copy was created by pre-v2026.4.11 code and must be removed
+ *   to prevent diagnostic confusion and guard against future regressions.
+ */
+export function detectAndRemoveStrayProjectNexus(projectRoot: string): StrayNexusCleanupResult {
+  const log = getLogger('cleanup-legacy');
+  const strayPath = path.join(projectRoot, '.cleo', 'nexus.db');
+
+  if (fs.existsSync(strayPath)) {
+    try {
+      fs.unlinkSync(strayPath);
+      log.warn(
+        { path: strayPath },
+        'Removed stray project-tier nexus.db (violates ADR-036 global-only contract)',
+      );
+      return { removed: true, path: strayPath };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { path: strayPath, error: message },
+        'Failed to remove stray project-tier nexus.db — manual deletion may be required',
+      );
+      return { removed: false, path: strayPath };
+    }
+  }
+
+  return { removed: false, path: strayPath };
 }

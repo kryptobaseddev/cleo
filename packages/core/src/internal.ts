@@ -266,7 +266,7 @@ export {
   getRealTokenUsage,
 } from './otel/index.js';
 // Paths (additional)
-export { getAgentOutputsAbsolute, getAgentsHome } from './paths.js';
+export { getAgentOutputsAbsolute, getAgentsHome, getProjectRoot } from './paths.js';
 // Phases — dependency graph (taskId-scoped critical path; distinct from tasks/graph-ops getCriticalPath)
 export type { CriticalPathResult as DepsCriticalPathResult } from './phases/deps.js';
 export { getCriticalPath as depsCriticalPath } from './phases/deps.js';
@@ -411,8 +411,11 @@ export type { CreateStickyParams, ListStickiesParams, StickyNote } from './stick
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
-export type { LegacyCleanupResult } from './store/cleanup-legacy.js';
-export { detectAndRemoveLegacyGlobalFiles } from './store/cleanup-legacy.js';
+export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
+export {
+  detectAndRemoveLegacyGlobalFiles,
+  detectAndRemoveStrayProjectNexus,
+} from './store/cleanup-legacy.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,
@@ -427,12 +430,15 @@ export {
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
+export type { BackupScope, GlobalBackupEntry } from './store/sqlite-backup.js';
 export {
   listBrainBackups,
+  listGlobalSqliteBackups,
   listSqliteBackups,
   listSqliteBackupsAll,
   vacuumIntoBackup,
   vacuumIntoBackupAll,
+  vacuumIntoGlobalBackup,
 } from './store/sqlite-backup.js';
 export { createTask, getTask } from './store/task-store.js';
 export {
@@ -801,7 +807,7 @@ export {
   getReadyTasks as orchestrationGetReadyTasks,
 } from './orchestration/index.js';
 // Paths (additional)
-export { getBackupDir, getTaskPath } from './paths.js';
+export { getBackupDir, getCleoHome, getConfigPath, getTaskPath } from './paths.js';
 // Scaffold (additional)
 export { ensureContributorMcp, ensureGlobalTemplates, ensureProjectContext } from './scaffold.js';
 // Sequence (additional)
@@ -816,6 +822,8 @@ export {
 } from './skills/precedence-integration.js';
 // Spawn
 export { initializeDefaultAdapters, spawnRegistry } from './spawn/adapter-registry.js';
+// Nexus DB path (global tier)
+export { getNexusDbPath } from './store/nexus-sqlite.js';
 // System — backup (different from store/backup.ts)
 export { createBackup as systemCreateBackup } from './system/backup.js';
 export type { DoctorReport, FixResult } from './system/health.js';

@@ -9,7 +9,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectAndRemoveLegacyGlobalFiles } from '@cleocode/core/internal';
+import {
+  detectAndRemoveLegacyGlobalFiles,
+  detectAndRemoveStrayProjectNexus,
+  getProjectRoot,
+} from '@cleocode/core/internal';
 import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
@@ -383,6 +387,16 @@ for (const shim of rootShim._subcommands) {
     detectAndRemoveLegacyGlobalFiles();
   } catch {
     // Non-fatal: legacy cleanup must never break the CLI startup path.
+  }
+
+  // One-shot cleanup of stray project-tier nexus.db (T307 / ADR-036).
+  // A zero-byte .cleo/nexus.db was accidentally created by pre-v2026.4.11
+  // code. This removes it on first `cleo` run post-upgrade. Best-effort:
+  // errors are swallowed so cleanup never blocks normal command execution.
+  try {
+    detectAndRemoveStrayProjectNexus(getProjectRoot());
+  } catch {
+    // Non-fatal: stray-nexus cleanup must never break the CLI startup path.
   }
 
   // Handle -V as alias for --version (citty handles --version but not -V)

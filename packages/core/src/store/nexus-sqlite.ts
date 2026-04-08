@@ -37,11 +37,40 @@ let _nexusDbPath: string | null = null;
 let _nexusInitPromise: Promise<NodeSQLiteDatabase<typeof nexusSchema>> | null = null;
 
 /**
- * Get the path to the nexus.db SQLite database file.
- * nexus.db lives in the global ~/.cleo/ directory.
+ * Returns the global-tier nexus.db path. ALWAYS under `getCleoHome()`.
+ *
+ * nexus.db is a cross-project registry and must live in the global CLEO
+ * home directory (`~/.local/share/cleo/` on Linux via XDG). It is NEVER
+ * written to a per-project `.cleo/` directory.
+ *
+ * @task T307
+ * @epic T299
+ * @why ADR-036 §Decision/Global-Tier: nexus.db is global-only. This guard
+ *   throws immediately if path resolution ever drifts outside getCleoHome(),
+ *   preventing silent creation of project-tier stray nexus.db files.
+ * @throws {Error} If the resolved path is not under `getCleoHome()` — this
+ *   indicates a code path that bypasses canonical path resolution and is a
+ *   bug that must be fixed rather than silently tolerated.
  */
 export function getNexusDbPath(): string {
-  return join(getCleoHome(), DB_FILENAME);
+  const cleoHome = getCleoHome();
+  const nexusPath = join(cleoHome, DB_FILENAME);
+
+  // Guard: the resolved path MUST be under the global tier.
+  // Under normal operation this invariant is always satisfied because we
+  // build nexusPath from cleoHome above. The assertion catches hypothetical
+  // future regressions where getCleoHome() is monkey-patched or join()
+  // produces an unexpected result on exotic platforms.
+  if (!nexusPath.startsWith(cleoHome)) {
+    throw new Error(
+      `BUG: getNexusDbPath() resolved to "${nexusPath}" which is NOT under ` +
+        `getCleoHome() ("${cleoHome}"). nexus.db is global-only per ADR-036. ` +
+        `This indicates a code path that bypasses canonical path resolution — ` +
+        `fix the caller, do not suppress this error.`,
+    );
+  }
+
+  return nexusPath;
 }
 
 /**
