@@ -12,7 +12,7 @@ All core canon documents now live in this `concepts/` folder. This index gives a
    The constitutional identity of CLEO. Read this first to understand what CLEO is, what the four canonical systems are, what is shipped vs planned, and which terms are non-negotiable.
 
 2. [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md)
-   The runtime contract. Read this second to understand the 10 canonical domains, the two MCP gateways, canonical verbs, and what operations are actually legal in the system.
+   The runtime contract. Read this second to understand the 10 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
 
 3. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
    The visual map. Read this third to see how the conceptual systems, workshop vocabulary, and live runtime forms map to the runtime domains, how requests flow, and where data lives. Includes the package boundary diagram showing `@cleocode/core` vs `@cleocode/cleo`.
@@ -91,4 +91,4 @@ If context is limited, read in this order:
 
 Then load the manifesto or stories only if narrative framing is needed.
 
-**Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the CLI and MCP protocol layers. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See [CORE-PACKAGE-SPEC.md](../specs/CORE-PACKAGE-SPEC.md) for the full API contract.
+**Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the `cleo` CLI -- the sole runtime surface. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See [CORE-PACKAGE-SPEC.md](../specs/CORE-PACKAGE-SPEC.md) for the full API contract.
