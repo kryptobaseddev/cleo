@@ -1,0 +1,6 @@
+---
+kind: protocol
+version: "1.0"
+name: "research-protocol"
+scope: global
+---

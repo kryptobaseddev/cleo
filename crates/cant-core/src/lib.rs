@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 pub mod dsl;
 pub mod generated;
 pub mod parser;
+pub mod render;
 pub mod validate;
 
 /// The classification of a directive extracted from a CANT message.
@@ -234,6 +235,26 @@ pub fn parse_document(
 /// means the document passed all validation rules.
 pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnostic::Diagnostic> {
     validate::validate(doc)
+}
+
+/// Renders a parsed [`dsl::ast::CantDocument`] back into a `.cant` source string.
+///
+/// This is the top-level entry point for the CleoOS v2 Wave 1 render pipeline
+/// (`docs/plans/CLEO-ULTRAPLAN.md` §17). The renderer is the forward half of
+/// the byte-identical round-trip contract: any hand-authored fixture that
+/// matches the canonical formatting rules documented on
+/// [`render::render_document`] round-trips `parse → render → parse`
+/// byte-for-byte.
+///
+/// # Arguments
+///
+/// * `doc` - A parsed CANT document (obtained from [`parse_document`]).
+///
+/// # Returns
+///
+/// The rendered source string. An empty document produces an empty string.
+pub fn render_document(doc: &dsl::ast::CantDocument) -> String {
+    render::render_document(doc)
 }
 
 #[cfg(test)]

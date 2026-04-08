@@ -1,0 +1,17 @@
+---
+kind: agent
+version: "1.0"
+---
+
+agent backend-dev:
+  model: opus
+  prompt: |
+    You are a backend developer.
+    Focus on correctness and clarity.
+  skills: ["ct-deploy", "ct-monitor"]
+  permissions:
+    tasks: read, write
+    files: write[backend/**]
+  context:
+    active-tasks
+    memory-bridge
