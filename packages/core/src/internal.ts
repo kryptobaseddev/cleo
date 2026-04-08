@@ -422,6 +422,11 @@ export {
   isCleoGitInitialized,
 } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
+export type { MigrationResult } from './store/migrate-signaldock-to-conduit.js';
+export {
+  migrateSignaldockToConduit,
+  needsSignaldockToConduitMigration,
+} from './store/migrate-signaldock-to-conduit.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export {
   _resetGlobalSignaldockDb_TESTING_ONLY,
