@@ -39,7 +39,7 @@ import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-s
  */
 export interface AddTaskOptions {
   title: string;
-  description: string;
+  description?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
   type?: TaskType;

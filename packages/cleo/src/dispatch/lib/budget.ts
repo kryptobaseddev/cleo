@@ -11,23 +11,7 @@
 
 import type { BudgetEnforcementResult } from '@cleocode/lafs';
 import { applyBudgetEnforcement, checkBudget } from '@cleocode/lafs';
-
-/**
- * Bridge stub type for the LAFS SDK's `applyBudgetEnforcement`/`checkBudget`.
- *
- * The SDK's internal LAFSEnvelope still uses `{_meta, result}` (proto-shape).
- * We map DispatchResponse's `meta`+`data` fields to the proto-shape here.
- *
- * @internal
- */
-interface _ProtoEnvelopeStub {
-  $schema: string;
-  _meta: Record<string, unknown>;
-  success: boolean;
-  result: Record<string, unknown> | Record<string, unknown>[] | null;
-  error?: Record<string, unknown>;
-  [key: string]: unknown;
-}
+import type { _ProtoEnvelopeStub } from './proto-envelope.js';
 
 /**
  * Default token budget when no explicit budget is provided.
@@ -59,22 +43,23 @@ export function enforceBudget(
   // Build a proto-envelope stub for the SDK budget checker.
   // The SDK internally uses {_meta, result}, so we bridge from the canonical
   // CLI shape {meta, data} here.
-  const protoMeta = (response['meta'] ?? {}) as Record<string, unknown>;
+  const protoMeta = (response['meta'] ?? {}) as _ProtoEnvelopeStub['_meta'];
   const envelope: _ProtoEnvelopeStub = {
     $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: Object.keys(protoMeta).length > 0
-      ? protoMeta
-      : {
-          specVersion: '1.2.3',
-          schemaVersion: '2026.2.1',
-          timestamp: new Date().toISOString(),
-          operation: 'dispatch.response',
-          requestId: 'budget-check',
-          transport: 'sdk',
-          strict: true,
-          mvi: 'standard',
-          contextVersion: 1,
-        },
+    _meta:
+      Object.keys(protoMeta).length > 0
+        ? protoMeta
+        : {
+            specVersion: '1.2.3',
+            schemaVersion: '2026.2.1',
+            timestamp: new Date().toISOString(),
+            operation: 'dispatch.response',
+            requestId: 'budget-check',
+            transport: 'sdk',
+            strict: true,
+            mvi: 'standard',
+            contextVersion: 1,
+          },
     success: (response['success'] as boolean) ?? true,
     result: (response['data'] as Record<string, unknown>) ?? null,
     ...(response['error'] ? { error: response['error'] as Record<string, unknown> } : {}),
@@ -117,28 +102,26 @@ export function enforceBudget(
  */
 export function isWithinBudget(response: Record<string, unknown>, budget?: number): boolean {
   const effectiveBudget = budget ?? DEFAULT_BUDGET;
-  const protoMeta = (response['meta'] ?? {}) as Record<string, unknown>;
+  const protoMeta = (response['meta'] ?? {}) as _ProtoEnvelopeStub['_meta'];
   const envelope: _ProtoEnvelopeStub = {
     $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: Object.keys(protoMeta).length > 0
-      ? protoMeta
-      : {
-          specVersion: '1.2.3',
-          schemaVersion: '2026.2.1',
-          timestamp: new Date().toISOString(),
-          operation: 'dispatch.response',
-          requestId: 'budget-check',
-          transport: 'sdk',
-          strict: true,
-          mvi: 'standard',
-          contextVersion: 1,
-        },
+    _meta:
+      Object.keys(protoMeta).length > 0
+        ? protoMeta
+        : {
+            specVersion: '1.2.3',
+            schemaVersion: '2026.2.1',
+            timestamp: new Date().toISOString(),
+            operation: 'dispatch.response',
+            requestId: 'budget-check',
+            transport: 'sdk',
+            strict: true,
+            mvi: 'standard',
+            contextVersion: 1,
+          },
     success: true,
     result: (response['data'] as Record<string, unknown>) ?? null,
   };
-  const { exceeded } = checkBudget(
-    envelope as Parameters<typeof checkBudget>[0],
-    effectiveBudget,
-  );
+  const { exceeded } = checkBudget(envelope as Parameters<typeof checkBudget>[0], effectiveBudget);
   return !exceeded;
 }

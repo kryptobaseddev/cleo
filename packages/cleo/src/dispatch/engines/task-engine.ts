@@ -458,7 +458,7 @@ export async function taskCreate(
   projectRoot: string,
   params: {
     title: string;
-    description: string;
+    description?: string;
     parent?: string;
     depends?: string[];
     priority?: string;

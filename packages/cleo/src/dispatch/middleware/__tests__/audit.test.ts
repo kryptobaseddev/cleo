@@ -108,7 +108,7 @@ describe('createAudit middleware', () => {
 
   function makeResponse(overrides?: Partial<DispatchResponse>): DispatchResponse {
     return {
-      _meta: {
+      meta: {
         gateway: 'mutate',
         domain: 'tasks',
         operation: 'add',
@@ -176,7 +176,7 @@ describe('createAudit middleware', () => {
 
   it('should NOT audit query operations (non-grade session)', async () => {
     const middleware = createAudit();
-    const response = makeResponse({ _meta: { ...makeResponse()._meta, gateway: 'query' } });
+    const response = makeResponse({ meta: { ...makeResponse().meta, gateway: 'query' } });
     const next = vi.fn(() => Promise.resolve(response));
     const request = makeRequest({ gateway: 'query' });
 

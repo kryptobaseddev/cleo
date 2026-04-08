@@ -12,35 +12,8 @@
  */
 
 import { isMVILevel, applyFieldFilter as sdkApplyFieldFilter } from '@cleocode/lafs';
+import type { _ProtoEnvelopeStub } from '../lib/proto-envelope.js';
 import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';
-
-/**
- * Bridge stub type for the LAFS SDK's `applyFieldFilter`.
- *
- * The SDK's internal `LAFSEnvelope` still uses `{_meta, result}` (proto-shape).
- * We construct a minimal stub of that shape to drive field filtering, then map
- * the filtered `result` back to the canonical `data` field of DispatchResponse.
- *
- * @internal
- */
-interface _ProtoEnvelopeStub {
-  $schema: string;
-  _meta: {
-    specVersion: string;
-    schemaVersion: string;
-    timestamp: string;
-    operation: string;
-    requestId: string;
-    transport: string;
-    strict: boolean;
-    mvi: string;
-    contextVersion: number;
-    [key: string]: unknown;
-  };
-  success: boolean;
-  result: Record<string, unknown> | Record<string, unknown>[] | null;
-  [key: string]: unknown;
-}
 
 /**
  * Create the LAFS field-filter middleware.

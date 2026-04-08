@@ -11,9 +11,12 @@ import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from
  * - In strict mode, blocks operations with protocol violations (exit codes 60-70)
  *
  * @remarks
- * The middleware ensures that DispatchResponse `_meta` fields (source, requestId)
- * are always populated, even when ProtocolEnforcer returns a DomainResponse that
- * lacks them. This prevents downstream consumers from encountering undefined values.
+ * ProtocolEnforcer.enforceProtocol uses the core's proto-shape (`_meta`) while
+ * the dispatch layer uses the canonical CLI envelope shape (`meta`). This
+ * middleware bridges between the two shapes:
+ * - Wraps `next` to map `DispatchResponse.meta` → proto-shape `_meta` for the enforcer
+ * - Maps the enforcer's proto-shape result back to `DispatchResponse` (with `meta`)
+ * - Ensures `source` and `requestId` are always populated on the returned `meta`
  *
  * @param strictMode - When true, blocks operations that violate protocol rules
  * @returns Middleware function that enforces protocol compliance
@@ -29,21 +32,30 @@ export function createProtocolEnforcement(strictMode: boolean = true): Middlewar
   const enforcer = new ProtocolEnforcer(strictMode);
 
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
-    const result = await enforcer.enforceProtocol(req, next);
+    // Bridge DispatchNext (returns DispatchResponse with `meta`) to the proto-shape
+    // expected by ProtocolEnforcer (ProtocolResponse with `_meta`).
+    const protoNext = async () => {
+      const dispatchResult = await next();
+      // Map canonical `meta` → proto-shape `_meta` for the enforcer
+      const { meta, ...rest } = dispatchResult;
+      return { ...rest, _meta: meta };
+    };
 
-    // enforceProtocol may return a DomainResponse (missing source/requestId on _meta)
-    // when it constructs an error response. Ensure _meta has required DispatchResponse fields.
-    if (!result.meta.source || !result.meta.requestId) {
-      return {
-        ...result,
-        meta: {
-          ...result._meta,
-          source: result.meta.source ?? req.source,
-          requestId: result.meta.requestId ?? req.requestId,
-        },
-      } as DispatchResponse;
-    }
+    const protoResult = await enforcer.enforceProtocol(req, protoNext);
 
-    return result as DispatchResponse;
+    // Map proto-shape result back to canonical DispatchResponse shape.
+    // enforceProtocol may return a minimal proto-response (missing source/requestId)
+    // when it constructs an error response — fill those in from the request.
+    const { _meta, ...protoRest } = protoResult;
+    const responseMeta = {
+      ..._meta,
+      source: (_meta.source as DispatchResponse['meta']['source']) ?? req.source,
+      requestId: (_meta.requestId as string) ?? req.requestId,
+    };
+
+    return {
+      ...protoRest,
+      meta: responseMeta,
+    } as DispatchResponse;
   };
 }

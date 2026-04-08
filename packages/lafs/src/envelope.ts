@@ -560,6 +560,8 @@ export interface CliEnvelopeError {
   details?: unknown;
   /** RFC 9457 Problem Details object (optional). */
   problemDetails?: unknown;
+  /** Extensible vendor fields. */
+  [key: string]: unknown;
 }
 
 /**
