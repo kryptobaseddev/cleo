@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-This specification defines CLEO's autonomous runtime as a canon-aligned execution layer built on top of the existing four systems, ten canonical domains, and two MCP gateways.
+This specification defines CLEO's autonomous runtime as a canon-aligned execution layer built on top of the existing four systems, ten canonical domains, and the CQRS query/mutate split in the dispatch registry.
 
 It gives implementation meaning to the live workshop terms:
 
@@ -210,7 +210,7 @@ This dependency layering preserves the runtime foundation before operator surfac
 The autonomous runtime does not:
 
 - create an eleventh domain
-- replace dispatch, shared core, or MCP gateways
+- replace dispatch, shared core, or the CQRS gateway tags
 - replace LAFS with a private message protocol
 - redefine `nexus.share.*` as `sticky`
 - treat The Hearth as the source of truth
