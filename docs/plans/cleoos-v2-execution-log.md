@@ -105,4 +105,17 @@ Plus these documentation artifacts from earlier in the session:
 - [ ] Retry creation of epic + wave task tree (T314-T325 equivalent) in next session with fresh IDs
 - [ ] Architect follow-up: the feature-dev:code-architect agent needs better framing — "spec wins over existing patterns" must be in the dispatch prompt explicitly
 
+### Architect blueprints captured for next session
+
+Two architect agents (originally dispatched for Wave 0 planning) completed AFTER the orchestrator shipped Wave 0 minimum directly. Their output is valuable for Wave 0.5 pickup and has been captured verbatim under `docs/plans/blueprints/`:
+
+- **[`wave-0.5-grammar-blueprint.md`](./blueprints/wave-0.5-grammar-blueprint.md)** — Complete Wave 0.5 implementation plan: `team.rs`/`tool.rs` parsers, `agent.rs` extensions for `context_sources`/`mental_model`, `permission.rs` glob syntax, all 8 lint rules (TEAM-001..003, TIER-001..002, JIT-001, MM-001..002), 22 rule tests, 3 test fixtures, exact worker execution order, validation gates, and critical details (AgentDef construction fan-out, Section match exhaustiveness, tool keyword collision check, fixture directory creation). The engineering-lead for the next session should read this in full before dispatching Wave 0.5 workers.
+
+- **[`verb-001-lint-blueprint.md`](./blueprints/verb-001-lint-blueprint.md)** — VERB-001 lint rule (deferred from Wave 0 to Wave 5/6): build-time extraction from `packages/cleo/src/dispatch/registry.ts` via `build.rs`, generated `src/generated/verbs.rs` with `CANONICAL_VERB_OPS` constant, walk algorithm over statement bodies, 8 required tests, drift guard via CI diff. Includes the namespace compatibility analysis confirming zero collisions between Wave 0 CANT keywords and VERB-STANDARDS.
+
+**Key lessons embedded in the blueprints**:
+- The first architect dispatch drifted on ULTRAPLAN §8 semantics — it read existing `.cant` files and matched their patterns instead of the spec. The blueprints captured here reflect the ULTRAPLAN-correct interpretation after orchestrator redirection.
+- VERB-001 was explicitly deferred from Wave 0 (Option C) because the TS-registry extraction adds meaningful complexity and Wave 0's goal was grammar stability.
+- The prototype at `~/.agents/agents/cleo-subagent/cleo-subagent.cant` uses pre-ULTRAPLAN syntax (`tier: 0`, `role: subagent`). TIER-001 WILL fire on it — the validation gate must be parse-level, not validation-level, for that file.
+
 ---
