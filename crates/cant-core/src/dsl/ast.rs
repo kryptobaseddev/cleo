@@ -40,6 +40,36 @@ pub enum DocumentKind {
     Config,
     /// A message document (Layer 1 backward compatibility).
     Message,
+    /// A protocol definition document — RCASD/IVTR protocol contract.
+    ///
+    /// CleoOS v2 (ULTRAPLAN §8): typed replacement for the hand-written
+    /// protocols-markdown files in `packages/core/src/validation/protocols/`.
+    Protocol,
+    /// A lifecycle definition document — pipeline stage definitions.
+    ///
+    /// CleoOS v2 (ULTRAPLAN §8): typed replacement for the TypeScript const
+    /// `PIPELINE_STAGES` in `packages/core/src/lifecycle/stages.ts`.
+    Lifecycle,
+    /// A team definition document — 3-tier hierarchy (orchestrator / leads / workers).
+    ///
+    /// CleoOS v2 (ULTRAPLAN §10): declares the multi-agent hierarchy with
+    /// HITL routing rules and role enforcement.
+    Team,
+    /// A tool definition document — LLM-callable tool declarations.
+    ///
+    /// CleoOS v2 (ULTRAPLAN §8): custom Pi-tool registrations beyond the
+    /// built-in dispatcher tools.
+    Tool,
+    /// A model-routing document — tier matrix + classifier config.
+    ///
+    /// CleoOS v2 (ULTRAPLAN §11): low/mid/high tier matrix driving the
+    /// 3-layer classifier / router / pipeline.
+    ModelRouting,
+    /// A mental-model definition document — per-agent persistent model schema.
+    ///
+    /// CleoOS v2 (ULTRAPLAN §12): per-project BRAIN namespace config with
+    /// validate-on-load policy.
+    MentalModel,
 }
 
 /// Parsed YAML-style frontmatter block.
@@ -679,7 +709,13 @@ mod tests {
             DocumentKind::Pipeline,
             DocumentKind::Config,
             DocumentKind::Message,
+            DocumentKind::Protocol,
+            DocumentKind::Lifecycle,
+            DocumentKind::Team,
+            DocumentKind::Tool,
+            DocumentKind::ModelRouting,
+            DocumentKind::MentalModel,
         ];
-        assert_eq!(kinds.len(), 7);
+        assert_eq!(kinds.len(), 13);
     }
 }

@@ -128,6 +128,11 @@ fn parse_frontmatter_property(line: &IndentedLine<'_>) -> Result<Property, Parse
 }
 
 /// Converts a `Value` to a `DocumentKind` if it matches a known kind string.
+///
+/// The frontmatter uses kebab-case for multi-word kinds (`model-routing`,
+/// `mental-model`) per the CANT style guide, distinct from the Rust
+/// PascalCase variant names ([`DocumentKind::ModelRouting`],
+/// [`DocumentKind::MentalModel`]).
 fn parse_document_kind(value: &Value) -> Option<DocumentKind> {
     let s = extract_string_value(value)?;
     match s.as_str() {
@@ -138,6 +143,13 @@ fn parse_document_kind(value: &Value) -> Option<DocumentKind> {
         "pipeline" => Some(DocumentKind::Pipeline),
         "config" => Some(DocumentKind::Config),
         "message" => Some(DocumentKind::Message),
+        // CleoOS v2 document kinds (ULTRAPLAN §8):
+        "protocol" => Some(DocumentKind::Protocol),
+        "lifecycle" => Some(DocumentKind::Lifecycle),
+        "team" => Some(DocumentKind::Team),
+        "tool" => Some(DocumentKind::Tool),
+        "model-routing" => Some(DocumentKind::ModelRouting),
+        "mental-model" => Some(DocumentKind::MentalModel),
         _ => None,
     }
 }
@@ -236,6 +248,13 @@ mod tests {
             ("pipeline", DocumentKind::Pipeline),
             ("config", DocumentKind::Config),
             ("message", DocumentKind::Message),
+            // CleoOS v2 kinds (ULTRAPLAN §8):
+            ("protocol", DocumentKind::Protocol),
+            ("lifecycle", DocumentKind::Lifecycle),
+            ("team", DocumentKind::Team),
+            ("tool", DocumentKind::Tool),
+            ("model-routing", DocumentKind::ModelRouting),
+            ("mental-model", DocumentKind::MentalModel),
         ] {
             let input = format!("---\nkind: {kind_str}\n---");
             let lines = split_lines(&input).unwrap();
