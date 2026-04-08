@@ -153,6 +153,7 @@ describe('sqlite-backup', () => {
   it('listSqliteBackups and listBrainBackups return prefix-specific entries newest-first', async () => {
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null }));
     vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => null }));
     const tempDir = join(tmpdir(), `cleo-test-list-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
@@ -186,8 +187,11 @@ describe('sqlite-backup', () => {
       'tasks-20260101-120000.db',
     ]);
     expect(brainList.map((e) => e.name)).toEqual(['brain-20260103-120000.db']);
-    expect(Object.keys(all).sort()).toEqual(['brain', 'tasks']);
+    // conduit is now a registered prefix (T369); no conduit files exist in
+    // this temp dir so its bucket is empty but still present in the map.
+    expect(Object.keys(all).sort()).toEqual(['brain', 'conduit', 'tasks']);
     expect(all['tasks']?.length).toBe(2);
     expect(all['brain']?.length).toBe(1);
+    expect(all['conduit']?.length).toBe(0);
   });
 });

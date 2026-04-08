@@ -2,22 +2,36 @@
  * SQLite backup via VACUUM INTO with snapshot rotation.
  *
  * Produces self-contained, WAL-free copies of CLEO SQLite databases
- * (tasks.db, brain.db at project tier; nexus.db at global tier) into
- * `.cleo/backups/sqlite/` (project) or `$XDG_DATA_HOME/cleo/backups/sqlite/`
- * (global) with a configurable rotation limit. All errors are swallowed —
- * backup failure must never interrupt normal operation.
+ * (tasks.db, brain.db, conduit.db at project tier; nexus.db, signaldock.db at
+ * global tier) into `.cleo/backups/sqlite/` (project) or
+ * `$XDG_DATA_HOME/cleo/backups/sqlite/` (global) with a configurable rotation
+ * limit. Also provides raw-file backup for the global-salt binary (not SQLite).
+ * All errors are swallowed — backup failure must never interrupt normal operation.
  *
  * @task T4873
  * @task T5158 — extended to cover brain.db
  * @task T306  — extended to cover global-tier nexus.db (epic T299)
+ * @task T369  — extended to cover conduit.db (project), signaldock.db (global),
+ *               and global-salt raw-file backup (epic T310)
  * @epic T4867
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir, getCleoHome } from '../paths.js';
 import { getBrainNativeDb } from './brain-sqlite.js';
+import { getConduitNativeDb } from './conduit-sqlite.js';
+import { getGlobalSaltPath } from './global-salt.js';
 import { getNexusNativeDb } from './nexus-sqlite.js';
+import { getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { getNativeDb } from './sqlite.js';
 
 /** Maximum number of snapshots retained per database (oldest rotated out). */
@@ -46,11 +60,16 @@ interface SnapshotTarget {
 
 /**
  * Canonical list of snapshot targets. Ordering is insertion order — tasks.db
- * snapshots first (highest-value operational state), then brain.db.
+ * snapshots first (highest-value operational state), then brain.db, then
+ * conduit.db (project messaging state).
+ *
+ * @task T369
+ * @epic T310
  */
 const SNAPSHOT_TARGETS: SnapshotTarget[] = [
   { prefix: 'tasks', getDb: getNativeDb },
   { prefix: 'brain', getDb: getBrainNativeDb },
+  { prefix: 'conduit', getDb: getConduitNativeDb }, // Added T369 — project messaging DB
 ];
 
 /**
@@ -308,10 +327,16 @@ export function listSqliteBackupsAll(
 export type BackupScope = 'project' | 'global';
 
 /**
- * Registered global-tier snapshot targets. `signaldock` is reserved for T310
- * — only `nexus` is active in v2026.4.11.
+ * Registered global-tier snapshot targets. Both `nexus` and `signaldock` are
+ * active as of T369 (epic T310).
+ *
+ * @task T369
+ * @epic T310
  */
-const GLOBAL_SNAPSHOT_TARGETS: SnapshotTarget[] = [{ prefix: 'nexus', getDb: getNexusNativeDb }];
+const GLOBAL_SNAPSHOT_TARGETS: SnapshotTarget[] = [
+  { prefix: 'nexus', getDb: getNexusNativeDb },
+  { prefix: 'signaldock', getDb: getGlobalSignaldockNativeDb }, // Activated T369 — global agent registry
+];
 
 /**
  * Resolve the global-tier backup directory, creating it on first use.
@@ -333,12 +358,13 @@ function resolveGlobalBackupDir(cleoHomeOverride?: string): string {
  * Non-fatal: errors from any individual step are surfaced via the return value
  * but never thrown — a failed snapshot MUST NOT interrupt normal operation.
  *
- * @param dbName         - Which global-tier DB to snapshot (`'nexus'`; `'signaldock'` reserved for T310)
+ * @param dbName         - Which global-tier DB to snapshot (`'nexus'` or `'signaldock'`)
  * @param opts.rotation  - Maximum retained snapshots per prefix (default 10)
  * @param opts.cleoHomeOverride - Override `getCleoHome()` path (use in tests to target a tmp dir)
  * @returns Object containing the new snapshot path and any rotated (deleted) file paths
  *
  * @task T306
+ * @task T369 — activated signaldock target (epic T310)
  * @epic T299
  * @why ADR-036 §Backup Mechanism requires VACUUM INTO rotation at the global tier;
  *      nexus.db has zero backup coverage prior to v2026.4.11.
@@ -443,6 +469,155 @@ export function listGlobalSqliteBackups(
 
     return readdirSync(backupDir)
       .filter((f) => pattern.test(f))
+      .map((f) => {
+        const filePath = join(backupDir, f);
+        const s = statSync(filePath);
+        return { name: f, path: filePath, size: s.size, mtime: new Date(s.mtimeMs) };
+      })
+      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime()); // newest first
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================================
+// Global-salt raw-file backup (ADR-037 §5)
+// @task T369
+// @epic T310
+// ============================================================================
+
+/** Filename prefix for global-salt backup files. */
+const GLOBAL_SALT_BACKUP_PREFIX = 'global-salt';
+
+/** Regex matching global-salt backup filenames: `global-salt-YYYYMMDD-HHmmss`. */
+const GLOBAL_SALT_BACKUP_PATTERN = /^global-salt-\d{8}-\d{6}$/;
+
+/**
+ * Resolve the backup directory for global-salt files: `{cleoHome}/backups/`.
+ * Global-salt backups live directly under `backups/` (not `backups/sqlite/`)
+ * to make clear they are binary files, not SQLite databases.
+ */
+function resolveGlobalSaltBackupDir(cleoHomeOverride?: string): string {
+  const base = cleoHomeOverride ?? getCleoHome();
+  return join(base, 'backups');
+}
+
+/**
+ * Rotate global-salt backup files: delete the oldest until fewer than
+ * {@link MAX_SNAPSHOTS} remain. Returns the paths of deleted files.
+ * Non-fatal on any filesystem error.
+ */
+function rotateGlobalSaltBackups(backupDir: string): string[] {
+  const rotated: string[] = [];
+  try {
+    const files = readdirSync(backupDir)
+      .filter((f) => GLOBAL_SALT_BACKUP_PATTERN.test(f))
+      .map((f) => ({
+        name: f,
+        path: join(backupDir, f),
+        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
+      }))
+      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
+
+    while (files.length >= MAX_SNAPSHOTS) {
+      const oldest = files.shift();
+      if (!oldest) break;
+      try {
+        unlinkSync(oldest.path);
+        rotated.push(oldest.path);
+      } catch {
+        // non-fatal rotation failure
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return rotated;
+}
+
+/**
+ * Creates a raw-file backup of the global-salt binary at
+ * `${getCleoHome()}/backups/global-salt-YYYYMMDD-HHmmss` with `0o600`
+ * permissions. Rotates to {@link MAX_SNAPSHOTS} (10) copies, deleting the
+ * oldest when the limit is reached.
+ *
+ * Non-fatal: errors are swallowed — salt backup failure must never block cleo.
+ * Returns empty strings and no rotated paths on failure.
+ *
+ * @param opts.cleoHomeOverride - Override `getCleoHome()` path (use in tests to target a tmp dir)
+ * @returns Object with the new snapshot path and any rotated (deleted) file paths
+ *
+ * @task T369
+ * @epic T310
+ * @why ADR-037 §5 — global-salt is security-critical; losing it invalidates
+ *      all API keys. Backup enables recovery from accidental deletion.
+ */
+export async function backupGlobalSalt(opts?: {
+  cleoHomeOverride?: string;
+}): Promise<{ snapshotPath: string; rotated: string[] }> {
+  try {
+    const cleoHome = opts?.cleoHomeOverride ?? getCleoHome();
+    const saltSourcePath = opts?.cleoHomeOverride
+      ? join(cleoHome, 'global-salt')
+      : getGlobalSaltPath();
+
+    if (!existsSync(saltSourcePath)) {
+      return { snapshotPath: '', rotated: [] };
+    }
+
+    const backupDir = resolveGlobalSaltBackupDir(opts?.cleoHomeOverride);
+    mkdirSync(backupDir, { recursive: true });
+
+    const rotated = rotateGlobalSaltBackups(backupDir);
+
+    const snapshotName = `${GLOBAL_SALT_BACKUP_PREFIX}-${formatTimestamp(new Date())}`;
+    const snapshotPath = join(backupDir, snapshotName);
+
+    copyFileSync(saltSourcePath, snapshotPath);
+    chmodSync(snapshotPath, 0o600);
+
+    return { snapshotPath, rotated };
+  } catch {
+    // non-fatal — backup failure must never interrupt normal operation
+    return { snapshotPath: '', rotated: [] };
+  }
+}
+
+/**
+ * A single entry returned by {@link listGlobalSaltBackups}.
+ *
+ * @task T369
+ * @epic T310
+ */
+export interface GlobalSaltBackupEntry {
+  /** Backup filename, e.g. `global-salt-20260408-143022`. */
+  name: string;
+  /** Absolute path to the backup file. */
+  path: string;
+  /** File size in bytes (should be 32 for a valid global-salt). */
+  size: number;
+  /** Last-modified timestamp. */
+  mtime: Date;
+}
+
+/**
+ * List global-salt backup files from `$XDG_DATA_HOME/cleo/backups/`, sorted
+ * newest-first by mtime.
+ *
+ * Returns an empty array when the backup directory does not exist.
+ *
+ * @param cleoHomeOverride - Override `getCleoHome()` path (use in tests to target a tmp dir)
+ *
+ * @task T369
+ * @epic T310
+ */
+export function listGlobalSaltBackups(cleoHomeOverride?: string): GlobalSaltBackupEntry[] {
+  try {
+    const backupDir = resolveGlobalSaltBackupDir(cleoHomeOverride);
+    if (!existsSync(backupDir)) return [];
+
+    return readdirSync(backupDir)
+      .filter((f) => GLOBAL_SALT_BACKUP_PATTERN.test(f))
       .map((f) => {
         const filePath = join(backupDir, f);
         const s = statSync(filePath);

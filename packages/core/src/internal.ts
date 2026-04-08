@@ -442,9 +442,11 @@ export {
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
-export type { BackupScope, GlobalBackupEntry } from './store/sqlite-backup.js';
+export type { BackupScope, GlobalBackupEntry, GlobalSaltBackupEntry } from './store/sqlite-backup.js';
 export {
+  backupGlobalSalt,
   listBrainBackups,
+  listGlobalSaltBackups,
   listGlobalSqliteBackups,
   listSqliteBackups,
   listSqliteBackupsAll,
