@@ -593,8 +593,8 @@ Rust crate dependency chain: `lafs-core` ← `conduit-core` ← `cant-core`
 | `@cleocode/lafs` | `packages/lafs/` | TS package | LAFS runtime (ajv, conformance, MVI) |
 | `@cleocode/contracts` | `packages/contracts/` | TS package | Zero-dep type SSoT (leaf) |
 | `@cleocode/caamp` | `packages/caamp/` | TS package | Hook normalization (16 events) |
-| `@cleocode/core` | `packages/core/` | TS package | Business logic kernel (324 ops) |
-| `@cleocode/cleo` | `packages/cleo/` | TS package | CLI product (sole runtime surface) |
+| `@cleocode/core` | `packages/core/` | TS package | Business logic kernel (see registry.ts for op count) |
+| `@cleocode/cleo` | `packages/cleo/` | TS package | CLI + MCP product |
 | `@cleocode/adapters` | `packages/adapters/` | TS package | Provider adapters |
 | `@cleocode/agents` | `packages/agents/` | TS package | Agent lifecycle |
 | `@cleocode/skills` | `packages/skills/` | TS package | Skill registry |

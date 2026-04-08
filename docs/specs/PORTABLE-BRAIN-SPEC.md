@@ -106,7 +106,7 @@ CLEO MUST preserve these five pillars across all interfaces and roadmap phases:
    Every artifact is traceable to task, decision, agent, and operation event.
 
 3. **Interoperable Interfaces**  
-   The `cleo` CLI is the sole runtime interface; `@cleocode/core` is the programmatic embedding interface. Provider-specific adapters are optional, never required.
+   CLI and MCP are first-class interfaces. Provider-specific adapters are optional, never required.
 
 4. **Deterministic Safety**  
    Validation layers, lifecycle gates, atomic operations, and immutable logs protect system integrity.
@@ -156,19 +156,21 @@ CLEO MUST treat research manifests and agent outputs as first-class memory artif
 
 ### 9.1 CLI
 
-The TypeScript `cleo` CLI (`packages/cleo/src/cli/`) is the sole runtime interface (per ADR-004 and the v2026.4.1 MCP removal). Built on citty (with a legacy commander-shim for API compatibility), it ships ~89 command files in `packages/cleo/src/cli/commands/`. Every command delegates to `packages/core/src/` modules via the engine layer, so the CLI is 100% compliant with the shared-core architecture pattern (validated 2026-02-16, T4565). The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
+The TypeScript CLI (`packages/cleo/src/cli/`) is the primary runtime interface (per ADR-004). It is 100% compliant with the shared-core architecture pattern, delegating all business logic to `packages/core/src/` modules (validated 2026-02-16, T4565). There are ~86 command files in `packages/cleo/src/cli/commands/`. The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
 
-### 9.2 Dispatch Pipeline
+### 9.2 MCP
 
-Every `cleo <domain> <operation>` invocation flows through a single entry point: `dispatchRaw(gateway, domain, operation, params)` in `packages/cleo/src/dispatch/adapters/cli.ts`. The adapter applies the middleware chain (`sessionResolver` -> `sanitizer` -> `fieldFilter` -> `audit`), resolves the target handler from the dispatch registry (`packages/cleo/src/dispatch/registry.ts`), and routes to `handler.query()` or `handler.mutate()` based on the internal CQRS `gateway` tag attached to each operation. Domain handlers (`packages/cleo/src/dispatch/domains/{domain}.ts`) call into thin engine wrappers (`packages/cleo/src/dispatch/engines/`) which delegate to `@cleocode/core` modules.
+MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`query`, `mutate`) with registry-defined operations (see `packages/cleo/src/dispatch/registry.ts` for current count) across 10 canonical domains. The MCP engine (`packages/cleo/src/dispatch/engines/`) delegates to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
 
-The `gateway` tag is an **internal** query/mutate split used for routing, auditing, and caching; it is not exposed as a public protocol surface.
+**Architecture status (updated 2026-03-06)**: The MCP engine now imports directly from `packages/core/src/` modules. See `packages/cleo/src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
+
+MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
 
 ### 9.3 Shared-Core Architecture (Salesforce DX Pattern)
 
-The CLI MUST delegate all business logic to the shared core (`packages/core/src/`). Current compliance:
-- **CLI**: 100% compliant (~89 command files route through engine wrappers to `packages/core/src/`)
-- **`@cleocode/core`**: standalone kernel with zero imports from `packages/cleo/src/cli/` or `packages/cleo/src/dispatch/`
+Both CLI and MCP interfaces MUST delegate to a shared core (`packages/core/src/`). Current compliance:
+- **CLI**: 100% compliant (~86 command files route through `packages/core/src/`)
+- **MCP**: ~95% compliant (operations run natively via `packages/core/src/`; some require CLI fallback)
 
 ### 9.4 Adapters
 
@@ -209,8 +211,8 @@ cleo admin.validate
 The same `.cleo/` brain works with:
 - Claude Code
 - OpenCode
-- Any provider CAAMP can configure via its MCP config-writer (45+ downstream providers)
-- Direct `cleo` CLI usage
+- Any MCP-compatible tool
+- Direct CLI usage
 
 ## 12. Governance and Change Control
 
@@ -242,6 +244,6 @@ Documentation and implementation MUST use the same canonical terms for:
 - `README.md`
 - `docs/ROADMAP.md`
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` (canonical runtime dispatch contract)
+- `docs/specs/MCP-SERVER-SPECIFICATION.md`
 - `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit, historical)
 - `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

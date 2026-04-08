@@ -194,6 +194,6 @@ These are live operations in the registry that use non-canonical verbs for legac
 
 ## References
 
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — all 209 operations with canonical names (SSoT)
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — all registry-defined operations with canonical names (SSoT)
 - `packages/cleo/src/dispatch/registry.ts` — executable registry (registry wins on conflicts)
 - RFC 2119 — MUST/SHOULD/MAY definitions
