@@ -1105,6 +1105,122 @@ agent ${agentId}:
       }
     });
 
+  // --- cleo agent attach <id> ---
+  /**
+   * @task T364
+   * @epic T310
+   * @why ADR-037 §3 — project_agent_refs override table allows per-project
+   *      agents to be attached/detached without touching global identity.
+   */
+  agent
+    .command('attach <agentId>')
+    .description('Attach a global agent to the current project')
+    .option('--role <role>', 'Per-project role override')
+    .option('--capabilities-override <json>', 'JSON blob of capability overrides')
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
+      try {
+        const { AgentRegistryAccessor, attachAgentToProject, lookupAgent, getDb } = await import(
+          '@cleocode/core/internal'
+        );
+        await getDb();
+        const projectRoot = process.cwd();
+
+        // Ensure both DBs initialised before any cross-DB operation
+        const _registry = new AgentRegistryAccessor(projectRoot);
+        void _registry;
+
+        // Verify agent exists globally
+        const global = lookupAgent(projectRoot, agentId, { includeGlobal: true });
+        if (!global) {
+          cliOutput(
+            {
+              success: false,
+              error: { code: 'E_NOT_FOUND', message: `Agent not found: ${agentId}` },
+            },
+            { command: 'agent attach' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+
+        attachAgentToProject(projectRoot, agentId, {
+          role: typeof opts['role'] === 'string' ? opts['role'] : null,
+          capabilitiesOverride:
+            typeof opts['capabilitiesOverride'] === 'string' ? opts['capabilitiesOverride'] : null,
+        });
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              attached: agentId,
+              projectRoot,
+              role: typeof opts['role'] === 'string' ? opts['role'] : null,
+            },
+          },
+          { command: 'agent attach' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_ATTACH', message: String(err) } },
+          { command: 'agent attach' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent detach <id> ---
+  /**
+   * @task T364
+   * @epic T310
+   * @why ADR-037 §3 — soft-delete via project_agent_refs.enabled=0 preserves
+   *      global agent identity while removing it from the project view.
+   */
+  agent
+    .command('detach <agentId>')
+    .description('Detach an agent from the current project (preserves global identity)')
+    .action(async (agentId: string) => {
+      try {
+        const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef, getDb } =
+          await import('@cleocode/core/internal');
+        await getDb();
+        const projectRoot = process.cwd();
+
+        // Ensure both DBs initialised
+        const _registry = new AgentRegistryAccessor(projectRoot);
+        void _registry;
+
+        const ref = getProjectAgentRef(projectRoot, agentId);
+        if (!ref) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NOT_FOUND',
+                message: `Agent ${agentId} not attached to current project`,
+              },
+            },
+            { command: 'agent detach' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+
+        detachAgentFromProject(projectRoot, agentId);
+
+        cliOutput(
+          { success: true, data: { detached: agentId, projectRoot } },
+          { command: 'agent detach' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_DETACH', message: String(err) } },
+          { command: 'agent detach' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
   // --- cleo agent remove <id> ---
   agent
     .command('remove <agentId>')

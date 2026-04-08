@@ -894,7 +894,10 @@ export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
 export {
   AgentRegistryAccessor,
+  attachAgentToProject,
   createProjectAgent,
+  detachAgentFromProject,
+  getProjectAgentRef,
   listAgentsForProject,
   lookupAgent,
 } from './store/agent-registry-accessor.js';

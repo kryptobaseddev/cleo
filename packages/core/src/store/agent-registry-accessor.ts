@@ -569,6 +569,118 @@ export function createProjectAgent(
 }
 
 // ---------------------------------------------------------------------------
+// Standalone attach / detach helpers (T364)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attach a globally-registered agent to the current project.
+ *
+ * Creates a `project_agent_refs` row with `enabled=1`. If a row already exists
+ * with `enabled=0`, it is re-enabled (idempotent). If the row already has
+ * `enabled=1`, this is a no-op.
+ *
+ * The agent MUST already exist in the global `signaldock.db:agents` table.
+ * This function does NOT validate global existence — callers must check via
+ * `lookupAgent(..., { includeGlobal: true })` first.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param agentId     - Agent business identifier.
+ * @param opts.role                - Optional per-project role override (nullable).
+ * @param opts.capabilitiesOverride - Optional JSON blob of capability overrides (nullable).
+ *
+ * @task T364
+ * @epic T310
+ */
+export function attachAgentToProject(
+  projectRoot: string,
+  agentId: string,
+  opts?: { role?: string | null; capabilitiesOverride?: string | null },
+): void {
+  const conduitDb = openConduitDb(projectRoot);
+  const nowIso = new Date().toISOString();
+  try {
+    const existingRef = conduitDb
+      .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .get(agentId) as { agent_id: string; enabled: number } | undefined;
+
+    if (!existingRef) {
+      conduitDb
+        .prepare(
+          `INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+           VALUES (?, ?, ?, ?, NULL, 1)`,
+        )
+        .run(agentId, nowIso, opts?.role ?? null, opts?.capabilitiesOverride ?? null);
+    } else if (existingRef.enabled === 0) {
+      conduitDb
+        .prepare(
+          `UPDATE project_agent_refs SET enabled = 1, attached_at = ?, role = ?, capabilities_override = ? WHERE agent_id = ?`,
+        )
+        .run(nowIso, opts?.role ?? null, opts?.capabilitiesOverride ?? null, agentId);
+    }
+    // enabled=1 already — no-op
+  } finally {
+    conduitDb.close();
+  }
+}
+
+/**
+ * Detach an agent from the current project by setting `project_agent_refs.enabled=0`.
+ *
+ * This is a soft-delete: the global `signaldock.db:agents` row is preserved.
+ * The agent can be re-attached later via `attachAgentToProject`.
+ *
+ * Returns `false` if no row exists in `project_agent_refs` for the given agentId
+ * (agent was never attached or was already fully removed).
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param agentId     - Agent business identifier.
+ * @returns `true` if a row was updated; `false` if no row existed.
+ *
+ * @task T364
+ * @epic T310
+ */
+export function detachAgentFromProject(projectRoot: string, agentId: string): boolean {
+  const conduitDb = openConduitDb(projectRoot);
+  try {
+    const ref = conduitDb
+      .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ?')
+      .get(agentId) as { agent_id: string } | undefined;
+
+    if (!ref) return false;
+
+    conduitDb.prepare('UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?').run(agentId);
+    return true;
+  } finally {
+    conduitDb.close();
+  }
+}
+
+/**
+ * Get the raw `project_agent_refs` row for a given agentId in this project.
+ *
+ * Returns `null` if no row exists (agent not attached to this project).
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param agentId     - Agent business identifier.
+ * @returns Typed `ProjectAgentRef` object or `null`.
+ *
+ * @task T364
+ * @epic T310
+ */
+export function getProjectAgentRef(projectRoot: string, agentId: string): ProjectAgentRef | null {
+  const conduitDb = openConduitDb(projectRoot);
+  try {
+    const row = conduitDb
+      .prepare('SELECT * FROM project_agent_refs WHERE agent_id = ?')
+      .get(agentId) as ProjectAgentRefRow | undefined;
+    if (!row) return null;
+    return rowToProjectRef(row);
+  } finally {
+    conduitDb.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // AgentRegistryAccessor class (backward-compatible wrapper)
 // ---------------------------------------------------------------------------
 
