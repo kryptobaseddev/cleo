@@ -12,12 +12,12 @@
 
 This specification defines the public contract for `@cleocode/core`, the standalone business logic package within the CLEO monorepo.
 
-`@cleocode/core` encapsulates all domain logic for task management, session lifecycle, memory persistence, multi-agent orchestration, lifecycle gate enforcement, release management, and related capabilities. It is designed to be consumed by adapter layers (CLI, MCP, custom integrations) without embedding any adapter-specific code itself.
+`@cleocode/core` encapsulates all domain logic for task management, session lifecycle, memory persistence, multi-agent orchestration, lifecycle gate enforcement, release management, and related capabilities. It is designed to be consumed by adapter layers (the `cleo` CLI and optional custom integrations) without embedding any adapter-specific code itself. `@cleocode/core` is strictly adapter-neutral: it imports nothing from the CLI or dispatch routing layer.
 
 ### Design Goals
 
 - **Standalone**: Importable without the `@cleocode/cleo` product package
-- **Adapter-neutral**: No imports from `packages/cleo/` (CLI, MCP, or dispatch)
+- **Adapter-neutral**: No imports from `packages/cleo/` (CLI or dispatch routing layer). Dispatch is the CLI's internal routing layer and stays inside `@cleocode/cleo`.
 - **Two-tier barrel**: Public API (`index.ts`) for external consumers, internal API (`internal.ts`) for `@cleocode/cleo`
 - **Bundled storage**: The default SQLite store ships inside `packages/core/src/store/`
 - **Dependency-injected storage**: Core modules accept a `DataAccessor` parameter for custom backends
@@ -155,7 +155,6 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
 | `context` | `packages/core/src/context/` | Context window drift monitoring and alerts | No |
 | `coreHooks` | `packages/core/src/hooks/` | Lifecycle hook dispatch registry | No |
-| `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
 | `inject` | `packages/core/src/inject/` | AGENTS.md / CLAUDE.md content injection | No |
 | `intelligence` | `packages/core/src/intelligence/` | Quality prediction, pattern extraction, impact prediction (`predictImpact`, `analyzeChangeImpact`, `calculateBlastRadius`), adaptive validation | Yes (uses brain.db + DataAccessor) |
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
@@ -529,7 +528,7 @@ All symbols exported from `packages/core/src/index.ts` are public API. Consumers
 |-----------|---------|---------|
 | **Stable** | No breaking changes without major version bump | `tasks.*`, `sessions.*`, `memory.*`, `CleoError`, `formatSuccess`, `Cleo` facade |
 | **Beta** | May change between minor versions | `signaldock.*`, `orchestration.spawnWave`, `otel.*`, `spawn.*` |
-| **Internal** | Not for external consumers; may be removed | `coreMcp.*`, `routing.*`, `coreHooks.*` |
+| **Internal** | Not for external consumers; may be removed | `routing.*`, `coreHooks.*` |
 
 ### 8.3 What Is NOT Public API
 
@@ -592,9 +591,8 @@ The following are internal implementation details, not part of the public contra
 
 | Prohibited path | Reason |
 |----------------|--------|
-| `packages/cleo/src/cli/` | CLI adapter code (Commander.js, argument parsing) |
-| `packages/cleo/src/mcp/` | MCP adapter code (MCP SDK tool definitions) |
-| `packages/cleo/src/dispatch/` | Routing layer -- core should not know about dispatch |
+| `packages/cleo/src/cli/` | CLI entry layer (citty commands, argument parsing) |
+| `packages/cleo/src/dispatch/` | CLI dispatch routing layer -- core MUST NOT know about dispatch |
 
 ### 10.1 Allowed Store Imports
 
@@ -659,7 +657,7 @@ CAAMP (Central AI Agent Managed Packages) handles provider-level orchestration. 
 | Capability check | `providerSupportsById(id, capability)` | `@cleocode/caamp` (re-exported) |
 | Hook event query | `getProvidersByHookEvent(event)` | `@cleocode/caamp` (re-exported) |
 | Skill paths | `getEffectiveSkillsPaths(provider)` | `@cleocode/caamp` (re-exported) |
-| MCP server config | `caampBuildServerConfig(options)` | `packages/core/src/caamp/` |
+| MCP server config helper -- generates config entries for downstream MCP-speaking providers (Claude Desktop, Cursor, Zed, etc.) via CAAMP's config-editor role | `caampBuildServerConfig(options)` | `packages/core/src/caamp/` |
 | Dual-scope install | `dualScopeConfigure(config)` | `packages/core/src/caamp/` |
 | Batch install | `batchInstallWithRollback(options)` | `packages/core/src/caamp/` |
 
@@ -682,7 +680,7 @@ SignalDock is used internally by the `spawn` and `orchestration` modules. Extern
 
 ## 14. LAFS Response Envelope
 
-All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs`.
+All CLI-facing operations and programmatic API calls through `@cleocode/core` MUST return LAFS-compliant data shapes. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs`. CLI output is a full LAFS envelope; direct `@cleocode/core` imports return the unwrapped typed payload.
 
 ### 14.1 Envelope Variants
 
@@ -882,7 +880,7 @@ Sixteen GitHub issues (#63–#78) resolved across five point releases:
 | `ensureRequiredColumns()` | v2026.3.61 | PRAGMA table_info safety net after every migration |
 | `dryRun` threading | v2026.3.62 | Flag now passed through dispatch → engine → `addTask()` |
 | `listSystemBackups()` | v2026.3.62 | Read-only backup list (moved from mutate to query gateway) |
-| `session find` CLI | v2026.3.63 | CLI subcommand registered for existing MCP operation |
+| `session find` CLI | v2026.3.63 | CLI subcommand registered for existing `session.find` dispatch operation |
 | `paginate()` null guard | v2026.3.64 | Handles undefined/null input arrays |
 | `detect-drift` user projects | v2026.3.65 | Distinguishes CLEO source repo from user projects |
 
