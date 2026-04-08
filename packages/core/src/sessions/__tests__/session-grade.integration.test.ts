@@ -160,7 +160,7 @@ function sloppySession(): AuditEntry[] {
       params: { title: 'Do something', description: 'Duplicate' },
       result: { success: true, exitCode: 0, duration: 20 },
     }),
-    // No session.end, no help calls, no MCP gateway
+    // No session.end, no help calls, no query gateway usage
   ];
 }
 

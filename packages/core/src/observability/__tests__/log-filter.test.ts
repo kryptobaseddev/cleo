@@ -73,7 +73,7 @@ describe('matchesFilter', () => {
   it('filters by subsystem', () => {
     const entry = makeEntry({ subsystem: 'engine' });
     expect(matchesFilter(entry, { subsystem: 'engine' })).toBe(true);
-    expect(matchesFilter(entry, { subsystem: 'mcp' })).toBe(false);
+    expect(matchesFilter(entry, { subsystem: 'dispatch' })).toBe(false);
   });
 
   it('filters by code', () => {
@@ -105,7 +105,7 @@ describe('matchesFilter', () => {
   it('applies AND logic for multiple criteria', () => {
     const entry = makeEntry({ level: 'ERROR', subsystem: 'engine', code: 'E_NOT_FOUND' });
     expect(matchesFilter(entry, { level: 'ERROR', subsystem: 'engine' })).toBe(true);
-    expect(matchesFilter(entry, { level: 'ERROR', subsystem: 'mcp' })).toBe(false);
+    expect(matchesFilter(entry, { level: 'ERROR', subsystem: 'dispatch' })).toBe(false);
     expect(matchesFilter(entry, { level: 'WARN', subsystem: 'engine' })).toBe(false);
   });
 
@@ -119,10 +119,10 @@ describe('matchesFilter', () => {
 
 describe('filterEntries', () => {
   const entries = [
-    makeEntry({ level: 'INFO', msg: 'Starting server', subsystem: 'mcp' }),
+    makeEntry({ level: 'INFO', msg: 'Starting server', subsystem: 'dispatch' }),
     makeEntry({ level: 'WARN', msg: 'Task not found', subsystem: 'engine', code: 'E_NOT_FOUND' }),
     makeEntry({ level: 'ERROR', msg: 'Database locked', subsystem: 'engine', exitCode: 3 }),
-    makeEntry({ level: 'INFO', msg: 'Server stopped', subsystem: 'mcp' }),
+    makeEntry({ level: 'INFO', msg: 'Server stopped', subsystem: 'dispatch' }),
   ];
 
   it('returns all entries for empty filter', () => {

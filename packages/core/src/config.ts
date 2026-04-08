@@ -82,7 +82,6 @@ const DEFAULTS: CleoConfig = {
   brain: {
     autoCapture: true,
     captureFiles: false,
-    captureMcp: false,
     captureWork: false,
     embedding: {
       enabled: true,

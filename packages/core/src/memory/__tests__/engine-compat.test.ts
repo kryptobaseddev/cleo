@@ -37,7 +37,7 @@ const SAMPLE_ENTRIES = [
     date: '2026-01-15',
     status: 'completed',
     agent_type: 'research',
-    topics: ['mcp', 'engine'],
+    topics: ['async-ops', 'engine'],
     key_findings: ['finding1', 'finding2', 'finding3'],
     actionable: true,
     linked_tasks: ['T001'],
@@ -186,7 +186,7 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
 
     it('should search by topic', async () => {
       await seedEntries();
-      const result = await pipelineManifestFind('mcp', {}, testRoot);
+      const result = await pipelineManifestFind('async-ops', {}, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBeGreaterThan(0);
     });

@@ -657,7 +657,7 @@ describe('gradeSession', () => {
         }),
       ]);
 
-      const result = await gradeSession('s5-mcp', tempDir);
+      const result = await gradeSession('s5-query', tempDir);
 
       expect(result.dimensions.disclosureUse.score).toBe(10);
       expect(result.dimensions.disclosureUse.evidence).toEqual(
@@ -698,7 +698,7 @@ describe('gradeSession', () => {
         entry({ domain: 'tasks', operation: 'find', timestamp: ts(0) }),
       ]);
 
-      const result = await gradeSession('s5-nomcp', tempDir);
+      const result = await gradeSession('s5-noqueries', tempDir);
 
       expect(result.flags).toContain(
         'No query gateway calls (use query operations for programmatic access)',

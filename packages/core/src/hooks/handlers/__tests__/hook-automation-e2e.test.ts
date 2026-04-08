@@ -59,7 +59,6 @@ function makeConfig(
     autoCapture?: boolean;
     captureWork?: boolean;
     captureFiles?: boolean;
-    captureMcp?: boolean;
     autoRefresh?: boolean;
   } = {},
 ): Awaited<ReturnType<typeof configModule.loadConfig>> {
@@ -68,7 +67,6 @@ function makeConfig(
       autoCapture: overrides.autoCapture ?? true,
       captureWork: overrides.captureWork ?? false,
       captureFiles: overrides.captureFiles ?? false,
-      captureMcp: overrides.captureMcp ?? false,
       memoryBridge: { autoRefresh: overrides.autoRefresh ?? false },
       embedding: { enabled: false, provider: 'local' },
       summarization: { enabled: false },
@@ -92,12 +90,10 @@ describe('hook automation E2E', () => {
     maybeRefreshMemoryBridgeMock.mockReset().mockResolvedValue(undefined);
     // Clear work-capture env var
     delete process.env['CLEO_BRAIN_CAPTURE_WORK'];
-    delete process.env['CLEO_BRAIN_CAPTURE_MCP'];
   });
 
   afterEach(() => {
     delete process.env['CLEO_BRAIN_CAPTURE_WORK'];
-    delete process.env['CLEO_BRAIN_CAPTURE_MCP'];
   });
 
   // -------------------------------------------------------------------------
@@ -564,9 +560,8 @@ describe('hook automation E2E', () => {
       );
     });
 
-    it('work-capture and mcp-hooks register on same event but use different config keys', async () => {
-      // work-capture is keyed on captureWork; mcp-hooks keyed on captureMcp
-      // When both are disabled (default), neither fires
+    it('work-capture hooks only fire when captureWork is enabled', async () => {
+      // When captureWork is disabled (default), the handler does not fire
       await handleWorkPromptSubmit(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         gateway: 'mutate',

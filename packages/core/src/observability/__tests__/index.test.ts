@@ -43,7 +43,7 @@ describe('queryLogs', () => {
         pid: 1,
         hostname: 'h',
         msg: 'Start',
-        subsystem: 'mcp',
+        subsystem: 'engine',
       }),
       JSON.stringify({
         level: 'WARN',
@@ -273,7 +273,7 @@ describe('getLogSummary', () => {
         pid: 1,
         hostname: 'h',
         msg: 'a',
-        subsystem: 'mcp',
+        subsystem: 'engine',
       }),
       JSON.stringify({
         level: 'INFO',
@@ -281,7 +281,7 @@ describe('getLogSummary', () => {
         pid: 2,
         hostname: 'h',
         msg: 'b',
-        subsystem: 'mcp',
+        subsystem: 'engine',
       }),
       JSON.stringify({
         level: 'WARN',
@@ -305,7 +305,7 @@ describe('getLogSummary', () => {
     const summary = getLogSummary({ scope: 'project' }, tmpDir);
     expect(summary.totalEntries).toBe(4);
     expect(summary.byLevel).toEqual({ INFO: 2, WARN: 1, ERROR: 1 });
-    expect(summary.bySubsystem).toEqual({ mcp: 2, engine: 2 });
+    expect(summary.bySubsystem).toEqual({ engine: 4 });
     expect(summary.dateRange).not.toBeNull();
     expect(summary.dateRange!.earliest).toBe('2026-02-28T10:00:00Z');
     expect(summary.dateRange!.latest).toBe('2026-02-28T10:03:00Z');

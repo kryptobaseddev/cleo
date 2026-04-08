@@ -11,8 +11,7 @@
  *   4. Sequence counter (SQLite schema_meta)
  *   5. Project info (.cleo/project-info.json)
  *   6. CAAMP injection into agent instruction files (AGENTS.md hub pattern)
- *   7. (removed — was MCP server installation)
- *   8. Agent definition installation (cleo-subagent)
+ *   7. Agent definition installation (cleo-subagent)
  *   9. Core skill installation via CAAMP
  *  10. NEXUS project registration
  *  11. Project type detection (--detect)

@@ -45,8 +45,8 @@ const ENTRY_A: ExtendedManifestEntry = {
   date: '2026-01-15',
   status: 'completed',
   agent_type: 'research',
-  topics: ['mcp', 'engine'],
-  key_findings: ['This library is deprecated', 'MCP supports structured output'],
+  topics: ['async-ops', 'engine'],
+  key_findings: ['This library is deprecated', 'System supports structured output'],
   actionable: true,
   linked_tasks: ['T001'],
   needs_followup: [],
@@ -464,9 +464,9 @@ describe('pipeline-manifest-sqlite', () => {
 
     it('should filter by topic param', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_C]);
-      const result = await pipelineManifestContradictions(testRoot, { topic: 'mcp' });
+      const result = await pipelineManifestContradictions(testRoot, { topic: 'async-ops' });
       expect(result.success).toBe(true);
-      // ENTRY_C doesn't have 'mcp' topic, so no contradictions on that topic
+      // ENTRY_C doesn't have 'async-ops' topic, so no contradictions on that topic
       expect((result.data as any).contradictions.length).toBe(0);
     });
   });

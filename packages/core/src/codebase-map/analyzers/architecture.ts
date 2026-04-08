@@ -29,7 +29,6 @@ const LAYER_PURPOSE: Record<string, string> = {
   hooks: 'React hooks',
   composables: 'Vue composables',
   cli: 'CLI interface',
-  mcp: 'Protocol server layer (legacy)',
   dispatch: 'Dispatch / routing layer',
   types: 'Type definitions',
   schemas: 'Schema definitions',

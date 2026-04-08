@@ -7,10 +7,6 @@ type: conditional
 audience: [llm-agent, orchestrator]
 tags: [decomposition, hierarchy, atomicity, planning]
 skillRef: ct-epic-architect
-mcpOperations:
-  - tasks.add
-  - tasks.update
-  - session.start
 lastUpdated: 2026-02-24
 provenanceTask: T3155
 enforcement: strict
