@@ -13,6 +13,8 @@ export type {
   AgentCredential,
   AgentListFilter,
   AgentRegistryAPI,
+  AgentWithProjectOverride,
+  ProjectAgentRef,
   TransportConfig,
 } from './agent-registry.js';
 // === Archive Types ===

@@ -64,6 +64,61 @@ export interface AgentCredential {
 }
 
 // ============================================================================
+// Project-tier agent reference (conduit.db)
+// ============================================================================
+
+/**
+ * Project-tier per-agent override reference. Lives in
+ * `<project>/.cleo/conduit.db:project_agent_refs`. Soft-FK to the
+ * canonical agent identity in the global `signaldock.db:agents` table.
+ *
+ * @task T351
+ * @epic T310
+ * @why ADR-037 §3 — conduit.db carries per-project overrides for
+ *      global agents, enabling project-scoped visibility + config.
+ */
+export interface ProjectAgentRef {
+  /** Agent ID; references global signaldock.db:agents.agent_id (soft FK, accessor-validated). */
+  agentId: string;
+  /** ISO timestamp when this agent was attached to the current project via `cleo agent attach`. */
+  attachedAt: string;
+  /** Optional project-specific role override. Overrides global agent class for this project context. Nullable. */
+  role: string | null;
+  /**
+   * Optional project-specific capabilities override. Stored as a JSON
+   * string in SQLite; parsed to `Record<string, unknown>` at the accessor
+   * boundary. Merged with global capabilities by the accessor layer. Nullable.
+   */
+  capabilitiesOverride: string | null;
+  /** ISO timestamp of last project-local activity for this agent. Updated by `AgentRegistryAccessor.markUsed()`. Nullable. */
+  lastUsedAt: string | null;
+  /** 1 = active in this project; 0 = detached (row retained for audit trail). SQLite integer-as-boolean. */
+  enabled: number;
+}
+
+/**
+ * Merged view of a global agent identity (`AgentCredential`) with its
+ * project-local override. Returned by
+ * `agent-registry-accessor.listAgentsForProject()` (T355).
+ *
+ * The base `AgentCredential` fields come from global
+ * `signaldock.db:agents`. The `projectRef` block is the
+ * `project_agent_refs` row, or null if the agent is visible via
+ * `--includeGlobal` without a project reference.
+ *
+ * @task T351
+ * @epic T310
+ */
+export interface AgentWithProjectOverride extends AgentCredential {
+  /**
+   * The project-tier reference entry, or null if the agent is a
+   * global-only lookup (e.g., `cleo agent list --global` from a project
+   * that has not attached the agent).
+   */
+  projectRef: ProjectAgentRef | null;
+}
+
+// ============================================================================
 // Registry API
 // ============================================================================
 

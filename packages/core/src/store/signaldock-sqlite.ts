@@ -1,310 +1,426 @@
 /**
- * SQLite store for signaldock.db — local agent messaging database.
+ * SQLite store for global-tier signaldock.db — canonical agent identity database.
  *
- * Creates and manages .cleo/signaldock.db using node:sqlite directly.
- * Runs the consolidated Diesel migration SQL (from signaldock-storage crate)
- * to bootstrap all 22 tables for local agent infrastructure.
+ * Post-T310 (ADR-037), signaldock.db lives at `$XDG_DATA_HOME/cleo/signaldock.db`
+ * (resolved via getCleoHome()). It holds cross-project agent identity, capabilities
+ * catalog, and cloud-sync tables. Project-local messaging state has moved to
+ * conduit.db (managed by conduit-sqlite.ts, T344).
  *
- * This is the Node.js bootstrap path. In production cloud, the Rust
- * signaldock-storage crate manages this DB via Diesel ORM directly.
- * Locally, we create the DB here so that cleo init scaffolds the full
- * .cleo/ directory with all databases ready.
+ * GLOBAL-TIER ONLY. This module MUST NOT resolve paths under any project's .cleo/
+ * directory. The path guard in getGlobalSignaldockDbPath() enforces this invariant.
  *
- * @task T223
+ * @task T346
+ * @epic T310
+ * @related ADR-037
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoHome } from '../paths.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
 };
 
-/** Database file name within .cleo/ directory. */
-const DB_FILENAME = 'signaldock.db';
-
-/** Schema version for signaldock databases. */
-export const SIGNALDOCK_SCHEMA_VERSION = '2026.3.76';
+/**
+ * Database file name within the global cleo home directory.
+ *
+ * @task T346
+ * @epic T310
+ */
+export const GLOBAL_SIGNALDOCK_DB_FILENAME = 'signaldock.db';
 
 /**
- * Get the path to the signaldock.db SQLite database file.
+ * Schema version for global signaldock databases.
+ *
+ * @task T346
+ * @epic T310
+ */
+export const GLOBAL_SIGNALDOCK_SCHEMA_VERSION = '2026.4.12';
+
+/**
+ * @deprecated Use GLOBAL_SIGNALDOCK_SCHEMA_VERSION. Retained during T310
+ * migration window. Will be removed after all callers migrate (T355).
+ */
+export const SIGNALDOCK_SCHEMA_VERSION = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the GLOBAL-tier signaldock.db path. Post-T310, signaldock.db
+ * holds canonical agent identity + cloud-sync tables. Project-local
+ * messaging state lives in conduit.db (T344).
+ *
+ * Resolves to `getCleoHome() + '/signaldock.db'`.
+ * Guard: asserts the resolved path starts with getCleoHome() (defense in depth,
+ * mirrors the ADR-036 pattern used by getNexusDbPath in nexus-sqlite.ts).
+ *
+ * @task T346
+ * @epic T310
+ * @why ADR-037 split single signaldock.db into project conduit + global signaldock
+ * @throws {Error} If resolved path is not under getCleoHome() — indicates a code
+ *   path that bypasses canonical path resolution. Fix the caller, do not suppress.
+ */
+export function getGlobalSignaldockDbPath(): string {
+  const cleoHome = getCleoHome();
+  const dbPath = join(cleoHome, GLOBAL_SIGNALDOCK_DB_FILENAME);
+  if (!dbPath.startsWith(cleoHome)) {
+    throw new Error(
+      `BUG: getGlobalSignaldockDbPath() resolved to "${dbPath}" which is NOT under ` +
+        `getCleoHome() ("${cleoHome}"). signaldock.db is global-only per ADR-037. ` +
+        `This indicates a code path that bypasses path resolution — ` +
+        `fix the caller, do not suppress this error.`,
+    );
+  }
+  return dbPath;
+}
+
+/**
+ * @deprecated Use getGlobalSignaldockDbPath() directly. Retained during T310
+ * migration window so the TypeScript build does not break until all callers
+ * are updated (tracked in T355 accessor refactor).
+ *
+ * When called WITHOUT arguments: returns the global-tier path (forwards to
+ * getGlobalSignaldockDbPath()).
+ *
+ * When called WITH a non-undefined `cwd` argument: throws a migration error
+ * immediately. The project-tier path is now owned by conduit-sqlite.ts (T344).
+ *
+ * @param cwd - Must be undefined. Any other value throws a migration error.
+ * @task T346
+ * @epic T310
  */
 export function getSignaldockDbPath(cwd?: string): string {
-  const cleoDir = cwd ? join(cwd, '.cleo') : getCleoDirAbsolute();
-  return join(cleoDir, DB_FILENAME);
+  if (cwd !== undefined) {
+    throw new Error(
+      'getSignaldockDbPath(cwd) is removed as of T310 (v2026.4.12). ' +
+        'signaldock.db is now global-only at $XDG_DATA_HOME/cleo/signaldock.db. ' +
+        'Use getGlobalSignaldockDbPath(), or for project-local messaging use ' +
+        'getConduitDbPath() from conduit-sqlite.ts (T344).',
+    );
+  }
+  return getGlobalSignaldockDbPath();
 }
 
 // ---------------------------------------------------------------------------
-// Embedded migration SQL — bundled so signaldock.db works in ANY project,
-// not just the monorepo where crates/signaldock-storage/ exists.
-// Source: crates/signaldock-storage/migrations/
+// Embedded migration SQL — consolidated global-tier schema.
+// Source: spec §2.2, ADR-037.
+// All incremental ALTER TABLE migrations from the pre-T310 schema are
+// collapsed into the single initial migration below. This avoids the
+// multi-step ALTER pattern and ensures fresh installs get the full schema
+// in one idempotent pass.
 // ---------------------------------------------------------------------------
 
 /**
- * Ordered migration entries. Each has a name (for tracking) and SQL.
+ * Ordered migration entries for the global signaldock.db.
  * Add new migrations to the END of this array.
+ *
+ * @task T346
+ * @epic T310
  */
-const EMBEDDED_MIGRATIONS: Array<{ name: string; sql: string }> = [
+const GLOBAL_EMBEDDED_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
-    name: '2026-03-28-000000_initial',
-    sql: `-- Consolidated initial migration for SignalDock storage (19 sqlx migrations merged).
+    name: '2026-04-12-000000_initial_global_signaldock',
+    sql: `-- Global-tier signaldock.db initial migration (T310, ADR-037 §2.2).
+-- Consolidated from pre-T310 incremental migrations. Global identity and
+-- cloud-sync tables only. Project-local messaging state is in conduit.db.
+
+-- Cloud-sync: user accounts (zero rows in pure-local mode).
 CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
-    name TEXT, slug TEXT, default_agent_id TEXT, username TEXT, display_username TEXT,
-    email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, role TEXT NOT NULL DEFAULT 'user',
-    banned INTEGER NOT NULL DEFAULT 0, ban_reason TEXT, ban_expires TEXT,
-    two_factor_enabled INTEGER NOT NULL DEFAULT 0, metadata TEXT,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name TEXT,
+    slug TEXT,
+    default_agent_id TEXT,
+    username TEXT,
+    display_username TEXT,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    image TEXT,
+    role TEXT NOT NULL DEFAULT 'user',
+    banned INTEGER NOT NULL DEFAULT 0,
+    ban_reason TEXT,
+    ban_expires TEXT,
+    two_factor_enabled INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_slug ON users(slug);
 
+-- Cloud-sync: organization/team records.
 CREATE TABLE IF NOT EXISTS organization (
-    id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT, logo TEXT, metadata TEXT,
-    owner_id TEXT, created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    slug TEXT,
+    logo TEXT,
+    metadata TEXT,
+    owner_id TEXT,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_slug ON organization(slug);
 
+-- Global identity: canonical agent registry (cross-project).
+-- api_key_encrypted uses KDF: HMAC-SHA256(machine-key || global-salt, agentId) — ADR-037 §5.
+-- requires_reauth=1 is set during T310 migration for all pre-existing agents.
 CREATE TABLE IF NOT EXISTS agents (
-    id TEXT PRIMARY KEY, agent_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-    description TEXT, class TEXT NOT NULL DEFAULT 'custom',
-    privacy_tier TEXT NOT NULL DEFAULT 'public', owner_id TEXT REFERENCES users(id),
-    endpoint TEXT, webhook_secret TEXT, capabilities TEXT NOT NULL DEFAULT '[]',
-    skills TEXT NOT NULL DEFAULT '[]', avatar TEXT, messages_sent INTEGER NOT NULL DEFAULT 0,
-    messages_received INTEGER NOT NULL DEFAULT 0, conversation_count INTEGER NOT NULL DEFAULT 0,
-    friend_count INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'online',
-    last_seen INTEGER, payment_config TEXT, api_key_hash TEXT,
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    class TEXT NOT NULL DEFAULT 'custom',
+    privacy_tier TEXT NOT NULL DEFAULT 'public',
+    owner_id TEXT REFERENCES users(id),
+    endpoint TEXT,
+    webhook_secret TEXT,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    skills TEXT NOT NULL DEFAULT '[]',
+    avatar TEXT,
+    messages_sent INTEGER NOT NULL DEFAULT 0,
+    messages_received INTEGER NOT NULL DEFAULT 0,
+    conversation_count INTEGER NOT NULL DEFAULT 0,
+    friend_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'online',
+    last_seen INTEGER,
+    payment_config TEXT,
+    api_key_hash TEXT,
     organization_id TEXT REFERENCES organization(id) ON DELETE SET NULL,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    transport_type TEXT NOT NULL DEFAULT 'http',
+    api_key_encrypted TEXT,
+    api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io',
+    classification TEXT,
+    transport_config TEXT NOT NULL DEFAULT '{}',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    last_used_at INTEGER,
+    requires_reauth INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS agents_agent_id_idx ON agents(agent_id);
 CREATE INDEX IF NOT EXISTS agents_owner_idx ON agents(owner_id);
 CREATE INDEX IF NOT EXISTS agents_class_idx ON agents(class);
 CREATE INDEX IF NOT EXISTS agents_privacy_idx ON agents(privacy_tier);
 CREATE INDEX IF NOT EXISTS agents_org_idx ON agents(organization_id);
+CREATE INDEX IF NOT EXISTS idx_agents_transport_type ON agents(transport_type);
+CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);
+CREATE INDEX IF NOT EXISTS idx_agents_last_used ON agents(last_used_at);
+CREATE INDEX IF NOT EXISTS idx_agents_reauth ON agents(requires_reauth) WHERE requires_reauth = 1;
 
-CREATE TABLE IF NOT EXISTS conversations (
-    id TEXT PRIMARY KEY, participants TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private', message_count INTEGER NOT NULL DEFAULT 0,
-    last_message_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
-    from_agent_id TEXT NOT NULL, to_agent_id TEXT NOT NULL, content TEXT NOT NULL,
-    content_type TEXT NOT NULL DEFAULT 'text', status TEXT NOT NULL DEFAULT 'pending',
-    attachments TEXT NOT NULL DEFAULT '[]', group_id TEXT, metadata TEXT DEFAULT '{}',
-    reply_to TEXT, created_at INTEGER NOT NULL, delivered_at INTEGER, read_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages(conversation_id);
-CREATE INDEX IF NOT EXISTS messages_from_agent_idx ON messages(from_agent_id);
-CREATE INDEX IF NOT EXISTS messages_to_agent_idx ON messages(to_agent_id);
-CREATE INDEX IF NOT EXISTS messages_created_at_idx ON messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_group_id ON messages(group_id) WHERE group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to) WHERE reply_to IS NOT NULL;
-
+-- Cloud-sync: one-time agent claim tokens (api.signaldock.io provisioning).
 CREATE TABLE IF NOT EXISTS claim_codes (
-    id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
-    code TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, used_at INTEGER,
-    used_by TEXT REFERENCES users(id), created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    code TEXT NOT NULL UNIQUE,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    used_by TEXT REFERENCES users(id),
+    created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS claim_codes_code_idx ON claim_codes(code);
 CREATE INDEX IF NOT EXISTS claim_codes_agent_idx ON claim_codes(agent_id);
 
-CREATE TABLE IF NOT EXISTS connections (
-    id TEXT PRIMARY KEY, agent_a TEXT NOT NULL REFERENCES agents(id),
-    agent_b TEXT NOT NULL REFERENCES agents(id), status TEXT NOT NULL DEFAULT 'pending',
-    initiated_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS connections_agent_a_idx ON connections(agent_a);
-CREATE INDEX IF NOT EXISTS connections_agent_b_idx ON connections(agent_b);
-
-CREATE TABLE IF NOT EXISTS delivery_jobs (
-    id TEXT PRIMARY KEY, message_id TEXT NOT NULL, payload TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 6, next_attempt_at INTEGER NOT NULL,
-    last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_delivery_jobs_status ON delivery_jobs(status, next_attempt_at);
-
-CREATE TABLE IF NOT EXISTS dead_letters (
-    id TEXT PRIMARY KEY, message_id TEXT NOT NULL, job_id TEXT NOT NULL,
-    reason TEXT NOT NULL, attempts INTEGER NOT NULL, created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_dead_letters_message ON dead_letters(message_id);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, from_agent_id, content='messages', content_rowid='rowid');
-INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, content, from_agent_id) VALUES (new.rowid, new.content, new.from_agent_id);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, from_agent_id) VALUES('delete', old.rowid, old.content, old.from_agent_id);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, from_agent_id) VALUES('delete', old.rowid, old.content, old.from_agent_id);
-    INSERT INTO messages_fts(rowid, content, from_agent_id) VALUES (new.rowid, new.content, new.from_agent_id);
-END;
-
-CREATE TABLE IF NOT EXISTS message_pins (
-    id TEXT PRIMARY KEY, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
-    pinned_by TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL, UNIQUE(message_id, pinned_by)
-);
-CREATE INDEX IF NOT EXISTS idx_pins_conversation ON message_pins(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_pins_agent ON message_pins(pinned_by);
-
-CREATE TABLE IF NOT EXISTS attachments (
-    slug TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, from_agent_id TEXT NOT NULL,
-    content BLOB NOT NULL, original_size INTEGER NOT NULL, compressed_size INTEGER NOT NULL,
-    content_hash TEXT NOT NULL, format TEXT NOT NULL DEFAULT 'text', title TEXT,
-    tokens INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL DEFAULT 0,
-    storage_key TEXT, mode TEXT NOT NULL DEFAULT 'draft',
-    version_count INTEGER NOT NULL DEFAULT 1, current_version INTEGER NOT NULL DEFAULT 1,
+-- Identity catalog: pre-seeded capability slugs (19 entries).
+CREATE TABLE IF NOT EXISTS capabilities (
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS attachments_conversation_idx ON attachments(conversation_id);
-CREATE INDEX IF NOT EXISTS attachments_agent_idx ON attachments(from_agent_id);
 
-CREATE TABLE IF NOT EXISTS capabilities (
-    id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-    description TEXT NOT NULL, category TEXT NOT NULL, created_at INTEGER NOT NULL
-);
+-- Identity catalog: pre-seeded skill slugs (36 entries).
 CREATE TABLE IF NOT EXISTS skills (
-    id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-    description TEXT NOT NULL, category TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at INTEGER NOT NULL
 );
+
+-- Junction: agent <-> capability catalog bindings.
 CREATE TABLE IF NOT EXISTS agent_capabilities (
-    agent_id TEXT NOT NULL REFERENCES agents(id), capability_id TEXT NOT NULL REFERENCES capabilities(id),
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    capability_id TEXT NOT NULL REFERENCES capabilities(id),
     PRIMARY KEY (agent_id, capability_id)
 );
+
+-- Junction: agent <-> skill catalog bindings.
 CREATE TABLE IF NOT EXISTS agent_skills (
-    agent_id TEXT NOT NULL REFERENCES agents(id), skill_id TEXT NOT NULL REFERENCES skills(id),
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    skill_id TEXT NOT NULL REFERENCES skills(id),
     PRIMARY KEY (agent_id, skill_id)
 );
 
+-- Live transport connection tracking (heartbeat state).
+CREATE TABLE IF NOT EXISTS agent_connections (
+    id TEXT PRIMARY KEY NOT NULL,
+    agent_id TEXT NOT NULL,
+    transport_type TEXT NOT NULL DEFAULT 'http',
+    connection_id TEXT,
+    connected_at BIGINT NOT NULL,
+    last_heartbeat BIGINT NOT NULL,
+    connection_metadata TEXT,
+    created_at BIGINT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
+    UNIQUE(agent_id, connection_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_connections_agent ON agent_connections(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_connections_transport ON agent_connections(transport_type);
+CREATE INDEX IF NOT EXISTS idx_agent_connections_heartbeat ON agent_connections(last_heartbeat);
+
+-- Cloud-sync: OAuth/provider accounts.
 CREATE TABLE IF NOT EXISTS accounts (
-    id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL, provider_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT,
-    id_token TEXT, access_token_expires_at TEXT, refresh_token_expires_at TEXT, scope TEXT,
-    password TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    id_token TEXT,
+    access_token_expires_at TEXT,
+    refresh_token_expires_at TEXT,
+    scope TEXT,
+    password TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_provider ON accounts(provider_id, account_id);
 
+-- Cloud-sync: authenticated sessions.
 CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token TEXT NOT NULL UNIQUE, ip_address TEXT, user_agent TEXT, expires_at TEXT NOT NULL,
-    active_organization_id TEXT, impersonated_by TEXT, active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    ip_address TEXT,
+    user_agent TEXT,
+    expires_at TEXT NOT NULL,
+    active_organization_id TEXT,
+    impersonated_by TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
+-- Cloud-sync: email/2FA verification tokens.
 CREATE TABLE IF NOT EXISTS verifications (
-    id TEXT PRIMARY KEY NOT NULL, identifier TEXT NOT NULL, value TEXT NOT NULL,
-    expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    id TEXT PRIMARY KEY NOT NULL,
+    identifier TEXT NOT NULL,
+    value TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_verifications_identifier ON verifications(identifier);
 
+-- Org-scoped agent API keys (cloud use; zero rows locally).
 CREATE TABLE IF NOT EXISTS org_agent_keys (
-    id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY NOT NULL,
+    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS org_agent_keys_org_idx ON org_agent_keys(organization_id);
-CREATE INDEX IF NOT EXISTS org_agent_keys_agent_idx ON org_agent_keys(agent_id);
-
-CREATE TABLE IF NOT EXISTS attachment_versions (
-    id TEXT PRIMARY KEY, slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    version_number INTEGER NOT NULL, author_agent_id TEXT NOT NULL,
-    change_type TEXT NOT NULL DEFAULT 'patch', patch_text TEXT, storage_key TEXT NOT NULL,
-    content_hash TEXT NOT NULL, original_size INTEGER NOT NULL, compressed_size INTEGER NOT NULL,
-    tokens INTEGER NOT NULL, change_summary TEXT, sections_modified TEXT NOT NULL DEFAULT '[]',
-    tokens_added INTEGER NOT NULL DEFAULT 0, tokens_removed INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL, UNIQUE(slug, version_number)
-);
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_slug ON attachment_versions(slug);
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_author ON attachment_versions(author_agent_id);
-
-CREATE TABLE IF NOT EXISTS attachment_approvals (
-    id TEXT PRIMARY KEY, slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    reviewer_agent_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', comment TEXT,
-    version_reviewed INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-    UNIQUE(slug, reviewer_agent_id)
-);
-CREATE INDEX IF NOT EXISTS idx_attachment_approvals_slug ON attachment_approvals(slug);
-
-CREATE TABLE IF NOT EXISTS attachment_contributors (
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    agent_id TEXT NOT NULL, version_count INTEGER NOT NULL DEFAULT 0,
-    total_tokens_added INTEGER NOT NULL DEFAULT 0, total_tokens_removed INTEGER NOT NULL DEFAULT 0,
-    first_contribution_at INTEGER NOT NULL, last_contribution_at INTEGER NOT NULL,
-    PRIMARY KEY (slug, agent_id)
-);`,
-  },
-  {
-    name: '2026-03-30-000001_agent_connections',
-    sql: `-- Add transport_type to agents table for connection mode classification.
-ALTER TABLE agents ADD COLUMN transport_type TEXT NOT NULL DEFAULT 'http';
-CREATE INDEX idx_agents_transport_type ON agents(transport_type);
-
-CREATE TABLE agent_connections (
-    id TEXT PRIMARY KEY NOT NULL, agent_id TEXT NOT NULL,
-    transport_type TEXT NOT NULL DEFAULT 'http', connection_id TEXT,
-    connected_at BIGINT NOT NULL, last_heartbeat BIGINT NOT NULL,
-    connection_metadata TEXT, created_at BIGINT NOT NULL,
-    FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
-    UNIQUE(agent_id, connection_id)
-);
-CREATE INDEX idx_agent_connections_agent ON agent_connections(agent_id);
-CREATE INDEX idx_agent_connections_transport ON agent_connections(transport_type);
-CREATE INDEX idx_agent_connections_heartbeat ON agent_connections(last_heartbeat);`,
-  },
-  {
-    name: '2026-03-31-000001_agent_credentials',
-    sql: `-- Move agent credentials into signaldock.db agents table (T234 clean-cut).
-ALTER TABLE agents ADD COLUMN api_key_encrypted TEXT;
-ALTER TABLE agents ADD COLUMN api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io';
-ALTER TABLE agents ADD COLUMN classification TEXT;
-ALTER TABLE agents ADD COLUMN transport_config TEXT NOT NULL DEFAULT '{}';
-ALTER TABLE agents ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE agents ADD COLUMN last_used_at INTEGER;
-CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);
-CREATE INDEX IF NOT EXISTS idx_agents_last_used ON agents(last_used_at);`,
+CREATE INDEX IF NOT EXISTS org_agent_keys_agent_idx ON org_agent_keys(agent_id);`,
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Database lifecycle
+// ---------------------------------------------------------------------------
+
+/** Singleton native DatabaseSync handle for the current process. */
+let _globalSignaldockNativeDb: DatabaseSync | null = null;
+
 /**
- * Ensure signaldock.db exists and has the full schema applied.
+ * Apply the global signaldock schema to an already-open database.
+ * Idempotent — uses `CREATE TABLE IF NOT EXISTS` and migration tracking.
  *
- * Idempotent — safe to call multiple times. Uses `CREATE TABLE IF NOT EXISTS`
- * and `CREATE INDEX IF NOT EXISTS` throughout.
- *
- * @returns Object with action ('created' | 'exists') and the database path.
+ * @param db - An open DatabaseSync instance at the global path
+ * @task T346
+ * @epic T310
  */
-export async function ensureSignaldockDb(
-  cwd?: string,
-): Promise<{ action: 'created' | 'exists'; path: string }> {
-  const dbPath = getSignaldockDbPath(cwd);
+function applyGlobalSignaldockSchema(db: DatabaseSync): void {
+  // Ensure migration tracking tables exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _signaldock_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _signaldock_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    )
+  `);
+
+  // Apply embedded migrations (skips already-applied ones)
+  for (const migration of GLOBAL_EMBEDDED_MIGRATIONS) {
+    const applied = db
+      .prepare('SELECT name FROM _signaldock_migrations WHERE name = ?')
+      .get(migration.name) as { name: string } | undefined;
+    if (applied) continue;
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      db.exec(migration.sql);
+      db.prepare('INSERT INTO _signaldock_migrations (name) VALUES (?)').run(migration.name);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  // Record schema version
+  db.exec(`
+    INSERT OR REPLACE INTO _signaldock_meta (key, value, updated_at)
+    VALUES ('schema_version', '${GLOBAL_SIGNALDOCK_SCHEMA_VERSION}', strftime('%s', 'now'))
+  `);
+}
+
+/**
+ * Ensure global signaldock.db exists with the full global schema applied.
+ * Creates the global cleo home directory if it doesn't exist.
+ * Idempotent — safe to call multiple times.
+ *
+ * @returns Object with action ('created' | 'exists') and the database path
+ * @task T346
+ * @epic T310
+ */
+export async function ensureGlobalSignaldockDb(): Promise<{
+  action: 'created' | 'exists';
+  path: string;
+}> {
+  const dbPath = getGlobalSignaldockDbPath();
   const alreadyExists = existsSync(dbPath);
 
-  // Ensure parent directory exists
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // Ensure global cleo home directory exists
+  const cleoHome = getCleoHome();
+  if (!existsSync(cleoHome)) {
+    mkdirSync(cleoHome, { recursive: true });
+  }
 
-  // Open or create the database
   const db = new DatabaseSyncClass(dbPath);
-
   try {
-    // Set pragmas for optimal performance
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA synchronous = NORMAL');
     db.exec('PRAGMA foreign_keys = ON');
-    db.exec('PRAGMA cache_size = -64000'); // 64MB
+    db.exec('PRAGMA cache_size = -64000'); // 64 MB
 
     // Check if schema already applied (agents table as sentinel)
     const hasSchema = (() => {
@@ -318,63 +434,59 @@ export async function ensureSignaldockDb(
       }
     })();
 
-    // Ensure migration tracking tables exist
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS _signaldock_meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-      )
-    `);
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS _signaldock_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-      )
-    `);
+    applyGlobalSignaldockSchema(db);
 
-    // Apply embedded migrations (works in ANY project, not just monorepo)
-    for (const migration of EMBEDDED_MIGRATIONS) {
-      // Skip already-applied migrations
-      const applied = db
-        .prepare('SELECT name FROM _signaldock_migrations WHERE name = ?')
-        .get(migration.name) as { name: string } | undefined;
-      if (applied) continue;
-
-      db.exec('BEGIN TRANSACTION');
-      try {
-        db.exec(migration.sql);
-        db.prepare('INSERT INTO _signaldock_migrations (name) VALUES (?)').run(migration.name);
-        db.exec('COMMIT');
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
-      }
-    }
-
-    // Record schema version
-    db.exec(`
-      INSERT OR REPLACE INTO _signaldock_meta (key, value, updated_at)
-      VALUES ('schema_version', '${SIGNALDOCK_SCHEMA_VERSION}', strftime('%s', 'now'))
-    `);
+    // Store native handle for backup integration (getGlobalSignaldockNativeDb)
+    _globalSignaldockNativeDb = db;
 
     return {
       action: alreadyExists && hasSchema ? 'exists' : 'created',
       path: dbPath,
     };
-  } finally {
+  } catch (err) {
     db.close();
+    _globalSignaldockNativeDb = null;
+    throw err;
   }
+  // NOTE: We intentionally do NOT close `db` here — the native handle is
+  // retained as _globalSignaldockNativeDb for backup integration. Callers
+  // that need a short-lived open/close pattern should open the DB themselves.
 }
 
 /**
- * Check signaldock.db health — table count, WAL mode, schema version.
+ * @deprecated Use ensureGlobalSignaldockDb(). Retained during T310 migration
+ * window for callers in init.ts and agent-registry-accessor.ts.
  *
- * Used by `cleo doctor` to verify signaldock.db integrity.
+ * When called WITHOUT arguments: forwards to ensureGlobalSignaldockDb().
+ * When called WITH a non-undefined `cwd` argument: throws a migration error.
  *
- * @returns Health report object or null if DB doesn't exist.
+ * @param cwd - Must be undefined. Any other value throws a migration error.
+ * @task T346
+ * @epic T310
  */
-export async function checkSignaldockDbHealth(cwd?: string): Promise<{
+export async function ensureSignaldockDb(
+  cwd?: string,
+): Promise<{ action: 'created' | 'exists'; path: string }> {
+  if (cwd !== undefined) {
+    throw new Error(
+      'ensureSignaldockDb(cwd) is removed as of T310 (v2026.4.12). ' +
+        'signaldock.db is now global-only. ' +
+        'Use ensureGlobalSignaldockDb() for global identity, or ' +
+        'ensureConduitDb(cwd) from conduit-sqlite.ts for project messaging (T344).',
+    );
+  }
+  return ensureGlobalSignaldockDb();
+}
+
+/**
+ * Check global signaldock.db health: table count, WAL mode, schema version.
+ * Used by `cleo doctor` to verify global signaldock.db integrity.
+ *
+ * @returns Health report object, or object with exists=false if the DB does not exist.
+ * @task T346
+ * @epic T310
+ */
+export async function checkGlobalSignaldockDbHealth(): Promise<{
   exists: boolean;
   path: string;
   tableCount: number;
@@ -382,7 +494,7 @@ export async function checkSignaldockDbHealth(cwd?: string): Promise<{
   schemaVersion: string | null;
   foreignKeysEnabled: boolean;
 } | null> {
-  const dbPath = getSignaldockDbPath(cwd);
+  const dbPath = getGlobalSignaldockDbPath();
   if (!existsSync(dbPath)) {
     return {
       exists: false,
@@ -412,7 +524,7 @@ export async function checkSignaldockDbHealth(cwd?: string): Promise<{
         .get() as { value: string } | undefined;
       schemaVersion = meta?.value ?? null;
     } catch {
-      // Meta table may not exist
+      // Meta table may not exist on very old or partially-initialized DBs
     }
 
     return {
@@ -425,5 +537,70 @@ export async function checkSignaldockDbHealth(cwd?: string): Promise<{
     };
   } finally {
     db.close();
+  }
+}
+
+/**
+ * @deprecated Use checkGlobalSignaldockDbHealth(). Retained during T310 migration
+ * window for callers in `cleo doctor` and other diagnostics.
+ *
+ * When called WITHOUT arguments: forwards to checkGlobalSignaldockDbHealth().
+ * When called WITH a non-undefined `cwd` argument: throws a migration error.
+ *
+ * @param cwd - Must be undefined. Any other value throws a migration error.
+ * @task T346
+ * @epic T310
+ */
+export async function checkSignaldockDbHealth(cwd?: string): Promise<{
+  exists: boolean;
+  path: string;
+  tableCount: number;
+  walMode: boolean;
+  schemaVersion: string | null;
+  foreignKeysEnabled: boolean;
+} | null> {
+  if (cwd !== undefined) {
+    throw new Error(
+      'checkSignaldockDbHealth(cwd) is removed as of T310 (v2026.4.12). ' +
+        'signaldock.db is now global-only. ' +
+        'Use checkGlobalSignaldockDbHealth() for global signaldock health, or ' +
+        'checkConduitDbHealth(cwd) from conduit-sqlite.ts for project conduit health (T344).',
+    );
+  }
+  return checkGlobalSignaldockDbHealth();
+}
+
+/**
+ * Get the underlying node:sqlite DatabaseSync instance for global signaldock.db.
+ * Returns the handle stored by the most recent ensureGlobalSignaldockDb() call,
+ * or null if the database has not yet been initialized in this process.
+ *
+ * Used by sqlite-backup.ts to activate the signaldock GLOBAL_SNAPSHOT_TARGET
+ * (spec §6.2, T310).
+ *
+ * @task T346
+ * @epic T310
+ */
+export function getGlobalSignaldockNativeDb(): DatabaseSync | null {
+  return _globalSignaldockNativeDb;
+}
+
+/**
+ * Reset the in-process global signaldock.db singleton.
+ * ONLY for use in test isolation — never call in production code.
+ *
+ * @task T346
+ * @epic T310
+ */
+export function _resetGlobalSignaldockDb_TESTING_ONLY(): void {
+  if (_globalSignaldockNativeDb) {
+    try {
+      if (_globalSignaldockNativeDb.isOpen) {
+        _globalSignaldockNativeDb.close();
+      }
+    } catch {
+      // Ignore close errors
+    }
+    _globalSignaldockNativeDb = null;
   }
 }

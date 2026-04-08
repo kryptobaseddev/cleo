@@ -424,8 +424,15 @@ export {
 export { computeChecksum, readJson } from './store/json.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export {
+  _resetGlobalSignaldockDb_TESTING_ONLY,
+  checkGlobalSignaldockDbHealth,
   checkSignaldockDbHealth,
+  ensureGlobalSignaldockDb,
   ensureSignaldockDb,
+  GLOBAL_SIGNALDOCK_DB_FILENAME,
+  GLOBAL_SIGNALDOCK_SCHEMA_VERSION,
+  getGlobalSignaldockDbPath,
+  getGlobalSignaldockNativeDb,
   getSignaldockDbPath,
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
