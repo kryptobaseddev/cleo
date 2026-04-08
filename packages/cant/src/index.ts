@@ -93,3 +93,17 @@ export type { ParsedCANTMessage } from './parse';
 export { initCantParser, parseCANTMessage } from './parse';
 // Types
 export type { DirectiveType } from './types';
+export type {
+  MergeResult,
+  WorktreeConfig,
+  WorktreeEntry,
+  WorktreeHandle,
+  WorktreeRequest,
+} from './worktree.js';
+// Worktree isolation (ULTRAPLAN Wave 9)
+export {
+  createWorktree,
+  listWorktrees,
+  mergeWorktree,
+  resolveWorktreeRoot,
+} from './worktree.js';
