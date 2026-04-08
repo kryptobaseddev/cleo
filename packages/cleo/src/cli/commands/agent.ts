@@ -971,29 +971,53 @@ agent ${agentId}:
     });
 
   // --- cleo agent list ---
+  /**
+   * Lists agents visible in the current project (default: INNER JOIN project-scoped),
+   * or all global agents when `--global` is supplied (full scan, no project filter).
+   *
+   * Output columns: agentId, name, classification, transportType, isActive,
+   * lastUsedAt, attachment (derived from projectRef).
+   *
+   * @task T362 @epic T310
+   */
   agent
     .command('list')
-    .description('List all registered agent credentials')
-    .option('--active', 'Show only active agents')
+    .description('List registered agent credentials')
+    .option('--active', 'Show only active agents (project-scoped mode only)')
+    .option('--global', 'Show all global agents regardless of project attachment (ADR-037 §4 Q1=B)')
+    .option('--include-disabled', 'Include detached/disabled agents (enabled=0)')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const { listAgentsForProject, getDb } = await import('@cleocode/core/internal');
         await getDb();
-        const registry = new AgentRegistryAccessor(process.cwd());
 
-        const filter = opts['active'] ? { active: true } : undefined;
-        const agents = await registry.list(filter);
+        const includeGlobal = opts['global'] === true;
+        const includeDisabled = opts['includeDisabled'] === true;
+
+        const agents = listAgentsForProject(process.cwd(), {
+          includeGlobal,
+          includeDisabled,
+        });
+
+        // Apply legacy --active filter only when NOT in global mode
+        const filtered =
+          !includeGlobal && opts['active'] ? agents.filter((a) => a.isActive) : agents;
 
         cliOutput(
           {
             success: true,
-            data: agents.map((a) => ({
+            data: filtered.map((a) => ({
               agentId: a.agentId,
-              displayName: a.displayName,
-              apiBaseUrl: a.apiBaseUrl,
-              classification: a.classification,
+              name: a.displayName,
+              classification: a.classification ?? null,
+              transportType: a.transportType,
               isActive: a.isActive,
-              lastUsedAt: a.lastUsedAt,
+              lastUsedAt: a.lastUsedAt ?? null,
+              attachment: a.projectRef
+                ? a.projectRef.enabled === 1
+                  ? '[attached]'
+                  : '[disabled]'
+                : '[global]',
             })),
           },
           { command: 'agent list' },
@@ -1008,17 +1032,34 @@ agent ${agentId}:
     });
 
   // --- cleo agent get <id> ---
+  /**
+   * Returns details for a specific agent credential.
+   *
+   * Default: project-scoped lookup via `lookupAgent(includeGlobal=false)` — agent
+   * must have a project_agent_refs row with enabled=1 in the current project.
+   *
+   * With `--global`: cross-project identity lookup via `lookupAgent(includeGlobal=true)`.
+   * Returns the global identity even if the agent is not attached to this project;
+   * projectRef block will be null when not attached.
+   *
+   * @task T362 @epic T310
+   */
   agent
     .command('get <agentId>')
     .description('Get details for a specific agent credential')
-    .action(async (agentId: string) => {
+    .option(
+      '--global',
+      'Perform global identity lookup — returns agent even if not attached to current project',
+    )
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
       try {
-        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const { lookupAgent, getDb } = await import('@cleocode/core/internal');
         await getDb();
-        const registry = new AgentRegistryAccessor(process.cwd());
 
-        const credential = await registry.get(agentId);
-        if (!credential) {
+        const includeGlobal = opts['global'] === true;
+        const agent = lookupAgent(process.cwd(), agentId, { includeGlobal });
+
+        if (!agent) {
           cliOutput(
             {
               success: false,
@@ -1031,15 +1072,26 @@ agent ${agentId}:
         }
 
         // Redact API key in output
+        const redactedKey =
+          agent.apiKey.length > 16
+            ? `${agent.apiKey.substring(0, 12)}...${agent.apiKey.substring(agent.apiKey.length - 4)}`
+            : '***redacted***';
+
         cliOutput(
           {
             success: true,
             data: {
-              ...credential,
-              apiKey:
-                credential.apiKey.length > 16
-                  ? `${credential.apiKey.substring(0, 12)}...${credential.apiKey.substring(credential.apiKey.length - 4)}`
-                  : '***redacted***',
+              agentId: agent.agentId,
+              displayName: agent.displayName,
+              apiKey: redactedKey,
+              apiBaseUrl: agent.apiBaseUrl,
+              classification: agent.classification ?? null,
+              transportType: agent.transportType,
+              isActive: agent.isActive,
+              lastUsedAt: agent.lastUsedAt ?? null,
+              createdAt: agent.createdAt,
+              updatedAt: agent.updatedAt,
+              projectRef: agent.projectRef ?? 'not attached to current project',
             },
           },
           { command: 'agent get' },
