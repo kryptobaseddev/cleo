@@ -1,8 +1,14 @@
 /**
  * XDG-compliant path resolution for CLEO V2.
  *
+ * Global data directory is resolved via env-paths (XDG on Linux, platform
+ * conventions on macOS and Windows):
+ *   Linux:   ~/.local/share/cleo
+ *   macOS:   ~/Library/Application Support/cleo
+ *   Windows: %LOCALAPPDATA%\cleo
+ *
  * Environment variables:
- *   CLEO_HOME   - Global installation directory (default: ~/.cleo)
+ *   CLEO_HOME   - Override global installation directory
  *   CLEO_DIR    - Project data directory (default: .cleo)
  *
  * @epic T4454
