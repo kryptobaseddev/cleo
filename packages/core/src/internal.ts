@@ -703,6 +703,9 @@ export { readSnapshot } from './snapshot/index.js';
 export { addSticky } from './sticky/create.js';
 export { getSticky } from './sticky/index.js';
 
+// Store — backup crypto (T363)
+export { decryptBundle, encryptBundle, isEncryptedBundle } from './store/backup-crypto.js';
+
 // Store (additional)
 export { resolveProjectRoot } from './store/file-utils.js';
 export { TASK_PRIORITIES } from './store/tasks-schema.js';

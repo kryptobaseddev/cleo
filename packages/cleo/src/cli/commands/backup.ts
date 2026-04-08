@@ -6,6 +6,7 @@
  * @task T306 — added --global flag to backup add; --scope filter to backup list (epic T299)
  * @task T359 — added `cleo backup export` subcommand (epic T311)
  * @task T361 — added `cleo backup import` subcommand with A/B restore and conflict report (epic T311)
+ * @task T363 — added `backup inspect` subcommand (epic T311)
  */
 
 import crypto from 'node:crypto';
@@ -14,6 +15,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
+import { registerBackupInspectSubcommand } from './backup-inspect.js';
 
 // ---------------------------------------------------------------------------
 // Internal helper — passphrase prompt (TTY only; agents use env var)
@@ -435,6 +437,9 @@ export function registerBackupCommand(program: Command): void {
         core.cleanupStaging(stagingDir);
       }
     });
+
+  // Inspect subcommand: stream-extract manifest.json only (T363)
+  registerBackupInspectSubcommand(backup);
 
   // Default action: add backup
   backup.action(async () => {
