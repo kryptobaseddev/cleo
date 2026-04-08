@@ -708,6 +708,43 @@ export { resolveProjectRoot } from './store/file-utils.js';
 export { TASK_PRIORITIES } from './store/tasks-schema.js';
 // System (additional)
 export type { MigrateResult } from './system/index.js';
+
+// ---------------------------------------------------------------------------
+// T311 Backup portability — unpack + verify + A/B restore (T350, T352, T354, T357)
+// ---------------------------------------------------------------------------
+
+// Unpack + verify (T350)
+export type {
+  SchemaCompatWarning as BundleSchemaCompatWarning,
+  UnpackBundleInput,
+  UnpackBundleResult,
+} from './store/backup-unpack.js';
+export { BundleError, cleanupStaging, unpackBundle } from './store/backup-unpack.js';
+// Dry-run JSON file generators (T352)
+export type { RegeneratedFile } from './store/regenerators.js';
+export {
+  regenerateAllJson,
+  regenerateConfigJson,
+  regenerateProjectContextJson,
+  regenerateProjectInfoJson,
+} from './store/regenerators.js';
+// Conflict report formatter (T357)
+export type {
+  BuildConflictReportInput,
+  ReauthWarning,
+  SchemaCompatWarning as RestoreSchemaCompatWarning,
+} from './store/restore-conflict-report.js';
+export { buildConflictReport, writeConflictReport } from './store/restore-conflict-report.js';
+// A/B regenerate-and-compare engine (T354)
+export type {
+  FieldCategory,
+  FieldClassification,
+  FilenameForRestore,
+  JsonRestoreReport,
+  RegenerateAndCompareInput,
+  Resolution,
+} from './store/restore-json-merge.js';
+export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
 // Tasks (additional — stats)
 export { coreTaskStats } from './tasks/task-ops.js';
 
