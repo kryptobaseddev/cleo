@@ -14,7 +14,7 @@
 
         +-------------------+      speaks with       +-------------------+
         |       LAFS        | <--------------------> |   AGENTS / TOOLS  |
-        | Shared response   |                        | MCP, A2A, CLI, SDK|
+        | Shared response   |                        | CLI, Core SDK, A2A|
         | contract          |                        | Any LLM provider  |
         +---------+---------+                        +---------+---------+
                   |                                            |
