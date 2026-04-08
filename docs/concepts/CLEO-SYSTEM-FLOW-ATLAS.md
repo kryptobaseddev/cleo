@@ -81,18 +81,20 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 |  memory   |   | pipeline | | check  | |  nexus   |   |  across
 |  domain   |   | domain   | | domain | |  domain  |   |  all
 |           |   |          | |        | |          |   |  domains)
-| brain.db  |   |MANIFEST  | |tasks.db| |nexus.db  |   |
-+-----------+   |.jsonl    | |        | |          |   |
-                |tasks.db  | +--------+ +----------+   |
+| brain.db  |   |tasks.db  | |tasks.db| |nexus.db  |   |
++-----------+   |(pipeline | |        | |(global   |   |
+                |Manifest  | +--------+ | XDG)     |   |
+                | table)   |            +----------+   |
                 +----------+                           |
                                                        |
  +------+----+   +----------+ +--------+ +----------+
  |  tasks    |   | session  | | admin  | |  sticky  |
  |  domain   |   | domain   | | domain | |  domain  |
  |           |   |          | |        | |          |
- | tasks.db  |   |sessions/ | |config  | |brain.db  |
- +-----------+   +----------+ |tasks.db| |(table)   |
-                               +--------+ +----------+
+ | tasks.db  |   |tasks.db  | |config  | |brain.db  |
+ +-----------+   |(sessions | |.json   | |(table)   |
+                 | table)   | +--------+ +----------+
+                 +----------+
 
  +------+----+   +----------+   +----------+
  |  tools    |   |orchestrate|  |  nexus   |
@@ -107,44 +109,49 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 
 ## 3. Package Boundary
 
-`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the CLI and MCP protocol layers:
+`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the `cleo` CLI and the dispatch routing layer. The CLI is the sole runtime surface:
 
 ```
 +-----------------------------------------------------------+
-|                   @cleocode/cleo                        |
-|  (assembled CLI + MCP product, published on npm)          |
+|                   @cleocode/cleo                          |
+|  (the cleo CLI product, published on npm)                 |
 |                                                           |
-|  +--------+   +--------+                                  |
-|  |  CLI   |   |  MCP   |  <-- adapter layers              |
-|  | (86 cmds)  |(query/ |                                  |
-|  |        |   | mutate)|                                  |
-|  +---+----+   +---+----+                                  |
-|      |            |                                        |
-|      v            v                                        |
-|  +---+--------------+----+                                 |
-|  | packages/cleo/     |  <-- thin routing layer        |
-|  |   src/dispatch/       |                                 |
-|  +----------+------------+                                 |
-|             |                                              |
-|  +----------+------------------------------------------+  |
-|  |                @cleocode/core                        |  |
-|  |  (standalone package -- installable independently)   |  |
-|  |                                                      |  |
-|  |  The four canonical systems implemented as modules:  |  |
-|  |  BRAIN -> memory/          LOOM -> lifecycle/        |  |
-|  |  NEXUS -> nexus/ (partial) LAFS -> output.ts (envelopes)|  |
-|  |                                                      |  |
-|  |  Domains: tasks, sessions, memory, orchestration,    |  |
-|  |           lifecycle, release, admin + 30+ modules    |  |
-|  |                                                      |  |
-|  |  @cleocode/contracts (types only, zero runtime deps) |  |
-|  +------------------------------------------------------+  |
+|  +--------------------------------------------+           |
+|  |  packages/cleo/src/cli/                    |           |
+|  |  citty entry (index.ts:411-420)            |           |
+|  |  ~89 command handlers under commands/      |           |
+|  +---------------------+----------------------+           |
+|                        |                                  |
+|                        v   dispatchRaw(gateway,           |
+|                            domain, op, params)            |
 |                                                           |
-|  +------------------------------------------------------+  |
-|  |  Bundled Store Layer  (SQLite via Drizzle ORM)       |  |
-|  |  packages/core/src/store/                             |  |
-|  |  tasks.db   brain.db   nexus.db                       |  |
-|  +------------------------------------------------------+  |
+|  +---------------------+----------------------+           |
+|  |  packages/cleo/src/dispatch/               |           |
+|  |  adapters/cli.ts -> middleware -> registry |           |
+|  |  -> domain handler -> engine               |           |
+|  |  (internal CQRS tag: query | mutate)       |           |
+|  +---------------------+----------------------+           |
+|                        |                                  |
+|  +---------------------+------------------------------+   |
+|  |                @cleocode/core                      |   |
+|  |  (standalone package -- installable independently) |   |
+|  |                                                    |   |
+|  |  The four canonical systems implemented as modules:|   |
+|  |  BRAIN -> memory/          LOOM -> lifecycle/      |   |
+|  |  NEXUS -> nexus/ (partial) LAFS -> output.ts       |   |
+|  |                                                    |   |
+|  |  Domains: tasks, sessions, memory, orchestration,  |   |
+|  |           lifecycle, release, admin + 30+ modules  |   |
+|  |                                                    |   |
+|  |  Imports NOTHING from packages/cleo/src/{cli,dispatch}/ |
+|  |  @cleocode/contracts (types only, zero runtime deps)|  |
+|  +----------------------------------------------------+   |
+|                                                           |
+|  +------------------------------------------------------+ |
+|  |  Bundled Store Layer  (SQLite via Drizzle ORM)       | |
+|  |  packages/core/src/store/                             | |
+|  |  tasks.db   brain.db   signaldock.db   nexus.db (XDG)| |
+|  +------------------------------------------------------+ |
 +-----------------------------------------------------------+
 ```
 
@@ -173,76 +180,84 @@ See `docs/specs/CORE-PACKAGE-SPEC.md` for the normative contract.
 
 ## 4. End-to-End Request Flow
 
-Every CLEO operation follows the same path through the dispatch architecture:
+Every CLEO operation follows the same path through the dispatch architecture. The CLI is the sole runtime surface; programmatic consumers bypass it by importing `@cleocode/core` directly.
 
 ```
-User Input
+User Input  (shell, agent, script)
     |
     v
-+--------+     +--------+
-|  CLI   |     |  MCP   |    <-- Adapter layer (parses input, builds DispatchRequest)
-+---+----+     +---+----+
-    |              |
-    v              v
-+---+--------------+----+
-|   Gateway Router      |    <-- Routes to query or mutate gateway
-| (query/mutate)   |
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|  Dispatch Registry    |    <-- Resolves domain + operation to OperationDef
-|  (registry.ts)        |    <-- Validates required params
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|   Middleware Pipeline  |   <-- Rate limiting, session binding, LAFS field selection
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|    Domain Handler     |    <-- packages/cleo/src/dispatch/domains/{domain}.ts
-|  (query or mutate)    |    <-- Routes to specific engine function
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|    Engine Layer       |    <-- packages/cleo/src/dispatch/engines/{engine}.ts
-|  (params -> core)     |    <-- Translates params, calls core functions
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|    Core Business      |    <-- packages/core/src/{module}/
-|      Logic            |    <-- Pure business logic, no I/O concerns
-+-----------+-----------+
-            |
-            v
-+-----------+-----------+
-|     Store Layer       |    <-- packages/core/src/store/
-| (atomic.ts, json.ts)  |   <-- Atomic write: temp -> validate -> backup -> rename
-+-----------+-----------+
-            |
-            v
-+---+-------+-------+--+
-|   |       |       |   |
-v   v       v       v   v
-tasks.db  brain.db  MANIFEST  sessions/  config.json
-                    .jsonl
++------------------------------+
+|   cleo CLI (citty runMain)   |    packages/cleo/src/cli/index.ts:411-420
+|   ~89 command handlers       |    packages/cleo/src/cli/commands/*.ts
++--------------+---------------+
+               |
+               v   dispatchRaw(gateway, domain, operation, params)
+               |
++--------------+---------------+
+|  CLI dispatch adapter        |    packages/cleo/src/dispatch/adapters/cli.ts:246-276
+|  builds DispatchRequest      |    source = 'cli'  (types.ts: Source = 'cli' only)
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  Middleware pipeline         |    adapters/cli.ts:95-106
+|  sessionResolver -> sanitizer|
+|  -> fieldFilter -> audit     |
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  Dispatch Registry           |    packages/cleo/src/dispatch/registry.ts
+|  resolves domain + operation |    each OperationDef carries an internal
+|  -> OperationDef             |    CQRS tag: gateway = 'query' | 'mutate'
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  Domain Handler              |    packages/cleo/src/dispatch/domains/{domain}.ts
+|  handler.query() or          |    routes to a specific engine function
+|  handler.mutate()            |
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  Engine Layer                |    packages/cleo/src/dispatch/engines/{engine}.ts
+|  translates params, calls    |
+|  typed core functions        |
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  @cleocode/core              |    packages/core/src/{module}/
+|  standalone business logic   |    imports NOTHING from cli/ or dispatch/
++--------------+---------------+
+               |
+               v
++--------------+---------------+
+|  Store Layer                 |    packages/core/src/store/
+|  atomic.ts, drizzle adapters |    atomic writes, SQLite transactions
++--------------+---------------+
+               |
+               v
+  +-----------+-------+-----------+-----------+
+  |           |       |           |           |
+  v           v       v           v           v
+tasks.db  brain.db  signaldock   nexus.db    config.json /
+                      .db         (global     project-info.json
+(per-project)                     XDG)        (per-project JSON)
 ```
 
 ### Request Lifecycle
 
-1. **Parse**: CLI adapter or MCP adapter parses user input into a `DispatchRequest`.
-2. **Route**: Gateway router sends request to the appropriate gateway (query or mutate).
-3. **Resolve**: Registry looks up `OperationDef` by domain + operation. Returns `E_INVALID_OPERATION` if not found.
-4. **Validate**: Required params are checked. Returns `E_INVALID_INPUT` if missing.
-5. **Middleware**: Request passes through middleware pipeline (rate limit, session, LAFS).
-6. **Handle**: Domain handler dispatches to the appropriate engine function.
-7. **Execute**: Engine calls core business logic. For tasks, `tasks.update` with `status=done` routes to `tasks.complete` semantics.
-8. **Store**: Core writes to data store using atomic operations.
-9. **Respond**: `DispatchResponse` is constructed and returned through the chain.
+1. **Invoke**: User runs `cleo <command>`. citty parses arguments and dispatches to a command handler under `packages/cleo/src/cli/commands/`.
+2. **Dispatch**: The command handler calls `dispatchRaw(gateway, domain, operation, params)` (`packages/cleo/src/dispatch/adapters/cli.ts:246-276`). The CLI is the only place `Source = 'cli'` is set.
+3. **Middleware**: Request flows through `sessionResolver -> sanitizer -> fieldFilter -> audit` (`adapters/cli.ts:95-106`).
+4. **Resolve**: Registry looks up `OperationDef` by `domain + operation` (`packages/cleo/src/dispatch/registry.ts`). Returns `E_INVALID_OPERATION` if not found. The registry entry's internal `gateway` tag (`query` or `mutate`) determines which handler method is called.
+5. **Validate**: Required params are checked. Returns `E_INVALID_INPUT` if missing.
+6. **Handle**: Domain handler (`packages/cleo/src/dispatch/domains/{domain}.ts`) routes to the appropriate engine function via `handler.query()` or `handler.mutate()`.
+7. **Execute**: Engine (`packages/cleo/src/dispatch/engines/{engine}.ts`) calls typed functions in `@cleocode/core`. For tasks, `tasks.update` with `status=done` routes to `tasks.complete` semantics.
+8. **Store**: Core writes to SQLite (or reads, for queries) using atomic operations and Drizzle ORM.
+9. **Respond**: `DispatchResponse` is constructed and returned through the chain. The CLI adapter serializes to LAFS JSON or human output per `--human` flag.
 
 In autonomous operation, the same path may be entered from The Hearth, advanced by The Impulse, and revisited by Watchers and The Sweep. The runtime path does not change the contract.
 
@@ -313,30 +328,52 @@ Domains interact with each other through core business logic, not directly. The 
 
 ## 6. Data Stores and Ownership Boundaries
 
-| Store | Owner Domain | Format | Location | Purpose |
-|-------|-------------|--------|----------|---------|
-| `tasks.db` | tasks | SQLite | `.cleo/tasks.db` | Task hierarchy, status, audit log, lifecycle pipelines |
-| `brain.db` | memory | SQLite (FTS5) | `.cleo/brain.db` | Observations, decisions, patterns, learnings, memory links |
-| `MANIFEST.jsonl` | pipeline | JSONL | `.cleo/MANIFEST.jsonl` | Research artifact ledger (append-only) |
-| `sessions/` | session | JSON files | `.cleo/sessions/` | Session lifecycle state, handoff data |
-| `config.json` | admin | JSON | `.cleo/config.json` | Project configuration |
-| `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global), relay and share state |
-| `.cleo/skills/` | tools | YAML/JSON | `.cleo/skills/` | Skill definitions and configuration |
-| `brain_sticky_notes` | sticky | SQLite table | `.cleo/brain.db` | Quick capture sticky notes (active/converted/archived) |
-| `.cleo/metrics/` | check | JSONL | `.cleo/metrics/` | Compliance data, grades, telemetry |
+CLEO runs on four SQLite databases. Sessions and pipeline manifests live in **tables inside `tasks.db`**, not in JSON files or `.jsonl` ledgers. The only surviving `.jsonl` ledger in the tree is `.cleo/agent-outputs/MANIFEST.jsonl` (orchestrator output ledger, unrelated to the pipeline manifest table).
+
+### SQLite Databases
+
+| Store | Owner Domain(s) | Location | Purpose |
+|-------|-----------------|----------|---------|
+| `tasks.db` | tasks, session, pipeline, admin, check | `.cleo/tasks.db` (per-project) | Task hierarchy + status, `sessions` table (session lifecycle and handoff data -- see `packages/core/src/store/session-store.ts` and `packages/core/src/store/tasks-schema.ts:141-182`), `pipelineManifest` table (research artifact ledger -- see `packages/core/src/memory/pipeline-manifest-sqlite.ts`), audit log, ADRs, compliance data |
+| `brain.db` | memory, sticky | `.cleo/brain.db` (per-project) | Observations, decisions, patterns, learnings, memory links, FTS5 search, vector similarity, `brain_sticky_notes` table |
+| `signaldock.db` | orchestrate, tools | `.cleo/signaldock.db` (per-project) | ~22-table agent messaging substrate |
+| `nexus.db` | nexus | `~/.local/share/cleo/nexus.db` (**global XDG**) | Cross-project registry, dependency graph, and `nexus.share.*` relay state. Guarded to the global tier by `packages/core/src/store/nexus-sqlite.ts` |
+
+### Project-Local Files (per-project, flat on disk)
+
+| Path | Owner | Purpose |
+|------|-------|---------|
+| `.cleo/config.json` | admin | Project configuration |
+| `.cleo/project-info.json` | admin | Project identity + git remote + detection info |
+| `.cleo/project-context.json` | admin | Runtime context for LLM hints (toolchain, conventions) |
+| `.cleo/memory-bridge.md` | memory | Static seed file injected into provider context (auto-refreshed) |
+| `.cleo/metrics/` | check | Compliance data, grades (`GRADES.jsonl`), telemetry |
+| `.cleo/backups/` | admin | Recovery backup store (`sqlite/`, `snapshot/`, `safety/`, `archive/`, `migration/`) |
+| `.cleo/logs/` | admin | Runtime logs |
+| `.cleo/rcasd/` | pipeline | RCASD stage artifacts |
+| `.cleo/adrs/` | pipeline | Architecture Decision Records |
+| `.cleo/agent-outputs/MANIFEST.jsonl` | orchestrate | Orchestrator output ledger (distinct from the `pipelineManifest` table) |
+| `.cleo/skills/` | tools | Skill definitions and configuration |
+
+### Global XDG Files (`~/.local/share/cleo/`)
+
+| Path | Purpose |
+|------|---------|
+| `nexus.db` | Global cross-project registry (SQLite) -- see above |
+| `templates/` | Shared templates (CLEO-INJECTION.md, adapter manifests, etc.) |
 
 ### Ownership Rules
 
-- Each store has exactly one owner domain that performs writes.
+- Each store has primary owner domains that perform writes.
 - Other domains MAY read from stores they do not own.
 - Cross-domain writes MUST go through the owning domain's operations.
-- All writes use the atomic pattern: temp file -> validate -> backup -> rename.
+- All writes use atomic patterns: temp file -> validate -> backup -> rename for JSON, SQLite transactions for databases.
 
 ---
 
 ## 7. LOOM Distillation Flow
 
-LOOM is the conceptual system that manages the lifecycle pipeline and artifact ledger. The distillation flow describes how artifacts in `MANIFEST.jsonl` feed into brain.db observations.
+LOOM is the conceptual system that manages the lifecycle pipeline and artifact ledger. The distillation flow describes how artifacts in the `pipelineManifest` table (inside `tasks.db`) feed into `brain.db` observations.
 
 ```
 Research / Implementation Work
@@ -349,8 +386,9 @@ Research / Implementation Work
          |
          v
 +--------+---------+
-|  MANIFEST.jsonl  |    <-- Append-only artifact ledger
-|  (pipeline owns) |    <-- Entries: { type, content, taskId, timestamp, ... }
+| pipelineManifest |    <-- Append-only artifact ledger, INSIDE tasks.db
+|  table (in       |    <-- See packages/core/src/memory/pipeline-manifest-sqlite.ts
+|  tasks.db)       |    <-- Entries: { type, content, taskId, timestamp, ... }
 +--------+---------+
          |
          | (distillation -- triggered by session.end or manual)
@@ -386,20 +424,22 @@ Research / Implementation Work
 
 ## 8. Query/Mutate Flow Examples
 
-### Example 1: memory.find (query)
+The `query` and `mutate` terms below refer to the internal CQRS tag on each registry operation. Every invocation is entered the same way: a `cleo <command>` shell call.
+
+### Example 1: memory.find (internal tag: query)
 
 Search for cognitive memory entries matching a keyword.
 
 ```
-Agent calls:
-  query { domain: "memory", operation: "find", params: { query: "atomic" } }
+User runs:
+  cleo memory find "atomic"
 
 Flow:
-  MCP Adapter
-    -> Gateway: query
-    -> Registry: resolve("query", "memory", "find") -> OperationDef (tier 1)
+  CLI (citty command handler: packages/cleo/src/cli/commands/memory.ts)
+    -> CLI dispatch adapter: dispatchRaw("query", "memory", "find", { query: "atomic" })
+    -> Middleware: sessionResolver -> sanitizer -> fieldFilter -> audit
+    -> Registry: resolve("memory", "find") -> OperationDef (tier 1, gateway: 'query')
     -> Validate: requiredParams ["query"] -> present
-    -> Middleware: rate limit check, LAFS field selection
     -> Domain Handler: packages/cleo/src/dispatch/domains/memory.ts :: query("find", params)
     -> Engine: packages/cleo/src/dispatch/engines/engine-compat.ts :: searchBrainCompact()
     -> Core: packages/core/src/memory/brain-search.ts :: searchBrainCompact("atomic")
@@ -407,43 +447,41 @@ Flow:
     -> Response: { success: true, data: { results: [...], count: N } }
 ```
 
-### Example 2: pipeline.manifest.append (mutate)
+### Example 2: pipeline.manifest.append (internal tag: mutate)
 
-Append a research artifact to the manifest ledger.
+Append a research artifact to the pipeline manifest ledger.
 
 ```
-Agent calls:
-  mutate { domain: "pipeline", operation: "manifest.append",
-                params: { entry: { type: "research", content: "..." } } }
+User / agent runs:
+  cleo pipeline manifest append --type research --content "..."
 
 Flow:
-  MCP Adapter
-    -> Gateway: mutate
-    -> Registry: resolve("mutate", "pipeline", "manifest.append") -> OperationDef (tier 1)
+  CLI (citty command handler: packages/cleo/src/cli/commands/pipeline.ts)
+    -> CLI dispatch adapter: dispatchRaw("mutate", "pipeline", "manifest.append", { entry: { type: "research", content: "..." } })
+    -> Middleware: sessionResolver -> sanitizer -> fieldFilter -> audit
+    -> Registry: resolve("pipeline", "manifest.append") -> OperationDef (tier 1, gateway: 'mutate')
     -> Validate: requiredParams ["entry"] -> present
-    -> Middleware: rate limit, session binding
     -> Domain Handler: packages/cleo/src/dispatch/domains/pipeline.ts :: mutate("manifest.append", params)
     -> Engine: packages/cleo/src/dispatch/engines/pipeline-manifest-compat.ts :: appendManifestEntry()
-    -> Core: packages/core/src/research/manifest.ts :: append to MANIFEST.jsonl
-    -> Store: atomic write to .cleo/MANIFEST.jsonl
+    -> Core: packages/core/src/memory/pipeline-manifest-sqlite.ts :: append row
+    -> Store: INSERT into pipelineManifest table in tasks.db via SQLite transaction
     -> Response: { success: true, data: { entryId: "M-abc123" } }
 ```
 
-### Example 3: session.context.inject (mutate)
+### Example 3: session.context.inject (internal tag: mutate)
 
 Inject a protocol's context into the current session.
 
 ```
-Agent calls:
-  mutate { domain: "session", operation: "context.inject",
-                params: { protocolType: "research", taskId: "T5241" } }
+User / agent runs:
+  cleo session context inject --protocol research --task T5241
 
 Flow:
-  MCP Adapter
-    -> Gateway: mutate
-    -> Registry: resolve("mutate", "session", "context.inject") -> OperationDef (tier 1)
+  CLI (citty command handler: packages/cleo/src/cli/commands/session.ts)
+    -> CLI dispatch adapter: dispatchRaw("mutate", "session", "context.inject", { protocolType: "research", taskId: "T5241" })
+    -> Middleware: sessionResolver -> sanitizer -> fieldFilter -> audit
+    -> Registry: resolve("session", "context.inject") -> OperationDef (tier 1, gateway: 'mutate')
     -> Validate: requiredParams ["protocolType"] -> present
-    -> Middleware: rate limit, session binding
     -> Domain Handler: packages/cleo/src/dispatch/domains/session.ts :: mutate("context.inject", params)
     -> Engine: loads protocol content from CAAMP catalog
     -> Response: { success: true, data: { protocol: "research", content: "..." } }
@@ -459,20 +497,19 @@ Progressive disclosure minimizes the cognitive load on agents by starting with a
 
 ```
 Step 1: Agent starts session (tier 0)
-  mutate { domain: "session", operation: "start", params: { scope: "T5241" } }
+  cleo session start --scope T5241
   -> Agent sees: tasks, session, check, pipeline, orchestrate, tools, admin ops
 
 Step 2: Agent needs to recall past decisions
-  query { domain: "admin", operation: "help", params: { tier: 1 } }
+  cleo help --tier 1
   -> Agent now sees: + memory domain (17 ops), + manifest ops, + session advanced
 
 Step 3: Agent searches brain.db
-  query { domain: "memory", operation: "find", params: { query: "authentication" } }
+  cleo memory find "authentication"
   -> Returns matching observations, decisions, patterns, learnings
 
 Step 4: Agent stores a new learning
-  mutate { domain: "memory", operation: "learning.store",
-                params: { insight: "JWT tokens require refresh", source: "T5241" } }
+  cleo memory learning store --insight "JWT tokens require refresh" --source T5241
 ```
 
 ### Tier Budget
@@ -551,7 +588,7 @@ Every mutate operation appends to the audit log in `tasks.db`. The audit log is 
 
 ### Session History
 
-Session lifecycle events are recorded in session JSON files under `.cleo/sessions/`. Each session tracks:
+Session lifecycle events are recorded in the `sessions` table in `tasks.db` (see `packages/core/src/store/session-store.ts` and `packages/core/src/store/tasks-schema.ts:141-182`). Each session tracks:
 
 - Start/end timestamps
 - Tasks worked on
@@ -571,12 +608,14 @@ Every `DispatchResponse` includes `_meta` with:
     "operation": "find",
     "timestamp": "2026-03-03T12:00:00Z",
     "duration_ms": 42,
-    "source": "mcp",
+    "source": "cli",
     "requestId": "req-abc123",
     "sessionId": "S-001"
   }
 }
 ```
+
+The `gateway` field here is the internal CQRS tag on the registry operation (`query` or `mutate`). The `source` field is always `"cli"` because the CLI is the sole runtime surface (`packages/cleo/src/dispatch/types.ts` declares `Source = 'cli'`).
 
 ---
 
@@ -609,10 +648,10 @@ These rules MUST always hold true in a correct CLEO installation:
 | **Domain** | One of 10 canonical runtime boundaries (tasks, session, memory, etc.). |
 | **Engine** | Adapter layer between domain handlers and core business logic. |
 | **FTS5** | SQLite Full-Text Search extension, version 5. Used by brain.db for text search. |
-| **Gateway** | One of two MCP tools: `query` (read) or `mutate` (write). |
+| **Gateway** | Internal CQRS tag attached to every registry operation: `query` (read) or `mutate` (write). The dispatcher uses the tag to route to `handler.query()` vs `handler.mutate()`. It is not a public protocol. |
 | **LAFS** | Progressive disclosure protocol. Controls which operations and fields are visible. |
 | **LOOM** | Lifecycle management system. Pipeline domain + manifest + release orchestration. |
-| **MANIFEST.jsonl** | Append-only artifact ledger owned by the pipeline domain. |
+| **pipelineManifest** | Append-only artifact ledger owned by the pipeline domain. Stored as a table inside `tasks.db` (see `packages/core/src/memory/pipeline-manifest-sqlite.ts`). |
 | **NEXUS** | Cross-project coordination system backed by nexus.db. |
 | **OperationDef** | TypeScript interface defining a single dispatchable operation. |
 | **RCASD-IVTR+C** | Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release + Contribution -- the lifecycle stage model. |
@@ -629,6 +668,10 @@ These rules MUST always hold true in a correct CLEO installation:
 - `docs/specs/CORE-PACKAGE-SPEC.md` -- @cleocode/core standalone package contract
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md` -- BRAIN capability specification
-- `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
+- `packages/cleo/src/cli/index.ts` -- citty CLI entry (`runMain(defineCommand(...))` at lines 411-420)
+- `packages/cleo/src/dispatch/adapters/cli.ts` -- CLI dispatch adapter, `dispatchRaw` at lines 246-276
 - `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT for operations
-- `packages/cleo/src/dispatch/types.ts` -- Canonical type definitions
+- `packages/cleo/src/dispatch/types.ts` -- Canonical type definitions (`Source = 'cli'` only)
+- `packages/core/src/store/session-store.ts` + `packages/core/src/store/tasks-schema.ts:141-182` -- Sessions table inside tasks.db
+- `packages/core/src/memory/pipeline-manifest-sqlite.ts` -- Pipeline manifest table inside tasks.db
+- `packages/core/src/store/nexus-sqlite.ts` -- Global XDG guard for nexus.db
