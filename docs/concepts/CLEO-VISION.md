@@ -94,27 +94,20 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |                                    +----------------------------+   |
 |                                                                     |
 |  +-----------------------------------------------------------------+
-|  |              CLI Surface  (packages/cleo/src/cli/)              |
-|  |          citty entry -> command handler -> dispatchRaw          |
-|  +-----------------------------------------------------------------+
-|  |             Dispatch  (packages/cleo/src/dispatch/)             |
-|  |     middleware -> registry -> domain handler -> engine          |
-|  +-----------------------------------------------------------------+
-|  |        @cleocode/core  (packages/core/src/)  -- standalone      |
-|  |   tasks  sessions  memory  orchestration  lifecycle  release    |
+|  |               Shared Core (packages/core/src/)                  |
+|  |  CLI (citty)         |  MCP (query/mutate)  | API    |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
-|  |  .cleo/tasks.db   .cleo/brain.db   ~/.local/share/cleo/nexus.db |
-|  |  (project work)   (memory/cognition)     (global XDG network)   |
+|  |  .cleo/tasks.db     .cleo/brain.db    .cleo/signaldock.db        |
+|  |  (project work)     (memory/cognition)(agent messaging)         |
+|  |  ~/.local/share/cleo/nexus.db  (global network)                 |
 |  +-----------------------------------------------------------------+
 +=====================================================================+
 ```
 
-CLEO ships exactly one runtime surface: the `cleo` CLI. Programmatic consumers import `@cleocode/core` directly. There is no separate protocol server -- every operation lives in the dispatch registry and is reached through `cleo <command>`.
-
 ### The Four Systems
 
-- **BRAIN -- Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 5 tables, 3-layer retrieval (search/timeline/fetch), observe operation, and 5,122 migrated observations. Target: FTS5 search, vector similarity via SQLite-vec, and graph-based retrieval. The lifeblood of anti-hallucination.
+- **BRAIN -- Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 9 core tables (decisions, patterns, learnings, observations, sticky_notes, memory_links, schema_meta, page_nodes, page_edges) plus FTS5 and vec0 virtual tables, 3-layer retrieval (search/timeline/fetch), observe operation, hybrid search (FTS5 + vector + graph), and 5,122 migrated observations. The lifeblood of anti-hallucination.
 
 - **LOOM -- Logical Order of Operations Methodology**: The systematic framework for how CLEO processes project threads from concept to completion. LOOM encompasses the RCASD-IVTR+C pipeline (Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release) with the Contribution protocol (+C) running across all stages. It is the "order of operations" that moves work through its lifecycle.
 
@@ -140,7 +133,7 @@ CLEO ships exactly one runtime surface: the `cleo` CLI. Programmatic consumers i
 
 ## BRAIN: The Memory System
 
-BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 5 tables shipped, 3-layer retrieval operational, and 5,122 observations migrated from claude-mem.
+BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 9 core tables shipped (plus FTS5 and vec0 virtual tables), 3-layer retrieval operational, hybrid search (FTS5 + vector + graph) shipped, and 5,122 observations migrated from claude-mem.
 
 ### Brain Metaphor: Domains as Cognitive Functions
 
@@ -165,9 +158,10 @@ This metaphor isn't decorative -- it reflects the architectural design where tas
 
 | Database | Contents | Scope |
 |----------|----------|-------|
-| **`.cleo/tasks.db`** | Tasks, sessions, lifecycle pipelines, ADRs, audit log, status registry | Project work -- the structured RCASD-IVTR+C pipeline |
-| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, FTS5 indexes | Memory and cognition -- SHIPPED with 5 tables, 3-layer retrieval. Vector embeddings and PageIndex are planned. |
-| **`~/.cleo/nexus.db`** [TARGET] | Project registry, cross-project graph edges, permissions, global pattern library | Global NEXUS network -- currently served by JSON registry |
+| **`.cleo/tasks.db`** | Tasks, sessions, lifecycle pipelines, ADRs, audit log, status registry, pipelineManifest | Project work -- the structured RCASD-IVTR+C pipeline |
+| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, sticky notes, page nodes/edges, schema meta, FTS5 indexes, vector embeddings | Memory and cognition -- 9 core tables + virtual tables for FTS5 and vec0. 3-layer retrieval shipped. |
+| **`.cleo/signaldock.db`** | Agent registry, message relay, heartbeat state | Local agent messaging infrastructure (per-project) |
+| **`~/.local/share/cleo/nexus.db`** | Project registry, cross-project graph edges, permissions, global pattern library | Global NEXUS network (XDG path via getCleoHome()) |
 
 Three JSON configuration files complement the databases (exempt from SQLite-only storage per ADR-006, ADR-011):
 
@@ -196,11 +190,11 @@ BRAIN distinguishes between **raw artifacts** (session transcripts, code diffs, 
 
 BRAIN implements a progressive retrieval workflow (inspired by claude-mem) that achieves ~10x token savings over traditional RAG:
 
-1. **Find** (`cleo memory find`) -- Returns a compact index with IDs and titles (~50-100 tokens per result)
-2. **Timeline** (`cleo memory timeline`) -- Shows chronological context around interesting results
-3. **Fetch** (`cleo memory fetch`) -- Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
+1. **Find** (`memory find`) -- Returns a compact index with IDs and titles (~50-100 tokens per result)
+2. **Timeline** (`memory timeline`) -- Shows chronological context around interesting results
+3. **Fetch** (`memory fetch`) -- Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
 
-The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `cleo memory observe`.
+The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `memory observe` via the mutate gateway.
 
 ### Knowledge Graph [GATED]
 
@@ -222,13 +216,13 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 | **M** | `brain.db` + local embeddings | Shipped (v2026.3.70) | Vector embeddings via all-MiniLM-L6-v2 (@xenova/transformers), hybrid search combining FTS5 + vector + graph weights |
 | **L** | `brain.db` + PageIndex + Graph | Planned (T5160) | Graph-based traversal and cross-reference discovery via NEXUS |
 
-> **Current state (2026-03-24)**: BRAIN memory is in `brain.db` (SQLite) with 7 tables (5 core cognitive + brain_embeddings + brain_memory_links), FTS5 search, vector similarity via all-MiniLM-L6-v2, hybrid search (FTS5 + vector + graph weights), 3-layer retrieval API, session summarization, memory bridge automation, and embedding backfill. Shipped in v2026.3.70-72.
+> **Current state (2026-03-24)**: BRAIN memory is in `brain.db` (SQLite) with 9 core tables (decisions, patterns, learnings, observations, sticky_notes, memory_links, schema_meta, page_nodes, page_edges) plus FTS5 virtual tables and vec0 embeddings table. Features: FTS5 search, vector similarity via all-MiniLM-L6-v2, hybrid search (FTS5 + vector + graph weights), 3-layer retrieval API, session summarization, memory bridge automation, and embedding backfill. Shipped in v2026.3.70-72.
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (`cleo memory find` / `timeline` / `fetch`), `cleo memory observe`, registry-defined operations across 10 dispatch domains (internal CQRS tags `query` / `mutate` drive routing inside the dispatcher), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (static seed + `ct-memory` skill guided self-retrieval + `cleo memory find/timeline/fetch` -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
+**Shipped**: `brain.db` (9 core tables: decisions, patterns, learnings, observations, memory_links, sticky_notes, schema_meta, page_nodes, page_edges -- plus FTS5 and vec0 virtual tables), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, registry-defined MCP operations (see `packages/cleo/src/dispatch/registry.ts` for current count), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
 
-**In Progress**: PageIndex graph tables (T5160), NEXUS cross-project wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
+**In Progress**: PageIndex graph tables (T5160), NEXUS MCP wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
 
 **Planned**: Reasoning engine (T5162-T5163), active memory circulation (Living BRAIN), full knowledge graph with temporal reasoning
 
@@ -414,13 +408,14 @@ NEXUS extends CLEO's tools across project boundaries. Each CLEO project is self-
 ### Architecture
 
 ```
-~/.cleo/                          (Global NEXUS Layer)
-  nexus.db [TGT]                  Global registry, cross-project graph, permissions
+~/.local/share/cleo/              (Global NEXUS Layer — XDG path)
+  nexus.db                        Global registry, cross-project graph, permissions
   config.json                     Global CLEO configuration
 
 /project-a/.cleo/                 (Project A -- fully portable)
   tasks.db                        Tasks, sessions, ADRs, lifecycle, audit
   brain.db                        Observations, patterns, learnings, decisions
+  signaldock.db                   Local agent messaging infrastructure
   config.json                     Runtime settings (hierarchy, session, lifecycle)
   project-info.json               Project identity, projectHash (85f1cc25bb9f)
   project-context.json            LLM agent guidance (language, framework, conventions)
@@ -428,6 +423,7 @@ NEXUS extends CLEO's tools across project boundaries. Each CLEO project is self-
 /project-b/.cleo/                 (Project B -- fully portable)
   tasks.db                        Tasks, sessions, ADRs, lifecycle, audit
   brain.db                        Observations, patterns, learnings, decisions
+  signaldock.db                   Local agent messaging infrastructure
   config.json                     Runtime settings
   project-info.json               Project identity, projectHash (c4e9a1f03d72)
   project-context.json            LLM agent guidance
@@ -464,15 +460,15 @@ NEXUS leverages graph structures built into each project's `tasks.db` and `brain
 
 ### Current State vs Target
 
-**Shipped**: Project registry (JSON), three-tier permissions, cross-project task resolution, dependency graph in `tasks.db`, vectorless similarity discovery (5 methods), graph caching with TTL, `project-info.json` with unique `projectHash` for portable identity
+**Shipped**: `nexus.db` at `~/.local/share/cleo/nexus.db` (SQLite via Drizzle ORM, ADR-036), project registry, three-tier permissions, cross-project task resolution, dependency graph in `tasks.db`, vectorless similarity discovery (5 methods), graph caching with TTL, `project-info.json` with unique `projectHash` for portable identity
 
-**Gated**: Dedicated `nexus.db` (migration from JSON registry), PageIndex tables in `brain.db`, vector similarity via SQLite-vec, federated BRAIN queries across projects, global pattern/learning library, knowledge graph with version chains
+**Gated**: PageIndex tables in `brain.db`, vector similarity via SQLite-vec, federated BRAIN queries across projects, global pattern/learning library, knowledge graph with version chains
 
 ---
 
 ## Anti-Hallucination Protocol
 
-Every mutate operation routed through the CLI dispatch layer undergoes **four-layer validation** (direct `@cleocode/core` consumers rely on domain-specific validation within core modules):
+Every MCP mutate operation undergoes **four-layer validation** (CLI operations rely on domain-specific validation within core modules):
 
 ### Layer 1: Schema -- JSON Schema Enforcement
 
@@ -539,19 +535,17 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 ## Shared-Core Architecture
 
-CLEO uses a shared-core architecture. The `cleo` CLI is the sole runtime surface, and `@cleocode/core` is the programmatic embedding surface. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
+CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
-- **CLI (sole runtime surface)**: citty-powered entry at `packages/cleo/src/cli/index.ts` with ~89 command handlers under `packages/cleo/src/cli/commands/`. Every human and agent invocation flows through `cleo <command>`.
-- **Dispatch layer**: middleware + registry + domain handlers + engines at `packages/cleo/src/dispatch/`. The CLI hands off via `dispatchRaw(gateway, domain, operation, params)` (`adapters/cli.ts:246-276`). Registry entries carry an internal CQRS tag (`query` or `mutate`) that routes to `handler.query()` or `handler.mutate()`; this tag is **not** a public protocol.
-- **`@cleocode/core` (programmatic surface)**: All business logic, published as a standalone package. The dispatch layer delegates here, and external consumers can install it independently and call typed functions directly -- no CLI required.
-- **Adapters (optional)**: Tool-specific UX wrappers that shell out to `cleo`. They sit *on top of* the CLI; they never replace it.
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), registry-defined operations across 10 canonical domains (see `packages/cleo/src/dispatch/registry.ts`) -- the agent interface
+- **CLI (Backup)**: 100+ commands via citty -- the human interface
+- **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. Both MCP and CLI delegate here. Consumers can install it independently.
+- **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
 
 ### Package Boundary
 
 ```
-@cleocode/cleo (the CLI product)
-  |-- packages/cleo/src/cli/       (citty entry + command handlers)
-  |-- packages/cleo/src/dispatch/  (middleware -> registry -> domains -> engines)
+@cleocode/cleo (assembled CLI + MCP product)
   |-- @cleocode/core (standalone business logic kernel)
         |-- @cleocode/contracts (types + interfaces, zero runtime deps)
         |-- Domains: tasks, sessions, memory, orchestration,
@@ -559,16 +553,15 @@ CLEO uses a shared-core architecture. The `cleo` CLI is the sole runtime surface
         |-- Bundled SQLite store (Drizzle ORM)
 
 Consumer patterns:
-  CLI:            cleo tasks add --title "foo" --description "bar"
   Facade:         const cleo = await Cleo.init('./project')
                   await cleo.tasks.add({ title: 'foo', description: 'bar' })
   Tree-shaking:   import { addTask } from '@cleocode/core'
   Custom store:   await Cleo.init('./project', { store: myAccessor })
 ```
 
-`@cleocode/core` imports nothing from `packages/cleo/src/cli/` or `packages/cleo/src/dispatch/` -- it is a standalone kernel. The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within it. Consumers of the standalone package have direct access to all four systems through the same business logic that powers the `cleo` CLI.
+The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all four systems through the same business logic that powers `@cleocode/cleo`.
 
-All entry points MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
+All interfaces MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
 
 ### Specification
 
@@ -581,7 +574,7 @@ See `docs/specs/CORE-PACKAGE-SPEC.md` for the normative contract: public API sur
 1. **Simplicity** -- Flat sequential IDs (`T001`, `T042`) that never change, regardless of hierarchy restructuring
 2. **Flat Structures** -- Three-level hierarchy maximum: Epic -> Task -> Subtask. Seven siblings maximum per parent.
 3. **Computed Metrics** -- No time estimates; scope-based sizing only (small/medium/large). AI cannot accurately predict duration.
-4. **Portability** -- Per-project `.cleo/` directory is the complete brain. Global `~/.cleo/` for NEXUS and shared configuration.
+4. **Portability** -- Per-project `.cleo/` directory is the complete brain. Global `~/.local/share/cleo/` (XDG) for NEXUS and shared configuration.
 5. **Dual Readability** -- JSON for agents (default via LAFS), human-readable on request (`--human`). Agent-first, human-accessible.
 
 ---
@@ -660,4 +653,4 @@ cleo session end --note "Completed auth flow, tests passing"
 
 If conflicts occur, higher priority prevails.
 
-> **Migration note**: Specs at priority 2, 4, and 5 are currently in `docs/mintlify/specs/` awaiting validation and promotion to `docs/specs/`. See T4573 for alignment task tracking.
+> **Note**: `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` may need re-validation. Check that all referenced spec paths exist before relying on them.
