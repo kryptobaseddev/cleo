@@ -1222,17 +1222,115 @@ agent ${agentId}:
     });
 
   // --- cleo agent remove <id> ---
+  /**
+   * Detach agent from current project (default) or remove from global registry
+   * with the --global flag.
+   *
+   * Default (no --global): sets enabled=0 in conduit.db:project_agent_refs only.
+   * This is identical to `cleo agent detach` and is the post-T310 default.
+   *
+   * --global: calls AgentRegistryAccessor.removeGlobal() (destructive). Pre-check
+   * scans the current project's conduit.db for an active reference. If one exists
+   * and --force-global is not supplied, aborts with E_VALIDATION (exit 6). The
+   * scan is limited to the current project — see ADR-037 §6 known limitations.
+   *
+   * @task T366
+   * @epic T310
+   * @why ADR-037 §6 — never-auto-delete semantics; --global flag required for
+   *      destructive removal; best-effort cross-project scan with documented
+   *      limitation (current project only for v1).
+   */
   agent
     .command('remove <agentId>')
-    .description('Remove an agent credential from the local registry')
-    .action(async (agentId: string) => {
+    .description(
+      'Detach agent from current project (default) or remove global identity with --global',
+    )
+    .option('--global', 'Remove from global signaldock.db (destructive, irreversible)')
+    .option(
+      '--force-global',
+      'Force global removal even when the current project still has an active reference',
+    )
+    .action(async (agentId: string, opts: Record<string, unknown>) => {
       try {
-        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+        const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef, getDb } =
+          await import('@cleocode/core/internal');
         await getDb();
-        const registry = new AgentRegistryAccessor(process.cwd());
+        const projectRoot = process.cwd();
 
-        await registry.remove(agentId);
-        cliOutput({ success: true, data: { agentId, removed: true } }, { command: 'agent remove' });
+        if (!opts['global']) {
+          // Project-scoped detach (default post-T310) — mirrors `cleo agent detach`
+          // Ensure both DBs initialised
+          const _registry = new AgentRegistryAccessor(projectRoot);
+          void _registry;
+
+          const ref = getProjectAgentRef(projectRoot, agentId);
+          if (!ref) {
+            cliOutput(
+              {
+                success: false,
+                error: {
+                  code: 'E_NOT_FOUND',
+                  message: `Agent ${agentId} not attached to current project`,
+                },
+              },
+              { command: 'agent remove' },
+            );
+            process.exitCode = 4;
+            return;
+          }
+
+          detachAgentFromProject(projectRoot, agentId);
+
+          cliOutput(
+            { success: true, data: { removed: agentId, scope: 'project', projectRoot } },
+            { command: 'agent remove' },
+          );
+          return;
+        }
+
+        // --global: destructive removal from signaldock.db
+        // Safety scan — limited to current project (ADR-037 §6 known limitation).
+        const _registry2 = new AgentRegistryAccessor(projectRoot);
+        void _registry2;
+
+        const activeRef = getProjectAgentRef(projectRoot, agentId);
+
+        if (activeRef && !opts['forceGlobal']) {
+          console.warn(
+            `NOTE: Safety scan is limited to the current project. Other projects may have ` +
+              `dangling references after global removal.`,
+          );
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message:
+                  `Agent "${agentId}" is still attached to current project. ` +
+                  `Detach first or pass --force-global to proceed anyway.`,
+                fix:
+                  `cleo agent detach ${agentId}  # detach first, then retry` +
+                  `  OR  cleo agent remove ${agentId} --global --force-global`,
+              },
+            },
+            { command: 'agent remove' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        console.warn(
+          `NOTE: Safety scan is limited to the current project. Other projects may have ` +
+            `dangling references after global removal.`,
+        );
+
+        const registry = new AgentRegistryAccessor(projectRoot);
+        await registry.removeGlobal(agentId, { force: opts['forceGlobal'] === true });
+
+        cliOutput(
+          { success: true, data: { removed: agentId, scope: 'global' } },
+          { command: 'agent remove' },
+        );
       } catch (err) {
         cliOutput(
           { success: false, error: { code: 'E_REMOVE', message: String(err) } },
