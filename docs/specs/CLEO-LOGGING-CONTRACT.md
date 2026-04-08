@@ -10,10 +10,12 @@
 
 ## 1. Overview
 
+CLEO has exactly one runtime surface -- the `cleo` CLI. The `source` column on `audit_log` is retained for forward compatibility but is currently always `'cli'`.
+
 CLEO uses a two-store logging architecture that separates operational diagnostics from structured audit trails:
 
 1. **Pino structured logs** -- operational events, startup lifecycle, warnings, and debug traces written to rotating log files via pino-roll.
-2. **SQLite audit_log** -- every audited MCP/CLI dispatch operation written to the `audit_log` table in `.cleo/tasks.db`.
+2. **SQLite audit_log** -- every audited CLI dispatch operation written to the `audit_log` table in `.cleo/tasks.db`.
 
 Both stores share a common set of correlation fields (`projectHash`, `requestId`, `sessionId`, `taskId`) that enable cross-referencing entries between the two systems. The dual-write principle is established in ADR-019 and extended by ADR-024.
 
@@ -47,7 +49,7 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 
 ### 2.2 SQLite audit_log (tasks.db)
 
-**What goes here**: Every audited MCP/CLI dispatch operation -- mutations always, queries only during grade sessions. Each row captures the full request/response lifecycle of a dispatch operation.
+**What goes here**: Every audited CLI dispatch operation -- mutations always, queries only during grade sessions. Each row captures the full request/response lifecycle of a dispatch operation.
 
 **Columns per row** (from `packages/core/src/store/schema.ts`):
 
@@ -67,7 +69,7 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 | `request_id` | TEXT | Per-request UUID from dispatch layer |
 | `duration_ms` | INTEGER | Operation duration in milliseconds |
 | `success` | INTEGER | 1 for success, 0 for failure |
-| `source` | TEXT | Entry point: `'mcp'` or `'cli'` |
+| `source` | TEXT | Entry point: currently always `'cli'` (nullable text column retained for forward compatibility) |
 | `gateway` | TEXT | Gateway type: `'mutate'`, `'query'` |
 | `error_message` | TEXT | Error message on failure (NULL on success) |
 | `project_hash` | TEXT | 12-char SHA-256 hex of project root path |
@@ -127,27 +129,7 @@ Every log entry (both stores) MUST include the following correlation fields wher
 
 ## 5. Startup / Install / Upgrade Coverage
 
-### 5.1 MCP Startup Sequence
-
-The MCP server startup in `packages/cleo/src/mcp/index.ts` logs the following sequence:
-
-1. **Node.js version check** (pre-init): If below minimum, logs `fatal` via the pre-init fallback logger and exits with code 1.
-2. **Global bootstrap** (`ensureGlobalBootstrap()`): Warnings logged at `warn` level if bootstrap fails (non-blocking).
-3. **Config load** (`loadConfig()`): Configuration loaded from MCP-specific config.
-4. **Logger initialization** (`initLogger()`): Pino root logger created with `projectHash` bound to base context. File sink at `.cleo/logs/cleo.log`. After this point, all logging goes to files.
-5. **Startup info**: Three `info` entries -- server starting (with log level), metrics status, and log level echo.
-6. **Audit prune** (fire-and-forget): `pruneAuditLog()` called asynchronously. Failures logged at `warn`, never blocking startup.
-7. **Dispatch layer init** (`initMcpDispatcher()`): `info` log before and after initialization.
-8. **Background job manager init**: `info` with `maxJobs` and `retentionMs`.
-9. **Query cache init**: `info` with enabled status and TTL.
-10. **Transport connect**: `info` when stdio transport connects.
-11. **Server ready**: `info` with `transport: 'stdio'` -- final startup entry.
-
-**Shutdown**: `info` on signal receipt, `info` on server close, then `closeLogger()` flushes and closes the Pino transport.
-
-**Fatal errors**: `fatal` for unrecoverable startup errors, uncaught exceptions, and unhandled rejections.
-
-### 5.2 CLI Startup Sequence
+### 5.1 CLI Startup Sequence
 
 The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook for logger initialization:
 
@@ -160,11 +142,11 @@ The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook 
 3. **preAction hook -- Output format resolution**: Resolves `--json`/`--human`/`--quiet` flags.
 4. **preAction hook -- Storage migration preflight**: Checks if JSON-to-SQLite migration is needed. Warnings written to `process.stderr` (not Pino) to avoid polluting stdout JSON output. Skipped for `version`, `init`, `self-update`, `upgrade`, and `help` commands.
 
-### 5.3 Install / Scaffold
+### 5.2 Install / Scaffold
 
 Scaffold operations in `packages/core/src/scaffold.ts` create the `.cleo/` directory structure including `project-info.json` with `projectHash` and `projectId`. Scaffold runs before the logger is typically initialized (it creates the infrastructure the logger depends on), so scaffold events are not logged to Pino. The `project-info.json` file is the source of truth for `projectHash` used by all subsequent logging.
 
-### 5.4 Upgrade / Migrate
+### 5.3 Upgrade / Migrate
 
 Migration events are logged via both `MigrationLogger` (a migration-specific logger) and Pino `getLogger('migration')` when available. Migration started, completed, and failed events are logged at `info`, `info`, and `error` levels respectively.
 
