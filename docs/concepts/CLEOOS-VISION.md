@@ -122,11 +122,11 @@ CleoOS is provider-neutral by design. The adapter system in `@cleocode/adapters`
 - **Gemini CLI** -- Full adapter (10 hooks + getTranscript + install) — new in T158 (T161)
 - **Codex** -- Partial adapter (3 hooks + getTranscript + install) — new in T158 (T162)
 - **Kimi** -- Minimal adapter (install only) — new in T158 (T163)
-- **Future providers** -- Any tool that can speak MCP or implement the `CLEOProviderAdapter` interface
+- **Future providers** -- Any tool that implements the `CLEOProviderAdapter` interface (or shells out to `cleo <command>`); downstream MCP-speaking tools are onboarded via CAAMP config writing.
 
 Discovery is manifest-based: each adapter declares detection patterns (environment variables, files, CLI availability), and the `AdapterManager` in core automatically activates the matching adapter at startup.
 
-The Memory Bridge ensures every provider starts with context: a static seed file (`.cleo/memory-bridge.md`), guided self-retrieval via the `ct-memory` skill, and dynamic MCP resource endpoints (`cleo://memory/*`).
+The Memory Bridge ensures every provider starts with context: a static seed file (`.cleo/memory-bridge.md`), guided self-retrieval via the `ct-memory` skill, and on-demand lookup via `cleo memory find`, `cleo memory timeline`, and `cleo memory fetch`.
 
 ### 4.4 Project Lifecycle
 
@@ -229,7 +229,7 @@ The kernel is shipped and operational:
 - `@cleocode/core` v2026.3.72 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
-- `@cleocode/cleo` -- full CLI + MCP product (221 operations across 10 dispatch domains)
+- `@cleocode/cleo` -- the `cleo` CLI product (registry-defined operations across 10 dispatch domains; CLI is the sole runtime surface)
 - BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
 - NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
@@ -302,7 +302,7 @@ CleoOS inherits and extends the principles from `@cleocode/core`:
 - CleoOS is **not a cloud platform**. It runs locally, on the developer's machine, in their terminal.
 - CleoOS is **not a replacement for CLEO**. It is the full realization of what CLEO's four systems become when assembled into a complete environment.
 - CleoOS is **not an AI model**. It coordinates AI agents but does not provide intelligence itself. The intelligence comes from the models; CleoOS provides memory, governance, and continuity.
-- CleoOS is **not a new protocol**. It uses LAFS, A2A, and MCP. It does not invent new communication standards.
+- CleoOS is **not a new protocol**. It uses LAFS for response shape and A2A for agent delegation; MCP-speaking downstream providers are onboarded through CAAMP config writing, not through CLEO itself. It does not invent new communication standards.
 - CleoOS is **not a multi-tenant SaaS**. It is built for one developer and their agents, with NEXUS providing optional cross-project coordination.
 
 ---
