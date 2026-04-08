@@ -1,0 +1,95 @@
+---
+kind: protocol
+version: 1.0.0
+id: ART
+title: "Artifact Publish Protocol"
+status: active
+type: cross-cutting
+audience: "llm-agent, orchestrator"
+tags: "artifact, publish, distribution"
+skillRef: ct-artifact-publisher
+lastUpdated: 2026-04-07
+enforcement: advisory
+---
+
+# Artifact Publish Protocol
+#
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Relationship to Release Protocol:
+#   This protocol orchestrates artifact building and publishing.
+#   Release orchestrates version bumping, tagging, and changelog.
+#   They compose: release triggers artifact-publish for distribution phase.
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Package Publish: "publish", "package", "distribute"
+#   Artifact Build: "artifact", "build artifact", "bundle"
+#   Container Push: "docker push", "container registry", "image publish"
+#   Language Package: "crate", "gem", "wheel", "sdist"
+#   Multi-Artifact: "publish all", "release artifacts", "multi-package"
+#
+# Explicit Override: --protocol artifact-publish flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   ARTP-001: MUST validate artifact configuration before build
+#   ARTP-002: MUST execute dry-run before any real publish
+#   ARTP-003: MUST follow handler interface contract: validate -> build -> publish
+#   ARTP-004: MUST generate SHA-256 checksums for all built artifacts
+#   ARTP-005: MUST record provenance metadata via record_release()
+#   ARTP-006: MUST use sequential execution for multi-artifact publish
+#   ARTP-007: MUST set agent_type: "artifact-publish" in manifest
+#   ARTP-008: MUST NOT store credentials in config, output, or manifest
+#   ARTP-009: MUST halt pipeline and attempt rollback on first publish failure
+#
+# SHOULD:
+#   ARTP-010: SHOULD verify registry reachability before publish
+#   ARTP-011: SHOULD validate version consistency between config and artifact metadata
+#   ARTP-012: SHOULD log all publish operations to audit trail
+#   ARTP-013: SHOULD verify build output exists and is non-empty before publish
+#
+# MAY:
+#   ARTP-020: MAY batch validation across all artifacts before starting builds
+#   ARTP-021: MAY generate SBOM alongside artifacts (delegate to provenance)
+#   ARTP-022: MAY sign artifacts using configured signing method (delegate to provenance)
+#
+# Artifact Lifecycle State Machine:
+#   configured -> validated -> built -> published
+#                    |            |         |
+#                  failed       failed    failed -> rollback
+#
+# Registered Handlers (9 types):
+#   npm-package, python-wheel, python-sdist, go-module,
+#   cargo-crate, ruby-gem, docker-image, github-release, generic-tarball
+#
+# Multi-Artifact Pipeline Phases:
+#   Phase 1: Pre-validate all artifacts
+#   Phase 2: Build sequential per artifact
+#   Phase 3: Publish with rollback on failure
+#
+# Credential Handling:
+#   Agents MUST NOT store, log, or embed credentials
+#   Resolution order: env var -> CI secret -> credential manager (future)
+#
+# Error Codes (85-89):
+#   85: E_ARTIFACT_TYPE_UNKNOWN
+#   86: E_ARTIFACT_VALIDATION_FAILED
+#   87: E_ARTIFACT_BUILD_FAILED
+#   88: E_ARTIFACT_PUBLISH_FAILED (rollback attempted)
+#   89: E_ARTIFACT_ROLLBACK_FAILED
+#
+# Anti-Patterns:
+#   - Publishing without dry-run first (irreversible registry state)
+#   - Storing credentials in config.json (committed to VCS)
+#   - Parallel multi-artifact publish (race conditions)
+#   - Skipping checksum generation (cannot verify integrity)
+#   - Publishing without version check (duplicate version errors)
+#   - Ignoring publish failures (inconsistent state)
+#   - Logging credential values (exposure in audit trail)
+#   - Building without validation (wastes time)
+#   - Manual rollback without recording (lost provenance chain)
+#   - Hardcoding registry URLs (breaks across environments)

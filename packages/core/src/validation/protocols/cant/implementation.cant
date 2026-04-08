@@ -1,0 +1,67 @@
+---
+kind: protocol
+version: 1.0.0
+id: IMPL
+title: "Implementation Protocol"
+status: active
+type: base
+audience: "llm-agent"
+tags: "implementation, coding, development"
+skillRef: ct-task-executor
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
+# Implementation Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Building: "implement", "build", "create", "develop"
+#   Coding: "code", "write", "program"
+#   Fixing: "fix", "bug", "patch", "repair"
+#   Enhancement: "improve", "enhance", "optimize"
+#
+# Explicit Override: --protocol implementation flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   IMPL-001: MUST include tests for new functionality
+#   IMPL-002: MUST follow project code style conventions
+#   IMPL-003: MUST include JSDoc/docstring provenance tags
+#   IMPL-004: MUST verify changes pass existing tests
+#   IMPL-005: MUST document breaking changes
+#   IMPL-006: MUST write implementation summary to manifest
+#   IMPL-007: MUST set agent_type: "implementation" in manifest
+#
+# SHOULD:
+#   IMPL-010: SHOULD add inline comments for complex logic
+#   IMPL-011: SHOULD refactor duplicated code
+#   IMPL-012: SHOULD update related documentation
+#   IMPL-013: SHOULD consider error handling edge cases
+#
+# MAY:
+#   IMPL-020: MAY propose architectural improvements
+#   IMPL-021: MAY add performance benchmarks
+#   IMPL-022: MAY suggest follow-up enhancements
+#
+# Provenance Thresholds:
+#   New code: 100% coverage required
+#   Existing code: 80% coverage required
+#   Legacy code: 50% coverage required
+#
+# Exit Codes:
+#   EXIT_PROTOCOL_IMPLEMENTATION (64) - Implementation protocol violation
+#
+# Anti-Patterns:
+#   - Code without tests (regression risk)
+#   - Missing provenance (lost attribution)
+#   - Skipping validation (quality regression)
+#   - Undocumented breaking changes (surprise failures)
+#   - No error handling (silent failures)
+#   - Hardcoded values (maintenance burden)

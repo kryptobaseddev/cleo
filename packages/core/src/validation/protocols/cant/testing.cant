@@ -1,0 +1,88 @@
+---
+kind: protocol
+version: 2.0.0
+id: TEST
+title: "Testing Protocol (Project-Agnostic IVT Loop)"
+status: active
+type: base
+audience: "llm-agent, orchestrator"
+tags: "testing, ivt-loop, autonomous, framework-agnostic, compliance"
+skillRef: ct-ivt-looper
+lastUpdated: 2026-04-07
+enforcement: strict
+---
+
+# Testing Protocol - Project-Agnostic IVT Loop
+#
+# Provenance: @task T260 (replaces T3155 BATS-locked v1)
+# Type: Base Protocol
+# Stage: IVTR - T (Testing, the closure of the IVT loop)
+# Skill: ct-ivt-looper
+#
+# Core Principle:
+#   The loop converges on the spec, not on "tests pass".
+#   Passing tests that don't cover the spec are a failure.
+#
+# Project-Agnostic Mandate:
+#   MUST work in any project. MUST NOT assume a specific language,
+#   test framework, directory layout, or test command.
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Loop Closure: "ivt loop", "implement and verify", "ship this task"
+#   Test Execution: "run tests", "verify", "test this"
+#   Coverage: "coverage", "test coverage", "missing tests"
+#   Spec Compliance: "satisfy spec", "verify against spec"
+#   Release Gate: "before release", "pre-PR validation", "ship verified"
+#
+# Explicit Override: --protocol testing flag on task creation.
+# Lifecycle Position: After Validation (V), before Release (R)
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   TEST-001: MUST identify project test framework via dynamic detection
+#   TEST-002: MUST run IVT loop with explicit iteration counter and MAX_ITERATIONS cap (default 5)
+#   TEST-003: MUST trace each MUST requirement from upstream spec to at least one passing test
+#   TEST-004: MUST achieve 100% pass rate before exiting with ivtLoopConverged: true
+#   TEST-005: MUST exit only when spec is satisfied or MAX_ITERATIONS reached
+#   TEST-006: MUST write test summary to manifest key_findings array
+#   TEST-007: MUST set agent_type: "testing" in manifest
+#   TEST-008: MUST run on feature branch - never on main/master
+#   TEST-009: MUST escalate non-convergence to HITL via exit code 65
+#
+# SHOULD:
+#   TEST-010: SHOULD test edge cases and error paths
+#   TEST-011: SHOULD include setup/teardown fixtures appropriate to framework
+#   TEST-012: SHOULD use descriptive test names tied to spec requirement codes
+#   TEST-013: SHOULD report coverage percentage when framework supports it
+#   TEST-014: SHOULD prefer .cleo/project-context.json testing.command when present
+#
+# MAY:
+#   TEST-020: MAY add golden tests for output verification
+#   TEST-021: MAY add performance benchmarks
+#   TEST-022: MAY add stress/concurrency tests
+#   TEST-023: MAY parallelize IVT loop across independent specs
+#
+# Framework Detection Priority:
+#   1. .cleo/project-context.json testing.command (highest)
+#   2. Auto-detection signals (vitest, jest, pytest, cargo test, go test, etc.)
+#   3. Fallback: ask operator to declare in project-context.json
+#
+# Exit Codes:
+#   0: SUCCESS - Loop converged, manifest recorded
+#   65: HANDOFF_REQUIRED - Non-convergence after MAX_ITERATIONS
+#   67: CONCURRENT_SESSION - Generic testing protocol violation
+#   80: LIFECYCLE_GATE_FAILED - Required gate failed
+#
+# Anti-Patterns:
+#   - Hardcoding vitest/jest/pytest (violates project-agnostic mandate)
+#   - Running tests once and reporting result (testing is a LOOP)
+#   - Skipping validation between iterations
+#   - Bailing silently on non-convergence (must escalate to HITL)
+#   - Marking task complete with failed > 0
+#   - Modifying main/master branch
+#   - Ignoring spec-requirement traceability
+#   - Treating coverage as the convergence metric
+#   - Editing test expectations to match broken code

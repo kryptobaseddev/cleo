@@ -1,0 +1,88 @@
+---
+kind: protocol
+version: 1.0.0
+id: PROV
+title: "Provenance Protocol"
+status: active
+type: cross-cutting
+audience: "llm-agent, orchestrator"
+tags: "provenance, traceability, lineage"
+skillRef: ct-provenance-keeper
+lastUpdated: 2026-04-07
+enforcement: advisory
+---
+
+# Provenance Protocol
+#
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Supply Chain: "provenance", "supply chain", "chain of custody"
+#   Attestation: "attest", "attestation", "in-toto", "SLSA"
+#   SBOM: "sbom", "bill of materials", "cyclonedx", "spdx"
+#   Signing: "sign", "cosign", "sigstore", "verify signature"
+#   Checksums: "checksum", "digest", "sha256", "integrity"
+#
+# Explicit Override: --protocol provenance flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   PROV-001: MUST record provenance chain from source commit to published artifact
+#   PROV-002: MUST compute SHA-256 digest for every produced artifact
+#   PROV-003: MUST generate attestation in in-toto Statement v1 format
+#   PROV-004: MUST record SLSA Build Level achieved (L1 minimum)
+#   PROV-005: MUST store provenance record in .cleo/releases.json via record_release()
+#   PROV-006: MUST verify provenance chain integrity before publishing attestation
+#   PROV-007: MUST set agent_type: "provenance" in manifest
+#
+# SHOULD:
+#   PROV-010: SHOULD generate SBOM (CycloneDX or SPDX) for artifacts with dependencies
+#   PROV-011: SHOULD sign attestations using keyless signing (sigstore/cosign)
+#   PROV-012: SHOULD publish provenance attestation alongside artifact
+#   PROV-013: SHOULD verify all input materials have provenance
+#
+# MAY:
+#   PROV-020: MAY achieve SLSA Build Level 3 or 4
+#   PROV-021: MAY use key-based signing (GPG) as alternative to keyless
+#   PROV-022: MAY generate multiple SBOM formats (both CycloneDX and SPDX)
+#
+# Provenance Chain Model:
+#   commit -> build -> artifact -> attestation -> registry
+#
+# Chain Integrity Rules:
+#   Each link MUST reference previous link's output
+#   No link MAY be modified after creation (append-only)
+#   Missing links MUST be recorded as incomplete
+#   Chain MUST be verifiable offline
+#
+# SLSA Compliance Levels:
+#   L1: Provenance exists
+#   L2: Provenance signed + build on hosted platform
+#   L3: Non-falsifiable provenance
+#   L4: All deps have provenance + hermetic reproducible build
+#
+# Signing Methods:
+#   sigstore (default): cosign sign-blob --yes <artifact>
+#   gpg: gpg --detach-sign --armor -u <key-id> <artifact>
+#   none: Skip signing (SLSA L1 only)
+#
+# Error Codes (90-94):
+#   90: E_PROVENANCE_CONFIG_INVALID
+#   91: E_SIGNING_KEY_MISSING
+#   92: E_SIGNATURE_INVALID
+#   93: E_DIGEST_MISMATCH
+#   94: E_ATTESTATION_INVALID
+#
+# Anti-Patterns:
+#   - Skipping digest computation (breaks chain integrity)
+#   - Hardcoding signing keys in config (security risk)
+#   - Generating attestation without matching digest
+#   - Publishing artifact before signing
+#   - Modifying provenance records after creation
+#   - Skipping SBOM for artifacts with dependencies
+#   - Using SHA-1 or MD5 for digests (cryptographically broken)
+#   - Storing private keys in .cleo/ directory

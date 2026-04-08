@@ -1,0 +1,82 @@
+---
+kind: protocol
+version: 1.0.0
+id: CONT
+title: "Contribution Protocol"
+status: active
+type: cross-cutting
+audience: "llm-agent, orchestrator"
+tags: "contribution, commit, pr"
+skillRef: ct-contribution
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
+# Contribution Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Cross-Cutting Protocol
+# Applies To: All RCASD-IVTR+C stages
+# Max Active: 3 protocols (including base)
+#
+# Cross-Cutting Nature: This protocol applies across ALL stages of RCASD-IVTR+C.
+# Unlike stage-specific protocols, contribution tracking is active whenever
+# multi-agent coordination or attribution is needed.
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Shared File Modification: Modifying CLAUDE.md, AGENTS.md, shared configs
+#   PR Creation: "pull request", "PR", "merge request"
+#   Cross-Session Work: Multiple agents on same epic
+#   Audit Trail: Provenance, attribution, tracking
+#
+# Explicit Override: --protocol contribution flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   CONT-001: MUST follow commit message conventions
+#   CONT-002: MUST include provenance tags in code comments
+#   CONT-003: MUST pass all validation gates before merge
+#   CONT-004: MUST document decisions with rationale
+#   CONT-005: MUST flag conflicts with other sessions
+#   CONT-006: MUST write contribution record to manifest
+#   CONT-007: MUST set agent_type: "implementation" in manifest
+#
+# SHOULD:
+#   CONT-010: SHOULD include test coverage for changes
+#   CONT-011: SHOULD link to related tasks and research
+#   CONT-012: SHOULD document rejected alternatives
+#   CONT-013: SHOULD request review for significant changes
+#
+# MAY:
+#   CONT-020: MAY batch related changes into single contribution
+#   CONT-021: MAY defer documentation updates
+#   CONT-022: MAY propose follow-up improvements
+#
+# Commit Message Format:
+#   <type>(<scope>): <summary>
+#   Types: feat, fix, docs, test, refactor, chore, perf
+#
+# Validation Gates:
+#   Schema: JSON Schema validation (MUST pass)
+#   Tests: All tests pass (MUST pass)
+#   Lint: Code style compliance (SHOULD pass)
+#   Security: No secrets committed (MUST pass)
+#   Conflicts: No unresolved conflicts (MUST resolve)
+#
+# Provenance Thresholds:
+#   New code: 100%
+#   Existing code: 80%
+#   Legacy code: 50%
+#
+# Exit Codes:
+#   EXIT_PROTOCOL_CONTRIBUTION (65) - Contribution protocol violation
+#
+# Anti-Patterns:
+#   - Committing without provenance (breaks audit trail)
+#   - Skipping validation gates (quality regression)
+#   - Ignoring conflicts (creates merge debt)
+#   - Large unfocused commits (hard to review/revert)
+#   - Missing decision documentation (lost context)

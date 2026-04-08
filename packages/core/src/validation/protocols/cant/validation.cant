@@ -1,0 +1,65 @@
+---
+kind: protocol
+version: 1.0.0
+id: VALID
+title: "Validation Protocol"
+status: active
+type: base
+audience: "llm-agent, orchestrator"
+tags: "validation, quality, compliance"
+skillRef: ct-validator
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
+# Validation Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Stage: IVTR - V (Validation)
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Verification: "validate", "verify", "check", "audit"
+#   Quality: "quality", "qa", "review"
+#   Compliance: "compliance", "conform", "standard"
+#   Smoke Test: "smoke", "sanity", "basic test"
+#
+# Explicit Override: --protocol validation flag on task creation.
+# Lifecycle Position: After Implementation (I), before Testing (T)
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   VALID-001: MUST verify implementation matches specification
+#   VALID-002: MUST run existing test suite and report results
+#   VALID-003: MUST check protocol compliance via lib/protocol-validation.sh
+#   VALID-004: MUST document pass/fail status for each validation check
+#   VALID-005: MUST write validation summary to manifest
+#   VALID-006: MUST set agent_type: "validation" in manifest
+#   VALID-007: MUST block progression if critical validations fail
+#
+# SHOULD:
+#   VALID-010: SHOULD verify edge cases identified in specification
+#   VALID-011: SHOULD check for regressions in related functionality
+#   VALID-012: SHOULD validate error handling paths
+#   VALID-013: SHOULD measure against acceptance criteria
+#
+# MAY:
+#   VALID-020: MAY perform performance validation
+#   VALID-021: MAY verify security constraints
+#   VALID-022: MAY suggest additional test cases
+#
+# Exit Codes:
+#   62: Specification mismatch (fix implementation)
+#   64: Implementation protocol violation (fix provenance)
+#   67: Generic protocol violation (review and fix)
+#   68: EXIT_VALIDATION_INCOMPLETE (validation not finished)
+#
+# Anti-Patterns:
+#   - Skipping spec compliance check (missed requirements)
+#   - Not documenting validation results (lost audit trail)
+#   - Ignoring non-critical failures (quality regression)
+#   - Running partial validation suite (false confidence)

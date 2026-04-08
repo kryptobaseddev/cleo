@@ -1,0 +1,67 @@
+---
+kind: protocol
+version: 1.0.0
+id: SPEC
+title: "Specification Protocol"
+status: active
+type: conditional
+audience: "llm-agent, orchestrator"
+tags: "specification, requirements, rfc2119"
+skillRef: ct-spec-writer
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
+# Specification Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Design: "spec", "specification", "design", "architect"
+#   Contract: "contract", "interface", "API", "schema"
+#   Definition: "define", "formalize", "standardize"
+#   Protocol: "protocol", "workflow", "process"
+#
+# Explicit Override: --protocol specification flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   SPEC-001: MUST use RFC 2119 keywords for requirements
+#   SPEC-002: MUST include version number and status
+#   SPEC-003: MUST define scope and authority
+#   SPEC-004: MUST include conformance criteria
+#   SPEC-005: MUST document related specifications
+#   SPEC-006: MUST use structured format (tables, schemas)
+#   SPEC-007: MUST set agent_type: "specification" in manifest
+#
+# SHOULD:
+#   SPEC-010: SHOULD include examples for each requirement
+#   SPEC-011: SHOULD document failure modes
+#   SPEC-012: SHOULD specify error handling
+#   SPEC-013: SHOULD include changelog
+#
+# MAY:
+#   SPEC-020: MAY include implementation guidance
+#   SPEC-021: MAY reference external standards
+#   SPEC-022: MAY define extension points
+#
+# Version Semantics:
+#   Major (X.0.0): Breaking changes to requirements
+#   Minor (X.Y.0): New requirements, backward compatible
+#   Patch (X.Y.Z): Clarifications, typo fixes
+#
+# Status Lifecycle:
+#   DRAFT -> ACTIVE -> DEPRECATED
+#                  \-> SUPERSEDED (by new spec)
+#
+# Anti-Patterns:
+#   - Vague requirements without levels (cannot verify compliance)
+#   - Missing version number (cannot track changes)
+#   - Undefined scope (unclear authority)
+#   - No examples (hard to implement correctly)
+#   - Skipping RFC 2119 declaration (ambiguous requirement levels)

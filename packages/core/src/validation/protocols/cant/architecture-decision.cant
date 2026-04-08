@@ -1,0 +1,80 @@
+---
+kind: protocol
+version: 1.0.0
+id: ADR
+title: "Architecture Decision Record Protocol"
+status: active
+type: conditional
+audience: "llm-agent, orchestrator"
+tags: "adr, architecture, decisions"
+skillRef: ct-adr-recorder
+lastUpdated: 2026-04-07
+enforcement: advisory
+---
+
+# Architecture Decision Record (ADR) Protocol
+#
+# Provenance: @task T4798 (ADR-006 Implementation)
+# Type: Conditional Protocol
+# Stage: RCADSD - A (ADR)
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Decision Recording: "decision", "adr", "architecture decision"
+#   Stage Transition: "after consensus", "begin adr"
+#   Formalization: "lock in decision", "formalize choice", "decide"
+#   Architectural Shift: "pivot", "new architecture", "supersede"
+#   Record Creation: "create adr", "write adr", "record decision"
+#
+# Explicit Override: --protocol adr flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   ADR-001: MUST be generated from an accepted Consensus report verdict
+#   ADR-002: MUST include a consensus_manifest_id linking to its originating consensus
+#   ADR-003: MUST require explicit HITL approval to transition from proposed to accepted
+#   ADR-004: MUST include Context, Options Evaluated, Decision, Rationale, and Consequences sections
+#   ADR-005: MUST trigger downstream invalidation if superseded
+#   ADR-006: MUST be stored in the canonical decisions SQLite table via Drizzle ORM
+#   ADR-007: MUST set agent_type: "decision" in manifest entry
+#   ADR-008: MUST block the Specification stage until the ADR status is accepted
+#
+# SHOULD:
+#   ADR-010: SHOULD document the exact data structures or schema changes required
+#   ADR-011: SHOULD explicitly list which existing ADRs are superseded, with rationale
+#   ADR-012: SHOULD flag known technical debt introduced by the decision
+#   ADR-013: SHOULD document rejected alternatives with rationale for rejection
+#
+# MAY:
+#   ADR-020: MAY include diagrams (Mermaid) illustrating the architectural shift
+#   ADR-021: MAY link to external prior art or research documents
+#   ADR-022: MAY reference related ADRs that are not superseded but contextually relevant
+#
+# Decision Status Lifecycle:
+#   proposed -> accepted -> superseded
+#                       \-> deprecated
+#
+# HITL Gate:
+#   1. Agent drafts the ADR based on consensus verdict
+#   2. Status is set to proposed
+#   3. Pipeline pauses (HANDOFF_REQUIRED - exit code 65)
+#   4. Human reviews the proposed ADR
+#   5. If approved, status transitions to accepted
+#   6. Only an accepted ADR unlocks the Specification stage
+#
+# Exit Codes:
+#   65: HANDOFF_REQUIRED - ADR drafted as proposed, awaiting HITL acceptance
+#   84: PROVENANCE_REQUIRED - Attempted to create ADR without linked Consensus report
+#   18: CASCADE_FAILED - Downstream work blocked because governing ADR was superseded
+#
+# Anti-Patterns:
+#   - Creating ADR without consensus (decisions lack evidence foundation)
+#   - Auto-accepting without HITL review (bypasses human oversight gate)
+#   - Omitting downstream impact section (future implementers unaware of cascade)
+#   - Superseding without updating specs (creates orphaned specifications)
+#   - Using ADR to define implementation requirements (that is Specification's role)
+#   - Storing ADR only as markdown without SQLite record (loses relational queries)
+#   - Skipping rejected alternatives (loses institutional knowledge)

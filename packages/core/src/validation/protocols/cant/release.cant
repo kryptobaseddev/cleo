@@ -1,0 +1,96 @@
+---
+kind: protocol
+version: 1.0.0
+id: REL
+title: "Release Protocol"
+status: active
+type: conditional
+audience: "llm-agent, orchestrator"
+tags: "release, semver, changelog"
+skillRef: ct-release-orchestrator
+lastUpdated: 2026-04-07
+enforcement: strict
+---
+
+# Release Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Version: "release", "version", "v1.x.x"
+#   Publish: "publish", "deploy", "ship"
+#   Changelog: "changelog", "release notes"
+#   Tag: "tag", "milestone", "GA"
+#
+# Explicit Override: --protocol release flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   RLSE-001: MUST follow semantic versioning (semver)
+#   RLSE-002: MUST update changelog with all changes
+#   RLSE-003: MUST pass all validation gates before release
+#   RLSE-004: MUST tag release in version control
+#   RLSE-005: MUST document breaking changes with migration path
+#   RLSE-006: MUST verify version consistency across files
+#   RLSE-007: MUST set agent_type: "documentation" in manifest
+#
+# SHOULD:
+#   RLSE-010: SHOULD include upgrade instructions
+#   RLSE-011: SHOULD verify documentation is current
+#   RLSE-012: SHOULD test installation process
+#   RLSE-013: SHOULD create backup before release
+#   RLSE-014: SHOULD run test suite for major/minor releases
+#   RLSE-015: SHOULD verify tests pass before tagging
+#
+# MAY:
+#   RLSE-020: MAY include performance benchmarks
+#   RLSE-021: MAY announce on communication channels
+#   RLSE-022: MAY batch minor fixes into single release
+#
+# State Machine:
+#   create -> planned -> active -> released (immutable)
+#
+# Ship Workflow (10 steps):
+#   1. Auto-populate release tasks
+#   1.5. Run release guards
+#   2. Bump version (if --bump-version)
+#   3. Ensure [Unreleased] section in CHANGELOG.md
+#   4. Generate changelog from task metadata
+#   5. Validate changelog content
+#   6. Append to CHANGELOG.md + platform outputs
+#   7. Run validation gates
+#   8. Create release commit
+#   9. Create annotated tag (if --create-tag)
+#   10. Push to remote (if --push)
+#   11. Update release status to released
+#
+# Composition with Sub-Protocols:
+#   artifact-publish: Conditional, triggered when release config has artifact handlers
+#   provenance: Conditional, invoked transitively via artifact-publish for signing
+#
+# Error Codes (50-59):
+#   50: E_RELEASE_NOT_FOUND
+#   51: E_RELEASE_EXISTS
+#   52: E_RELEASE_LOCKED
+#   53: E_INVALID_VERSION
+#   54: E_VALIDATION_FAILED
+#   55: E_VERSION_BUMP_FAILED
+#   56: E_TAG_CREATION_FAILED
+#   57: E_CHANGELOG_GENERATION_FAILED
+#   58: E_TAG_EXISTS
+#   59: E_TASKS_INCOMPLETE
+#
+# Anti-Patterns:
+#   - Skipping version bump (version confusion)
+#   - Missing changelog entry (lost history)
+#   - Undocumented breaking changes (user frustration)
+#   - No release tag (cannot reference version)
+#   - Incomplete checklist (missed steps)
+#   - Major releases without --run-tests (quality risk)
+#   - Ignoring epic completeness warnings
+#   - Overusing --force (bypasses guards)

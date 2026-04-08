@@ -1,0 +1,74 @@
+---
+kind: protocol
+version: 1.0.0
+id: CONS
+title: "Consensus Protocol"
+status: active
+type: conditional
+audience: "llm-agent, orchestrator"
+tags: "consensus, voting, validation"
+skillRef: ct-consensus-voter
+lastUpdated: 2026-04-07
+enforcement: strict
+---
+
+# Consensus Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Decision Making: "vote", "decide", "choose", "select"
+#   Agreement: "consensus", "agree", "alignment"
+#   Conflict Resolution: "resolve", "dispute", "conflict"
+#   Validation: "validate claim", "verify assertion"
+#
+# Explicit Override: --protocol consensus flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   CONS-001: MUST use structured voting format
+#   CONS-002: MUST document rationale for each position
+#   CONS-003: MUST include confidence scores (0.0-1.0)
+#   CONS-004: MUST cite evidence supporting positions
+#   CONS-005: MUST flag conflicts with severity levels
+#   CONS-006: MUST escalate to HITL when threshold not reached
+#   CONS-007: MUST set agent_type: "analysis" in manifest
+#
+# SHOULD:
+#   CONS-010: SHOULD present multiple perspectives
+#   CONS-011: SHOULD identify hidden assumptions
+#   CONS-012: SHOULD document rejected alternatives
+#   CONS-013: SHOULD include uncertainty notes for low confidence
+#
+# MAY:
+#   CONS-020: MAY propose compromise positions
+#   CONS-021: MAY defer non-critical decisions
+#   CONS-022: MAY request additional research
+#
+# Verdict Thresholds:
+#   PROVEN: 3/5 agents OR 50%+ weighted confidence, reproducible evidence
+#   REFUTED: Counter-evidence invalidates, counter-proof exists
+#   CONTESTED: 3/5 split after 2 challenge rounds, document both sides
+#   INSUFFICIENT_EVIDENCE: Cannot reach verdict, request investigation
+#
+# HITL Escalation:
+#   - Contested verdict (3/5 split): Present conflict to user
+#   - Critical severity conflict: Immediate escalation
+#   - Insufficient evidence: Request user guidance
+#   - Unanimous suspicious consensus: Verify with user
+#
+# Exit Codes:
+#   EXIT_PROTOCOL_CONSENSUS (61) - Consensus protocol violation
+#   EXIT_PROTOCOL_GENERIC (67) - Generic protocol error
+#
+# Anti-Patterns:
+#   - Accepting unanimous consensus without scrutiny (may indicate groupthink)
+#   - Skipping evidence citations (decisions lack foundation)
+#   - Binary voting without confidence (loses nuance)
+#   - Ignoring minority positions (may miss valid concerns)
+#   - Premature escalation (wastes human attention)

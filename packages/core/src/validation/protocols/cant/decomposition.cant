@@ -1,0 +1,92 @@
+---
+kind: protocol
+version: 2.0.0
+id: DCMP
+title: "Decomposition Protocol"
+status: active
+type: conditional
+audience: "llm-agent, orchestrator"
+tags: "decomposition, hierarchy, atomicity, planning"
+skillRef: ct-epic-architect
+lastUpdated: 2026-02-24
+provenanceTask: T3155
+enforcement: strict
+---
+
+# Decomposition Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Epic Planning: "epic", "project", "initiative"
+#   Breakdown: "decompose", "break down", "split"
+#   Planning: "plan", "roadmap", "phases"
+#   Analysis: "scope", "estimate complexity"
+#
+# Explicit Override: --protocol decomposition flag on task creation.
+#
+# Hard Invariants (always enforced):
+#   - Parent must exist: parent task ID must be present in the task store
+#   - No circular references: moving a task under its own descendant is rejected
+#   - Dependency DAG integrity: blockedBy/blocks must remain acyclic
+#
+# Configurable Limits (profile-driven):
+#   maxSiblings: default 0 (unlimited for llm-agent-first); 7 for human-cognitive
+#   maxActiveSiblings: default 32 (operational concurrency guard)
+#   maxDepth: default 3 (epic -> task -> subtask)
+#
+# Enforcement Profiles:
+#   llm-agent-first (default): maxSiblings=0, maxActiveSiblings=32, maxDepth=3
+#   human-cognitive: maxSiblings=7, maxActiveSiblings=3, maxDepth=3
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   DCMP-001: MUST follow MECE principle (Mutually Exclusive, Collectively Exhaustive)
+#   DCMP-002: MUST map dependencies between tasks
+#   DCMP-003: MUST respect the configured hierarchy.maxDepth policy (default: 3)
+#   DCMP-004: MUST verify atomicity for leaf tasks
+#   DCMP-005: MUST NOT include time estimates (use size: small/medium/large)
+#   DCMP-006: MUST include acceptance criteria for each task
+#   DCMP-007: Siblings MUST respect the configured hierarchy.maxSiblings policy
+#   DCMP-008: Depth MUST respect the configured hierarchy.maxDepth policy
+#   DCMP-009: MUST set agent_type: "analysis" in manifest
+#
+# SHOULD:
+#   DCMP-010: SHOULD identify parallel execution opportunities
+#   DCMP-011: SHOULD flag unclear requirements for HITL
+#   DCMP-012: SHOULD consider existing task overlap
+#   DCMP-013: SHOULD assign phase to each task
+#
+# MAY:
+#   DCMP-020: MAY propose multiple decomposition options
+#   DCMP-021: MAY identify risks and mitigations
+#   DCMP-022: MAY suggest task consolidation
+#
+# Atomicity Criteria (6-Point Test):
+#   1. Single File Scope: Affects <=3 tightly-coupled files
+#   2. Single Cognitive Concern: One bounded concern per task
+#   3. Clear Acceptance Criteria: Testable completion condition
+#   4. No Context Switching: Completable within a single agent session
+#   5. No Hidden Sub-Decisions: All choices made at decomposition
+#   6. Programmatic Validation: Result verifiable by code/test
+#
+# Size Definitions:
+#   small: 1-2 files, single concern, MUST be atomic
+#   medium: 3-7 files, related concerns, SHOULD be atomic
+#   large: 8+ files, multiple concerns, MUST decompose further
+#
+# Exit Codes:
+#   EXIT_PROTOCOL_DECOMPOSITION (63) - Decomposition protocol violation
+#
+# Anti-Patterns:
+#   - Time estimates (cannot predict duration accurately)
+#   - Non-atomic leaf tasks (create hidden work)
+#   - Missing dependencies (incorrect execution order)
+#   - Exceeding configured maxDepth (complexity explosion)
+#   - Overlapping scopes (not MECE - duplicate work)
+#   - Skipping atomicity check (quality regression)

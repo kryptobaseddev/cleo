@@ -1,0 +1,66 @@
+---
+kind: protocol
+version: 1.0.0
+id: RSCH
+title: "Research Protocol"
+status: active
+type: base
+audience: "llm-agent, orchestrator"
+tags: "research, investigation, evidence"
+skillRef: ct-research-agent
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
+# Research Protocol
+#
+# Provenance: @task T3155, @epic T3147
+# Type: Conditional Protocol
+# Max Active: 3 protocols (including base)
+#
+# Trigger Conditions
+#
+# This protocol activates when the task involves:
+#   Investigation: "research", "investigate", "explore", "study"
+#   Analysis: "analyze", "compare", "evaluate", "assess"
+#   Discovery: "find out", "discover", "learn about"
+#   Documentation: "document findings", "report on"
+#
+# Explicit Override: --protocol research flag on task creation.
+#
+# Requirements (RFC 2119)
+#
+# MUST:
+#   RSCH-001: MUST NOT implement code or make changes to codebase
+#   RSCH-002: MUST document all sources with citations
+#   RSCH-003: MUST write findings to claudedocs/agent-outputs/
+#   RSCH-004: MUST append entry to MANIFEST.jsonl
+#   RSCH-005: MUST return only completion message (no content in response)
+#   RSCH-006: MUST include 3-7 key findings in manifest entry
+#   RSCH-007: MUST set agent_type: "research" in manifest
+#
+# SHOULD:
+#   RSCH-010: SHOULD use multiple independent sources
+#   RSCH-011: SHOULD cross-reference findings for accuracy
+#   RSCH-012: SHOULD include confidence levels for claims
+#   RSCH-013: SHOULD identify gaps or areas needing further research
+#   RSCH-014: SHOULD link research to relevant tasks
+#
+# MAY:
+#   RSCH-020: MAY propose follow-up research tasks
+#   RSCH-021: MAY include visual diagrams or tables
+#   RSCH-022: MAY compare multiple approaches or solutions
+#
+# Tool Allowlist:
+#   Allowed: Read, Grep, Glob, Bash (read-only commands only)
+#   Prohibited: Write, Edit, any code compilation or execution
+#
+# Exit Codes:
+#   EXIT_PROTOCOL_RESEARCH (60) - Research protocol violation
+#
+# Anti-Patterns:
+#   - Implementing code during research (pollutes context, mixes concerns)
+#   - Returning findings in response (wastes orchestrator context)
+#   - Single-source conclusions (risk of bias or error)
+#   - Vague findings without evidence (not actionable)
+#   - Skipping manifest entry (breaks orchestrator workflow)
