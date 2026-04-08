@@ -1,9 +1,11 @@
 # CLEO Autonomous Runtime Specification
 
 **Version**: 2026.3.6
-**Status**: ACTIVE
+**Status**: SPECIFIED
 **Date**: 2026-03-06
 **Task**: T5519
+
+> **Implementation status**: This specification defines PLANNED autonomous runtime features (The Hearth, Impulse Engine, Watchers). As of v2026.4.x, NONE are implemented. Future work tracked in `docs/plans/CLEO-ULTRAPLAN.md`.
 
 ---
 

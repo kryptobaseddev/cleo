@@ -1,9 +1,11 @@
 # CLEO Autonomous Runtime Implementation Map
 
 **Version**: 2026.3.6
-**Status**: ACTIVE
+**Status**: SPECIFIED
 **Date**: 2026-03-06
 **Task**: T5519
+
+> **Implementation status**: This implementation map describes PLANNED TypeScript/Rust ownership boundaries for the autonomous runtime. As of v2026.4.x, NONE of these components are implemented. Future work tracked in `docs/plans/CLEO-ULTRAPLAN.md`.
 
 ---
 

@@ -1,9 +1,11 @@
 # CLEO Conduit Protocol Specification
 
 **Version**: 2026.3.6
-**Status**: ACTIVE
+**Status**: SPECIFIED
 **Date**: 2026-03-06
 **Task**: T5524
+
+> **Implementation status**: This specification defines the PLANNED Conduit agent-to-agent relay protocol. As of v2026.4.x, `crates/conduit-core/` has wire types but the runtime broker is NOT built. ULTRAPLAN section 13 replaces the theoretical Conduit design with a ~200-line Pi extension.
 
 ---
 

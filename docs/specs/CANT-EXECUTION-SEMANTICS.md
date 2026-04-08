@@ -1,11 +1,13 @@
 # CANT Execution Semantics & Domain Event Protocol
 
 **Version**: 1.0.0-draft
-**Status**: Normative specification — companion to CANT-DSL-SPEC.md Section 7
+**Status**: SPECIFIED — companion to CANT-DSL-SPEC.md Section 7
 **Author**: @cleo-historian (Canon), @cleo-core (Implementation)
 **Date**: 2026-03-27
 **Canonical Location**: `docs/specs/CANT-EXECUTION-SEMANTICS.md`
 **Implementation**: `packages/core/src/cant/workflow-executor.ts`
+
+> **Implementation status**: This execution model is SPECIFIED but NOT YET IMPLEMENTED. The workflow executor (`packages/core/src/cant/workflow-executor.ts`) exists as a skeleton; the formal semantics described here (parallel execution, session blocking, approval suspension, domain events) are not yet wired. Only Layer 1 message parsing is shipped.
 
 ---
 
@@ -660,7 +662,7 @@ interface WorkflowOutput {
 
 ### 8.4 Manifest Integration
 
-After a workflow completes, the executor SHOULD append a manifest entry to `MANIFEST.jsonl`
+After a workflow completes, the executor SHOULD append a manifest entry to the `pipeline_manifest` table in `tasks.db`
 via `mutate pipeline.manifest.append`:
 
 ```json
@@ -708,7 +710,7 @@ interface ExecutionResult {
 ### 8.6 Invariants
 
 - **S-OUT-1**: Every `output` statement MUST produce a `WorkflowOutput` with provenance metadata.
-- **S-OUT-2**: Workflow completion SHOULD append a manifest entry to `MANIFEST.jsonl`.
+- **S-OUT-2**: Workflow completion SHOULD append a manifest entry to the `pipeline_manifest` table in `tasks.db`.
 - **S-OUT-3**: Provenance MUST include taskRefs, sessionId, agentId, and timestamp.
 - **S-OUT-4**: Output values are immutable after binding. Subsequent outputs with the same name MUST NOT overwrite.
 
