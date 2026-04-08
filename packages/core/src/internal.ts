@@ -411,6 +411,8 @@ export type { CreateStickyParams, ListStickiesParams, StickyNote } from './stick
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
+export type { LegacyCleanupResult } from './store/cleanup-legacy.js';
+export { detectAndRemoveLegacyGlobalFiles } from './store/cleanup-legacy.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,

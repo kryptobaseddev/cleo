@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { detectAndRemoveLegacyGlobalFiles } from '@cleocode/core/internal';
 import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
@@ -374,6 +375,15 @@ for (const shim of rootShim._subcommands) {
     fieldResolution.mvi = 'minimal';
   }
   setFieldContext(fieldResolution);
+
+  // One-shot idempotent cleanup of legacy global-tier files (T304 / ADR-036).
+  // Runs non-blocking on every invocation; errors are swallowed so that stale
+  // files never prevent normal command execution.
+  try {
+    detectAndRemoveLegacyGlobalFiles();
+  } catch {
+    // Non-fatal: legacy cleanup must never break the CLI startup path.
+  }
 
   // Handle -V as alias for --version (citty handles --version but not -V)
   // Must come after format context is set so output respects --json/--human
