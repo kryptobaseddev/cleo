@@ -12,6 +12,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
 
 /**
@@ -160,31 +162,100 @@ export function getCleoDirAbsolute(cwd?: string): string {
 }
 
 /**
- * Get the project root from the CLEO directory.
- * Respects CLEO_ROOT env var, then derives from CLEO_DIR.
- * If CLEO_DIR is ".cleo", the project root is its parent.
+ * Get the project root by walking ancestor directories for `.cleo/` or `.git/`.
  *
- * @param cwd - Optional working directory hint
- * @returns Absolute path to the project root
+ * Stops at the **first** ancestor directory that contains either sentinel
+ * directory and never drifts past it — even when multiple nested projects
+ * exist above the starting directory.
+ *
+ * Resolution order:
+ *   1. `CLEO_ROOT` env var — bypasses walk entirely (CI / test override)
+ *   2. `CLEO_DIR` env var (absolute path only) — derives project root from dirname
+ *   3. Walk ancestors from `cwd` (or `process.cwd()`) toward filesystem root:
+ *      - `.cleo/` found → return that directory (project root)
+ *      - `.git/` found (without `.cleo/` sibling) → throw `E_NOT_INITIALIZED`
+ *   4. Filesystem root reached without either → throw `E_NO_PROJECT`
+ *
+ * @param cwd - Optional starting directory; defaults to `process.cwd()`
+ * @returns Absolute path to the project root directory (parent of `.cleo/`)
+ * @throws {CleoError} `ExitCode.CONFIG_ERROR` (`E_NOT_INITIALIZED`) when a
+ *   `.git/` is found but no `.cleo/` is present at that level.
+ * @throws {CleoError} `ExitCode.NOT_FOUND` (`E_NO_PROJECT`) when neither
+ *   sentinel is found in any ancestor.
  *
  * @remarks
- * Resolution order: CLEO_ROOT env var (if no cwd), parent of the resolved
- * .cleo directory (if it ends with /.cleo), or the cwd/process.cwd() fallback.
+ * `CLEO_ROOT` is an absolute-path escape hatch for environments where the
+ * working directory is unrelated to the project (CI tmpdirs, monorepo scripts,
+ * test harnesses). When set it is returned as-is without scanning ancestors.
+ *
+ * `CLEO_DIR` set to an absolute path (e.g. `/project/.cleo`) also bypasses
+ * the walk: the project root is derived as its `dirname`. This preserves
+ * backward compatibility for test harnesses that use `CLEO_DIR` to pin the
+ * project root.
+ *
+ * NEVER auto-creates `.cleo/`. Project initialisation is an explicit opt-in
+ * via `cleo init`.
  *
  * @example
  * ```typescript
- * const root = getProjectRoot(); // "/home/user/projects/myapp"
+ * // Running from packages/core inside the monorepo:
+ * const root = getProjectRoot(); // "/mnt/projects/cleocode"
  * ```
  */
 export function getProjectRoot(cwd?: string): string {
-  if (!cwd && process.env['CLEO_ROOT']) {
+  // 1. Honour CLEO_ROOT env var — bypass walk entirely
+  if (process.env['CLEO_ROOT']) {
     return process.env['CLEO_ROOT'];
   }
-  const cleoDirAbs = getCleoDirAbsolute(cwd);
-  if (cleoDirAbs.endsWith('/.cleo') || cleoDirAbs.endsWith('\\.cleo')) {
-    return dirname(cleoDirAbs);
+
+  // 2. If CLEO_DIR is an absolute path, derive the project root from it.
+  //    This preserves backward compatibility for test harnesses that set
+  //    CLEO_DIR=/some/absolute/path/.cleo to pin the project root.
+  const cleoDirEnv = process.env['CLEO_DIR'];
+  if (cleoDirEnv && isAbsolutePath(cleoDirEnv)) {
+    if (cleoDirEnv.endsWith('/.cleo') || cleoDirEnv.endsWith('\\.cleo')) {
+      return dirname(cleoDirEnv);
+    }
+    return cleoDirEnv;
   }
-  return cwd ?? process.cwd();
+
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+
+  // 2. Walk ancestors toward filesystem root
+  while (true) {
+    const cleoDir = join(current, '.cleo');
+    const gitDir = join(current, '.git');
+
+    if (existsSync(cleoDir)) {
+      // .cleo/ found — this is the project root
+      return current;
+    }
+
+    if (existsSync(gitDir)) {
+      // .git/ found but no .cleo/ sibling — not initialised
+      throw new CleoError(ExitCode.CONFIG_ERROR, `Run cleo init at ${current}`, {
+        fix: `cd ${current} && cleo init`,
+      });
+    }
+
+    // Move up one level
+    const parent = dirname(current);
+    if (parent === current) {
+      // Reached filesystem root without finding either sentinel
+      break;
+    }
+    current = parent;
+  }
+
+  // 3. No sentinel found in any ancestor
+  throw new CleoError(
+    ExitCode.NOT_FOUND,
+    'Not inside a CLEO project. Run cleo init or cd to an existing project',
+    {
+      fix: 'cleo init',
+    },
+  );
 }
 
 /**

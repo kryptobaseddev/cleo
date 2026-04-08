@@ -94,48 +94,92 @@ describe('getCleoDirAbsolute', () => {
 });
 
 describe('getProjectRoot', () => {
-  const origEnv = process.env['CLEO_DIR'];
+  const origEnvDir = process.env['CLEO_DIR'];
+  const origEnvRoot = process.env['CLEO_ROOT'];
+  let tempDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    delete process.env['CLEO_ROOT'];
+    tempDir = join(tmpdir(), `cleo-root-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+  });
 
   afterEach(() => {
-    if (origEnv !== undefined) {
-      process.env['CLEO_DIR'] = origEnv;
+    if (origEnvDir !== undefined) {
+      process.env['CLEO_DIR'] = origEnvDir;
     } else {
       delete process.env['CLEO_DIR'];
     }
+    if (origEnvRoot !== undefined) {
+      process.env['CLEO_ROOT'] = origEnvRoot;
+    } else {
+      delete process.env['CLEO_ROOT'];
+    }
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
-  it('returns parent of .cleo directory', () => {
-    delete process.env['CLEO_DIR'];
-    const result = getProjectRoot('/my/project');
-    expect(result).toBe(resolve('/my/project'));
+  it('returns the directory containing .cleo/ when called with that directory', () => {
+    const result = getProjectRoot(tempDir);
+    expect(result).toBe(resolve(tempDir));
+  });
+
+  it('respects CLEO_ROOT env var — bypasses walk entirely', () => {
+    process.env['CLEO_ROOT'] = '/custom/root';
+    expect(getProjectRoot()).toBe('/custom/root');
   });
 });
 
 describe('resolveProjectPath', () => {
-  const origEnv = process.env['CLEO_DIR'];
+  const origEnvDir = process.env['CLEO_DIR'];
+  const origEnvRoot = process.env['CLEO_ROOT'];
+  let projectDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    delete process.env['CLEO_ROOT'];
+    projectDir = join(
+      tmpdir(),
+      `cleo-resolve-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(join(projectDir, '.cleo'), { recursive: true });
+  });
 
   afterEach(() => {
-    if (origEnv !== undefined) {
-      process.env['CLEO_DIR'] = origEnv;
+    if (origEnvDir !== undefined) {
+      process.env['CLEO_DIR'] = origEnvDir;
     } else {
       delete process.env['CLEO_DIR'];
+    }
+    if (origEnvRoot !== undefined) {
+      process.env['CLEO_ROOT'] = origEnvRoot;
+    } else {
+      delete process.env['CLEO_ROOT'];
+    }
+    try {
+      rmSync(projectDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
     }
   });
 
   it('returns absolute paths unchanged', () => {
-    delete process.env['CLEO_DIR'];
-    expect(resolveProjectPath('/absolute/path', '/my/project')).toBe('/absolute/path');
+    // Absolute paths are returned as-is without calling getProjectRoot
+    expect(resolveProjectPath('/absolute/path', projectDir)).toBe('/absolute/path');
   });
 
   it('resolves relative paths against project root', () => {
-    delete process.env['CLEO_DIR'];
-    const result = resolveProjectPath('src/index.ts', '/my/project');
-    expect(result).toBe(resolve('/my/project', 'src', 'index.ts'));
+    const result = resolveProjectPath('src/index.ts', projectDir);
+    expect(result).toBe(resolve(projectDir, 'src', 'index.ts'));
   });
 
   it('expands tilde to home directory', () => {
-    delete process.env['CLEO_DIR'];
-    const result = resolveProjectPath('~/documents', '/my/project');
+    // Tilde expansion does not call getProjectRoot
+    const result = resolveProjectPath('~/documents', projectDir);
     expect(result).toBe(join(homedir(), 'documents'));
   });
 });
