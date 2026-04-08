@@ -1,0 +1,49 @@
+{
+  "name": "@cleocode/cleo-os",
+  "version": "2026.4.11",
+  "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "cleoos": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "postinstall": "node bin/postinstall.js"
+  },
+  "dependencies": {
+    "@cleocode/cleo": "workspace:*",
+    "@cleocode/cant": "workspace:*"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": ">=0.60.0"
+  },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/cleo-os"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "extensions",
+    "bin"
+  ]
+}
