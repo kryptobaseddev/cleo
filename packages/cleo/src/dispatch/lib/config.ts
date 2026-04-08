@@ -15,4 +15,4 @@ export {
   validateConfig,
 } from './config-loader.js';
 
-export type { DispatchConfig, MCPConfig } from './defaults.js';
+export type { DispatchConfig } from './defaults.js';

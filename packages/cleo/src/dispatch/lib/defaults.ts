@@ -97,9 +97,6 @@ export const DEFAULT_PROTOCOL_VALIDATION: ProtocolValidationConfig = {
 /**
  * Default configuration values
  */
-/** Alias for DispatchConfig. */
-export type MCPConfig = DispatchConfig;
-
 export const DEFAULT_CONFIG: DispatchConfig = {
   cliPath: 'cleo',
   timeout: 30000, // 30 seconds

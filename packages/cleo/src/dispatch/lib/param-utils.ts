@@ -16,6 +16,7 @@ export type {
 export {
   buildCommanderArgs,
   buildCommanderOptionString,
+  buildDispatchInputSchema,
   buildMcpInputSchema,
   camelToKebab,
   validateRequiredParamsDef,

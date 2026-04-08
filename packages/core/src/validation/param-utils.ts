@@ -56,7 +56,7 @@ interface ParamDef {
   items?: { type: ParamType };
   cli?: ParamCliDef;
   /** Schema config for dispatch adapter. */
-  mcp?: ParamSchemaDef;
+  dispatch?: ParamSchemaDef;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ export interface JSONSchemaObject {
 }
 
 // ---------------------------------------------------------------------------
-// 1. buildMcpInputSchema (name kept for backward compat)
+// 1. buildDispatchInputSchema
 // ---------------------------------------------------------------------------
 
 /**
@@ -87,18 +87,18 @@ export interface JSONSchemaObject {
  *
  * Algorithm:
  *  1. Iterate `def.params`
- *  2. Skip params where schema `mcp.hidden === true`
+ *  2. Skip params where schema `dispatch.hidden === true`
  *  3. Map ParamType → JSON Schema type
  *  4. Collect names where `required === true` into `required[]`
  *  5. Return { type: 'object', properties, required }
  */
-export function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
+export function buildDispatchInputSchema(def: OperationDef): JSONSchemaObject {
   const properties: Record<string, JsonSchemaProperty> = {};
   const required: string[] = [];
 
   for (const param of def.params ?? []) {
     // Skip CLI-only params from dispatch schema
-    if (param.mcp?.hidden === true) continue;
+    if (param.dispatch?.hidden === true) continue;
 
     const prop: JsonSchemaProperty = {
       type: paramTypeToJsonSchema(param.type),
@@ -109,8 +109,8 @@ export function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
       prop.items = { type: 'string' };
     }
 
-    if (param.mcp?.enum) {
-      prop.enum = param.mcp.enum;
+    if (param.dispatch?.enum) {
+      prop.enum = param.dispatch.enum;
     }
 
     properties[param.name] = prop;
@@ -122,6 +122,9 @@ export function buildMcpInputSchema(def: OperationDef): JSONSchemaObject {
 
   return { type: 'object', properties, required };
 }
+
+/** @deprecated Use {@link buildDispatchInputSchema} instead. */
+export const buildMcpInputSchema = buildDispatchInputSchema;
 
 function paramTypeToJsonSchema(t: ParamDef['type']): JsonSchemaType {
   switch (t) {

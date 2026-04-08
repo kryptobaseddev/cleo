@@ -3,7 +3,7 @@
  *
  * Validates that the dispatch layer's structural contracts hold end-to-end:
  *  1. Registry completeness — every OPERATIONS entry is well-formed
- *  2. ParamDef → Schema derivation — buildMcpInputSchema correctness
+ *  2. ParamDef → Schema derivation — buildDispatchInputSchema correctness
  *  3. ParamDef → Commander derivation — buildCommanderArgs / buildCommanderOptionString
  *  4. Dispatch routing correctness — resolve() and validateRequiredParams()
  *  5. Schema utils — getOperationSchema() behaviour
@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCommanderArgs,
   buildCommanderOptionString,
-  buildMcpInputSchema,
+  buildDispatchInputSchema,
   camelToKebab,
 } from '../../dispatch/lib/param-utils.js';
 import { getAllOperationSchemas, getOperationSchema } from '../../dispatch/lib/schema-utils.js';
@@ -150,7 +150,7 @@ describe('Group 1: Registry completeness', () => {
 // ===========================================================================
 
 describe('Group 2: ParamDef → Schema derivation', () => {
-  it('buildMcpInputSchema returns valid JSON Schema object shape', () => {
+  it('buildDispatchInputSchema returns valid JSON Schema object shape', () => {
     const def = {
       gateway: 'query' as const,
       domain: 'tasks' as const,
@@ -171,7 +171,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.type).toBe('object');
     expect(typeof schema.properties).toBe('object');
@@ -206,7 +206,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.required).toContain('title');
     expect(schema.required).not.toContain('description');
@@ -214,7 +214,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
     expect(schema.properties['description']).toBeDefined();
   });
 
-  it('mcp.hidden params are excluded from schema', () => {
+  it('dispatch.hidden params are excluded from schema', () => {
     const def = {
       gateway: 'query',
       domain: 'tasks',
@@ -231,7 +231,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
           required: false,
           description: 'Pagination offset (CLI-only)',
           cli: {},
-          mcp: { hidden: true },
+          dispatch: { hidden: true },
         },
         {
           name: 'status',
@@ -239,14 +239,14 @@ describe('Group 2: ParamDef → Schema derivation', () => {
           required: false,
           description: 'Filter by status',
           cli: { short: '-s', flag: 'status' },
-          mcp: { enum: ['pending', 'active', 'done'] },
+          dispatch: { enum: ['pending', 'active', 'done'] },
         },
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
-    // offset has mcp.hidden=true → must be excluded
+    // offset has dispatch.hidden=true → must be excluded
     expect(schema.properties['offset']).toBeUndefined();
     // status has no hidden flag → must be present
     expect(schema.properties['status']).toBeDefined();
@@ -271,7 +271,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       }[],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.type).toBe('object');
     expect(Object.keys(schema.properties)).toHaveLength(0);
@@ -299,7 +299,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.properties['labels'].type).toBe('array');
     expect(schema.properties['labels'].items).toEqual({ type: 'string' });
@@ -326,7 +326,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.properties['includeArchive'].type).toBe('boolean');
     expect(schema.properties['includeArchive'].items).toBeUndefined();
@@ -350,7 +350,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
       ],
     };
 
-    const schema = buildMcpInputSchema(def);
+    const schema = buildDispatchInputSchema(def);
 
     expect(schema.properties['strParam'].type).toBe('string');
     expect(schema.properties['numParam'].type).toBe('number');
@@ -390,10 +390,10 @@ describe('Group 3: ParamDef → Commander derivation', () => {
           cli: { flag: 'format' },
         },
         {
-          name: 'mcpOnlyParam',
+          name: 'dispatchOnlyParam',
           type: 'string' as const,
           required: false,
-          description: 'MCP-only, no cli key',
+          description: 'dispatch-only, no cli key',
           // No cli key → excluded from Commander
         },
       ],
@@ -409,7 +409,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
 
     // param with no cli key — must be excluded from both arrays
     const allNames = [...positionals, ...options].map((p) => p.name);
-    expect(allNames).not.toContain('mcpOnlyParam');
+    expect(allNames).not.toContain('dispatchOnlyParam');
   });
 
   it('buildCommanderArgs returns empty arrays for op with no params', () => {
@@ -699,7 +699,7 @@ describe('Group 5: Schema utils', () => {
     // We need an op with params populated. Build one synthetically by inserting
     // a temporary test def, which we can't do without modifying OPERATIONS.
     //
-    // Instead, call buildMcpInputSchema directly on a crafted def (tested in
+    // Instead, call buildDispatchInputSchema directly on a crafted def (tested in
     // Group 2) and verify getOperationSchema falls through to the permissive
     // path for all current registry entries (pre-T4897 migration).
     //
