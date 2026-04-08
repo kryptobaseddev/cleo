@@ -410,6 +410,9 @@ export { listStickies, purgeSticky } from './sticky/index.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
+// Backup portability — bundle packer (T311 / T347)
+export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
+export { packBundle } from './store/backup-pack.js';
 export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {
@@ -442,7 +445,11 @@ export {
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
-export type { BackupScope, GlobalBackupEntry, GlobalSaltBackupEntry } from './store/sqlite-backup.js';
+export type {
+  BackupScope,
+  GlobalBackupEntry,
+  GlobalSaltBackupEntry,
+} from './store/sqlite-backup.js';
 export {
   backupGlobalSalt,
   listBrainBackups,
