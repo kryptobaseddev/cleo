@@ -26,6 +26,8 @@
 !rcasd/**
 !agent-outputs/
 !agent-outputs/**
+!research/
+!research/**
 
 # Explicit deny safety net — databases, backups, and untracked runtime files
 *.db
