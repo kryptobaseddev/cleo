@@ -1042,7 +1042,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 ### 3.3 Phase 1: Validation (Months 3-4)
 
-**Goal**: Validate Nexus + MCP adoption before BRAIN expansion
+**Goal**: Validate Nexus + CLI dispatch adoption before BRAIN expansion
 
 **BRAIN-Relevant Work**:
 
@@ -1108,7 +1108,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 **Goal**: Add semantic intelligence capabilities (Tier M scale)
 
-**Precondition**: Phase 1 validation MUST pass for Nexus AND MCP Server
+**Precondition**: Phase 1 validation MUST pass for Nexus AND the CLI dispatch surface
 
 #### Base (Memory) - Decision/Pattern Memory
 
@@ -1709,7 +1709,7 @@ All 5 dimensions MUST meet certification criteria:
 
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
-- **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
+- **docs/specs/CLEO-OPERATION-CONSTITUTION.md**: Canonical runtime dispatch contract (CLI + internal CQRS)
 - **docs/specs/CLEO-NEXUS-SPECIFICATION.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 - **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
@@ -1742,8 +1742,8 @@ All 5 dimensions MUST meet certification criteria:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ USER INTERACTION LAYER                                       │
-│ - CLI commands (76 commands)                                 │
-│ - MCP Server (query / mutate)                     │
+│ - cleo CLI (sole runtime surface, ~89 commands)              │
+│ - Internal CQRS dispatch (query / mutate tags in registry)   │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
