@@ -106,3 +106,11 @@ editors/vscode-cant/src/*.js
 editors/vscode-cant/src/*.js.map
 editors/vscode-cant/src/*.d.ts
 editors/vscode-cant/src/*.d.ts.map
+
+# Nested package .cleo/ dirs (T5158 data-loss vector — never track)
+# ADR-036 closes this for nested scope in v2026.4.11 (T302 / T299)
+packages/*/.cleo/
+packages/*/.cleo/*.db
+packages/*/.cleo/*.db-wal
+packages/*/.cleo/*.db-shm
+packages/*/.cleo/*.db-journal
