@@ -133,7 +133,7 @@ Every log entry (both stores) MUST include the following correlation fields wher
 
 The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook for logger initialization:
 
-1. **Node.js version check** (synchronous, pre-Commander): If below minimum, writes directly to `process.stderr` and exits with code 1. This runs before any logger is available.
+1. **Node.js version check** (synchronous, pre-citty): If below minimum, writes directly to `process.stderr` and exits with code 1. This runs before any logger is available.
 2. **preAction hook -- Logger init** (first command invocation only):
    - Loads core config via `loadCoreConfig()`.
    - Calls `initCliLogger(cwd, config.logging)` which reads `projectHash` from `project-info.json` synchronously and calls `initLogger()`.
