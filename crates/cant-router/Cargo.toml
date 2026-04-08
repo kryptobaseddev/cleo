@@ -1,0 +1,16 @@
+[package]
+name = "cant-router"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "CleoOS v2 model router — 3-layer classifier + router + pipeline"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"

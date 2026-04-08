@@ -3,6 +3,7 @@ members = [
     "crates/cant-core",
     "crates/cant-lsp",
     "crates/cant-napi",
+    "crates/cant-router",
     "crates/cant-runtime",
     "crates/conduit-core",
     "crates/lafs-core",
