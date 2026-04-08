@@ -15,10 +15,11 @@ CLEO uses four databases, each with a distinct responsibility. See `docs/specs/D
 |----------|------|--------|---------|
 | **tasks.db** | `.cleo/tasks.db` | 25 | Project task lifecycle, sessions, lifecycle pipeline, ADRs, telemetry |
 | **brain.db** | `.cleo/brain.db` | 9 | Cognitive memory: decisions, patterns, learnings, observations, graph |
-| **signaldock.db** | `.cleo/signaldock.db` | 17+ | Agent identity SSoT, messaging, conversations, auth (Diesel ORM, Rust) |
+| **conduit.db** | `.cleo/conduit.db` | 11 | Project-tier messaging, LocalTransport DM threads, delivery queue, project_agent_refs (ADR-037) |
+| **signaldock.db** | `$XDG_DATA_HOME/cleo/signaldock.db` | 14+ | Global-tier agent identity SSoT, capabilities catalog, cloud-sync tables (ADR-037) |
 | **nexus.db** | `~/.local/share/cleo/nexus.db` | 3 | Cross-project registry and audit (global, not per-project) |
 
-The databases are **isolated** — no native SQLite foreign keys cross database boundaries. Cross-DB references are enforced at the application layer. signaldock.db is managed by Diesel ORM (Rust), while the other three use Drizzle ORM (TypeScript).
+The databases are **isolated** — no native SQLite foreign keys cross database boundaries. Cross-DB references are enforced at the application layer. As of v2026.4.12 (ADR-037), `conduit.db` (project-tier) and `signaldock.db` (global-tier) are managed by TypeScript using `node:sqlite`. The `AgentRegistryAccessor` performs a cross-DB join in Node between `conduit.db:project_agent_refs` and `signaldock.db:agents`.
 
 ---
 

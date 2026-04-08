@@ -320,7 +320,8 @@ Domains interact with each other through core business logic, not directly. The 
 | `pipelineManifest` | pipeline | SQLite table | `.cleo/tasks.db` | Pipeline manifest entries (in tasks.db) |
 | `sessions` | session | SQLite table | `.cleo/tasks.db` | Session lifecycle state, handoff data (in tasks.db) |
 | `config.json` | admin | JSON | `.cleo/config.json` | Project configuration |
-| `signaldock.db` | admin | SQLite | `.cleo/signaldock.db` | Local agent messaging infrastructure |
+| `conduit.db` | admin | SQLite | `.cleo/conduit.db` | Project-tier messaging, delivery queue, project_agent_refs (ADR-037) |
+| `signaldock.db` | admin | SQLite | `$XDG_DATA_HOME/cleo/signaldock.db` | Global-tier agent identity registry (ADR-037) |
 | `nexus.db` | nexus | SQLite | `~/.local/share/cleo/nexus.db` | Cross-project registry (global), relay and share state |
 | `.cleo/skills/` | tools | YAML/JSON | `.cleo/skills/` | Skill definitions and configuration |
 | `brain_sticky_notes` | sticky | SQLite table | `.cleo/brain.db` | Quick capture sticky notes (active/converted/archived) |
