@@ -2,7 +2,7 @@
 
 **Version**: 2026.3.4
 **Status**: MANDATORY
-**Scope**: All CLEO CLI commands, MCP operations, and API endpoints
+**Scope**: All CLEO CLI commands and registry-defined dispatch operations
 
 All operation names MUST use canonical verbs from this document. Violations are bugs.
 For the full operation list, see `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §6.
@@ -51,14 +51,14 @@ These are the highest-value rules — the cases where multiple verbs appear simi
 - `update` — modify properties without changing type (`tasks.update`)
 - `promote` — move a subtask to top-level within same type (`tasks.promote`)
 
-### 1h. find (MCP) vs. memory find --type (CLI)
-MCP uses `find` consistently across all domains. The CLI `memory find` command accepts `--type pattern|learning` to route to `memory.pattern.find` or `memory.learning.find`. There is no `recall` verb or operation.
+### 1h. find (dispatch-wide) vs. memory find --type (CLI subcommand filter)
+The CLI uses `find` consistently across all domains. The `memory find` subcommand accepts `--type pattern|learning` to route to `memory.pattern.find` or `memory.learning.find`. There is no `recall` verb.
 
-### 1i. end (MCP session) vs. stop (CLI/task work)
-- `session.end` — MCP operation to terminate a session
-- `tasks.stop` — MCP operation to stop work on a specific task
-- `cleo stop` — CLI command (maps to `tasks.stop` or `session.end` by context)
-These are three distinct operations sharing the stop/end semantic.
+### 1i. end (session) vs. stop (task work)
+- `session.end` — dispatch operation (internal `mutate` tag) reached via `cleo session end`
+- `tasks.stop` — dispatch operation reached via `cleo stop`
+- `cleo stop` — CLI subcommand that may context-resolve to `session.end` per the CLI handler
+Both are CLI subcommands — there is no second protocol surface. These are two distinct dispatch operations sharing the stop/end semantic.
 
 ### 1j. sticky domain restrictions
 Sticky notes do NOT support `update`, `delete`, or `restore`. Use `convert` to promote to task or memory. Use `archive` for soft removal.
@@ -96,7 +96,7 @@ Sticky notes do NOT support `update`, `delete`, or `restore`. Use `convert` to p
 | `verify` | `check`, `audit` (for artifacts) | Artifact gate / frontmatter verification | Enforced |
 | `inject` | `insert`, `load` (for protocols) | Inject protocol content | Enforced |
 | `run` | `exec`, `execute` | Execute action (compound-only) | Enforced |
-| `end` | — | Terminate session (MCP op name) | Enforced |
+| `end` | — | Terminate session (dispatch op) | Enforced |
 | `link` | `connect`, `associate`, `attach` | Associate entities | Enforced |
 | `check` | `ping`, `probe`, `test` (for health) | Liveness / health probe | Enforced |
 | `sync` | `pull`, `push`, `reconcile` | Synchronize data stores | Enforced |
@@ -170,7 +170,7 @@ All commits referencing a new operation must use the canonical verb in the task 
 ### Removed from Enforced Matrix
 | Verb | Reason | Date |
 |------|--------|------|
-| `recall` | CLI-only wrapper with no MCP operation. Replaced by `memory find --type`. | 2026.3.4 |
+| `recall` | Originally a CLI wrapper; replaced by `memory find --type pattern|learning` for consistent dispatch addressing. | 2026.3.4 |
 | `configure` | Contradicts `update` (which replaces it). Zero standalone ops in registry. | 2026.3.3 |
 | `repair` | Not in registry or Constitution §4. Moved to Reserved. | 2026.3.3 |
 | `resolve` | Not in registry or Constitution §4. Moved to Reserved. | 2026.3.3 |
