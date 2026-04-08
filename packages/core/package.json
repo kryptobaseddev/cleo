@@ -24,7 +24,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --include 'src/store/__tests__/*-integration.test.ts'"
   },
   "dependencies": {
     "@cleocode/adapters": "workspace:*",
