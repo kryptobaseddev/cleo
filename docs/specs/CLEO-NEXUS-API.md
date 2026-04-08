@@ -1600,7 +1600,7 @@ const canExecute = checkPermission('my-app', 'execute');
 
 | Document | Purpose |
 |----------|---------|
-| [CLEO-NEXUS-API-CAPABILITIES.md](./CLEO-NEXUS-API-CAPABILITIES.md) | **Start here** - Architecture, use cases, integration patterns |
+| [DATABASE-ARCHITECTURE.md](./DATABASE-ARCHITECTURE.md) | Database architecture including all 4 databases |
 | [CLEO-WEB-API.md](./CLEO-WEB-API.md) | HTTP adapter implementation |
 | [CLEO-NEXUS-ARCHITECTURE.md](./CLEO-NEXUS-ARCHITECTURE.md) | Original NEXUS architecture |
 | [ADR-006](../.cleo/adrs/ADR-006-canonical-sqlite-storage.md) | SQLite storage architecture |
