@@ -4,6 +4,314 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.10] - 2026-04-07
+
+### Highlights
+
+This is a housekeeping and hardening release covering three independent
+workstreams that landed after the v2026.4.9 hotfix: (1) deterministic
+`events.rs` generation that eliminates rustfmt drift on every `cargo build`,
+(2) untracking the four `.cleo/` runtime files from git with a full
+`VACUUM INTO` backup mechanism replacing the data-loss-prone git checkpoint
+pattern (ADR-013 §9 resolution, closes T5158), and (3) regenerating
+`packages/caamp/docs/API-REFERENCE.md` from source via `forge-ts` to
+eliminate 3470 lines of drifted hand-maintained prose. Plus a small
+fix to unblock the `@cleocode/runtime` tsup DTS build under the
+TypeScript 6.x peer that landed transitively with `@forge-ts/cli`.
+**No user-facing feature changes. Zero regressions across 6375+ tests.**
+
+### Added
+
+- **`crates/cant-core/build.rs` — `write_if_changed` helper + rustfmt
+  pipeline.** The build script now pipes generated Rust source through
+  `rustfmt --edition 2024 --emit stdout` via stdin before writing, and
+  the `write_if_changed` helper skips writes when on-disk content is
+  byte-identical (preserves mtimes, avoids spurious downstream rebuilds).
+  Adds `cargo:rerun-if-changed=build.rs` so touching the generator forces
+  a regen, and a graceful `cargo:warning=...` fallback to unformatted
+  output if `rustfmt` is missing from PATH so the build never hard-fails.
+  Generated file header now embeds the drift-check one-liner:
+  `cargo build -p cant-core && git diff --exit-code crates/cant-core/src/generated/events.rs`
+  ([`d242effb`](https://github.com/kryptobaseddev/cleo/commit/d242effb),
+  +120 LOC `build.rs`).
+
+- **`packages/core/src/store/sqlite-backup.ts` — prefix-based backup API
+  for multi-DB snapshots.** New exports `vacuumIntoBackupAll`,
+  `listBrainBackups`, and `listSqliteBackupsAll` extend the existing
+  `tasks.db` snapshot tooling to also handle `brain.db` via SQLite
+  `VACUUM INTO`. Both databases share the same rotation policy and
+  integrity-check verification path. The new helpers accept a
+  `{ force?: boolean }` option that bypasses the rotation min-interval,
+  used by the auto-snapshot session-end hook. Backed by 128 LOC of new
+  test coverage in `sqlite-backup.test.ts`
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7),
+  +239 LOC `sqlite-backup.ts`).
+
+- **`backup-session-end` hook (priority 10).** New hook handler in
+  [`packages/core/src/hooks/handlers/session-hooks.ts`](packages/core/src/hooks/handlers/session-hooks.ts)
+  that calls `vacuumIntoBackupAll({ force: true })` after every `cleo
+  session end`. Runs at priority 10 — after the existing
+  `brain-session-end` handler at priority 100 — so the snapshot includes
+  the just-written `SessionEnd` observation row. Failures are non-fatal
+  and surfaced as warnings only (the session-end command still succeeds).
+  Auto-captures `tasks.db` and `brain.db` to `.cleo/backups/` with
+  rotating retention
+  ([`545fec86`](https://github.com/kryptobaseddev/cleo/commit/545fec86),
+  +42 LOC).
+
+- **TSDoc coverage on 46 previously-undocumented exports.** Hand-written
+  TSDoc blocks added to: 26 `PiHarness` method summaries (replacing the
+  cascading `{@inheritDoc Harness.*}` references with explicit prose),
+  18 `@example` blocks on the `mcp/*` and `pi/*` command helpers, and
+  10 `@remarks` blocks on the command-registration functions in
+  `commands/{mcp,pi}/common.ts`. W006 syntax fixes applied throughout.
+  Drove caamp TSDoc coverage from **54 errors + 679 warnings** down to
+  **0 errors + 46 warnings** (the remaining warnings are W013
+  false-positives on TypeScript optional parameters and are not
+  blockers)
+  ([`80138557`](https://github.com/kryptobaseddev/cleo/commit/80138557)).
+
+- **`packages/caamp/forge-ts.config.ts` — full enforcement config (21 →
+  65 LOC).** Rewritten with explicit `enforce` rules, a `gen` section
+  pointing at `docs/generated/`, and a narrative header explaining the
+  build gate. New `pnpm --filter @cleocode/caamp run docs` script (full
+  check + generate) and `docs:check` script (coverage gate only, no
+  filesystem writes). Adds `@forge-ts/cli@0.23.0` as a pinned devDep —
+  no global dependency required
+  ([`67df4208`](https://github.com/kryptobaseddev/cleo/commit/67df4208)).
+
+- **`packages/caamp/docs/generated/` — full forge-ts API reference
+  output.** Every public export, regenerated from TSDoc on every doc
+  build:
+  - `api-reference.md` — 16710 lines, every public export from TSDoc.
+  - `llms.txt` (48 KB) + `llms-full.txt` (325 KB) — agent digests
+    consumed by `@cleocode/cleo`.
+  - `SKILL-caamp/` — full skill-package scaffolding with
+    `references/API-REFERENCE.md` (8428 lines) and `references/CONFIGURATION.md`.
+  - `concepts.mdx`, `guides/{configuration,error-handling,getting-started}.mdx`,
+    `packages/api/{functions,types,examples,index}.mdx` — full reference
+    docs and how-to guides
+    ([`e33059c6`](https://github.com/kryptobaseddev/cleo/commit/e33059c6),
+    [`e4df49a3`](https://github.com/kryptobaseddev/cleo/commit/e4df49a3)).
+
+- **`AGENTS.md` — "Runtime Data Safety (ADR-013 §9)" section.** Root
+  AGENTS.md now documents the backup/restore workflow, the four
+  untracked files, and why the legacy git-checkpoint pattern was
+  retired. Cross-machine sync is no longer supported via git — use
+  `cleo observe` + `cleo memory find` for memory portability or the
+  `cleo backup` family for full DB transfer
+  ([`1c407eb1`](https://github.com/kryptobaseddev/cleo/commit/1c407eb1),
+  +25 LOC).
+
+- **`packages/caamp/AGENTS.md` — "Documentation (forge-ts — Generated
+  from Source)" section.** New rules and a four-step "adding a new
+  export" workflow that requires every new export to ship with a
+  complete TSDoc block + `pnpm run docs:check` + `pnpm run docs`
+  before commit. Marks `docs/generated/*` as never-edit-by-hand
+  ([`67df4208`](https://github.com/kryptobaseddev/cleo/commit/67df4208),
+  +56 LOC).
+
+### Changed
+
+- **`packages/core/src/system/backup.ts` — switched from
+  `readFileSync`/`writeFileSync` to `VACUUM INTO` for all SQLite
+  files.** The previous implementation used unsafe synchronous binary
+  copies to back up `tasks.db` and `brain.db`. This had been silently
+  wrong since v2026.4.6 — copying a live SQLite file with a hot WAL
+  sidecar can produce a torn snapshot or include uncommitted writes,
+  which is exactly the failure mode ADR-013 §1-§4 was written to
+  prevent. The new implementation routes through
+  `getNativeDb()`/`getBrainNativeDb()` and issues a proper
+  `VACUUM INTO <tmp>` followed by an atomic `rename`, matching the
+  ADR-013 §6 contract. JSON files (`config.json`, `project-info.json`)
+  use atomic tmp-then-rename. The function is now `async`, and all
+  callers in `dispatch/domains/admin.ts`, `system-engine.ts`, and the
+  three test suites have been updated
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7),
+  +212 LOC `backup.ts`).
+
+- **`packages/core/src/store/sqlite.ts` — runtime warning rewritten.**
+  The warning that fires when a tracked SQLite file is detected on
+  disk no longer instructs users to run `git rm --cached`. It now
+  points at the new `cleo backup add` workflow and references the
+  ADR-013 §9 resolution. The warning is silenced once the file is
+  untracked
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7),
+  +22 LOC).
+
+- **`packages/caamp/docs/API-REFERENCE.md` — replaced 3470 lines of
+  drifted hand-prose with a 69-line pointer file.** The previous
+  hand-maintained API reference contained 61 references to MCP APIs
+  that had been deleted in the April 3 commit
+  [`480fa01a`](https://github.com/kryptobaseddev/cleo/commit/480fa01a),
+  plus stale type signatures, removed exports, and ad-hoc examples.
+  The replacement is a short redirect that points at
+  `docs/generated/api-reference.md` and documents the regeneration
+  workflow. **The doc itself is now a pointer; the canonical source
+  is `docs/generated/`, regenerated from TSDoc on every `pnpm run docs`**
+  ([`e33059c6`](https://github.com/kryptobaseddev/cleo/commit/e33059c6),
+  3470 → 69 LOC).
+
+- **`PiHarness` TSDoc — replaced `@inheritDoc` cascades with explicit
+  prose.** 26 method summaries that previously delegated documentation
+  to the `Harness` base class via `{@inheritDoc Harness.*}` now have
+  explicit summaries written for the Pi-specific behaviour. This was
+  required by forge-ts because the `@inheritDoc` resolver does not
+  cross package boundaries. The result is that every PiHarness method
+  has its own readable doc block in the generated API reference
+  ([`80138557`](https://github.com/kryptobaseddev/cleo/commit/80138557),
+  `packages/caamp/src/core/harness/pi.ts` +132 LOC).
+
+- **`.gitignore` (root + nested `.cleo/.gitignore` + template +
+  scaffold fallback) — runtime DB exclusion hardened.** The previous
+  rules included `!config.json` / `!project-info.json` re-include
+  exceptions inside `.cleo/.gitignore`, which was the T5158 vector:
+  nested gitignore re-includes silently overrode the parent allow-list
+  rules and re-tracked the runtime DBs on every fresh checkout. Both
+  re-include rules removed. Explicit deny lines added for the four
+  paths plus their `*.db-shm` / `*.db-wal` sidecars. The same change
+  applied to `packages/core/templates/cleo-gitignore` (used by
+  `cleo init`) and the scaffold fallback in
+  [`packages/core/src/scaffold.ts`](packages/core/src/scaffold.ts) so
+  new projects never re-introduce the bug
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7),
+  [`59f1ea3b`](https://github.com/kryptobaseddev/cleo/commit/59f1ea3b)).
+
+### Fixed
+
+- **`packages/runtime/tsconfig.json` — added `ignoreDeprecations: "6.0"`
+  to unblock tsup DTS build under TypeScript 6.x.** The
+  [`67df4208`](https://github.com/kryptobaseddev/cleo/commit/67df4208)
+  forge-ts addition transitively pulled in TypeScript 6.0.2 as a peer
+  of `tsup@8.5.1`, which made tsup's DTS-generation step fail with
+  `TS5101: Option 'baseUrl' is deprecated and will stop functioning in
+  TypeScript 7.0`. tsup unconditionally injects `baseUrl: "."` into the
+  compiler options it forwards to TypeScript, even when the user
+  tsconfig has none — and TypeScript 6.x errors on bare `baseUrl`
+  unless `ignoreDeprecations: "6.0"` is set. caamp's tsup build is
+  unaffected because its `module: "nodenext"` / `moduleResolution:
+  "nodenext"` settings take a different code path; runtime uses the
+  legacy `bundler` resolver and was the only failing package. The
+  one-line addition unblocks the release without changing module
+  resolution semantics. **Verified by full `pnpm run build` cold
+  rebuild succeeding end-to-end.**
+
+- **`crates/cant-core/src/generated/events.rs` rustfmt drift —
+  eliminated.** The build.rs generator hand-concatenated Rust source
+  via `String::push_str` / `format!` and wrote directly to disk without
+  ever running `rustfmt`. The committed copy had been rustfmt-ed once
+  manually, so every subsequent `cargo build` produced drift: a blank
+  line after `pub enum CanonicalEvent {`, long match arms emitted on
+  one line instead of being wrapped, and unwrapped method chains.
+  Release agents were forced to `git checkout
+  crates/cant-core/src/generated/events.rs` on every build. **Verified
+  idempotent over three sequential forced rebuilds** (including
+  `touch crates/cant-core/build.rs` reruns) — `git status --short
+  crates/cant-core/` is empty after each rebuild. 509 `cant-core` unit
+  tests + 4 doctests pass; `cargo fmt --check -p cant-core` clean;
+  full `cargo build` workspace-wide clean
+  ([`d242effb`](https://github.com/kryptobaseddev/cleo/commit/d242effb),
+  [`b966fe4e`](https://github.com/kryptobaseddev/cleo/commit/b966fe4e)).
+
+- **`.cleo/` runtime DB git tracking — closed via T5158 / ADR-013 §9.**
+  The four files `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`,
+  and `.cleo/project-info.json` were tracked in the project git
+  repository. Per ADR-013 and T5158, this caused intermittent SQLite
+  WAL corruption on branch switches: git overwrote the live `.db` file
+  while a `*-wal` / `*-shm` sidecar was still in use, leaving the
+  database in an inconsistent state on the next open. A runtime
+  warning fired on every `cleo` command. **Resolution**:
+  1. **Safety snapshots captured first** via the new
+     `vacuumIntoBackupAll` helper plus atomic file copies for the
+     JSON files. All four passed `PRAGMA integrity_check`:
+     - `.cleo/backups/safety/tasks.db.pre-untrack-2026-04-07T23-13-56-164Z` (4.83 MB)
+     - `.cleo/backups/safety/brain.db.pre-untrack-2026-04-07T23-13-56-164Z` (586 KB)
+     - `.cleo/backups/safety/config.json.pre-untrack-2026-04-07T23-13-56-164Z` (404 B)
+     - `.cleo/backups/safety/project-info.json.pre-untrack-2026-04-07T23-13-56-164Z` (613 B)
+  2. **`git rm --cached`** the four files (preserving the on-disk
+     copies for the live working tree).
+  3. **`.gitignore` hardened** at four locations (root, nested,
+     template, scaffold fallback) so re-tracking is impossible.
+  4. **Runtime warning** updated to point at the new backup workflow.
+  Local files preserved on disk after untrack: `tasks.db` 6.6 MB,
+  `brain.db` 598 KB, `config.json` 404 B, `project-info.json` 613 B.
+  No data loss
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7),
+  [`59f1ea3b`](https://github.com/kryptobaseddev/cleo/commit/59f1ea3b),
+  [`1c407eb1`](https://github.com/kryptobaseddev/cleo/commit/1c407eb1)).
+
+- **`packages/core/src/system/backup.ts` ADR-013 violation — fixed
+  retroactively.** The `BackupManager` had been using
+  `fs.readFileSync` / `fs.writeFileSync` on `*.db` files since
+  v2026.4.6 — a silent ADR-013 violation that produced potentially
+  torn snapshots. Replaced with `VACUUM INTO` via the new
+  `getNativeDb` / `getBrainNativeDb` helpers exported from
+  [`packages/core/src/internal.ts`](packages/core/src/internal.ts).
+  237 LOC of new test coverage in
+  [`packages/core/src/system/__tests__/backup.test.ts`](packages/core/src/system/__tests__/backup.test.ts)
+  ([`233017f7`](https://github.com/kryptobaseddev/cleo/commit/233017f7)).
+
+### Removed
+
+- **`!config.json` / `!project-info.json` re-include rules in
+  `.cleo/.gitignore`** — these were the T5158 vector. Removed from
+  all four gitignore locations (root, nested, template, scaffold
+  fallback). See "Changed" above.
+
+### Architecture decisions
+
+- **ADR-013 §9 — Runtime DB Untrack — closed.** New section appended
+  to
+  [`.cleo/adrs/ADR-013-data-integrity-checkpoint-architecture.md`](.cleo/adrs/ADR-013-data-integrity-checkpoint-architecture.md)
+  documenting the resolution: `.cleo/` runtime databases are no
+  longer tracked in git. Per-file recovery table maps each of the
+  four files to its safety snapshot location and restore command.
+  Cross-machine sync via git is no longer supported — use `cleo
+  observe` + `cleo memory find` for memory portability or `cleo
+  backup add` + `cleo restore backup` for full DB transfer. Backup
+  workflow documented in root `AGENTS.md` "Runtime Data Safety"
+  section
+  ([`1c407eb1`](https://github.com/kryptobaseddev/cleo/commit/1c407eb1),
+  +70 LOC ADR / +25 LOC AGENTS.md).
+
+- **`docs/API-REFERENCE.md` is no longer hand-maintained in caamp.**
+  Establishes the precedent that API reference documentation is
+  generated from TSDoc on every `pnpm run docs` and committed
+  alongside source changes. The hand-maintained pointer file is the
+  only document allowed at the canonical path; the actual API
+  surface lives in `docs/generated/api-reference.md`. Build gate:
+  `forge-ts check` must pass before any release. This pattern is
+  expected to roll out to other packages in subsequent releases.
+
+### Stats
+
+- **10 commits** since v2026.4.9 (`ecb42e05`):
+  - 2 events.rs gen (`d242effb`, `b966fe4e`)
+  - 4 db-tracking (`233017f7`, `545fec86`, `59f1ea3b`, `1c407eb1`)
+  - 4 forge-ts (`80138557`, `67df4208`, `e33059c6`, `e4df49a3`)
+- **caamp tests**: 1501 passing (unchanged from v2026.4.9 — workstreams
+  targeted non-caamp areas)
+- **cant-core tests**: 509 unit tests + 4 doctests passing
+- **Full monorepo**: 6375+ tests passing, 0 failures, 0 regressions
+- **events.rs drift**: eliminated. `cargo build -p cant-core && git
+  status --short crates/cant-core/` is empty. Verified idempotent
+  over 3 sequential forced rebuilds.
+- **TSDoc coverage in caamp**: **0 errors** (down from 54), 46
+  warnings (W013 false-positives on optional params, not blockers)
+- **Net LOC delta**: significant additions in `forge-ts` generated
+  docs (~50k LOC across `docs/generated/`) + `cant-core/build.rs` +
+  `sqlite-backup.ts` + new tests. The `docs/API-REFERENCE.md`
+  pointer file replaces 3470 hand-maintained lines with 69.
+
+### Closes
+
+- **T5158** — `.cleo/` runtime DB untrack
+- **ADR-013 §9** — runtime DB tracking resolution
+- `packages/caamp/docs/API-REFERENCE.md` drift (3470 hand-maintained
+  lines including 61 stale MCP references)
+- `crates/cant-core/src/generated/events.rs` rustfmt drift (every
+  `cargo build` produced uncommitted changes)
+
 ## [2026.4.9] - 2026-04-07
 
 ### Fixed
