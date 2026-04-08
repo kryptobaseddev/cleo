@@ -185,7 +185,7 @@ The goal is a brain that does not merely store what happened, but actively impro
 
 NEXUS connects isolated CLEO projects into a federated intelligence network:
 
-- **Project registry** -- each project is identified by a unique `projectHash` and registered in the global `~/.cleo/nexus.db`
+- **Project registry** -- each project is identified by a unique `projectHash` and registered in the global `~/.local/share/cleo/nexus.db`
 - **Cross-project dependencies** -- `project:task_id` syntax enables dependencies that span project boundaries
 - **Federated queries** -- search tasks, patterns, and learnings across all registered projects
 - **Permission model** -- three-tier access (read/write/execute) preserves project sovereignty

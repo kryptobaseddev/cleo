@@ -917,7 +917,7 @@ cd /path/to/project-a
 cleo network export-pattern P001 --global
 
 # Pattern P001: "RCASD lifecycle reduces rework by 40%"
-# Exported to: ~/.cleo/nexus.db (global_patterns table)
+# Exported to: ~/.local/share/cleo/nexus.db (global_patterns table)
 
 # Import to project B
 cd /path/to/project-b
@@ -1178,7 +1178,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 | Task | Description | Timeline |
 |------|-------------|----------|
-| Global pattern library | `~/.cleo/nexus.db` (global_patterns table) | 2 weeks |
+| Global pattern library | `~/.local/share/cleo/nexus.db` (global_patterns table) | 2 weeks |
 | Export/import interface | `cleo network export-pattern` | 2 weeks |
 | Pattern adaptation logic | Context-aware adjustments | 3 weeks |
 | Effectiveness tracking | Measure transfer impact | 1 week |
