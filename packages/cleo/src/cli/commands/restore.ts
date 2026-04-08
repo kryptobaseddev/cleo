@@ -5,6 +5,7 @@
  * @task T4795
  * @task T4904
  * @task T5329
+ * @task T306 — added --scope flag to restore backup (epic T299)
  */
 
 import { ExitCode } from '@cleocode/contracts';
@@ -26,14 +27,21 @@ export function registerRestoreCommand(program: Command): void {
     .description('Restore todo files from backup')
     .option('--file <name>', 'Specific file to restore (tasks.db, config.json, etc.)')
     .option('--dry-run', 'Preview what would be restored')
+    .option(
+      '--scope <scope>',
+      'Backup scope to restore from: project or global (default: project)',
+      'project',
+    )
     .action(async (opts: Record<string, unknown>) => {
       try {
         const fileName = (opts['file'] as string) || 'tasks.db';
+        const scope = (opts['scope'] as string) || 'project';
 
         const response = await dispatchRaw('mutate', 'admin', 'backup', {
           action: 'restore',
           file: fileName,
           dryRun: opts['dryRun'] as boolean | undefined,
+          scope,
         });
 
         if (!response.success) {

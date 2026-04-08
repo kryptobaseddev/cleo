@@ -2,6 +2,7 @@
  * CLI backup command - add and list backups.
  * @task T4454
  * @task T4903
+ * @task T306 — added --global flag to backup add; --scope filter to backup list (epic T299)
  */
 
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -17,6 +18,7 @@ export function registerBackupCommand(program: Command): void {
     .alias('create')
     .description('Add a new backup of all CLEO data files')
     .option('--destination <dir>', 'Backup destination directory')
+    .option('--global', 'Also snapshot global-tier databases (nexus.db)')
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
@@ -25,6 +27,7 @@ export function registerBackupCommand(program: Command): void {
         {
           type: 'snapshot',
           note: opts['destination'] ? `destination:${opts['destination']}` : undefined,
+          includeGlobal: opts['global'] === true,
         },
         { command: 'backup' },
       );
@@ -33,13 +36,20 @@ export function registerBackupCommand(program: Command): void {
   backup
     .command('list')
     .description('List available backups')
-    .action(async () => {
+    .option(
+      '--scope <scope>',
+      'Filter by backup scope: project, global, or all (default: all)',
+      'all',
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      const scope = (opts['scope'] as string) || 'all';
       await dispatchFromCli(
         'query',
         'admin',
         'backup',
         {
           type: 'list',
+          scope,
         },
         { command: 'backup' },
       );

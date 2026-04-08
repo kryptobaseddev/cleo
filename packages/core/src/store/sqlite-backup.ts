@@ -2,19 +2,22 @@
  * SQLite backup via VACUUM INTO with snapshot rotation.
  *
  * Produces self-contained, WAL-free copies of CLEO SQLite databases
- * (tasks.db and brain.db) into `.cleo/backups/sqlite/` with a configurable
- * rotation limit. All errors are swallowed — backup failure must never
- * interrupt normal operation.
+ * (tasks.db, brain.db at project tier; nexus.db at global tier) into
+ * `.cleo/backups/sqlite/` (project) or `$XDG_DATA_HOME/cleo/backups/sqlite/`
+ * (global) with a configurable rotation limit. All errors are swallowed —
+ * backup failure must never interrupt normal operation.
  *
  * @task T4873
  * @task T5158 — extended to cover brain.db
+ * @task T306  — extended to cover global-tier nexus.db (epic T299)
  * @epic T4867
  */
 
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDir } from '../paths.js';
+import { getCleoDir, getCleoHome } from '../paths.js';
 import { getBrainNativeDb } from './brain-sqlite.js';
+import { getNexusNativeDb } from './nexus-sqlite.js';
 import { getNativeDb } from './sqlite.js';
 
 /** Maximum number of snapshots retained per database (oldest rotated out). */
@@ -288,4 +291,165 @@ export function listSqliteBackupsAll(
     out[target.prefix] = listSqliteBackupsForPrefix(target.prefix, cwd);
   }
   return out;
+}
+
+// ============================================================================
+// Global-tier backup (ADR-036 §Backup Mechanism)
+// @task T306
+// @epic T299
+// ============================================================================
+
+/**
+ * Backup scope: project (per-project `.cleo/`) or global (`$XDG_DATA_HOME/cleo/`).
+ *
+ * @task T306
+ * @epic T299
+ */
+export type BackupScope = 'project' | 'global';
+
+/**
+ * Registered global-tier snapshot targets. `signaldock` is reserved for T310
+ * — only `nexus` is active in v2026.4.11.
+ */
+const GLOBAL_SNAPSHOT_TARGETS: SnapshotTarget[] = [{ prefix: 'nexus', getDb: getNexusNativeDb }];
+
+/**
+ * Resolve the global-tier backup directory, creating it on first use.
+ *
+ * Uses `cleoHomeOverride` when provided (test isolation) or falls back to
+ * `getCleoHome()` (XDG-compliant; never hardcodes `~/.cleo`).
+ */
+function resolveGlobalBackupDir(cleoHomeOverride?: string): string {
+  const base = cleoHomeOverride ?? getCleoHome();
+  return join(base, 'backups', 'sqlite');
+}
+
+/**
+ * Snapshot a global-tier SQLite database via VACUUM INTO.
+ *
+ * Writes to `$XDG_DATA_HOME/cleo/backups/sqlite/<dbName>-YYYYMMDD-HHmmss.db`
+ * and enforces a per-prefix rotation window (default 10 snapshots).
+ *
+ * Non-fatal: errors from any individual step are surfaced via the return value
+ * but never thrown — a failed snapshot MUST NOT interrupt normal operation.
+ *
+ * @param dbName         - Which global-tier DB to snapshot (`'nexus'`; `'signaldock'` reserved for T310)
+ * @param opts.rotation  - Maximum retained snapshots per prefix (default 10)
+ * @param opts.cleoHomeOverride - Override `getCleoHome()` path (use in tests to target a tmp dir)
+ * @returns Object containing the new snapshot path and any rotated (deleted) file paths
+ *
+ * @task T306
+ * @epic T299
+ * @why ADR-036 §Backup Mechanism requires VACUUM INTO rotation at the global tier;
+ *      nexus.db has zero backup coverage prior to v2026.4.11.
+ */
+export async function vacuumIntoGlobalBackup(
+  dbName: 'nexus' | 'signaldock',
+  opts?: { rotation?: number; cleoHomeOverride?: string },
+): Promise<{ snapshotPath: string; rotated: string[] }> {
+  const maxSnaps = opts?.rotation ?? MAX_SNAPSHOTS;
+  const backupDir = resolveGlobalBackupDir(opts?.cleoHomeOverride);
+
+  mkdirSync(backupDir, { recursive: true });
+
+  const target = GLOBAL_SNAPSHOT_TARGETS.find((t) => t.prefix === dbName);
+  if (!target) {
+    return { snapshotPath: '', rotated: [] };
+  }
+
+  const db = target.getDb();
+  if (!db) {
+    return { snapshotPath: '', rotated: [] };
+  }
+
+  const now = new Date();
+  const snapshotName = `${dbName}-${formatTimestamp(now)}.db`;
+  const snapshotPath = join(backupDir, snapshotName);
+
+  // Collect files that will be rotated out before writing the new one.
+  const rotated: string[] = [];
+  try {
+    const pattern = snapshotPattern(dbName);
+    const existing = readdirSync(backupDir)
+      .filter((f) => pattern.test(f))
+      .map((f) => ({
+        name: f,
+        path: join(backupDir, f),
+        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
+      }))
+      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
+
+    // Remove oldest until we have room for the new snapshot.
+    while (existing.length >= maxSnaps) {
+      const oldest = existing.shift();
+      if (!oldest) break;
+      try {
+        unlinkSync(oldest.path);
+        rotated.push(oldest.path);
+      } catch {
+        // non-fatal rotation failure
+      }
+    }
+  } catch {
+    // non-fatal — continue even if rotation enumeration fails
+  }
+
+  // Checkpoint then VACUUM INTO for a WAL-free, atomic snapshot.
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  const safeDest = snapshotPath.replace(/'/g, "''");
+  db.exec(`VACUUM INTO '${safeDest}'`);
+
+  return { snapshotPath, rotated };
+}
+
+/**
+ * A single entry returned by {@link listGlobalSqliteBackups}.
+ *
+ * @task T306
+ * @epic T299
+ */
+export interface GlobalBackupEntry {
+  /** Snapshot filename, e.g. `nexus-20260408-143022.db`. */
+  name: string;
+  /** Absolute path to the snapshot file. */
+  path: string;
+  /** File size in bytes. */
+  size: number;
+  /** Last-modified timestamp. */
+  mtime: Date;
+}
+
+/**
+ * List global-tier SQLite backups from `$XDG_DATA_HOME/cleo/backups/sqlite/`,
+ * optionally filtered by prefix (e.g. `'nexus'`). Sorted newest-first by mtime.
+ *
+ * Returns an empty array when the backup directory does not exist.
+ *
+ * @param prefix            - Optional prefix filter; when omitted all `.db` snapshot files are listed
+ * @param cleoHomeOverride  - Override `getCleoHome()` path (use in tests to target a tmp dir)
+ *
+ * @task T306
+ * @epic T299
+ */
+export function listGlobalSqliteBackups(
+  prefix?: string,
+  cleoHomeOverride?: string,
+): GlobalBackupEntry[] {
+  try {
+    const backupDir = resolveGlobalBackupDir(cleoHomeOverride);
+    if (!existsSync(backupDir)) return [];
+
+    const pattern = prefix ? snapshotPattern(prefix) : /^[a-zA-Z0-9_-]+-\d{8}-\d{6}\.db$/;
+
+    return readdirSync(backupDir)
+      .filter((f) => pattern.test(f))
+      .map((f) => {
+        const filePath = join(backupDir, f);
+        const s = statSync(filePath);
+        return { name: f, path: filePath, size: s.size, mtime: new Date(s.mtimeMs) };
+      })
+      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime()); // newest first
+  } catch {
+    return [];
+  }
 }
