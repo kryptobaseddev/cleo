@@ -107,6 +107,7 @@ import { registerResearchCommand } from './commands/research.js';
 import { registerRestoreCommand } from './commands/restore.js';
 import { registerRoadmapCommand } from './commands/roadmap.js';
 import { registerSafestopCommand } from './commands/safestop.js';
+import { registerSchemaCommand } from './commands/schema.js';
 import { registerSelfUpdateCommand } from './commands/self-update.js';
 import { registerSequenceCommand } from './commands/sequence.js';
 import { registerSessionCommand } from './commands/session.js';
@@ -221,6 +222,7 @@ registerStickyCommand(rootShim);
 registerReasonCommand(rootShim);
 registerRefreshMemoryCommand(rootShim);
 registerObserveCommand(rootShim);
+registerSchemaCommand(rootShim);
 
 function shimToCitty(shim: ShimCommand): CommandDef {
   const cittyArgs: Record<string, import('citty').ArgDef> = {};

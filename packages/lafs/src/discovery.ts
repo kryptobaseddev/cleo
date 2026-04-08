@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { createHash } from 'crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { buildLafsExtension } from './a2a/extensions.js';
+import { STATIC_GATE_TABLE, STATIC_PARAMS_TABLE } from './operation-gates.js';
 
 const require = createRequire(import.meta.url);
 
@@ -956,3 +957,305 @@ export async function discoveryFastifyPlugin(
  */
 
 export default discoveryMiddleware;
+
+// ============================================================================
+// Operation Schema Introspection (added for T340 — cleo schema command)
+// ============================================================================
+
+/**
+ * CLI shape descriptor for a single parameter.
+ *
+ * @remarks
+ * Maps to the `cli` sub-field of a CLEO `ParamDef`.
+ */
+export interface OperationParamCli {
+  /** Short flag alias (e.g. `"-t"` for `--type`). */
+  short?: string;
+  /** CLI flag name override (kebab-case when it differs from param `name`). */
+  flag?: string;
+  /** Whether the option accepts multiple values. */
+  variadic?: boolean;
+  /** Whether this param is registered as a positional argument. */
+  positional?: boolean;
+}
+
+/**
+ * A single parameter descriptor within an {@link OperationSchema}.
+ */
+export interface OperationParamSchema {
+  /** Canonical camelCase parameter name. */
+  name: string;
+  /** Runtime value type. */
+  type: 'string' | 'number' | 'boolean' | 'array';
+  /** Whether the parameter is required. */
+  required: boolean;
+  /** Human-readable description. */
+  description: string;
+  /** Enumerated allowed values, when constrained. */
+  enum?: readonly string[];
+  /** CLI-specific metadata. Present only when the param has a CLI surface. */
+  cli?: OperationParamCli;
+}
+
+/**
+ * A declared precondition gate within an {@link OperationSchema}.
+ */
+export interface OperationGateSchema {
+  /** Short machine-readable gate name (kebab-case). */
+  name: string;
+  /** CLEO error code emitted when this gate fires. */
+  errorCode: string;
+  /** One-line description of what this gate checks. */
+  description: string;
+  /** Human-readable trigger conditions for this gate. */
+  triggers: string[];
+}
+
+/**
+ * A usage example within an {@link OperationSchema}.
+ */
+export interface OperationExample {
+  /** The CLI command string, e.g. `"cleo add 'My task' --priority high"`. */
+  command: string;
+  /** One-line description of this example. */
+  description: string;
+}
+
+/**
+ * Full introspection schema for a single CLEO operation.
+ *
+ * @remarks
+ * Returned by {@link describeOperation}. Agents can call `cleo schema <domain>.<operation>`
+ * to retrieve this payload and build a correct invocation on the first try.
+ */
+export interface OperationSchema {
+  /** Fully-qualified operation key, e.g. `"tasks.add"`. */
+  operation: string;
+  /** CQRS gateway — read-only (`"query"`) or state-modifying (`"mutate"`). */
+  gateway: 'query' | 'mutate';
+  /** One-line description of what the operation does. */
+  description: string;
+  /** Declared parameters in definition order. */
+  params: OperationParamSchema[];
+  /**
+   * Precondition gates that the operation enforces.
+   * Present only when `includeGates` option is `true` (default).
+   *
+   * @remarks
+   * **Static table limitation**: only `tasks.add`, `tasks.complete`, and
+   * `tasks.show` are fully seeded.  All other operations return an empty array.
+   * This will be replaced by a dynamic gate registry in a future release.
+   */
+  gates?: OperationGateSchema[];
+  /**
+   * Usage examples.
+   * Present only when `includeExamples` option is `true` (default: `false`).
+   */
+  examples?: OperationExample[];
+}
+
+// ---------------------------------------------------------------------------
+// MinimalOperationDef — the subset of OperationDef used by describeOperation
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal subset of `OperationDef` from the CLEO registry that
+ * `describeOperation` requires.
+ *
+ * @remarks
+ * Decoupled from the concrete `OperationDef` to avoid a hard import cycle
+ * between `@cleocode/lafs` and `@cleocode/cleo`.  Callers should pass either
+ * the full `OperationDef` or any object that satisfies this shape.
+ */
+export interface RegistryOperationDef {
+  /** CQRS gateway. */
+  gateway: 'query' | 'mutate';
+  /** Canonical domain name. */
+  domain: string;
+  /** Operation name (e.g. `"add"`, `"complex.estimate"`). */
+  operation: string;
+  /** Brief description. */
+  description: string;
+  /**
+   * Fully-described parameter list.
+   * Empty/absent means "no declared params".
+   */
+  params?: Array<{
+    name: string;
+    type: 'string' | 'number' | 'boolean' | 'array';
+    required: boolean;
+    description: string;
+    enum?: readonly string[];
+    hidden?: boolean;
+    cli?: {
+      positional?: boolean;
+      short?: string;
+      flag?: string;
+      variadic?: boolean;
+    };
+  }>;
+  /** Required param keys (used when `params` array is absent). */
+  requiredParams: string[];
+}
+
+/**
+ * Options for {@link describeOperation}.
+ */
+export interface DescribeOperationOptions {
+  /**
+   * Include precondition gates in the output.
+   * @defaultValue `true`
+   */
+  includeGates?: boolean;
+  /**
+   * Include usage examples in the output.
+   * @defaultValue `false`
+   */
+  includeExamples?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal set of usage examples for an operation.
+ *
+ * @param def - The operation definition.
+ * @returns Array of {@link OperationExample} entries (may be empty).
+ *
+ * @internal
+ */
+function buildExamples(def: RegistryOperationDef): OperationExample[] {
+  const key = `${def.domain}.${def.operation}`;
+  const EXAMPLES: Record<string, OperationExample[]> = {
+    'tasks.add': [
+      {
+        command: "cleo add 'My task title'",
+        description: 'Create a task with the default priority and type',
+      },
+      {
+        command: "cleo add 'My task' --priority high --parent T100",
+        description: 'Create a high-priority subtask under T100',
+      },
+    ],
+    'tasks.complete': [
+      {
+        command: 'cleo complete T123',
+        description: 'Mark task T123 as done',
+      },
+      {
+        command: 'cleo complete T123 --force',
+        description: 'Force-complete even when children are not done',
+      },
+    ],
+    'tasks.show': [
+      {
+        command: 'cleo show T123',
+        description: 'Show full details for task T123',
+      },
+    ],
+  };
+  return EXAMPLES[key] ?? [];
+}
+
+/**
+ * Describe a single CLEO operation in full detail.
+ *
+ * @param def - The operation definition from the CLEO registry.
+ * @param options - Output verbosity options.
+ * @returns A fully-populated {@link OperationSchema}.
+ *
+ * @remarks
+ * **Gate coverage**: only `tasks.add`, `tasks.complete`, and `tasks.show` have
+ * seeded gate data in the static table at `operation-gates.ts`.  Every other
+ * operation returns `gates: []`.  This is a known limitation until a dynamic
+ * gate-registry lands.
+ *
+ * @example
+ * ```typescript
+ * import { OPERATIONS } from '@cleocode/cleo/dispatch/registry';
+ * import { describeOperation } from '@cleocode/lafs/discovery';
+ *
+ * const def = OPERATIONS.find(
+ *   (op) => op.domain === 'tasks' && op.operation === 'add'
+ * );
+ * if (def) {
+ *   const schema = describeOperation(def);
+ *   console.log(JSON.stringify(schema, null, 2));
+ * }
+ * ```
+ */
+export function describeOperation(
+  def: RegistryOperationDef,
+  options: DescribeOperationOptions = {},
+): OperationSchema {
+  const { includeGates = true, includeExamples = false } = options;
+
+  // Resolve the source param list: prefer the registry's declared params array,
+  // then the static extended-params table, then fall back to requiredParams.
+  const operationKey = `${def.domain}.${def.operation}`;
+  const rawParams =
+    def.params !== undefined && def.params.length > 0
+      ? def.params
+      : (STATIC_PARAMS_TABLE[operationKey] ?? []);
+
+  // Build params array from the resolved source
+  const params: OperationParamSchema[] = rawParams
+    .filter((p) => !('hidden' in p && p.hidden))
+    .map((p) => {
+      const param: OperationParamSchema = {
+        name: p.name,
+        type: p.type,
+        required: p.required,
+        description: p.description,
+      };
+      if (p.enum !== undefined) {
+        param.enum = p.enum;
+      }
+      if (p.cli !== undefined) {
+        const cliOut: OperationParamCli = {};
+        if (p.cli.short !== undefined) cliOut.short = p.cli.short;
+        if (p.cli.flag !== undefined) cliOut.flag = p.cli.flag;
+        if (p.cli.variadic !== undefined) cliOut.variadic = p.cli.variadic;
+        if (p.cli.positional !== undefined) cliOut.positional = p.cli.positional;
+        param.cli = cliOut;
+      }
+      return param;
+    });
+
+  // Last resort: synthesize minimal entries from requiredParams
+  if (params.length === 0 && def.requiredParams.length > 0) {
+    for (const name of def.requiredParams) {
+      params.push({
+        name,
+        type: 'string',
+        required: true,
+        description: `Required parameter: ${name}`,
+      });
+    }
+  }
+
+  const schema: OperationSchema = {
+    operation: `${def.domain}.${def.operation}`,
+    gateway: def.gateway,
+    description: def.description,
+    params,
+  };
+
+  if (includeGates) {
+    const key = `${def.domain}.${def.operation}`;
+    schema.gates = (STATIC_GATE_TABLE[key] ?? []).map((g) => ({
+      name: g.name,
+      errorCode: g.errorCode,
+      description: g.description,
+      triggers: [...g.triggers],
+    }));
+  }
+
+  if (includeExamples) {
+    schema.examples = buildExamples(def);
+  }
+
+  return schema;
+}
