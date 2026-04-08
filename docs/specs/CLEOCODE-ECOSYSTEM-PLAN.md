@@ -33,7 +33,7 @@ cleocode/packages/
   lafs/          @cleocode/lafs          LAFS response envelope implementation
   caamp/         @cleocode/caamp         Hook normalization (16 canonical events)
   core/          @cleocode/core          Business logic kernel (324 operations)
-  cleo/          @cleocode/cleo          CLI + MCP product wrapper
+  cleo/          @cleocode/cleo          `cleo` CLI product (sole runtime surface) wrapping @cleocode/core
   adapters/      @cleocode/adapters      Provider adapters
   agents/        @cleocode/agents        Agent lifecycle management
   skills/        @cleocode/skills        Skill registry and dispatch
