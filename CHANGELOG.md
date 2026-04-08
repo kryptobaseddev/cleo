@@ -4,6 +4,111 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.11] - 2026-04-08
+
+### Highlights
+
+This release closes the T299 epic (Database Topology + Lifecycle) across 4
+waves. It establishes the full CleoOS database topology (4 DBs × 2 tiers)
+as a first-class architectural concern, anchored by ADR-036. Key deliveries:
+walk-up `getProjectRoot()` that never auto-creates nested `.cleo/`,
+idempotent legacy file cleanup wired into CLI startup, global-tier VACUUM
+INTO backup for `nexus.db`, a runtime guard preventing stray `nexus.db`
+files outside `getCleoHome()`, and a 9-scenario integration test suite
+that validates the full topology contract. **9 tasks shipped in 8 commits,
+42 new tests, ~2000 LOC. Zero pre-existing test failures introduced.**
+
+### Added
+
+- **`ADR-036` — `.cleo/adrs/ADR-036-cleoos-database-topology.md` (454
+  lines).** Documents the 4-DB × 2-tier topology contract (project-tier:
+  `tasks.db`, `nexus.db`; global-tier: `brain.db`, `nexus.db`), the
+  walk-up scaffolding rule, `VACUUM INTO` backup mechanism with rotation
+  policy, and forward references to T310 (Conduit + Signaldock separation)
+  and T311 (cross-machine backup portability)
+  ([`1f560327`](https://github.com/kryptobaseddev/cleo/commit/1f560327),
+  +454 lines).
+
+- **`packages/core/src/paths.ts` — walk-up `getProjectRoot()` rewrite**
+  (T301). Walks ancestor directories looking for `.cleo/` or `.git/`,
+  stops at first hit, never auto-creates nested `.cleo/`. `CLEO_ROOT`
+  env variable overrides walk-up for CI / Docker. 13 new unit tests in
+  `paths-walkup.test.ts` covering clean roots, nested dirs, symlinks,
+  env override, and edge cases
+  ([`30dde2ab`](https://github.com/kryptobaseddev/cleo/commit/30dde2ab),
+  +105 LOC `paths.ts`, +305 LOC test).
+
+- **`packages/core/src/paths.ts` — XDG comment fix** (T303). Top-of-file
+  comment updated to list per-OS resolution examples for Linux
+  (`~/.local/share/cleo`), macOS (`~/Library/Application Support/cleo`),
+  and Windows (`%APPDATA%\cleo`) so engineers can orient without
+  reading XDG spec
+  ([`b1323b70`](https://github.com/kryptobaseddev/cleo/commit/b1323b70)).
+
+- **`packages/core/src/store/cleanup-legacy.ts` — idempotent legacy
+  global file cleanup** (T304). New `detectAndRemoveLegacyGlobalFiles()`
+  detects and removes `workspace.db` and `*-pre-cleo.db.bak` files left
+  over from pre-CLEO global paths. Wired into CLI startup via
+  `packages/cleo/src/cli/index.ts`. 11 unit tests covering detection,
+  removal, idempotency, and no-op when files are absent
+  ([`bc0cfe50`](https://github.com/kryptobaseddev/cleo/commit/bc0cfe50),
+  +208 LOC `cleanup-legacy.ts`, +268 LOC test).
+
+- **Nested `.cleo/` untrack** (T302). Removed 20 files across 6 nested
+  `.cleo/` dirs (`packages/cleo`, `packages/contracts`, `packages/lafs`,
+  `packages/runtime`, `packages/skills`, `packages/skills/skills/ct-skill-creator`).
+  Pre-untrack snapshots written to `.cleo/backups/legacy-nested/`.
+  All 7 `.db` files passed `PRAGMA integrity_check` before removal.
+  Root `.gitignore` extended with `packages/**/.cleo/` rule
+  ([`49f602e4`](https://github.com/kryptobaseddev/cleo/commit/49f602e4)).
+
+- **`packages/core/src/store/sqlite-backup.ts` — global-tier backup
+  mechanism** (T306). New `vacuumIntoGlobalBackup()` writes `nexus.db`
+  snapshots to `$XDG_DATA_HOME/cleo/backups/sqlite/`. New CLI flags:
+  `cleo backup add --global`, `cleo backup list --scope project|global|all`,
+  `cleo restore backup --scope global`. 9 new tests in
+  `sqlite-backup-global.test.ts`
+  ([`e09a4a2d`](https://github.com/kryptobaseddev/cleo/commit/e09a4a2d),
+  +172 LOC `sqlite-backup.ts`, +281 LOC test).
+
+- **`packages/core/src/store/nexus-sqlite.ts` — stray `nexus.db` cleanup
+  + guard** (T307). `getNexusDbPath()` runtime guard fails fast if
+  resolved path is not under `getCleoHome()`. New
+  `detectAndRemoveStrayProjectNexus()` for one-time cleanup of
+  incorrectly-placed `nexus.db` files. 9 new tests covering guard
+  assertion, stray detection, and no-op cases
+  ([`545d7537`](https://github.com/kryptobaseddev/cleo/commit/545d7537),
+  +35 LOC `nexus-sqlite.ts`).
+
+- **9-scenario database topology integration test suite** (T308). New
+  `packages/core/src/store/__tests__/database-topology-integration.test.ts`
+  (504 lines) covers: fresh init, walk-up discovery, anti-drift
+  (project-tier never bleeds into global-tier), backup/restore round-trip,
+  cleanup idempotency, no-auto-create enforcement, stray nexus guard,
+  `CLEO_ROOT` override, and concurrent access. 9/9 passing in ~527ms
+  ([`9d8ab9e4`](https://github.com/kryptobaseddev/cleo/commit/9d8ab9e4),
+  +504 LOC test).
+
+### Statistics
+
+- **9 tasks shipped** across 4 waves (Wave 0: ADR, Wave 1: scaffolding +
+  cleanup, Wave 2: backup + guards, Wave 3: integration verification)
+- **8 commits** on main since v2026.4.10
+- **~2000 LOC** across implementation + tests (2480 insertions total,
+  154 deletions, 38 files changed)
+- **42 new tests** across `paths-walkup.test.ts` (13),
+  `cleanup-legacy.test.ts` (11), `sqlite-backup-global.test.ts` (9),
+  `database-topology-integration.test.ts` (9)
+- **1 new ADR** (ADR-036)
+- **0 pre-existing test failures** introduced
+
+### Follow-on Epics
+
+- **T310** — Conduit + Signaldock Separation (RCASD-IVTR, targets v2026.4.12+)
+- **T311** — Cross-Machine Backup Export/Import (RCASD-IVTR, targets v2026.4.13+)
+
+---
+
 ## [2026.4.10] - 2026-04-07
 
 ### Highlights
