@@ -552,7 +552,7 @@ Every mutate operation appends to the audit log in `tasks.db`. The audit log is 
 
 ### Session History
 
-Session lifecycle events are recorded in session JSON files under `.cleo/sessions/`. Each session tracks:
+Session lifecycle events are recorded in the `sessions` table in `.cleo/tasks.db`. Each session tracks:
 
 - Start/end timestamps
 - Tasks worked on
