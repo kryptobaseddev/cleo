@@ -269,7 +269,7 @@ CLEO currently splits grade analytics data across `tasks.db` and filesystem arti
 
 - `audit_log` - source data for behavioral grading
 - `sessions` - session lifecycle, including `gradeMode`
-- `token_usage` - per-exchange token telemetry for CLI, MCP, and future HTTP/agent adapters
+- `token_usage` - per-exchange token telemetry for CLI operations and future HTTP/agent adapters
 
 **Filesystem artifacts still in active use:**
 
