@@ -799,7 +799,7 @@ export async function createRuntime(cleo: Cleo): Promise<Runtime>;
   └── createRuntime(cleo) → starts polling, SSE, heartbeat
   └── Uses: core's AgentRegistryAPI, ConduitClient, Transport
 
-@cleocode/cleo (CLI + MCP)
+@cleocode/cleo (`cleo` CLI — sole runtime surface)
   └── dispatch commands use runtime:
        └── cleo agent watch → runtime.start()
        └── cleo agent stop → runtime.stop()
@@ -1039,7 +1039,7 @@ api.signaldock.io          cleo agent watch
            │                         │
 ┌──────────▼──────────┐  ┌──────────▼──────────────────┐
 │  @cleocode/runtime   │  │  @cleocode/cleo              │
-│  (LONG-RUNNING)      │  │  (CLI + MCP DISPATCH)        │
+│  (LONG-RUNNING)      │  │  (CLI DISPATCH)              │
 │                      │  │                              │
 │  services/           │  │  cli/commands/agent.ts       │
 │    agent-poller      │  │    cleo agent register       │
@@ -1048,7 +1048,7 @@ api.signaldock.io          cleo agent watch
 │    key-rotation      │  │    cleo agent send            │
 │                      │  │                              │
 │  createRuntime(cleo) │  │  dispatch/ (command routing)  │
-│  runtime.start()     │  │  mcp/ (MCP gateway)          │
+│  runtime.start()     │  │  dispatch adapter (cli.ts)   │
 │  runtime.stop()      │  │                              │
 └──────────────────────┘  └──────────────────────────────┘
 
