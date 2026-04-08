@@ -863,4 +863,9 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
-export { AgentRegistryAccessor } from './store/agent-registry-accessor.js';
+export {
+  AgentRegistryAccessor,
+  createProjectAgent,
+  listAgentsForProject,
+  lookupAgent,
+} from './store/agent-registry-accessor.js';
