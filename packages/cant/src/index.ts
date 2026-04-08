@@ -1,3 +1,13 @@
+// JIT Agent Composer (ULTRAPLAN Wave 5)
+export { composeSpawnPayload, escalateTier, estimateTokens, TIER_CAPS } from './composer.js';
+export type {
+  AgentDefinition,
+  ContextProvider,
+  ContextSlice,
+  MentalModelSlice,
+  SpawnPayload,
+  Tier,
+} from './composer.js';
 // Re-export from @cleocode/lafs for convenience
 export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from '@cleocode/lafs';
 export type {
