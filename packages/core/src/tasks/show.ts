@@ -35,7 +35,10 @@ export async function showTask(
   accessor?: DataAccessor,
 ): Promise<TaskDetail> {
   if (!taskId) {
-    throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
+    throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required', {
+      fix: 'cleo show T###',
+      details: { field: 'taskId' },
+    });
   }
 
   const acc = accessor ?? (await getAccessor(cwd));

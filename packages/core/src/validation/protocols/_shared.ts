@@ -46,7 +46,10 @@ export function loadManifestEntryByTaskId(taskId: string): ManifestEntryInput {
   const manifestPath = getManifestPath();
   const entry = findManifestEntry(taskId, manifestPath);
   if (!entry) {
-    throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`);
+    throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`, {
+      fix: `Ensure the agent wrote a manifest entry for ${taskId} before validation`,
+      details: { field: 'taskId', actual: taskId },
+    });
   }
   return JSON.parse(entry) as ManifestEntryInput;
 }
@@ -59,7 +62,10 @@ export function loadManifestEntryByTaskId(taskId: string): ManifestEntryInput {
  */
 export function loadManifestEntryFromFile(manifestFile: string): ManifestEntryInput {
   if (!existsSync(manifestFile)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Manifest file not found: ${manifestFile}`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Manifest file not found: ${manifestFile}`, {
+      fix: `Ensure the manifest file exists at: ${manifestFile}`,
+      details: { field: 'manifestFile', actual: manifestFile },
+    });
   }
   return JSON.parse(readFileSync(manifestFile, 'utf-8')) as ManifestEntryInput;
 }
@@ -78,11 +84,13 @@ export function throwIfStrictFailed(
 ): void {
   if (!opts.strict || result.valid) return;
   const code = PROTOCOL_EXIT_CODES[protocol];
+  const errorViolations = result.violations.filter((v) => v.severity === 'error');
   throw new CleoError(
     code,
-    `${protocol} protocol violations for ${taskId}: ${result.violations
-      .filter((v) => v.severity === 'error')
-      .map((v) => v.message)
-      .join('; ')}`,
+    `${protocol} protocol violations for ${taskId}: ${errorViolations.map((v) => v.message).join('; ')}`,
+    {
+      fix: `Review ${protocol} protocol requirements and correct the listed violations`,
+      details: { field: 'protocol', actual: protocol },
+    },
   );
 }

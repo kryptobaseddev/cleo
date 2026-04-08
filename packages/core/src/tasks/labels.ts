@@ -45,7 +45,10 @@ export async function showLabelTasks(
   const { tasks } = await acc.queryTasks({ label });
 
   if (tasks.length === 0) {
-    throw new CleoError(ExitCode.NOT_FOUND, `No tasks found with label '${label}'`);
+    throw new CleoError(ExitCode.NOT_FOUND, `No tasks found with label '${label}'`, {
+      fix: 'cleo labels list to see available labels',
+      details: { field: 'label', actual: label },
+    });
   }
 
   return {

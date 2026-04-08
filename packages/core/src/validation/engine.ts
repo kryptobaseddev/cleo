@@ -94,7 +94,10 @@ const SHELL_METACHARACTERS = new Set([
  */
 export function sanitizeFilePath(path: string): string {
   if (!path) {
-    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Empty path provided');
+    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Empty path provided', {
+      fix: 'Provide a non-empty file path',
+      details: { field: 'path' },
+    }); /* internal invariant — no user action */
   }
 
   for (const char of path) {
@@ -102,6 +105,10 @@ export function sanitizeFilePath(path: string): string {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Path contains shell metacharacters - potential injection attempt: ${path}`,
+        {
+          fix: 'Remove shell metacharacters from the file path',
+          details: { field: 'path', actual: path },
+        },
       );
     }
   }
@@ -110,6 +117,10 @@ export function sanitizeFilePath(path: string): string {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       'Path ends with backslash - potential injection attempt',
+      {
+        fix: 'Remove trailing backslash from the file path',
+        details: { field: 'path', actual: path },
+      },
     );
   }
 
@@ -117,6 +128,10 @@ export function sanitizeFilePath(path: string): string {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       'Path contains newline/carriage return - potential injection attempt',
+      {
+        fix: 'Remove newline characters from the file path',
+        details: { field: 'path', actual: path },
+      },
     );
   }
 

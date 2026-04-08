@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "lint:cleo-errors": "node scripts/lint-cleo-errors.mjs",
     "docs:check": "forge-ts check",
     "docs:test": "forge-ts test",
     "docs:build": "forge-ts build",

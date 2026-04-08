@@ -100,7 +100,10 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   if (!options.query && !options.id) {
-    throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
+    throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required', {
+      fix: 'cleo find "<query>"',
+      details: { field: 'query' },
+    });
   }
 
   const acc = accessor ?? (await getAccessor(cwd));

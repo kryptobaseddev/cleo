@@ -115,7 +115,10 @@ export async function completeTask(
 
   // Already done
   if (task.status === 'done') {
-    throw new CleoError(ExitCode.TASK_COMPLETED, `Task ${options.taskId} is already completed`);
+    throw new CleoError(ExitCode.TASK_COMPLETED, `Task ${options.taskId} is already completed`, {
+      fix: `To reopen, run cleo update ${options.taskId} --status active`,
+      details: { field: 'status', expected: 'not done', actual: 'done' },
+    });
   }
 
   // Check if task has incomplete dependencies

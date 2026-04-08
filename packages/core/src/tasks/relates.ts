@@ -20,7 +20,10 @@ export async function suggestRelated(
   const { tasks: allTasks } = await acc.queryTasks({});
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
+      fix: `cleo find "${taskId}"`,
+      details: { field: 'taskId', actual: taskId },
+    });
   }
 
   const suggestions: Array<Pick<TaskRef, 'id' | 'title'> & { score: number; reason: string }> = [];
@@ -80,12 +83,18 @@ export async function addRelation(
 
   const fromExists = await acc.taskExists(from);
   if (!fromExists) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Task ${from} not found`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${from} not found`, {
+      fix: `cleo find "${from}"`,
+      details: { field: 'from', actual: from },
+    });
   }
 
   const toExists = await acc.taskExists(to);
   if (!toExists) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`, {
+      fix: `cleo find "${to}"`,
+      details: { field: 'to', actual: to },
+    });
   }
 
   // Persist to task_relations table via accessor (T5168 fix)
@@ -112,7 +121,10 @@ export async function listRelations(
   const acc = accessor ?? (await getAccessor(cwd));
   const task = await acc.loadSingleTask(taskId);
   if (!task) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
+      fix: `cleo find "${taskId}"`,
+      details: { field: 'taskId', actual: taskId },
+    });
   }
 
   // task.relates is populated from task_relations table by loadSingleTask

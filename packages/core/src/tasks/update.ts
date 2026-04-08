@@ -153,7 +153,14 @@ export async function updateTask(
     const { validateStatusTransition } = await import('../validation/validation-rules.js');
     const transitionViolations = validateStatusTransition(task.status, options.status);
     if (transitionViolations.length > 0) {
-      throw new CleoError(ExitCode.VALIDATION_ERROR, transitionViolations[0].message);
+      throw new CleoError(ExitCode.VALIDATION_ERROR, transitionViolations[0].message, {
+        fix: `Valid transitions from '${task.status}': see cleo update --help`,
+        details: {
+          field: transitionViolations[0].field ?? 'status',
+          expected: `valid transition from ${task.status}`,
+          actual: options.status,
+        },
+      });
     }
 
     const oldStatus = task.status;
@@ -319,12 +326,19 @@ export async function updateTask(
         // Validate target parent exists
         const newParent = await acc.loadSingleTask(newParentId);
         if (!newParent) {
-          throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${newParentId} not found`);
+          throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${newParentId} not found`, {
+            fix: `Use 'cleo find "${newParentId}"' to search or remove --parent flag`,
+            details: { field: 'parentId', actual: newParentId },
+          });
         }
         if (newParent.type === 'subtask') {
           throw new CleoError(
             ExitCode.INVALID_PARENT_TYPE,
             `Cannot parent under subtask '${newParentId}'`,
+            {
+              fix: `Choose an epic or task as parent instead of subtask '${newParentId}'`,
+              details: { field: 'parentId', expected: 'epic or task', actual: 'subtask' },
+            },
           );
         }
 
@@ -334,6 +348,10 @@ export async function updateTask(
           throw new CleoError(
             ExitCode.CIRCULAR_REFERENCE,
             `Moving '${options.taskId}' under '${newParentId}' would create a circular reference`,
+            {
+              fix: `Choose a parent that is not a descendant of ${options.taskId}`,
+              details: { field: 'parentId', actual: newParentId },
+            },
           );
         }
 
@@ -346,6 +364,14 @@ export async function updateTask(
           throw new CleoError(
             ExitCode.DEPTH_EXCEEDED,
             `Maximum nesting depth ${policy.maxDepth} would be exceeded`,
+            {
+              fix: 'Choose a parent at a shallower level in the hierarchy',
+              details: {
+                field: 'parentId',
+                expected: `depth < ${policy.maxDepth}`,
+                actual: parentDepth + 1,
+              },
+            },
           );
         }
 
@@ -362,7 +388,10 @@ export async function updateTask(
   }
 
   if (changes.length === 0) {
-    throw new CleoError(ExitCode.NO_CHANGE, 'No changes specified');
+    throw new CleoError(ExitCode.NO_CHANGE, 'No changes specified', {
+      fix: `Provide at least one field to update (e.g. cleo update ${options.taskId} --status active)`,
+      details: { field: 'options' },
+    });
   }
 
   task.updatedAt = now;

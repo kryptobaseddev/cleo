@@ -78,6 +78,23 @@ function exitCodeToLafsCode(code: ExitCode): string {
 }
 
 /**
+ * Structured field-level details for constraint-violation errors.
+ * Surfaces in the LAFS envelope so agents can recover programmatically.
+ *
+ * @task T341
+ */
+export interface CleoErrorDetails {
+  /** The specific field that failed validation. */
+  field: string;
+  /** The expected value or constraint (e.g. max length, valid enum members). */
+  expected?: unknown;
+  /** The actual value that was provided. */
+  actual?: unknown;
+  /** Additional context keys. */
+  [key: string]: unknown;
+}
+
+/**
  * Structured error class for CLEO operations.
  * Carries an exit code, human-readable message, and optional fix suggestions.
  * Produces LAFS-conformant error shapes via toLAFSError() and RFC 9457
@@ -87,6 +104,8 @@ export class CleoError extends Error {
   readonly code: ExitCode;
   readonly fix?: string;
   readonly alternatives?: Array<{ action: string; command: string }>;
+  /** Field-level details for constraint-violation errors. @task T341 */
+  readonly details?: CleoErrorDetails;
 
   constructor(
     code: ExitCode,
@@ -94,6 +113,7 @@ export class CleoError extends Error {
     options?: {
       fix?: string;
       alternatives?: Array<{ action: string; command: string }>;
+      details?: CleoErrorDetails;
       cause?: unknown;
     },
   ) {
@@ -102,6 +122,7 @@ export class CleoError extends Error {
     this.code = code;
     this.fix = options?.fix;
     this.alternatives = options?.alternatives;
+    this.details = options?.details;
   }
 
   /**
@@ -121,6 +142,7 @@ export class CleoError extends Error {
         name: getExitCodeName(this.code),
         ...(this.fix && { fix: this.fix }),
         ...(this.alternatives && { alternatives: this.alternatives }),
+        ...(this.details && { fieldDetails: this.details }),
       },
     };
   }
@@ -145,6 +167,7 @@ export class CleoError extends Error {
         recoverable: isRecoverableCode(this.code),
         ...(this.fix && { fix: this.fix }),
         ...(this.alternatives && { alternatives: this.alternatives }),
+        ...(this.details && { fieldDetails: this.details }),
       },
     };
   }
@@ -159,6 +182,7 @@ export class CleoError extends Error {
         message: this.message,
         ...(this.fix && { fix: this.fix }),
         ...(this.alternatives && { alternatives: this.alternatives }),
+        ...(this.details && { details: this.details }),
       },
     };
   }

@@ -93,10 +93,16 @@ export function buildDefaultVerification(initializedAt: string): TaskVerificatio
  */
 export function validateTitle(title: string): void {
   if (!title || title.trim().length === 0) {
-    throw new CleoError(ExitCode.INVALID_INPUT, 'Task title is required');
+    throw new CleoError(ExitCode.INVALID_INPUT, 'Task title is required', {
+      fix: 'Provide a title: cleo add "<title>"',
+      details: { field: 'title' },
+    });
   }
   if (title.length > 200) {
-    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Task title must be 200 characters or less');
+    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Task title must be 200 characters or less', {
+      fix: 'Shorten title to 200 characters or fewer',
+      details: { field: 'title', expected: 200, actual: title.length },
+    });
   }
 }
 
@@ -109,6 +115,10 @@ export function validateStatus(status: string): asserts status is TaskStatus {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Invalid status: ${status} (must be ${TASK_STATUSES.join('|')})`,
+      {
+        fix: `cleo add ... --status <${TASK_STATUSES.join('|')}>`,
+        details: { field: 'status', expected: TASK_STATUSES, actual: status },
+      },
     );
   }
 }
@@ -152,6 +162,10 @@ export function normalizePriority(priority: string | number): TaskPriority {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Invalid numeric priority: ${priority} (must be 1-9)`,
+        {
+          fix: `Use a numeric priority 1-9 or one of: ${VALID_PRIORITIES.join('|')}`,
+          details: { field: 'priority', expected: '1-9', actual: priority },
+        },
       );
     }
     return mapped;
@@ -172,6 +186,10 @@ export function normalizePriority(priority: string | number): TaskPriority {
   throw new CleoError(
     ExitCode.VALIDATION_ERROR,
     `Invalid priority: ${priority} (must be ${VALID_PRIORITIES.join('|')} or numeric 1-9)`,
+    {
+      fix: `cleo add ... --priority <${VALID_PRIORITIES.join('|')}>`,
+      details: { field: 'priority', expected: VALID_PRIORITIES, actual: priority },
+    },
   );
 }
 
@@ -194,6 +212,10 @@ export function validateTaskType(type: string): asserts type is TaskType {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Invalid task type: ${type} (must be ${valid.join('|')})`,
+      {
+        fix: `cleo add ... --type <${valid.join('|')}>`,
+        details: { field: 'type', expected: valid, actual: type },
+      },
     );
   }
 }
@@ -208,6 +230,10 @@ export function validateSize(size: string): asserts size is TaskSize {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Invalid size: ${size} (must be ${valid.join('|')})`,
+      {
+        fix: `cleo add ... --size <${valid.join('|')}>`,
+        details: { field: 'size', expected: valid, actual: size },
+      },
     );
   }
 }
@@ -223,6 +249,10 @@ export function validateLabels(labels: string[]): void {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Invalid label format: '${trimmed}' (must be lowercase alphanumeric with hyphens/periods)`,
+        {
+          fix: `Labels must match pattern ^[a-z][a-z0-9.-]*$ (e.g. my-label, v1.0)`,
+          details: { field: 'labels', expected: '^[a-z][a-z0-9.-]*$', actual: trimmed },
+        },
       );
     }
   }
@@ -237,6 +267,10 @@ export function validatePhaseFormat(phase: string): void {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Invalid phase format: ${phase} (must be lowercase alphanumeric with hyphens)`,
+      {
+        fix: `Phase slugs must match pattern ^[a-z][a-z0-9-]*$ (e.g. dev-phase-1)`,
+        details: { field: 'phase', expected: '^[a-z][a-z0-9-]*$', actual: phase },
+      },
     );
   }
 }
@@ -253,10 +287,17 @@ export function validateDepends(depends: string[], tasks: Task[]): void {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Invalid dependency ID format: '${trimmed}' (must be T### format)`,
+        {
+          fix: 'Dependency IDs must match T### format (e.g. T123, T4567)',
+          details: { field: 'depends', expected: 'T###', actual: trimmed },
+        },
       );
     }
     if (!existingIds.has(trimmed)) {
-      throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`);
+      throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`, {
+        fix: `cleo find "${trimmed}"`,
+        details: { field: 'depends', actual: trimmed },
+      });
     }
   }
 }
@@ -294,6 +335,10 @@ export function validateParent(
     throw new CleoError(
       ExitCode.DEPTH_EXCEEDED,
       `Cannot add child to ${parentId}: max hierarchy depth (${maxDepth}) would be exceeded`,
+      {
+        fix: 'Reparent this task under a higher-level epic',
+        details: { field: 'parentId', expected: `depth < ${maxDepth}`, actual: depth },
+      },
     );
   }
 
@@ -436,6 +481,10 @@ export async function addTask(
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       'Title and description must be different (anti-hallucination rule)',
+      {
+        fix: 'Provide --desc with a description different from the title',
+        details: { field: 'description' },
+      },
     );
   }
 
@@ -508,11 +557,18 @@ export async function addTask(
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Invalid dependency ID format: '${trimmed}' (must be T### format)`,
+          {
+            fix: 'Dependency IDs must match T### format (e.g. T123, T4567)',
+            details: { field: 'depends', expected: 'T###', actual: trimmed },
+          },
         );
       }
       const exists = await dataAccessor.taskExists(trimmed);
       if (!exists) {
-        throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`);
+        throw new CleoError(ExitCode.NOT_FOUND, `Dependency task not found: ${trimmed}`, {
+          fix: `cleo find "${trimmed}"`,
+          details: { field: 'depends', actual: trimmed },
+        });
       }
     }
   }
@@ -532,6 +588,10 @@ export async function addTask(
         throw new CleoError(
           ExitCode.NOT_FOUND,
           `Phase '${phase}' not found. Valid phases: ${validPhases || 'none'}. Use --add-phase to create new.`,
+          {
+            fix: `cleo add ... --add-phase to create '${phase}', or use one of: ${validPhases || 'none'}`,
+            details: { field: 'phase', expected: Object.keys(phases), actual: phase },
+          },
         );
       }
       // Create phase
@@ -554,12 +614,18 @@ export async function addTask(
   // Parent hierarchy validation using targeted queries
   if (parentId) {
     if (!/^T\d{3,}$/.test(parentId)) {
-      throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`);
+      throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`, {
+        fix: 'Parent IDs must match T### format (e.g. T123)',
+        details: { field: 'parentId', expected: 'T###', actual: parentId },
+      });
     }
     // Validate parent exists
     const parentTask = await dataAccessor.loadSingleTask(parentId);
     if (!parentTask) {
-      throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${parentId} not found`);
+      throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task ${parentId} not found`, {
+        fix: `Use 'cleo find "${parentId}"' to search or create as standalone task`,
+        details: { field: 'parentId', actual: parentId },
+      });
     }
 
     // Read hierarchy limits from config via policy module
@@ -573,6 +639,14 @@ export async function addTask(
       throw new CleoError(
         ExitCode.DEPTH_EXCEEDED,
         `Maximum nesting depth ${policy.maxDepth} would be exceeded`,
+        {
+          fix: 'Reparent this task under a higher-level epic',
+          details: {
+            field: 'parentId',
+            expected: `depth < ${policy.maxDepth}`,
+            actual: parentDepth + 1,
+          },
+        },
       );
     }
 
@@ -586,6 +660,14 @@ export async function addTask(
         throw new CleoError(
           ExitCode.SIBLING_LIMIT,
           `Parent ${parentId} already has ${counted} children (limit: ${policy.maxSiblings})`,
+          {
+            fix: 'Create as standalone task or increase hierarchy.maxSiblings in config',
+            details: {
+              field: 'parentId',
+              expected: `<= ${policy.maxSiblings} siblings`,
+              actual: counted,
+            },
+          },
         );
       }
     }
@@ -596,6 +678,14 @@ export async function addTask(
       throw new CleoError(
         ExitCode.SIBLING_LIMIT,
         `Parent ${parentId} already has ${activeCount} active children (maxActiveSiblings=${policy.maxActiveSiblings})`,
+        {
+          fix: 'Complete or cancel an active sibling before adding a new task here',
+          details: {
+            field: 'parentId',
+            expected: `<= ${policy.maxActiveSiblings} active siblings`,
+            actual: activeCount,
+          },
+        },
       );
     }
 
