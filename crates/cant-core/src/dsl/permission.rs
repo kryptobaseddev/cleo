@@ -50,6 +50,69 @@ pub fn parse_permissions(lines: &[IndentedLine<'_>]) -> Result<Vec<Permission>, 
             ));
         }
 
+        let (access, globs) = parse_access_and_globs(access_str, &domain, line_span)?;
+
+        permissions.push(Permission {
+            domain,
+            access,
+            globs,
+            span: line_span,
+        });
+    }
+
+    Ok(permissions)
+}
+
+/// Parses the access portion of a permission line into access levels and optional glob patterns.
+///
+/// Supports two forms:
+/// - Plain: `read, write` → access=["read", "write"], globs=[]
+/// - Glob-bounded: `write[backend/**, tests/backend/**]` →
+///   access=["write"], globs=["backend/**", "tests/backend/**"]
+fn parse_access_and_globs(
+    access_str: &str,
+    domain: &str,
+    line_span: Span,
+) -> Result<(Vec<String>, Vec<String>), ParseError> {
+    if let Some(bracket_start) = access_str.find('[') {
+        let base_access = access_str[..bracket_start].trim();
+        let after_bracket = &access_str[bracket_start + 1..];
+
+        let bracket_end = after_bracket.rfind(']').ok_or_else(|| {
+            ParseError::error(
+                format!(
+                    "unterminated glob list for domain '{domain}' — expected `]` after glob patterns"
+                ),
+                line_span,
+            )
+        })?;
+
+        let globs_part = &after_bracket[..bracket_end];
+
+        if base_access.is_empty() {
+            return Err(ParseError::error(
+                format!("missing access level before `[` for domain '{domain}'"),
+                line_span,
+            ));
+        }
+
+        let access = vec![base_access.to_string()];
+
+        let globs: Vec<String> = globs_part
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if globs.is_empty() {
+            return Err(ParseError::error(
+                format!("empty glob list for domain '{domain}' — provide at least one pattern"),
+                line_span,
+            ));
+        }
+
+        Ok((access, globs))
+    } else {
         let access: Vec<String> = access_str
             .split(',')
             .map(|s| s.trim().to_string())
@@ -63,14 +126,8 @@ pub fn parse_permissions(lines: &[IndentedLine<'_>]) -> Result<Vec<Permission>, 
             ));
         }
 
-        permissions.push(Permission {
-            domain,
-            access,
-            span: line_span,
-        });
+        Ok((access, Vec::new()))
     }
-
-    Ok(permissions)
 }
 
 #[cfg(test)]
@@ -138,5 +195,41 @@ mod tests {
         let lines = split_lines(input).unwrap();
         let err = parse_permissions(&lines).unwrap_err();
         assert!(err.message.contains("no access levels"));
+    }
+
+    #[test]
+    fn parse_files_write_with_glob() {
+        let input = "    files: write[backend/**, tests/backend/**]";
+        let lines = split_lines(input).unwrap();
+        let perms = parse_permissions(&lines).unwrap();
+        assert_eq!(perms.len(), 1);
+        assert_eq!(perms[0].domain, "files");
+        assert_eq!(perms[0].access, vec!["write"]);
+        assert_eq!(
+            perms[0].globs,
+            vec!["backend/**".to_string(), "tests/backend/**".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_files_read_no_glob() {
+        let input = "    files: read";
+        let lines = split_lines(input).unwrap();
+        let perms = parse_permissions(&lines).unwrap();
+        assert_eq!(perms.len(), 1);
+        assert_eq!(perms[0].domain, "files");
+        assert_eq!(perms[0].access, vec!["read"]);
+        assert!(perms[0].globs.is_empty());
+    }
+
+    #[test]
+    fn parse_glob_single_pattern() {
+        let input = "    files: write[src/**]";
+        let lines = split_lines(input).unwrap();
+        let perms = parse_permissions(&lines).unwrap();
+        assert_eq!(perms.len(), 1);
+        assert_eq!(perms[0].domain, "files");
+        assert_eq!(perms[0].access, vec!["write"]);
+        assert_eq!(perms[0].globs, vec!["src/**".to_string()]);
     }
 }

@@ -84,6 +84,36 @@ pub fn check_unique_names(doc: &CantDocument, ctx: &mut ValidationContext) -> Ve
                     ctx.defined_pipelines.insert(name.clone(), pipe.name.span);
                 }
             }
+            Section::Team(team) => {
+                let name = &team.name.value;
+                if let Some(prev_span) = ctx.defined_teams.get(name) {
+                    diags.push(Diagnostic::error(
+                        "S05",
+                        format!(
+                            "Duplicate team name '{}' at line {}. A team with this name is already defined at line {}.",
+                            name, team.name.span.line, prev_span.line
+                        ),
+                        team.name.span,
+                    ));
+                } else {
+                    ctx.defined_teams.insert(name.clone(), team.name.span);
+                }
+            }
+            Section::Tool(tool) => {
+                let name = &tool.name.value;
+                if let Some(prev_span) = ctx.defined_tools.get(name) {
+                    diags.push(Diagnostic::error(
+                        "S05",
+                        format!(
+                            "Duplicate tool name '{}' at line {}. A tool with this name is already defined at line {}.",
+                            name, tool.name.span.line, prev_span.line
+                        ),
+                        tool.name.span,
+                    ));
+                } else {
+                    ctx.defined_tools.insert(name.clone(), tool.name.span);
+                }
+            }
             Section::Binding(binding) => {
                 ctx.define_binding(binding.name.value.clone(), binding.name.span);
             }

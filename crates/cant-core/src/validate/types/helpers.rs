@@ -17,8 +17,16 @@ pub(super) struct ExpectedType {
 }
 
 /// Returns true if the value is a string-like type.
+///
+/// Accepts:
+/// - `Value::String(_)` — quoted or bare single-line string
+/// - `Value::Identifier(_)` — bare identifier
+/// - `Value::ProseBlock(_)` — heredoc multi-line string (`key: |` syntax)
 pub(super) fn is_string_like(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Identifier(_))
+    matches!(
+        value,
+        Value::String(_) | Value::Identifier(_) | Value::ProseBlock(_)
+    )
 }
 
 /// Returns true if the value is a duration.

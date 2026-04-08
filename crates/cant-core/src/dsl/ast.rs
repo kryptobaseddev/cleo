@@ -100,6 +100,10 @@ pub enum Section {
     Workflow(WorkflowDef),
     /// A pipeline definition block (Layer 3).
     Pipeline(PipelineDef),
+    /// A team definition block (CleoOS v2 — 3-tier hierarchy).
+    Team(TeamDef),
+    /// A tool definition block (CleoOS v2 — LLM-callable tool).
+    Tool(ToolDef),
     /// An import statement.
     Import(ImportStatement),
     /// A let/const binding.
@@ -133,6 +137,16 @@ pub struct AgentDef {
     pub context_refs: Vec<ContextRef>,
     /// Inline hook definitions (`on Event:` within the agent block).
     pub hooks: Vec<HookDef>,
+    /// Properties from a `context_sources:` sub-block (CleoOS v2 — JIT context pull config).
+    ///
+    /// Stored as raw properties; the bridge interprets them at spawn time.
+    /// Lint rule `JIT-001` requires an `on_overflow:` entry whenever this is non-empty.
+    pub context_sources: Vec<Property>,
+    /// Properties from a `mental_model:` sub-block (CleoOS v2 — per-agent persistent model).
+    ///
+    /// Lint rules `MM-001` / `MM-002` require `scope:` and `validate: true` respectively
+    /// whenever this is non-empty.
+    pub mental_model: Vec<Property>,
     /// Span covering the entire agent definition.
     pub span: Span,
 }
@@ -169,6 +183,54 @@ pub struct SkillDef {
     /// Key-value properties.
     pub properties: Vec<Property>,
     /// Span covering the entire skill definition.
+    pub span: Span,
+}
+
+// ── Team Definition (CleoOS v2) ──────────────────────────────────────
+
+/// A team definition block (`team Name:`).
+///
+/// Declares a 3-tier multi-agent hierarchy (orchestrator / leads / workers)
+/// with HITL routing rules and role enforcement (ULTRAPLAN §10).
+///
+/// ```cant
+/// team platform:
+///   orchestrator: cleo-prime
+///   leads:
+///     engineering: engineering-lead
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamDef {
+    /// The team name identifier.
+    pub name: Spanned<String>,
+    /// Key-value properties (description, enforcement, routing, etc.).
+    ///
+    /// Sub-blocks like `leads:`, `workers:`, and `routing:` are parsed uniformly
+    /// via the existing `Property` / `Value::Array` machinery so that hierarchy
+    /// lint rules (TEAM-001..003) can inspect them by key.
+    pub properties: Vec<Property>,
+    /// Span covering the entire team definition.
+    pub span: Span,
+}
+
+// ── Tool Definition (CleoOS v2) ──────────────────────────────────────
+
+/// A tool definition block (`tool Name:`).
+///
+/// Declares an LLM-callable tool beyond the built-in dispatcher tools
+/// (ULTRAPLAN §8).
+///
+/// ```cant
+/// tool dispatch_worker:
+///   description: "Spawn a worker subagent"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDef {
+    /// The tool name identifier.
+    pub name: Spanned<String>,
+    /// Key-value properties (description, schema, permissions, etc.).
+    pub properties: Vec<Property>,
+    /// Span covering the entire tool definition.
     pub span: Span,
 }
 
@@ -303,6 +365,7 @@ pub enum DurationUnit {
 ///
 /// ```cant
 /// tasks: read, write
+/// files: write[backend/**, tests/backend/**]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Permission {
@@ -310,6 +373,11 @@ pub struct Permission {
     pub domain: String,
     /// The permission access levels.
     pub access: Vec<String>,
+    /// Glob patterns when this is a glob-bounded permission
+    /// (e.g., `files: write[backend/**]`).
+    ///
+    /// Empty vec means no glob bounds (plain access level).
+    pub globs: Vec<String>,
     /// Span covering the entire permission line.
     pub span: Span,
 }

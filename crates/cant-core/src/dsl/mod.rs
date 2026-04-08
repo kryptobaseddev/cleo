@@ -41,6 +41,8 @@ pub mod session;
 pub mod skill;
 pub mod span;
 pub mod statement;
+pub mod team;
+pub mod tool;
 pub mod try_catch;
 pub mod workflow;
 
@@ -244,11 +246,44 @@ pub fn parse_document(content: &str) -> Result<CantDocument, Vec<ParseError>> {
             continue;
         }
 
+        // Team block (CleoOS v2)
+        if content_str.starts_with("team ") && content_str.ends_with(':') {
+            match team::parse_team_block(&lines, idx) {
+                Ok((team_def, consumed)) => {
+                    sections.push(Section::Team(team_def));
+                    idx += consumed;
+                }
+                Err(e) => {
+                    errors.push(e);
+                    idx += 1;
+                }
+            }
+            continue;
+        }
+
+        // Tool block (CleoOS v2)
+        //
+        // The `"tool "` prefix (with trailing space) prevents collisions with
+        // hypothetical identifiers like `toolkit`.
+        if content_str.starts_with("tool ") && content_str.ends_with(':') {
+            match tool::parse_tool_block(&lines, idx) {
+                Ok((tool_def, consumed)) => {
+                    sections.push(Section::Tool(tool_def));
+                    idx += consumed;
+                }
+                Err(e) => {
+                    errors.push(e);
+                    idx += 1;
+                }
+            }
+            continue;
+        }
+
         // Unknown top-level construct
         let base_offset = line.byte_offset + line.indent;
         errors.push(ParseError::error(
             format!(
-                "unexpected top-level construct: `{content_str}`; expected agent, skill, on, workflow, pipeline, @import, let, const, or #comment"
+                "unexpected top-level construct: `{content_str}`; expected agent, skill, on, workflow, pipeline, team, tool, @import, let, const, or #comment"
             ),
             Span::new(
                 base_offset,

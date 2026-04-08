@@ -75,6 +75,8 @@ pub fn parse_agent_block(
     let mut permissions = Vec::new();
     let mut context_refs = Vec::new();
     let mut hooks = Vec::new();
+    let mut context_sources = Vec::new();
+    let mut mental_model = Vec::new();
 
     let mut i = 0;
     while i < body_lines.len() {
@@ -98,6 +100,42 @@ pub fn parse_agent_block(
             let ctx_lines = collect_block(body_lines, i + 1, line.indent);
             context_refs = parse_context_refs(ctx_lines)?;
             i += 1 + ctx_lines.len();
+            continue;
+        }
+
+        // Check for context_sources: sub-block (CleoOS v2 — JIT context pull)
+        if line.content == "context_sources:" {
+            let cs_lines = collect_block(body_lines, i + 1, line.indent);
+            let mut inner_i = 0;
+            while inner_i < cs_lines.len() {
+                let cs_line = &cs_lines[inner_i];
+                if cs_line.is_blank() || cs_line.is_comment() {
+                    inner_i += 1;
+                    continue;
+                }
+                let (prop, extra) = parse_property_or_prose(cs_lines, inner_i)?;
+                context_sources.push(prop);
+                inner_i += 1 + extra;
+            }
+            i += 1 + cs_lines.len();
+            continue;
+        }
+
+        // Check for mental_model: sub-block (CleoOS v2 — per-agent persistent model)
+        if line.content == "mental_model:" {
+            let mm_lines = collect_block(body_lines, i + 1, line.indent);
+            let mut inner_i = 0;
+            while inner_i < mm_lines.len() {
+                let mm_line = &mm_lines[inner_i];
+                if mm_line.is_blank() || mm_line.is_comment() {
+                    inner_i += 1;
+                    continue;
+                }
+                let (prop, extra) = parse_property_or_prose(mm_lines, inner_i)?;
+                mental_model.push(prop);
+                inner_i += 1 + extra;
+            }
+            i += 1 + mm_lines.len();
             continue;
         }
 
@@ -129,6 +167,8 @@ pub fn parse_agent_block(
         permissions,
         context_refs,
         hooks,
+        context_sources,
+        mental_model,
         span: Span::new(
             base_offset,
             end_offset,

@@ -308,6 +308,8 @@ mod tests {
             permissions: vec![],
             context_refs: vec![],
             hooks,
+            context_sources: vec![],
+            mental_model: vec![],
             span: dummy_span(),
         }
     }

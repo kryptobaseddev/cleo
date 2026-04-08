@@ -20,6 +20,8 @@ fn make_agent(name: &str, line: u32) -> AgentDef {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     }
 }
@@ -303,6 +305,7 @@ fn s13_valid_permissions_pass() {
     agent.permissions.push(Permission {
         domain: "tasks".to_string(),
         access: vec!["read".to_string(), "write".to_string()],
+        globs: vec![],
         span: dummy_span(),
     });
     let doc = make_doc(vec![Section::Agent(agent)]);
@@ -316,6 +319,7 @@ fn s13_invalid_permission_error() {
     agent.permissions.push(Permission {
         domain: "tasks".to_string(),
         access: vec!["read".to_string(), "admin".to_string()],
+        globs: vec![],
         span: Span::new(0, 10, 3, 1),
     });
     let doc = make_doc(vec![Section::Agent(agent)]);
@@ -331,6 +335,7 @@ fn s13_execute_is_valid() {
     agent.permissions.push(Permission {
         domain: "tasks".to_string(),
         access: vec!["execute".to_string()],
+        globs: vec![],
         span: dummy_span(),
     });
     let doc = make_doc(vec![Section::Agent(agent)]);

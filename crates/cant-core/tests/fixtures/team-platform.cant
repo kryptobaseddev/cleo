@@ -1,0 +1,26 @@
+---
+kind: team
+version: 1
+---
+
+team platform:
+  description: "End-to-end product team"
+  orchestrator: cleo-prime
+
+  leads:
+    planning: planning-lead
+    engineering: engineering-lead
+    validation: validation-lead
+
+  workers:
+    planning: [product-manager, ux-researcher]
+    engineering: [frontend-dev, backend-dev]
+    validation: [qa-engineer, security-reviewer]
+
+  routing:
+    hitl_target: orchestrator
+    orchestrator_can_call: leads
+    lead_can_call: own_group_workers
+    worker_can_call: []
+
+  enforcement: strict

@@ -48,6 +48,8 @@ fn t01_model_string_pass() {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     })]);
     let diags = property_rules::check_t01_property_types(&doc);
@@ -62,6 +64,8 @@ fn t01_model_number_error() {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     })]);
     let diags = property_rules::check_t01_property_types(&doc);
@@ -119,6 +123,8 @@ fn t01_persist_boolean_pass() {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     })]);
     let diags = property_rules::check_t01_property_types(&doc);
@@ -133,6 +139,8 @@ fn t01_persist_string_error() {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     })]);
     let diags = property_rules::check_t01_property_types(&doc);
@@ -496,6 +504,8 @@ fn check_all_clean_document_passes() {
         permissions: vec![],
         context_refs: vec![],
         hooks: vec![],
+        context_sources: vec![],
+        mental_model: vec![],
         span: dummy_span(),
     })]);
     let ctx = ValidationContext::new();

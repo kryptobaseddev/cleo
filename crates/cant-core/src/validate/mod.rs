@@ -13,6 +13,7 @@
 
 pub mod context;
 pub mod diagnostic;
+pub mod hierarchy;
 pub mod hooks;
 pub mod pipeline_purity;
 pub mod scope;
@@ -55,6 +56,9 @@ pub fn validate(doc: &CantDocument) -> Vec<Diagnostic> {
     // ── Workflow rules ───────────────────────────────────────────────
     diags.extend(workflows::check_all(doc, &ctx));
 
+    // ── Hierarchy rules (CleoOS v2) ──────────────────────────────────
+    diags.extend(hierarchy::check_all(doc, &ctx));
+
     diags
 }
 
@@ -94,6 +98,8 @@ mod tests {
                 permissions: vec![],
                 context_refs: vec![],
                 hooks: vec![],
+                context_sources: vec![],
+                mental_model: vec![],
                 span: dummy_span(),
             }),
             Section::Agent(AgentDef {
@@ -102,6 +108,8 @@ mod tests {
                 permissions: vec![],
                 context_refs: vec![],
                 hooks: vec![],
+                context_sources: vec![],
+                mental_model: vec![],
                 span: dummy_span(),
             }),
         ]);
