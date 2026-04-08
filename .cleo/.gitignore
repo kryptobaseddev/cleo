@@ -28,6 +28,8 @@
 !agent-outputs/**
 !research/
 !research/**
+!consensus/
+!consensus/**
 
 # Explicit deny safety net — databases, backups, and untracked runtime files
 *.db
