@@ -144,7 +144,7 @@ export function createProjectionMiddleware(): Middleware {
     // Check domain access at this tier
     if (!config.allowedDomains.includes(req.domain)) {
       return {
-        _meta: {
+        meta: {
           gateway: req.gateway,
           domain: req.domain,
           operation: req.operation,

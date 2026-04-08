@@ -227,7 +227,7 @@ export class ToolsHandler implements DomainHandler {
           return wrapResult(result, 'query', 'tools', 'skill.list', startTime);
         }
         return {
-          _meta: dispatchMeta('query', 'tools', 'skill.list', startTime),
+          meta: dispatchMeta('query', 'tools', 'skill.list', startTime),
           success: true,
           data: {
             skills: result.data!.skills,
@@ -328,7 +328,7 @@ export class ToolsHandler implements DomainHandler {
                 return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
               }
               return {
-                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
                 success: true,
                 data: {
                   protocols: result.data!.protocols,
@@ -346,7 +346,7 @@ export class ToolsHandler implements DomainHandler {
                 return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
               }
               return {
-                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
                 success: true,
                 data: {
                   profiles: result.data!.profiles,
@@ -364,7 +364,7 @@ export class ToolsHandler implements DomainHandler {
                 return wrapResult(result, 'query', 'tools', 'skill.catalog', startTime);
               }
               return {
-                _meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
+                meta: dispatchMeta('query', 'tools', 'skill.catalog', startTime),
                 success: true,
                 data: {
                   resources: result.data!.resources,
@@ -475,7 +475,7 @@ export class ToolsHandler implements DomainHandler {
           return wrapResult(result, 'query', 'tools', 'provider.list', startTime);
         }
         return {
-          _meta: dispatchMeta('query', 'tools', 'provider.list', startTime),
+          meta: dispatchMeta('query', 'tools', 'provider.list', startTime),
           success: true,
           data: {
             providers: result.data!.providers,

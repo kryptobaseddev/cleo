@@ -4,22 +4,28 @@
  * LAFS (LLM-Agent-First Schema) ensures all CLI output is
  * machine-parseable JSON by default, with optional human-readable modes.
  *
- * All envelopes are now full LAFS-compliant with $schema and _meta.
- * The backward-compatible shape (success + data, no _meta) has been removed.
+ * All envelopes use the canonical CLI envelope shape:
+ *   { success, data?, error?, meta, page? }
+ *
+ * This replaces the three legacy shapes:
+ *   {ok, r, _m}            (minimal MVI — removed)
+ *   {$schema, _meta, success, result}  (full LAFS — now uses meta/data)
+ *   {success, result}      (observe command — now uses data)
  *
  * Types are re-exported from the canonical source in src/types/lafs.ts.
  *
  * @epic T4663
  * @task T4672
+ * @task T338 (ADR-039 envelope unification)
  */
 
 import { randomUUID } from 'node:crypto';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
-import type { LAFSMeta, LAFSPage, Warning } from '@cleocode/lafs';
+import type { CliEnvelope, CliEnvelopeError, CliMeta, LAFSPage, Warning } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
 import { getCurrentSessionId } from './sessions/context-alert.js';
 
-export type { LafsEnvelope, LafsError, LafsSuccess };
+export type { CliEnvelope, CliEnvelopeError, CliMeta, LafsEnvelope, LafsError, LafsSuccess };
 
 /**
  * Accumulated warnings for the current request.
@@ -70,47 +76,57 @@ export interface FormatOptions {
 }
 
 /**
- * Create a LAFS-conformant _meta object for CLI envelopes.
+ * Create a canonical `CliMeta` object for CLI envelopes.
+ *
  * Includes sessionId (T4702) and warnings (T4669) when present.
+ * Drains the pending warnings queue so they are included in the current envelope.
+ *
+ * @param operation - Dot-delimited operation identifier (e.g. `"tasks.show"`).
+ * @param duration_ms - Wall-clock duration in milliseconds. Defaults to 0.
+ * @returns A fully populated {@link CliMeta} object.
  *
  * @task T4700
  * @task T4702
+ * @task T338
  * @epic T4663
  */
-function createCliMeta(
-  operation: string,
-  mvi: import('@cleocode/lafs').MVILevel = 'minimal',
-): LAFSMeta {
+function createCliMeta(operation: string, duration_ms = 0): CliMeta {
   const warnings = drainWarnings();
-  const meta: LAFSMeta = {
-    specVersion: '1.2.3',
-    schemaVersion: '2026.2.1',
-    timestamp: new Date().toISOString(),
+  const meta: CliMeta = {
     operation,
     requestId: randomUUID(),
-    transport: 'cli',
-    strict: true,
-    mvi,
-    contextVersion: 1,
-    ...(warnings && { warnings }),
+    duration_ms,
+    timestamp: new Date().toISOString(),
   };
   const sessionId = getCurrentSessionId();
   if (sessionId) {
-    meta.sessionId = sessionId;
+    meta['sessionId'] = sessionId;
+  }
+  if (warnings && warnings.length > 0) {
+    meta['warnings'] = warnings;
   }
   return meta;
 }
 
 /**
- * Format a successful result as a full LAFS-conformant envelope.
+ * Format a successful result as a canonical CLI envelope.
  *
- * Always produces the full LAFSEnvelope with $schema and _meta.
- * When operation is omitted, defaults to 'cli.output'.
- * Supports optional page (T4668) and _extensions (T4670).
+ * Produces the unified `CliEnvelope<T>` shape: `{success, data, meta, page?}`.
+ * This replaces all three legacy shapes (minimal `{ok,r,_m}`, full `{$schema,_meta,result}`,
+ * and observe `{success,result}`) with a single canonical format (ADR-039).
+ *
+ * The `mvi` option in `FormatOptions` is accepted for backward compatibility but
+ * no longer affects the envelope shape — the canonical shape is always emitted.
+ *
+ * @param data - The operation result payload.
+ * @param message - Optional success message (attached to `meta.message`).
+ * @param operationOrOpts - Operation name string or `FormatOptions` object.
+ * @returns JSON-serialized `CliEnvelope<T>`.
  *
  * @task T4672
  * @task T4668
  * @task T4670
+ * @task T338
  * @epic T4663
  */
 export function formatSuccess<T>(
@@ -121,71 +137,53 @@ export function formatSuccess<T>(
   const opts: FormatOptions =
     typeof operationOrOpts === 'string' ? { operation: operationOrOpts } : (operationOrOpts ?? {});
 
-  // Determine MVI level: default is 'minimal' (agent-optimized).
-  // Only --human flag or explicit mvi='full'/'standard' overrides.
-  const mviLevel = opts.mvi ?? 'minimal';
+  const meta = createCliMeta(opts.operation ?? 'cli.output');
 
-  const meta = createCliMeta(opts.operation ?? 'cli.output', mviLevel);
-  const fullEnvelope: Record<string, unknown> = {
-    $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: meta,
-    success: true as const,
-    result: data as Record<string, unknown> | Record<string, unknown>[] | null,
-    ...(message && { message }),
+  const envelope: CliEnvelope<T> = {
+    success: true,
+    data,
+    meta: message ? { ...meta, message } : meta,
     ...(opts.page && { page: opts.page }),
-    ...(opts.extensions &&
-      Object.keys(opts.extensions).length > 0 && { _extensions: opts.extensions }),
   };
 
-  // For 'full' level, skip projection — return the complete envelope as-is.
-  // This is the backward-compatible path used by --human and conformance tests.
-  if (mviLevel === 'full') {
-    return JSON.stringify(fullEnvelope);
-  }
-
-  // Apply MVI projection — strips envelope to the declared level.
-  // 'minimal': { success, result, _meta: { requestId, contextVersion } }
-  // 'standard': + $schema, timestamp, operation, mvi
-  if (mviLevel === 'minimal') {
-    // Inline minimal projection — avoids dynamic import overhead.
-    // Matches projectMetaMinimal() from @cleocode/lafs/mviProjection.ts
-    const minimalMeta: Record<string, unknown> = {
-      op: meta.operation,
-      rid: meta.requestId,
-    };
-    if (meta.sessionId) minimalMeta.sid = meta.sessionId;
-    if (meta.warnings?.length) minimalMeta.w = meta.warnings;
-
-    const minimal: Record<string, unknown> = {
-      ok: true,
-      r: data,
-      _m: minimalMeta,
-    };
-    if (message) minimal.msg = message;
-    if (opts.page) minimal.p = opts.page;
-    return JSON.stringify(minimal);
-  }
-
-  // 'standard' level — use the full envelope structure (current behavior)
-  return JSON.stringify(fullEnvelope);
+  return JSON.stringify(envelope);
 }
 
 /**
- * Format an error as a full LAFS-conformant envelope.
+ * Format an error as a canonical CLI error envelope.
  *
- * Always produces the full LAFSEnvelope with $schema and _meta.
- * When operation is omitted, defaults to 'cli.output'.
+ * Produces `{success: false, error: CliEnvelopeError, meta: CliMeta}`.
+ * Every error envelope now always includes `meta` (ADR-039).
+ * When operation is omitted, defaults to `'cli.output'`.
+ *
+ * @param error - The `CleoError` to format.
+ * @param operation - Optional dot-delimited operation identifier.
+ * @returns JSON-serialized error `CliEnvelope`.
  *
  * @task T4672
+ * @task T338
  * @epic T4663
  */
 export function formatError(error: CleoError, operation?: string): string {
-  const envelope = {
-    $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: createCliMeta(operation ?? 'cli.output'),
-    success: false as const,
-    result: null,
-    error: error.toLAFSError(),
+  const lafsError = error.toLAFSError();
+  const errorObj: CliEnvelopeError = {
+    code: lafsError.code,
+    message: lafsError.message,
+    details: lafsError.details,
+  };
+  if ('category' in lafsError && lafsError.category) {
+    (errorObj as Record<string, unknown>)['category'] = lafsError.category;
+  }
+  if ('retryable' in lafsError) {
+    (errorObj as Record<string, unknown>)['retryable'] = lafsError.retryable;
+  }
+  if ('agentAction' in lafsError && lafsError.agentAction) {
+    (errorObj as Record<string, unknown>)['agentAction'] = lafsError.agentAction;
+  }
+  const envelope: CliEnvelope<null> = {
+    success: false,
+    error: errorObj,
+    meta: createCliMeta(operation ?? 'cli.output'),
   };
   return JSON.stringify(envelope);
 }

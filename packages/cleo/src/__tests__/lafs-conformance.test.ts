@@ -32,8 +32,8 @@ import {
 } from '../../../core/src/output.js';
 
 /**
- * Wrapper that forces mvi='full' for conformance tests.
- * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ * Wrapper for formatSuccess. After ADR-039, the canonical CLI envelope is always
+ * emitted regardless of mvi level, so this is now a thin pass-through.
  */
 function formatSuccess<T>(
   data: T,
@@ -42,8 +42,8 @@ function formatSuccess<T>(
 ): string {
   const opts: FormatOptions =
     typeof operationOrOpts === 'string'
-      ? { operation: operationOrOpts, mvi: 'full' }
-      : { mvi: 'full', ...(operationOrOpts ?? {}) };
+      ? { operation: operationOrOpts }
+      : (operationOrOpts ?? {});
   return _formatSuccess(data, message, opts);
 }
 
@@ -63,25 +63,25 @@ import { createGatewayMeta } from '../dispatch/lib/gateway-meta.js';
 // ============================
 
 /**
- * Validate a full LAFS envelope has required structural fields.
+ * Validate a canonical CLI envelope has required structural fields (ADR-039).
+ *
+ * Checks the unified shape: `{success, data?, error?, meta, page?}`.
  *
  * @task T4672
+ * @task T338
  */
 function isValidLafsEnvelope(json: string): { valid: boolean; error?: string } {
   try {
     const parsed = JSON.parse(json);
-    if (typeof parsed.$schema !== 'string') {
-      return { valid: false, error: 'Missing $schema field' };
-    }
-    if (!parsed._meta || typeof parsed._meta !== 'object') {
-      return { valid: false, error: 'Missing _meta object' };
-    }
     if (typeof parsed.success !== 'boolean') {
       return { valid: false, error: 'Missing or non-boolean "success" field' };
     }
+    if (!parsed.meta || typeof parsed.meta !== 'object') {
+      return { valid: false, error: 'Missing "meta" object (ADR-039 — always required)' };
+    }
     if (parsed.success) {
-      if (!('result' in parsed)) {
-        return { valid: false, error: 'Success envelope missing "result" field' };
+      if (!('data' in parsed)) {
+        return { valid: false, error: 'Success envelope missing "data" field' };
       }
     } else {
       if (!parsed.error || typeof parsed.error !== 'object') {
@@ -101,65 +101,62 @@ function isValidLafsEnvelope(json: string): { valid: boolean; error?: string } {
 // PROTOCOL-BASED CONFORMANCE
 // ============================
 
-describe('LAFS Protocol Conformance (full envelope)', () => {
+describe('CLI Envelope Conformance (canonical shape, ADR-039)', () => {
   describe('formatSuccess with explicit operation', () => {
-    it('passes protocol validateEnvelope()', () => {
+    it('produces valid canonical CLI envelope', () => {
       const json = formatSuccess({ task: { id: 'T001' } }, undefined, 'tasks.show');
-      const envelope = JSON.parse(json);
-      const result = validateEnvelope(envelope);
-      expect(result.valid).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
-    it('includes $schema field', () => {
+    it('does NOT include legacy $schema field', () => {
       const json = formatSuccess({ id: 'T001' }, undefined, 'tasks.add');
       const parsed = JSON.parse(json);
-      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+      // The canonical CLI envelope does not carry $schema — it's for the proto-envelope only
+      expect(parsed.$schema).toBeUndefined();
     });
 
-    it('includes _meta with all required LAFS fields', () => {
+    it('includes meta with required CLI fields', () => {
       const json = formatSuccess({ count: 5 }, undefined, 'tasks.list');
       const parsed = JSON.parse(json);
-      expect(parsed._meta).toBeDefined();
-      expect(parsed._meta.specVersion).toBe('1.2.3');
-      expect(parsed._meta.timestamp).toBeDefined();
-      expect(parsed._meta.operation).toBe('tasks.list');
-      expect(parsed._meta.requestId).toBeDefined();
-      expect(parsed._meta.transport).toBe('cli');
-      expect(parsed._meta.strict).toBe(true);
+      expect(parsed.meta).toBeDefined();
+      expect(parsed.meta.timestamp).toBeDefined();
+      expect(parsed.meta.operation).toBe('tasks.list');
+      expect(parsed.meta.requestId).toBeDefined();
+      expect(typeof parsed.meta.duration_ms).toBe('number');
+      // Legacy _meta MUST be absent
+      expect(parsed._meta).toBeUndefined();
     });
 
-    it('sets success=true and result field', () => {
+    it('sets success=true and data field (not result)', () => {
       const json = formatSuccess({ id: 'T001' }, undefined, 'tasks.add');
       const parsed = JSON.parse(json);
       expect(parsed.success).toBe(true);
-      expect(parsed.result).toEqual({ id: 'T001' });
-      // In strict mode, error is omitted rather than set to null
+      expect(parsed.data).toEqual({ id: 'T001' });
+      // Legacy result MUST be absent
+      expect(parsed.result).toBeUndefined();
       expect(parsed.error).toBeUndefined();
     });
   });
 
   describe('formatSuccess without operation (defaults to cli.output)', () => {
-    it('produces full LAFS envelope with default operation', () => {
+    it('produces valid canonical CLI envelope with default operation', () => {
       const json = formatSuccess({ task: { id: 'T001', title: 'Test' } });
       const parsed = JSON.parse(json);
-      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
-      expect(parsed._meta).toBeDefined();
-      expect(parsed._meta.operation).toBe('cli.output');
+      expect(parsed.meta).toBeDefined();
+      expect(parsed.meta.operation).toBe('cli.output');
       expect(parsed.success).toBe(true);
-      expect(parsed.result).toEqual({ task: { id: 'T001', title: 'Test' } });
+      expect(parsed.data).toEqual({ task: { id: 'T001', title: 'Test' } });
     });
 
-    it('passes protocol validateEnvelope() even without explicit operation', () => {
+    it('passes isValidLafsEnvelope() even without explicit operation', () => {
       const json = formatSuccess({ items: [1, 2] });
-      const envelope = JSON.parse(json);
-      const result = validateEnvelope(envelope);
-      expect(result.valid).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
-    it('includes optional message', () => {
+    it('includes optional message in meta', () => {
       const result = formatSuccess({ id: 'T001' }, 'Task created');
       const parsed = JSON.parse(result);
-      expect(parsed.message).toBe('Task created');
+      expect(parsed.meta.message).toBe('Task created');
     });
 
     it('handles null data', () => {
@@ -174,44 +171,40 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
   });
 
   describe('formatError with explicit operation', () => {
-    it('passes protocol validateEnvelope()', () => {
+    it('produces valid canonical CLI error envelope', () => {
       const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
       const json = formatError(err, 'tasks.show');
-      const envelope = JSON.parse(json);
-      const result = validateEnvelope(envelope);
-      expect(result.valid).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
-    it('produces LAFS error shape with category', () => {
+    it('produces error shape with category and retryable', () => {
       const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
       const json = formatError(err, 'tasks.show');
       const parsed = JSON.parse(json);
       expect(parsed.success).toBe(false);
-      expect(parsed.result).toBeNull(); // result is required by schema even for errors
-      expect(parsed.error.code).toMatch(/^E_/);
+      // In canonical shape, no `result` field — errors do NOT have result
+      expect(parsed.result).toBeUndefined();
+      // Error carries structured fields
+      expect(parsed.error.message).toBe('Task not found');
       expect(parsed.error.category).toBe('NOT_FOUND');
       expect(typeof parsed.error.retryable).toBe('boolean');
     });
   });
 
   describe('formatError without operation (defaults to cli.output)', () => {
-    it('produces full LAFS envelope with default operation', () => {
+    it('produces valid canonical CLI error envelope with default operation', () => {
       const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
       const json = formatError(err);
       const parsed = JSON.parse(json);
-      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
-      expect(parsed._meta).toBeDefined();
-      expect(parsed._meta.operation).toBe('cli.output');
+      expect(parsed.meta).toBeDefined();
+      expect(parsed.meta.operation).toBe('cli.output');
       expect(parsed.success).toBe(false);
-      expect(parsed.error.code).toMatch(/^E_/);
     });
 
-    it('passes protocol validateEnvelope() even without explicit operation', () => {
+    it('isValidLafsEnvelope() passes even without explicit operation', () => {
       const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
       const json = formatError(err);
-      const envelope = JSON.parse(json);
-      const result = validateEnvelope(envelope);
-      expect(result.valid).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
     it('includes LAFS error details', () => {
@@ -229,36 +222,21 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
     });
   });
 
-  describe('runEnvelopeConformance()', () => {
-    it('full conformance suite passes for success envelope', () => {
+  describe('isValidLafsEnvelope (canonical shape checks)', () => {
+    it('canonical success envelope passes', () => {
       const json = formatSuccess({ items: [1, 2] }, undefined, 'system.health');
-      const envelope = JSON.parse(json);
-      const report = runEnvelopeConformance(envelope);
-      expect(report.ok).toBe(true);
-      const failedChecks = report.checks.filter((c: { pass: boolean }) => !c.pass);
-      expect(failedChecks).toHaveLength(0);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
-    it('full conformance suite passes for error envelope (except code registry)', () => {
+    it('canonical error envelope passes', () => {
       const err = new CleoError(ExitCode.VALIDATION_ERROR, 'Bad input');
       const json = formatError(err, 'tasks.add');
-      const envelope = JSON.parse(json);
-      const report = runEnvelopeConformance(envelope);
-      // CLEO error codes aren't in the default LAFS registry, so
-      // error_code_registered and transport_mapping_consistent are expected
-      // to fail (CLEO has its own error code → exit code mapping).
-      const knownExclusions = new Set(['error_code_registered', 'transport_mapping_consistent']);
-      const failedChecks = report.checks.filter(
-        (c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name),
-      );
-      expect(failedChecks).toHaveLength(0);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
 
-    it('conformance passes for envelope without explicit operation', () => {
+    it('canonical envelope without explicit operation passes', () => {
       const json = formatSuccess({ data: 'test' });
-      const envelope = JSON.parse(json);
-      const report = runEnvelopeConformance(envelope);
-      expect(report.ok).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
   });
 });
@@ -515,8 +493,8 @@ describe('LAFSPage Pagination (T4668)', () => {
 // T4669: WARNINGS
 // ============================
 
-describe('_meta.warnings Deprecation Support (T4669)', () => {
-  it('pushWarning adds warning to next envelope', () => {
+describe('meta.warnings Deprecation Support (T4669)', () => {
+  it('pushWarning adds warning to next envelope meta', () => {
     pushWarning({
       code: 'DEPRECATED_FLAG',
       message: '--legacy flag is deprecated',
@@ -526,10 +504,11 @@ describe('_meta.warnings Deprecation Support (T4669)', () => {
     });
     const json = formatSuccess({ ok: true });
     const parsed = JSON.parse(json);
-    expect(parsed._meta.warnings).toBeDefined();
-    expect(parsed._meta.warnings).toHaveLength(1);
-    expect(parsed._meta.warnings[0].code).toBe('DEPRECATED_FLAG');
-    expect(parsed._meta.warnings[0].replacement).toBe('--modern');
+    // Warnings are now in meta.warnings (canonical CLI envelope, ADR-039)
+    expect(parsed.meta.warnings).toBeDefined();
+    expect(parsed.meta.warnings).toHaveLength(1);
+    expect(parsed.meta.warnings[0].code).toBe('DEPRECATED_FLAG');
+    expect(parsed.meta.warnings[0].replacement).toBe('--modern');
   });
 
   it('warnings are drained after consumption', () => {
@@ -537,15 +516,13 @@ describe('_meta.warnings Deprecation Support (T4669)', () => {
     formatSuccess({ ok: true }); // consumes
     const json = formatSuccess({ ok: true }); // no warnings
     const parsed = JSON.parse(json);
-    expect(parsed._meta.warnings).toBeUndefined();
+    expect(parsed.meta.warnings).toBeUndefined();
   });
 
-  it('envelope with warnings still passes validation', () => {
+  it('envelope with warnings still passes isValidLafsEnvelope()', () => {
     pushWarning({ code: 'W001', message: 'test warning' });
     const json = formatSuccess({ data: 1 }, undefined, 'system.test');
-    const envelope = JSON.parse(json);
-    const result = validateEnvelope(envelope);
-    expect(result.valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 });
 
@@ -553,40 +530,27 @@ describe('_meta.warnings Deprecation Support (T4669)', () => {
 // T4670: EXTENSIONS
 // ============================
 
-describe('_extensions CLEO Metadata (T4670)', () => {
-  it('formatSuccess includes _extensions when provided', () => {
+describe('extensions in FormatOptions (T4670)', () => {
+  it('_extensions field is not part of the canonical CLI envelope (ADR-039)', () => {
+    // The canonical CLI envelope does not carry _extensions at the top level.
+    // Extensions from FormatOptions are ignored in the unified shape.
     const json = formatSuccess({ ok: true }, undefined, {
       operation: 'system.status',
       extensions: {
         cleoVersion: '2026.2.5',
-        activeSession: 'sess-123',
-        focusTask: 'T001',
       },
     });
     const parsed = JSON.parse(json);
-    expect(parsed._extensions).toBeDefined();
-    expect(parsed._extensions.cleoVersion).toBe('2026.2.5');
-    expect(parsed._extensions.activeSession).toBe('sess-123');
-    expect(parsed._extensions.focusTask).toBe('T001');
+    expect(parsed._extensions).toBeUndefined();
+    // Envelope is still valid
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 
-  it('_extensions omitted when empty', () => {
+  it('envelope without extensions still passes isValidLafsEnvelope()', () => {
     const json = formatSuccess({ ok: true }, undefined, {
       operation: 'test',
-      extensions: {},
     });
-    const parsed = JSON.parse(json);
-    expect(parsed._extensions).toBeUndefined();
-  });
-
-  it('envelope with _extensions still passes validation', () => {
-    const json = formatSuccess({ data: 1 }, undefined, {
-      operation: 'system.test',
-      extensions: { foo: 'bar' },
-    });
-    const envelope = JSON.parse(json);
-    const result = validateEnvelope(envelope);
-    expect(result.valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 });
 
@@ -668,24 +632,20 @@ describe('LAFS Budget Enforcement (T4701)', () => {
     expect(isWithinBudget(response, 10)).toBe(false);
   });
 
-  it('enforceBudget adds budget metadata to _meta', () => {
+  it('enforceBudget adds budget metadata to meta', () => {
+    // The canonical CLI envelope uses `meta` (not `_meta`).
     const response = {
-      _meta: {
-        specVersion: '1.2.3',
-        schemaVersion: '2026.2.1',
-        timestamp: new Date().toISOString(),
+      meta: {
         operation: 'test',
         requestId: 'r1',
-        transport: 'sdk',
-        strict: true,
-        mvi: 'standard',
-        contextVersion: 1,
+        duration_ms: 0,
+        timestamp: new Date().toISOString(),
       },
       success: true,
       data: { ok: true },
     };
     const { response: enforced } = enforceBudget(response, 5000);
-    const meta = enforced['_meta'] as Record<string, unknown>;
+    const meta = enforced['meta'] as Record<string, unknown>;
     expect(meta['_budgetEnforcement']).toBeDefined();
     const be = meta['_budgetEnforcement'] as Record<string, unknown>;
     expect(typeof be['estimatedTokens']).toBe('number');
@@ -697,14 +657,15 @@ describe('LAFS Budget Enforcement (T4701)', () => {
 // T4702: SESSION ID IN _META
 // ============================
 
-describe('Session ID in _meta (T4702)', () => {
+describe('Session ID in meta (T4702)', () => {
   it('sessionId included in CLI meta when session is active', () => {
     const origEnv = process.env['CLEO_SESSION'];
     process.env['CLEO_SESSION'] = 'test-session-42';
     try {
       const json = formatSuccess({ ok: true });
       const parsed = JSON.parse(json);
-      expect(parsed._meta.sessionId).toBe('test-session-42');
+      // sessionId is now in meta.sessionId (canonical CLI envelope, ADR-039)
+      expect(parsed.meta.sessionId).toBe('test-session-42');
     } finally {
       if (origEnv !== undefined) {
         process.env['CLEO_SESSION'] = origEnv;
@@ -720,9 +681,8 @@ describe('Session ID in _meta (T4702)', () => {
     try {
       const json = formatSuccess({ ok: true });
       const parsed = JSON.parse(json);
-      // sessionId may or may not be present depending on .current-session file
-      // but should not throw
-      expect(parsed._meta).toBeDefined();
+      // meta is always present (ADR-039), sessionId is optional
+      expect(parsed.meta).toBeDefined();
     } finally {
       if (origEnv !== undefined) {
         process.env['CLEO_SESSION'] = origEnv;
@@ -750,7 +710,7 @@ describe('Session ID in _meta (T4702)', () => {
 // T4673: FULL CONFORMANCE CI SUITE
 // ============================
 
-describe('runEnvelopeConformance() CI Suite (T4673)', () => {
+describe('isValidLafsEnvelope() CI Suite (T4673 — canonical shape)', () => {
   const OPERATIONS = [
     'tasks.list',
     'tasks.show',
@@ -763,19 +723,13 @@ describe('runEnvelopeConformance() CI Suite (T4673)', () => {
   ];
 
   for (const operation of OPERATIONS) {
-    it(`success envelope for ${operation} passes full conformance`, () => {
+    it(`success envelope for ${operation} passes isValidLafsEnvelope()`, () => {
       const json = formatSuccess({ data: 'test' }, undefined, operation);
-      const envelope = JSON.parse(json);
-      const report = runEnvelopeConformance(envelope);
-      expect(report.ok).toBe(true);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     });
   }
 
-  it('all error envelopes pass conformance (except code registry)', () => {
-    // CLEO error codes aren't in the default LAFS registry, so
-    // error_code_registered and transport_mapping_consistent are expected
-    // to fail (CLEO has its own error code → exit code mapping).
-    const knownExclusions = new Set(['error_code_registered', 'transport_mapping_consistent']);
+  it('all error envelopes pass isValidLafsEnvelope()', () => {
     const errorCodes = [
       ExitCode.NOT_FOUND,
       ExitCode.VALIDATION_ERROR,
@@ -786,39 +740,23 @@ describe('runEnvelopeConformance() CI Suite (T4673)', () => {
     for (const code of errorCodes) {
       const err = new CleoError(code, `Test error ${code}`);
       const json = formatError(err, 'test.error');
-      const envelope = JSON.parse(json);
-      const report = runEnvelopeConformance(envelope);
-      const nonRegistryFails = report.checks.filter(
-        (c: { name: string; pass: boolean }) => !c.pass && !knownExclusions.has(c.name),
-      );
-      expect(nonRegistryFails).toHaveLength(0);
+      expect(isValidLafsEnvelope(json).valid).toBe(true);
     }
   });
 
-  it('envelope with page passes conformance', () => {
+  it('envelope with page passes isValidLafsEnvelope()', () => {
     const page = createPage({ total: 50, limit: 10, offset: 0 });
     const json = formatSuccess({ tasks: [] }, undefined, { operation: 'tasks.list', page });
-    const envelope = JSON.parse(json);
-    const result = validateEnvelope(envelope);
-    expect(result.valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
+    // page field is present at top level
+    const parsed = JSON.parse(json);
+    expect(parsed.page).toBeDefined();
   });
 
-  it('envelope with _extensions passes conformance', () => {
-    const json = formatSuccess({ ok: true }, undefined, {
-      operation: 'system.info',
-      extensions: { cleoVersion: '2026.2.5' },
-    });
-    const envelope = JSON.parse(json);
-    const result = validateEnvelope(envelope);
-    expect(result.valid).toBe(true);
-  });
-
-  it('envelope with warnings passes conformance', () => {
+  it('envelope with warnings passes isValidLafsEnvelope()', () => {
     pushWarning({ code: 'DEPRECATED', message: 'old feature' });
     const json = formatSuccess({ ok: true }, undefined, 'system.test');
-    const envelope = JSON.parse(json);
-    const result = validateEnvelope(envelope);
-    expect(result.valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 });
 

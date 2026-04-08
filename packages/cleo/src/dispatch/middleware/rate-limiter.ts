@@ -161,7 +161,7 @@ export function createRateLimiter(config?: Partial<RateLimitingConfig>): Middlew
 
     if (!check.allowed) {
       return {
-        _meta: {
+        meta: {
           gateway: req.gateway,
           domain: req.domain,
           operation: req.operation,
@@ -181,7 +181,7 @@ export function createRateLimiter(config?: Partial<RateLimitingConfig>): Middlew
     }
 
     const response = await next();
-    response._meta.rateLimit = {
+    response.meta.rateLimit = {
       limit: check.limit,
       remaining: check.remaining,
       resetMs: check.resetMs,

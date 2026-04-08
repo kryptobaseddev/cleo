@@ -38,7 +38,7 @@ export class Dispatcher {
     const resolved = resolve(request.gateway, request.domain, request.operation);
     if (!resolved) {
       return {
-        _meta: createDispatchMeta(
+        meta: createDispatchMeta(
           request.gateway,
           request.domain,
           request.operation,
@@ -58,7 +58,7 @@ export class Dispatcher {
     const missing = validateRequiredParams(resolved.def, request.params);
     if (missing.length > 0) {
       return {
-        _meta: createDispatchMeta(
+        meta: createDispatchMeta(
           request.gateway,
           resolved.domain,
           resolved.operation,
@@ -79,7 +79,7 @@ export class Dispatcher {
     const handler = this.handlers.get(resolved.domain);
     if (!handler) {
       return {
-        _meta: createDispatchMeta(
+        meta: createDispatchMeta(
           request.gateway,
           resolved.domain,
           resolved.operation,
@@ -107,13 +107,13 @@ export class Dispatcher {
     const response = await this.pipeline(request, terminal);
 
     // 5. Stamp timing and tracing metadata
-    response._meta.duration_ms = Date.now() - startTime;
-    response._meta.requestId = request.requestId;
-    response._meta.source = request.source;
+    response.meta.duration_ms = Date.now() - startTime;
+    response.meta.requestId = request.requestId;
+    response.meta.source = request.source;
 
     // 6. Stamp session identity (T4959)
     if (request.sessionId) {
-      response._meta.sessionId = request.sessionId;
+      response.meta.sessionId = request.sessionId;
     }
 
     return response;

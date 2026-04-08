@@ -33,13 +33,13 @@ export function createProtocolEnforcement(strictMode: boolean = true): Middlewar
 
     // enforceProtocol may return a DomainResponse (missing source/requestId on _meta)
     // when it constructs an error response. Ensure _meta has required DispatchResponse fields.
-    if (!result._meta.source || !result._meta.requestId) {
+    if (!result.meta.source || !result.meta.requestId) {
       return {
         ...result,
-        _meta: {
+        meta: {
           ...result._meta,
-          source: result._meta.source ?? req.source,
-          requestId: result._meta.requestId ?? req.requestId,
+          source: result.meta.source ?? req.source,
+          requestId: result.meta.requestId ?? req.requestId,
         },
       } as DispatchResponse;
     }

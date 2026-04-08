@@ -1,7 +1,7 @@
 /**
  * Convenience wrapper for dispatch metadata creation.
  *
- * Domain handlers call dispatchMeta() to build DispatchResponse['_meta']
+ * Domain handlers call dispatchMeta() to build DispatchResponse['meta']
  * without importing the factory directly.
  *
  * @task T4772
@@ -18,7 +18,7 @@ import type { DispatchResponse, Source } from '../types.js';
  * @param operation - Operation name (e.g., 'show', 'list')
  * @param startTime - Timestamp from Date.now() at start of request
  * @param source    - Where the request originated
- * @returns Metadata conforming to DispatchResponse['_meta']
+ * @returns Metadata conforming to DispatchResponse['meta']
  *
  * @task T4772
  */
@@ -28,6 +28,6 @@ export function dispatchMeta(
   operation: string,
   startTime: number,
   source: Source = 'cli',
-): DispatchResponse['_meta'] {
+): DispatchResponse['meta'] {
   return createDispatchMeta(gateway, domain, operation, startTime, source);
 }

@@ -1,3 +1,15 @@
+import { randomUUID } from 'node:crypto';
+
+/**
+ * Generate a request UUID for error envelopes.
+ * Extracted to keep the hot path synchronous.
+ *
+ * @internal
+ */
+function generateRequestId(): string {
+  return randomUUID();
+}
+
 /**
  * Central output dispatch for V2 CLI commands.
  *
@@ -15,7 +27,7 @@
  */
 
 import { type FormatOptions, formatSuccess } from '@cleocode/core';
-import type { LAFSEnvelope } from '@cleocode/lafs';
+import type { CliEnvelope, CliMeta } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
@@ -96,13 +108,13 @@ const renderers: Record<string, HumanRenderer> = {
 export interface CliOutputOptions {
   /** Command name (used to pick the correct human renderer). */
   command: string;
-  /** Optional success message for JSON envelope. */
+  /** Optional success message for JSON envelope (attached to `meta.message`). */
   message?: string;
-  /** Operation name for LAFS _meta. */
+  /** Operation name for canonical envelope `meta.operation` (e.g. `"tasks.show"`). */
   operation?: string;
-  /** Pagination for LAFS envelope. */
+  /** Pagination metadata for canonical envelope `page` field. */
   page?: FormatOptions['page'];
-  /** Extra LAFS extensions. */
+  /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
 }
 
@@ -132,7 +144,10 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     // §5.4.1 filter-then-render: apply --field extraction BEFORE human rendering
     let fieldExtracted = false;
     if (fieldCtx.field) {
-      const extracted = extractFieldFromResult(data as LAFSEnvelope['result'], fieldCtx.field);
+      const extracted = extractFieldFromResult(
+        data as Parameters<typeof extractFieldFromResult>[0],
+        fieldCtx.field,
+      );
       if (extracted === undefined) {
         cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
         process.exit(4);
@@ -165,7 +180,12 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   // --field: single-field plain text extraction (scripting / agent use).
   // Centralised here so ALL commands (dispatchFromCli and dispatchRaw) honour the flag.
   if (fieldCtx.field) {
-    const value = extractFieldFromResult(data as LAFSEnvelope['result'], fieldCtx.field);
+    // extractFieldFromResult operates on the data payload (not the envelope).
+    // Cast to the proto-envelope result type for the SDK call.
+    const value = extractFieldFromResult(
+      data as Parameters<typeof extractFieldFromResult>[0],
+      fieldCtx.field,
+    );
     if (value === undefined) {
       cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
       process.exit(4);
@@ -175,14 +195,15 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     return;
   }
 
-  // JSON format (default): apply --fields filter, then emit LAFS envelope.
+  // JSON format (default): apply --fields filter, then emit canonical CLI envelope.
   // Centralised here so ALL commands honour the flag without per-command wiring.
   // applyFieldFilter can throw on unusual mixed-type arrays (e.g. changes: ['status']).
   // In that case we fall back to unfiltered output rather than crashing.
   let filteredData = data;
   if (fieldCtx.fields?.length && data !== undefined && data !== null) {
     try {
-      const stub: LAFSEnvelope = {
+      // Build a proto-envelope stub to drive the SDK field filter (ADR-039 bridge).
+      const stub = {
         $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
         _meta: {
           specVersion: '',
@@ -196,9 +217,12 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
           contextVersion: 0,
         },
         success: true,
-        result: data as LAFSEnvelope['result'],
+        result: data as Parameters<typeof applyFieldFilter>[0]['result'],
       };
-      const filtered = applyFieldFilter(stub, fieldCtx.fields);
+      const filtered = applyFieldFilter(
+        stub as Parameters<typeof applyFieldFilter>[0],
+        fieldCtx.fields,
+      );
       filteredData = filtered.result;
     } catch {
       // applyFieldFilter limitation: mixed-type arrays (strings inside arrays) are not
@@ -206,8 +230,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     }
   }
 
-  // Per LAFS §9.1 (v1.5.0 clarification): _meta MUST always be present.
-  // --mvi minimal governs result contents only; mvi level is reflected in _meta.mvi.
+  // Build FormatOptions for formatSuccess (now emits canonical CliEnvelope shape).
   const formatOpts: FormatOptions = {};
   if (opts.operation) formatOpts.operation = opts.operation;
   if (opts.page) formatOpts.page = opts.page;
@@ -270,10 +293,10 @@ export interface CliErrorDetails {
 /**
  * Output an error in the resolved format.
  *
- * In JSON format (default / agent mode): emits a LAFS-compatible error
- * envelope to stdout. All optional fields (`codeName`, `fix`, `alternatives`,
- * `details`) are included only when they are actually present — no
- * `undefined` keys are emitted.
+ * In JSON format (default / agent mode): emits a canonical `CliEnvelope` error
+ * envelope to stdout. The envelope always includes `meta` (ADR-039).
+ * All optional fields (`codeName`, `fix`, `alternatives`, `details`) are
+ * included only when they are actually present — no `undefined` keys are emitted.
  *
  * In human format: prints a plain error line to stderr and, when
  * `details.fix` is a string, appends a `Fix: <hint>` line.
@@ -281,12 +304,19 @@ export interface CliErrorDetails {
  * @param message - Human-readable error message.
  * @param code    - Numeric exit code or string error code.
  * @param details - Optional structured details (codeName, fix, alternatives, …).
+ * @param meta    - Optional partial meta to merge into the error envelope.
  *
  * @task T4666
  * @task T4813
  * @task T336
+ * @task T338
  */
-export function cliError(message: string, code?: number | string, details?: CliErrorDetails): void {
+export function cliError(
+  message: string,
+  code?: number | string,
+  details?: CliErrorDetails,
+  meta?: Partial<CliMeta>,
+): void {
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {
@@ -311,5 +341,21 @@ export function cliError(message: string, code?: number | string, details?: CliE
   if (details?.alternatives !== undefined) errorObj['alternatives'] = details.alternatives;
   if (details?.details !== undefined) errorObj['details'] = details.details;
 
-  console.log(JSON.stringify({ success: false, error: errorObj }));
+  // Canonical error envelope: {success, error, meta} — meta is ALWAYS present.
+  // Merge caller-supplied meta with defaults (ADR-039).
+  const errorMeta: CliMeta = {
+    operation: meta?.operation ?? 'cli.error',
+    requestId: meta?.requestId ?? generateRequestId(),
+    duration_ms: meta?.duration_ms ?? 0,
+    timestamp: meta?.timestamp ?? new Date().toISOString(),
+    ...meta,
+  };
+
+  const envelope: CliEnvelope<never> = {
+    success: false,
+    error: errorObj as import('@cleocode/lafs').CliEnvelopeError,
+    meta: errorMeta,
+  };
+
+  console.log(JSON.stringify(envelope));
 }

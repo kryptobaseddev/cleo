@@ -18,7 +18,7 @@ import type { GatewayMeta } from '@cleocode/contracts';
 import { getCurrentSessionId } from '@cleocode/core/internal';
 
 /**
- * GatewayMeta with an index signature for DomainResponse._meta
+ * GatewayMeta with an index signature for DomainResponse.meta
  * compatibility.  All domain handlers receive this from
  * createGatewayMeta().
  *

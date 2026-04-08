@@ -19,8 +19,13 @@ import {
 } from '../../../core/src/output.js';
 
 /**
- * Wrapper that forces mvi='full' for golden parity tests.
- * These tests verify FULL LAFS envelope structure, not agent-optimized MVI output.
+ * Wrapper that passes options through to formatSuccess.
+ *
+ * @remarks
+ * Previously forced mvi='full' to get the old full LAFS envelope shape.
+ * After ADR-039 the canonical CliEnvelope shape is always emitted regardless
+ * of mvi level, so this wrapper is now a thin pass-through. Kept for test
+ * readability and as a call-site for asserting on the canonical shape.
  */
 function formatSuccess<T>(
   data: T,
@@ -29,8 +34,8 @@ function formatSuccess<T>(
 ): string {
   const opts: FormatOptions =
     typeof operationOrOpts === 'string'
-      ? { operation: operationOrOpts, mvi: 'full' }
-      : { mvi: 'full', ...(operationOrOpts ?? {}) };
+      ? { operation: operationOrOpts }
+      : (operationOrOpts ?? {});
   return _formatSuccess(data, message, opts);
 }
 
@@ -38,49 +43,35 @@ import { createPage } from '../../../core/src/pagination.js';
 import { createGatewayMeta } from '../dispatch/lib/gateway-meta.js';
 
 /**
- * Canonical LAFS success envelope shape.
- * All TS CLI output must match this structure.
+ * Canonical CLI success envelope shape (ADR-039).
+ * All TS CLI output must match this structure: {success, data, meta, page?}.
  */
 const GOLDEN_SUCCESS_SHAPE = {
-  $schema: 'string',
-  _meta: {
-    specVersion: 'string',
-    schemaVersion: 'string',
-    timestamp: 'string',
+  success: 'boolean',
+  data: 'any',
+  meta: {
     operation: 'string',
     requestId: 'string',
-    transport: 'string',
-    strict: 'boolean',
-    mvi: 'string',
-    contextVersion: 'number',
+    duration_ms: 'number',
+    timestamp: 'string',
   },
-  success: 'boolean',
-  result: 'any',
 };
 
 /**
- * Canonical LAFS error envelope shape.
+ * Canonical CLI error envelope shape (ADR-039).
+ * All CLI error output must match: {success, error, meta}.
  */
 const GOLDEN_ERROR_SHAPE = {
-  $schema: 'string',
-  _meta: {
-    specVersion: 'string',
-    schemaVersion: 'string',
-    timestamp: 'string',
+  success: 'boolean',
+  error: {
+    code: 'any',
+    message: 'string',
+  },
+  meta: {
     operation: 'string',
     requestId: 'string',
-    transport: 'string',
-    strict: 'boolean',
-    mvi: 'string',
-    contextVersion: 'number',
-  },
-  success: 'boolean',
-  result: 'null',
-  error: {
-    code: 'string',
-    message: 'string',
-    category: 'string',
-    retryable: 'boolean',
+    duration_ms: 'number',
+    timestamp: 'string',
   },
 };
 
@@ -126,8 +117,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
       );
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_SUCCESS_SHAPE);
-      expect(parsed._meta.transport).toBe('cli');
-      expect(parsed._meta.strict).toBe(true);
+      expect(parsed.meta.operation).toBe('tasks.show');
       expect(parsed.success).toBe(true);
     });
 
@@ -172,7 +162,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
       const json = formatSuccess({ data: 'test' });
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_SUCCESS_SHAPE);
-      expect(parsed._meta.operation).toBe('cli.output');
+      expect(parsed.meta.operation).toBe('cli.output');
     });
   });
 
@@ -183,7 +173,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_ERROR_SHAPE);
       expect(parsed.success).toBe(false);
-      expect(parsed.result).toBeNull();
+      expect(parsed.meta.operation).toBe('tasks.show');
     });
 
     it('VALIDATION_ERROR error matches golden shape', () => {
@@ -191,6 +181,7 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
       const json = formatError(err, 'tasks.add');
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_ERROR_SHAPE);
+      // error.category is now carried in the error object
       expect(parsed.error.category).toBe('VALIDATION');
     });
 
@@ -237,34 +228,46 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
     });
   });
 
-  describe('Stable field values', () => {
-    it('$schema URL is stable', () => {
+  describe('Canonical CLI envelope field values (ADR-039)', () => {
+    it('success envelope has top-level success=true', () => {
       const json = formatSuccess({ ok: true });
       const parsed = JSON.parse(json);
-      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+      expect(parsed.success).toBe(true);
     });
 
-    it('specVersion is stable', () => {
+    it('success envelope has data field (not result)', () => {
+      const json = formatSuccess({ value: 42 });
+      const parsed = JSON.parse(json);
+      expect(parsed.data).toBeDefined();
+      expect(parsed.data.value).toBe(42);
+      expect(parsed.result).toBeUndefined();
+    });
+
+    it('success envelope has meta field (not _meta)', () => {
       const json = formatSuccess({ ok: true });
       const parsed = JSON.parse(json);
-      expect(parsed._meta.specVersion).toBe('1.2.3');
+      expect(parsed.meta).toBeDefined();
+      expect(typeof parsed.meta.operation).toBe('string');
+      expect(typeof parsed.meta.requestId).toBe('string');
+      expect(typeof parsed.meta.timestamp).toBe('string');
+      expect(typeof parsed.meta.duration_ms).toBe('number');
+      // Legacy fields must be absent
+      expect(parsed._meta).toBeUndefined();
+      expect(parsed._m).toBeUndefined();
+      expect(parsed.ok).toBeUndefined();
+      expect(parsed.r).toBeUndefined();
     });
 
-    it('schemaVersion is stable', () => {
+    it('default operation is cli.output', () => {
       const json = formatSuccess({ ok: true });
       const parsed = JSON.parse(json);
-      expect(parsed._meta.schemaVersion).toBe('2026.2.1');
+      expect(parsed.meta.operation).toBe('cli.output');
     });
 
-    it('CLI transport is cli', () => {
-      const json = formatSuccess({ ok: true });
+    it('operation is set from options', () => {
+      const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
       const parsed = JSON.parse(json);
-      expect(parsed._meta.transport).toBe('cli');
-    });
-
-    it('SDK transport is sdk', () => {
-      const meta = createGatewayMeta('q', 'd', 'op', Date.now());
-      expect(meta.transport).toBe('sdk');
+      expect(parsed.meta.operation).toBe('tasks.show');
     });
   });
 });

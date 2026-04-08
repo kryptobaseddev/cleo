@@ -20,7 +20,7 @@ import type { DispatchResponse, Source } from '../types.js';
  * @param source    - Where the request originated
  * @param requestId - Optional pre-generated request ID
  * @param sessionId - Optional session ID to include in metadata
- * @returns Metadata conforming to DispatchResponse['_meta']
+ * @returns Metadata conforming to DispatchResponse['meta']
  *
  * @task T4772
  * @task T4959
@@ -33,9 +33,9 @@ export function createDispatchMeta(
   source: Source = 'cli',
   requestId?: string,
   sessionId?: string | null,
-): DispatchResponse['_meta'] {
+): DispatchResponse['meta'] {
   return {
-    gateway: gateway as DispatchResponse['_meta']['gateway'],
+    gateway: gateway as DispatchResponse['meta']['gateway'],
     domain,
     operation,
     timestamp: new Date().toISOString(),

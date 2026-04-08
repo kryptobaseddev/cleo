@@ -401,7 +401,7 @@ export class CheckHandler implements DomainHandler {
             : allGrades;
           const page = paginate(filteredGrades, limit, offset);
           return {
-            _meta: dispatchMeta('query', 'check', operation, startTime),
+            meta: dispatchMeta('query', 'check', operation, startTime),
             success: true,
             data: {
               grades: page.items,
@@ -420,7 +420,7 @@ export class CheckHandler implements DomainHandler {
             cwd: projectRoot,
           });
           return {
-            _meta: dispatchMeta('query', 'check', operation, startTime),
+            meta: dispatchMeta('query', 'check', operation, startTime),
             success: true,
             data: result,
           };
@@ -489,7 +489,7 @@ export class CheckHandler implements DomainHandler {
             cwd: projectRoot,
           });
           return {
-            _meta: dispatchMeta('mutate', 'check', operation, startTime),
+            meta: dispatchMeta('mutate', 'check', operation, startTime),
             success: (result.success as boolean) ?? true,
             data: result,
           };

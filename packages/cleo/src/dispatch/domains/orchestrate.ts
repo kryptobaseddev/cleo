@@ -146,7 +146,7 @@ export class OrchestrateHandler implements DomainHandler {
               );
             }
             return {
-              _meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
+              meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
               success: true,
               data: template,
             };
@@ -155,7 +155,7 @@ export class OrchestrateHandler implements DomainHandler {
           const { limit, offset } = getListParams(params);
           const page = paginate(templates, limit, offset);
           return {
-            _meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
+            meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
             success: true,
             data: {
               templates: page.items,
@@ -404,7 +404,7 @@ export class OrchestrateHandler implements DomainHandler {
             projectRoot,
           );
           return {
-            _meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
+            meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
             success: true,
             data: instance,
           };

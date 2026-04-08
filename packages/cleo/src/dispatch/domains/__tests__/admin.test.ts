@@ -232,9 +232,9 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(res.data).toEqual({ version: '1.2.3' });
-      expect(res._meta.gateway).toBe('query');
-      expect(res._meta.domain).toBe('admin');
-      expect(res._meta.operation).toBe('version');
+      expect(res.meta.gateway).toBe('query');
+      expect(res.meta.domain).toBe('admin');
+      expect(res.meta.operation).toBe('version');
       expect(getVersion).toHaveBeenCalledWith('/mock/project');
     });
 
@@ -652,21 +652,21 @@ describe('AdminHandler', () => {
 
       const res = await handler.query('version');
 
-      expect(res._meta).toBeDefined();
-      expect(res._meta.gateway).toBe('query');
-      expect(res._meta.domain).toBe('admin');
-      expect(res._meta.operation).toBe('version');
-      expect(res._meta.timestamp).toBeDefined();
-      expect(typeof res._meta.duration_ms).toBe('number');
-      expect(res._meta.duration_ms).toBeGreaterThanOrEqual(0);
+      expect(res.meta).toBeDefined();
+      expect(res.meta.gateway).toBe('query');
+      expect(res.meta.domain).toBe('admin');
+      expect(res.meta.operation).toBe('version');
+      expect(res.meta.timestamp).toBeDefined();
+      expect(typeof res.meta.duration_ms).toBe('number');
+      expect(res.meta.duration_ms).toBeGreaterThanOrEqual(0);
     });
 
     it('should include correct _meta fields on error', async () => {
       const res = await handler.query('nonexistent');
 
-      expect(res._meta.gateway).toBe('query');
-      expect(res._meta.domain).toBe('admin');
-      expect(res._meta.operation).toBe('nonexistent');
+      expect(res.meta.gateway).toBe('query');
+      expect(res.meta.domain).toBe('admin');
+      expect(res.meta.operation).toBe('nonexistent');
     });
 
     it('should include correct _meta on mutate', async () => {
@@ -684,9 +684,9 @@ describe('AdminHandler', () => {
 
       const res = await handler.mutate('backup');
 
-      expect(res._meta.gateway).toBe('mutate');
-      expect(res._meta.domain).toBe('admin');
-      expect(res._meta.operation).toBe('backup');
+      expect(res.meta.gateway).toBe('mutate');
+      expect(res.meta.domain).toBe('admin');
+      expect(res.meta.operation).toBe('backup');
     });
   });
 });

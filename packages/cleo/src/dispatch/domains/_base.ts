@@ -43,7 +43,7 @@ export function wrapResult(
   startTime: number,
 ): DispatchResponse {
   return {
-    _meta: dispatchMeta(gateway, domain, operation, startTime),
+    meta: dispatchMeta(gateway, domain, operation, startTime),
     success: result.success,
     ...(result.success ? { data: result.data } : {}),
     ...(result.page ? { page: result.page } : {}),
@@ -75,7 +75,7 @@ export function errorResult(
   startTime: number,
 ): DispatchResponse {
   return {
-    _meta: dispatchMeta(gateway, domain, operation, startTime),
+    meta: dispatchMeta(gateway, domain, operation, startTime),
     success: false,
     error: { code, message },
   };
@@ -91,7 +91,7 @@ export function unsupportedOp(
   startTime: number,
 ): DispatchResponse {
   return {
-    _meta: dispatchMeta(gateway, domain, operation, startTime),
+    meta: dispatchMeta(gateway, domain, operation, startTime),
     success: false,
     error: { code: 'E_INVALID_OPERATION', message: `Unknown ${domain} ${gateway}: ${operation}` },
   };
@@ -124,7 +124,7 @@ export function handleErrorResult(
 ): DispatchResponse {
   const message = error instanceof Error ? error.message : String(error);
   return {
-    _meta: dispatchMeta(gateway, domain, operation, startTime),
+    meta: dispatchMeta(gateway, domain, operation, startTime),
     success: false,
     error: { code: 'E_INTERNAL', message },
   };

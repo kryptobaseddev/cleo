@@ -196,9 +196,13 @@ export interface DispatchError {
  * Canonical response shape returned by the dispatcher.
  *
  * The CLI adapter translates this into cliOutput() / cliError() + process.exit().
+ *
+ * `meta` (renamed from `_meta` in ADR-039) is always present and carries the
+ * operation, requestId, duration_ms, timestamp, and extensible metadata fields.
  */
 export interface DispatchResponse {
-  _meta: {
+  /** Always-present metadata for every dispatch response. */
+  meta: {
     gateway: Gateway;
     domain: string;
     operation: string;

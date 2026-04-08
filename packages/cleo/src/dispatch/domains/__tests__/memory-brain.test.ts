@@ -558,19 +558,19 @@ describe('MemoryHandler (brain.db backed)', () => {
       });
 
       const result = await handler.query('find', { query: 'test' });
-      expect(result._meta).toBeDefined();
-      expect(result._meta.domain).toBe('memory');
-      expect(result._meta.operation).toBe('find');
-      expect(result._meta.gateway).toBe('query');
-      expect(result._meta.timestamp).toBeDefined();
-      expect(result._meta.duration_ms).toBeGreaterThanOrEqual(0);
+      expect(result.meta).toBeDefined();
+      expect(result.meta.domain).toBe('memory');
+      expect(result.meta.operation).toBe('find');
+      expect(result.meta.gateway).toBe('query');
+      expect(result.meta.timestamp).toBeDefined();
+      expect(result.meta.duration_ms).toBeGreaterThanOrEqual(0);
     });
 
     it('should include _meta in error responses', async () => {
       const result = await handler.query('find', {});
-      expect(result._meta).toBeDefined();
-      expect(result._meta.domain).toBe('memory');
-      expect(result._meta.operation).toBe('find');
+      expect(result.meta).toBeDefined();
+      expect(result.meta.domain).toBe('memory');
+      expect(result.meta.operation).toBe('find');
     });
   });
 });

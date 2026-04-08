@@ -1,28 +1,21 @@
 /**
- * LAFS envelope validator middleware (Phase 6).
+ * CLI envelope validator middleware (Phase 6 / ADR-039 update).
  *
  * Every CLI envelope emitted by `cliOutput()` flows through this module
- * before hitting stdout. The middleware delegates to the canonical LAFS
- * validators where they exist and adds a thin shape check for the agent-
- * optimized **minimal envelope** format that the canonical schema does
- * not cover.
+ * before hitting stdout. Validates the **canonical CLI envelope** shape
+ * (`{success, data?, error?, meta, page?}`) as defined in ADR-039.
  *
- * **SSoT alignment** (post-review):
- *   - Full envelopes (`{$schema, _meta, success, result}`) are validated
- *     by `validateEnvelope()` from `@cleocode/lafs`, which uses the
- *     `lafs-napi` Rust binding (with AJV fallback) and the canonical
- *     schema at `packages/lafs/schemas/v1/envelope.schema.json`.
- *   - Minimal envelopes (`{ok, r, _m}`) are agent-optimized and not part
- *     of the public LAFS schema. We validate their shape locally with
- *     the lightweight invariant check below.
+ * The canonical shape replaces the three legacy shapes:
+ *   - `{ok, r, _m}` (minimal MVI — removed)
+ *   - `{$schema, _meta, success, result}` (full LAFS — migrated)
+ *   - `{success, result}` (observe command — migrated)
  *
- * Validation invariants enforced HERE (minimal envelopes only):
- *   - Envelope MUST be a JSON object (parseable from a string)
- *   - Envelope MUST have exactly one of {`ok`, `success`}
- *   - The success indicator MUST be a boolean
- *   - On success, `r` / `result` MUST exist (may be null)
+ * Validation invariants:
+ *   - Envelope MUST be a JSON object
+ *   - `success` MUST be present and boolean
+ *   - On success, `data` MUST exist (may be null)
  *   - On failure, `error` MUST exist with at least `code` and `message`
- *   - `_m` / `_meta` MUST be present in some form
+ *   - `meta` MUST be present (always — success and failure)
  *
  * When a violation is detected, the validator:
  *   1. Wraps the malformed output in a valid error envelope
@@ -30,58 +23,45 @@
  *   3. Emits the wrapped envelope to stderr for diagnostic tooling
  *
  * @task Phase 6 — LAFS formalization + schema consolidation
- * @see packages/lafs/src/validateEnvelope.ts — canonical full-envelope validator
- * @see packages/lafs/schemas/v1/envelope.schema.json — canonical full-envelope schema
- * @see crates/lafs-core — Rust embed of the canonical schema
+ * @task T338 — ADR-039 canonical envelope unification
  */
 
 import { ExitCode } from '@cleocode/contracts';
 
 /**
- * The minimum shape invariants for a LAFS envelope, compatible with both
- * minimal (`{ok, r, _m}`) and full (`{success, result, _meta}`) formats.
+ * Shape violation report for a canonical CLI envelope.
+ *
+ * Carries the individual invariant results so diagnostic tooling can
+ * report exactly which invariants were violated.
  */
 export interface LafsShapeViolation {
   /** True iff the input is a well-formed JSON object. */
   isObject: boolean;
-  /** True iff the envelope has exactly one success-indicator field. */
+  /** True iff `success` is present. */
   hasSuccessField: boolean;
-  /** True iff the success-indicator is a boolean. */
+  /** True iff `success` is a boolean. */
   successIsBoolean: boolean;
-  /** True iff a metadata field (`_m` or `_meta`) is present. */
+  /** True iff `meta` is present (always required — ADR-039). */
   hasMeta: boolean;
-  /** True iff the result/error invariants hold for the indicated success value. */
+  /** True iff the data/error invariants hold for the indicated success value. */
   resultOrErrorValid: boolean;
   /** Human-readable reasons the envelope failed validation (empty = valid). */
   reasons: string[];
 }
 
-const ENVELOPE_OK_KEY_MINIMAL = 'ok';
-const ENVELOPE_OK_KEY_FULL = 'success';
-const ENVELOPE_RESULT_KEY_MINIMAL = 'r';
-const ENVELOPE_RESULT_KEY_FULL = 'result';
-const ENVELOPE_META_KEYS = ['_m', '_meta'] as const;
+const ENVELOPE_SUCCESS_KEY = 'success';
+const ENVELOPE_DATA_KEY = 'data';
+const ENVELOPE_META_KEY = 'meta';
 
 /**
- * Detect whether a parsed envelope is a "full" or "minimal" LAFS shape.
+ * Validate a canonical CLI envelope shape and report violations.
  *
- * Full shape uses {`success`, `result`, `_meta`}; minimal shape uses
- * {`ok`, `r`, `_m`}. Returns 'unknown' when neither indicator is present.
- */
-function detectEnvelopeFlavor(obj: Record<string, unknown>): 'full' | 'minimal' | 'unknown' {
-  if ('success' in obj || '_meta' in obj || '$schema' in obj) return 'full';
-  if ('ok' in obj || '_m' in obj) return 'minimal';
-  return 'unknown';
-}
-
-/**
- * Validate a LAFS envelope shape and report violations.
+ * Validates the unified `{success, data?, error?, meta, page?}` shape
+ * defined in ADR-039. All three legacy shapes (`{ok,r,_m}`,
+ * `{$schema,_meta,success,result}`, `{success,result}`) are now invalid
+ * and will produce violation reports.
  *
- * Full envelopes are delegated to `@cleocode/lafs.validateEnvelope()` (which
- * uses the canonical schema via lafs-napi/AJV). Minimal envelopes are
- * checked against the lightweight invariants in this module.
- *
- * @param envelope - The candidate envelope (serialized string or object)
+ * @param envelope - The candidate envelope (serialized string or parsed object).
  * @returns A `LafsShapeViolation` report. `.reasons.length === 0` when valid.
  */
 export function validateLafsShape(envelope: unknown): LafsShapeViolation {
@@ -113,76 +93,39 @@ export function validateLafsShape(envelope: unknown): LafsShapeViolation {
 
   const obj = parsed as Record<string, unknown>;
 
-  // SSoT delegation: full envelopes go through @cleocode/lafs.validateEnvelope
-  // which validates against the canonical packages/lafs/schemas/v1/envelope.schema.json
-  // (via the lafs-napi Rust binding when available, AJV fallback otherwise).
-  // We only inspect minimal envelopes locally because they're an internal
-  // agent-optimized format that the canonical schema does not cover.
-  const flavor = detectEnvelopeFlavor(obj);
-  if (flavor === 'full') {
-    try {
-      // Lazy require to avoid pulling lafs into the cli bundle's hot path.
-      // The package exports validateEnvelope() at the package root.
-      // biome-ignore lint/suspicious/noExplicitAny: dynamic import shape
-      const lafs = require('@cleocode/lafs') as {
-        validateEnvelope: (input: unknown) => {
-          valid: boolean;
-          errors: string[];
-        };
-      };
-      const result = lafs.validateEnvelope(obj);
-      report.hasSuccessField = true;
-      report.successIsBoolean = true;
-      report.hasMeta = true;
-      report.resultOrErrorValid = result.valid;
-      if (!result.valid) {
-        for (const err of result.errors) {
-          report.reasons.push(`canonical validator: ${err}`);
-        }
-      }
-      return report;
-    } catch (loadErr) {
-      // Fall through to the local minimal-shape check if @cleocode/lafs
-      // can't be loaded for any reason — better than failing closed.
-      report.reasons.push(
-        `Could not load canonical LAFS validator (${loadErr instanceof Error ? loadErr.message : String(loadErr)}); falling back to local shape check`,
-      );
-      // continue to the minimal-shape path below
-    }
-  }
-
-  // Success-indicator field presence
-  const hasMinimal = ENVELOPE_OK_KEY_MINIMAL in obj;
-  const hasFull = ENVELOPE_OK_KEY_FULL in obj;
-  if (!hasMinimal && !hasFull) {
+  // Success-indicator field presence (`success`, not legacy `ok`)
+  if (!(ENVELOPE_SUCCESS_KEY in obj)) {
     report.reasons.push(
-      `Envelope missing success indicator — expected one of: ${ENVELOPE_OK_KEY_MINIMAL}, ${ENVELOPE_OK_KEY_FULL}`,
+      `Envelope missing success indicator — expected: "${ENVELOPE_SUCCESS_KEY}"`,
     );
     return report;
   }
   report.hasSuccessField = true;
 
-  const successValue = hasMinimal ? obj[ENVELOPE_OK_KEY_MINIMAL] : obj[ENVELOPE_OK_KEY_FULL];
+  const successValue = obj[ENVELOPE_SUCCESS_KEY];
   if (typeof successValue !== 'boolean') {
-    report.reasons.push(`Envelope success field must be boolean, got ${typeof successValue}`);
+    report.reasons.push(
+      `Envelope "${ENVELOPE_SUCCESS_KEY}" field must be boolean, got ${typeof successValue}`,
+    );
     return report;
   }
   report.successIsBoolean = true;
 
-  // Metadata presence
-  report.hasMeta = ENVELOPE_META_KEYS.some((key) => key in obj);
+  // `meta` MUST be present and an object on every envelope (ADR-039)
+  report.hasMeta = ENVELOPE_META_KEY in obj && typeof obj[ENVELOPE_META_KEY] === 'object';
   if (!report.hasMeta) {
     report.reasons.push(
-      `Envelope missing metadata — expected one of: ${ENVELOPE_META_KEYS.join(', ')}`,
+      `Envelope missing required "${ENVELOPE_META_KEY}" object (ADR-039 — every envelope must carry meta)`,
     );
   }
 
   // Success / error invariants
   if (successValue === true) {
-    const hasResult = ENVELOPE_RESULT_KEY_MINIMAL in obj || ENVELOPE_RESULT_KEY_FULL in obj;
-    if (!hasResult) {
+    // Successful envelopes carry `data` (not legacy `result` or `r`)
+    const hasData = ENVELOPE_DATA_KEY in obj;
+    if (!hasData) {
       report.reasons.push(
-        `Successful envelope missing result field (${ENVELOPE_RESULT_KEY_MINIMAL} | ${ENVELOPE_RESULT_KEY_FULL})`,
+        `Successful envelope missing "${ENVELOPE_DATA_KEY}" field (legacy "result" / "r" are no longer valid — ADR-039)`,
       );
     } else {
       report.resultOrErrorValid = true;
@@ -190,13 +133,15 @@ export function validateLafsShape(envelope: unknown): LafsShapeViolation {
   } else {
     const errorField = obj['error'];
     if (typeof errorField !== 'object' || errorField === null) {
-      report.reasons.push('Failed envelope missing error object');
+      report.reasons.push('Failed envelope missing "error" object');
     } else {
       const err = errorField as Record<string, unknown>;
       const hasCode = 'code' in err;
       const hasMessage = 'message' in err && typeof err['message'] === 'string';
       if (!hasCode || !hasMessage) {
-        report.reasons.push('Failed envelope error object must contain code and message (string)');
+        report.reasons.push(
+          'Failed envelope "error" object must contain "code" and "message" (string)',
+        );
       } else {
         report.resultOrErrorValid = true;
       }
@@ -251,20 +196,22 @@ export class LafsViolationError extends Error {
  * emitted envelope turns out to be malformed.
  */
 export function emitLafsViolation(err: LafsViolationError): void {
+  // Emit canonical CLI envelope shape (ADR-039) even for violation errors
   const envelope = {
-    ok: false,
+    success: false,
     error: {
-      code: 'E_LAFS_VIOLATION',
+      code: ExitCode.LAFS_VIOLATION,
+      codeName: 'E_LAFS_VIOLATION',
       message: err.message,
-      category: 'internal',
       details: {
-        exitCode: ExitCode.LAFS_VIOLATION,
         report: err.report,
       },
     },
-    _m: {
-      op: 'cli.lafs-validator',
-      rid: 'lafs-validator-emit',
+    meta: {
+      operation: 'cli.lafs-validator',
+      requestId: 'lafs-validator-emit',
+      duration_ms: 0,
+      timestamp: new Date().toISOString(),
     },
   };
   process.stderr.write(`${JSON.stringify(envelope)}\n`);

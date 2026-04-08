@@ -500,3 +500,103 @@ export function parseLafsResponse<T = unknown>(
 
   throw new LafsError(error);
 }
+
+// ---------------------------------------------------------------------------
+// Canonical CLI envelope — the unified shape every CLEO CLI command emits.
+// Replaces the three legacy shapes:
+//   {ok, r, _m}            (minimal MVI)
+//   {success, result}      (observe command)
+//   {success, error}       (error responses, no meta)
+// ---------------------------------------------------------------------------
+
+/**
+ * Metadata block present on every canonical CLI envelope (success or failure).
+ *
+ * @remarks
+ * `operation` and `requestId` are the only required fields; `duration_ms`,
+ * `timestamp`, and `sessionId` are populated by the CLI adapter. Additional
+ * vendor fields can be added via the index signature without breaking
+ * downstream consumers.
+ *
+ * This is the CLI-tier counterpart to {@link LAFSMeta} (which is used
+ * internally by the LAFS SDK for protocol-level envelopes). The CLI meta
+ * intentionally uses the unprefixed `meta` key to match the canonical
+ * CLEO CLI envelope shape (ADR-039).
+ */
+export interface CliMeta {
+  /** Dot-delimited operation identifier, e.g. `"tasks.add"`. */
+  operation: string;
+  /** Unique request identifier (UUID) for tracing and correlation. */
+  requestId: string;
+  /** Wall-clock duration of the operation in milliseconds. */
+  duration_ms: number;
+  /** ISO 8601 timestamp of when the envelope was created. */
+  timestamp: string;
+  /** Active session identifier, if present. */
+  sessionId?: string;
+  /** Extensible metadata; vendor fields go here. */
+  [key: string]: unknown;
+}
+
+/**
+ * Structured error payload in a canonical CLI error envelope.
+ *
+ * @remarks
+ * Extends the legacy error shape with optional protocol-level fields.
+ * All optional fields are omitted from the serialised output when absent.
+ */
+export interface CliEnvelopeError {
+  /** Numeric CLI exit code (1-99). */
+  code: number | string;
+  /** Symbolic error code name, e.g. `"E_NOT_FOUND"`. */
+  codeName?: string;
+  /** Human-readable error description. */
+  message: string;
+  /** Copy-pasteable fix hint for the operator or agent. */
+  fix?: unknown;
+  /** Alternative actions the agent can try. */
+  alternatives?: Array<{ action: string; command: string }>;
+  /** Additional structured context about the error. */
+  details?: unknown;
+  /** RFC 9457 Problem Details object (optional). */
+  problemDetails?: unknown;
+}
+
+/**
+ * Canonical CLI response envelope emitted by every CLEO CLI command.
+ *
+ * @typeParam T - The type of the operation result payload.
+ *
+ * @remarks
+ * This is the **single** response shape that all CLEO CLI commands produce,
+ * replacing the three legacy shapes that required consumers to branch on
+ * shape before parsing (ADR-039). Key invariants:
+ *
+ * - `success` is **always** present.
+ * - `meta` is **always** present (success and failure).
+ * - `data` is present when `success === true`.
+ * - `error` is present when `success === false`.
+ * - `page` is present when the result is paginated.
+ *
+ * @example
+ * ```ts
+ * import type { CliEnvelope } from '@cleocode/lafs';
+ *
+ * const response: CliEnvelope<{ task: Task }> = JSON.parse(output);
+ * if (response.success) {
+ *   console.log(response.data.task.id);
+ * }
+ * ```
+ */
+export interface CliEnvelope<T = Record<string, unknown>> {
+  /** Whether the operation completed successfully. */
+  success: boolean;
+  /** Operation result payload. Present when `success === true`. */
+  data?: T;
+  /** Structured error payload. Present when `success === false`. */
+  error?: CliEnvelopeError;
+  /** Envelope metadata. Always present. */
+  meta: CliMeta;
+  /** Pagination metadata. Present when the result is a paginated collection. */
+  page?: import('./types.js').LAFSPage;
+}

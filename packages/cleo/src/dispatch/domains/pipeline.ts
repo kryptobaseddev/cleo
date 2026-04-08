@@ -737,7 +737,7 @@ export class PipelineHandler implements DomainHandler {
         const page = paginate(phases, limit, offset);
 
         return {
-          _meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
+          meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
           success: true,
           data: {
             ...listData,

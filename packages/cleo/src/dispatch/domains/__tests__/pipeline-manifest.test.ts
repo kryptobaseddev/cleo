@@ -344,10 +344,10 @@ describe('PipelineHandler manifest operations', () => {
       });
 
       const result = await handler.query('manifest.stats', {});
-      expect(result._meta).toBeDefined();
-      expect(result._meta.domain).toBe('pipeline');
-      expect(result._meta.operation).toBe('manifest.stats');
-      expect(result._meta.gateway).toBe('query');
+      expect(result.meta).toBeDefined();
+      expect(result.meta.domain).toBe('pipeline');
+      expect(result.meta.operation).toBe('manifest.stats');
+      expect(result.meta.gateway).toBe('query');
     });
 
     it('should include _meta in mutate responses', async () => {
@@ -357,9 +357,9 @@ describe('PipelineHandler manifest operations', () => {
       });
 
       const result = await handler.mutate('manifest.archive', { beforeDate: '2026-01-01' });
-      expect(result._meta).toBeDefined();
-      expect(result._meta.domain).toBe('pipeline');
-      expect(result._meta.gateway).toBe('mutate');
+      expect(result.meta).toBeDefined();
+      expect(result.meta.domain).toBe('pipeline');
+      expect(result.meta.gateway).toBe('mutate');
     });
   });
 });

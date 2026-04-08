@@ -37,7 +37,7 @@ export function createVerificationGates(strictMode: boolean = true): Middleware 
 
     if (!result.passed) {
       return {
-        _meta: {
+        meta: {
           gateway: req.gateway,
           domain: req.domain,
           operation: req.operation,
@@ -58,7 +58,7 @@ export function createVerificationGates(strictMode: boolean = true): Middleware 
     }
 
     const response = await next();
-    response._meta.verification = result;
+    response.meta.verification = result;
     return response;
   };
 }

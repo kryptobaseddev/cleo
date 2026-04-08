@@ -285,7 +285,7 @@ export class AdminHandler implements DomainHandler {
           const helpResult = computeHelp(OPERATIONS, tier, verbose);
 
           return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
             data: helpResult,
           };
@@ -300,7 +300,7 @@ export class AdminHandler implements DomainHandler {
               status: params?.status as string | undefined,
             });
             return {
-              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              meta: dispatchMeta('query', 'admin', operation, startTime),
               success: true,
               data: result,
             };
@@ -314,7 +314,7 @@ export class AdminHandler implements DomainHandler {
             offset,
           });
           return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
             data: result,
             page: paginate(Array.from({ length: result.filtered }), limit, offset).page,
@@ -345,7 +345,7 @@ export class AdminHandler implements DomainHandler {
             );
           }
           return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
             data: adr,
           };
@@ -386,7 +386,7 @@ export class AdminHandler implements DomainHandler {
                   projectRoot,
                 );
                 return {
-                  _meta: dispatchMeta('query', 'admin', operation, startTime),
+                  meta: dispatchMeta('query', 'admin', operation, startTime),
                   success: true,
                   data: result,
                 };
@@ -423,7 +423,7 @@ export class AdminHandler implements DomainHandler {
                   projectRoot,
                 );
                 return {
-                  _meta: dispatchMeta('query', 'admin', operation, startTime),
+                  meta: dispatchMeta('query', 'admin', operation, startTime),
                   success: true,
                   data: {
                     records: result.records,
@@ -457,7 +457,7 @@ export class AdminHandler implements DomainHandler {
                   );
                 }
                 return {
-                  _meta: dispatchMeta('query', 'admin', operation, startTime),
+                  meta: dispatchMeta('query', 'admin', operation, startTime),
                   success: true,
                   data: result,
                 };
@@ -475,7 +475,7 @@ export class AdminHandler implements DomainHandler {
             const outputPath = (params?.output as string) ?? getDefaultSnapshotPath(projectRoot);
             await writeSnapshot(snapshot, outputPath);
             return {
-              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              meta: dispatchMeta('query', 'admin', operation, startTime),
               success: true,
               data: {
                 exported: true,
@@ -496,7 +496,7 @@ export class AdminHandler implements DomainHandler {
               cwd: projectRoot,
             });
             return {
-              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              meta: dispatchMeta('query', 'admin', operation, startTime),
               success: true,
               data: result,
             };
@@ -511,7 +511,7 @@ export class AdminHandler implements DomainHandler {
             cwd: projectRoot,
           });
           return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
             data: result,
           };
@@ -781,7 +781,7 @@ export class AdminHandler implements DomainHandler {
           if (validate) {
             const result = await validateAllAdrs(projectRoot);
             return {
-              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              meta: dispatchMeta('mutate', 'admin', operation, startTime),
               success: result.valid,
               data: result,
               ...(result.valid
@@ -796,7 +796,7 @@ export class AdminHandler implements DomainHandler {
           }
           const result = await syncAdrsToDb(projectRoot);
           return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            meta: dispatchMeta('mutate', 'admin', operation, startTime),
             success: true,
             data: result,
           };
@@ -820,7 +820,7 @@ export class AdminHandler implements DomainHandler {
             const snapshot = await readSnapshot(file);
             if (params?.dryRun) {
               return {
-                _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                meta: dispatchMeta('mutate', 'admin', operation, startTime),
                 success: true,
                 data: {
                   dryRun: true,
@@ -832,7 +832,7 @@ export class AdminHandler implements DomainHandler {
             }
             const result = await importSnapshot(snapshot, projectRoot);
             return {
-              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              meta: dispatchMeta('mutate', 'admin', operation, startTime),
               success: true,
               data: {
                 imported: true,
@@ -874,7 +874,7 @@ export class AdminHandler implements DomainHandler {
               cwd: projectRoot,
             });
             return {
-              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              meta: dispatchMeta('mutate', 'admin', operation, startTime),
               success: true,
               data: result,
             };
@@ -901,7 +901,7 @@ export class AdminHandler implements DomainHandler {
             cwd: projectRoot,
           });
           return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            meta: dispatchMeta('mutate', 'admin', operation, startTime),
             success: true,
             data: result,
           };
@@ -948,7 +948,7 @@ export class AdminHandler implements DomainHandler {
                   cwd: projectRoot,
                 });
                 return {
-                  _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                  meta: dispatchMeta('mutate', 'admin', operation, startTime),
                   success: true,
                   data: result,
                 };
@@ -967,7 +967,7 @@ export class AdminHandler implements DomainHandler {
                 }
                 const result = await deleteTokenUsage(tokenId, projectRoot);
                 return {
-                  _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                  meta: dispatchMeta('mutate', 'admin', operation, startTime),
                   success: true,
                   data: result,
                 };
@@ -1001,7 +1001,7 @@ export class AdminHandler implements DomainHandler {
                   projectRoot,
                 );
                 return {
-                  _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                  meta: dispatchMeta('mutate', 'admin', operation, startTime),
                   success: true,
                   data: result,
                 };

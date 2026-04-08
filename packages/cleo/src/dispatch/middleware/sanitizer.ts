@@ -33,7 +33,7 @@ export function createSanitizer(getProjectRoot?: () => string): Middleware {
         });
       } catch (error) {
         return {
-          _meta: {
+          meta: {
             gateway: req.gateway,
             domain: req.domain,
             operation: req.operation,

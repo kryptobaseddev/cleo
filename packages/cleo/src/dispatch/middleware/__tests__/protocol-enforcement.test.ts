@@ -107,7 +107,7 @@ describe('createProtocolEnforcement middleware', () => {
         operation: 'complete',
         timestamp: new Date().toISOString(),
         duration_ms: 15,
-      } as DispatchResponse['_meta'],
+      } as DispatchResponse['meta'],
       success: false,
       error: {
         code: 'E_PROTOCOL_IMPLEMENTATION',
@@ -137,8 +137,8 @@ describe('createProtocolEnforcement middleware', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_PROTOCOL_IMPLEMENTATION');
     // Verify _meta gets backfilled with source and requestId from req
-    expect(result._meta.source).toBe('cli');
-    expect(result._meta.requestId).toBe('req-003');
+    expect(result.meta.source).toBe('cli');
+    expect(result.meta.requestId).toBe('req-003');
   });
 
   it('backfills _meta.source and _meta.requestId when missing from enforcer response', async () => {
@@ -171,8 +171,8 @@ describe('createProtocolEnforcement middleware', () => {
 
     const result = await middleware(req, next);
 
-    expect(result._meta.source).toBe('cli');
-    expect(result._meta.requestId).toBe('req-004');
+    expect(result.meta.source).toBe('cli');
+    expect(result.meta.requestId).toBe('req-004');
   });
 
   it('passes strictMode to ProtocolEnforcer constructor', () => {

@@ -66,7 +66,7 @@ export class StickyHandler implements DomainHandler {
           const page = paginate(filteredStickies, limit, offset);
 
           return {
-            _meta: dispatchMeta('query', 'sticky', operation, startTime),
+            meta: dispatchMeta('query', 'sticky', operation, startTime),
             success: true,
             data: {
               stickies: page.items,

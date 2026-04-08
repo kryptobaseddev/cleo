@@ -189,8 +189,8 @@ export async function dispatchFromCli(
       gateway,
       domain,
       operation,
-      sessionId: response._meta.sessionId,
-      requestId: response._meta.requestId,
+      sessionId: response.meta.sessionId,
+      requestId: response.meta.requestId,
       cwd: getProjectRoot(),
     });
 
@@ -207,12 +207,23 @@ export async function dispatchFromCli(
     // Derive exit code from the string error code when exitCode is not set
     const errorCode = response.error?.code ?? 'E_GENERAL';
     const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
-    cliError(response.error?.message ?? 'Unknown error', exitCode, {
-      name: errorCode,
-      details: response.error?.details,
-      fix: response.error?.fix,
-      alternatives: response.error?.alternatives,
-    });
+    cliError(
+      response.error?.message ?? 'Unknown error',
+      exitCode,
+      {
+        name: errorCode,
+        details: response.error?.details,
+        fix: response.error?.fix,
+        alternatives: response.error?.alternatives,
+      },
+      {
+        operation: `${domain}.${operation}`,
+        requestId: response.meta.requestId,
+        duration_ms: response.meta.duration_ms,
+        timestamp: response.meta.timestamp,
+        ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
+      },
+    );
     process.exit(exitCode);
   }
 }
@@ -230,12 +241,23 @@ export function handleRawError(
   if (response.success) return;
   const errorCode = response.error?.code ?? 'E_GENERAL';
   const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
-  cliError(response.error?.message ?? 'Unknown error', exitCode, {
-    name: errorCode,
-    details: response.error?.details,
-    fix: response.error?.fix,
-    alternatives: response.error?.alternatives,
-  });
+  cliError(
+    response.error?.message ?? 'Unknown error',
+    exitCode,
+    {
+      name: errorCode,
+      details: response.error?.details,
+      fix: response.error?.fix,
+      alternatives: response.error?.alternatives,
+    },
+    {
+      operation: _opts.operation,
+      requestId: response.meta.requestId,
+      duration_ms: response.meta.duration_ms,
+      timestamp: response.meta.timestamp,
+      ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
+    },
+  );
   process.exit(exitCode);
 }
 

@@ -73,7 +73,7 @@ export class NexusHandler implements DomainHandler {
             return wrapResult(result, 'query', 'nexus', operation, startTime);
           }
           return {
-            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            meta: dispatchMeta('query', 'nexus', operation, startTime),
             success: true,
             data: {
               projects: result.data!.projects,
@@ -167,7 +167,7 @@ export class NexusHandler implements DomainHandler {
             return wrapResult(result, 'query', 'nexus', operation, startTime);
           }
           return {
-            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            meta: dispatchMeta('query', 'nexus', operation, startTime),
             success: true,
             data: {
               orphans: result.data!.orphans,
