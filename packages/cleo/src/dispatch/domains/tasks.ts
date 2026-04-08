@@ -264,7 +264,7 @@ export class TasksHandler implements DomainHandler {
         case 'add': {
           const result = await taskCreate(projectRoot, {
             title: params!.title as string,
-            description: (params?.description as string) ?? (params!.title as string),
+            description: typeof params?.description === 'string' ? params.description : undefined,
             parent: (params?.parent ?? params?.parentId) as string | undefined,
             depends: params?.depends as string[] | undefined,
             priority: params?.priority as string | undefined,

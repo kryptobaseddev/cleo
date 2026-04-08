@@ -472,6 +472,79 @@ describe('TasksHandler', () => {
       );
     });
 
+    it('add - passes description: undefined to core when no description provided (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T003',
+          title: 'Same',
+          description: '',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'Same' });
+
+      expect(taskCreate).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          description: undefined,
+        }),
+      );
+    });
+
+    it('add - does NOT fall back to title when description is absent (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T004',
+          title: 'TitleOnly',
+          description: '',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'TitleOnly' });
+
+      const call = vi.mocked(taskCreate).mock.calls[0];
+      const options = call[1] as Record<string, unknown>;
+      expect(options.description).toBeUndefined();
+      expect(options.description).not.toBe('TitleOnly');
+    });
+
+    it('add - forwards provided description to core unchanged (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T005',
+          title: 'X',
+          description: 'Y',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'X', description: 'Y' });
+
+      expect(taskCreate).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          description: 'Y',
+        }),
+      );
+    });
+
     it('update - delegates to taskUpdate', async () => {
       vi.mocked(taskUpdate).mockResolvedValue({
         success: true,
