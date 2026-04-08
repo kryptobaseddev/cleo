@@ -10,12 +10,13 @@
 
 ## Overview
 
-CLEO uses three SQLite databases, each serving a distinct domain:
+CLEO uses four SQLite databases, each serving a distinct domain. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
 
 | Database | Schema File(s) | Purpose |
 |----------|---------------|---------|
 | `tasks.db` | `tasks-schema.ts`, `chain-schema.ts`, `agent-schema.ts` | Core work management, sessions, lifecycle, audit, agents |
 | `brain.db` | `brain-schema.ts` | Cognitive memory: decisions, patterns, learnings, observations, graph |
+| `signaldock.db` | Diesel ORM migrations (Rust) | Agent identity SSoT, messaging, conversations, auth (local SQLite / cloud PostgreSQL) |
 | `nexus.db` | `nexus-schema.ts` | Cross-project registry and audit |
 
 ---
@@ -863,16 +864,19 @@ Post T033 indexes and T060 pipeline stage binding.
 |----------|--------|----------|----------------------|---------|-------------------|
 | tasks.db | 25 | 30 | 11 | 79 | 2 |
 | brain.db | 9 | 0 | 7 | 26 | 0 |
+| signaldock.db | 17+ | Diesel-managed | 0 | Diesel-managed | Diesel-managed |
 | nexus.db | 3 | 0 | 2 | 8 | 2 |
-| **Total** | **37** | **30** | **20** | **113** | **4** |
+| **Total (TS DBs)** | **37** | **30** | **20** | **113** | **4** |
+
+> **Note**: signaldock.db statistics are managed by Diesel ORM (Rust) and are not tracked in Drizzle ORM schema files. See `docs/specs/DATABASE-ARCHITECTURE.md` for signaldock.db table inventory.
 
 ## Cross-Database Reference Map
 
 CLEO uses three separate SQLite databases. Cross-database references are enforced at the application layer only (SQLite cannot enforce FKs across connections).
 
 ```
-tasks.db                    brain.db                    nexus.db
-────────────────────        ────────────────────        ────────────────────
+tasks.db                    brain.db                    nexus.db                    signaldock.db
+────────────────────        ────────────────────        ────────────────────        ────────────────────
 tasks.id ◄──────────────── brain_decisions.context_task_id
 tasks.id ◄──────────────── brain_decisions.context_epic_id
 sessions.id ◄────────────── brain_observations.source_session_id
@@ -881,6 +885,10 @@ tasks.id ◄──────────────── brain_page_nodes.id
 brain_observations.id ◄──── pipeline_manifest.brain_obs_id
                                                         project_registry (no cross-DB refs)
                                                         nexus_audit_log.project_id (informational only)
+agent_credentials ◄──────────────────────────────────────────────────────────────── agents (SSoT, soft ref)
+
+Note: signaldock.db `agents` table is the SSoT for agent identity.
+tasks.db `agent_credentials` is a LOCAL CACHE of encrypted credentials.
 ```
 
 See T030 audit for full soft FK remediation plan and cross-DB application guard requirements.

@@ -9,15 +9,16 @@
 
 ## Overview
 
-CLEO uses three separate SQLite databases, each with a distinct responsibility:
+CLEO uses four databases, each with a distinct responsibility. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
 
 | Database | File | Tables | Purpose |
 |----------|------|--------|---------|
 | **tasks.db** | `.cleo/tasks.db` | 25 | Project task lifecycle, sessions, lifecycle pipeline, ADRs, telemetry |
 | **brain.db** | `.cleo/brain.db` | 9 | Cognitive memory: decisions, patterns, learnings, observations, graph |
-| **nexus.db** | `.cleo/nexus.db` | 3 | Cross-project registry and audit (global, not per-project) |
+| **signaldock.db** | `.cleo/signaldock.db` | 17+ | Agent identity SSoT, messaging, conversations, auth (Diesel ORM, Rust) |
+| **nexus.db** | `~/.local/share/cleo/nexus.db` | 3 | Cross-project registry and audit (global, not per-project) |
 
-The databases are **isolated** — no native SQLite foreign keys cross database boundaries. Cross-DB references are enforced at the application layer.
+The databases are **isolated** — no native SQLite foreign keys cross database boundaries. Cross-DB references are enforced at the application layer. signaldock.db is managed by Diesel ORM (Rust), while the other three use Drizzle ORM (TypeScript).
 
 ---
 
