@@ -1,16 +1,18 @@
 /**
  * LocalTransport — In-process SQLite transport for fully offline agent messaging.
  *
- * Reads and writes messages directly to signaldock.db via node:sqlite.
+ * Reads and writes messages directly to conduit.db via node:sqlite.
  * No network calls. Works fully offline. Messages are stored in the
- * same schema that the Rust signaldock-storage crate manages, so both
- * the local CLI and the cloud backend see the same data.
+ * project-local conduit.db (ADR-037), keeping agent messaging isolated
+ * from the global-identity signaldock.db.
  *
  * Priority: LocalTransport is preferred over HttpTransport when
- * signaldock.db is available (see factory.ts).
+ * conduit.db is available (see factory.ts).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
  * @task T213
+ * @task T356
+ * @epic T310
  */
 
 import { randomUUID } from 'node:crypto';
@@ -18,7 +20,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
-import { getSignaldockDbPath } from '../store/signaldock-sqlite.js';
+import { getConduitDbPath } from '../store/conduit-sqlite.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
@@ -40,17 +42,20 @@ export class LocalTransport implements Transport {
   private state: LocalTransportState | null = null;
 
   /**
-   * Connect to signaldock.db for in-process messaging.
+   * Connect to conduit.db for in-process messaging.
    *
    * Opens the database, sets WAL mode pragmas, and verifies
-   * the messages table exists. Throws if signaldock.db is missing
+   * the messages table exists. Throws if conduit.db is missing
    * or uninitialized (run `cleo init` first).
+   *
+   * @task T356
+   * @epic T310
    */
   async connect(config: TransportConnectConfig): Promise<void> {
-    const dbPath = getSignaldockDbPath();
+    const dbPath = getConduitDbPath(process.cwd());
 
     if (!existsSync(dbPath)) {
-      throw new Error(`LocalTransport: signaldock.db not found at ${dbPath}. Run: cleo init`);
+      throw new Error(`LocalTransport: conduit.db not found at ${dbPath}. Run: cleo init`);
     }
 
     const db = new DatabaseSyncClass(dbPath);
@@ -66,7 +71,7 @@ export class LocalTransport implements Transport {
     if (!hasMessages) {
       db.close();
       throw new Error(
-        'LocalTransport: signaldock.db exists but messages table missing. Run: cleo upgrade',
+        'LocalTransport: conduit.db exists but messages table missing — run cleo init or allow auto-migration (T358)',
       );
     }
 
@@ -92,7 +97,7 @@ export class LocalTransport implements Transport {
   }
 
   /**
-   * Store a message in signaldock.db.
+   * Store a message in conduit.db.
    *
    * Inserts into the messages table with status 'pending'.
    * For conversation messages, also links via conversation_participants
@@ -229,12 +234,17 @@ export class LocalTransport implements Transport {
   }
 
   /**
-   * Check whether signaldock.db is available for local transport.
+   * Check whether conduit.db is available for local transport.
    *
    * Used by factory.ts to decide whether to use LocalTransport.
+   *
+   * @task T356
+   * @epic T310
+   * @param cwd - Optional working directory override (defaults to process.cwd()).
+   * @returns `true` if conduit.db exists at the expected path.
    */
   static isAvailable(cwd?: string): boolean {
-    const dbPath = getSignaldockDbPath(cwd);
+    const dbPath = getConduitDbPath(cwd ?? process.cwd());
     return existsSync(dbPath);
   }
 

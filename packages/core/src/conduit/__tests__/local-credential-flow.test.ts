@@ -1,18 +1,20 @@
 /**
  * Local credential flow — end-to-end validation.
  *
- * Tests the full lifecycle: signaldock.db creation → agent register →
+ * Tests the full lifecycle: conduit.db creation → agent register →
  * credential encryption/decryption → LocalTransport connect →
  * push/poll/ack messaging.
  *
  * @task T227
+ * @task T356
+ * @epic T310
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureSignaldockDb, getSignaldockDbPath } from '../../store/signaldock-sqlite.js';
+import { ensureConduitDb, getConduitDbPath } from '../../store/conduit-sqlite.js';
 import { LocalTransport } from '../local-transport.js';
 
 // ============================================================================
@@ -55,27 +57,27 @@ describe('Local Credential Flow E2E', () => {
   });
 
   // --------------------------------------------------------------------------
-  // Step 1: cleo init creates signaldock.db
+  // Step 1: cleo init creates conduit.db
   // --------------------------------------------------------------------------
 
-  describe('Step 1: signaldock.db creation', () => {
-    it('ensureSignaldockDb creates the database file', async () => {
-      const result = await ensureSignaldockDb(testDir);
+  describe('Step 1: conduit.db creation', () => {
+    it('ensureConduitDb creates the database file', () => {
+      const result = ensureConduitDb(testDir);
       expect(result.action).toBe('created');
       expect(existsSync(result.path)).toBe(true);
     });
 
-    it('ensureSignaldockDb is idempotent', async () => {
-      const first = await ensureSignaldockDb(testDir);
-      const second = await ensureSignaldockDb(testDir);
+    it('ensureConduitDb is idempotent', () => {
+      const first = ensureConduitDb(testDir);
+      const second = ensureConduitDb(testDir);
       expect(first.action).toBe('created');
       expect(second.action).toBe('exists');
       expect(first.path).toBe(second.path);
     });
 
-    it('signaldock.db has the messages table', async () => {
-      await ensureSignaldockDb(testDir);
-      const dbPath = getSignaldockDbPath(testDir);
+    it('conduit.db has the messages table', async () => {
+      ensureConduitDb(testDir);
+      const dbPath = getConduitDbPath(testDir);
       expect(existsSync(dbPath)).toBe(true);
 
       // Verify by connecting LocalTransport (which checks for messages table)
@@ -101,8 +103,8 @@ describe('Local Credential Flow E2E', () => {
       rmSync(emptyDir, { recursive: true, force: true });
     });
 
-    it('isAvailable returns true after init', async () => {
-      await ensureSignaldockDb(testDir);
+    it('isAvailable returns true after init', () => {
+      ensureConduitDb(testDir);
       expect(LocalTransport.isAvailable(testDir)).toBe(true);
     });
   });
@@ -113,8 +115,8 @@ describe('Local Credential Flow E2E', () => {
 
   describe('Step 3: messaging lifecycle', () => {
     it('complete flow: init → connect → push → poll → ack', async () => {
-      // 1. Init signaldock.db
-      await ensureSignaldockDb(testDir);
+      // 1. Init conduit.db
+      ensureConduitDb(testDir);
 
       // 2. Connect two agents
       const agent1 = new LocalTransport();
@@ -167,7 +169,7 @@ describe('Local Credential Flow E2E', () => {
     });
 
     it('messages persist across transport reconnections', async () => {
-      await ensureSignaldockDb(testDir);
+      ensureConduitDb(testDir);
 
       // Send a message
       const sender = new LocalTransport();
@@ -194,7 +196,7 @@ describe('Local Credential Flow E2E', () => {
     });
 
     it('multiple agents can communicate in the same conversation', async () => {
-      await ensureSignaldockDb(testDir);
+      ensureConduitDb(testDir);
 
       const prime = new LocalTransport();
       const rustLead = new LocalTransport();

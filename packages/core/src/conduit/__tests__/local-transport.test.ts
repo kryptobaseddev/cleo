@@ -2,17 +2,19 @@
  * LocalTransport test suite.
  *
  * Tests the in-process SQLite transport for fully offline agent messaging.
- * Uses a temporary signaldock.db created via ensureSignaldockDb().
+ * Uses a temporary conduit.db created via ensureConduitDb().
  *
  * @see packages/core/src/conduit/local-transport.ts
  * @task T213
+ * @task T356
+ * @epic T310
  */
 
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureSignaldockDb } from '../../store/signaldock-sqlite.js';
+import { ensureConduitDb } from '../../store/conduit-sqlite.js';
 import { LocalTransport } from '../local-transport.js';
 
 // ============================================================================
@@ -22,14 +24,14 @@ import { LocalTransport } from '../local-transport.js';
 let testDir: string;
 let originalCwd: string;
 
-/** Create a temporary directory with a valid signaldock.db for testing. */
-async function setupTestDb(): Promise<string> {
+/** Create a temporary directory with a valid conduit.db for testing. */
+function setupTestDb(): string {
   const dir = join(
     tmpdir(),
     `local-transport-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(join(dir, '.cleo'), { recursive: true });
-  await ensureSignaldockDb(dir);
+  ensureConduitDb(dir);
   return dir;
 }
 
@@ -47,9 +49,9 @@ function testConfig(agentId = 'test-agent') {
 // ============================================================================
 
 describe('LocalTransport', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     originalCwd = process.cwd();
-    testDir = await setupTestDb();
+    testDir = setupTestDb();
     process.chdir(testDir);
   });
 
@@ -65,19 +67,19 @@ describe('LocalTransport', () => {
   // --------------------------------------------------------------------------
 
   describe('connect', () => {
-    it('connects when signaldock.db exists', async () => {
+    it('connects when conduit.db exists', async () => {
       const transport = new LocalTransport();
       await transport.connect(testConfig());
       await transport.disconnect();
     });
 
-    it('throws when signaldock.db is missing', async () => {
+    it('throws when conduit.db is missing', async () => {
       const emptyDir = join(tmpdir(), `empty-${Date.now()}`);
       mkdirSync(join(emptyDir, '.cleo'), { recursive: true });
       process.chdir(emptyDir);
 
       const transport = new LocalTransport();
-      await expect(transport.connect(testConfig())).rejects.toThrow('signaldock.db not found');
+      await expect(transport.connect(testConfig())).rejects.toThrow('conduit.db not found');
 
       rmSync(emptyDir, { recursive: true, force: true });
     });
@@ -495,11 +497,11 @@ describe('LocalTransport', () => {
   // --------------------------------------------------------------------------
 
   describe('isAvailable', () => {
-    it('returns true when signaldock.db exists', () => {
+    it('returns true when conduit.db exists', () => {
       expect(LocalTransport.isAvailable(testDir)).toBe(true);
     });
 
-    it('returns false when signaldock.db is missing', () => {
+    it('returns false when conduit.db is missing', () => {
       const emptyDir = join(tmpdir(), `no-db-${Date.now()}`);
       mkdirSync(emptyDir, { recursive: true });
       expect(LocalTransport.isAvailable(emptyDir)).toBe(false);
