@@ -299,7 +299,7 @@ Design direction:
 - `token_usage` is the canonical store for per-exchange token measurement
 - `audit_log` remains the canonical source for behavioral grading inputs
 - `GRADES.jsonl` remains supported as the persisted grade-result ledger until grade results move into first-class tables
-- grade-run artifacts remain valid filesystem sources, but CLEO should expose them through query operations so web and MCP clients do not need to read files directly
+- grade-run artifacts remain valid filesystem sources, but CLEO should expose them through query operations so web clients (planned HTTP adapter) and SDK consumers do not need to read files directly
 
 ---
 
@@ -317,20 +317,7 @@ GET  /api/poll    (ETag-based change detection)
 
 When implemented, the HTTP adapter SHOULD serve grade analytics and token telemetry through the same dispatch contract, including `admin.grade*` and `admin.token.*` operations.
 
-### 6.2 MCP
-
-```json
-{
-  "name": "query",
-  "arguments": {
-    "domain": "tasks",
-    "operation": "show",
-    "params": { "taskId": "T001" }
-  }
-}
-```
-
-### 6.3 CLI
+### 6.2 CLI
 
 ```bash
 cleo tasks show T001
