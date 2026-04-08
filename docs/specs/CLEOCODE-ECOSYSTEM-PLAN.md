@@ -33,7 +33,7 @@ cleocode/packages/
   lafs/          @cleocode/lafs          LAFS response envelope implementation
   caamp/         @cleocode/caamp         Hook normalization (16 canonical events)
   core/          @cleocode/core          Business logic kernel (324 operations)
-  cleo/          @cleocode/cleo          CLI + MCP product wrapper
+  cleo/          @cleocode/cleo          `cleo` CLI product (sole runtime surface) wrapping @cleocode/core
   adapters/      @cleocode/adapters      Provider adapters
   agents/        @cleocode/agents        Agent lifecycle management
   skills/        @cleocode/skills        Skill registry and dispatch
@@ -90,7 +90,7 @@ These four crates are the **Rust SSoT** for the core protocols and SignalDock in
                     │
                     ▼
               @cleocode/cleo
-              (CLI + MCP product)
+              (CLI product — sole runtime surface)
               depends on:
                - core
                - lafs (output formatting)
@@ -549,7 +549,7 @@ ConduitClient (polling via onMessage() handler)
   │    └─ dispatch: tasks.complete({ taskId: "T1234" })
   │
   ├─ CLEO Core executes operation:
-  │    ├─ 4-layer validation (LAFS MCP middleware)
+  │    ├─ 4-layer validation (LAFS validation middleware in the dispatch pipeline)
   │    ├─ State machine: task status → completed
   │    ├─ Audit log entry (within same transaction)
   │    └─ Hook: onTaskComplete fires
@@ -717,7 +717,7 @@ Currently `MessageMetadata` has flat fields (`mentions`, `directives`, `tags`, `
 |---|---|---|
 | E2E: CANT directive → SignalDock → Conduit → NEXUS → task mutation | versionguard-opencode | Phase E test suite |
 | LAFS conformance: run `@cleocode/lafs` validators against SignalDock responses | versionguard-opencode | Conformance testing |
-| Benchmark: re-run CLI vs MCP with LAFS-aligned SignalDock | forge-ts-opus | Performance validation |
+| Benchmark: re-run CLI with LAFS-aligned SignalDock (historical CLI-vs-MCP benchmark obsolete post-MCP-removal) | forge-ts-opus | Performance validation |
 
 ---
 
@@ -749,7 +749,7 @@ Currently `MessageMetadata` has flat fields (`mentions`, `directives`, `tags`, `
 │                                ▼                                         │
 │                    ┌───────────────────┐                                  │
 │                    │ @cleocode/cleo    │                                  │
-│                    │ (CLI + MCP)       │                                  │
+│                    │ (CLI)             │                                  │
 │                    └───────────────────┘                                  │
 │                                                                          │
 │  docs/concepts/CLEO-CANT.md ← canonical grammar spec                    │

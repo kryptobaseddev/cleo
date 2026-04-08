@@ -205,7 +205,7 @@ This scenario represents the "gold standard" agent workflow. All dimensions scor
 - Inspects specific tasks via show
 - Never triggers errors
 - Ends session cleanly
-- Uses the MCP gateway throughout
+- Uses the query gateway throughout
 
 ---
 
@@ -256,7 +256,7 @@ This scenario represents the "gold standard" agent workflow. All dimensions scor
 
 Replace step 2 with nothing (no help call) to test S5 partial scoring:
 
-Expected S5 score: 10/20 (MCP gateway used but no help/skill calls).
+Expected S5 score: 10/20 (query gateway used but no help/skill calls).
 
 ---
 
@@ -274,6 +274,8 @@ Expected S5 score: 10/20 (MCP gateway used but no help/skill calls).
 
 ### Via CLI
 
+The `cleo` CLI is the sole runtime surface for running and grading scenarios.
+
 ```bash
 # Start graded session
 cleo session start --scope global --name "test-scenario" --grade
@@ -287,21 +289,8 @@ cleo session end
 cleo grade <session-id>
 ```
 
-### Via MCP
-
-```
-mutate session start { "scope": "global", "name": "test-scenario", "grade": true }
-# ... execute scenario operations ...
-mutate session end
-query admin grade { "sessionId": "<session-id>" }
-```
-
 ### Reviewing History
 
 ```bash
-cleo grade --list                    # CLI: list all grades
-```
-
-```
-query admin grade.list          # MCP: list all grades
+cleo grade --list
 ```

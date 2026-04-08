@@ -979,11 +979,11 @@ interface DomainEventPayload {
 
 Domain events are emitted at the **core business logic layer** (`packages/core/src/`), not at
 the dispatch or adapter layer. This ensures events fire regardless of whether the operation
-was triggered via MCP, CLI, or direct API call.
+was triggered via the CLI or a direct `@cleocode/core` API call.
 
 ```
 User Input
-  -> CLI / MCP Adapter
+  -> CLI Adapter
     -> Dispatch
       -> Core Business Logic
         -> [EMIT domain event here]   <-- fires inside core

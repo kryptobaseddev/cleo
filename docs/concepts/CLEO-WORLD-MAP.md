@@ -14,7 +14,7 @@
 
         +-------------------+      speaks with       +-------------------+
         |       LAFS        | <--------------------> |   AGENTS / TOOLS  |
-        | Shared response   |                        | MCP, A2A, CLI, SDK|
+        | Shared response   |                        | CLI, Core SDK, A2A|
         | contract          |                        | Any LLM provider  |
         +---------+---------+                        +---------+---------+
                   |                                            |
@@ -51,7 +51,7 @@
 | **Intent** | Human goals, constraints, acceptance | The Crown |
 | **Contract** | LAFS envelopes and stable outputs | The Common Tongue |
 | **Command** | CLEO routing, policy, continuity | The Sovereign Mind |
-| **Provisioning** | CAAMP skills, providers, MCP, instructions | The Campfire Quartermaster |
+| **Provisioning** | CAAMP skills, providers, MCP config writing, instructions | The Campfire Quartermaster |
 | **Memory** | BRAIN persistence and retrieval | The Eternal Archive |
 | **Lifecycle** | LOOM sequencing from research to release | The Fate Weaver |
 | **Network** | NEXUS cross-project coordination | The Star Road |
@@ -70,7 +70,7 @@
 | **LAFS** | Standardizes outputs for tools and agents | Defines response shape, not transport |
 
 **CAAMP** is the provisioning ally, not a replacement for the core five named powers above.
-It equips the realm with provider configs, skills, MCP servers, and injected instructions.
+It equips the realm with provider configs, skills, MCP server configurations for downstream providers, and injected instructions.
 
 ---
 

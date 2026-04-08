@@ -94,15 +94,23 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |                                    +----------------------------+   |
 |                                                                     |
 |  +-----------------------------------------------------------------+
-|  |               Shared Core (packages/core/src/)                  |
-|  |  CLI (Commander.js)  |  MCP (query/mutate)  | API    |
+|  |              CLI Surface  (packages/cleo/src/cli/)              |
+|  |          citty entry -> command handler -> dispatchRaw          |
+|  +-----------------------------------------------------------------+
+|  |             Dispatch  (packages/cleo/src/dispatch/)             |
+|  |     middleware -> registry -> domain handler -> engine          |
+|  +-----------------------------------------------------------------+
+|  |        @cleocode/core  (packages/core/src/)  -- standalone      |
+|  |   tasks  sessions  memory  orchestration  lifecycle  release    |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
-|  |  .cleo/tasks.db        .cleo/brain.db          ~/.cleo/nexus.db [TGT]
-|  |  (project work)        (memory/cognition)     (global network)  |
+|  |  .cleo/tasks.db   .cleo/brain.db   ~/.local/share/cleo/nexus.db |
+|  |  (project work)   (memory/cognition)     (global XDG network)   |
 |  +-----------------------------------------------------------------+
 +=====================================================================+
 ```
+
+CLEO ships exactly one runtime surface: the `cleo` CLI. Programmatic consumers import `@cleocode/core` directly. There is no separate protocol server -- every operation lives in the dispatch registry and is reached through `cleo <command>`.
 
 ### The Four Systems
 
@@ -188,11 +196,11 @@ BRAIN distinguishes between **raw artifacts** (session transcripts, code diffs, 
 
 BRAIN implements a progressive retrieval workflow (inspired by claude-mem) that achieves ~10x token savings over traditional RAG:
 
-1. **Find** (`memory find`) -- Returns a compact index with IDs and titles (~50-100 tokens per result)
-2. **Timeline** (`memory timeline`) -- Shows chronological context around interesting results
-3. **Fetch** (`memory fetch`) -- Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
+1. **Find** (`cleo memory find`) -- Returns a compact index with IDs and titles (~50-100 tokens per result)
+2. **Timeline** (`cleo memory timeline`) -- Shows chronological context around interesting results
+3. **Fetch** (`cleo memory fetch`) -- Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
 
-The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `memory observe` via the mutate gateway.
+The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `cleo memory observe`.
 
 ### Knowledge Graph [GATED]
 
@@ -218,9 +226,9 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 209 MCP operations (119 query + 90 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
+**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (`cleo memory find` / `timeline` / `fetch`), `cleo memory observe`, registry-defined operations across 10 dispatch domains (internal CQRS tags `query` / `mutate` drive routing inside the dispatcher), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (static seed + `ct-memory` skill guided self-retrieval + `cleo memory find/timeline/fetch` -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
 
-**In Progress**: PageIndex graph tables (T5160), NEXUS MCP wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
+**In Progress**: PageIndex graph tables (T5160), NEXUS cross-project wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
 
 **Planned**: Reasoning engine (T5162-T5163), active memory circulation (Living BRAIN), full knowledge graph with temporal reasoning
 
@@ -464,7 +472,7 @@ NEXUS leverages graph structures built into each project's `tasks.db` and `brain
 
 ## Anti-Hallucination Protocol
 
-Every MCP mutate operation undergoes **four-layer validation** (CLI operations rely on domain-specific validation within core modules):
+Every mutate operation routed through the CLI dispatch layer undergoes **four-layer validation** (direct `@cleocode/core` consumers rely on domain-specific validation within core modules):
 
 ### Layer 1: Schema -- JSON Schema Enforcement
 
@@ -531,17 +539,19 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 ## Shared-Core Architecture
 
-CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
+CLEO uses a shared-core architecture. The `cleo` CLI is the sole runtime surface, and `@cleocode/core` is the programmatic embedding surface. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), 209+ operations across 13 domains -- the agent interface
-- **CLI (Backup)**: 100+ commands via citty -- the human interface
-- **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. Both MCP and CLI delegate here. Consumers can install it independently.
-- **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
+- **CLI (sole runtime surface)**: citty-powered entry at `packages/cleo/src/cli/index.ts` with ~89 command handlers under `packages/cleo/src/cli/commands/`. Every human and agent invocation flows through `cleo <command>`.
+- **Dispatch layer**: middleware + registry + domain handlers + engines at `packages/cleo/src/dispatch/`. The CLI hands off via `dispatchRaw(gateway, domain, operation, params)` (`adapters/cli.ts:246-276`). Registry entries carry an internal CQRS tag (`query` or `mutate`) that routes to `handler.query()` or `handler.mutate()`; this tag is **not** a public protocol.
+- **`@cleocode/core` (programmatic surface)**: All business logic, published as a standalone package. The dispatch layer delegates here, and external consumers can install it independently and call typed functions directly -- no CLI required.
+- **Adapters (optional)**: Tool-specific UX wrappers that shell out to `cleo`. They sit *on top of* the CLI; they never replace it.
 
 ### Package Boundary
 
 ```
-@cleocode/cleo (assembled CLI + MCP product)
+@cleocode/cleo (the CLI product)
+  |-- packages/cleo/src/cli/       (citty entry + command handlers)
+  |-- packages/cleo/src/dispatch/  (middleware -> registry -> domains -> engines)
   |-- @cleocode/core (standalone business logic kernel)
         |-- @cleocode/contracts (types + interfaces, zero runtime deps)
         |-- Domains: tasks, sessions, memory, orchestration,
@@ -549,15 +559,16 @@ CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers ar
         |-- Bundled SQLite store (Drizzle ORM)
 
 Consumer patterns:
+  CLI:            cleo tasks add --title "foo" --description "bar"
   Facade:         const cleo = await Cleo.init('./project')
                   await cleo.tasks.add({ title: 'foo', description: 'bar' })
   Tree-shaking:   import { addTask } from '@cleocode/core'
   Custom store:   await Cleo.init('./project', { store: myAccessor })
 ```
 
-The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all four systems through the same business logic that powers `@cleocode/cleo`.
+`@cleocode/core` imports nothing from `packages/cleo/src/cli/` or `packages/cleo/src/dispatch/` -- it is a standalone kernel. The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within it. Consumers of the standalone package have direct access to all four systems through the same business logic that powers the `cleo` CLI.
 
-All interfaces MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
+All entry points MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
 
 ### Specification
 

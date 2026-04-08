@@ -9,17 +9,16 @@
 
 ## 1. Overview
 
-The **CLEO API** is the canonical interface for all CLEO operations. It provides a unified, transport-agnostic contract that powers:
+The **CLEO API** is the canonical interface for all CLEO operations. It provides a unified contract that powers:
 
-- **@cleocode/core**: Typed function API (direct programmatic access, standalone)
-- **CLEO-NEXUS-API**: Cross-project coordination (multi-project view)
-- **MCP Integration**: AI agent tools (Claude Code) — via `@cleocode/cleo`
-- **CLI Interface**: Command-line access — via `@cleocode/cleo`
+- **@cleocode/core**: Typed function API for programmatic embedding (direct, standalone)
+- **CLI Interface**: The sole runtime surface of `@cleocode/cleo`. Every CLEO operation is reachable through the `cleo` CLI (`packages/cleo/src/cli/index.ts`).
+- **CLEO-NEXUS-API**: Cross-project coordination (multi-project view), reached via `cleo nexus …`
 - **CLEO-WEB-API**: HTTP/REST adapter (**Status: PLANNED** — part of CleoOS vision)
 
 Consumers can access the API at two levels:
-- **Direct**: Import `@cleocode/core` for typed function calls (no dispatch layer)
-- **Routed**: Use MCP or CLI through `@cleocode/cleo`'s dispatch layer
+- **Direct (Path A)**: Import `@cleocode/core` for typed function calls (no dispatch layer, standalone kernel)
+- **Routed (Path B)**: Invoke the `cleo` CLI, which routes through `@cleocode/cleo`'s dispatch layer into `@cleocode/core`
 
 ---
 
@@ -32,50 +31,62 @@ Consumers can access the API at two levels:
 │                       API CONSUMERS                              │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Path A: Direct (no dispatch)       Path B: Routed (dispatch)    │
+│  Path A: Direct (no dispatch)       Path B: Routed (CLI)         │
 │                                                                  │
-│  ┌──────────────────┐       ┌──────────────┐  ┌──────────────┐  │
-│  │ App Developers   │       │ MCP/CLI      │  │ CLEO-NEXUS   │  │
-│  │ (import core)    │       │ (Agents)     │  │ (Cross-Proj) │  │
-│  └────────┬─────────┘       └──────┬───────┘  └──────┬───────┘  │
-│           │                        │                 │           │
-│           │                        └────────┬────────┘           │
-│           │                                 │                    │
-│           │                          ┌──────┴──────┐             │
-│           │                          │  DISPATCHER │             │
-│           │                          │  (CQRS)     │             │
-│           │                          └──────┬──────┘             │
-│           │                                 │                    │
-│           └──────────────┬──────────────────┘                    │
-│                          │                                       │
-│                   ┌──────┴──────┐                                │
-│                   │@cleocode/   │                                │
-│                   │  core       │                                │
-│                   │(typed API)  │                                │
-│                   └──────┬──────┘                                │
-│                          │                                       │
-│        ┌─────────────────┼─────────────────┐                     │
-│        │                 │                 │                     │
-│        ▼                 ▼                 ▼                     │
-│  ┌──────────┐      ┌──────────┐      ┌──────────┐               │
-│  │ tasks.db │      │ brain.db │      │ nexus.db │               │
-│  │(project) │      │(project) │      │ (global) │               │
-│  └──────────┘      └──────────┘      └──────────┘               │
+│  ┌──────────────────┐                  ┌──────────────────────┐  │
+│  │ App Developers   │                  │ Humans + AI Agents   │  │
+│  │ (import core)    │                  │ (cleo CLI)           │  │
+│  └────────┬─────────┘                  └──────────┬───────────┘  │
+│           │                                       │              │
+│           │                            ┌──────────┴──────────┐   │
+│           │                            │ packages/cleo/src/  │   │
+│           │                            │   cli/index.ts      │   │
+│           │                            │   (citty runMain)   │   │
+│           │                            └──────────┬──────────┘   │
+│           │                                       │              │
+│           │                            ┌──────────┴──────────┐   │
+│           │                            │ dispatch/adapters/  │   │
+│           │                            │   cli.ts            │   │
+│           │                            │ dispatchRaw(gw,     │   │
+│           │                            │   dom, op, params)  │   │
+│           │                            └──────────┬──────────┘   │
+│           │                                       │              │
+│           │                            ┌──────────┴──────────┐   │
+│           │                            │ dispatch/registry   │   │
+│           │                            │ (CQRS tag: query|   │   │
+│           │                            │  mutate routing)    │   │
+│           │                            └──────────┬──────────┘   │
+│           │                                       │              │
+│           └───────────────┬───────────────────────┘              │
+│                           │                                      │
+│                    ┌──────┴──────┐                               │
+│                    │@cleocode/   │                               │
+│                    │  core       │                               │
+│                    │(typed API)  │                               │
+│                    └──────┬──────┘                               │
+│                           │                                      │
+│        ┌──────────────┬───┴──────────┬───────────────┐           │
+│        │              │              │               │           │
+│        ▼              ▼              ▼               ▼           │
+│  ┌──────────┐   ┌──────────┐   ┌──────────────┐  ┌──────────┐    │
+│  │ tasks.db │   │ brain.db │   │ signaldock.db│  │ nexus.db │    │
+│  │(project) │   │(project) │   │  (project)   │  │ (global) │    │
+│  └──────────┘   └──────────┘   └──────────────┘  └──────────┘    │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Path A** — Direct: `import { addTask } from '@cleocode/core'` — typed function calls, no dispatch overhead.
-**Path B** — Routed: MCP `query tasks.show` or CLI `cleo tasks show T001` — string-addressed dispatch through `@cleocode/cleo`.
+**Path A** — Direct: `import { addTask } from '@cleocode/core'` — typed function calls, no dispatch overhead. Used by any TypeScript consumer embedding CLEO programmatically. `@cleocode/core` imports nothing from `dispatch/` or `cli/`.
+
+**Path B** — Routed: `cleo tasks show T001` — citty command handler resolves to `dispatchRaw('query', 'tasks', 'show', { taskId: 'T001' })`, which routes through the registry's CQRS split (internal `gateway` tag) into `@cleocode/core`. The CLI is the sole runtime surface; there is no second protocol layer.
 
 ### 2.2 Transport Adapters
 
 | Adapter            | Transport        | Status          | Purpose                                                      |
 | ------------------ | ---------------- | --------------- | ------------------------------------------------------------ |
-| **@cleocode/core** | Direct import    | **Implemented** | Typed function API for app developers                        |
-| **CLI**            | Process          | **Implemented** | Primary channel — scripts, automation, human use             |
-| **MCP Tools**      | stdio (JSON-RPC) | **Implemented** | Fallback channel — AI agents, Claude Code                    |
-| **CLEO-NEXUS-API** | MCP/CLI          | **Implemented** | Cross-project operations, global registry                    |
+| **@cleocode/core** | Direct import    | **Implemented** | Typed function API for programmatic embedding                |
+| **CLI**            | Process (citty)  | **Implemented** | Sole runtime surface — scripts, automation, humans, AI agents |
+| **CLEO-NEXUS-API** | CLI subcommands  | **Implemented** | Cross-project operations, global registry (via `cleo nexus …`) |
 | **CLEO-WEB-API**   | HTTP (Fastify)   | **PLANNED**     | Web dashboard, browser access (CleoOS)                       |
 
 ---
@@ -208,21 +219,28 @@ npm run generate:api -- --format markdown
 
 ## 5. Data Storage
 
-### 5.1 Three-Database Architecture
+### 5.1 Four-Database Architecture
 
-| Database     | Scope       | Tables                               | Purpose            |
-| ------------ | ----------- | ------------------------------------ | ------------------ |
-| **tasks.db** | Per-project | tasks, sessions, pipelines, adrs     | Project operations |
-| **brain.db** | Per-project | memory, patterns, learnings, vectors | Cognitive storage  |
-| **nexus.db** | Global      | project_registry, nexus_audit_log    | Cross-project      |
+CLEO persistence is split across four SQLite databases. Three are per-project; one (`nexus.db`) is global and guarded to the global tier by `packages/core/src/store/nexus-sqlite.ts`.
+
+| Database         | Scope       | Key Tables                                                  | Purpose                                                   |
+| ---------------- | ----------- | ----------------------------------------------------------- | --------------------------------------------------------- |
+| **tasks.db**     | Per-project | `tasks`, `sessions`, `pipelineManifest`, `audit_log`, `adrs` | Task hierarchy, session lifecycle, pipeline manifest ledger, ADRs |
+| **brain.db**     | Per-project | cognitive memory (FTS5 + vector)                            | BRAIN storage — observations, patterns, learnings         |
+| **signaldock.db**| Per-project | ~22 tables for agent messaging                              | Agent registry and inter-agent messaging (SignalDock)     |
+| **nexus.db**     | Global      | `project_registry`, `nexus_audit_log`                       | Cross-project coordination and dependency graph           |
+
+**Sessions are stored in the `sessions` table inside `tasks.db`** (`packages/core/src/store/session-store.ts`, schema at `packages/core/src/store/tasks-schema.ts:141-182`), not as JSON files.
+
+**The pipeline manifest ledger is stored in the `pipelineManifest` table inside `tasks.db`** (`packages/core/src/memory/pipeline-manifest-sqlite.ts`), not as a `MANIFEST.jsonl` file. The legacy file name is retained only for historical references in release artifacts.
 
 ### 5.2 Storage Location
 
-Global paths use `env-paths` for OS-appropriate locations:
+The global `nexus.db` uses `env-paths` for OS-appropriate locations via `getCleoHome()`. Per-project databases live **inside the project directory** under `{project-root}/.cleo/`.
 
 ```
-{CLEO_HOME}/                          # OS-aware via env-paths
-├── nexus.db                          # Global cross-project registry
+{CLEO_HOME}/                          # OS-aware via env-paths (global tier)
+├── nexus.db                          # Global cross-project registry (ONLY this DB at global tier)
 ├── config.json                       # Global config
 ├── templates/CLEO-INJECTION.md       # Injection template
 ├── logs/                             # Global logs
@@ -231,16 +249,17 @@ Linux:   ~/.local/share/cleo/
 macOS:   ~/Library/Application Support/cleo/
 Windows: %LOCALAPPDATA%\cleo\Data\
 
-{project-root}/.cleo/
-├── tasks.db              # Per-project tasks
-├── brain.db              # Per-project memory
+{project-root}/.cleo/                 # Per-project tier
+├── tasks.db              # Per-project tasks + sessions + pipelineManifest + audit_log + ADRs
+├── brain.db              # Per-project cognitive memory
+├── signaldock.db         # Per-project agent registry and messaging
 ├── config.json           # Per-project config
 ├── project-info.json     # Project identity (hash, UUID)
 ├── project-context.json  # Detected project type
 ├── memory-bridge.md      # Auto-generated memory context
 ```
 
-Per-project databases live **inside the project directory** (under `{project-root}/.cleo/`). Global assets use `getCleoHome()` which resolves via `env-paths` per OS.
+The `nexus-sqlite.ts` store guard asserts that `nexus.db` only ever resolves to the global tier; attempts to write a project-tier `.cleo/nexus.db` are rejected.
 
 ### 5.3 Grade Analytics and Token Telemetry
 
@@ -250,7 +269,7 @@ CLEO currently splits grade analytics data across `tasks.db` and filesystem arti
 
 - `audit_log` - source data for behavioral grading
 - `sessions` - session lifecycle, including `gradeMode`
-- `token_usage` - per-exchange token telemetry for CLI, MCP, and future HTTP/agent adapters
+- `token_usage` - per-exchange token telemetry for CLI operations and future HTTP/agent adapters
 
 **Filesystem artifacts still in active use:**
 
@@ -280,7 +299,7 @@ Design direction:
 - `token_usage` is the canonical store for per-exchange token measurement
 - `audit_log` remains the canonical source for behavioral grading inputs
 - `GRADES.jsonl` remains supported as the persisted grade-result ledger until grade results move into first-class tables
-- grade-run artifacts remain valid filesystem sources, but CLEO should expose them through query operations so web and MCP clients do not need to read files directly
+- grade-run artifacts remain valid filesystem sources, but CLEO should expose them through query operations so web clients (planned HTTP adapter) and SDK consumers do not need to read files directly
 
 ---
 
@@ -298,20 +317,7 @@ GET  /api/poll    (ETag-based change detection)
 
 When implemented, the HTTP adapter SHOULD serve grade analytics and token telemetry through the same dispatch contract, including `admin.grade*` and `admin.token.*` operations.
 
-### 6.2 MCP
-
-```json
-{
-  "name": "query",
-  "arguments": {
-    "domain": "tasks",
-    "operation": "show",
-    "params": { "taskId": "T001" }
-  }
-}
-```
-
-### 6.3 CLI
+### 6.2 CLI
 
 ```bash
 cleo tasks show T001

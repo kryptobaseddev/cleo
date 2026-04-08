@@ -16,7 +16,7 @@ authors: ["Claude Sonnet 4.5", "CLEO Development Team"]
 **Date**: 2026-03-24
 **Epic**: T158 - CAAMP 1.9.1 Hook Normalizer Integration
 **Task**: T169 - Specification Update
-**Implementation**: Phases 1-5 SHIPPED (brain.db schema, 3-layer retrieval, MCP operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation, automated capture via lifecycle hooks, local embedding provider, context-aware memory bridge, session summarization, cross-provider transcript extraction, brain maintenance command)
+**Implementation**: Phases 1-5 SHIPPED (brain.db schema, 3-layer retrieval, CLI-dispatched memory operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation, automated capture via lifecycle hooks, local embedding provider, context-aware memory bridge, session summarization, cross-provider transcript extraction, brain maintenance command)
 **Contract Reference**: `packages/contracts/src/config.ts` → `BrainConfig`
 
 ---
@@ -109,7 +109,6 @@ All T134 features are governed by `BrainConfig` in `packages/contracts/src/confi
 interface BrainConfig {
   autoCapture: boolean;        // Capture lifecycle events → brain.db (default: true)
   captureFiles: boolean;       // Capture file change events (default: false)
-  captureMcp: boolean;         // Capture MCP tool events (default: false)
   embedding: {
     enabled: boolean;          // Enable local embedding model (default: false)
     provider: 'local' | 'openai';
@@ -124,6 +123,8 @@ interface BrainConfig {
   };
 }
 ```
+
+**Vestigial field**: `packages/contracts/src/config.ts:203` currently still declares `captureMcp: boolean` (default `false`) from the pre-CLI-only era. It has no active capture path and is tracked for removal with the rest of the MCP code residue. The conceptual config surface above is the canonical shape going forward.
 
 **Defaults**: All features default to `false`/disabled except `autoCapture: true` and `memoryBridge.autoRefresh: true`. Existing behavior is preserved without config changes.
 
@@ -189,8 +190,8 @@ CAAMP 1.9.1 introduces a 16-event canonical hook taxonomy. The BRAIN automation 
 - **Learning memory**: `brain_learnings` table — SHIPPED in brain.db
 - **Observations**: `brain_observations` table — SHIPPED in brain.db (5,122 entries migrated from claude-mem)
 - **Memory links**: `brain_memory_links` table — SHIPPED in brain.db (cross-references to tasks.db)
-- **3-layer retrieval**: find/timeline/fetch pattern — SHIPPED via MCP (`memory find`, `memory timeline`, `memory fetch`)
-- **Observe**: `memory observe` — SHIPPED via MCP mutate gateway
+- **3-layer retrieval**: find/timeline/fetch pattern — SHIPPED via CLI (`cleo memory find`, `cleo memory timeline`, `cleo memory fetch`)
+- **Observe**: `cleo memory observe` — SHIPPED through the dispatch mutate path
 - **Session continuity**: Shipped via session chains and handoff/briefing system (ADR-020)
 
 **SHIPPED in Phase 3** (T5385-T5388):
@@ -412,7 +413,7 @@ cleo reason similar --task T3002 --threshold 0.8 --limit 5
 #   2. T2971 (0.89): Research: BRAIN Vision Requirements
 #   3. T2400 (0.87): Design: Skill Loading Mechanism
 #   4. T2398 (0.85): Specification: Protocol Stack v1
-#   5. T1234 (0.82): Specification: MCP Server Architecture
+#   5. T1234 (0.82): Specification: CLI Dispatch Architecture
 ```
 
 #### 2.2.5 Temporal Analysis Model
@@ -1027,21 +1028,21 @@ cleo network similarity --project backend-api  # Find similar projects
 
 ### 3.2 Phase 0: Foundation (Months 1-2)
 
-**Goal**: Simplify codebase + deliver MCP Server (no BRAIN expansion yet)
+**Goal**: Simplify codebase + harden the CLI dispatch surface (no BRAIN expansion yet)
 
 **BRAIN-Relevant Work**:
-- MCP Server architecture (prepares for Agent layer enhancements)
+- CLI dispatch architecture with the internal CQRS `query`/`mutate` split (prepares for Agent layer enhancements)
 - File consolidation (reduces cognitive load for future BRAIN features)
 - No new BRAIN capabilities in this phase
 
 **Deliverables**:
 - 163 files → 100 files
-- MCP Server v1.0.0 (2 tools: `query`, `mutate`)
+- `cleo` CLI v1.0.0 with registry-defined `query` and `mutate` operations across all 10 domains
 - Zero breaking changes
 
 ### 3.3 Phase 1: Validation (Months 3-4)
 
-**Goal**: Validate Nexus + MCP adoption before BRAIN expansion
+**Goal**: Validate Nexus + CLI dispatch adoption before BRAIN expansion
 
 **BRAIN-Relevant Work**:
 
@@ -1107,7 +1108,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 **Goal**: Add semantic intelligence capabilities (Tier M scale)
 
-**Precondition**: Phase 1 validation MUST pass for Nexus AND MCP Server
+**Precondition**: Phase 1 validation MUST pass for Nexus AND the CLI dispatch surface
 
 #### Base (Memory) - Decision/Pattern Memory
 
@@ -1708,7 +1709,7 @@ All 5 dimensions MUST meet certification criteria:
 
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
-- **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
+- **docs/specs/CLEO-OPERATION-CONSTITUTION.md**: Canonical runtime dispatch contract (CLI + internal CQRS)
 - **docs/specs/CLEO-NEXUS-SPECIFICATION.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 - **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
@@ -1741,8 +1742,8 @@ All 5 dimensions MUST meet certification criteria:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ USER INTERACTION LAYER                                       │
-│ - CLI commands (76 commands)                                 │
-│ - MCP Server (query / mutate)                     │
+│ - cleo CLI (sole runtime surface, ~89 commands)              │
+│ - Internal CQRS dispatch (query / mutate tags in registry)   │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼

@@ -66,7 +66,7 @@ The naming for this domain is intentionally layered:
 
 The stable contract is the slug `sticky`. The more formal surface language may evolve, but it MUST remain compatible with:
 
-- `sticky.*` MCP operations
+- `sticky.*` CLI dispatch operations (reached via `cleo sticky <op>`)
 - `cleo sticky ...` CLI commands
 - `brain_sticky_notes` storage naming
 

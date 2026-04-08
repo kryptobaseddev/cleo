@@ -55,7 +55,7 @@ admin.grade <sessionId>
 |------|------|
 | `packages/core/src/sessions/session-grade.ts` | Rubric implementation (scoring logic) |
 | `packages/core/src/sessions/index.ts` | Session operations (startSession with grade option) |
-| `packages/cleo/src/dispatch/domains/admin.ts` | MCP domain handler (admin.grade routing) |
+| `packages/cleo/src/dispatch/domains/admin.ts` | Dispatch domain handler (routes `check.grade` / legacy compatibility `admin.grade`) |
 | `packages/cleo/src/dispatch/middleware/audit.ts` | Audit middleware (query logging in grade mode) |
 | `packages/cleo/src/cli/commands/grade.ts` | CLI command (`cleo grade`) |
 | `schemas/grade.schema.json` | JSON Schema for GradeResult |
@@ -84,7 +84,7 @@ Measures whether the agent checks existing sessions before starting work and pro
 
 ### S2: Discovery Efficiency (20pts)
 
-Measures whether the agent uses `tasks.find` for discovery instead of overusing `tasks.list` for the same job. `tasks.list` is now the canonical browse/filter operation and returns paged MCP responses, but `tasks.find` remains the lighter discovery path.
+Measures whether the agent uses `tasks.find` for discovery instead of overusing `tasks.list` for the same job. `tasks.list` is now the canonical browse/filter operation and returns paged LAFS responses, but `tasks.find` remains the lighter discovery path.
 
 | Points | Condition | Evidence |
 |--------|-----------|----------|
@@ -134,18 +134,20 @@ Measures whether the agent properly recovers from errors (especially `E_NOT_FOUN
 
 ### S5: Progressive Disclosure Use (20pts)
 
-Measures whether the agent uses CLEO's progressive disclosure system (help, skills) and the MCP query gateway.
+Measures whether the agent uses CLEO's progressive disclosure system (help, skills) and the CQRS query gateway for read-only programmatic lookups. Source of truth: `packages/core/src/sessions/session-grade.ts:212-240`.
 
 | Points | Condition | Evidence |
 |--------|-----------|----------|
 | +10 | At least one help/skill call: `admin.help`, `tools.skill.show`, `tools.skill.list`, `skills.list`, or `skills.show` | `Progressive disclosure used (Nx)` |
-| +10 | At least one MCP query gateway call (metadata.gateway === `query`) | `query (MCP) used Nx` |
+| +10 | At least one query-gateway call (audit `metadata.gateway === 'query'`) | `query gateway used Nx` |
 
 **Flags on violation:**
 - `No admin.help or skill lookup calls (load ct-cleo for guidance)` -- no help/skill calls found
-- `No MCP query calls (prefer query over CLI for programmatic access)` -- no MCP gateway usage
+- `No query gateway calls (use query operations for programmatic access)` -- no query-gateway usage
 
 **Scoring logic:** Starts at 0, adds 10 per condition met. Range: 0-20.
+
+> **Note:** `query` and `mutate` are internal CQRS tags attached to every operation in the dispatch registry (`packages/cleo/src/dispatch/registry.ts`). The dispatcher uses the tag to route to `handler.query()` vs `handler.mutate()`. They are not separate public protocols -- every operation, query or mutate, is reached via `cleo <command>`.
 
 ## Grade Letter Mapping
 
@@ -159,7 +161,9 @@ The CLI command (`packages/cleo/src/cli/commands/grade.ts`) maps total percentag
 | D | >= 45% |
 | F | < 45% |
 
-## Interface: CLI
+## Interface
+
+Grade operations live under the `check` domain per Constitution T5517 (`check.grade` / `check.grade.list`). The dispatch layer retains legacy compatibility routes at `admin.grade` / `admin.grade.list` so existing audit histories and automation keep working. The CLI is the sole runtime surface.
 
 ### Grade a session
 
@@ -178,33 +182,14 @@ cleo grade              # (no sessionId also lists)
 
 Output includes: sessionId, score (e.g. `85/100`), percent, timestamp, flag count.
 
-## Interface: MCP
+### Registry entries
 
-### Grade a session
+| Operation | Gateway | Domain | Params | Returns |
+|-----------|---------|--------|--------|---------|
+| `check.grade` (compat: `admin.grade`) | query | check | `sessionId` (string) | Full `GradeResult` object |
+| `check.grade.list` (compat: `admin.grade.list`) | query | check | none | Array of `GradeResult` from `GRADES.jsonl` |
 
-```
-query admin grade { "sessionId": "<session-id>" }
-```
-
-- **Gateway:** query
-- **Domain:** admin
-- **Operation:** grade
-- **Required params:** `sessionId` (string)
-- **Tier:** 2
-- **Returns:** Full `GradeResult` object
-
-### List all grades
-
-```
-query admin grade.list
-```
-
-- **Gateway:** query
-- **Domain:** admin
-- **Operation:** grade.list
-- **Required params:** none
-- **Tier:** 2
-- **Returns:** Array of `GradeResult` objects from `GRADES.jsonl`
+Both operations are tier 2. `query` here is the internal CQRS tag that routes to the domain handler's read path.
 
 ## Environment Variables
 
@@ -235,7 +220,7 @@ Grade results conform to `schemas/grade.schema.json` (schema version `1.0.0`).
     "errorProtocol": { "score": 20, "max": 20, "evidence": [...] },
     "disclosureUse": { "score": 10, "max": 20, "evidence": [...] }
   },
-  "flags": ["No MCP query calls (prefer query over CLI for programmatic access)"],
+  "flags": ["No query gateway calls (use query operations for programmatic access)"],
   "timestamp": "2026-03-01T12:00:00.000Z",
   "entryCount": 47,
   "evaluator": "auto"

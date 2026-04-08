@@ -16,7 +16,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 1. Overview
 
-This specification defines the formal contract for the CLEO 5-step release pipeline. The pipeline is implemented as MCP operations in the `pipeline` domain and orchestrated by `release.ship`. Each step MUST complete successfully before the next step begins. The pipeline is atomic at the git level: if any step after `release.commit` fails, the release MUST NOT be re-attempted without manual intervention to resolve the partial state.
+This specification defines the formal contract for the CLEO 5-step release pipeline. The pipeline is implemented as operations in the `pipeline` domain of the CLI dispatch registry (`packages/cleo/src/dispatch/registry.ts`) and orchestrated by the `release.ship` composite operation, reached via `cleo pipeline release ship`. Each step MUST complete successfully before the next step begins. The pipeline is atomic at the git level: if any step after `release.commit` fails, the release MUST NOT be re-attempted without manual intervention to resolve the partial state.
+
+**Operation form**: Per the Operation Constitution T5517 rationalization, the five historical `release.*` operations were merged into a single `release.ship` operation with a `step` parameter: `cleo pipeline release ship --step prepare|changelog|gates|commit|push`. Each step below describes the canonical form (reached through the `step` parameter); the legacy spellings remain as handler-level compatibility aliases until callers converge.
 
 The canonical release system consists of two modules:
 - `packages/core/src/release/release-manifest.ts` — SQLite CRUD for `release_manifests` table
@@ -100,7 +102,7 @@ pending → prepared → changelog_ready → gates_passed → committed → ship
 
 ### Step 1: release.prepare
 
-**MCP operation**: `mutate pipeline release.prepare`
+**CLI invocation**: `cleo pipeline release ship --step prepare` (dispatch tag: `mutate pipeline release.prepare`)
 
 **Purpose**: Creates or updates the `release_manifests` row for the target version. Links the release to a `lifecycle_pipelines` row via `pipeline_id`.
 
@@ -126,7 +128,7 @@ pending → prepared → changelog_ready → gates_passed → committed → ship
 
 ### Step 2: release.changelog
 
-**MCP operation**: `mutate pipeline release.changelog`
+**CLI invocation**: `cleo pipeline release ship --step changelog` (dispatch tag: `mutate pipeline release.changelog`)
 
 **Purpose**: Generates CHANGELOG.md content from SQLite task data and writes it to `CHANGELOG.md` using the section-aware merge algorithm (ADR-028 §2.3).
 
@@ -176,7 +178,7 @@ The `# VERSION` (H1) format is **prohibited** for version sections.
 
 ### Step 3: release.gates.run
 
-**MCP operation**: `query pipeline release.gates.run`
+**CLI invocation**: `cleo pipeline release ship --step gates` (dispatch tag: `query pipeline release.gates.run`)
 
 **Purpose**: Runs all pre-publish gates and post-step guards. MUST pass before `release.commit` is invoked.
 
@@ -206,7 +208,7 @@ All 4 gates and 2 guards MUST pass. The operation MUST return the full list of r
 
 ### Step 4: release.commit
 
-**MCP operation**: `mutate pipeline release.commit`
+**CLI invocation**: `cleo pipeline release ship --step commit` (dispatch tag: `mutate pipeline release.commit`)
 
 **Purpose**: Creates the git commit and tag for the release. Records commit SHA and tag in `release_manifests`.
 
@@ -253,7 +255,7 @@ Example: `v2026.3.15`
 
 ### Step 5: release.ship (Composite)
 
-**MCP operation**: `mutate pipeline release.ship`
+**CLI invocation**: `cleo pipeline release ship` (composite — runs all steps in sequence). Dispatch tag: `mutate pipeline release.ship`
 
 **Purpose**: Composite operation. Orchestrates steps 1–4 in sequence, then pushes to remote and records the final provenance.
 

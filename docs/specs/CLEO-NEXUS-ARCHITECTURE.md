@@ -11,13 +11,13 @@
 
 NEXUS is CLEO's cross-project coordination layer. It maintains a global registry of all CLEO-managed projects, enabling cross-project dependency analysis, critical path calculation, and orphan detection across a developer's entire project portfolio.
 
-The registry lives at `~/.cleo/nexus.db` (SQLite) and is accessible from any CLEO-managed project. Each project MUST register itself with NEXUS on initialization and reconcile its identity on upgrade.
+The registry lives at `~/.local/share/cleo/nexus.db` (SQLite, XDG global tier, overridable via `$CLEO_HOME`) and is accessible from any CLEO-managed project. Each project MUST register itself with NEXUS on initialization and reconcile its identity on upgrade. The nexus.db path is guarded to the global tier by `packages/core/src/store/nexus-sqlite.ts` — attempts to open it under a project directory throw.
 
-NEXUS operates on a portability model where each project's `.cleo/` directory travels with the project (containing `project-info.json` with a stable UUID), while the global registry at `~/.cleo/nexus.db` stores machine-specific path mappings. When a project moves to a new filesystem location, the reconciliation protocol detects the path change and updates the global registry without losing the project's identity or audit history.
+NEXUS operates on a portability model where each project's `.cleo/` directory travels with the project (containing `project-info.json` with a stable UUID), while the global `nexus.db` registry stores machine-specific path mappings. When a project moves to a new filesystem location, the reconciliation protocol detects the path change and updates the global registry without losing the project's identity or audit history.
 
-NEXUS enables three primary capabilities: (1) unified task querying across project boundaries using `project:taskId` syntax, (2) cross-project dependency graph construction for critical path and blocker analysis, and (3) orphan detection for broken cross-project references. These capabilities are exposed through 31 MCP operations organized into core registry operations and `nexus.share.*` relay operations.
+NEXUS enables three primary capabilities: (1) unified task querying across project boundaries using `project:taskId` syntax, (2) cross-project dependency graph construction for critical path and blocker analysis, and (3) orphan detection for broken cross-project references. These capabilities are exposed through the `nexus` domain in the CLI dispatch registry (`packages/cleo/src/dispatch/registry.ts`), reached via `cleo nexus <command>`. See `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §7.9 for the normative operation list — operation counts come from the live registry rather than being hardcoded here.
 
-The relationship between NEXUS and other CLEO databases is complementary: `tasks.db` stores per-project task state (portable), `brain.db` stores cognitive memory (portable), and `nexus.db` stores the global project index (machine-specific). NEXUS reads from project-local `tasks.db` files during sync operations but never writes to them.
+The relationship between NEXUS and the other CLEO databases is complementary: per-project `tasks.db` stores task state (portable), per-project `brain.db` stores cognitive memory (portable), per-project `signaldock.db` tracks the local agent registry (portable), and global `nexus.db` stores the cross-project index (machine-specific). NEXUS reads from project-local `tasks.db` files during sync operations but never writes to them.
 
 ---
 
@@ -27,7 +27,7 @@ The relationship between NEXUS and other CLEO databases is complementary: `tasks
 |---|---|
 | **projectId** | UUID (v4) assigned at project creation. Stored in `.cleo/project-info.json`. Stable across path moves. Primary identity key. |
 | **projectHash** | `SHA-256(absolutePath).substring(0, 12)`. Path-derived, changes on move. Used as unique index for fast lookups. |
-| **registry** | The `project_registry` table in `~/.cleo/nexus.db`. |
+| **registry** | The `project_registry` table in `~/.local/share/cleo/nexus.db`. |
 | **reconcile** | Process of verifying a project's identity against the global registry and resolving discrepancies via the 4-scenario policy. |
 | **orphan** | A cross-project dependency reference pointing to a project not present in the registry. |
 | **critical path** | The longest dependency chain across registered projects that determines minimum completion sequence. |
@@ -38,7 +38,7 @@ The relationship between NEXUS and other CLEO databases is complementary: `tasks
 
 ## 3. Storage Model
 
-NEXUS uses SQLite at `~/.cleo/nexus.db` -- a global file outside any project directory. The database is managed via Drizzle ORM with migrations stored in `drizzle-nexus/`.
+NEXUS uses SQLite at `~/.local/share/cleo/nexus.db` -- a global file outside any project directory. The database is managed via Drizzle ORM with migrations stored in `drizzle-nexus/`.
 
 ### 3.1 Tables
 
@@ -75,11 +75,11 @@ Append-only audit log for all NEXUS operations across projects.
 | `project_hash` | text | nullable | Hash of affected project |
 | `project_id` | text | nullable | UUID of affected project |
 | `domain` | text | nullable | Always 'nexus' for nexus operations |
-| `operation` | text | nullable | MCP operation name |
+| `operation` | text | nullable | Dispatch operation name |
 | `session_id` | text | nullable | Active session ID if available |
-| `request_id` | text | nullable | MCP request correlation ID |
-| `source` | text | nullable | Operation source (mcp, cli, internal) |
-| `gateway` | text | nullable | Gateway type (query, mutate) |
+| `request_id` | text | nullable | Per-request correlation ID from the dispatch layer |
+| `source` | text | nullable | Operation source — currently always `'cli'` (column retained as nullable text for forward compatibility) |
+| `gateway` | text | nullable | Internal CQRS tag (`query` or `mutate`) |
 | `success` | integer | nullable | 1 for success, 0 for failure |
 | `duration_ms` | integer | nullable | Operation duration in milliseconds |
 | `details_json` | text | DEFAULT '{}' | JSON object with operation-specific details |
@@ -124,7 +124,7 @@ When a project moves, its `projectHash` changes but its `projectId` remains cons
 
 ### 4.3 Portability Contract
 
-The `.cleo/` directory is portable -- it moves with the project. The global registry (`~/.cleo/nexus.db`) stores path-dependent data. When a project moves:
+The `.cleo/` directory is portable -- it moves with the project. The global registry (`~/.local/share/cleo/nexus.db`) stores path-dependent data. When a project moves:
 
 1. The project's `.cleo/project-info.json` retains the same `projectId`.
 2. The global registry MUST be updated via `nexus.reconcile` to reflect the new path and hash.
@@ -166,9 +166,9 @@ Identity conflicts (scenario 4) indicate registry corruption or a hash collision
 
 ## 6. Operation Surface
 
-NEXUS exposes 17 query and 14 mutate operations through the MCP gateway (31 total). All operations are tier 2 except `nexus.reconcile` which is tier 1.
+NEXUS exposes its operations through the CLI dispatch registry, tagged `query` (read) or `mutate` (write) per the internal CQRS split in `packages/cleo/src/dispatch/registry.ts`. Reach every operation from the CLI via `cleo nexus <command>`. The normative operation list — including tier assignments — lives in `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §7.9 (nexus domain); the operation counts shown below reflect the registry as of this revision, but the constitution is the single source of truth. All operations are tier 2 except `nexus.reconcile`, which is tier 1.
 
-### 6.1 Query Operations (17)
+### 6.1 Query Operations
 
 #### Core Registry Queries
 
@@ -290,11 +290,11 @@ All mutate operations write to `nexus_audit_log` in nexus.db via `writeNexusAudi
 - **projectHash**: Hash of the affected project (nullable for global operations like sync-all)
 - **projectId**: UUID of the affected project (nullable)
 - **domain**: Always `'nexus'`
-- **operation**: MCP operation name
+- **operation**: Dispatch operation name
 - **sessionId**: Active CLEO session ID if available
-- **requestId**: MCP request correlation ID if available
-- **source**: Operation source (mcp, cli, internal)
-- **gateway**: Gateway type (query, mutate)
+- **requestId**: Per-request correlation ID from the dispatch layer if available
+- **source**: Operation source — currently always `'cli'` (column retained as nullable text for forward compatibility)
+- **gateway**: Internal CQRS tag (`query` or `mutate`)
 - **success**: Boolean (stored as integer: 1 or 0)
 - **durationMs**: Operation duration in milliseconds
 - **detailsJson**: JSON object with operation-specific details (e.g., `{status: 'path_updated', oldPath, newPath}`)
@@ -322,7 +322,7 @@ For projects using the legacy `~/.cleo/projects-registry.json` backend, NEXUS au
 The `.migrated` file is retained for recovery. To roll back:
 
 1. Rename `projects-registry.json.migrated` back to `projects-registry.json`.
-2. Delete or reset `~/.cleo/nexus.db`.
+2. Delete or reset `~/.local/share/cleo/nexus.db`.
 3. On next `nexusInit()`, the migration will re-run from the restored JSON file.
 
 ---
@@ -356,7 +356,7 @@ Identity conflicts exit with code 75 (`NEXUS_REGISTRY_CORRUPT`). This occurs whe
 
 ### 10.4 Database Recovery
 
-If `~/.cleo/nexus.db` is corrupt or missing, `nexusInit()` recreates it from the Drizzle schema and runs `migrateJsonToSqlite()` if the legacy JSON backup (`.migrated` or original) exists. The migration is idempotent: it checks for an empty `project_registry` before attempting import.
+If `~/.local/share/cleo/nexus.db` is corrupt or missing, `nexusInit()` recreates it from the Drizzle schema and runs `migrateJsonToSqlite()` if the legacy JSON backup (`.migrated` or original) exists. The migration is idempotent: it checks for an empty `project_registry` before attempting import.
 
 ---
 
@@ -367,8 +367,8 @@ If `~/.cleo/nexus.db` is corrupt or missing, `nexusInit()` recreates it from the
 | Project identity (`projectId`) | `.cleo/project-info.json` | Yes | Moves with project |
 | Task database | `.cleo/tasks.db` | Yes | Moves with project |
 | Brain database | `.cleo/brain.db` | Yes | Moves with project |
-| Global registry | `~/.cleo/nexus.db` | No | Machine-specific, global |
-| Audit log | `~/.cleo/nexus.db` (nexus_audit_log) | No | Machine-specific, global |
+| Global registry | `~/.local/share/cleo/nexus.db` | No | Machine-specific, global |
+| Audit log | `~/.local/share/cleo/nexus.db` (nexus_audit_log) | No | Machine-specific, global |
 | NEXUS cache | `~/.cleo/nexus/cache/` | No | Regenerable |
 
 Projects SHOULD call `nexus.reconcile` after moving to a new path to update the global registry. Cross-project dependency references using `projectId` remain valid across moves without requiring updates to the referencing project.

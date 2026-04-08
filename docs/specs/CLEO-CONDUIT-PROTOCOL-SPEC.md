@@ -30,7 +30,7 @@ Conduit MUST obey the following constraints:
 
 1. Conduit does not create an eleventh domain.
 2. Conduit uses LAFS-shaped envelopes and A2A delegation only.
-3. Conduit MUST NOT replace dispatch, MCP, or the canonical domain contract.
+3. Conduit MUST NOT replace dispatch or the canonical domain contract.
 4. `sticky` MUST remain provisional capture and MUST NOT become the live relay lane.
 5. Cross-project relay MUST remain mediated through `nexus.share.*` and Wayfinder policy.
 6. Conduit durability MUST be owned by the runtime, not by `sticky` notes or ad-hoc files.
@@ -84,7 +84,7 @@ Conduit frames MUST preserve the normal LAFS envelope discipline:
 
 Conduit-specific delivery details live inside `result.delivery`, `result.message`, or `error.details`. They MUST NOT replace the normal LAFS metadata contract.
 
-Conduit runtime opcodes such as `conduit.publish` and `conduit.ack` are internal IPC method names. They are not public MCP operation names and do not create a public `conduit` domain.
+Conduit runtime opcodes such as `conduit.publish` and `conduit.ack` are internal IPC method names. They are not public dispatch operation names and do not create a public `conduit` domain.
 
 ---
 
