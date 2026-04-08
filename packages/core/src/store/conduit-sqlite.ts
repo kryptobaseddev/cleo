@@ -30,6 +30,7 @@ import { dirname, join } from 'node:path';
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import type { ProjectAgentRef } from '@cleocode/contracts';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -447,6 +448,143 @@ export function closeConduitDb(): void {
     _conduitNativeDb = null;
   }
   _conduitDbPath = null;
+}
+
+// ---------------------------------------------------------------------------
+// project_agent_refs CRUD accessors (T353)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attaches an agent to the current project. If a row exists with enabled=0,
+ * re-enables it (update attached_at timestamp). If a row exists with enabled=1,
+ * no-op. Inserts a new row otherwise.
+ *
+ * @param db - conduit.db handle (from ensureConduitDb).
+ * @param agentId - Global signaldock.db:agents.id (soft FK, not validated here).
+ * @param opts - Optional role and capabilities override.
+ * @task T353
+ * @epic T310
+ */
+export function attachAgentToProject(
+  db: DatabaseSync,
+  agentId: string,
+  opts?: { role?: string | null; capabilitiesOverride?: string | null },
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+     VALUES (?, ?, ?, ?, NULL, 1)
+     ON CONFLICT(agent_id) DO UPDATE SET
+       enabled = 1,
+       attached_at = CASE WHEN project_agent_refs.enabled = 0 THEN excluded.attached_at ELSE project_agent_refs.attached_at END,
+       role = excluded.role,
+       capabilities_override = excluded.capabilities_override`,
+  ).run(agentId, now, opts?.role ?? null, opts?.capabilitiesOverride ?? null);
+}
+
+/**
+ * Detaches an agent from the current project by setting enabled=0.
+ * Does NOT delete the row (preserves attachment history for audit).
+ *
+ * @param db - conduit.db handle (from ensureConduitDb).
+ * @param agentId - Agent ID to detach.
+ * @task T353
+ * @epic T310
+ */
+export function detachAgentFromProject(db: DatabaseSync, agentId: string): void {
+  db.prepare(`UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?`).run(agentId);
+}
+
+/**
+ * Lists project_agent_refs rows. By default returns only enabled=1 rows.
+ * Pass enabledOnly=false to return all rows regardless of enabled state.
+ *
+ * @param db - conduit.db handle (from ensureConduitDb).
+ * @param opts - Filter options. Defaults to `{ enabledOnly: true }`.
+ * @returns Array of ProjectAgentRef rows ordered by attached_at DESC.
+ * @task T353
+ * @epic T310
+ */
+export function listProjectAgentRefs(
+  db: DatabaseSync,
+  opts?: { enabledOnly?: boolean },
+): ProjectAgentRef[] {
+  const enabledOnly = opts?.enabledOnly ?? true;
+  const sql = enabledOnly
+    ? `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
+       FROM project_agent_refs WHERE enabled = 1
+       ORDER BY attached_at DESC`
+    : `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
+       FROM project_agent_refs
+       ORDER BY attached_at DESC`;
+  const rows = db.prepare(sql).all() as Array<{
+    agent_id: string;
+    attached_at: string;
+    role: string | null;
+    capabilities_override: string | null;
+    last_used_at: string | null;
+    enabled: number;
+  }>;
+  return rows.map((r) => ({
+    agentId: r.agent_id,
+    attachedAt: r.attached_at,
+    role: r.role,
+    capabilitiesOverride: r.capabilities_override,
+    lastUsedAt: r.last_used_at,
+    enabled: r.enabled,
+  }));
+}
+
+/**
+ * Returns a single project_agent_refs row by agentId, or null if not found.
+ *
+ * @param db - conduit.db handle (from ensureConduitDb).
+ * @param agentId - Agent ID to look up.
+ * @returns The ProjectAgentRef row, or null if the agent is not attached.
+ * @task T353
+ * @epic T310
+ */
+export function getProjectAgentRef(db: DatabaseSync, agentId: string): ProjectAgentRef | null {
+  const row = db
+    .prepare(
+      `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
+       FROM project_agent_refs WHERE agent_id = ?`,
+    )
+    .get(agentId) as
+    | {
+        agent_id: string;
+        attached_at: string;
+        role: string | null;
+        capabilities_override: string | null;
+        last_used_at: string | null;
+        enabled: number;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    agentId: row.agent_id,
+    attachedAt: row.attached_at,
+    role: row.role,
+    capabilitiesOverride: row.capabilities_override,
+    lastUsedAt: row.last_used_at,
+    enabled: row.enabled,
+  };
+}
+
+/**
+ * Updates the last_used_at timestamp for an agent to now.
+ * No-op if the agent_id does not exist in project_agent_refs.
+ *
+ * @param db - conduit.db handle (from ensureConduitDb).
+ * @param agentId - Agent ID to update.
+ * @task T353
+ * @epic T310
+ */
+export function updateProjectAgentLastUsed(db: DatabaseSync, agentId: string): void {
+  db.prepare(`UPDATE project_agent_refs SET last_used_at = ? WHERE agent_id = ?`).run(
+    new Date().toISOString(),
+    agentId,
+  );
 }
 
 /**

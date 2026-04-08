@@ -19,13 +19,18 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyConduitSchema,
+  attachAgentToProject,
   CONDUIT_DB_FILENAME,
   CONDUIT_SCHEMA_VERSION,
   checkConduitDbHealth,
   closeConduitDb,
+  detachAgentFromProject,
   ensureConduitDb,
   getConduitDbPath,
   getConduitNativeDb,
+  getProjectAgentRef,
+  listProjectAgentRefs,
+  updateProjectAgentLastUsed,
 } from '../conduit-sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -312,5 +317,97 @@ describe('conduit-sqlite', () => {
     mkdirSync(join(tmpRoot, '.cleo'), { recursive: true });
     expect(() => ensureConduitDb(tmpRoot)).not.toThrow();
     expect(existsSync(join(tmpRoot, '.cleo', 'conduit.db'))).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // project_agent_refs CRUD (T353)
+  // ---------------------------------------------------------------------------
+
+  describe('project_agent_refs CRUD (T353)', () => {
+    it('TC-004: attachAgentToProject inserts a new row with enabled=1', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      const ref = getProjectAgentRef(db, 'agent-1');
+      expect(ref).not.toBeNull();
+      expect(ref?.agentId).toBe('agent-1');
+      expect(ref?.enabled).toBe(1);
+      expect(ref?.role).toBeNull();
+      expect(ref?.capabilitiesOverride).toBeNull();
+      expect(ref?.lastUsedAt).toBeNull();
+    });
+
+    it('TC-005: attachAgentToProject re-enables an existing enabled=0 row without duplicate', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      detachAgentFromProject(db, 'agent-1');
+      const detached = getProjectAgentRef(db, 'agent-1');
+      expect(detached?.enabled).toBe(0);
+      attachAgentToProject(db, 'agent-1', { role: 'reviewer' });
+      const reattached = getProjectAgentRef(db, 'agent-1');
+      expect(reattached?.enabled).toBe(1);
+      expect(reattached?.role).toBe('reviewer');
+      const count = (
+        db
+          .prepare('SELECT COUNT(*) AS c FROM project_agent_refs WHERE agent_id = ?')
+          .get('agent-1') as {
+          c: number;
+        }
+      ).c;
+      expect(count).toBe(1);
+    });
+
+    it('TC-006: detachAgentFromProject sets enabled=0 without deleting', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      detachAgentFromProject(db, 'agent-1');
+      const ref = getProjectAgentRef(db, 'agent-1');
+      expect(ref).not.toBeNull();
+      expect(ref?.enabled).toBe(0);
+    });
+
+    it('TC-007: listProjectAgentRefs returns only enabled=1 rows by default', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      attachAgentToProject(db, 'agent-2');
+      attachAgentToProject(db, 'agent-3');
+      detachAgentFromProject(db, 'agent-2');
+      const enabled = listProjectAgentRefs(db);
+      expect(enabled.length).toBe(2);
+      expect(enabled.map((r) => r.agentId).sort()).toEqual(['agent-1', 'agent-3']);
+    });
+
+    it('TC-008: listProjectAgentRefs returns all rows when enabledOnly=false', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      attachAgentToProject(db, 'agent-2');
+      detachAgentFromProject(db, 'agent-2');
+      const all = listProjectAgentRefs(db, { enabledOnly: false });
+      expect(all.length).toBe(2);
+    });
+
+    it('TC-009: getProjectAgentRef returns null for unknown agent', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      const ref = getProjectAgentRef(db, 'nonexistent');
+      expect(ref).toBeNull();
+    });
+
+    it('TC-010: updateProjectAgentLastUsed sets last_used_at to current ISO timestamp', () => {
+      ensureConduitDb(tmpRoot);
+      const db = getConduitNativeDb()!;
+      attachAgentToProject(db, 'agent-1');
+      const before = new Date().toISOString();
+      updateProjectAgentLastUsed(db, 'agent-1');
+      const after = new Date().toISOString();
+      const ref = getProjectAgentRef(db, 'agent-1');
+      expect(ref?.lastUsedAt).not.toBeNull();
+      expect(ref!.lastUsedAt! >= before).toBe(true);
+      expect(ref!.lastUsedAt! <= after).toBe(true);
+    });
   });
 });
