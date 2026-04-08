@@ -54,17 +54,16 @@ The `.cleo/` directory is CLEO's **portable brain** - a complete, self-contained
 
 ```
 .cleo/
-├── brain.db              # SQLite database with task/session/memory data
+├── tasks.db              # SQLite: tasks, sessions, lifecycle, audit, pipeline manifest
+├── brain.db              # SQLite: observations, patterns, learnings, decisions, memory links
+├── signaldock.db         # SQLite: local agent messaging infrastructure
 ├── config.json           # Project configuration
-├── tasks.db              # Task archive and audit log
-├── nexus.json            # Cross-project registry (NEXUS sync)
-├── manifest.jsonl        # Agent outputs and research manifests
-├── page-index/           # Graph-RAG page index
-│   ├── nodes.json
-│   └── edges.json
+├── project-info.json     # Project identity (projectHash, projectId)
+├── project-context.json  # LLM agent guidance (language, framework, conventions)
 ├── agent-outputs/        # Research and analysis artifacts
+│   └── MANIFEST.jsonl    # Agent output manifest (append-only)
 ├── backups/              # Recovery backups
-└── .backups/             # Operational atomic backups
+└── adrs/                 # Architecture Decision Records
 ```
 
 ### 3.3 Cross-Provider Agnostic Design
@@ -82,7 +81,7 @@ The Portable Brain integrates with the **CLEO-NEXUS** system for cross-project i
 
 ### 4.1 Registration
 
-- `.cleo/nexus.json` registers the project with local NEXUS registry
+- Project is registered in global `~/.local/share/cleo/nexus.db` via `nexus.reconcile`
 - Enables cross-project task references (`project:taskId`)
 - Supports federated memory queries across projects
 

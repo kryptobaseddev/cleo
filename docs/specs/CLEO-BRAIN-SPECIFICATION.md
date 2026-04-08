@@ -165,16 +165,19 @@ CAAMP 1.9.1 introduces a 16-event canonical hook taxonomy. The BRAIN automation 
 **Storage Architecture** (per ADR-006):
 ```
 .cleo/
-├── tasks.db               # SQLite database (tasks, sessions, lifecycle — per ADR-006)
+├── tasks.db               # SQLite database (tasks, sessions, lifecycle, pipelineManifest — per ADR-006)
 │   ├── tasks              # Active + archived tasks (status-based)
 │   ├── sessions           # Session state
+│   ├── pipelineManifest   # Pipeline manifest entries
 │   ├── lifecycle_*        # RCASD-IVTR pipeline state
+│   ├── audit_log          # Immutable audit trail (per ADR-019)
 │   └── task_*             # Dependencies, relations, work history
+├── brain.db               # SQLite database (cognitive memory — per ADR-009)
+├── signaldock.db          # SQLite database (local agent messaging — T223)
 ├── config.json            # Human-editable configuration (JSON — ADR-006 exception)
-│   ├── audit_log          # Immutable audit trail (in tasks.db, per ADR-019)
 
 .cleo/agent-outputs/
-└── MANIFEST.jsonl         # Research artifacts (append-only)
+└── MANIFEST.jsonl         # Agent output artifacts (append-only)
 ```
 
 **Capabilities**:
@@ -1782,7 +1785,7 @@ All 5 dimensions MUST meet certification criteria:
 │ - Decision memory (.cleo/brain.db — brain_decisions table)   │
 │ - Pattern memory (.cleo/brain.db — brain_patterns table)     │
 │ - Learning memory (.cleo/brain.db — brain_learnings table)   │
-│ - Research artifacts (MANIFEST.jsonl — append-only)          │
+│ - Pipeline manifest (pipelineManifest table in tasks.db)     │
 │ - JSONL export/import for portability (ADR-009)              │
 └────────────────┬────────────────────────────────────────────┘
                  │
