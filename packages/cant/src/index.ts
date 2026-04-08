@@ -1,6 +1,16 @@
 // Re-export from @cleocode/lafs for convenience
 export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from '@cleocode/lafs';
 export type {
+  AgentEntry,
+  BundleDiagnostic,
+  CompiledBundle,
+  ParsedCantDocument,
+  TeamEntry,
+  ToolEntry,
+} from './bundle';
+// Bundle compiler
+export { compileBundle } from './bundle';
+export type {
   CantDocumentResult,
   CantListResult,
   CantPipelineResult,
