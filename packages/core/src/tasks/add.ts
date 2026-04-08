@@ -766,7 +766,7 @@ export async function addTask(
     const previewTask: Task = {
       id: 'T???',
       title: options.title,
-      description: options.description,
+      description: options.description ?? '',
       status,
       priority,
       type: taskType,
@@ -857,7 +857,7 @@ export async function addTask(
   const task: Task = {
     id: taskId,
     title: options.title,
-    description: options.description,
+    description: options.description ?? '',
     status,
     priority,
     type: taskType,
