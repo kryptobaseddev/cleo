@@ -36,7 +36,6 @@ describe('OpenCodeAdapter', () => {
     expect(adapter.capabilities.supportsHooks).toBe(true);
     expect(adapter.capabilities.supportsSpawn).toBe(true);
     expect(adapter.capabilities.supportsInstall).toBe(true);
-    expect(adapter.capabilities.supportsMcp).toBe(false);
     expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
     expect(adapter.capabilities.instructionFilePattern).toBe('AGENTS.md');
   });
@@ -228,13 +227,12 @@ describe('OpenCodeInstallProvider', () => {
     expect(injectionCount).toBe(1);
   });
 
-  it('install returns mcpRegistered false', async () => {
+  it('install returns expected shape', async () => {
     const result = await install.install({
       projectDir: testDir,
     });
 
     expect(result.success).toBe(true);
-    expect(result.mcpRegistered).toBe(false);
     expect(result.instructionFileUpdated).toBe(true);
   });
 

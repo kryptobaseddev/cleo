@@ -53,7 +53,6 @@ export class KimiAdapter implements CLEOProviderAdapter {
     supportedHookEvents: [],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

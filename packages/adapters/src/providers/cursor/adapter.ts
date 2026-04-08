@@ -61,7 +61,6 @@ export class CursorAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: '.cursor/rules/*.mdc',
     supportsContextMonitor: false,

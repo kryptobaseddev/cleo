@@ -9,8 +9,6 @@ export interface AdapterCapabilities {
   supportedHookEvents: string[];
   supportsSpawn: boolean;
   supportsInstall: boolean;
-  /** Always false. CLI is the only dispatch channel. */
-  supportsMcp: boolean;
   supportsInstructionFiles: boolean;
   /** Provider-specific instruction file name, e.g. "CLAUDE.md", ".cursorrules" */
   instructionFilePattern?: string;

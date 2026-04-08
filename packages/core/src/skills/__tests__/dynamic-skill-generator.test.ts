@@ -9,7 +9,6 @@ import {
 const cliProvider: ProviderContext = {
   providerId: 'claude-code',
   providerName: 'Claude Code',
-  supportsMcp: false,
   supportsHooks: true,
   supportsSpawn: true,
   instructionFilePattern: 'CLAUDE.md',
@@ -18,7 +17,6 @@ const cliProvider: ProviderContext = {
 const limitedProvider: ProviderContext = {
   providerId: 'cursor',
   providerName: 'Cursor',
-  supportsMcp: false,
   supportsHooks: false,
   supportsSpawn: false,
   instructionFilePattern: '.cursor/rules/*.mdc',

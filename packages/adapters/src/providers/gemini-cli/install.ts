@@ -53,7 +53,6 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
       success: true,
       installedAt,
       instructionFileUpdated,
-      mcpRegistered: false,
       details,
     };
   }

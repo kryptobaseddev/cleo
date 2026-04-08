@@ -60,7 +60,6 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
       success: true,
       installedAt,
       instructionFileUpdated,
-      mcpRegistered: false,
       details,
     };
   }

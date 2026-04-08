@@ -39,7 +39,6 @@ const MOCK_MANIFEST = {
     supportedHookEvents: ['SessionStart', 'Stop'],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: true,
     supportsInstructionFiles: true,
     instructionFilePattern: 'CLAUDE.md',
   },

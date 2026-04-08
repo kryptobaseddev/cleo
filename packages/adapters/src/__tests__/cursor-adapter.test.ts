@@ -46,7 +46,6 @@ describe('CursorAdapter', () => {
 
   it('supports install and instruction files', () => {
     expect(adapter.capabilities.supportsInstall).toBe(true);
-    expect(adapter.capabilities.supportsMcp).toBe(false);
     expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
     expect(adapter.capabilities.instructionFilePattern).toBe('.cursor/rules/*.mdc');
   });
@@ -215,13 +214,12 @@ describe('CursorInstallProvider', () => {
     expect(injectionCount).toBe(1);
   });
 
-  it('install returns mcpRegistered false', async () => {
+  it('install returns expected shape', async () => {
     const result = await install.install({
       projectDir: testDir,
     });
 
     expect(result.success).toBe(true);
-    expect(result.mcpRegistered).toBe(false);
     expect(result.instructionFileUpdated).toBe(true);
   });
 

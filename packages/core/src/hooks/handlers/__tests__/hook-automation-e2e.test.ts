@@ -90,10 +90,12 @@ describe('hook automation E2E', () => {
     maybeRefreshMemoryBridgeMock.mockReset().mockResolvedValue(undefined);
     // Clear work-capture env var
     delete process.env['CLEO_BRAIN_CAPTURE_WORK'];
+    delete process.env['CLEO_BRAIN_CAPTURE_MCP'];
   });
 
   afterEach(() => {
     delete process.env['CLEO_BRAIN_CAPTURE_WORK'];
+    delete process.env['CLEO_BRAIN_CAPTURE_MCP'];
   });
 
   // -------------------------------------------------------------------------
@@ -560,8 +562,8 @@ describe('hook automation E2E', () => {
       );
     });
 
-    it('work-capture hooks only fire when captureWork is enabled', async () => {
-      // When captureWork is disabled (default), the handler does not fire
+    it('work-capture does not fire when captureWork is disabled (default)', async () => {
+      // When captureWork is disabled (default), work-capture does not fire
       await handleWorkPromptSubmit(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         gateway: 'mutate',

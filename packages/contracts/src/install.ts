@@ -22,7 +22,5 @@ export interface InstallResult {
   success: boolean;
   installedAt: string;
   instructionFileUpdated: boolean;
-  /** Always false. CLI dispatch only. */
-  mcpRegistered: boolean;
   details?: Record<string, unknown>;
 }

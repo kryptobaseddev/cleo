@@ -35,8 +35,6 @@ export interface RuntimeDiagnostics {
   };
   naming: {
     cli: string;
-    /** Legacy field. CLI dispatch only. */
-    mcp: string;
     server: string;
   };
   node: string;
@@ -73,14 +71,14 @@ function detectFromDataRoot(dataRoot: string): RuntimeChannel | null {
   return null;
 }
 
-function getExpectedNaming(channel: RuntimeChannel): { cli: string; mcp: string; server: string } {
+function getExpectedNaming(channel: RuntimeChannel): { cli: string; server: string } {
   switch (channel) {
     case 'dev':
-      return { cli: 'cleo-dev', mcp: 'cli', server: 'cleo-dev' };
+      return { cli: 'cleo-dev', server: 'cleo-dev' };
     case 'beta':
-      return { cli: 'cleo-beta', mcp: 'cli', server: 'cleo-beta' };
+      return { cli: 'cleo-beta', server: 'cleo-beta' };
     default:
-      return { cli: 'cleo', mcp: 'cli', server: 'cleo' };
+      return { cli: 'cleo', server: 'cleo' };
   }
 }
 

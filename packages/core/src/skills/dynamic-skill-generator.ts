@@ -16,8 +16,6 @@ import { getPreferredChannel } from './routing-table.js';
 export interface ProviderContext {
   providerId: string;
   providerName: string;
-  /** Always false. CLI dispatch only. */
-  supportsMcp: boolean;
   supportsHooks: boolean;
   supportsSpawn: boolean;
   instructionFilePattern?: string;

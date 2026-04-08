@@ -52,7 +52,6 @@ export class CodexAdapter implements CLEOProviderAdapter {
     supportedHookEvents: ['SessionStart', 'UserPromptSubmit', 'Stop'],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

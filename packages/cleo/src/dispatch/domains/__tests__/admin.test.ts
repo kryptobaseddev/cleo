@@ -315,7 +315,7 @@ describe('AdminHandler', () => {
           installed: '/usr/local',
           dataRoot: '/tmp',
           invocation: { executable: 'node', script: 'cleo', args: [] },
-          naming: { cli: 'cleo', mcp: 'cli', server: 'cleo-server' },
+          naming: { cli: 'cleo', server: 'cleo-server' },
           node: '20.0.0',
           platform: 'linux',
           arch: 'x64',

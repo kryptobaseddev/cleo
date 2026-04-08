@@ -94,10 +94,6 @@ describe('ClaudeCodeAdapter', () => {
       expect(adapter.capabilities.supportsInstall).toBe(true);
     });
 
-    it('does not support MCP (removed)', () => {
-      expect(adapter.capabilities.supportsMcp).toBe(false);
-    });
-
     it('supports instruction files with CLAUDE.md pattern', () => {
       expect(adapter.capabilities.supportsInstructionFiles).toBe(true);
       expect(adapter.capabilities.instructionFilePattern).toBe('CLAUDE.md');
@@ -301,14 +297,6 @@ describe('ClaudeCodeInstallProvider', () => {
       expect(result.success).toBe(true);
       expect(result.installedAt).toBeTruthy();
       expect(typeof result.instructionFileUpdated).toBe('boolean');
-      expect(typeof result.mcpRegistered).toBe('boolean');
-    });
-
-    it('does not register MCP when only projectDir is provided', async () => {
-      const result = await installProvider.install({
-        projectDir: '/tmp/test-project',
-      });
-      expect(result.mcpRegistered).toBe(false);
     });
   });
 

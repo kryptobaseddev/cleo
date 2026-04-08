@@ -64,7 +64,6 @@ export class GeminiCliAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: false,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: false,
     supportsContextMonitor: false,
     supportsStatusline: false,

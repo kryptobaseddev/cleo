@@ -65,7 +65,6 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: true,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: 'AGENTS.md',
     supportsContextMonitor: false,

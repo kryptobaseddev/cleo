@@ -73,7 +73,6 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     ],
     supportsSpawn: true,
     supportsInstall: true,
-    supportsMcp: false,
     supportsInstructionFiles: true,
     instructionFilePattern: 'CLAUDE.md',
     supportsContextMonitor: true,
