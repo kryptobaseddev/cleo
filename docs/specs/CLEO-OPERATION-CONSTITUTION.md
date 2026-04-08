@@ -18,23 +18,18 @@ All operations are defined as `OperationDef` entries in the `OPERATIONS` array. 
 
 ## 2. Runtime Scope
 
-CLEO has exactly **one runtime surface**: the `cleo` CLI (`packages/cleo/src/cli/index.ts`, a citty `runMain(defineCommand(...))` entry point). There is no second protocol layer. Every operation in the dispatch registry (`packages/cleo/src/dispatch/registry.ts`) carries an internal `gateway: 'query' | 'mutate'` tag — a CQRS (Command Query Responsibility Segregation) split that routes each operation to the handler's `query()` or `mutate()` method:
+CLEO exposes exactly **2 MCP tools** following the CQRS (Command Query Responsibility Segregation) pattern:
 
-| Gateway tag | Purpose |
-|-------------|---------|
-| `query` | Read-only operations. MUST NOT modify state. Safe to retry. Routed to `handler.query()`. |
-| `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. Routed to `handler.mutate()`. |
+| Tool | Gateway | Purpose |
+|------|---------|---------|
+| `query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
+| `mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
 
-The gateway is an **internal CQRS tag**, not a public protocol. Agents never address it directly — they invoke CLI commands. The dispatcher uses the tag to split reads from writes and to enforce invariants on each path.
-
-All operations are addressed as `{domain}.{operation}` within the dispatcher. A typical CLI invocation resolves as follows:
+All operations are addressed as `{domain}.{operation}` within their gateway:
 
 ```
-cleo tasks show T123
-  → citty command handler (packages/cleo/src/cli/commands/tasks/show.ts)
-    → dispatchRaw(gateway='query', domain='tasks', operation='show', params={ taskId: 'T123' })
-      → tasks handler.query('show', params)
-        → @cleocode/core tasks.show()
+query  { domain: "tasks", operation: "show", params: { id: "T123" } }
+mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 ```
 
 ---
@@ -45,16 +40,14 @@ cleo tasks show T123
 
 CLEO separates two distinct concerns:
 
-- **`@cleocode/core`** (`packages/core/src/`) — business logic with a direct, typed function API. No string addressing. Usable standalone by any TypeScript consumer embedding CLEO programmatically. `@cleocode/core` imports nothing from `dispatch/` or `cli/`.
-- **`packages/cleo/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates CLI requests into typed core function calls. NOT part of `@cleocode/core`.
+- **`@cleocode/core`** (`packages/core/src/`) — business logic with a direct, typed function API. No string addressing. Usable standalone without any MCP or CLI layer.
+- **`packages/cleo/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates MCP/CLI requests into typed core function calls. NOT part of `@cleocode/core`.
 
 ```
-cleo tasks add --title "foo"
-  → packages/cleo/src/cli/commands/tasks/add.ts     (citty command handler)
-    → packages/cleo/src/dispatch/adapters/cli.ts    (dispatchRaw entry)
-      → packages/cleo/src/dispatch/engines/task-engine.ts  (routing)
-        → @cleocode/core tasks.add()                (business logic)
-          → SQLite store                            (persistence)
+MCP request: { domain: "tasks", operation: "add", params: {...} }
+  → packages/cleo/src/dispatch/engines/task-engine.ts  (routing)
+    → @cleocode/core tasks.add()         (business logic)
+      → SQLite store                     (persistence)
 ```
 
 ### API Style Contrast
@@ -64,21 +57,20 @@ cleo tasks add --title "foo"
 const cleo = await Cleo.init('./project');
 await cleo.tasks.add({ title: 'foo', description: 'bar' });
 
-// Dispatch API — string-addressed (used internally by the CLI adapter):
-dispatchRaw('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
+// Dispatch API — string-addressed (used internally by MCP and CLI gateways):
+dispatch('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
 ```
-
-The dispatch API is reachable only through the CLI adapter (`packages/cleo/src/dispatch/adapters/cli.ts`). `Source = 'cli'` is the only value in `packages/cleo/src/dispatch/types.ts`.
 
 ### Package Boundary
 
-`packages/cleo/src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer that backs the CLI's string-addressed commands. It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
+`packages/cleo/src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer for string-based protocols (MCP, CLI). It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
 
 ```
-@cleocode/cleo (CLI product)
-  ├── packages/cleo/src/cli/       → citty commands (~89 handlers) → dispatch → core API
-  ├── packages/cleo/src/dispatch/  → string-addressed routing → core API  [stays in @cleocode/cleo]
-  └── @cleocode/core               → typed function API  [standalone kernel, zero dispatch/cli imports]
+@cleocode/cleo (CLI + MCP product)
+  ├── packages/cleo/src/cli/       → citty commands → dispatch → core API
+  ├── packages/cleo/src/mcp/      → MCP protocol → dispatch → core API
+  ├── packages/cleo/src/dispatch/ → string-addressed routing → core API  [stays in @cleocode/cleo]
+  └── @cleocode/core → typed function API  [standalone kernel]
 ```
 
 ---
@@ -90,10 +82,10 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | Domain | Purpose | Primary Store |
 |--------|---------|---------------|
 | `tasks` | Task hierarchy, CRUD, dependencies, work tracking | tasks.db |
-| `session` | Session lifecycle, decisions, assumptions, context | sessions/ JSON |
+| `session` | Session lifecycle, decisions, assumptions, context | tasks.db (sessions table) |
 | `memory` | Cognitive memory: observations, decisions, patterns, learnings | brain.db |
 | `check` | Schema validation, protocol compliance, test execution, grading | tasks.db (audit) |
-| `pipeline` | RCASD-IVTR+C lifecycle stages, manifest ledger, release management | MANIFEST.jsonl, tasks.db |
+| `pipeline` | RCASD-IVTR+C lifecycle stages, manifest ledger, release management | tasks.db (pipelineManifest table) |
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution | tasks.db |
 | `tools` | Skills, providers, CAAMP catalog | .cleo/skills/ |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs, protocol injection | config.json, tasks.db |
@@ -179,7 +171,7 @@ interface OperationDef {
 
 **Field semantics:**
 
-- **gateway**: Internal CQRS tag (`query` | `mutate`) that routes the operation to `handler.query()` or `handler.mutate()`. Query operations MUST NOT modify state.
+- **gateway**: Determines which MCP tool handles the operation. Query operations MUST NOT modify state.
 - **tier**: Controls progressive disclosure. Agents start at tier 0 and escalate. See Section 8.
 - **idempotent**: When `true`, the operation is safe to retry on failure without side effects.
 - **requiredParams**: The dispatcher validates these are present before routing to the domain handler. Missing params return `E_INVALID_INPUT`.
@@ -338,7 +330,7 @@ Includes 3 operations moved in from admin.
 
 ### 6.5 pipeline (31 operations)
 
-The pipeline domain manages RCASD-IVTR+C lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
+The pipeline domain manages RCASD-IVTR+C lifecycle stages, the pipelineManifest table in tasks.db, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -361,7 +353,7 @@ The pipeline domain manages RCASD-IVTR+C lifecycle stages, the MANIFEST.jsonl ar
 | mutate | `stage.reset` | Reset lifecycle stage (emergency) | 1 | -- | No |
 | mutate | `stage.gate.pass` | Mark lifecycle gate as passed | 1 | -- | No |
 | mutate | `stage.gate.fail` | Mark lifecycle gate as failed | 1 | -- | No |
-| mutate | `manifest.append` | Append entry to MANIFEST.jsonl | 1 | `entry` | No |
+| mutate | `manifest.append` | Append entry to pipelineManifest table | 1 | `entry` | No |
 | mutate | `manifest.archive` | Archive old manifest entries | 1 | `beforeDate` | No |
 | mutate | `phase.set` | Set the active phase; absorbs `phase.start` and `phase.complete` via action param | 1 | `phaseId` | No |
 | mutate | `phase.advance` | Complete current phase and start next | 1 | -- | No |
@@ -504,7 +496,7 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 | mutate | `job.cancel` | Cancel background job | 1 | -- | No |
 | mutate | `safestop` | Graceful shutdown with state preservation | 1 | -- | No |
 | mutate | `inject.generate` | Generate injection content | 1 | -- | No |
-| mutate | `install.global` | Refresh global CLEO setup (providers, downstream provider config files via CAAMP) | 2 | -- | Yes |
+| mutate | `install.global` | Refresh global CLEO setup (providers, MCP configs) | 2 | -- | Yes |
 | mutate | `adr.sync` | Sync ADR markdown files; `validate:true` also validates frontmatter | 2 | -- | Yes |
 | mutate | `import` | Import tasks; `scope:"snapshot"\|"package"` | 2 | `file` | No |
 | mutate | `token` | Token telemetry write; `action:"record"\|"delete"\|"clear"` | 2 | -- | No |
@@ -619,7 +611,7 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | sticky | 2 | 4 | 6 |
 | **Total** | **119** | **90** | **209** |
 
-> These counts match `packages/cleo/src/dispatch/registry.ts` exactly (209 total). The registry is the authoritative source of truth.
+> These counts should match `packages/cleo/src/dispatch/registry.ts`. The registry is the authoritative source of truth for the current operation count.
 
 ---
 
@@ -702,13 +694,13 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ---
 
-## 10. CLI Dispatch Semantics
+## 10. CLI/MCP Parity Rules
 
-1. The CLI is the sole runtime surface. There is no second protocol layer.
-2. Every CLI command resolves to a single `{domain}.{operation}` in the dispatch registry: `cleo tasks show T123` resolves to the `query` gateway tag + `tasks` domain + `show` operation with `{ taskId: "T123" }`.
-3. The CLI MAY provide ergonomic aliases on top of canonical operations (e.g., `cleo done` for `tasks.complete`). Aliases are cosmetic command-surface sugar; they resolve to the same canonical `{domain}.{operation}` in the registry.
-4. Dispatch registry entries are the canonical operation names; CLI command ergonomics are not.
-5. All CLI commands route through the shared dispatch layer (`packages/cleo/src/dispatch/adapters/cli.ts` → `packages/cleo/src/dispatch/registry.ts`) into `packages/core/src/`. The dispatcher uses the `gateway` tag to split read paths from write paths.
+1. The same `{domain}.{operation}` semantics apply to both CLI and MCP.
+2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
+3. CLI MAY provide aliases for convenience (e.g., `cleo done` for `tasks.complete`).
+4. MCP operations are the canonical names; CLI aliases are cosmetic.
+5. Both interfaces route through the shared dispatch layer (`packages/cleo/src/dispatch/`) to `packages/core/src/`.
 
 ---
 
@@ -751,7 +743,7 @@ No tier-2 gate may exist without an explicit escalation path surfaced at tier 0.
 
 ### Rationale
 
-When operations are hidden at tier 2 without visible escalation paths, agents silently fall back to direct filesystem reads (e.g., reading `~/.cleo/projects-registry.json` instead of using the `nexus` dispatch operations via `cleo nexus …`). This defeats the purpose of progressive disclosure and bypasses all validation and atomic operation guarantees that CLEO provides.
+When operations are hidden at tier 2 without visible escalation paths, agents silently fall back to direct filesystem reads (e.g., reading `~/.cleo/projects-registry.json` instead of using nexus MCP operations). This defeats the purpose of progressive disclosure and bypasses all validation and atomic operation guarantees that CLEO provides.
 
 ### Enforcement
 
@@ -960,12 +952,11 @@ Quick reference for agents and code calling removed operations.
 
 ## References
 
-- `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT for all operations
-- `packages/cleo/src/dispatch/types.ts` -- `Source`, `Gateway`, and `CanonicalDomain` type definitions
-- `packages/cleo/src/dispatch/adapters/cli.ts` -- `dispatchRaw(gateway, domain, operation, params)` sole dispatch entry
-- `packages/cleo/src/cli/index.ts` -- citty CLI entry point (`runMain(defineCommand(...))`)
+- `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT
+- `packages/cleo/src/dispatch/types.ts` -- Type definitions
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
-- `docs/specs/CLEO-API.md` -- API surface reference (CLI, core embedding, planned HTTP)
+- `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
+- `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` -- Progressive disclosure patterns
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` -- Visual architecture guide
 - `.cleo/adrs/ADR-030-operation-model-rationalization.md` -- Rationalization ADR (T5611)
 - `.cleo/agent-outputs/CLEO-OPERATIONS-CONSOLIDATION-DECISION.md` -- Full decision matrix (T5609)
