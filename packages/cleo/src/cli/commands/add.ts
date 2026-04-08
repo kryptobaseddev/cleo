@@ -46,8 +46,6 @@ export function registerAddCommand(program: Command): void {
         params['description'] = opts['description'];
       } else if (opts['desc'] !== undefined) {
         params['description'] = opts['desc'];
-      } else {
-        params['description'] = title;
       }
       if (opts['labels'])
         params['labels'] = (opts['labels'] as string).split(',').map((s) => s.trim());

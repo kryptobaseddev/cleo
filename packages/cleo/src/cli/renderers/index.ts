@@ -249,38 +249,67 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
 
 /**
  * Error details for structured error output.
+ *
+ * Carries the full LAFS-compatible error context forwarded by the dispatch
+ * adapter from {@link DispatchError}. All fields are optional — only present
+ * fields are emitted in the output envelope.
+ *
+ * @see packages/cleo/src/dispatch/types.ts DispatchError
  */
 export interface CliErrorDetails {
+  /** Machine-readable error code name (e.g. `E_NOT_FOUND`). */
   name?: string;
+  /** Additional structured details from the error. */
   details?: unknown;
+  /** Copy-paste fix hint for the operator or agent. */
   fix?: unknown;
+  /** Alternative actions the caller can try. */
+  alternatives?: Array<{ action: string; command: string }>;
 }
 
 /**
  * Output an error in the resolved format.
- * For JSON: delegates to formatError (already handled in command catch blocks).
- * For human: prints a plain error message to stderr.
+ *
+ * In JSON format (default / agent mode): emits a LAFS-compatible error
+ * envelope to stdout. All optional fields (`codeName`, `fix`, `alternatives`,
+ * `details`) are included only when they are actually present — no
+ * `undefined` keys are emitted.
+ *
+ * In human format: prints a plain error line to stderr and, when
+ * `details.fix` is a string, appends a `Fix: <hint>` line.
+ *
+ * @param message - Human-readable error message.
+ * @param code    - Numeric exit code or string error code.
+ * @param details - Optional structured details (codeName, fix, alternatives, …).
  *
  * @task T4666
  * @task T4813
+ * @task T336
  */
-export function cliError(
-  message: string,
-  code?: number | string,
-  _details?: CliErrorDetails,
-): void {
+export function cliError(message: string, code?: number | string, details?: CliErrorDetails): void {
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {
     console.error(`Error: ${message}${code ? ` (${code})` : ''}`);
+    if (typeof details?.fix === 'string') {
+      console.error(`Fix: ${details.fix}`);
+    }
     return;
   }
 
-  // JSON envelope always goes to stdout for consistent machine-readable output
-  console.log(
-    JSON.stringify({
-      success: false,
-      error: { code: code ?? 1, message },
-    }),
-  );
+  // JSON envelope always goes to stdout for consistent machine-readable output.
+  // Build the error object incrementally so that absent optional fields are
+  // never serialised as `undefined` (which JSON.stringify would strip anyway,
+  // but being explicit keeps the intent clear and avoids lint warnings).
+  const errorObj: Record<string, unknown> = {
+    code: code ?? 1,
+    message,
+  };
+
+  if (details?.name !== undefined) errorObj['codeName'] = details.name;
+  if (details?.fix !== undefined) errorObj['fix'] = details.fix;
+  if (details?.alternatives !== undefined) errorObj['alternatives'] = details.alternatives;
+  if (details?.details !== undefined) errorObj['details'] = details.details;
+
+  console.log(JSON.stringify({ success: false, error: errorObj }));
 }

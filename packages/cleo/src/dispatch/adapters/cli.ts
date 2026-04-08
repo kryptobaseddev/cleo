@@ -211,6 +211,7 @@ export async function dispatchFromCli(
       name: errorCode,
       details: response.error?.details,
       fix: response.error?.fix,
+      alternatives: response.error?.alternatives,
     });
     process.exit(exitCode);
   }
@@ -233,6 +234,7 @@ export function handleRawError(
     name: errorCode,
     details: response.error?.details,
     fix: response.error?.fix,
+    alternatives: response.error?.alternatives,
   });
   process.exit(exitCode);
 }
