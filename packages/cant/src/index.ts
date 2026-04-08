@@ -66,5 +66,13 @@ export {
 export type { ParsedCANTMessage } from './parse';
 // Parser
 export { initCantParser, parseCANTMessage } from './parse';
+// 3-tier hierarchy enforcement (ULTRAPLAN Wave 7)
+export {
+  filterToolsForRole,
+  LEAD_FORBIDDEN_TOOLS,
+  ORCHESTRATOR_FORBIDDEN_TOOLS,
+  validateSpawnRequest,
+} from './hierarchy.js';
+export type { Role, SpawnValidation, TeamDefinition, TeamRouting } from './hierarchy.js';
 // Types
 export type { DirectiveType } from './types';
