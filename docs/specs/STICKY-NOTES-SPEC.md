@@ -1,7 +1,7 @@
 # Sticky Notes Architecture Specification
 
 **Epic:** T5267  
-**Status:** Design Complete  
+**Status:** SHIPPED  
 **Date:** 2026-03-04  
 **Domain:** sticky (10th canonical domain)
 
@@ -241,14 +241,14 @@ cleo skill install library:ct-stickynote
 
 | Phase | Task | Description | Status |
 |-------|------|-------------|--------|
-| 1 | T5268 | Database schema (brain.db brain_sticky_notes table) | Pending |
-| 2 | T5269 | Core module (packages/core/src/sticky/) | Pending |
-| 3 | T5270 | Domain operations (sticky.* in registry) | Pending |
-| 4 | T5271 | VERB-STANDARDS.md updates | Pending |
-| 5 | T5272 | ct-stickynote skill | Pending |
-| 6 | T5273 | CLI commands (cleo sticky) | Pending |
-| 7 | T5274 | Test suite | Pending |
-| 8 | T5275 | Documentation | Pending |
+| 1 | T5268 | Database schema (brain.db brain_sticky_notes table) | Complete |
+| 2 | T5269 | Core module (packages/core/src/sticky/) | Complete |
+| 3 | T5270 | Domain operations (sticky.* in registry) | Complete |
+| 4 | T5271 | VERB-STANDARDS.md updates | Complete |
+| 5 | T5272 | ct-stickynote skill | Complete |
+| 6 | T5273 | CLI commands (cleo sticky) | Complete |
+| 7 | T5274 | Test suite | Complete |
+| 8 | T5275 | Documentation | Complete |
 
 ---
 
@@ -299,4 +299,4 @@ cleo skill install library:ct-stickynote
 
 ---
 
-**Next Steps:** Begin Phase 1 (T5268) - Database schema implementation.
+All phases shipped as of v2026.4.x. The sticky domain is fully operational.
