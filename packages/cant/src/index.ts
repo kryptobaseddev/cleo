@@ -1,13 +1,5 @@
 // JIT Agent Composer (ULTRAPLAN Wave 5)
-export { composeSpawnPayload, escalateTier, estimateTokens, TIER_CAPS } from './composer.js';
-export type {
-  AgentDefinition,
-  ContextProvider,
-  ContextSlice,
-  MentalModelSlice,
-  SpawnPayload,
-  Tier,
-} from './composer.js';
+
 // Re-export from @cleocode/lafs for convenience
 export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from '@cleocode/lafs';
 export type {
@@ -20,6 +12,15 @@ export type {
 } from './bundle';
 // Bundle compiler
 export { compileBundle } from './bundle';
+export type {
+  AgentDefinition,
+  ContextProvider,
+  ContextSlice,
+  MentalModelSlice,
+  SpawnPayload,
+  Tier,
+} from './composer.js';
+export { composeSpawnPayload, escalateTier, estimateTokens, TIER_CAPS } from './composer.js';
 export type {
   CantDocumentResult,
   CantListResult,
@@ -34,6 +35,30 @@ export {
   parseDocument,
   validateDocument,
 } from './document';
+export type { Role, SpawnValidation, TeamDefinition, TeamRouting } from './hierarchy.js';
+// 3-tier hierarchy enforcement (ULTRAPLAN Wave 7)
+export {
+  filterToolsForRole,
+  LEAD_FORBIDDEN_TOOLS,
+  ORCHESTRATOR_FORBIDDEN_TOOLS,
+  validateSpawnRequest,
+} from './hierarchy.js';
+export type {
+  ConsolidateOptions,
+  MentalModel,
+  MentalModelObservation,
+  MentalModelScope,
+  MentalModelStore,
+  ObservationTrigger,
+  SessionOutput,
+} from './mental-model.js';
+// Mental Model Manager (ULTRAPLAN Wave 8)
+export {
+  consolidate,
+  createEmptyModel,
+  harvestObservations,
+  renderMentalModel,
+} from './mental-model.js';
 export type {
   ConvertedFile,
   MigrationOptions,
@@ -66,13 +91,5 @@ export {
 export type { ParsedCANTMessage } from './parse';
 // Parser
 export { initCantParser, parseCANTMessage } from './parse';
-// 3-tier hierarchy enforcement (ULTRAPLAN Wave 7)
-export {
-  filterToolsForRole,
-  LEAD_FORBIDDEN_TOOLS,
-  ORCHESTRATOR_FORBIDDEN_TOOLS,
-  validateSpawnRequest,
-} from './hierarchy.js';
-export type { Role, SpawnValidation, TeamDefinition, TeamRouting } from './hierarchy.js';
 // Types
 export type { DirectiveType } from './types';
