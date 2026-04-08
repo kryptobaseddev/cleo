@@ -23,6 +23,7 @@
  */
 
 import { type EngineResult, getLogger } from '@cleocode/core';
+import { mapNumericExitCodeToString } from '../lib/exit-codes.js';
 
 // Re-export EngineResult from core (canonical location)
 export type { EngineResult } from '@cleocode/core';
@@ -272,4 +273,66 @@ export function engineError<T>(
  */
 export function engineSuccess<T>(data: T): EngineResult<T> {
   return { success: true, data };
+}
+
+/**
+ * Shape of a caught value that may be a `CleoError` instance.
+ *
+ * We cannot import `CleoError` from `@cleocode/core` here without risking a
+ * circular dependency (core → engine → core), so we use a structural type.
+ */
+interface CaughtCleoErrorShape {
+  code?: number;
+  message?: string;
+  fix?: string;
+  details?: Record<string, unknown>;
+  alternatives?: Array<{ action: string; command: string }>;
+}
+
+/**
+ * Convert any caught value into an {@link EngineResult}, forwarding the rich
+ * `fix`, `details`, and `alternatives` fields when the caught value is a
+ * `CleoError` (or structurally compatible object).
+ *
+ * @remarks
+ * This is the canonical catch-block helper for all dispatch engines. It
+ * replaces the previous pattern of:
+ * ```typescript
+ * const code = (err as { code?: number })?.code;
+ * if (code === 4) return engineError('E_NOT_FOUND', …);
+ * …
+ * ```
+ * with a single call that preserves every field the core layer attached.
+ *
+ * The `fallbackCode` is used when the numeric `err.code` is not present in
+ * the {@link STRING_TO_EXIT} mapping (e.g. unknown exit codes, plain `Error`
+ * instances, or values thrown by non-CLEO code).
+ *
+ * @param err - The caught value (unknown type)
+ * @param fallbackCode - String error code to use when mapping fails
+ * @param fallbackMessage - Human-readable message when `err.message` is absent
+ * @returns EngineResult with all available rich fields propagated
+ *
+ * @example
+ * ```typescript
+ * import { cleoErrorToEngineError } from './_error.js';
+ *
+ * } catch (err: unknown) {
+ *   return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+ * }
+ * ```
+ */
+export function cleoErrorToEngineError<T>(
+  err: unknown,
+  fallbackCode: string,
+  fallbackMessage: string,
+): EngineResult<T> {
+  const e = err as CaughtCleoErrorShape;
+  const code = mapNumericExitCodeToString(e.code) ?? fallbackCode;
+  const message = e.message ?? fallbackMessage;
+  return engineError<T>(code, message, {
+    ...(e.fix !== undefined && { fix: e.fix }),
+    ...(e.details !== undefined && { details: e.details }),
+    ...(e.alternatives !== undefined && { alternatives: e.alternatives }),
+  });
 }

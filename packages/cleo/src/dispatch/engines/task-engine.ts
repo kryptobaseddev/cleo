@@ -59,19 +59,7 @@ import {
   predictImpact,
   toCompact,
 } from '@cleocode/core/internal';
-import { type EngineResult, engineError } from './_error.js';
-
-const TASK_COMPLETE_EXIT_TO_ENGINE_CODE: Record<number, string> = {
-  4: 'E_NOT_FOUND',
-  5: 'E_DEPENDENCY_ERROR',
-  6: 'E_VALIDATION_FAILED',
-  16: 'E_HAS_CHILDREN',
-  17: 'E_TASK_COMPLETED',
-  40: 'E_VERIFICATION_INIT_FAILED',
-  44: 'E_MAX_ROUNDS_EXCEEDED',
-  45: 'E_GATE_DEPENDENCY',
-  80: 'E_LIFECYCLE_GATE_FAILED',
-};
+import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 
 /**
  * Convert a core Task to a TaskRecord for backward compatibility.
@@ -270,17 +258,7 @@ export async function taskShow(
     const detail = await coreShowTask(taskId, projectRoot, accessor);
     return { success: true, data: { task: taskToRecord(detail) } };
   } catch (err: unknown) {
-    const code = (err as { code?: number })?.code;
-    if (code === 4 /* NOT_FOUND */) {
-      return engineError('E_NOT_FOUND', (err as Error).message || `Task '${taskId}' not found`);
-    }
-    if (code === 2 /* INVALID_INPUT */) {
-      return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
-    }
-    return engineError(
-      'E_NOT_INITIALIZED',
-      (err as Error).message || 'Task database not initialized',
-    );
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -352,14 +330,7 @@ export async function taskList(
       page: result.page,
     };
   } catch (err: unknown) {
-    const code = (err as { code?: number })?.code;
-    if (code === 4) return engineError('E_NOT_FOUND', (err as Error).message || 'Task not found');
-    if (code === 2)
-      return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
-    return engineError(
-      'E_NOT_INITIALIZED',
-      (err as Error).message || 'Task database not initialized',
-    );
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -422,14 +393,7 @@ export async function taskFind(
 
     return { success: true, data: { results, total: results.length } };
   } catch (err: unknown) {
-    const code = (err as { code?: number })?.code;
-    if (code === 4) return engineError('E_NOT_FOUND', (err as Error).message || 'Task not found');
-    if (code === 2)
-      return engineError('E_INVALID_INPUT', (err as Error).message || 'Invalid input');
-    return engineError(
-      'E_NOT_INITIALIZED',
-      (err as Error).message || 'Task database not initialized',
-    );
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -539,30 +503,7 @@ export async function taskCreate(
       },
     };
   } catch (err: unknown) {
-    const cleoErr = err as { code?: number; message?: string };
-    // Map CleoError exit codes to engine error codes (see src/types/exit-codes.ts)
-    if (cleoErr.code === 10 /* PARENT_NOT_FOUND */) {
-      return engineError('E_PARENT_NOT_FOUND', cleoErr.message ?? 'Parent task not found');
-    }
-    if (cleoErr.code === 11 /* DEPTH_EXCEEDED */) {
-      return engineError('E_DEPTH_EXCEEDED', cleoErr.message ?? 'Max hierarchy depth exceeded');
-    }
-    if (cleoErr.code === 12 /* SIBLING_LIMIT */) {
-      return engineError('E_SIBLING_LIMIT', cleoErr.message ?? 'Max siblings exceeded');
-    }
-    if (cleoErr.code === 13 /* INVALID_PARENT_TYPE */) {
-      return engineError('E_INVALID_PARENT', cleoErr.message ?? 'Invalid parent type');
-    }
-    if (cleoErr.code === 14 /* CIRCULAR_REFERENCE */) {
-      return engineError('E_CIRCULAR_REFERENCE', cleoErr.message ?? 'Circular reference detected');
-    }
-    if (cleoErr.code === 6 /* VALIDATION_ERROR */ || cleoErr.code === 2 /* INVALID_INPUT */) {
-      return engineError('E_VALIDATION_FAILED', cleoErr.message ?? 'Validation failed');
-    }
-    if (cleoErr.code === 4 /* NOT_FOUND */) {
-      return engineError('E_NOT_FOUND', cleoErr.message ?? 'Task not found');
-    }
-    return engineError('E_NOT_INITIALIZED', cleoErr.message ?? 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -632,17 +573,7 @@ export async function taskUpdate(
 
     return { success: true, data: { task: taskToRecord(result.task), changes: result.changes } };
   } catch (err: unknown) {
-    const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 4 /* NOT_FOUND */) {
-      return engineError('E_NOT_FOUND', cleoErr.message ?? `Task '${taskId}' not found`);
-    }
-    if (cleoErr.code === 6 /* VALIDATION_ERROR */ || cleoErr.code === 2 /* INVALID_INPUT */) {
-      return engineError('E_VALIDATION_FAILED', cleoErr.message ?? 'Validation failed');
-    }
-    if (cleoErr.code === 102 /* NO_CHANGE */) {
-      return engineError('E_NO_CHANGE', cleoErr.message ?? 'No changes specified');
-    }
-    return engineError('E_NOT_INITIALIZED', cleoErr.message ?? 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -686,15 +617,7 @@ export async function taskComplete(
       },
     };
   } catch (err: unknown) {
-    const cleoErr = err as { code?: number; message?: string };
-    const message = cleoErr.message ?? 'Failed to complete task';
-    if (typeof cleoErr.code === 'number') {
-      const mappedCode = TASK_COMPLETE_EXIT_TO_ENGINE_CODE[cleoErr.code];
-      if (mappedCode) {
-        return engineError(mappedCode, message);
-      }
-    }
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to complete task');
   }
 }
 
@@ -741,14 +664,7 @@ export async function taskDelete(
       },
     };
   } catch (err: unknown) {
-    const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 4 /* NOT_FOUND */) {
-      return engineError('E_NOT_FOUND', cleoErr.message ?? `Task '${taskId}' not found`);
-    }
-    if (cleoErr.code === 16 /* HAS_CHILDREN */) {
-      return engineError('E_HAS_CHILDREN', cleoErr.message ?? `Task '${taskId}' has children`);
-    }
-    return engineError('E_NOT_INITIALIZED', cleoErr.message ?? 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -794,11 +710,7 @@ export async function taskArchive(
       },
     };
   } catch (err: unknown) {
-    const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 4 /* NOT_FOUND */) {
-      return engineError('E_NOT_FOUND', cleoErr.message ?? 'Task not found');
-    }
-    return engineError('E_NOT_INITIALIZED', cleoErr.message ?? 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -926,11 +838,7 @@ export async function taskTree(projectRoot: string, taskId?: string): Promise<En
     const result = await coreTaskTree(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -970,11 +878,7 @@ export async function taskDeps(
     const result = await coreTaskDeps(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1016,11 +920,7 @@ export async function taskRelates(
     const result = await coreTaskRelates(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_GENERAL', `Failed to read task relations: ${message}`);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to read task relations');
   }
 }
 
@@ -1055,16 +955,7 @@ export async function taskRelatesAdd(
     const result = await coreTaskRelatesAdd(projectRoot, taskId, relatedId, type, reason);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    if (message.includes('Invalid relation type')) {
-      return engineError('E_VALIDATION', message, {
-        fix: 'Use a valid relation type: related, blocks, duplicates, absorbs, fixes, extends, supersedes',
-      });
-    }
-    return engineError('E_GENERAL', `Failed to update task relations: ${message}`);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to update task relations');
   }
 }
 
@@ -1115,11 +1006,7 @@ export async function taskAnalyze(
     const result = await coreTaskAnalyze(projectRoot, taskId, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_GENERAL', `Task analysis failed: ${message}`);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Task analysis failed');
   }
 }
 
@@ -1155,8 +1042,7 @@ export async function taskImpact(
     const result = await predictImpact(change, projectRoot, undefined, matchLimit);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_GENERAL', `Impact prediction failed: ${message}`);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Impact prediction failed');
   }
 }
 
@@ -1187,14 +1073,7 @@ export async function taskRestore(
     const result = await coreTaskRestore(projectRoot, taskId, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    if (message.includes('not cancelled')) {
-      return engineError('E_INVALID_INPUT', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to restore task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to restore task');
   }
 }
 
@@ -1226,14 +1105,7 @@ export async function taskUnarchive(
     const result = await coreTaskUnarchive(projectRoot, taskId, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    if (message.includes('already exists')) {
-      return engineError('E_ID_COLLISION', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to unarchive task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to unarchive task');
   }
 }
 
@@ -1266,11 +1138,7 @@ export async function taskReorder(
     const result = await coreTaskReorder(projectRoot, taskId, position);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to reorder task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to reorder task');
   }
 }
 
@@ -1310,24 +1178,7 @@ export async function taskReparent(
     const result = await coreTaskReparent(projectRoot, taskId, newParentId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      const code = message.includes('Parent') ? 'E_PARENT_NOT_FOUND' : 'E_NOT_FOUND';
-      return engineError(code, message);
-    }
-    if (message.includes('subtask')) {
-      return engineError('E_INVALID_PARENT_TYPE', message);
-    }
-    if (message.includes('circular')) {
-      return engineError('E_CIRCULAR_REFERENCE', message);
-    }
-    if (message.includes('depth')) {
-      return engineError('E_DEPTH_EXCEEDED', message);
-    }
-    if (message.includes('siblings')) {
-      return engineError('E_SIBLING_LIMIT', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to reparent task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to reparent task');
   }
 }
 
@@ -1363,11 +1214,7 @@ export async function taskPromote(
     const result = await coreTaskPromote(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to promote task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to promote task');
   }
 }
 
@@ -1401,17 +1248,7 @@ export async function taskReopen(
     const result = await coreTaskReopen(projectRoot, taskId, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    if (message.includes('not completed')) {
-      return engineError('E_INVALID_INPUT', message);
-    }
-    if (message.includes('Invalid target')) {
-      return engineError('E_INVALID_INPUT', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to reopen task');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to reopen task');
   }
 }
 
@@ -1445,11 +1282,7 @@ export async function taskCancel(
     const result = await coreTaskCancel(projectRoot, taskId, { reason });
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
-    if (message.includes('already cancelled') || message.includes('completed'))
-      return engineError('E_INVALID_INPUT', message);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to cancel task');
   }
 }
 
@@ -1490,11 +1323,7 @@ export async function taskComplexityEstimate(
     const result = await coreTaskComplexityEstimate(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1519,11 +1348,7 @@ export async function taskDepends(
     );
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1544,8 +1369,7 @@ export async function taskDepsOverview(projectRoot: string): Promise<
     const result = await coreTaskDepsOverview(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_NOT_INITIALIZED', message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to load deps overview');
   }
 }
 
@@ -1563,8 +1387,7 @@ export async function taskDepsCycles(projectRoot: string): Promise<
     const result = await coreTaskDepsCycles(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_NOT_INITIALIZED', message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to detect cycles');
   }
 }
 
@@ -1661,11 +1484,7 @@ export async function taskLint(
     const result = await coreTaskLint(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1727,11 +1546,7 @@ export async function taskImport(
     const result = await coreTaskImport(projectRoot, source, overwrite);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Invalid JSON')) {
-      return engineError('E_INVALID_INPUT', message);
-    }
-    return engineError('E_NOT_INITIALIZED', 'Failed to import tasks');
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to import tasks');
   }
 }
 
@@ -1777,11 +1592,7 @@ export async function taskRelatesFind(
 
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Task plan failed');
   }
 }
 
@@ -1816,8 +1627,7 @@ export async function taskLabelShow(
     const result = await showLabelTasks(label, projectRoot, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to list labels');
   }
 }
 
@@ -1858,8 +1668,7 @@ export async function taskSyncReconcile(
     );
     return { success: true, data: result };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Sync reconcile failed');
   }
 }
 
@@ -1887,8 +1696,7 @@ export async function taskSyncLinks(
 
     return engineError('E_INVALID_INPUT', 'Either providerId or taskId is required');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to list links');
   }
 }
 
@@ -1904,8 +1712,7 @@ export async function taskSyncLinksRemove(
     const removed = await removeLinksByProvider(providerId, projectRoot);
     return { success: true, data: { providerId, removed } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to remove links');
   }
 }
 
@@ -1927,10 +1734,7 @@ export async function taskClaim(
     await acc.claimTask(taskId, agentId);
     return { success: true, data: { taskId, agentId } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
-    if (message.includes('already claimed')) return engineError('E_CONFLICT', message);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to claim task');
   }
 }
 
@@ -1949,8 +1753,6 @@ export async function taskUnclaim(
     await acc.unclaimTask(taskId);
     return { success: true, data: { taskId } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to unclaim task');
   }
 }

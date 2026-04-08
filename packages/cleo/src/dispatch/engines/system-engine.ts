@@ -46,7 +46,7 @@ import {
   safestop,
   uncancelTask,
 } from '@cleocode/core/internal';
-import { type EngineResult, engineError } from './_error.js';
+import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 
 // Re-export types for downstream consumers
@@ -394,7 +394,7 @@ export async function systemDash(
       },
     };
   } catch (err: unknown) {
-    return engineError('E_NOT_INITIALIZED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'System not initialized');
   }
 }
 
@@ -478,7 +478,7 @@ export async function systemStats(
       },
     };
   } catch (err: unknown) {
-    return engineError('E_NOT_INITIALIZED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to get stats');
   }
 }
 
@@ -495,7 +495,7 @@ export async function systemLabels(
     const result = await getLabels(projectRoot, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_NOT_INITIALIZED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to get labels');
   }
 }
 
@@ -513,7 +513,7 @@ export async function systemArchiveStats(
     const result = await getArchiveStats({ period: params?.period, cwd: projectRoot }, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_NOT_INITIALIZED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to get archive stats');
   }
 }
 
@@ -541,7 +541,7 @@ export async function systemLog(
     const entries = await queryAuditLogSqlite(projectRoot, filters);
     return { success: true, data: entries };
   } catch (err: unknown) {
-    return engineError('E_FILE_ERROR', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_FILE_ERROR', 'Failed to read audit log');
   }
 }
 
@@ -828,7 +828,7 @@ export function systemContext(
       };
     }
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'System operation failed');
   }
 }
 
@@ -862,7 +862,7 @@ export async function systemSequence(
       },
     };
   } catch (err: unknown) {
-    return engineError('E_NOT_FOUND', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_FOUND', 'Sequence not found');
   }
 }
 
@@ -880,7 +880,7 @@ export async function systemInjectGenerate(
     const result = await generateInjection(root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to generate injection');
   }
 }
 
@@ -899,7 +899,7 @@ export async function systemMetrics(
     const result = await getSystemMetrics(projectRoot, params, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to get metrics');
   }
 }
 
@@ -917,7 +917,7 @@ export async function systemHealth(
     const result = await getSystemHealth(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to get health');
   }
 }
 
@@ -935,7 +935,7 @@ export async function systemDiagnostics(
     const result = await getSystemDiagnostics(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to get diagnostics');
   }
 }
 
@@ -1006,7 +1006,7 @@ export async function systemRoadmap(
     );
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_NOT_INITIALIZED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'System not initialized');
   }
 }
 
@@ -1172,7 +1172,7 @@ export function systemCompliance(
       },
     };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to get roadmap');
   }
 }
 
@@ -1197,7 +1197,7 @@ export async function systemBackup(
     const result = await createBackup(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to create backup');
   }
 }
 
@@ -1212,7 +1212,7 @@ export function systemListBackups(
     const result = listSystemBackups(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to list backups');
   }
 }
 
@@ -1230,8 +1230,7 @@ export function systemRestore(
     const result = restoreBackup(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_RESTORE_FAILED';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_RESTORE_FAILED', 'Failed to restore');
   }
 }
 
@@ -1303,11 +1302,7 @@ export async function backupRestore(
       },
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('not found') || message.includes('No backups')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    return engineError('E_GENERAL', `Backup restore failed: ${message}`);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Backup restore failed');
   }
 }
 
@@ -1325,8 +1320,7 @@ export async function systemMigrate(
     const result = await getMigrationStatus(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_MIGRATE_FAILED';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_MIGRATE_FAILED', 'Failed to migrate');
   }
 }
 
@@ -1344,8 +1338,7 @@ export async function systemCleanup(
     const result = await cleanupSystem(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_CLEANUP_FAILED';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_CLEANUP_FAILED', 'Failed to cleanup');
   }
 }
 
@@ -1363,7 +1356,7 @@ export async function systemAudit(
     const result = await auditData(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to audit');
   }
 }
 
@@ -1415,7 +1408,7 @@ export function systemSafestop(
     const result = safestop(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Sync failed');
   }
 }
 
@@ -1433,8 +1426,7 @@ export async function systemUncancel(
     const result = await uncancelTask(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_UNCANCEL_FAILED';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_UNCANCEL_FAILED', 'Failed to uncancel');
   }
 }
 
@@ -1452,7 +1444,7 @@ export async function systemDoctor(
     const result = await coreDoctorReport(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Doctor check failed');
   }
 }
 
@@ -1470,7 +1462,7 @@ export async function systemFix(
     const result = await runDoctorFixes(projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Doctor fix failed');
   }
 }
 
@@ -1486,7 +1478,7 @@ export async function systemRuntime(
     const data = await getRuntimeDiagnostics({ detailed: params?.detailed ?? false });
     return { success: true, data };
   } catch (err: unknown) {
-    return engineError('E_RUNTIME_ERROR', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_RUNTIME_ERROR', 'Runtime check failed');
   }
 }
 
@@ -1558,7 +1550,7 @@ export async function systemPaths(projectRoot: string): Promise<EngineResult<Pat
       },
     };
   } catch (err: unknown) {
-    return engineError('E_PATHS_RESOLVE_FAILED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_PATHS_RESOLVE_FAILED', 'Failed to resolve paths');
   }
 }
 
@@ -1583,7 +1575,7 @@ export async function systemScaffoldHub(): Promise<EngineResult<ScaffoldHubData>
     const result = await ensureCleoOsHub();
     return { success: true, data: result };
   } catch (err: unknown) {
-    return engineError('E_SCAFFOLD_HUB_FAILED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_SCAFFOLD_HUB_FAILED', 'Failed to scaffold hub');
   }
 }
 
@@ -1607,7 +1599,7 @@ export async function systemSequenceRepair(
       },
     };
   } catch (err: unknown) {
-    return engineError('E_SEQUENCE_REPAIR_FAILED', (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_SEQUENCE_REPAIR_FAILED', 'Failed to repair sequence');
   }
 }
 

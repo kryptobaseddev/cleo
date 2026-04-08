@@ -9,11 +9,9 @@
  */
 
 import type { Session, TaskWorkState } from '@cleocode/contracts';
-import { getExitCodeName } from '@cleocode/contracts';
 // ... existing imports ...
 import {
   archiveSessions,
-  CleoError,
   type ContextInjectionData,
   cleanupSessions,
   computeBriefing,
@@ -48,7 +46,7 @@ import {
   switchSession,
   type TaskWorkHistoryEntry,
 } from '@cleocode/core/internal';
-import { type EngineResult, engineError } from './_error.js';
+import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 
 // Re-export types for consumers
 // Re-export EngineResult for consumers
@@ -232,9 +230,7 @@ export async function sessionShow(
     const result = await showSession(projectRoot, sessionId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Session not initialized');
   }
 }
 
@@ -278,15 +274,7 @@ export async function taskStart(
       data: { taskId: result.taskId, previousTask: result.previousTask },
     };
   } catch (err: unknown) {
-    if (err instanceof CleoError) {
-      const stringCode = `E_${getExitCodeName(err.code)}`;
-      return engineError(stringCode, err.message, {
-        ...(err.fix && { fix: err.fix }),
-      });
-    }
-    const message = (err as Error).message;
-    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to start task');
   }
 }
 
@@ -354,7 +342,7 @@ export async function sessionStart(
     try {
       scope = parseScope(params.scope);
     } catch (err) {
-      return engineError('E_INVALID_INPUT', err instanceof Error ? err.message : 'Invalid scope');
+      return cleoErrorToEngineError(err, 'E_INVALID_INPUT', 'Invalid scope');
     }
 
     // For non-global scopes, verify root task exists before auto-ending
@@ -766,13 +754,7 @@ export async function sessionSuspend(
     const result = await suspendSession(projectRoot, sessionId, reason);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('not found')
-      ? 'E_NOT_FOUND'
-      : message.includes('not active')
-        ? 'E_INVALID_STATE'
-        : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to end session');
   }
 }
 
@@ -838,8 +820,7 @@ export async function sessionRecordDecision(
     const result = await recordDecision(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError('E_INVALID_INPUT', message);
+    return cleoErrorToEngineError(err, 'E_INVALID_INPUT', 'Failed to record decision');
   }
 }
 
@@ -879,9 +860,7 @@ export async function sessionContextDrift(
     const result = await getContextDrift(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to read decision log');
   }
 }
 
@@ -911,12 +890,7 @@ export async function sessionRecordAssumption(
     const result = await recordAssumption(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code =
-      message.includes('required') || message.includes('must be')
-        ? 'E_INVALID_INPUT'
-        : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to record assumption');
   }
 }
 
@@ -951,9 +925,7 @@ export async function sessionStats(
     const result = await getSessionStats(projectRoot, sessionId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to get session stats');
   }
 }
 
@@ -969,13 +941,7 @@ export async function sessionSwitch(
     const result = await switchSession(projectRoot, sessionId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('not found')
-      ? 'E_NOT_FOUND'
-      : message.includes('archived')
-        ? 'E_INVALID_STATE'
-        : 'E_NOT_INITIALIZED';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to switch session');
   }
 }
 
@@ -1007,14 +973,7 @@ export async function sessionHandoff(
     const result = await getLastHandoff(projectRoot, scope);
     return { success: true, data: result };
   } catch (err: unknown) {
-    if (err instanceof CleoError) {
-      const stringCode = `E_${getExitCodeName(err.code)}`;
-      return engineError(stringCode, err.message, {
-        ...(err.fix && { fix: err.fix }),
-      });
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    return engineError('E_GENERAL', message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to archive sessions');
   }
 }
 
@@ -1036,8 +995,7 @@ export async function sessionComputeHandoff(
     await persistHandoff(projectRoot, sessionId, handoff);
     return { success: true, data: handoff };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to get handoff');
   }
 }
 
@@ -1060,8 +1018,7 @@ export async function sessionBriefing(
     const briefing = await computeBriefing(projectRoot, options);
     return { success: true, data: briefing };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to compute briefing');
   }
 }
 
@@ -1105,8 +1062,7 @@ export async function sessionComputeDebrief(
 
     return { success: true, data: debrief };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to compute debrief');
   }
 }
 
@@ -1149,8 +1105,7 @@ export async function sessionDebriefShow(
 
     return { success: true, data: null };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError(message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to show debrief');
   }
 }
 
@@ -1218,8 +1173,7 @@ export async function sessionChainShow(
 
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to show session chain');
   }
 }
 
@@ -1236,12 +1190,6 @@ export function sessionContextInject(
     const result = injectContext(protocolType, params, projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    const code = message.includes('required')
-      ? 'E_INVALID_INPUT'
-      : message.includes('not found')
-        ? 'E_NOT_FOUND'
-        : 'E_INTERNAL';
-    return engineError(code, message);
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to inject context');
   }
 }
