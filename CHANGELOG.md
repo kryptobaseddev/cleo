@@ -4,6 +4,132 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.12] - 2026-04-08
+
+### Highlights
+
+This release closes the T310 epic (Conduit + Signaldock Separation) across 6
+waves. It establishes a hard split between the two formerly-conflated agent
+databases: `conduit.db` is the new project-tier transport store (replacing
+the old project-level `signaldock.db`), while `signaldock.db` is promoted to
+a dedicated global-tier registry at `$XDG_DATA_HOME/cleo/signaldock.db`. The
+KDF has been upgraded from `(machine-key, project-path)` to
+`(machine-key, global-salt, agent-id)`, making agent keys portable across
+project relocations. New `project_agent_refs` override table enables
+per-project agent configuration without polluting the global registry. Full
+automatic first-run migration with `.pre-t310.bak` preservation, new
+attach/detach/remove-global CLI verbs, and a 12-scenario integration test
+suite. **16 tasks shipped, zero pre-existing test failures introduced.**
+
+### Added
+
+- **`ADR-037` + `ADR-038` — Conduit/Signaldock split + KDF upgrade.** ADR-037
+  documents the project-tier → conduit.db rename decision and the rationale
+  for separating project transport from global agent registry. ADR-038
+  specifies the new `(machine-key, global-salt, agent-id)` KDF that replaces
+  the path-coupled `(machine-key, project-path)` scheme, enabling key
+  portability across project relocations
+  ([`4a180554`](https://github.com/kryptobaseddev/cleo/commit/4a180554)).
+
+- **`ADR-039` — Wave 4 envelope unification.** Records the decision to
+  unify request/response envelopes across transport layers
+  ([`74bb8b12`](https://github.com/kryptobaseddev/cleo/commit/74bb8b12)).
+
+- **T310 Wave 0 — schemas + primitive modules** (T344). New
+  `conduit-core` crate and `signaldock-core` global-registry module
+  established. Zod schemas and TypeScript contracts for conduit messages
+  and global agent descriptors added to `packages/contracts/src/`
+  ([`67f71260`](https://github.com/kryptobaseddev/cleo/commit/67f71260)).
+
+- **`packages/core/src/store/project-agent-refs.ts` — per-project agent
+  override table** (T353). New `project_agent_refs` SQLite table in
+  `conduit.db` provides CRUD accessors (`upsertProjectAgentRef`,
+  `getProjectAgentRef`, `listProjectAgentRefs`, `deleteProjectAgentRef`)
+  for per-project agent configuration overrides without touching the global
+  registry
+  ([`55c5faf7`](https://github.com/kryptobaseddev/cleo/commit/55c5faf7)).
+
+- **`packages/core/src/store/local-transport.ts` — LocalTransport migrated
+  to conduit.db** (T356). LocalTransport now opens `conduit.db` instead of
+  the project-scoped `signaldock.db`, completing the project-tier rename
+  ([`3276cfe3`](https://github.com/kryptobaseddev/cleo/commit/3276cfe3)).
+
+- **Cross-DB agent registry accessor refactor** (T355). `AgentRegistry`
+  accessors split across conduit (project-tier) and global signaldock (global
+  tier) with clean interface boundaries. No cross-DB leakage
+  ([`69fb6df1`](https://github.com/kryptobaseddev/cleo/commit/69fb6df1)).
+
+- **`packages/core/src/store/migrate-signaldock-to-conduit.ts` — migration
+  executor** (T358). Idempotent `migrateSignaldockToConduit()` reads the old
+  project-scoped `signaldock.db`, writes entries to `conduit.db`, and
+  preserves the original as `signaldock.db.pre-t310.bak`. Detects already-
+  migrated projects and is a no-op on fresh installs
+  ([`13c861fb`](https://github.com/kryptobaseddev/cleo/commit/13c861fb)).
+
+- **Auto-migration wired into CLI startup** (T360). `cleo` CLI startup now
+  calls `migrateSignaldockToConduit()` before any command dispatch, ensuring
+  all existing projects are migrated transparently on first run after upgrade
+  ([`f38fc7e3`](https://github.com/kryptobaseddev/cleo/commit/f38fc7e3)).
+
+- **`cleo agent list --global` + `--include-disabled`** (T362). New
+  `--global` flag lists agents from the global signaldock registry rather than
+  the project-tier conduit registry. `--include-disabled` surfaces disabled
+  agent registrations for diagnostics
+  ([`28b449d3`](https://github.com/kryptobaseddev/cleo/commit/28b449d3)).
+
+- **`cleo agent attach` + `cleo agent detach`** (T364). Two new CLI verbs:
+  `attach` creates a `project_agent_refs` override linking a global agent into
+  the current project; `detach` removes the override. Both honour the
+  three-tier scope hierarchy
+  ([`f773fd57`](https://github.com/kryptobaseddev/cleo/commit/f773fd57)).
+
+- **`cleo agent remove --global`** (T366). New `--global` flag on
+  `cleo agent remove` deletes an agent from the global signaldock registry
+  with a safety scan that warns if the agent is still attached to any project
+  via `project_agent_refs`
+  ([`dd5a70fb`](https://github.com/kryptobaseddev/cleo/commit/dd5a70fb)).
+
+- **Backup registry extended for conduit + global signaldock + global-salt**
+  (T369). `vacuumIntoBackupAll` now snapshots `conduit.db` and the global
+  `signaldock.db` alongside the existing `tasks.db` / `brain.db` pair. The
+  global-salt value is preserved in JSON backups
+  ([`ef7f58f6`](https://github.com/kryptobaseddev/cleo/commit/ef7f58f6)).
+
+- **12-scenario T310 integration test suite** (T371). New
+  `packages/core/src/store/__tests__/conduit-signaldock-integration.test.ts`
+  covers: fresh conduit init, project_agent_refs CRUD, migration idempotency,
+  global registry isolation, attach/detach round-trip, KDF key portability
+  across project rename, auto-migration on startup, backup/restore of both
+  DBs, `--global` list accuracy, safety-scan on remove, concurrent access,
+  and `.pre-t310.bak` preservation. 12/12 passing
+  ([`7d531e82`](https://github.com/kryptobaseddev/cleo/commit/7d531e82)).
+
+- **TSDoc provenance + docs drift resolution** (T372). All new exported
+  symbols in `project-agent-refs.ts`, `migrate-signaldock-to-conduit.ts`, and
+  the conduit accessor layer carry `/** ... */` TSDoc comments. Stale
+  architecture diagrams updated to reflect conduit.db and global signaldock.db
+  paths
+  ([`d135a6aa`](https://github.com/kryptobaseddev/cleo/commit/d135a6aa)).
+
+### Statistics
+
+- **16 tasks shipped** across 6 waves (Wave 0: ADRs + schemas, Wave 1:
+  primitive modules + project_agent_refs, Wave 2: LocalTransport + registry
+  refactor, Wave 3: migration executor + auto-startup wire, Wave 4: CLI
+  verbs + envelope unification, Wave 5: backup extension + integration tests +
+  TSDoc)
+- **16 commits** on main since v2026.4.11
+- **~2400 LOC** across implementation + tests
+- **12 new integration tests** in `conduit-signaldock-integration.test.ts`
+- **3 new ADRs** (ADR-037, ADR-038, ADR-039)
+- **0 pre-existing test failures** introduced
+
+### Follow-on Epics
+
+- **T311** — Cross-Machine Backup Export/Import (targets v2026.4.13+)
+
+---
+
 ## [2026.4.11] - 2026-04-08
 
 ### Highlights
