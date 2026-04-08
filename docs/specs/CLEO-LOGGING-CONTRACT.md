@@ -158,17 +158,14 @@ Required events that MUST always be logged:
 
 | Event | Store | Level | Required Fields |
 |-------|-------|-------|----------------|
-| MCP server starting | Pino | info | `logLevel` |
-| MCP dispatch layer initialized | Pino | info | (message only) |
-| MCP background job manager initialized | Pino | info | `maxJobs`, `retentionMs` |
-| MCP query cache initialized | Pino | info | `enabled`, `ttlMs` |
-| MCP server ready | Pino | info | `transport` |
-| MCP shutdown signal received | Pino | info | `signal` |
-| MCP server closed | Pino | info | `signal` |
-| MCP tool call received | Pino | debug | `tool` |
-| MCP tool call error | Pino | error | `err` |
-| MCP fatal startup error | Pino | fatal | `err` |
-| MCP uncaught exception | Pino | fatal | `err`, `errorType` |
+| CLI logger initialized | Pino | info | `logLevel` |
+| CLI dispatch layer initialized | Pino | info | (message only) |
+| CLI background job manager initialized | Pino | info | `maxJobs`, `retentionMs` |
+| CLI query cache initialized | Pino | info | `enabled`, `ttlMs` |
+| CLI command received | Pino | debug | `command` |
+| CLI command error | Pino | error | `err` |
+| CLI fatal startup error | Pino | fatal | `err` |
+| CLI uncaught exception | Pino | fatal | `err`, `errorType` |
 | Node.js version unsupported | Pino | fatal | `minimumNodeMajor`, `nodeVersion`, `recommendedUpgrade` |
 | Dispatch operation audited | Pino + SQLite | info | `domain`, `operation`, `sessionId`, `taskId`, `gateway`, `success`, `exitCode`, `durationMs` |
 | Audit SQLite write failed | Pino | warn | `err` |
@@ -186,22 +183,22 @@ Required events that MUST always be logged:
 
 ---
 
-## 7. MCP-First Rules
+## 7. CLI Logging Rules
 
-- MCP operations are the primary logging path. The MCP server calls `initLogger()` at startup with the same Pino configuration as the CLI.
-- All MCP tool calls route through the dispatch layer, which includes the `createAudit()` middleware for dual-write to Pino and SQLite.
-- MCP stdout is reserved exclusively for the MCP protocol (JSON-RPC). All diagnostic logging MUST go to Pino file sinks or stderr. The `initLogger()` function configures pino-roll to write to `.cleo/logs/cleo.log`, keeping stdout clean.
+- CLI operations are the sole logging path. Every `cleo <command>` invocation calls `initLogger()` via the citty `preAction` hook before any operation runs.
+- All CLI commands route through the dispatch layer, which includes the `createAudit()` middleware for dual-write to Pino and SQLite.
+- CLI stdout is reserved for command output (LAFS envelopes with `--json`, or human renders with `--human`); all diagnostic logging MUST go to Pino file sinks or stderr. The `initLogger()` function configures pino-roll to write to `.cleo/logs/cleo.log`, keeping stdout clean.
 - Pre-init fallback: Before `initLogger()` is called, `getLogger()` returns a stderr-bound logger at `warn` level. This ensures early startup code and error paths never crash due to missing logger infrastructure.
 - No `console.log()` or `console.error()` in post-init paths. Pre-init `console.error()` is acceptable only for the Node.js version check (which runs before any logger is available).
 
 ---
 
-## 8. CLI Parity Rules
+## 8. CLI Initialization Rules
 
 - CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
 - CLI `preAction` hook MUST fire `pruneAuditLog()` as fire-and-forget after logger initialization. Failures are silently caught to avoid blocking command execution.
-- All CLI commands that route through the dispatch layer pass through the same `createAudit()` middleware as MCP, producing identical `audit_log` entries with `source: 'cli'`.
-- The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring CLI log entries have the same correlation context as MCP entries.
+- All CLI commands route through the dispatch layer via `dispatchRaw()` in `packages/cleo/src/dispatch/adapters/cli.ts`, which applies the `createAudit()` middleware to produce `audit_log` entries with `source: 'cli'`.
+- The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring every CLI log entry carries the correct correlation context.
 
 ---
 
@@ -276,13 +273,13 @@ The dispatch entry is authoritative. The `appendLog()` entry provides state diff
 ## 11. References
 
 - [ADR-019: Canonical Logging Architecture](.cleo/adrs/ADR-019-canonical-logging-architecture.md) -- original dual-write decision
-- [ADR-024: Multi-Store Canonical Logging Architecture](.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for MCP init, retention, correlation, and brain.db
+- [ADR-024: Multi-Store Canonical Logging Architecture](.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
 - `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
 - `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
 - `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)
+- `packages/cleo/src/dispatch/adapters/cli.ts` -- CLI dispatch adapter (`dispatchRaw`, middleware pipeline)
 - `packages/cleo/src/dispatch/middleware/audit.ts` -- dual-write audit middleware (createAudit, writeToSqlite, queryAudit)
 - `packages/cleo/src/cli/logger-bootstrap.ts` -- CLI logger initialization (initCliLogger)
-- `packages/cleo/src/mcp/index.ts` -- MCP server startup sequence
 - `packages/cleo/src/cli/index.ts` -- CLI entry point with preAction hooks
 - `packages/core/src/config.ts` -- configuration defaults including LoggingConfig
 - `src/types/config.ts` -- LoggingConfig type definition
