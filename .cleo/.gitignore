@@ -30,6 +30,8 @@
 !research/**
 !consensus/
 !consensus/**
+!specs/
+!specs/**
 
 # Explicit deny safety net — databases, backups, and untracked runtime files
 *.db
