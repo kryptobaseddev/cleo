@@ -41,44 +41,61 @@ NEXUS API is fully compliant with the **Agent-to-Agent (A2A)** protocol standard
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     EXTERNAL SYSTEMS                        │
-│  (Other Agents, Web UIs, CLI Tools, IDE Plugins)           │
+│  (Human Users, AI Agents, Scripts, IDE Plugins)            │
 └──────────────────────┬──────────────────────────────────────┘
-                       │ HTTP / MCP / CLI
+                       │ cleo nexus <command>
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  CLEO DISPATCH LAYER                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   MCP GW     │  │  HTTP GW     │  │   CLI GW     │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
-└─────────┼─────────────────┼─────────────────┼──────────────┘
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            ▼
+│                     CLI ENTRY POINT                         │
+│           packages/cleo/src/cli/index.ts (citty)            │
+│             nexus commands in cli/commands/nexus.ts         │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 CLI DISPATCH ADAPTER                        │
+│      packages/cleo/src/dispatch/adapters/cli.ts             │
+│   dispatchRaw({ gateway, domain, operation, params })       │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
                ┌──────────────────────┐
                │     DISPATCHER       │
-               │  (CQRS Pipeline)     │
+               │ (internal CQRS tags: │
+               │   query / mutate)    │
+               │  dispatch/registry.ts│
                └──────────┬───────────┘
                           │
                           ▼
                ┌──────────────────────┐
                │   NEXUS HANDLER      │
-               │  packages/cleo/   │
-               │   domains/nexus.ts   │
+               │ packages/cleo/src/   │
+               │ dispatch/domains/    │
+               │     nexus.ts         │
                └──────────┬───────────┘
                           │
                           ▼
                ┌──────────────────────┐
                │   NEXUS CORE         │
-               │  packages/core/src/nexus/     │
+               │  packages/core/src/  │
+               │       nexus/         │
                └──────────┬───────────┘
                           │
               ┌───────────┴───────────┐
               ▼                       ▼
     ┌──────────────────┐   ┌──────────────────┐
-    │   nexus.db       │   │  Project tasks.db │
-    │  (Global Reg)    │   │  (Per-project)    │
+    │   nexus.db       │   │ Project tasks.db │
+    │  (global tier:   │   │  (per-project)   │
+    │  ~/.local/share/ │   │                  │
+    │   cleo/nexus.db) │   │                  │
     └──────────────────┘   └──────────────────┘
 ```
+
+> **Note**: CLEO's sole runtime surface is the `cleo` CLI (v2026.4.1+). An
+> HTTP adapter is **PLANNED** — see the forthcoming `CLEO-WEB-API.md` spec.
+> The internal `query` / `mutate` CQRS split is a registry tag, not a public
+> protocol — external callers reach every NEXUS operation through
+> `cleo nexus <command>`.
 
 ### 2.2 LAFS Protocol Integration
 
@@ -127,34 +144,17 @@ NEXUS API uses the **LAFS Protocol** (LLM-Agent-First Specification) for all com
 
 ## 3. Transport Adapters
 
-NEXUS API is transport-agnostic. The same operations are available via:
+NEXUS API is transport-agnostic. Operations are reached via the following adapters:
 
-| Transport | Entry Point | Envelope Mode | Best For |
-|-----------|-------------|---------------|----------|
-| **MCP** | `query` / `mutate` tools | Full envelope in body | AI agents, Claude Code |
-| **HTTP** | `POST /api/query` / `POST /api/mutate` | Headers + body (default) | Web UIs, external systems |
-| **CLI** | `cleo nexus <command>` | No envelope (formatted output) | Human users, scripts |
+| Transport | Entry Point | Envelope Mode | Status | Best For |
+|-----------|-------------|---------------|--------|----------|
+| **CLI** | `cleo nexus <command>` (citty; `packages/cleo/src/cli/commands/nexus.ts`) | LAFS envelope on `--json`, formatted output otherwise | **Implemented** | Human users, scripts, AI agents spawning `cleo` as a subprocess |
+| **HTTP** | `POST /api/query` / `POST /api/mutate` | Headers + body (default), or full envelope with `Accept: application/vnd.lafs+json` | **PLANNED** (see `CLEO-WEB-API.md`) | Web UIs, external systems |
 
-### 3.1 MCP Transport
+> The CLI is CLEO's sole runtime dispatch surface today (v2026.4.1+), and
+> the HTTP adapter is still on the roadmap.
 
-```json
-// Request
-{
-  "gateway": "query",
-  "domain": "nexus",
-  "operation": "status",
-  "params": {}
-}
-
-// Response (full LAFS envelope)
-{
-  "_meta": { /* ... */ },
-  "success": true,
-  "result": { "initialized": true, "projectCount": 5 }
-}
-```
-
-### 3.2 HTTP Transport
+### 3.1 HTTP Transport (PLANNED)
 
 **Default Mode** (unwrapped body + headers):
 
@@ -199,12 +199,25 @@ Content-Type: application/vnd.lafs+json
 { "_meta": { /* ... */ }, "success": true, "result": { /* ... */ } }
 ```
 
-### 3.3 CLI Transport
+### 3.2 CLI Transport
+
+The CLI is the only implemented transport today. Nexus commands are wired
+in `packages/cleo/src/cli/commands/nexus.ts` and dispatched through the CLI
+adapter at `packages/cleo/src/dispatch/adapters/cli.ts`.
 
 ```bash
-# Query
-$ cleo nexus status --format json
-{ "initialized": true, "projectCount": 5 }
+# Query — formatted output
+$ cleo nexus status
+Initialized: true
+Projects:    5
+
+# Query — LAFS envelope for agents parsing stdout
+$ cleo nexus status --json
+{
+  "_meta": { "operation": "nexus.status", "gateway": "query", ... },
+  "success": true,
+  "result": { "initialized": true, "projectCount": 5 }
+}
 
 # Exit code reflects operation success
 $ echo $?  # 0 on success, non-zero on error
@@ -214,11 +227,16 @@ $ echo $?  # 0 on success, non-zero on error
 
 ## 4. Operations Reference
 
-All 24 NEXUS operations are organized by functional area:
+The operations below show the dispatch call shape
+`{ gateway, domain, operation, params }` that the CLI adapter forwards to the
+registry in `packages/cleo/src/dispatch/registry.ts`. Reach every operation
+from the CLI via `cleo nexus <operation>` (for example, `nexus.status` →
+`cleo nexus status`). Operations are organized by functional area.
 
 ### 4.1 Registry Operations
 
-Manage the global project registry stored in `~/.cleo/nexus.db`.
+Manage the global project registry stored at `~/.local/share/cleo/nexus.db`
+(XDG global tier; overridable via `$CLEO_HOME`).
 
 #### `nexus.init` (mutate)
 
@@ -240,7 +258,7 @@ Initialize NEXUS, creating the global registry and required directories.
   "success": true,
   "result": {
     "message": "NEXUS initialized successfully",
-    "registryPath": "~/.cleo/nexus.db",
+    "registryPath": "~/.local/share/cleo/nexus.db",
     "created": true
   }
 }
