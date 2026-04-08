@@ -17,7 +17,7 @@ The original ORCH-PLAN.md Phase 7 envisioned multi-project agent topology but wa
 - **No programmatic agent lifecycle** — agents go idle with no way to wake them
 
 **What we have now that ORCH-PLAN.md didn't**:
-- CANT DSL (shipped: 694 tests, full parser + validator + LSP + runtime)
+- CANT DSL (Layer 1 message parser shipped: 694 tests in cant-core; document-mode parser, workflow executor, LSP not yet implemented)
 - napi-rs 3.8+ bridge (Rust → Node native)
 - signaldock.db (Rust-managed, 17 migrations)
 - CLEO task system with full RCASD pipeline
