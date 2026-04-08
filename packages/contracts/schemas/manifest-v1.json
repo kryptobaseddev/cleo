@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleocode.dev/schemas/backup-manifest-v1.json",
+  "title": "CLEO Backup Manifest v1",
+  "type": "object",
+  "required": ["$schema", "manifestVersion", "backup", "databases", "json", "integrity"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "./schemas/manifest-v1.json"
+    },
+    "manifestVersion": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$",
+      "description": "Semantic version of the manifest format. Breaking changes increment major."
+    },
+    "backup": {
+      "type": "object",
+      "required": ["createdAt", "createdBy", "scope", "machineFingerprint", "cleoVersion", "encrypted"],
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when the bundle was created."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Human-readable cleo version string, e.g. 'cleo v2026.4.13'."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["project", "global", "all"],
+          "description": "Export scope. Determines target restore paths."
+        },
+        "projectName": {
+          "type": "string",
+          "description": "Project name at export time. Advisory only."
+        },
+        "projectFingerprint": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of project-info.json at export time. Null for global-only scope. Advisory warning if mismatch on import."
+        },
+        "machineFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of $XDG_DATA_HOME/cleo/machine-key. Privacy-safe machine identity proxy."
+        },
+        "cleoVersion": {
+          "type": "string",
+          "description": "Machine-parseable CalVer string, e.g. '2026.4.13'."
+        },
+        "encrypted": {
+          "type": "boolean",
+          "description": "True if this bundle was produced with --encrypt."
+        }
+      }
+    },
+    "databases": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["name", "filename", "size", "sha256", "schemaVersion"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["tasks", "brain", "conduit", "nexus", "signaldock"],
+            "description": "Logical database name."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Relative path inside the archive, e.g. 'databases/tasks.db'."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Byte size of the decompressed .db file."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 hex of the decompressed .db bytes."
+          },
+          "schemaVersion": {
+            "type": "string",
+            "description": "Latest applied migration identifier (Drizzle folderMillis or SIGNALDOCK_SCHEMA_VERSION)."
+          },
+          "rowCounts": {
+            "type": "object",
+            "description": "Per-table row counts for inspect display. Optional at import time.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "json": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["filename", "size", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "type": "string",
+            "enum": [
+              "json/config.json",
+              "json/project-info.json",
+              "json/project-context.json"
+            ],
+            "description": "Relative path inside the archive."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "globalFiles": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["filename", "size", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "type": "string",
+            "enum": ["global/global-salt"],
+            "description": "Relative path inside the archive."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": ["algorithm", "checksumsFile", "manifestHash"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "const": "sha256"
+        },
+        "checksumsFile": {
+          "type": "string",
+          "const": "checksums.sha256"
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of this manifest JSON with manifestHash set to empty string, then hex-encoded."
+        }
+      }
+    }
+  }
+}

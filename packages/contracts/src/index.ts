@@ -34,6 +34,16 @@ export type {
   CycleTimeDistribution,
   CycleTimePercentiles,
 } from './archive.js';
+// === Backup Manifest Types ===
+export type {
+  BackupDatabaseEntry,
+  BackupGlobalFileEntry,
+  BackupIntegrity,
+  BackupJsonEntry,
+  BackupManifest,
+  BackupMetadata,
+  BackupScope,
+} from './backup-manifest.js';
 // === Brain/Memory Types ===
 export type {
   BrainEntryRef,
