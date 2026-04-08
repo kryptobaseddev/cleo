@@ -1,6 +1,6 @@
 # CLEO Documentation Standard Operating Procedures
 
-**Version**: 2026.3.2
+**Version**: 2026.4.8
 **Status**: APPROVED
 **Scope**: All documentation within the CLEO project
 
@@ -16,21 +16,26 @@ Key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" follow RFC 2119 
 
 ## 2. File Organization
 
-Documentation lives under `docs/` and is organized into four categories:
+Documentation lives under `docs/` and is organized into six categories. ADRs are managed separately by CLEO.
 
 | Directory | Purpose | Naming Convention |
 |-----------|---------|-------------------|
-| `docs/specs/` | Canonical specifications and formal contracts | `UPPER-KEBAB-CASE.md` |
-| `docs/guides/` | User guides, tutorials, and how-to documents | `lower-kebab-case.md` |
-| `docs/adrs/` | Architecture Decision Records | `ADR-NNN-short-description.md` |
-| `docs/concepts/` | Foundational material, explainers, and vision docs | `lower-kebab-case.md` |
+| `docs/specs/` | Normative specifications, formal contracts, and integration plans | `UPPER-KEBAB-CASE.md` |
+| `docs/guides/` | User-facing reference guides, tutorials, and how-to documents | `lower-kebab-case.md` |
+| `docs/concepts/` | Identity, vision, manifesto, and foundational explainers | `UPPER-KEBAB-CASE.md` |
+| `docs/plans/` | Active engineering plans (ULTRAPLAN, blueprints, execution logs) | `UPPER-KEBAB-CASE.md` |
+| `docs/architecture/` | ERDs, type contracts, and config platform design | `lower-kebab-case.md` or `UPPER-KEBAB-CASE.md` |
+| `docs/generated/` | Auto-generated API docs from `forge-ts` | Various (machine-generated) |
+| `.cleo/adrs/` | Architecture Decision Records (managed by `cleo adr` commands) | `ADR-NNN-short-description.md` |
+
+### ADR Location
+
+ADRs live at `.cleo/adrs/`, NOT under `docs/`. They are managed by `cleo adr` CLI commands. Do NOT create ADRs manually in `docs/` or any subdirectory of it.
 
 ### Root-Level Docs
 
 Project-level documents in the `docs/` root use `UPPER-KEBAB-CASE.md`:
-- `docs/RECOVERY-RUNBOOK.md`
-- `docs/SUMMARY.md`
-- `docs/INDEX.md`
+- `docs/CLEO-DOCUMENTATION-SOP.md` (this file)
 
 ### Source-Adjacent Docs
 
@@ -53,13 +58,25 @@ Suffix conventions:
 
 Format: `lower-kebab-case.md`
 
-Examples: `migration-safety.md`, `protocol-enforcement.md`, `task-fields.md`
+Examples: `migration-safety.md`, `task-system-hardening.md`, `CANT-REFERENCE.md`
 
-### Architecture Decision Records (`docs/adrs/`)
+### Plans (`docs/plans/`)
+
+Format: `UPPER-KEBAB-CASE.md`
+
+Plans MUST be active. Superseded plans are deleted (git history preserves them).
+
+### Architecture (`docs/architecture/`)
+
+Format: `lower-kebab-case.md` or `UPPER-KEBAB-CASE.md`
+
+Examples: `config-platform.md`, `DATABASE-ERDS.md`, `TYPE-CONTRACTS.md`
+
+### Architecture Decision Records (`.cleo/adrs/`)
 
 Format: `ADR-NNN-short-description.md`
 
-The sequence number `NNN` is zero-padded to three digits. Use the next available number when creating a new ADR.
+The sequence number `NNN` is zero-padded to three digits. Use `cleo adr` to create new ADRs.
 
 ### General Rules
 
@@ -77,7 +94,7 @@ All specifications in `docs/specs/` SHOULD include these sections:
 # Title
 
 **Version**: YYYY.MM.DD or semver
-**Status**: DRAFT | REVIEW | APPROVED | STABLE | SUPERSEDED | ARCHIVED
+**Status**: DRAFT | REVIEW | APPROVED | STABLE | SUPERSEDED
 **Date**: YYYY-MM-DD
 **Authors**: Contributors
 
@@ -123,10 +140,7 @@ Concrete examples demonstrating the specification in practice.
 Documents progress through the following stages:
 
 ```
-DRAFT ──► REVIEW ──► APPROVED ──► STABLE
-                                     │
-                                     ▼
-                                 SUPERSEDED ──► ARCHIVED
+DRAFT --> REVIEW --> APPROVED --> STABLE --> (delete when superseded)
 ```
 
 | Status | Meaning |
@@ -135,16 +149,18 @@ DRAFT ──► REVIEW ──► APPROVED ──► STABLE
 | `REVIEW` | Content complete, under review for accuracy |
 | `APPROVED` | Reviewed and accepted, may still receive minor updates |
 | `STABLE` | Mature, no changes expected without a formal process |
-| `SUPERSEDED` | Replaced by a newer document (see Section 8) |
-| `ARCHIVED` | No longer relevant, retained for historical reference |
+| `SUPERSEDED` | Replaced by a newer document — DELETE the old file |
 
 ### Transition Rules
 
-- `DRAFT` → `REVIEW`: Author marks content as complete
-- `REVIEW` → `APPROVED`: Reviewer verifies accuracy and completeness
-- `APPROVED` → `STABLE`: Document survives at least one release cycle without changes
-- Any status → `SUPERSEDED`: A replacement document is published
-- `SUPERSEDED` → `ARCHIVED`: After a deprecation period (minimum one release cycle)
+- `DRAFT` -> `REVIEW`: Author marks content as complete
+- `REVIEW` -> `APPROVED`: Reviewer verifies accuracy and completeness
+- `APPROVED` -> `STABLE`: Document survives at least one release cycle without changes
+- Any status -> `SUPERSEDED`: A replacement document is published; the old file is DELETED
+
+### No Archive Directory
+
+CLEO does not maintain an archive directory. When a document is superseded or its work is complete, the file is deleted. Git history preserves the full content for historical reference. This prevents documentation drift and keeps the `docs/` tree honest.
 
 ---
 
@@ -204,31 +220,44 @@ External URLs SHOULD be placed in the References section, not inline, to simplif
 - Documents MUST be updated when the features they describe change
 - Stale documentation is treated as a bug
 - Commit messages for documentation changes use `docs:` type prefix
+- Historical documents (analysis reports, epic summaries, wave reports) are deleted when work completes
 
 ---
 
-## 8. Deprecation Policy
+## 8. Deletion Policy
 
-When a document is superseded:
+When a document is superseded or its work is complete:
 
-1. Add a deprecation notice at the top of the old document:
+1. DELETE the file from the repository
+2. Git history preserves the full content for anyone who needs it
+3. If the new document replaces an old one, add a "Supersedes" note in the new document's References section
 
-```markdown
-> **SUPERSEDED**: This document has been replaced by
-> [New Document](path/to/new-document.md) as of YYYY-MM-DD.
-> Retained for historical reference.
+Documents MUST NOT be kept "for historical reference" in the working tree. The `docs/` directory contains only current, verifiable documentation.
+
+### What Gets Deleted
+
+- **Completion reports**: Wave reports, validation reports, audit summaries — deleted after work ships
+- **Epic docs**: Coordination summaries, epic tracking docs — deleted after all tasks complete
+- **Superseded plans**: Deleted when a replacement plan is published
+- **Working docs**: Research notes, draft audits — deleted when absorbed into specs or abandoned
+
+---
+
+## 9. Generated Documentation
+
+The `docs/generated/` directory contains API documentation produced by `forge-ts`. These files are regenerated on significant API changes and MUST NOT be edited by hand.
+
+To regenerate:
+
+```bash
+pnpm run forge-ts  # or the project-specific generation command
 ```
 
-2. Update the `Status` frontmatter field to `SUPERSEDED`
-3. Add a "Supersedes" reference in the new document's frontmatter or References section
-4. Do NOT delete the old document — it serves as historical context
-5. After one release cycle, the status MAY be changed to `ARCHIVED`
-
 ---
 
-## 9. ADR Format
+## 10. ADR Format
 
-Architecture Decision Records follow a minimal structure:
+Architecture Decision Records follow a minimal structure and are managed at `.cleo/adrs/`:
 
 ```markdown
 # ADR-NNN: Title
@@ -250,11 +279,11 @@ What is the change being proposed or enacted?
 What are the positive, negative, and neutral outcomes of this decision?
 ```
 
-ADRs are immutable once accepted. If a decision is reversed, create a new ADR that supersedes the original rather than editing it.
+ADRs are immutable once accepted. If a decision is reversed, create a new ADR that supersedes the original rather than editing it. Use `cleo adr` commands to manage ADRs.
 
 ---
 
-## 10. Guide Format
+## 11. Guide Format
 
 Guides in `docs/guides/` follow a practical, task-oriented structure:
 
