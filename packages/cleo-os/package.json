@@ -8,8 +8,11 @@
     "cleoos": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "build": "tsc && tsc -p tsconfig.extensions.json && tsc -p tsconfig.postinstall.json",
+    "build:src": "tsc",
+    "build:extensions": "tsc -p tsconfig.extensions.json",
+    "build:postinstall": "tsc -p tsconfig.postinstall.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.extensions.json --noEmit && tsc -p tsconfig.postinstall.json --noEmit",
     "test": "vitest run",
     "postinstall": "node bin/postinstall.js"
   },
