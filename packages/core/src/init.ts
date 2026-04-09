@@ -521,7 +521,14 @@ export async function updateDocs(): Promise<InitResult> {
  */
 export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const cleoDir = getCleoDirAbsolute();
-  const projRoot = getProjectRoot();
+  // `cleo init` CREATES the project root, so we cannot call getProjectRoot()
+  // here — that walks up looking for an existing `.cleo/` sentinel and throws
+  // `E_NOT_FOUND` when none is present (the whole point of `init` is that
+  // none is present yet). `cleoDir` is `<cwd>/.cleo` by default, so its
+  // parent directory is the project root. This also respects an absolute
+  // `CLEO_DIR` env var used by the init-e2e test suite to pin the target
+  // directory.
+  const projRoot = dirname(cleoDir);
 
   // Guard: fail if project already initialized (unless --force)
   const alreadyInitialized =
@@ -586,16 +593,19 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     created.push(`brain.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
 
-  // Initialize signaldock.db for local agent messaging infrastructure (T223)
+  // Initialize conduit.db for project-tier agent messaging infrastructure.
+  // T310 (v2026.4.12) moved project-tier messaging from signaldock.db to
+  // conduit.db; global agent identity continues to live in the global
+  // signaldock.db, which the CLI startup sequence ensures separately.
   try {
-    const { ensureSignaldockDb } = await import('./store/signaldock-sqlite.js');
-    const sdResult = await ensureSignaldockDb(projRoot);
-    if (sdResult.action === 'created') {
-      created.push('signaldock.db');
+    const { ensureConduitDb } = await import('./store/conduit-sqlite.js');
+    const cdResult = ensureConduitDb(projRoot);
+    if (cdResult.action === 'created') {
+      created.push('conduit.db');
     }
   } catch (err) {
-    // Non-fatal — signaldock.db will be created on first agent operation
-    created.push(`signaldock.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
+    // Non-fatal — conduit.db will be created on first agent operation
+    created.push(`conduit.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
 
   // T4681: Create .cleo/.gitignore (respect force flag)
