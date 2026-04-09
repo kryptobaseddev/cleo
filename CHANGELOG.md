@@ -4,6 +4,97 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.13] — 2026-04-08
+
+### T311 — Cross-Machine Backup Portability (15 tasks, 7 waves)
+
+Adds portable `.cleobundle.tar.gz` export/import on top of the v2026.4.10
+VACUUM INTO backup mechanism. Implements ADR-038. Enables cross-machine
+CleoOS migration with intelligent A/B regenerate-and-compare for JSON
+restore + conflict report for manual review.
+
+**Wave 0 — Foundational modules**
+- `t310-readiness.ts` (T342) — assertT310Ready gate for T311 commands;
+  throws `T310MigrationRequiredError` with actionable message if a project
+  is still on the pre-T310 topology
+- `backup-manifest.ts` + `schemas/manifest-v1.json` (T343) — BackupManifest
+  type + JSON Schema Draft 2020-12 (bundled inside .cleobundle for offline
+  validation)
+- `backup-crypto.ts` (T345) — AES-256-GCM + scrypt KDF (N=2^15, r=8, p=1)
+  for `.enc.cleobundle.tar.gz` opt-in encryption. Uses Node built-in
+  crypto only (no native bindings per ADR-010). Magic header CLEOENC1 +
+  version byte + salt + nonce + ciphertext + auth tag.
+
+**Wave 1 — Packer + Unpacker**
+- `backup-pack.ts` (T347) — `packBundle({scope, projectRoot, outputPath,
+  encrypt, passphrase, projectName})` writes a portable bundle with
+  VACUUM INTO snapshots + SHA-256 checksums + manifest + optional
+  encryption. tar.gz format via Node `tar` package (added as dependency).
+- `backup-unpack.ts` (T350) — `unpackBundle({bundlePath, passphrase})`
+  extracts + verifies 6 integrity layers (encryption auth, manifest schema,
+  checksums, SQLite integrity, schema compat warnings). Returns a staging
+  dir + manifest + warnings. Callers clean up via `cleanupStaging()`.
+
+**Wave 2 — Dry-run regenerators**
+- `regenerators.ts` (T352) — `regenerateConfigJson`, `regenerateProjectInfoJson`,
+  `regenerateProjectContextJson` — pure functions returning what `cleo init`
+  WOULD write fresh on the target machine. Powers the "A" side of A/B
+  regenerate-and-compare.
+
+**Wave 3 — A/B engine + conflict report**
+- `restore-json-merge.ts` (T354) — `regenerateAndCompare` engine with
+  4-way classification (identical, machine-local, user-intent,
+  project-identity, auto-detect, unknown) and dot-path walking. Produces
+  `JsonRestoreReport` with classifications and merged result.
+- `restore-conflict-report.ts` (T357) — markdown formatter for the
+  `.cleo/restore-conflicts.md` report. Handles resolved + manual-review
+  sections, reauth warnings, schema warnings.
+
+**Wave 4 — CLI verbs**
+- `cleo backup export <name> [--scope project|global|all] [--encrypt]
+  [--out <path>]` (T359) — writes a `.cleobundle.tar.gz`
+- `cleo backup import <bundle> [--force]` (T361) — full import pipeline:
+  pre-check for existing data (abort without --force), unpack + verify,
+  atomic DB restore, A/B classification for JSON files, conflict report
+  generation, raw imported files preserved under `.cleo/restore-imported/`
+- `cleo backup inspect <bundle>` (T363) — stream-extract manifest.json
+  only; no full unpack. Safe for agent-driven inspection.
+- `cleo restore finalize` (T365) — parse `.cleo/restore-conflicts.md`,
+  apply any manually-resolved fields to on-disk JSON files, archive the
+  report.
+
+**Wave 5 — Integration verification + documentation**
+- `t311-integration.test.ts` (T367) — 14 end-to-end scenarios covering
+  round-trip, encryption, tampering, schema compat, staging cleanup,
+  and A/B merge correctness. All passing.
+- TSDoc provenance + README backup portability section (T368)
+
+### Statistics
+- 15 implementation subtasks shipped
+- 165 new tests across unit + integration (8 test files)
+- 4 new CLI verbs
+- 1 new archive format (.cleobundle.tar.gz + .enc.cleobundle.tar.gz)
+- 1 new JSON Schema for portable manifests
+- 0 new pre-existing failures introduced
+
+### Migration notes
+- T310 (v2026.4.12) is a hard dependency: a project still on pre-T310
+  topology (legacy `.cleo/signaldock.db` without `conduit.db`) will fail
+  `assertT310Ready` and get a clear error directing the user to run any
+  `cleo` command first to trigger the T310 auto-migration.
+- Encrypted backups require a passphrase; agents should set
+  `CLEO_BACKUP_PASSPHRASE` env var; interactive users are prompted.
+- After import, review `.cleo/restore-conflicts.md` for any manual-review
+  fields and run `cleo restore finalize` to apply resolutions.
+
+### Next
+- Open: future waves may add merge mode for restore, redaction mode,
+  cloud-based backup sync, differential/incremental bundles.
+
+[Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>]
+
+---
+
 ## [2026.4.12] - 2026-04-08
 
 ### Highlights
