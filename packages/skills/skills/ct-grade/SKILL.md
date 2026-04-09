@@ -1,7 +1,21 @@
 ---
 name: ct-grade
-description: Session grading for agent behavioral analysis. Use when evaluating agent session quality, running grade scenarios, or interpreting grade results. Triggers on grading tasks, session quality checks, or behavioral analysis needs.
-version: 1.0.0
+description: >-
+  CLEO session grading and A/B behavioral analysis with token tracking. Evaluates agent
+  session quality via a 5-dimension rubric (S1 session discipline, S2 discovery efficiency,
+  S3 task hygiene, S4 error protocol, S5 progressive disclosure). Supports three modes:
+  (1) scenario — run playbook scenarios S1-S5 via CLI; (2) ab — blind A/B
+  comparison of different CLI configurations for same domain operations with token cost
+  measurement; (3) blind — spawn two agents with different configurations, blind-comparator
+  picks winner, analyzer produces recommendation. Use when grading agent sessions, running
+  grade playbook scenarios, comparing behavioral differences, measuring token
+  usage across configurations, or performing multi-run blind A/B evaluation with statistical
+  analysis and comparative report. Triggers on: grade session, evaluate agent behavior,
+  A/B test CLEO configurations, run grade scenario, token usage analysis, behavioral rubric,
+  protocol compliance scoring.
+version: 2.1.0
+argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [runs=N] [session-id=<id>]"
+allowed-tools: ["Bash(python *)", "Bash(cleo-dev *)", "Bash(cleo *)", "Bash(kill *)", "Bash(lsof *)", "Agent", "Read", "Write", "Glob"]
 tier: 2
 core: false
 category: quality
