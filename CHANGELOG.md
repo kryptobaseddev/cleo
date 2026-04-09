@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — 2026-04-09 — CI Unblock & Post-Migration Cleanup
 
+### Fixed — Deprecated transitive dependency (`prebuild-install`)
+
+`npm install -g @cleocode/cleo` was emitting:
+
+```
+npm warn deprecated prebuild-install@7.1.3: No longer maintained.
+Please contact the author of the relevant native addon; alternatives
+are available.
+```
+
+Dependency chain: `@cleocode/core` → `@xenova/transformers@2.17.2` →
+`sharp@0.32.6` → `prebuild-install@7.1.3` (deprecated).
+
+`@xenova/transformers` was renamed upstream to `@huggingface/transformers`
+(same author — Joshua Lochner — now maintained under the HuggingFace
+organisation). The v4.x line uses `sharp@^0.34.5`, which switched from
+`prebuild-install` to its own `@img/sharp-*` platform packages, so the
+deprecated dependency is eliminated entirely.
+
+- `packages/core/package.json` — replaced
+  `"@xenova/transformers": "^2.17.2"` with
+  `"@huggingface/transformers": "^4.0.1"`.
+- `packages/core/src/memory/embedding-local.ts` — updated the dynamic
+  import + type reference to the new package name. The public API
+  (`pipeline`, `FeatureExtractionPipeline`) is unchanged; the
+  `Xenova/all-MiniLM-L6-v2` model name still resolves on the
+  HuggingFace hub as before, so runtime behaviour is identical.
+- `packages/core/src/memory/embedding-worker.ts`,
+  `packages/core/src/memory/brain-embedding.ts`,
+  `packages/core/src/memory/__tests__/brain-automation.test.ts` —
+  updated docstring references and the `vi.mock()` target path.
+- `build.mjs` — replaced the `@xenova/transformers` entry in
+  `sharedExternals` with `@huggingface/transformers`. The new package
+  pulls in native `onnxruntime-node` bindings (`.node` files) and
+  `sharp`, both of which must remain external so esbuild does not try
+  to inline the native addons into the core/cleo bundles. Without this
+  swap the esbuild build fails with `No loader is configured for
+  ".node" files`.
+
+After the swap, `pnpm why -r prebuild-install` returns no results,
+`pnpm install` emits zero deprecation warnings, the full workspace
+build succeeds, and the 7013-test suite remains at 6966 pass / 0
+fail. Verified with the intended `Xenova/all-MiniLM-L6-v2` model
+name still resolvable (no model-hub rename).
+
+
 End-to-end pipeline repair after the ADR-039 envelope migration and T310
 conduit separation left residual drift in tests and dispatch layers. The
 pipeline was failing at `biome ci .`; once biome was cleared, two

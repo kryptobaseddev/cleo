@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/core",
   "version": "2026.4.13",
-  "description": "CLEO core business logic kernel \u2014 tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,7 +35,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/skills": "workspace:*",
-    "@xenova/transformers": "^2.17.2",
+    "@huggingface/transformers": "^4.0.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "drizzle-orm": "1.0.0-beta.19-d95b7a4",

@@ -1,5 +1,5 @@
 /**
- * Local embedding provider using @xenova/transformers.
+ * Local embedding provider using @huggingface/transformers (transformers.js v4).
  *
  * Implements the EmbeddingProvider interface for brain memory vector search.
  * Uses all-MiniLM-L6-v2 (22MB, 384 dimensions) — matches the brain_embeddings
@@ -9,7 +9,12 @@
  * @epic T134
  * @task T136
  * @why Ship vector search out-of-the-box without external API keys
- * @what Local embedding provider using @xenova/transformers all-MiniLM-L6-v2
+ * @what Local embedding provider using @huggingface/transformers all-MiniLM-L6-v2
+ * @remarks Migrated from @xenova/transformers (v2) to @huggingface/transformers
+ *   (v4) — the upstream rename, same author. v4 drops the deprecated
+ *   prebuild-install transitive (via sharp@0.34+) and ships with newer
+ *   onnxruntime. Public API (`pipeline`, `FeatureExtractionPipeline`) is
+ *   unchanged; Xenova-hosted models still resolve by their original names.
  */
 
 import type { EmbeddingProvider } from './brain-embedding.js';
@@ -19,7 +24,7 @@ import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 
 /** Pipeline singleton — initialized lazily on first call. */
-let _pipeline: import('@xenova/transformers').FeatureExtractionPipeline | null = null;
+let _pipeline: import('@huggingface/transformers').FeatureExtractionPipeline | null = null;
 
 /** Whether the pipeline has been successfully initialized. */
 let _ready = false;
@@ -31,13 +36,13 @@ let _ready = false;
 async function loadPipeline(): Promise<void> {
   if (_ready) return;
   // Dynamic import — only resolves when embedding is explicitly enabled
-  const { pipeline } = await import('@xenova/transformers');
+  const { pipeline } = await import('@huggingface/transformers');
   _pipeline = await pipeline('feature-extraction', MODEL_NAME);
   _ready = true;
 }
 
 /**
- * Local embedding provider backed by @xenova/transformers.
+ * Local embedding provider backed by @huggingface/transformers.
  *
  * Produces 384-dimension Float32Array vectors compatible with the
  * brain_embeddings vec0 table. The model is downloaded on first use

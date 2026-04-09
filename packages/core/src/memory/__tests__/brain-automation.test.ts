@@ -69,8 +69,8 @@ vi.mock('../../store/data-accessor.js', () => ({
   }),
 }));
 
-// Mock @xenova/transformers to prevent model downloads in tests
-vi.mock('@xenova/transformers', () => ({
+// Mock @huggingface/transformers to prevent model downloads in tests
+vi.mock('@huggingface/transformers', () => ({
   pipeline: vi
     .fn()
     .mockResolvedValue(vi.fn().mockResolvedValue({ data: new Float32Array(384).fill(0.1) })),

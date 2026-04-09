@@ -72,7 +72,7 @@ export function isEmbeddingAvailable(): boolean {
  * setEmbeddingProvider(). Should be called once at startup when
  * `brain.embedding.enabled` is true.
  *
- * Uses dynamic import to avoid loading the heavy @xenova/transformers
+ * Uses dynamic import to avoid loading the heavy @huggingface/transformers
  * bundle unless embedding is actually requested.
  *
  * @task T136 @epic T134

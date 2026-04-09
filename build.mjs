@@ -41,7 +41,10 @@ const sharedExternals = [
   'js-tiktoken',
   '@cleocode/caamp',
   '@cleocode/lafs',
-  '@xenova/transformers',
+  // @huggingface/transformers (ex-@xenova/transformers) pulls in native
+  // onnxruntime-node (.node bindings) and sharp — both must stay external
+  // so esbuild doesn't try to inline the native addons.
+  '@huggingface/transformers',
 ];
 
 // ---------------------------------------------------------------------------

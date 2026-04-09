@@ -12,7 +12,7 @@
  *
  * @epic T134
  * @task T137
- * @why Prevent @xenova/transformers model inference from blocking the main thread
+ * @why Prevent @huggingface/transformers model inference from blocking the main thread
  * @what Worker thread script for async embedding generation
  */
 
