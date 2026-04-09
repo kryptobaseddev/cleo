@@ -141,7 +141,7 @@ export class OrchestrateHandler implements DomainHandler {
         }
 
         case 'fanout.status': {
-          // T415: stub — returns empty arrays pending W7b runtime tracking.
+          // T433 STAB-1: reads results from the in-process fanoutManifestStore.
           const manifestEntryId = params?.manifestEntryId as string | undefined;
           if (!manifestEntryId) {
             return errorResult(
@@ -153,17 +153,34 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           }
-          // TODO(T415/W7b): implement live tracking via manifest entry lookup.
+          const entry = fanoutManifestStore.get(manifestEntryId);
+          if (!entry) {
+            return {
+              meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+              success: true,
+              data: {
+                manifestEntryId,
+                pending: [] as string[],
+                running: [] as string[],
+                complete: [] as string[],
+                failed: [] as string[],
+                found: false,
+              },
+            };
+          }
+          const spawned = entry.results.filter((r) => r.status === 'spawned').map((r) => r.taskId);
+          const failed = entry.results.filter((r) => r.status === 'failed').map((r) => r.taskId);
           return {
             meta: dispatchMeta('query', 'orchestrate', operation, startTime),
             success: true,
             data: {
               manifestEntryId,
               pending: [] as string[],
-              running: [] as string[],
+              running: spawned,
               complete: [] as string[],
-              failed: [] as string[],
-              note: 'fanout.status tracking is a W7b stub — live tracking lands with runtime enforcement',
+              failed,
+              found: true,
+              completedAt: entry.completedAt,
             },
           };
         }
@@ -726,18 +743,36 @@ interface FanoutItem {
 interface FanoutItemResult {
   /** Task ID. */
   taskId: string;
-  /** Outcome status. */
-  status: 'queued' | 'failed';
+  /** Outcome status — 'spawned' when the spawn adapter accepted the task, 'failed' on error. */
+  status: 'spawned' | 'failed';
+  /** Adapter instance ID returned by the spawn adapter, when available. */
+  instanceId?: string;
   /** Error message if status is failed. */
   error?: string;
 }
 
 /**
- * T409 — Fan out N spawn requests via Promise.allSettled.
+ * In-process store for fanout manifest entries.
  *
- * This wave delivers the dispatch-level infrastructure only. The actual Pi
- * spawn call is stubbed with a queued status — real execution lands in W7b
- * once the Pi adapter bridge is wired.
+ * Keyed by manifestEntryId (generated in orchestrateFanout).
+ * Populated when a fanout completes so that orchestrate.fanout.status
+ * can categorise results across orchestrator turns.
+ */
+const fanoutManifestStore = new Map<
+  string,
+  {
+    results: FanoutItemResult[];
+    completedAt: string;
+  }
+>();
+
+/**
+ * T409 / T433 — Fan out N spawn requests via Promise.allSettled.
+ *
+ * Each item is dispatched concurrently through orchestrateSpawnExecute
+ * (T432/W7a adapter registry path). Results are persisted in the
+ * in-process fanoutManifestStore so that orchestrate.fanout.status can
+ * categorise them across orchestrator turns.
  *
  * @param items - Array of fanout items to dispatch.
  * @param projectRoot - Project root directory.
@@ -750,14 +785,30 @@ async function orchestrateFanout(
   const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    // Promise.allSettled wrapper — each item is processed concurrently.
-    // Real spawn delegation (Pi adapter call) is inserted here in W7b.
+    // Promise.allSettled wrapper — each item is processed concurrently via
+    // the adapter registry's orchestrateSpawnExecute path (T432/W7a wired).
     const settled = await Promise.allSettled(
       items.map(async (item): Promise<FanoutItemResult> => {
-        // Stub: return queued status. W7b replaces with real spawn call.
-        // TODO(T409/W7b): call orchestrateSpawnExecute(item.taskId, ...) here.
-        void projectRoot; // consumed by real spawn call in W7b
-        return { taskId: item.taskId, status: 'queued' };
+        const spawnResult = await orchestrateSpawnExecute(
+          item.taskId,
+          /* adapterId */ undefined,
+          /* protocolType */ undefined,
+          projectRoot,
+          /* tier */ undefined,
+        );
+        if (!spawnResult.success) {
+          return {
+            taskId: item.taskId,
+            status: 'failed',
+            error: spawnResult.error?.message ?? `Spawn failed for task ${item.taskId}`,
+          };
+        }
+        const data = spawnResult.data as Record<string, unknown> | undefined;
+        return {
+          taskId: item.taskId,
+          status: 'spawned',
+          instanceId: typeof data?.instanceId === 'string' ? data.instanceId : undefined,
+        };
       }),
     );
 
@@ -772,15 +823,21 @@ async function orchestrateFanout(
       };
     });
 
+    // Persist results in the in-process manifest store so that
+    // orchestrate.fanout.status can categorise them across turns.
+    fanoutManifestStore.set(manifestEntryId, {
+      results,
+      completedAt: new Date().toISOString(),
+    });
+
     return {
       success: true,
       data: {
         manifestEntryId,
         results,
         total: items.length,
-        queued: results.filter((r) => r.status === 'queued').length,
+        spawned: results.filter((r) => r.status === 'spawned').length,
         failed: results.filter((r) => r.status === 'failed').length,
-        note: 'fanout spawn execution is a W7b stub — real Pi adapter wiring lands with runtime enforcement',
       },
     };
   } catch (error) {
