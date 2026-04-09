@@ -14,11 +14,11 @@
  */
 
 import { createSchemaFactory } from 'drizzle-orm/zod';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
-// Use factory to bind our zod/v4 instance — ensures drizzle-orm/zod uses
+// Use factory to bind our zod instance — ensures drizzle-orm/zod uses
 // the same z we use everywhere. The type assertion is needed because
-// drizzle-orm beta.18's CoerceOptions type doesn't match zod/v4's coerce
+// drizzle-orm beta.18's CoerceOptions type doesn't match zod's coerce
 // namespace shape (works correctly at runtime).
 const { createInsertSchema, createSelectSchema } = createSchemaFactory(
   z as unknown as Parameters<typeof createSchemaFactory>[0],

@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/lafs",
-  "version": "2026.4.14",
+  "version": "2026.4.15",
   "private": false,
   "type": "module",
   "description": "LLM-Agent-First Specification schemas and conformance tooling",
@@ -76,10 +76,10 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^24.3.0",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.0",
     "supertest": "^7.2.2",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
+    "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
   "dependencies": {

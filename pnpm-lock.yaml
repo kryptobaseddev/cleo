@@ -29,12 +29,9 @@ importers:
       ajv-formats:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.18.0)
-      commander:
-        specifier: ^12.1.0
-        version: 12.1.0
       drizzle-orm:
         specifier: 1.0.0-beta.19-d95b7a4
-        version: 1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76)
+        version: 1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@4.3.6)
       env-paths:
         specifier: ^4.0.0
         version: 4.0.0
@@ -51,14 +48,14 @@ importers:
         specifier: ^4.1.2
         version: 4.1.2
       write-file-atomic:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^7.0.1
+        version: 7.0.1
       yaml:
         specifier: '>=2.8.3'
         version: 2.8.3
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.11
@@ -85,8 +82,8 @@ importers:
         specifier: '>=0.25.0'
         version: 0.28.0
       typescript:
-        specifier: 6.0.1-rc
-        version: 6.0.1-rc
+        specifier: 6.0.2
+        version: 6.0.2
       vite:
         specifier: ^8.0.8
         version: 8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -159,16 +156,16 @@ importers:
         version: 4.1.4(vitest@4.1.4)
       tsup:
         specifier: ^8.5.0
-        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3)
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
       typedoc:
         specifier: 0.28.17
-        version: 0.28.17(typescript@5.9.3)
+        version: 0.28.17(typescript@6.0.2)
       typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
+        specifier: ^6.0.2
+        version: 6.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -183,8 +180,8 @@ importers:
         version: link:../lafs
     devDependencies:
       typescript:
-        specifier: ^5.0.0
-        version: 5.9.3
+        specifier: ^6.0.2
+        version: 6.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -223,11 +220,11 @@ importers:
         version: link:../cleo
       '@mariozechner/pi-coding-agent':
         specifier: '>=0.60.0'
-        version: 0.66.0(ws@8.20.0)(zod@3.25.76)
+        version: 0.66.0(ws@8.20.0)(zod@4.3.6)
     devDependencies:
       typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
+        specifier: ^6.0.2
+        version: 6.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -265,7 +262,7 @@ importers:
         version: 3.0.1(ajv@8.18.0)
       drizzle-orm:
         specifier: 1.0.0-beta.19-d95b7a4
-        version: 1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76)
+        version: 1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@4.3.6)
       env-paths:
         specifier: ^4.0.0
         version: 4.0.0
@@ -285,14 +282,14 @@ importers:
         specifier: ^7.4.3
         version: 7.5.13
       write-file-atomic:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^7.0.1
+        version: 7.0.1
       yaml:
         specifier: '>=2.8.3'
         version: 2.8.3
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/proper-lockfile':
         specifier: ^4.1.4
@@ -357,8 +354,8 @@ importers:
         specifier: ^24.3.0
         version: 24.12.0
       '@types/supertest':
-        specifier: ^6.0.3
-        version: 6.0.3
+        specifier: ^7.2.0
+        version: 7.2.0
       supertest:
         specifier: ^7.2.2
         version: 7.2.2
@@ -366,8 +363,8 @@ importers:
         specifier: ^4.20.5
         version: 4.21.0
       typescript:
-        specifier: ^5.9.2
-        version: 5.9.3
+        specifier: ^6.0.2
+        version: 6.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -2004,8 +2001,8 @@ packages:
   '@types/superagent@8.1.9':
     resolution: {integrity: sha512-pTVjI73witn+9ILmoJdajHGW2jkSaOzhiFYF1Rd3EQ94kymLqB9PjD9ISg7WaALC7+dCHT0FGe9T2LktLq/3GQ==}
 
-  '@types/supertest@6.0.3':
-    resolution: {integrity: sha512-8WzXq62EXFhJ7QsH3Ocb/iKQ/Ty9ZVWnVzoTKc9tyyFRRF3a74Tk2+TLFgaFFw364Ere+npzHKEJ6ga2LzIL7w==}
+  '@types/supertest@7.2.0':
+    resolution: {integrity: sha512-uh2Lv57xvggst6lCqNdFAmDSvoMG7M/HDtX4iUCquxQ5EGPtaPM5PL5Hmi7LCvOG8db7YaCPNJEeoI8s/WzIQw==}
 
   '@types/tar@6.1.13':
     resolution: {integrity: sha512-IznnlmU5f4WcGTh2ltRu/Ijpmk8wiWXfF0VA4s+HPjHZgvFggk1YaIkbo5krX/zUCzWF8N/l4+W/LNxnvAJ8nw==}
@@ -2293,10 +2290,6 @@ packages:
   commander@11.1.0:
     resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==}
     engines: {node: '>=16'}
-
-  commander@12.1.0:
-    resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
-    engines: {node: '>=18'}
 
   commander@14.0.3:
     resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
@@ -2928,10 +2921,6 @@ packages:
   ignore@7.0.5:
     resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
     engines: {node: '>= 4'}
-
-  imurmurhash@0.1.4:
-    resolution: {integrity: sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==}
-    engines: {node: '>=0.8.19'}
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -4278,11 +4267,6 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  typescript@6.0.1-rc:
-    resolution: {integrity: sha512-7XlzYb+p/7YxX6qSOzwB4mxVFRdAgWWkj1PgAZ+jzldeuFV6Z77vwFbNxHsUXAL/bhlWY2jCT8shLwDJR8337g==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@6.0.2:
     resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
     engines: {node: '>=14.17'}
@@ -4460,9 +4444,9 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  write-file-atomic@6.0.0:
-    resolution: {integrity: sha512-GmqrO8WJ1NuzJ2DrziEI2o57jKAVIQNf8a18W3nCYU3H7PNWqCCVTeH6/NQE93CIllIgQS98rrmVkYgTX9fFJQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
+  write-file-atomic@7.0.1:
+    resolution: {integrity: sha512-OTIk8iR8/aCRWBqvxrzxR0hgxWpnYBblY1S5hDWBQfk/VFmJwzmJgQFN3WsoUKHISv2eAwe+PpbUzyL1CKTLXg==}
+    engines: {node: ^20.17.0 || >=22.9.0}
 
   ws@8.20.0:
     resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
@@ -4513,8 +4497,8 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -4527,11 +4511,11 @@ snapshots:
     optionalDependencies:
       express: 5.2.1
 
-  '@anthropic-ai/sdk@0.73.0(zod@3.25.76)':
+  '@anthropic-ai/sdk@0.73.0(zod@4.3.6)':
     dependencies:
       json-schema-to-ts: 3.1.1
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -5777,9 +5761,9 @@ snapshots:
       std-env: 3.10.0
       yoctocolors: 2.1.2
 
-  '@mariozechner/pi-agent-core@0.66.0(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-agent-core@0.66.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
-      '@mariozechner/pi-ai': 0.66.0(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-ai': 0.66.0(ws@8.20.0)(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -5789,9 +5773,9 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.66.0(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-ai@0.66.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
-      '@anthropic-ai/sdk': 0.73.0(zod@3.25.76)
+      '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.1027.0
       '@google/genai': 1.49.0
       '@mistralai/mistralai': 1.14.1
@@ -5799,11 +5783,11 @@ snapshots:
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       chalk: 5.6.2
-      openai: 6.26.0(ws@8.20.0)(zod@3.25.76)
+      openai: 6.26.0(ws@8.20.0)(zod@4.3.6)
       partial-json: 0.1.7
       proxy-agent: 6.5.0
       undici: 7.24.7
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod-to-json-schema: 3.25.2(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -5813,11 +5797,11 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-coding-agent@0.66.0(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-coding-agent@0.66.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
       '@mariozechner/jiti': 2.6.5
-      '@mariozechner/pi-agent-core': 0.66.0(ws@8.20.0)(zod@3.25.76)
-      '@mariozechner/pi-ai': 0.66.0(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-agent-core': 0.66.0(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.66.0(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-tui': 0.66.0
       '@silvia-odwyer/photon-node': 0.3.4
       ajv: 8.18.0
@@ -5870,8 +5854,8 @@ snapshots:
   '@mistralai/mistralai@1.14.1':
     dependencies:
       ws: 8.20.0
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.3.6
+      zod-to-json-schema: 3.25.2(zod@4.3.6)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -6512,7 +6496,7 @@ snapshots:
       '@types/node': 22.19.15
       form-data: 4.0.5
 
-  '@types/supertest@6.0.3':
+  '@types/supertest@7.2.0':
     dependencies:
       '@types/methods': 1.1.4
       '@types/superagent': 8.1.9
@@ -6555,7 +6539,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@types/node@22.19.15)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.4':
     dependencies:
@@ -6817,8 +6801,6 @@ snapshots:
 
   commander@11.1.0: {}
 
-  commander@12.1.0: {}
-
   commander@14.0.3: {}
 
   commander@4.1.1: {}
@@ -6921,13 +6903,13 @@ snapshots:
       get-tsconfig: 4.13.6
       jiti: 2.6.1
 
-  drizzle-orm@1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@3.25.76):
+  drizzle-orm@1.0.0-beta.19-d95b7a4(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(zod@4.3.6):
     dependencies:
       '@types/mssql': 9.1.9(@azure/core-client@1.10.1)
       mssql: 11.0.1(@azure/core-client@1.10.1)
     optionalDependencies:
       '@sinclair/typebox': 0.34.49
-      zod: 3.25.76
+      zod: 4.3.6
 
   dunder-proto@1.0.1:
     dependencies:
@@ -7403,8 +7385,6 @@ snapshots:
   ignore@5.3.2: {}
 
   ignore@7.0.5: {}
-
-  imurmurhash@0.1.4: {}
 
   inherits@2.0.4: {}
 
@@ -8242,10 +8222,10 @@ snapshots:
       is-inside-container: 1.0.0
       wsl-utils: 0.1.0
 
-  openai@6.26.0(ws@8.20.0)(zod@3.25.76):
+  openai@6.26.0(ws@8.20.0)(zod@4.3.6):
     optionalDependencies:
       ws: 8.20.0
-      zod: 3.25.76
+      zod: 4.3.6
 
   outdent@0.5.0: {}
 
@@ -9022,34 +9002,6 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsup@8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3):
-    dependencies:
-      bundle-require: 5.1.0(esbuild@0.28.0)
-      cac: 6.7.14
-      chokidar: 4.0.3
-      consola: 3.4.2
-      debug: 4.4.3
-      esbuild: 0.28.0
-      fix-dts-default-cjs-exports: 1.0.1
-      joycon: 3.1.1
-      picocolors: 1.1.1
-      postcss-load-config: 6.0.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(yaml@2.8.3)
-      resolve-from: 5.0.0
-      rollup: 4.60.0
-      source-map: 0.7.6
-      sucrase: 3.35.1
-      tinyexec: 0.3.2
-      tinyglobby: 0.2.15
-      tree-kill: 1.2.2
-    optionalDependencies:
-      postcss: 8.5.8
-      typescript: 5.9.3
-    transitivePeerDependencies:
-      - jiti
-      - supports-color
-      - tsx
-      - yaml
-
   tsup@8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.28.0)
@@ -9093,18 +9045,16 @@ snapshots:
       media-typer: 1.1.0
       mime-types: 3.0.2
 
-  typedoc@0.28.17(typescript@5.9.3):
+  typedoc@0.28.17(typescript@6.0.2):
     dependencies:
       '@gerrit0/mini-shiki': 3.23.0
       lunr: 2.3.9
       markdown-it: 14.1.1
       minimatch: 9.0.9
-      typescript: 5.9.3
+      typescript: 6.0.2
       yaml: 2.8.3
 
   typescript@5.9.3: {}
-
-  typescript@6.0.1-rc: {}
 
   typescript@6.0.2: {}
 
@@ -9323,9 +9273,8 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  write-file-atomic@6.0.0:
+  write-file-atomic@7.0.1:
     dependencies:
-      imurmurhash: 0.1.4
       signal-exit: 4.1.0
 
   ws@8.20.0: {}
@@ -9359,10 +9308,10 @@ snapshots:
 
   yoctocolors@2.1.2: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.3.6):
     dependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
-  zod@3.25.76: {}
+  zod@4.3.6: {}
 
   zwitch@2.0.4: {}

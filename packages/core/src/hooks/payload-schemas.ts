@@ -8,7 +8,7 @@
  * @module @cleocode/cleo/hooks/payload-schemas
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import type { HookEvent } from './types.js';
 
 // ============================================================================

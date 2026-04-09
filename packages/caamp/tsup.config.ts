@@ -10,6 +10,11 @@ export default defineConfig({
   dts: {
     compilerOptions: {
       composite: false,
+      // tsup (via rollup-plugin-dts) injects a baseUrl into its internal
+      // tsconfig, which TypeScript 6 flags as TS5101 (deprecated). We
+      // silence the deprecation until the tsup/rollup-plugin-dts chain
+      // catches up with TS 6+.
+      ignoreDeprecations: "6.0",
     },
   },
   clean: true,

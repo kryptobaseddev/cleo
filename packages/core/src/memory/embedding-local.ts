@@ -10,11 +10,11 @@
  * @task T136
  * @why Ship vector search out-of-the-box without external API keys
  * @what Local embedding provider using @huggingface/transformers all-MiniLM-L6-v2
- * @remarks Migrated from @xenova/transformers (v2) to @huggingface/transformers
- *   (v4) — the upstream rename, same author. v4 drops the deprecated
- *   prebuild-install transitive (via sharp@0.34+) and ships with newer
- *   onnxruntime. Public API (`pipeline`, `FeatureExtractionPipeline`) is
- *   unchanged; Xenova-hosted models still resolve by their original names.
+ * @remarks Brain embeddings are a FIRST-CLASS CLEO feature — the transformers
+ *   package is a regular dependency of `@cleocode/core`, not optional.
+ *   Migrated from `@xenova/transformers` v2 to `@huggingface/transformers`
+ *   v4 (upstream rename, same author) which drops the deprecated
+ *   `prebuild-install` transitive via `sharp@0.34+`.
  */
 
 import type { EmbeddingProvider } from './brain-embedding.js';

@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/caamp",
-  "version": "2026.4.14",
+  "version": "2026.4.15",
   "description": "Central AI Agent Managed Packages - unified provider registry and package manager for AI coding agents",
   "type": "module",
   "bin": {
@@ -79,7 +79,7 @@
     "tsup": "^8.5.0",
     "tsx": "^4.21.0",
     "typedoc": "0.28.17",
-    "typescript": "^5.9.0",
+    "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
   "engines": {

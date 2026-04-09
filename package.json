@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/monorepo",
-  "version": "2026.4.14",
+  "version": "2026.4.15",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.0",
@@ -59,7 +59,7 @@
     "@types/node": "^22.19.11",
     "drizzle-kit": "1.0.0-beta.19-d95b7a4",
     "esbuild": "^0.28.0",
-    "typescript": "6.0.1-rc",
+    "typescript": "6.0.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.4"
   },
@@ -68,15 +68,14 @@
     "@cleocode/lafs": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "commander": "^12.1.0",
     "drizzle-orm": "1.0.0-beta.19-d95b7a4",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
-    "write-file-atomic": "^6.0.0",
+    "write-file-atomic": "^7.0.1",
     "yaml": "^2.8.2",
-    "zod": "^3.25.76"
+    "zod": "^4.3.6"
   }
 }

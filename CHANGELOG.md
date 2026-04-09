@@ -4,6 +4,144 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.15] — 2026-04-09 — Major Dep Upgrade Sweep
+
+Follow-on sweep on top of v2026.4.14 addressing every deferred major
+bump from the previous release's "safely deferred" list — zod 4, TS 6,
+write-file-atomic 7, @types/supertest 7 — plus removing dead commander
+code from the root monorepo.
+
+### Removed — dead `commander` dependency from root monorepo
+
+The root `package.json` declared `commander: ^12.1.0` as a runtime dep,
+but nothing in the root or in `@cleocode/cleo` imports from it. CLI
+dispatch has been on `citty` since the Commander→citty migration
+(v2026.3.x). The only real commander consumer in the workspace is
+`@cleocode/caamp`, which already pins `commander: ^14.0.0` in its own
+`package.json`. Removed the root entry entirely. (The transitive
+`commander@4.1.1` still shows up under `sucrase → tsup` in dev deps —
+that's an unrelated tsup internal and nothing we can or should
+touch.)
+
+### Upgraded — zod 3.25 → **4.3.6**
+
+Drizzle ORM `1.0.0-beta.19` declares
+`"zod": "^3.25.0 || ^4.0.0"` as a peer, so the v4 line is a supported
+path. Our source already imports from `zod/v4` (the forward-compat
+subpath that zod 3.25+ provides), so the migration is a straight
+package bump:
+
+- `packages/core/package.json` + root: `"zod": "^3.25.76"` → `"^4.3.6"`
+- `packages/core/src/hooks/payload-schemas.ts`,
+  `packages/core/src/store/validation-schemas.ts`,
+  `packages/core/src/store/nexus-validation-schemas.ts`: updated
+  `import { z } from 'zod/v4'` → `import { z } from 'zod'` (v4's main
+  export IS the v4 API now; the `zod/v4` subpath still exists as an
+  alias for consumers migrating away from zod 3, so the old imports
+  kept working during the bump, but we use the canonical path going
+  forward).
+
+`drizzle-orm/zod`'s `createSchemaFactory` is bound to the same `z`
+instance we use everywhere via a type-asserted call — the assertion
+comment is updated to reflect that both sides are now on v4 natively.
+
+### Upgraded — TypeScript 5.x → **6.0.2** across all workspace packages
+
+The root monorepo was already on `typescript@6.0.1-rc`; the sub-packages
+were still pinned to 5.x and pulled older TS from their own
+`node_modules`:
+
+| Package | Old | New |
+|---|---|---|
+| root | `6.0.1-rc` | `^6.0.2` |
+| `@cleocode/caamp` | `^5.9.0` | `^6.0.2` |
+| `@cleocode/cant` | `^5.0.0` | `^6.0.2` |
+| `@cleocode/cleo-os` | `^5.9.0` | `^6.0.2` |
+| `@cleocode/lafs` | `^5.9.2` | `^6.0.2` |
+
+**New compile-time gotcha uncovered:** TS 6 treats
+`compilerOptions.baseUrl` as deprecated (TS5101) and errors with
+`"ignoreDeprecations": "6.0"` unless the option is dropped. Our own
+tsconfigs do not use `baseUrl`, but tsup's DTS pipeline (via
+`rollup-plugin-dts`) injects one into its internal temporary tsconfig
+during the caamp build, so we now pass
+`dts.compilerOptions.ignoreDeprecations = "6.0"` in
+`packages/caamp/tsup.config.ts`. Harmless — silences the deprecation
+until the tsup + rollup-plugin-dts chain catches up with TS 6+.
+
+### Upgraded — write-file-atomic 6 → **7.0.1**
+
+`@cleocode/core` and root. v7.0.0's only breaking change is raising
+the Node floor to `^20.17.0 || >=22.9.0`, which is well below our
+declared `engines.node: ">=24.0.0"`. Drop-in swap.
+
+### Upgraded — `@types/supertest` 6 → **7.2.0**
+
+`@cleocode/lafs` was running `supertest@^7.2.2` at runtime but still
+pinned `@types/supertest@^6.0.3` — the types lagged the runtime. Now
+aligned.
+
+### Upstream-blocked: `boolean@3.2.0` deprecation warning
+
+`npm install -g @cleocode/cleo@2026.4.14` still emits:
+
+    npm warn deprecated boolean@3.2.0: Package no longer supported.
+
+**Root cause traced end-to-end:**
+
+    @cleocode/core
+      └─ @huggingface/transformers@4.0.1         ← pins onnxruntime-node exact
+           └─ onnxruntime-node@1.24.3            ← Microsoft, stable
+                └─ global-agent@3.0.0            ← old major
+                     └─ boolean@3.2.0            ← deprecated, no successor
+
+**Good news: Microsoft already fixed it upstream.** The onnxruntime
+dev line `onnxruntime-node@1.25.0-dev.20260327-722743c0e2` declares
+`global-agent: ^4.1.3` directly, and `global-agent` 4.x dropped the
+`boolean`/`roarr` transitives entirely. The fix will land for
+consumers once (a) Microsoft publishes 1.25.0 stable and (b)
+`@huggingface/transformers` updates its pinned onnxruntime-node
+version.
+
+**Why we cannot backport it from our side:**
+
+1. `brain embeddings` are a **first-class CLEO feature**, so moving
+   `@huggingface/transformers` to an optional peer dependency is
+   not acceptable — ruled out.
+2. `@huggingface/transformers@4.0.1` pins `onnxruntime-node: 1.24.3`
+   as an exact version (not a range), so a standard direct-dep bump
+   in `@cleocode/core` would create an unresolvable conflict.
+3. `pnpm.overrides` in the workspace (kept in place for dev env
+   cleanliness) is pnpm-specific and does not propagate to
+   consumers who install via `npm`.
+4. **Empirically verified**: adding npm's standard `overrides` field
+   to `@cleocode/cleo/package.json` has no effect on consumers.
+   npm ignores `overrides` in packages being installed as
+   dependencies — only the root project's overrides apply. This
+   was tested by packing cleo with the override and installing the
+   tarball; `onnxruntime-node@1.24.3` was still resolved and the
+   `boolean` warning was still emitted.
+5. A `postinstall` script cannot suppress the warning either: the
+   warning is printed by npm during tree resolution, before any
+   package's scripts run.
+
+**Bottom line:** eliminating the warning requires an upstream fix —
+tracked at microsoft/onnxruntime + huggingface/transformers.js.
+Users can work around it locally by pinning a newer
+`onnxruntime-node` via their own project's `overrides` field. The
+warning does not affect runtime behaviour — the `boolean` package
+still works, it just isn't maintained.
+
+### Verification
+
+- `pnpm biome ci .` → exit 0
+- `pnpm run build`  → Build complete
+- `pnpm run test`   → 6966 pass / 15 skip / 32 todo / 0 fail (7013)
+- `pnpm audit`      → No known vulnerabilities found
+- `pnpm why -r zod` → zod 4.3.6 in our code; 3.25.76 still pinned
+  transitively by `@mistralai/mistralai` (not our concern, but
+  flagged here for completeness)
+
 ## [2026.4.14] — 2026-04-09 — CI Unblock, Security Audit & Post-Migration Cleanup
 
 ### Fixed — Deprecated & vulnerable transitive dependencies
