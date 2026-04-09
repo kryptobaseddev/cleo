@@ -10,8 +10,8 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 /** Request payload for creating a new git worktree. */
 export interface WorktreeRequest {
@@ -95,10 +95,7 @@ export function resolveWorktreeRoot(config: WorktreeConfig): string {
  * @returns A handle for the created worktree with cleanup capability.
  * @throws Error if the git worktree add command fails.
  */
-export function createWorktree(
-  request: WorktreeRequest,
-  config: WorktreeConfig,
-): WorktreeHandle {
+export function createWorktree(request: WorktreeRequest, config: WorktreeConfig): WorktreeHandle {
   const root = resolveWorktreeRoot(config);
   mkdirSync(root, { recursive: true });
 
@@ -120,10 +117,10 @@ export function createWorktree(
   }
 
   // Create the worktree
-  execSync(
-    `git worktree add "${worktreePath}" -b "${branch}" "${request.baseRef}"`,
-    { cwd: config.gitRoot, stdio: 'pipe' },
-  );
+  execSync(`git worktree add "${worktreePath}" -b "${branch}" "${request.baseRef}"`, {
+    cwd: config.gitRoot,
+    stdio: 'pipe',
+  });
 
   return buildHandle(worktreePath, branch, request.baseRef, request.taskId, config.gitRoot);
 }

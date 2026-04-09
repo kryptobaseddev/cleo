@@ -22,8 +22,8 @@
  * ```
  */
 
-import { parseDocument, validateDocument } from './document.js';
 import type { CantDocumentResult, CantValidationResult } from './document.js';
+import { parseDocument, validateDocument } from './document.js';
 import type { NativeDiagnostic } from './native-loader.js';
 
 // ---------------------------------------------------------------------------
@@ -276,7 +276,9 @@ function extractTeams(doc: unknown, sourcePath: string): TeamEntry[] {
   for (const section of sections) {
     if (typeof section !== 'object' || section === null) continue;
     const wrapper = section as Record<string, unknown>;
-    const teamData = wrapper['Team'] as { name: { value: string }; properties: RawAstProperty[] } | undefined;
+    const teamData = wrapper['Team'] as
+      | { name: { value: string }; properties: RawAstProperty[] }
+      | undefined;
     if (!teamData) continue;
 
     const nameValue = teamData.name?.value;
@@ -313,7 +315,9 @@ function extractTools(doc: unknown, sourcePath: string): ToolEntry[] {
   for (const section of sections) {
     if (typeof section !== 'object' || section === null) continue;
     const wrapper = section as Record<string, unknown>;
-    const toolData = wrapper['Tool'] as { name: { value: string }; properties: RawAstProperty[] } | undefined;
+    const toolData = wrapper['Tool'] as
+      | { name: { value: string }; properties: RawAstProperty[] }
+      | undefined;
     if (!toolData) continue;
 
     const nameValue = toolData.name?.value;
@@ -353,9 +357,12 @@ function renderBundleSystemPrompt(bundle: CompiledBundle): string {
     lines.push('### Agents');
     lines.push('');
     for (const agent of bundle.agents) {
-      const role = typeof agent.properties['role'] === 'string' ? agent.properties['role'] : 'unspecified';
-      const tier = typeof agent.properties['tier'] === 'string' ? agent.properties['tier'] : 'unspecified';
-      const prompt = typeof agent.properties['prompt'] === 'string' ? agent.properties['prompt'] : '';
+      const role =
+        typeof agent.properties['role'] === 'string' ? agent.properties['role'] : 'unspecified';
+      const tier =
+        typeof agent.properties['tier'] === 'string' ? agent.properties['tier'] : 'unspecified';
+      const prompt =
+        typeof agent.properties['prompt'] === 'string' ? agent.properties['prompt'] : '';
       const description = prompt.length > 0 ? prompt.split('\n')[0] : '';
 
       lines.push(`- **${agent.name}** (role: ${role}, tier: ${tier})`);
@@ -370,12 +377,12 @@ function renderBundleSystemPrompt(bundle: CompiledBundle): string {
     lines.push('### Teams');
     lines.push('');
     for (const team of bundle.teams) {
-      const orchestrator = typeof team.properties['orchestrator'] === 'string'
-        ? team.properties['orchestrator']
-        : 'unspecified';
-      const description = typeof team.properties['description'] === 'string'
-        ? team.properties['description']
-        : '';
+      const orchestrator =
+        typeof team.properties['orchestrator'] === 'string'
+          ? team.properties['orchestrator']
+          : 'unspecified';
+      const description =
+        typeof team.properties['description'] === 'string' ? team.properties['description'] : '';
       lines.push(`- **${team.name}** (orchestrator: ${orchestrator})`);
       if (description.length > 0) {
         lines.push(`  ${description.trim()}`);
@@ -388,9 +395,8 @@ function renderBundleSystemPrompt(bundle: CompiledBundle): string {
     lines.push('### Tools');
     lines.push('');
     for (const tool of bundle.tools) {
-      const description = typeof tool.properties['description'] === 'string'
-        ? tool.properties['description']
-        : '';
+      const description =
+        typeof tool.properties['description'] === 'string' ? tool.properties['description'] : '';
       lines.push(`- **${tool.name}**`);
       if (description.length > 0) {
         lines.push(`  ${description.trim()}`);
@@ -400,7 +406,7 @@ function renderBundleSystemPrompt(bundle: CompiledBundle): string {
   }
 
   if (!bundle.valid && bundle.diagnostics.length > 0) {
-    const errorCount = bundle.diagnostics.filter(d => d.severity === 'error').length;
+    const errorCount = bundle.diagnostics.filter((d) => d.severity === 'error').length;
     if (errorCount > 0) {
       lines.push(`> **Warning**: ${errorCount} validation error(s) found across .cant files.`);
       lines.push('');

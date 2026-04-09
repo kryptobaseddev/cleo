@@ -95,9 +95,7 @@ export function validateLafsShape(envelope: unknown): LafsShapeViolation {
 
   // Success-indicator field presence (`success`, not legacy `ok`)
   if (!(ENVELOPE_SUCCESS_KEY in obj)) {
-    report.reasons.push(
-      `Envelope missing success indicator — expected: "${ENVELOPE_SUCCESS_KEY}"`,
-    );
+    report.reasons.push(`Envelope missing success indicator — expected: "${ENVELOPE_SUCCESS_KEY}"`);
     return report;
   }
   report.hasSuccessField = true;

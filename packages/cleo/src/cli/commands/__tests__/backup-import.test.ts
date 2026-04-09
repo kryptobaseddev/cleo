@@ -194,18 +194,16 @@ let spies: FsSpies;
  * @param existingFiles - Optional list of paths that should appear to exist.
  */
 function setupFsSpies(existingFiles: string[] = []): FsSpies {
-  const staged = new Set(
-    [
-      ...MOCK_MANIFEST.databases.map((d) => path.join(STAGING_DIR, d.filename)),
-      ...MOCK_MANIFEST.json.map((j) => path.join(STAGING_DIR, j.filename)),
-    ],
-  );
+  const staged = new Set([
+    ...MOCK_MANIFEST.databases.map((d) => path.join(STAGING_DIR, d.filename)),
+    ...MOCK_MANIFEST.json.map((j) => path.join(STAGING_DIR, j.filename)),
+  ]);
 
   spies = {
     existsSync: vi
       .spyOn(fs, 'existsSync')
-      .mockImplementation((p) =>
-        staged.has(String(p)) || existingFiles.some((f) => String(p).includes(f)),
+      .mockImplementation(
+        (p) => staged.has(String(p)) || existingFiles.some((f) => String(p).includes(f)),
       ),
     mkdirSync: vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined),
     copyFileSync: vi.spyOn(fs, 'copyFileSync').mockReturnValue(undefined),
@@ -221,12 +219,10 @@ function setupFsSpies(existingFiles: string[] = []): FsSpies {
         },
       ),
     closeSync: vi.spyOn(fs, 'closeSync').mockReturnValue(undefined),
-    readFileSync: vi
-      .spyOn(fs, 'readFileSync')
-      .mockImplementation((p) => {
-        if (String(p).endsWith('.json')) return JSON.stringify({ version: 1 });
-        return Buffer.alloc(0);
-      }),
+    readFileSync: vi.spyOn(fs, 'readFileSync').mockImplementation((p) => {
+      if (String(p).endsWith('.json')) return JSON.stringify({ version: 1 });
+      return Buffer.alloc(0);
+    }),
     writeFileSync: vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined),
     unlinkSync: vi.spyOn(fs, 'unlinkSync').mockReturnValue(undefined),
   };

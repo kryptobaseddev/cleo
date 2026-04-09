@@ -116,9 +116,7 @@ export function validateSpawnRequest(
 
   // Lead can call own-group workers
   if (callerRole === 'lead') {
-    const callerGroup = Object.entries(team.leads).find(
-      ([, name]) => name === callerName,
-    )?.[0];
+    const callerGroup = Object.entries(team.leads).find(([, name]) => name === callerName)?.[0];
     if (!callerGroup) {
       return {
         allowed: false,

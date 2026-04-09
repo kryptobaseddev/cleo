@@ -82,7 +82,11 @@ export interface ContextProvider {
   /** Retrieve context for a named source with a token budget. */
   queryContext(source: string, query: string, maxTokens: number): Promise<ContextSlice>;
   /** Load the mental model for an agent + project. */
-  loadMentalModel(agentName: string, projectHash: string, maxTokens: number): Promise<MentalModelSlice>;
+  loadMentalModel(
+    agentName: string,
+    projectHash: string,
+    maxTokens: number,
+  ): Promise<MentalModelSlice>;
 }
 
 // ---------------------------------------------------------------------------

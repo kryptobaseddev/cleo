@@ -41,9 +41,7 @@ function formatSuccess<T>(
   operationOrOpts?: string | FormatOptions,
 ): string {
   const opts: FormatOptions =
-    typeof operationOrOpts === 'string'
-      ? { operation: operationOrOpts }
-      : (operationOrOpts ?? {});
+    typeof operationOrOpts === 'string' ? { operation: operationOrOpts } : (operationOrOpts ?? {});
   return _formatSuccess(data, message, opts);
 }
 
