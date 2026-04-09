@@ -62,6 +62,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_CIRCULAR_REFERENCE: 14,
   E_ORPHAN_DETECTED: 15,
   E_HAS_CHILDREN: 16,
+  E_TASK_COMPLETED: 17, // ExitCode.TASK_COMPLETED — canonical value from @cleocode/contracts
   E_CASCADE_FAILED: 18,
   E_HAS_DEPENDENTS: 19,
 
@@ -154,7 +155,6 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_ALREADY_EXISTS: 101,
   E_NO_CHANGE: 102,
   E_TESTS_SKIPPED: 103,
-  E_TASK_COMPLETED: 104,
 
   // Adapter Errors (95-99)
   E_ADAPTER_NOT_FOUND: 95,
@@ -327,6 +327,16 @@ export function cleoErrorToEngineError<T>(
   fallbackCode: string,
   fallbackMessage: string,
 ): EngineResult<T> {
+  // Non-Error thrown values: a raw string is its own message; other primitives
+  // coerce to their String() form. Structured CleoError-like objects are
+  // handled in the branch below via `CaughtCleoErrorShape`.
+  if (typeof err === 'string') {
+    return engineError<T>(fallbackCode, err);
+  }
+  if (err !== null && typeof err !== 'object') {
+    return engineError<T>(fallbackCode, String(err));
+  }
+
   const e = err as CaughtCleoErrorShape;
   const code = mapNumericExitCodeToString(e.code) ?? fallbackCode;
   const message = e.message ?? fallbackMessage;

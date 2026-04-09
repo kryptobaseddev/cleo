@@ -97,6 +97,28 @@ this is not valid cant syntax {{{ }}}`);
     expect(errorDiags[0]!.sourcePath).toBe(badFile);
   });
 
+  it('preserves line and column for parse errors', async () => {
+    // A file with a clearly malformed body so the parser emits a positioned error.
+    const badFile = createFixture('bad-position.cant', `---
+kind: agent
+version: 1
+---
+
+this is not valid cant syntax {{{ }}}`);
+
+    const bundle = await compileBundle([badFile]);
+    const parseDiags = bundle.diagnostics.filter(d => d.ruleId === 'parse');
+    expect(parseDiags.length).toBeGreaterThan(0);
+
+    // At least one parse diagnostic must carry a usable 1-based position.
+    // Line/col are optional (file-read failures have none), but for a successfully
+    // read-but-unparseable file the native binding always emits coordinates.
+    const positioned = parseDiags.find(d => typeof d.line === 'number' && typeof d.col === 'number');
+    expect(positioned).toBeDefined();
+    expect(positioned!.line).toBeGreaterThanOrEqual(1);
+    expect(positioned!.col).toBeGreaterThanOrEqual(1);
+  });
+
   it('collects diagnostics for files that fail validation', async () => {
     // jit-backend-dev.cant has 3 validation errors (S13, T01)
     const agentFile = join(FIXTURES_DIR, 'jit-backend-dev.cant');
@@ -110,6 +132,35 @@ this is not valid cant syntax {{{ }}}`);
     // Check that validation diagnostics have proper rule IDs
     const validationDiags = bundle.diagnostics.filter(d => d.ruleId !== 'parse');
     expect(validationDiags.length).toBeGreaterThan(0);
+  });
+
+  it('preserves line and column for validation diagnostics', async () => {
+    const agentFile = join(FIXTURES_DIR, 'jit-backend-dev.cant');
+    const bundle = await compileBundle([agentFile]);
+
+    const validationDiags = bundle.diagnostics.filter(d => d.ruleId !== 'parse');
+    expect(validationDiags.length).toBeGreaterThan(0);
+
+    // Every validation diagnostic from the 42-rule engine must carry 1-based line/col.
+    for (const diag of validationDiags) {
+      expect(typeof diag.line).toBe('number');
+      expect(typeof diag.col).toBe('number');
+      expect(diag.line!).toBeGreaterThanOrEqual(1);
+      expect(diag.col!).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('omits line and column for file-level read failures', async () => {
+    // Non-existent files produce a file-read diagnostic with no source position.
+    const nonexistentFile = join(testDir, 'truly-missing.cant');
+    const bundle = await compileBundle([nonexistentFile]);
+    const parseDiags = bundle.diagnostics.filter(d => d.ruleId === 'parse');
+    expect(parseDiags.length).toBeGreaterThan(0);
+    // The file-read failure diagnostic has no line/col
+    const readFailure = parseDiags.find(d => d.message.includes('Failed to read'));
+    expect(readFailure).toBeDefined();
+    expect(readFailure!.line).toBeUndefined();
+    expect(readFailure!.col).toBeUndefined();
   });
 
   it('handles a non-existent file gracefully', async () => {

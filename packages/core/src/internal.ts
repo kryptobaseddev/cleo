@@ -914,11 +914,14 @@ export { checkRootGitignore } from './validation/doctor/checks.js';
 // ---------------------------------------------------------------------------
 
 // Conduit DB lifecycle — ensureConduitDb is called at every CLI startup (step 3)
-export type { ProjectAgentRef } from './store/conduit-sqlite.js';
+// ProjectAgentRef lives in @cleocode/contracts; conduit-sqlite.ts only imports it.
+// We re-export from the canonical source here to keep the internal barrel stable.
+export type { ProjectAgentRef } from '@cleocode/contracts';
 export {
   CONDUIT_DB_FILENAME,
   CONDUIT_SCHEMA_VERSION,
   checkConduitDbHealth,
+  closeConduitDb,
   ensureConduitDb,
   getConduitDbPath,
   getConduitNativeDb,

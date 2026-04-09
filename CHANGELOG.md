@@ -4,6 +4,177 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-04-09 — CI Unblock & Post-Migration Cleanup
+
+End-to-end pipeline repair after the ADR-039 envelope migration and T310
+conduit separation left residual drift in tests and dispatch layers. The
+pipeline was failing at `biome ci .`; once biome was cleared, two
+further layers of pre-existing failures surfaced (TypeScript errors in
+`@cleocode/core`, then 18 test failures across 8 files). Everything is
+now green: `biome ci` ✅ · `pnpm run build` ✅ · 6966 pass / 0 fail across
+the 7013-test workspace suite.
+
+### Fixed — Lint (biome)
+
+- `packages/cant/src/bundle.ts` — removed dead `NativeDiagnostic` type
+  import. Was left over from a refactor; nothing in the file referenced
+  it. The paired change to `BundleDiagnostic` below is the
+  "wire it up properly" companion.
+- `packages/cleo/src/__tests__/lafs-conformance.test.ts` — the file
+  header declared it would use `runEnvelopeConformance()` for canonical
+  validation but only `validateEnvelope()` was ever called. Wired up
+  `runEnvelopeConformance()` against LAFS-native envelopes built via
+  `createEnvelope()` (see "Added" below).
+- `packages/core/src/validation/protocols/_shared.ts` — `line &&
+  line.includes(...)` → `line?.includes(...)` (biome
+  `useOptionalChain`).
+- `packages/cleo/src/cli/commands/__tests__/agent-attach.test.ts` —
+  removed a stale `// biome-ignore lint/complexity/useArrowFunction`
+  suppression that no longer applied.
+
+### Fixed — `@cleocode/cant` BundleDiagnostic wire-up
+
+`compileBundle()` was dropping `line`/`col` from both parse errors and
+validation diagnostics on its way from the native cant-core binding to
+the `BundleDiagnostic` return shape. Callers had no way to know *where*
+a diagnostic originated in the source `.cant` file.
+
+- `BundleDiagnostic` gains optional `line?: number` and `col?: number`
+  fields (1-based, matching the native binding). Optional because
+  file-read failures have no source position.
+- `compileBundle()` now propagates `line`/`col` from
+  `parseResult.errors` and `validationResult.diagnostics` into every
+  `BundleDiagnostic` it emits.
+- `tests/bundle.test.ts` gains 3 new tests that assert position
+  preservation for parse errors, validation diagnostics, and the
+  file-read-failure case where position is correctly absent.
+
+### Fixed — `@cleocode/core` pre-existing TypeScript errors (5)
+
+These errors were hidden behind the biome failure and would have broken
+the next CI layer. All are in files unrelated to the biome fix but in
+the same "unblock CI" theme.
+
+- `packages/core/src/internal.ts:917` — `ProjectAgentRef` was
+  re-exported through `./store/conduit-sqlite.js`, but that module only
+  *imports* the type (from `@cleocode/contracts`). Re-routed the
+  re-export to the canonical source.
+- `packages/core/src/store/migrate-signaldock-to-conduit.ts:281` —
+  `readonly: true` → `readOnly: true`. The node:sqlite
+  `DatabaseSyncOptions` API uses camelCase.
+- `packages/core/src/store/migrate-signaldock-to-conduit.ts:199` — the
+  row-copy loop cast `row[c] ?? null` to `SQLInputValue` so
+  `stmt.run(...)` type-checks. Values originate from another SQLite
+  row and are already `SQLInputValue`-compatible at runtime.
+- `packages/core/src/store/migrate-signaldock-to-conduit.ts:482` and
+  `613` — added null guards on `conduit.close()` and `globalDb.close()`
+  inside catch blocks (`conduit: DatabaseSync | null` cannot be proven
+  non-null at the catch point via TS flow analysis).
+
+### Fixed — Dispatch exit-code drift
+
+`E_TASK_COMPLETED` was mapped to exit code 104 in both
+`packages/cleo/src/dispatch/engines/_error.ts` and
+`packages/cleo/src/dispatch/adapters/cli.ts`, but the canonical value
+in `@cleocode/contracts` is `ExitCode.TASK_COMPLETED = 17` (Hierarchy
+Errors range). Core's `packages/core/src/tasks/complete.ts` already
+uses the canonical value. The dispatch layer drift meant that when a
+caught CleoError carried code 17, the inverse lookup returned
+`undefined` and fell back to `E_INTERNAL`. Fixed in both files — the
+entry is now in the Hierarchy Errors section of `STRING_TO_EXIT` where
+it belongs, and exit code 104 is no longer used by the dispatch layer.
+
+### Fixed — Non-Error thrown values in dispatch engines
+
+`cleoErrorToEngineError` in
+`packages/cleo/src/dispatch/engines/_error.ts` cast `err as
+CaughtCleoErrorShape` unconditionally, which meant a raw `throw
+'string error'` was coerced to an object without a `message` property
+and the caller's generic `fallbackMessage` was returned instead of the
+thrown string itself. Now narrows non-object/non-null values first:
+strings flow through as the error message, other primitives coerce via
+`String()`.
+
+### Fixed — ADR-039 canonical-envelope test drift (11 tests in 5 files)
+
+The `{success, data?, error?, meta}` canonical CLI envelope from
+ADR-039 (2026-04-08) replaced the legacy `{$schema, _meta, success,
+result}` LAFS shape, but tests authored against the legacy shape were
+never updated. Biome was blocking CI at the lint stage, so these
+failures were hidden. Migrated:
+
+- `packages/core/src/__tests__/cli-parity.test.ts` — 3 tests checking
+  `$schema`/`_meta`/`result`/`message` → `meta`/`data`/`meta.message`.
+- `packages/core/src/__tests__/human-output.test.ts` — 3 tests checking
+  `parsed.result.*` → `parsed.data.*`.
+- `packages/cleo/src/__tests__/golden-parity.test.ts` — 1 test
+  (`tasks.add envelope matches golden shape`) checking top-level
+  `message` → `meta.message`.
+- `packages/cleo/src/__tests__/lafs-conformance.test.ts` — 5 tests in
+  the "LAFS Integration with Core Modules" + "hierarchy policy
+  conformance" suites that asserted `parsed._meta` or called
+  `validateEnvelope()` on CLEO envelopes. The CLEO canonical shape no
+  longer matches the LAFS legacy schema, so those tests now check the
+  canonical structure directly via the local `isValidLafsEnvelope()`
+  helper. `validateEnvelope` is no longer imported in this file.
+- `packages/cleo/src/dispatch/middleware/__tests__/protocol-enforcement.test.ts`
+  — 2 tests:
+  - `passes query requests through via enforcer` — the middleware
+    wraps `next` as `protoNext` (which maps `meta` ↔ `_meta` for the
+    core-layer enforcer), so the enforcer sees the wrapper, not the
+    raw `next`. Changed `toHaveBeenCalledWith(req, next)` →
+    `toHaveBeenCalledWith(req, expect.any(Function))`.
+  - `preserves full response when _meta already has source and
+    requestId` — the middleware always constructs a new return object
+    (no identity short-circuit exists), so
+    `expect(result).toBe(fullResponse)` never held. Replaced with
+    structural assertions on `result.success` / `result.data` /
+    `result.meta.{source,requestId,operation,duration_ms,timestamp}`.
+
+### Fixed — T310 conduit migration test drift (6 tests)
+
+`packages/runtime/src/__tests__/lifecycle-e2e.test.ts` called
+`ensureSignaldockDb(cwd)` at the project tier, which was removed in
+T310 (v2026.4.12) when project-tier messaging moved to
+`conduit.db`. Rewrote the E2E suite to use `ensureConduitDb()` +
+`getConduitDbPath()` + `checkConduitDbHealth()`. Removed inserts into
+the project-tier `agents` table (that table is global-only now per
+T346) — tests now exercise the message flow directly (the
+`messages`/`conversations`/`messages_fts` tables have no FK to
+`agents`) plus `project_agent_refs` for the identity-reference case.
+Added `closeConduitDb` to the `@cleocode/core/internal` barrel to
+support proper between-test cleanup.
+
+### Added — runEnvelopeConformance test suite
+
+New `describe` block in `lafs-conformance.test.ts` exercises
+`runEnvelopeConformance()` end-to-end against LAFS-native envelopes:
+5 per-operation success cases, 1 error case (using
+`E_NOT_FOUND_RESOURCE` — a code registered in
+`packages/lafs/schemas/v1/error-registry.json`), 1 check-set assertion
+that verifies the `core` tier includes the expected check names, 1
+default-tier smoke test, and 1 negative test for a malformed envelope.
+
+### Notes
+
+- ES2025 target in `tsconfig.json` is **correct** as of TypeScript 6.0
+  (shipped 2026-03-23) — ES2025 is the new default target
+  (`ScriptTarget.LatestStandard`). Verified via
+  [devblogs.microsoft.com TypeScript 7 progress post](https://devblogs.microsoft.com/typescript/progress-on-typescript-7-december-2025/).
+  The `▲ [WARNING] Unrecognized target environment "ES2025"` line in
+  the build output comes from esbuild, which had not yet added ES2025
+  support at the time of this commit (tracked upstream at
+  `evanw/esbuild#4432`). It is a harmless warning and does not affect
+  emitted output.
+- Biome `@biomejs/biome` is pinned at `^2.4.6`; installed 2.4.8, latest
+  npm at time of writing is 2.4.10. No rule semantics have changed
+  across the 2.4.6–2.4.10 range, so no upgrade is needed for this fix.
+- One pre-existing flaky test observed under parallel runs in
+  `packages/caamp/tests/unit/harness/pi.test.ts` (`creates the child
+  session JSONL at the canonical subagents/ path`) — passes in
+  isolation and in the most recent full runs. Not addressed in this
+  commit; opportunistic flakiness triage is a separate task.
+
 ## [2026.4.13] — 2026-04-08
 
 ### T311 — Cross-Machine Backup Portability (15 tasks, 7 waves)

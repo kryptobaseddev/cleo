@@ -24,7 +24,6 @@
 
 import type { CantDocumentResult, CantValidationResult } from './document.js';
 import { parseDocument, validateDocument } from './document.js';
-import type { NativeDiagnostic } from './native-loader.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -50,7 +49,15 @@ export interface ParsedCantDocument {
   diagnostics: BundleDiagnostic[];
 }
 
-/** A normalized diagnostic combining parse errors and validation diagnostics. */
+/**
+ * A normalized diagnostic combining parse errors and validation diagnostics.
+ *
+ * @remarks
+ * Position fields (`line`, `col`) are propagated from the native cant-core
+ * binding for both parse errors and validation diagnostics. They are optional
+ * because some diagnostics (e.g., file-level read failures) do not have a
+ * source position. Line and column are 1-based.
+ */
 export interface BundleDiagnostic {
   /** The rule ID (e.g., `"S01"`, `"parse"`). */
   ruleId: string;
@@ -60,6 +67,10 @@ export interface BundleDiagnostic {
   severity: string;
   /** Source file path. */
   sourcePath: string;
+  /** Line number (1-based) where the diagnostic occurred, or `undefined` if unavailable. */
+  line?: number;
+  /** Column number (1-based) where the diagnostic occurred, or `undefined` if unavailable. */
+  col?: number;
 }
 
 /**
@@ -485,7 +496,7 @@ export async function compileBundle(filePaths: string[]): Promise<CompiledBundle
       continue;
     }
 
-    // Convert parse errors to bundle diagnostics
+    // Convert parse errors to bundle diagnostics (preserving line/col from the native binding)
     if (!parseResult.success) {
       for (const err of parseResult.errors) {
         fileDiagnostics.push({
@@ -493,6 +504,8 @@ export async function compileBundle(filePaths: string[]): Promise<CompiledBundle
           message: err.message,
           severity: err.severity,
           sourcePath: filePath,
+          line: err.line,
+          col: err.col,
         });
       }
       allValid = false;
@@ -531,13 +544,15 @@ export async function compileBundle(filePaths: string[]): Promise<CompiledBundle
         continue;
       }
 
-      // Convert validation diagnostics
+      // Convert validation diagnostics (preserving line/col from the native binding)
       for (const diag of validationResult.diagnostics) {
         fileDiagnostics.push({
           ruleId: diag.ruleId,
           message: diag.message,
           severity: diag.severity,
           sourcePath: filePath,
+          line: diag.line,
+          col: diag.col,
         });
       }
 

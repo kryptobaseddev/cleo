@@ -24,7 +24,7 @@
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import type { DatabaseSync as _DatabaseSyncType, SQLInputValue } from 'node:sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import { ensureConduitDb } from './conduit-sqlite.js';
@@ -195,7 +195,10 @@ function copyTableRows(
 
   const stmt = destDb.prepare(insertSql);
   for (const row of rows) {
-    const values = cols.map((c) => row[c] ?? null);
+    // Values originate from another SQLite row via prepare().all(), so at runtime
+    // they are already SQLInputValue-compatible (string | number | bigint | Uint8Array | null).
+    // The surrounding `Record<string, unknown>` type erases this, hence the narrow cast.
+    const values = cols.map((c) => (row[c] ?? null) as SQLInputValue);
     stmt.run(...values);
   }
   return rows.length;
@@ -278,7 +281,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
   // -----------------------------------------------------------------------
   let legacy: DatabaseSync | null = null;
   try {
-    legacy = new DatabaseSync(legacyPath, { readonly: true });
+    legacy = new DatabaseSync(legacyPath, { readOnly: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ legacyPath, error: message }, 'T310 migration: cannot open legacy signaldock.db');
@@ -479,8 +482,10 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     log.error({ error: message }, 'T310 migration: conduit.db integrity_check threw');
     result.errors.push({ step: 'step-10-conduit-integrity', error: message });
     result.status = 'failed';
-    conduit.close();
-    conduit = null;
+    if (conduit) {
+      conduit.close();
+      conduit = null;
+    }
     legacy.close();
     return result;
   }
@@ -610,8 +615,10 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     log.error({ error: message }, 'T310 migration: global signaldock.db integrity_check threw');
     result.errors.push({ step: 'step-14-global-integrity', error: message });
     result.status = 'failed';
-    globalDb.close();
-    globalDb = null;
+    if (globalDb) {
+      globalDb.close();
+      globalDb = null;
+    }
     legacy.close();
     return result;
   }

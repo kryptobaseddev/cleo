@@ -37,7 +37,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_INVALID_PARENT_TYPE: 13,
   E_ORPHAN_DETECTED: 15,
   E_HAS_CHILDREN: 16,
-  E_TASK_COMPLETED: 104,
+  E_TASK_COMPLETED: 17, // ExitCode.TASK_COMPLETED — canonical value from @cleocode/contracts
   E_HAS_DEPENDENTS: 19,
   E_CHECKSUM_MISMATCH: 20,
   E_SESSION_EXISTS: 30,

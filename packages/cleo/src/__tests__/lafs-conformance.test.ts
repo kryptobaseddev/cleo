@@ -1,8 +1,18 @@
 /**
- * LAFS conformance testing - verifies all command outputs produce valid LAFS envelopes.
+ * LAFS conformance testing — two-layer verification:
  *
- * Uses @cleocode/lafs's validateEnvelope() and runEnvelopeConformance()
- * for canonical validation instead of hand-rolled checks.
+ * 1. Canonical CLI envelope (ADR-039): verifies that CLEO command outputs
+ *    produce a well-formed `{success, data?, error?, meta}` envelope using
+ *    the local `isValidLafsEnvelope()` helper.
+ *
+ * 2. Full LAFS protocol conformance: exercises `@cleocode/lafs`'s
+ *    `runEnvelopeConformance()` tiered report against LAFS-native envelopes
+ *    built via `createEnvelope()`. This proves the conformance pipeline
+ *    (schema + invariants + registry + agent-action) works end-to-end.
+ *
+ * CLEO CLI envelopes cannot currently be validated against the LAFS schema
+ * itself because after ADR-039 the two shapes diverged (CLEO uses `meta`,
+ * LAFS still requires `_meta`). Unifying them is tracked as follow-up work.
  *
  * @task T4672
  * @task T4673
@@ -16,7 +26,7 @@
  */
 
 import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
-import { runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs';
+import { createEnvelope, runEnvelopeConformance } from '@cleocode/lafs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getCleoErrorRegistry,
@@ -379,7 +389,7 @@ describe('LAFS Integration with Core Modules', () => {
     await env.cleanup();
   });
 
-  it('addTask result produces valid full LAFS envelope (no operation)', async () => {
+  it('addTask result produces valid canonical CLI envelope (no operation)', async () => {
     const { addTask } = await import('../../../core/src/tasks/add.js');
     const result = await addTask(
       { title: 'New task', description: 'LAFS conformance test task' },
@@ -387,13 +397,17 @@ describe('LAFS Integration with Core Modules', () => {
       accessor,
     );
     const json = formatSuccess({ task: result.task });
+    // Canonical CLI envelope shape check (ADR-039). The CLEO CLI no longer
+    // emits the legacy LAFS schema shape, so `validateEnvelope` is not
+    // applicable here — tracked separately for a future LAFS schema update.
     expect(isValidLafsEnvelope(json).valid).toBe(true);
     const envelope = JSON.parse(json);
-    const validation = validateEnvelope(envelope);
-    expect(validation.valid).toBe(true);
+    expect(envelope.success).toBe(true);
+    expect(envelope.data).toBeDefined();
+    expect(envelope.meta).toBeDefined();
   });
 
-  it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
+  it('addTask result produces valid canonical CLI envelope (explicit operation)', async () => {
     const { addTask } = await import('../../../core/src/tasks/add.js');
     const result = await addTask(
       { title: 'Full LAFS task', description: 'LAFS envelope with explicit operation' },
@@ -402,8 +416,8 @@ describe('LAFS Integration with Core Modules', () => {
     );
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
     const envelope = JSON.parse(json);
-    const validation = validateEnvelope(envelope);
-    expect(validation.valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
+    expect(envelope.meta.operation).toBe('tasks.add');
   });
 
   it('listPhases result produces valid LAFS', async () => {
@@ -413,7 +427,7 @@ describe('LAFS Integration with Core Modules', () => {
     expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 
-  it('error from showTask produces valid LAFS', async () => {
+  it('error from showTask produces valid canonical CLI error envelope', async () => {
     const { showTask } = await import('../../../core/src/tasks/show.js');
     try {
       await showTask('T999', env.tempDir, accessor);
@@ -422,8 +436,9 @@ describe('LAFS Integration with Core Modules', () => {
         const json = formatError(err);
         expect(isValidLafsEnvelope(json).valid).toBe(true);
         const envelope = JSON.parse(json);
-        const validation = validateEnvelope(envelope);
-        expect(validation.valid).toBe(true);
+        expect(envelope.success).toBe(false);
+        expect(envelope.error).toBeDefined();
+        expect(envelope.meta).toBeDefined();
       }
     }
   });
@@ -759,6 +774,113 @@ describe('isValidLafsEnvelope() CI Suite (T4673 — canonical shape)', () => {
 });
 
 // ============================
+// T4673: runEnvelopeConformance (tiered canonical checks from @cleocode/lafs)
+// ============================
+
+/**
+ * Full conformance gate exercised against **LAFS-native envelopes** produced
+ * by `@cleocode/lafs`'s own `createEnvelope()` factory.
+ *
+ * @remarks
+ * After ADR-039 (2026-04-08), the CLEO CLI emits a different canonical
+ * envelope shape (`{success, data?, error?, meta}`) from the legacy LAFS
+ * schema shape (`{$schema, _meta, success, result}`). `runEnvelopeConformance`
+ * validates against the LAFS schema, so CLEO envelopes cannot be tested
+ * with it until the LAFS schema is updated to accept the new shape (tracked
+ * separately).
+ *
+ * These tests wire up `runEnvelopeConformance` against envelopes built via
+ * `createEnvelope()` — the function's intended input — proving that the
+ * conformance pipeline (schema + invariants + registry + agent-action) works
+ * end-to-end. This fulfils the file header's docstring claim that the suite
+ * uses `runEnvelopeConformance` for canonical validation.
+ *
+ * @task T4673
+ */
+describe('runEnvelopeConformance — canonical tiered conformance (T4673)', () => {
+  const CORE_OPERATIONS = [
+    'tasks.list',
+    'tasks.show',
+    'tasks.add',
+    'session.status',
+    'system.version',
+  ];
+
+  for (const operation of CORE_OPERATIONS) {
+    it(`LAFS-native success envelope for ${operation} passes core conformance`, () => {
+      const envelope = createEnvelope({
+        success: true,
+        result: { ok: true, operation },
+        meta: { operation, requestId: `req-${operation}` },
+      });
+      const report = runEnvelopeConformance(envelope, { tier: 'core' });
+      if (!report.ok) {
+        // Surface the failing checks for debugging.
+        const failed = report.checks.filter((c) => !c.pass);
+        throw new Error(
+          `Core conformance failed for ${operation}: ${JSON.stringify(failed, null, 2)}`,
+        );
+      }
+      expect(report.ok).toBe(true);
+    });
+  }
+
+  it('LAFS-native error envelope passes core conformance', () => {
+    const envelope = createEnvelope({
+      success: false,
+      error: {
+        // Use a registered code from packages/lafs/schemas/v1/error-registry.json
+        // so the core-tier `error_code_registered` check passes.
+        code: 'E_NOT_FOUND_RESOURCE',
+        message: 'Task not found',
+      },
+      meta: { operation: 'tasks.show', requestId: 'req-err-1' },
+    });
+    const report = runEnvelopeConformance(envelope, { tier: 'core' });
+    if (!report.ok) {
+      const failed = report.checks.filter((c) => !c.pass);
+      throw new Error(`Core conformance failed: ${JSON.stringify(failed, null, 2)}`);
+    }
+    expect(report.ok).toBe(true);
+  });
+
+  it('report.checks contains the expected core check names', () => {
+    const envelope = createEnvelope({
+      success: true,
+      result: { ok: true },
+      meta: { operation: 'system.health', requestId: 'req-core-1' },
+    });
+    const report = runEnvelopeConformance(envelope, { tier: 'core' });
+    const checkNames = report.checks.map((c) => c.name);
+    // Tier "core" per packages/lafs conformance profiles always includes at least these:
+    expect(checkNames).toContain('envelope_schema_valid');
+    expect(checkNames).toContain('envelope_invariants');
+    expect(checkNames).toContain('error_code_registered');
+  });
+
+  it('runEnvelopeConformance without options runs the default tier', () => {
+    const envelope = createEnvelope({
+      success: true,
+      result: { items: [1, 2, 3] },
+      meta: { operation: 'tasks.list', requestId: 'req-default-1' },
+    });
+    const report = runEnvelopeConformance(envelope);
+    expect(report).toHaveProperty('ok');
+    expect(Array.isArray(report.checks)).toBe(true);
+    expect(report.checks.length).toBeGreaterThan(0);
+  });
+
+  it('malformed envelope (missing success) is rejected by runEnvelopeConformance', () => {
+    const broken = { data: { ok: true }, meta: { operation: 'test' } };
+    const report = runEnvelopeConformance(broken, { tier: 'core' });
+    expect(report.ok).toBe(false);
+    const schemaCheck = report.checks.find((c) => c.name === 'envelope_schema_valid');
+    expect(schemaCheck).toBeDefined();
+    expect(schemaCheck!.pass).toBe(false);
+  });
+});
+
+// ============================
 // T5001: HIERARCHY POLICY CONFORMANCE
 // ============================
 
@@ -820,34 +942,32 @@ describe('hierarchy policy conformance', () => {
     expect(result.error!.code).toMatch(/^E_/);
   });
 
-  it('hierarchy error flows through LAFS-structured formatError envelope', () => {
+  it('hierarchy error flows through canonical CLI error envelope', () => {
     const err = new CleoError(ExitCode.DEPTH_EXCEEDED, 'Maximum nesting depth exceeded');
     const json = formatError(err, 'tasks.add');
     const parsed = JSON.parse(json);
 
-    // Verify LAFS structure
+    // Verify canonical CLI envelope structure (ADR-039 — uses `meta`, not `_meta`).
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
     expect(typeof parsed.error.message).toBe('string');
-    expect(parsed._meta).toBeDefined();
-    expect(parsed._meta.specVersion).toBeDefined();
-    expect(parsed._meta.strict).toBe(true);
-    expect(parsed._meta.transport).toBeDefined();
+    expect(parsed.meta).toBeDefined();
+    expect(parsed.meta.operation).toBe('tasks.add');
+    expect(parsed.meta.requestId).toBeDefined();
+    expect(parsed.meta.timestamp).toBeDefined();
 
-    // Passes protocol validation
-    const validation = validateEnvelope(parsed);
-    expect(validation.valid).toBe(true);
+    // Passes the canonical envelope structural check.
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 
-  it('sibling limit error produces valid LAFS error envelope', () => {
+  it('sibling limit error produces valid canonical CLI error envelope', () => {
     const err = new CleoError(ExitCode.SIBLING_LIMIT, 'Parent has too many children');
     const json = formatError(err, 'tasks.add');
     const parsed = JSON.parse(json);
 
     expect(parsed.success).toBe(false);
     expect(parsed.error.code).toMatch(/^E_/);
-    expect(parsed._meta).toBeDefined();
-    const validation = validateEnvelope(parsed);
-    expect(validation.valid).toBe(true);
+    expect(parsed.meta).toBeDefined();
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 });

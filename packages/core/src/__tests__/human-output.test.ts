@@ -98,8 +98,8 @@ describe('--human output verification (T4696)', () => {
     });
   });
 
-  describe('LAFS envelopes are valid regardless of format flags', () => {
-    it('formatSuccess produces valid JSON for show operation', () => {
+  describe('Canonical CLI envelopes are valid regardless of format flags (ADR-039)', () => {
+    it('formatSuccess produces canonical envelope for show operation', () => {
       const json = formatSuccess(
         {
           task: { id: 'T4663', title: 'Wave 8: Full System Integration', status: 'active' },
@@ -110,12 +110,14 @@ describe('--human output verification (T4696)', () => {
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);
-      expect(parsed.$schema).toBeDefined();
-      expect(parsed._meta).toBeDefined();
-      expect(parsed.result.task.id).toBe('T4663');
+      // ADR-039: canonical shape drops $schema and _meta; payload lives in data.
+      expect(parsed.$schema).toBeUndefined();
+      expect(parsed._meta).toBeUndefined();
+      expect(parsed.meta).toBeDefined();
+      expect(parsed.data.task.id).toBe('T4663');
     });
 
-    it('formatSuccess produces valid JSON for list operation', () => {
+    it('formatSuccess produces canonical envelope for list operation', () => {
       const json = formatSuccess(
         {
           tasks: [
@@ -130,11 +132,11 @@ describe('--human output verification (T4696)', () => {
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);
-      expect(parsed.result.tasks).toHaveLength(2);
-      expect(parsed.result.total).toBe(2);
+      expect(parsed.data.tasks).toHaveLength(2);
+      expect(parsed.data.total).toBe(2);
     });
 
-    it('formatSuccess produces valid JSON for dash operation', () => {
+    it('formatSuccess produces canonical envelope for dash operation', () => {
       const json = formatSuccess(
         {
           project: { name: 'cleo' },
@@ -146,8 +148,8 @@ describe('--human output verification (T4696)', () => {
       const parsed = JSON.parse(json);
 
       expect(parsed.success).toBe(true);
-      expect(parsed.result.project.name).toBe('cleo');
-      expect(parsed.result.stats.total).toBe(50);
+      expect(parsed.data.project.name).toBe('cleo');
+      expect(parsed.data.stats.total).toBe(50);
     });
 
     it('formatError produces valid JSON with fix suggestions', () => {

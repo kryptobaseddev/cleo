@@ -71,7 +71,11 @@ describe('createProtocolEnforcement middleware', () => {
     const result = await middleware(req, next);
 
     expect(mockEnforceProtocol).toHaveBeenCalledOnce();
-    expect(mockEnforceProtocol).toHaveBeenCalledWith(req, next);
+    // The middleware wraps `next` in a `protoNext` that maps `meta` ↔ `_meta`
+    // for the core-layer enforcer (see protocol-enforcement.ts). We verify the
+    // request is forwarded unchanged and that a function (the wrapper) is
+    // passed as the second arg — not the raw `next` reference.
+    expect(mockEnforceProtocol).toHaveBeenCalledWith(req, expect.any(Function));
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ tasks: [] });
   });
@@ -184,12 +188,13 @@ describe('createProtocolEnforcement middleware', () => {
   });
 
   it('preserves full response when _meta already has source and requestId', async () => {
+    const timestamp = new Date().toISOString();
     const fullResponse = makeResponse({
       _meta: {
         gateway: 'mutate',
         domain: 'tasks',
         operation: 'complete',
-        timestamp: new Date().toISOString(),
+        timestamp,
         duration_ms: 12,
         source: 'cli',
         requestId: 'req-005',
@@ -204,7 +209,15 @@ describe('createProtocolEnforcement middleware', () => {
 
     const result = await middleware(req, next);
 
-    expect(result).toBe(fullResponse); // Same object reference — no wrapping needed
+    // The middleware maps proto-shape `_meta` → canonical `meta`, so the
+    // returned object is not identity-equal to the enforcer response. Verify
+    // the payload is preserved and the source/requestId flow through unchanged.
     expect(result.data).toEqual({ completed: true });
+    expect(result.success).toBe(true);
+    expect(result.meta.source).toBe('cli');
+    expect(result.meta.requestId).toBe('req-005');
+    expect(result.meta.operation).toBe('complete');
+    expect(result.meta.duration_ms).toBe(12);
+    expect(result.meta.timestamp).toBe(timestamp);
   });
 });

@@ -32,7 +32,7 @@ export function findManifestEntry(taskId: string, manifestPath: string): string 
   const lines = content.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (line && line.includes(`"${taskId}"`)) return line;
+    if (line?.includes(`"${taskId}"`)) return line;
   }
   return null;
 }

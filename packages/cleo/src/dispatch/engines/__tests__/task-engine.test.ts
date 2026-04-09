@@ -84,7 +84,7 @@ describe('taskComplete', () => {
     );
   });
 
-  it('returns E_TASK_COMPLETED (exitCode 104) when task is already done', async () => {
+  it('returns E_TASK_COMPLETED (exitCode 17) when task is already done', async () => {
     const alreadyDoneErr = new Error('Task T100 is already completed');
     (alreadyDoneErr as Error & { code: number }).code = 17;
     mockCompleteTask.mockRejectedValue(alreadyDoneErr);

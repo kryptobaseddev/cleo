@@ -172,20 +172,22 @@ describe('Exit Code Parity', () => {
 // LAFS Envelope Format Parity
 // ============================================================
 
-describe('LAFS Envelope Format', () => {
-  it('success envelope is full LAFS with $schema and _meta', () => {
+describe('Canonical CLI Envelope Format (ADR-039)', () => {
+  it('success envelope uses canonical CLI shape { success, data, meta }', () => {
     const result = formatSuccess({ task: { id: 'T001', title: 'Test' } });
     const parsed = JSON.parse(result);
 
-    // Full LAFS envelope: { $schema, _meta, success: true, result: {...} }
-    expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
-    expect(parsed._meta).toBeDefined();
+    // Canonical CLI envelope (ADR-039): { success, data, meta } — no $schema, no _meta, no result.
+    expect(parsed.$schema).toBeUndefined();
+    expect(parsed._meta).toBeUndefined();
+    expect(parsed.result).toBeUndefined();
+    expect(parsed.meta).toBeDefined();
     expect(parsed.success).toBe(true);
-    expect(parsed.result).toBeDefined();
-    expect(parsed.result.task).toBeDefined();
+    expect(parsed.data).toBeDefined();
+    expect(parsed.data.task).toBeDefined();
   });
 
-  it('error envelope is full LAFS with $schema and _meta', () => {
+  it('error envelope uses canonical CLI shape { success, error, meta }', () => {
     const err = new CleoError(ExitCode.NOT_FOUND, 'Task T999 not found', {
       fix: 'Use cleo list to find tasks',
       alternatives: [{ action: 'Search', command: 'cleo find query' }],
@@ -193,9 +195,11 @@ describe('LAFS Envelope Format', () => {
     const result = formatError(err);
     const parsed = JSON.parse(result);
 
-    // Full LAFS envelope: { $schema, _meta, success: false, result: null, error: {...} }
-    expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
-    expect(parsed._meta).toBeDefined();
+    // Canonical CLI envelope (ADR-039): { success: false, error, meta } — no $schema, no _meta, no result.
+    expect(parsed.$schema).toBeUndefined();
+    expect(parsed._meta).toBeUndefined();
+    expect(parsed.result).toBeUndefined();
+    expect(parsed.meta).toBeDefined();
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
     expect(parsed.error.code).toMatch(/^E_CLEO_NOT_FOUND/);
@@ -204,7 +208,7 @@ describe('LAFS Envelope Format', () => {
     expect(parsed.error.details.alternatives).toHaveLength(1);
   });
 
-  it('CleoError.toJSON matches LAFS envelope', () => {
+  it('CleoError.toJSON matches legacy error shape', () => {
     const err = new CleoError(ExitCode.VALIDATION_ERROR, 'Bad input');
     const json = err.toJSON();
     expect(json.success).toBe(false);
@@ -212,11 +216,12 @@ describe('LAFS Envelope Format', () => {
     expect((json.error as Record<string, unknown>).name).toBe('VALIDATION_ERROR');
   });
 
-  it('success with noChange flag', () => {
+  it('success with noChange flag attaches message to meta.message', () => {
     const result = formatSuccess(null, 'No changes needed');
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
-    expect(parsed.message).toBe('No changes needed');
+    // ADR-039: message is now carried in meta.message, not at the top level.
+    expect(parsed.meta.message).toBe('No changes needed');
   });
 });
 

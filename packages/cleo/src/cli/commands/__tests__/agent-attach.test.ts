@@ -34,7 +34,6 @@ vi.mock('@cleocode/core/internal', () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   // AgentRegistryAccessor is instantiated to init DBs; provide a no-op ctor via
   // an inline function (avoids the vi.mock hoisting issue with class declarations).
-  // biome-ignore lint/complexity/useArrowFunction: constructor cannot be arrow fn
   AgentRegistryAccessor: function AgentRegistryAccessor() {},
   // Other symbols used elsewhere in agent.ts — safe stubs
   checkAgentHealth: vi.fn(),

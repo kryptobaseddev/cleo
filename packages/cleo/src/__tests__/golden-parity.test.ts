@@ -133,7 +133,8 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
       );
       const parsed = JSON.parse(json);
       assertShape(parsed, GOLDEN_SUCCESS_SHAPE);
-      expect(parsed.message).toBe('Task created');
+      // ADR-039: message is carried in meta.message, not at the top level.
+      expect(parsed.meta.message).toBe('Task created');
     });
 
     it('system.dash envelope matches golden shape', () => {
