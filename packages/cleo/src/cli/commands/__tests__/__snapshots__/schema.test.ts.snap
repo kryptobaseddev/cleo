@@ -1,0 +1,181 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`cleo schema command (T340) > tasks.add snapshot > full schema matches snapshot 1`] = `
+{
+  "description": "tasks.add (mutate)",
+  "examples": [
+    {
+      "command": "cleo add 'My task title'",
+      "description": "Create a task with the default priority and type",
+    },
+    {
+      "command": "cleo add 'My task' --priority high --parent T100",
+      "description": "Create a high-priority subtask under T100",
+    },
+  ],
+  "gates": [
+    {
+      "description": "Title and description must be meaningfully different",
+      "errorCode": "E_VALIDATION_FAILED",
+      "name": "anti-hallucination",
+      "triggers": [
+        "title and description are identical strings",
+        "description is a substring of the title",
+        "title is a substring of the description",
+      ],
+    },
+    {
+      "description": "Acceptance criteria must be pipe-separated checklist items",
+      "errorCode": "E_VALIDATION_FAILED",
+      "name": "acceptance-criteria-format",
+      "triggers": [
+        "acceptance criteria contains fewer than 1 non-empty item after splitting on pipe (|)",
+        "individual acceptance item exceeds 500 characters",
+      ],
+    },
+    {
+      "description": "Parent task must exist if --parent is specified",
+      "errorCode": "E_NOT_FOUND",
+      "name": "parent-exists",
+      "triggers": [
+        "--parent <id> is specified but no task with that ID exists in the database",
+      ],
+    },
+    {
+      "description": "Title must be between 3 and 500 characters",
+      "errorCode": "E_VALIDATION_FAILED",
+      "name": "title-length",
+      "triggers": [
+        "title is shorter than 3 characters",
+        "title is longer than 500 characters",
+      ],
+    },
+  ],
+  "gateway": "mutate",
+  "operation": "tasks.add",
+  "params": [
+    {
+      "cli": {
+        "positional": true,
+      },
+      "description": "Task title (3–500 characters)",
+      "name": "title",
+      "required": true,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "parent",
+      },
+      "description": "Parent task ID (makes this task a subtask)",
+      "name": "parent",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "priority",
+        "short": "-p",
+      },
+      "description": "Task priority",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical",
+      ],
+      "name": "priority",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "type",
+        "short": "-t",
+      },
+      "description": "Task type",
+      "enum": [
+        "epic",
+        "task",
+        "subtask",
+        "bug",
+      ],
+      "name": "type",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "size",
+      },
+      "description": "Scope size estimate",
+      "enum": [
+        "small",
+        "medium",
+        "large",
+      ],
+      "name": "size",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "description",
+        "short": "-d",
+      },
+      "description": "Detailed task description (must differ meaningfully from title)",
+      "name": "description",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "acceptance",
+      },
+      "description": "Pipe-separated acceptance criteria (e.g. "AC1|AC2|AC3")",
+      "name": "acceptance",
+      "required": false,
+      "type": "array",
+    },
+    {
+      "cli": {
+        "flag": "labels",
+        "short": "-l",
+      },
+      "description": "Comma-separated labels",
+      "name": "labels",
+      "required": false,
+      "type": "array",
+    },
+    {
+      "cli": {
+        "flag": "depends",
+        "short": "-D",
+      },
+      "description": "Comma-separated dependency task IDs",
+      "name": "depends",
+      "required": false,
+      "type": "array",
+    },
+    {
+      "cli": {
+        "flag": "phase",
+        "short": "-P",
+      },
+      "description": "Phase slug to assign the task to",
+      "name": "phase",
+      "required": false,
+      "type": "string",
+    },
+    {
+      "cli": {
+        "flag": "notes",
+      },
+      "description": "Initial note entry for the task",
+      "name": "notes",
+      "required": false,
+      "type": "string",
+    },
+  ],
+}
+`;

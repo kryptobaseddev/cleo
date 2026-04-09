@@ -1,0 +1,65 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildOperationHelp snapshots > matches snapshot for tasks.add 1`] = `
+"Description: Create a new task
+
+USAGE: cleo add [OPTIONS] <title>
+
+ARGUMENTS:
+  title            Task title (3–500 characters)  (required)
+
+OPTIONS:
+  -p, --priority <string>          Task priority  [enum: low|medium|high|critical]
+  -t, --type <string>              Task type  [enum: epic|task|subtask|bug]
+  -d, --description <string>       Detailed task description (must differ meaningfully from title)
+
+PRECONDITIONS (gates that may fire):
+  - E_VALIDATION_FAILED [anti-hallucination]: Title and description must be meaningfully different
+      * title and description are identical strings
+      * description is a substring of the title
+      * title is a substring of the description
+  - E_VALIDATION_FAILED [acceptance-criteria-format]: Acceptance criteria must be pipe-separated checklist items
+      * acceptance criteria contains fewer than 1 non-empty item after splitting on pipe (|)
+      * individual acceptance item exceeds 500 characters
+  - E_NOT_FOUND [parent-exists]: Parent task must exist if --parent is specified
+      * --parent <id> is specified but no task with that ID exists in the database
+  - E_VALIDATION_FAILED [title-length]: Title must be between 3 and 500 characters
+      * title is shorter than 3 characters
+      * title is longer than 500 characters
+
+Examples:
+  cleo add 'My task title'
+  cleo add 'My task' --priority high --parent T100
+  cleo add 'Fix login bug' --type bug --size small --acceptance 'Reproducer passes|CI green'"
+`;
+
+exports[`buildOperationHelp snapshots > matches snapshot for tasks.complete 1`] = `
+"Description: Mark a task as completed
+
+USAGE: cleo complete [OPTIONS] <taskId>
+
+ARGUMENTS:
+  taskId           ID of the task to complete  (required)
+
+OPTIONS:
+      --force                      Force completion even when children are not done or dependencies unresolved
+      --verification-note <string> Evidence that acceptance criteria were met
+
+PRECONDITIONS (gates that may fire):
+  - E_NOT_FOUND [task-exists]: Task must exist before it can be completed
+      * no task with the given taskId exists in the database
+  - E_INCOMPLETE_CHILDREN [children-completion]: All direct children must be done/cancelled before parent can be completed
+      * task has at least one child with status pending, active, or blocked
+      * --force flag is absent
+  - E_BLOCKED [dependency-check]: All blocking dependencies must be resolved before completion
+      * task has at least one unresolved blocking dependency
+      * --force flag is absent
+  - E_VERIFICATION_REQUIRED [verification-required]: Task completion requires verification evidence when acceptance criteria exist
+      * task has acceptance criteria defined
+      * no --verification-note or --verify flag was supplied
+
+Examples:
+  cleo complete T123
+  cleo complete T123 --force
+  cleo complete T123 --verification-note 'All ACs verified in PR #456'"
+`;

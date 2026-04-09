@@ -217,13 +217,28 @@ describe('toSkillSummary', () => {
 
 describe('getSkillSearchPaths', () => {
   it('should return ordered search paths', () => {
-    const paths = getSkillSearchPaths(testDir);
+    // Pin the project root to the isolated test dir via CLEO_ROOT (the
+    // escape hatch documented in paths.ts). Without this, the test
+    // depends on the worker process cwd happening to live inside a
+    // CLEO project (true locally when running from the monorepo, false
+    // on CI where the checkout has no `.cleo/` sentinel).
+    const savedRoot = process.env['CLEO_ROOT'];
+    process.env['CLEO_ROOT'] = testDir;
+    try {
+      const paths = getSkillSearchPaths(testDir);
 
-    // Returns paths that exist on disk; may be 0 or more depending on environment
-    expect(Array.isArray(paths)).toBe(true);
-    // Should be in priority order
-    for (let i = 1; i < paths.length; i++) {
-      expect(paths[i].priority).toBeGreaterThanOrEqual(paths[i - 1].priority);
+      // Returns paths that exist on disk; may be 0 or more depending on environment
+      expect(Array.isArray(paths)).toBe(true);
+      // Should be in priority order
+      for (let i = 1; i < paths.length; i++) {
+        expect(paths[i].priority).toBeGreaterThanOrEqual(paths[i - 1].priority);
+      }
+    } finally {
+      if (savedRoot === undefined) {
+        delete process.env['CLEO_ROOT'];
+      } else {
+        process.env['CLEO_ROOT'] = savedRoot;
+      }
     }
   });
 });
