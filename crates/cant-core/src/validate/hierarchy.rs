@@ -30,6 +30,8 @@ pub fn check_all(doc: &CantDocument, _ctx: &ValidationContext) -> Vec<Diagnostic
         match section {
             Section::Team(team) => {
                 check_team_001_orchestrator(team, &mut diags);
+                check_team_002_lead_consult_when(team, &mut diags);
+                check_team_002_lead_stages(team, &mut diags);
             }
             Section::Agent(agent) => {
                 check_team_002_lead_tools(agent, &mut diags);
@@ -95,6 +97,52 @@ fn check_team_001_orchestrator(team: &TeamDef, diags: &mut Vec<Diagnostic>) {
             "TEAM-001",
             format!(
                 "Team '{}' at line {} does not declare an orchestrator. Add `orchestrator: <agent-name>` to the team block.",
+                team.name.value, team.name.span.line
+            ),
+            team.span,
+        ));
+    }
+}
+
+// ── TEAM-002 (Wave 7a): Team with leads must declare consult-when ────
+
+/// `TEAM-002` (extension): A team block that declares a `leads:` sub-block
+/// MUST also declare `consult-when:` so that the orchestrator knows when to
+/// escalate to HITL consultation (ULTRAPLAN §10.3).
+fn check_team_002_lead_consult_when(team: &TeamDef, diags: &mut Vec<Diagnostic>) {
+    // Only applies when the team block contains a `leads:` property.
+    if find_property(&team.properties, "leads").is_none() {
+        return;
+    }
+
+    if team.consult_when.is_none() {
+        diags.push(Diagnostic::error(
+            "TEAM-002",
+            format!(
+                "Team '{}' at line {} declares leads but is missing required `consult-when:`. \
+                 Add a human-readable escalation condition (ULTRAPLAN §10.3).",
+                team.name.value, team.name.span.line
+            ),
+            team.span,
+        ));
+    }
+}
+
+/// `TEAM-002` (extension): A team block that declares a `leads:` sub-block
+/// MUST also declare a non-empty `stages: [...]` list so that the pipeline
+/// stage contract is explicit (ULTRAPLAN §10.3).
+fn check_team_002_lead_stages(team: &TeamDef, diags: &mut Vec<Diagnostic>) {
+    // Only applies when the team block contains a `leads:` property.
+    if find_property(&team.properties, "leads").is_none() {
+        return;
+    }
+
+    if team.stages.is_empty() {
+        diags.push(Diagnostic::error(
+            "TEAM-002",
+            format!(
+                "Team '{}' at line {} declares leads but is missing required `stages: [...]`. \
+                 Add an ordered stage list such as `[discover, plan, execute, review]` (ULTRAPLAN §10.3).",
                 team.name.value, team.name.span.line
             ),
             team.span,
@@ -413,6 +461,23 @@ mod tests {
         TeamDef {
             name: spanned(name),
             properties,
+            consult_when: None,
+            stages: vec![],
+            span: dummy_span(),
+        }
+    }
+
+    fn make_team_full(
+        name: &str,
+        properties: Vec<Property>,
+        consult_when: Option<String>,
+        stages: Vec<String>,
+    ) -> TeamDef {
+        TeamDef {
+            name: spanned(name),
+            properties,
+            consult_when,
+            stages,
             span: dummy_span(),
         }
     }
@@ -448,7 +513,85 @@ mod tests {
         assert!(diags.iter().all(|d| d.rule_id != "TEAM-001"));
     }
 
-    // ── TEAM-002 ──────────────────────────────────────────────────────
+    // ── TEAM-002 (Wave 7a: consult-when + stages on team blocks) ─────────
+
+    #[test]
+    fn team002_leads_without_consult_when_fires() {
+        let team = make_team(
+            "platform",
+            vec![
+                prop("orchestrator", ident("cleo-prime")),
+                prop("leads", ident("engineering-lead")),
+            ],
+        );
+        let diags = run(Section::Team(team));
+        let team002: Vec<_> = diags.iter().filter(|d| d.rule_id == "TEAM-002").collect();
+        // Should fire for missing consult-when AND missing stages.
+        assert!(team002.len() >= 1);
+        assert!(team002.iter().any(|d| d.message.contains("consult-when")));
+    }
+
+    #[test]
+    fn team002_leads_without_stages_fires() {
+        let team = make_team_full(
+            "platform",
+            vec![
+                prop("orchestrator", ident("cleo-prime")),
+                prop("leads", ident("engineering-lead")),
+                prop("consult-when", str_val("request spans multiple domains")),
+            ],
+            Some("request spans multiple domains".to_string()),
+            vec![], // no stages
+        );
+        let diags = run(Section::Team(team));
+        let team002: Vec<_> = diags.iter().filter(|d| d.rule_id == "TEAM-002").collect();
+        assert!(team002.iter().any(|d| d.message.contains("stages")));
+    }
+
+    #[test]
+    fn team002_leads_with_consult_when_and_stages_passes() {
+        let team = make_team_full(
+            "platform",
+            vec![
+                prop("orchestrator", ident("cleo-prime")),
+                prop("leads", ident("engineering-lead")),
+                prop("consult-when", str_val("scope exceeds single sprint")),
+                prop(
+                    "stages",
+                    Value::Array(vec![
+                        ident("discover"),
+                        ident("plan"),
+                        ident("execute"),
+                        ident("review"),
+                    ]),
+                ),
+            ],
+            Some("scope exceeds single sprint".to_string()),
+            vec![
+                "discover".to_string(),
+                "plan".to_string(),
+                "execute".to_string(),
+                "review".to_string(),
+            ],
+        );
+        let diags = run(Section::Team(team));
+        // No TEAM-002 for consult-when or stages.
+        assert!(diags.iter().all(|d| d.rule_id != "TEAM-002"));
+    }
+
+    #[test]
+    fn team002_no_leads_skips_consult_when_check() {
+        // A team without a leads sub-block should not fire TEAM-002 for
+        // consult-when or stages — those rules only apply when leads exist.
+        let team = make_team(
+            "minimal",
+            vec![prop("orchestrator", ident("cleo-prime"))],
+        );
+        let diags = run(Section::Team(team));
+        assert!(diags.iter().all(|d| d.rule_id != "TEAM-002"));
+    }
+
+    // ── TEAM-002 (agent tool blocking) ───────────────────────────────────
 
     #[test]
     fn team002_lead_with_write_tool_fires() {

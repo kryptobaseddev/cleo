@@ -198,6 +198,8 @@ pub struct SkillDef {
 ///   orchestrator: cleo-prime
 ///   leads:
 ///     engineering: engineering-lead
+///   consult-when: "request spans multiple domains"
+///   stages: [discover, plan, execute, review]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamDef {
@@ -209,6 +211,19 @@ pub struct TeamDef {
     /// via the existing `Property` / `Value::Array` machinery so that hierarchy
     /// lint rules (TEAM-001..003) can inspect them by key.
     pub properties: Vec<Property>,
+    /// Human-readable condition under which the orchestrator should escalate to
+    /// HITL consultation (Wave 7a — ULTRAPLAN §10.3).
+    ///
+    /// Sourced from the `consult-when:` sub-field of the team block.
+    /// `None` when the field is absent; lint rule TEAM-002 enforces presence
+    /// on team blocks that declare leads.
+    pub consult_when: Option<String>,
+    /// Ordered execution stage names for this team (Wave 7a — ULTRAPLAN §10.3).
+    ///
+    /// Sourced from the `stages: [...]` sub-field of the team block.
+    /// Empty when the field is absent; lint rule TEAM-002 enforces non-empty
+    /// stages on team blocks that declare leads.
+    pub stages: Vec<String>,
     /// Span covering the entire team definition.
     pub span: Span,
 }

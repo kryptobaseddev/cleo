@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*"
   },
   "devDependencies": {

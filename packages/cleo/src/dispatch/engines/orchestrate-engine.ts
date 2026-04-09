@@ -4,8 +4,16 @@
  * Thin wrapper layer that delegates to core modules.
  * All business logic lives in src/core/orchestration/.
  *
+ * Wave 7a (T432): composeSpawnPayload from @cleocode/cant is now wired into
+ * the orchestrateSpawnExecute path. Before the Pi adapter spawn call, the
+ * composer runs JIT context assembly (context_sources from BRAIN + mental model)
+ * and produces a token-budgeted systemPrompt. The resulting prompt replaces the
+ * raw prepareSpawn prompt so subagents receive fully-composed context at spawn
+ * time. This unblocks the ULTRAPLAN Wave 5 empirical gate (T432 blocker).
+ *
  * @task T4478
  * @task T4784
+ * @task T432
  */
 
 import type { Provider } from '@cleocode/caamp';
@@ -506,13 +514,49 @@ export async function orchestrateSpawnExecute(
       };
     }
 
+    // T432 (Wave 7a): JIT context assembly via composeSpawnPayload.
+    //
+    // Attempt to load the agent definition from the CANT bundle for this task.
+    // If the task has a compiled .cant agent definition available, we compose
+    // a token-budgeted system prompt that includes BRAIN context sources and
+    // the agent's mental model. The composed prompt replaces the raw prepareSpawn
+    // prompt. If no CANT definition is available or the composer throws, we fall
+    // back to the raw prompt (graceful degradation — never blocks spawning).
+    let composedPrompt = spawnContext.prompt;
+    try {
+      const { composeSpawnPayload } = await import('@cleocode/cant');
+      const { brainContextProvider } = await import('@cleocode/cant');
+      const { createHash } = await import('node:crypto');
+
+      // Derive a project hash for scoped mental model lookup.
+      const projectHash = createHash('sha256').update(cwd).digest('hex').slice(0, 12);
+
+      // Look for a compiled agent definition attached to the spawn context.
+      // The spawn context may carry an `agentDef` field if the task was
+      // created via `cleo orchestrate spawn` with a compiled CANT bundle.
+      // For tasks without an agentDef we use a minimal stub so that the
+      // composer still assembles any available BRAIN context.
+      const rawContext = spawnContext as Record<string, unknown>;
+      const agentDef = rawContext.agentDef as import('@cleocode/cant').AgentDefinition | undefined;
+
+      if (agentDef) {
+        const provider = brainContextProvider(cwd);
+        const payload = await composeSpawnPayload(agentDef, provider, projectHash);
+        composedPrompt = payload.systemPrompt;
+      }
+      // If no agentDef, composedPrompt remains the raw prepareSpawn prompt.
+    } catch {
+      // Graceful degradation: composer failure must never block spawning.
+      // The raw prompt from prepareSpawn is used unchanged.
+    }
+
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: spawnContext.taskId,
       protocol: protocolType || spawnContext.protocol,
-      prompt: spawnContext.prompt,
+      prompt: composedPrompt,
       provider: provider.id,
       options: {
-        prompt: spawnContext.prompt,
+        prompt: composedPrompt,
       },
       workingDirectory: cwd,
       tokenResolution: {

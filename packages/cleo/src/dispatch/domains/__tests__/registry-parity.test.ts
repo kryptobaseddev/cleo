@@ -605,6 +605,10 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     validate: { taskId: 'T001' },
     parallel: { action: 'start', epicId: 'T001', wave: 1 },
     'tessera.instantiate': { templateId: 'tpl1', epicId: 'T001' },
+    // Wave 7a (T379)
+    classify: { request: 'implement auth feature' },
+    'fanout.status': { manifestEntryId: 'fanout-123' },
+    fanout: { items: [{ team: 'engineering', taskId: 'T001' }] },
   },
   tools: {
     'skill.show': { name: 'test' },

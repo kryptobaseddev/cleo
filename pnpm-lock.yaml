@@ -175,6 +175,9 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@cleocode/core':
+        specifier: workspace:*
+        version: link:../core
       '@cleocode/lafs':
         specifier: workspace:*
         version: link:../lafs

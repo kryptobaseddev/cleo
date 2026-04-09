@@ -1,4 +1,5 @@
 // JIT Agent Composer (ULTRAPLAN Wave 5)
+// Wave 7a: BRAIN-backed ContextProvider (T432)
 
 // Re-export from @cleocode/lafs for convenience
 export type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from '@cleocode/lafs';
@@ -21,6 +22,7 @@ export type {
   Tier,
 } from './composer.js';
 export { composeSpawnPayload, escalateTier, estimateTokens, TIER_CAPS } from './composer.js';
+export { brainContextProvider } from './context-provider-brain.js';
 export type {
   CantDocumentResult,
   CantListResult,

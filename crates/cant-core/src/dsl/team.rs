@@ -17,17 +17,68 @@
 //!     engineering: [frontend-dev, backend-dev]
 //!
 //!   enforcement: strict
+//!
+//!   consult-when: "task complexity exceeds single-sprint scope"
+//!   stages: [discover, plan, execute, review]
 //! ```
 //!
 //! Sub-blocks (`leads:`, `workers:`, `routing:`) are parsed uniformly as
 //! flat properties via the existing property machinery. Hierarchy lint rules
 //! (TEAM-001..003) inspect `team.properties` by key.
+//!
+//! ## Wave 7a Grammar Extensions (ULTRAPLAN §8 + §10.3)
+//!
+//! Two new sub-fields are supported on `team` blocks:
+//!
+//! - `consult-when:` — human-readable condition string describing when the
+//!   orchestrator should escalate to human-in-the-loop consultation.
+//!   Stored in [`TeamDef`] as `consult_when: Option<String>`.
+//!
+//! - `stages: [...]` — ordered list of stage names this team executes through
+//!   (e.g. `[discover, plan, execute, review]`). Stored in [`TeamDef`] as
+//!   `stages: Vec<String>`.
+//!
+//! Both fields are optional and backward-compatible — existing CANT files
+//! without them continue to parse correctly. Lint rule `TEAM-002` now
+//! additionally checks that lead-role agents carry both sub-fields.
 
-use super::ast::{Spanned, TeamDef};
+use super::ast::{Spanned, TeamDef, Value};
 use super::error::ParseError;
 use super::indent::{IndentedLine, collect_block};
 use super::property::parse_property_or_prose;
 use super::span::Span;
+
+// ── Wave 7a helpers ──────────────────────────────────────────────────────────
+
+/// Extract a single string value from a [`Value`] (string literal or identifier).
+fn extract_prop_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(sv) => Some(sv.raw.clone()),
+        Value::Identifier(id) => Some(id.clone()),
+        _ => None,
+    }
+}
+
+/// Extract an ordered list of string values from a [`Value::Array`].
+///
+/// Non-string elements (numbers, booleans, nested arrays) are silently skipped
+/// so that malformed arrays do not block parsing — lint rules report violations.
+fn extract_prop_array_strings(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|v| match v {
+                Value::String(sv) => Some(sv.raw.clone()),
+                Value::Identifier(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect(),
+        // Single bare identifier treated as a one-element stage list.
+        Value::Identifier(id) => vec![id.clone()],
+        Value::String(sv) => vec![sv.raw.clone()],
+        _ => Vec::new(),
+    }
+}
 
 /// Parses a `team Name:` block starting at the given line index.
 ///
@@ -86,6 +137,8 @@ pub fn parse_team_block(
     let total_consumed = 1 + body_lines.len();
 
     let mut properties = Vec::new();
+    let mut consult_when: Option<String> = None;
+    let mut stages: Vec<String> = Vec::new();
 
     let mut i = 0;
     while i < body_lines.len() {
@@ -101,6 +154,19 @@ pub fn parse_team_block(
         // headers are collected and returned as array or prose values by the
         // existing property parser. No dedicated machinery is required.
         let (prop, extra) = parse_property_or_prose(body_lines, i)?;
+
+        // Wave 7a: extract `consult-when:` and `stages:` into dedicated fields
+        // while still keeping them in `properties` for lint rule key-lookup.
+        match prop.key.value.as_str() {
+            "consult-when" => {
+                consult_when = extract_prop_string(&prop.value);
+            }
+            "stages" => {
+                stages = extract_prop_array_strings(&prop.value);
+            }
+            _ => {}
+        }
+
         properties.push(prop);
         i += 1 + extra;
     }
@@ -116,6 +182,8 @@ pub fn parse_team_block(
     let team = TeamDef {
         name: name_spanned,
         properties,
+        consult_when,
+        stages,
         span: Span::new(
             base_offset,
             end_offset,
@@ -175,5 +243,74 @@ mod tests {
         let (team, _consumed) = parse_team_block(&lines, 0).unwrap();
         assert_eq!(team.properties[0].key.value, "orchestrator");
         assert_eq!(team.properties[1].key.value, "enforcement");
+    }
+
+    // ── Wave 7a: consult-when + stages ───────────────────────────────────
+
+    #[test]
+    fn team_with_consult_when() {
+        let input = concat!(
+            "team platform:\n",
+            "  orchestrator: cleo-prime\n",
+            "  consult-when: \"scope exceeds single sprint\"\n",
+        );
+        let lines = split_lines(input).unwrap();
+        let (team, _) = parse_team_block(&lines, 0).unwrap();
+        assert_eq!(
+            team.consult_when.as_deref(),
+            Some("scope exceeds single sprint")
+        );
+        // Also present as a regular property for lint-rule key-lookup.
+        assert!(team.properties.iter().any(|p| p.key.value == "consult-when"));
+    }
+
+    #[test]
+    fn team_with_stages() {
+        let input = concat!(
+            "team platform:\n",
+            "  orchestrator: cleo-prime\n",
+            "  stages: [discover, plan, execute, review]\n",
+        );
+        let lines = split_lines(input).unwrap();
+        let (team, _) = parse_team_block(&lines, 0).unwrap();
+        assert_eq!(team.stages, vec!["discover", "plan", "execute", "review"]);
+        assert!(team.properties.iter().any(|p| p.key.value == "stages"));
+    }
+
+    #[test]
+    fn team_without_consult_when_defaults_none() {
+        let input = "team platform:\n  orchestrator: cleo-prime\n";
+        let lines = split_lines(input).unwrap();
+        let (team, _) = parse_team_block(&lines, 0).unwrap();
+        assert!(team.consult_when.is_none());
+    }
+
+    #[test]
+    fn team_without_stages_defaults_empty() {
+        let input = "team platform:\n  orchestrator: cleo-prime\n";
+        let lines = split_lines(input).unwrap();
+        let (team, _) = parse_team_block(&lines, 0).unwrap();
+        assert!(team.stages.is_empty());
+    }
+
+    #[test]
+    fn team_with_both_consult_when_and_stages() {
+        let input = concat!(
+            "team engineering:\n",
+            "  description: \"Engineering team\"\n",
+            "  orchestrator: cleo-prime\n",
+            "  consult-when: \"task complexity exceeds single-sprint scope\"\n",
+            "  stages: [discover, plan, execute, review]\n",
+            "  enforcement: strict\n",
+        );
+        let lines = split_lines(input).unwrap();
+        let (team, consumed) = parse_team_block(&lines, 0).unwrap();
+        assert_eq!(consumed, 6);
+        assert_eq!(team.name.value, "engineering");
+        assert_eq!(
+            team.consult_when.as_deref(),
+            Some("task complexity exceeds single-sprint scope")
+        );
+        assert_eq!(team.stages, vec!["discover", "plan", "execute", "review"]);
     }
 }

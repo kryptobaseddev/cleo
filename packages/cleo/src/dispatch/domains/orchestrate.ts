@@ -5,7 +5,14 @@
  * spawn readiness, parallel coordination, and orchestration context.
  * All operations delegate to native engine functions.
  *
+ * Wave 7a additions (T379):
+ * - orchestrate.classify (T408) — prompt-based team routing stub
+ * - orchestrate.fanout (T409) — Promise.allSettled spawn wrapper
+ * - orchestrate.fanout.status (T415) — fanout status stub
+ * - orchestrate.analyze mode="parallel-safety" (T410) — dep-graph grouping
+ *
  * @epic T4820
+ * @epic T377
  */
 
 import {
@@ -94,8 +101,71 @@ export class OrchestrateHandler implements DomainHandler {
         case 'analyze': {
           const epicId = params?.epicId as string;
           const mode = params?.mode as string | undefined;
+
+          // T410: parallel-safety mode — dep-graph grouping without epicId
+          if (mode === 'parallel-safety') {
+            const taskIds = params?.taskIds as string[] | undefined;
+            const result = await orchestrateAnalyzeParallelSafety(taskIds ?? [], projectRoot);
+            return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
+          }
+
           const result = await orchestrateAnalyze(epicId, projectRoot, mode);
           return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
+        }
+
+        case 'classify': {
+          // T408: prompt-based team routing stub.
+          //
+          // ADR-030 §5 Challenge Questions:
+          // Q1: Is this operation idempotent? Yes — same request + context produces same routing.
+          // Q2: What is the failure mode when no team matches? Returns confidence=0 with null team.
+          // Q3: Should this be a query or mutate? Query — no state is written; routing is advisory.
+          // Q4: How does this compose with orchestrate.spawn? Classify first, then spawn to the
+          //     returned team's lead using the returned protocol.
+          // Q5: What prevents stale team registry data? The classifier reads live .cant files at
+          //     runtime; W7b adds cache invalidation on file-change events.
+          const request = params?.request as string | undefined;
+          if (!request) {
+            return errorResult(
+              'query',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'request is required',
+              startTime,
+            );
+          }
+          const context = params?.context as string | undefined;
+          const result = await orchestrateClassify(request, context, projectRoot);
+          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+        }
+
+        case 'fanout.status': {
+          // T415: stub — returns empty arrays pending W7b runtime tracking.
+          const manifestEntryId = params?.manifestEntryId as string | undefined;
+          if (!manifestEntryId) {
+            return errorResult(
+              'query',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'manifestEntryId is required',
+              startTime,
+            );
+          }
+          // TODO(T415/W7b): implement live tracking via manifest entry lookup.
+          return {
+            meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: {
+              manifestEntryId,
+              pending: [] as string[],
+              running: [] as string[],
+              complete: [] as string[],
+              failed: [] as string[],
+              note: 'fanout.status tracking is a W7b stub — live tracking lands with runtime enforcement',
+            },
+          };
         }
 
         case 'context': {
@@ -363,6 +433,36 @@ export class OrchestrateHandler implements DomainHandler {
           });
         }
 
+        case 'fanout': {
+          // T409: Promise.allSettled fanout wrapper.
+          //
+          // ADR-030 §5 Challenge Questions:
+          // Q1: Is this idempotent? No — each call triggers new spawn attempts.
+          // Q2: What happens on partial failure? allSettled collects all; results
+          //     include per-item status and error fields. Orchestrator decides retry.
+          // Q3: Does this block the orchestrator? No — allSettled runs concurrently
+          //     and returns aggregate results. The caller decides whether to await.
+          // Q4: How does this relate to orchestrate.spawn? fanout is the N-task
+          //     coordinator; spawn is the single-task primitive. fanout wraps spawn.
+          // Q5: What is the manifestEntryId for? Correlates with fanout.status so
+          //     the orchestrator can poll fanout progress across turns.
+          const items = params?.items as
+            | Array<{ team: string; taskId: string; skill?: string }>
+            | undefined;
+          if (!items || !Array.isArray(items) || items.length === 0) {
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'items array is required and must be non-empty',
+              startTime,
+            );
+          }
+          const result = await orchestrateFanout(items, projectRoot);
+          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
+        }
+
         case 'tessera.instantiate': {
           const templateId = params?.templateId as string;
           const epicId = params?.epicId as string;
@@ -441,6 +541,9 @@ export class OrchestrateHandler implements DomainHandler {
         'bootstrap',
         'unblock.opportunities',
         'tessera.list',
+        // Wave 7a (T379)
+        'classify',
+        'fanout.status',
       ],
       mutate: [
         'start',
@@ -450,7 +553,363 @@ export class OrchestrateHandler implements DomainHandler {
         'validate',
         'parallel',
         'tessera.instantiate',
+        // Wave 7a (T379)
+        'fanout',
       ],
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wave 7a handler functions (T408, T409, T410)
+// ---------------------------------------------------------------------------
+
+/** Classify result shape returned by orchestrate.classify. */
+interface ClassifyResult {
+  /** Matched team name, or null if no match. */
+  team: string | null;
+  /** Lead agent name within the matched team, or null. */
+  lead: string | null;
+  /** Suggested protocol type for the spawn. */
+  protocol: string | null;
+  /** Stage hint from the matched team's stages list. */
+  stage: string | null;
+  /** Confidence score 0.0–1.0 (stub always returns 0.5). */
+  confidence: number;
+  /** Human-readable reasoning for the classification. */
+  reasoning: string;
+}
+
+/**
+ * T408 — Classify a request against the CANT team registry.
+ *
+ * Implementation: prompt-based reasoning stub. Reads team definitions from the
+ * canonical CANT workflows dir and performs substring matching against each
+ * team's `consult-when` hint. Returns the highest-scoring team.
+ *
+ * Real LLM-based routing will replace this in a later wave once the runtime
+ * bridge (W7b) has loaded `.cant` team definitions into memory.
+ *
+ * @param request - The request text to classify.
+ * @param context - Optional additional context.
+ * @param projectRoot - Project root directory.
+ * @returns EngineResult containing ClassifyResult.
+ */
+async function orchestrateClassify(
+  request: string,
+  context: string | undefined,
+  projectRoot: string,
+): Promise<{ success: boolean; data?: ClassifyResult; error?: { code: string; message: string } }> {
+  try {
+    const { getCleoCantWorkflowsDir } = await import('@cleocode/core/internal');
+    const { readFileSync, readdirSync, existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    const workflowsDir = getCleoCantWorkflowsDir();
+    const combined = `${request} ${context ?? ''}`.toLowerCase();
+
+    // Walk .cant files and look for `consult-when:` entries.
+    const matches: Array<{ team: string; score: number; consultWhen: string; stages: string[] }> =
+      [];
+
+    if (existsSync(workflowsDir)) {
+      const files = readdirSync(workflowsDir).filter((f: string) => f.endsWith('.cant'));
+      for (const file of files) {
+        try {
+          const src = readFileSync(join(workflowsDir, file), 'utf-8');
+          // Extract team name
+          const teamMatch = /^team\s+(\S+):/m.exec(src);
+          if (!teamMatch) continue;
+          const teamName = teamMatch[1]!;
+
+          // Extract consult-when hint
+          const cwMatch = /consult-when:\s*["']?(.+?)["']?\s*$/m.exec(src);
+          const consultWhen = cwMatch ? cwMatch[1]!.trim() : '';
+
+          // Extract stages
+          const stagesMatch = /stages:\s*\[([^\]]+)\]/.exec(src);
+          const stages = stagesMatch ? stagesMatch[1]!.split(',').map((s: string) => s.trim()) : [];
+
+          // Simple substring scoring: count hint word matches in request
+          const hintWords = consultWhen.toLowerCase().split(/\s+/);
+          const score = hintWords.filter((w: string) => combined.includes(w)).length;
+          matches.push({ team: teamName, score, consultWhen, stages });
+        } catch {
+          // skip unreadable files
+        }
+      }
+    }
+
+    // Also check project-local .cant files
+    const localCantDir = join(projectRoot, '.cleo', 'workflows');
+    if (existsSync(localCantDir)) {
+      const files = readdirSync(localCantDir).filter((f: string) => f.endsWith('.cant'));
+      for (const file of files) {
+        try {
+          const src = readFileSync(join(localCantDir, file), 'utf-8');
+          const teamMatch = /^team\s+(\S+):/m.exec(src);
+          if (!teamMatch) continue;
+          const teamName = teamMatch[1]!;
+          const cwMatch = /consult-when:\s*["']?(.+?)["']?\s*$/m.exec(src);
+          const consultWhen = cwMatch ? cwMatch[1]!.trim() : '';
+          const stagesMatch = /stages:\s*\[([^\]]+)\]/.exec(src);
+          const stages = stagesMatch ? stagesMatch[1]!.split(',').map((s: string) => s.trim()) : [];
+          const hintWords = consultWhen.toLowerCase().split(/\s+/);
+          const score = hintWords.filter((w: string) => combined.includes(w)).length;
+          matches.push({ team: teamName, score, consultWhen, stages });
+        } catch {
+          // skip
+        }
+      }
+    }
+
+    if (matches.length === 0) {
+      return {
+        success: true,
+        data: {
+          team: null,
+          lead: null,
+          protocol: null,
+          stage: null,
+          confidence: 0,
+          reasoning:
+            'No CANT team definitions found. Seed teams.cant in the global workflows dir ' +
+            '(W7b runtime enforcement) to enable team routing.',
+        },
+      };
+    }
+
+    // Pick the best match
+    matches.sort((a, b) => b.score - a.score);
+    const best = matches[0]!;
+
+    return {
+      success: true,
+      data: {
+        team: best.team,
+        lead: null, // lead resolution requires W7b runtime bridge
+        protocol: 'base-subagent', // default protocol stub
+        stage: best.stages[0] ?? null,
+        confidence: best.score > 0 ? 0.5 : 0.1,
+        reasoning:
+          best.score > 0
+            ? `Matched team '${best.team}' via consult-when hint: "${best.consultWhen}"`
+            : `No strong match found; defaulting to first registered team '${best.team}'`,
+      },
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'classify', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_CLASSIFY_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/** Single fanout item shape. */
+interface FanoutItem {
+  /** Team name to route the task to. */
+  team: string;
+  /** Task ID to spawn. */
+  taskId: string;
+  /** Optional skill to inject into the spawn context. */
+  skill?: string;
+}
+
+/** Result for a single fanout item. */
+interface FanoutItemResult {
+  /** Task ID. */
+  taskId: string;
+  /** Outcome status. */
+  status: 'queued' | 'failed';
+  /** Error message if status is failed. */
+  error?: string;
+}
+
+/**
+ * T409 — Fan out N spawn requests via Promise.allSettled.
+ *
+ * This wave delivers the dispatch-level infrastructure only. The actual Pi
+ * spawn call is stubbed with a queued status — real execution lands in W7b
+ * once the Pi adapter bridge is wired.
+ *
+ * @param items - Array of fanout items to dispatch.
+ * @param projectRoot - Project root directory.
+ * @returns EngineResult with aggregated results and a manifest entry ID.
+ */
+async function orchestrateFanout(
+  items: FanoutItem[],
+  projectRoot: string,
+): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    // Promise.allSettled wrapper — each item is processed concurrently.
+    // Real spawn delegation (Pi adapter call) is inserted here in W7b.
+    const settled = await Promise.allSettled(
+      items.map(async (item): Promise<FanoutItemResult> => {
+        // Stub: return queued status. W7b replaces with real spawn call.
+        // TODO(T409/W7b): call orchestrateSpawnExecute(item.taskId, ...) here.
+        void projectRoot; // consumed by real spawn call in W7b
+        return { taskId: item.taskId, status: 'queued' };
+      }),
+    );
+
+    const results: FanoutItemResult[] = settled.map((outcome, i) => {
+      if (outcome.status === 'fulfilled') {
+        return outcome.value;
+      }
+      return {
+        taskId: items[i]!.taskId,
+        status: 'failed',
+        error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+      };
+    });
+
+    return {
+      success: true,
+      data: {
+        manifestEntryId,
+        results,
+        total: items.length,
+        queued: results.filter((r) => r.status === 'queued').length,
+        failed: results.filter((r) => r.status === 'failed').length,
+        note: 'fanout spawn execution is a W7b stub — real Pi adapter wiring lands with runtime enforcement',
+      },
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'fanout', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_FANOUT_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * T410 — Analyze a list of tasks for parallel safety.
+ *
+ * Walks `Task.depends` (stored as `blockers` in the accessor) to build a
+ * transitive dependency closure. Two tasks are parallel-safe if neither
+ * appears in the other's transitive closure.
+ *
+ * Returns `{parallelSafe: boolean, groups: string[][]}` where each group
+ * contains tasks with no intra-group dependency edges.
+ *
+ * @param taskIds - List of task IDs to analyze.
+ * @param projectRoot - Project root directory.
+ * @returns EngineResult with parallel safety analysis.
+ */
+async function orchestrateAnalyzeParallelSafety(
+  taskIds: string[],
+  projectRoot: string,
+): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  if (taskIds.length === 0) {
+    return {
+      success: true,
+      data: {
+        parallelSafe: true,
+        groups: [] as string[][],
+        note: 'No tasks provided — trivially parallel-safe',
+      },
+    };
+  }
+
+  try {
+    const { getAccessor } = await import('@cleocode/core/internal');
+    const accessor = await getAccessor(projectRoot);
+    const result = await accessor.queryTasks({});
+    const allTasks = result?.tasks ?? [];
+
+    // Build a lookup map from task ID to its direct dependencies.
+    const depMap = new Map<string, string[]>();
+    for (const t of allTasks) {
+      // Tasks store deps in `blockers` field which maps to Task.depends.
+      const deps: string[] = (t as { blockers?: string[] }).blockers ?? [];
+      depMap.set(t.id, deps);
+    }
+
+    /**
+     * Compute the transitive dependency closure for a given task ID.
+     * Returns the set of all task IDs that `id` transitively depends on.
+     */
+    function transitiveClose(id: string, visited = new Set<string>()): Set<string> {
+      if (visited.has(id)) return visited;
+      visited.add(id);
+      const deps = depMap.get(id) ?? [];
+      for (const dep of deps) {
+        transitiveClose(dep, visited);
+      }
+      return visited;
+    }
+
+    // Build the closure for each task in the input set.
+    const closures = new Map<string, Set<string>>();
+    for (const id of taskIds) {
+      closures.set(id, transitiveClose(id));
+    }
+
+    /**
+     * Two tasks are parallel-safe if:
+     * - neither appears in the other's transitive closure.
+     */
+    function parallelSafe(a: string, b: string): boolean {
+      const closureA = closures.get(a) ?? new Set();
+      const closureB = closures.get(b) ?? new Set();
+      return !closureA.has(b) && !closureB.has(a);
+    }
+
+    // Greedy group assignment — assigns tasks to the first group where they
+    // are safe relative to all existing members.
+    const groups: string[][] = [];
+    for (const id of taskIds) {
+      let placed = false;
+      for (const group of groups) {
+        if (group.every((member) => parallelSafe(id, member))) {
+          group.push(id);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        groups.push([id]);
+      }
+    }
+
+    const isFullyParallelSafe = groups.length <= 1;
+
+    return {
+      success: true,
+      data: {
+        parallelSafe: isFullyParallelSafe,
+        groups,
+        taskCount: taskIds.length,
+        groupCount: groups.length,
+      },
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'analyze/parallel-safety', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_ANALYZE_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
     };
   }
 }

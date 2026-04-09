@@ -385,11 +385,35 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'analyze',
-    description: 'orchestrate.analyze (query) — absorbs critical.path via mode param',
+    description:
+      'orchestrate.analyze (query) — absorbs critical.path via mode param; Wave 7a adds mode="parallel-safety"',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: false,
+        description:
+          'Epic ID for standard analysis (required unless mode=critical-path or parallel-safety)',
+      },
+      {
+        name: 'mode',
+        type: 'string',
+        required: false,
+        description:
+          'Analysis mode: omit for standard analysis, "critical-path" for CPM, "parallel-safety" for dep-graph grouping',
+      },
+      {
+        name: 'taskIds',
+        type: 'array',
+        required: false,
+        description:
+          'Task ID list for mode="parallel-safety" — returns {parallelSafe, groups} dep-graph analysis',
+      },
+    ],
   },
   {
     gateway: 'query',
@@ -450,7 +474,8 @@ export const OPERATIONS: OperationDef[] = [
         name: 'agent',
         type: 'string',
         required: false,
-        description: 'Filter results to observations produced by the named agent (T418 mental models)',
+        description:
+          'Filter results to observations produced by the named agent (T418 mental models)',
         cli: { flag: '--agent <name>' },
       },
     ] satisfies ParamDef[],
@@ -3031,6 +3056,73 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['templateId', 'epicId'],
   },
+  // orchestrate — Wave 7a dispatch ops (T408, T409, T410, T415)
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'classify',
+    description:
+      'orchestrate.classify (query) — classify a request against CANT team registry to route to correct team/lead/protocol',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['request'],
+    params: [
+      {
+        name: 'request',
+        type: 'string',
+        required: true,
+        description: 'The request or task description to classify against team consult-when hints',
+      },
+      {
+        name: 'context',
+        type: 'string',
+        required: false,
+        description: 'Optional additional context to improve classification accuracy',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'fanout.status',
+    description:
+      'orchestrate.fanout.status (query) — get status of a running fanout by its manifest entry ID',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['manifestEntryId'],
+    params: [
+      {
+        name: 'manifestEntryId',
+        type: 'string',
+        required: true,
+        description: 'Manifest entry ID returned by orchestrate.fanout',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'fanout',
+    description:
+      'orchestrate.fanout (mutate) — fan out N spawn requests in parallel via Promise.allSettled',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['items'],
+    params: [
+      {
+        name: 'items',
+        type: 'array',
+        required: true,
+        description: 'Array of {team, taskId, skill?} objects to fan out',
+      },
+    ],
+  },
+  // orchestrate — Wave 7a: analyze parallel-safety mode (T410)
+  // Note: orchestrate.analyze already registered above; this documents the new
+  // mode="parallel-safety" variant via the existing analyze operation's params.
   // conduit — agent messaging operations (replaces standalone clawmsgr scripts)
   {
     gateway: 'query' as const,
