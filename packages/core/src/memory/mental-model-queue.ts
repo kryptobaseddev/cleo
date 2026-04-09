@@ -68,7 +68,10 @@ export interface MentalModelQueue {
    * @param projectRoot - Project root directory for the brain.db path.
    * @param params - Observation parameters. MUST include `agent`.
    */
-  enqueue(projectRoot: string, params: ObserveBrainParams & { agent: string }): Promise<ObserveBrainResult>;
+  enqueue(
+    projectRoot: string,
+    params: ObserveBrainParams & { agent: string },
+  ): Promise<ObserveBrainResult>;
 
   /**
    * Drain the queue immediately.

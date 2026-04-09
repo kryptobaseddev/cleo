@@ -4,6 +4,69 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.16] — 2026-04-09 — Build & Release Pipeline Fixes
+
+### Fixed — cold-build failure in @cleocode/cant
+
+`packages/cant/tsconfig.json` was the only package still using
+`"module": "commonjs"` with default (legacy `node`) moduleResolution.
+This prevented TypeScript from resolving the `@cleocode/core/internal`
+exports subpath used by `context-provider-brain.ts`. Changed to
+`"module": "NodeNext"` / `"moduleResolution": "NodeNext"` to match every
+other workspace package.
+
+Additionally, the static import of `@cleocode/core/internal` in
+`context-provider-brain.ts` created a compile-time circular dependency
+(cant builds BEFORE core in the topological order). Converted to a
+lazy dynamic import with a local `BrainOps` interface so tsc no longer
+requires core's declarations at cant-build time.
+
+### Fixed — TS2352 in orchestrate-engine.ts on cold builds
+
+The W7a composer wiring cast `spawnContext as Record<string, unknown>`
+to access an optional `agentDef` property. `SpawnContext` has no index
+signature, so TypeScript rejected the cast on clean builds (stale
+incremental artifacts masked the error). Added `agentDef?: unknown` to
+the canonical `SpawnContext` interface in `@cleocode/core` and replaced
+the cast with a direct typed field access.
+
+### Fixed — biome formatting drift in 4 memory/brain files
+
+`packages/core/src/memory/{mental-model-queue,engine-compat,brain-retrieval}.ts`
+and `packages/cleo/src/cli/commands/memory-brain.ts` had unsorted imports
+and formatting differences introduced in the W7 series. Auto-fixed with
+`biome check --write`.
+
+### Fixed — parity.test.ts operation count snapshot stale
+
+The W7a commit added 3 new dispatch operations (+2 query, +1 mutate)
+but did not update the snapshot constants in `parity.test.ts`. Bumped
+from 130/98/228 to 132/99/231.
+
+### Fixed — exports condition ordering in 5 package.json files
+
+The `types` condition was ordered AFTER `import`/`require` in the
+`exports` field of `@cleocode/{core,caamp,contracts,lafs,runtime}`.
+Per the Node.js spec and TypeScript documentation, `types` must come
+first; otherwise it is shadowed and type resolution falls back to
+heuristic .d.ts co-location. Reordered all affected blocks so `types`
+is always the first condition. Silences esbuild warnings and hardens
+type resolution against stricter future resolvers.
+
+### Added — @cleocode/cleo-os to the release pipeline
+
+`@cleocode/cleo-os` was absent from `.github/workflows/release.yml` in
+the version-sync, build-validation, tarball, and npm-publish steps.
+This caused it to remain at v2026.4.13 on npm while all other packages
+shipped v2026.4.15.
+
+- Added to the "sync package versions from tag" loop
+- Added `packages/cleo-os/dist/cli.js` to `required_artifacts` validation
+- Added a separate `cleoos-${VERSION}.tar.gz` GitHub Release tarball
+  (TUI bundle, distinct from the `cleocode-*` CLI monorepo snapshot)
+- Added `publish_pkg cleo-os` at the end of the npm publish chain
+  (after `cleo`, since `cleo-os` depends on it)
+
 ## [2026.4.15] — 2026-04-09 — Major Dep Upgrade Sweep
 
 Follow-on sweep on top of v2026.4.14 addressing every deferred major

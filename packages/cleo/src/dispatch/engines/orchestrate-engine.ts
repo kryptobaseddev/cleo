@@ -536,8 +536,7 @@ export async function orchestrateSpawnExecute(
       // created via `cleo orchestrate spawn` with a compiled CANT bundle.
       // For tasks without an agentDef we use a minimal stub so that the
       // composer still assembles any available BRAIN context.
-      const rawContext = spawnContext as Record<string, unknown>;
-      const agentDef = rawContext.agentDef as import('@cleocode/cant').AgentDefinition | undefined;
+      const agentDef = spawnContext.agentDef as import('@cleocode/cant').AgentDefinition | undefined;
 
       if (agentDef) {
         const provider = brainContextProvider(cwd);

@@ -212,7 +212,7 @@ export async function searchBrainCompact(
     const raw = o as Record<string, unknown>;
     // T418: apply agent post-filter when specified
     if (agent) {
-      const rowAgent = (o.agent ?? (raw['agent'] as string | null)) ?? null;
+      const rowAgent = o.agent ?? (raw['agent'] as string | null) ?? null;
       if (rowAgent !== agent) continue;
     }
     results.push({

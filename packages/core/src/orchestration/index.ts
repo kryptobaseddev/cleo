@@ -55,6 +55,8 @@ export interface SpawnContext {
     fullyResolved: boolean;
     unresolvedTokens: string[];
   };
+  /** Optional compiled CANT agent definition attached by `cleo orchestrate spawn`. */
+  agentDef?: unknown;
 }
 
 /** Task readiness assessment. */

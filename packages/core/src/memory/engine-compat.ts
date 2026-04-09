@@ -28,8 +28,6 @@ import {
   searchBrainCompact,
   timelineBrain,
 } from './brain-retrieval.js';
-// T419: async reinforcement queue for mental-model writes (ULTRAPLAN L5)
-import { isMentalModelObservation, mentalModelQueue } from './mental-model-queue.js';
 import {
   learningStats,
   type SearchLearningParams,
@@ -37,6 +35,8 @@ import {
   searchLearnings,
   storeLearning,
 } from './learnings.js';
+// T419: async reinforcement queue for mental-model writes (ULTRAPLAN L5)
+import { isMentalModelObservation, mentalModelQueue } from './mental-model-queue.js';
 // BRAIN memory imports (T4770)
 import {
   patternStats,

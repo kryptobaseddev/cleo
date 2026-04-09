@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "module": "commonjs",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "lib": ["es2022", "dom"],
     "declaration": true,
     "outDir": "./dist",

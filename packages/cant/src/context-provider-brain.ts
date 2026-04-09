@@ -14,9 +14,40 @@
  * @packageDocumentation
  */
 
-import { memoryFetch, memoryFind } from '@cleocode/core/internal';
 import type { ContextProvider, ContextSlice, MentalModelSlice } from './composer.js';
 import { estimateTokens } from './composer.js';
+
+// ---------------------------------------------------------------------------
+// Lazy core import — breaks compile-time circular dependency
+// ---------------------------------------------------------------------------
+//
+// cant builds BEFORE core in the topological build order (build.mjs).
+// A static or literal-path dynamic import would require core's .d.ts to
+// exist at cant-build time, which it does not on cold builds.
+//
+// Using a variable path prevents TypeScript from resolving the module at
+// type-check time. The returned functions are typed via a local interface
+// that mirrors the actual signatures in @cleocode/core.
+
+/** Minimal type for the BRAIN query/fetch functions we consume. */
+interface BrainOps {
+  memoryFind: (
+    params: { query: string; limit: number; tables?: string[]; agent?: string },
+    projectRoot: string,
+  ) => Promise<{ success: boolean; data?: unknown }>;
+  memoryFetch: (
+    params: { ids: string[] },
+    projectRoot: string,
+  ) => Promise<{ success: boolean; data?: unknown }>;
+}
+
+/** Lazy-load memoryFind and memoryFetch from @cleocode/core/internal. */
+async function loadBrainOps(): Promise<BrainOps> {
+  // Variable path prevents tsc from resolving the module at type-check time.
+  const modPath = '@cleocode/core/internal';
+  const mod = await import(/* webpackIgnore: true */ modPath);
+  return { memoryFind: mod.memoryFind, memoryFetch: mod.memoryFetch };
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -93,6 +124,8 @@ export function brainContextProvider(projectRoot: string): ContextProvider {
           ? ([source] as BrainTable[])
           : undefined;
 
+        const { memoryFind, memoryFetch } = await loadBrainOps();
+
         const findResult = await memoryFind(
           {
             query,
@@ -165,6 +198,8 @@ export function brainContextProvider(projectRoot: string): ContextProvider {
       }
 
       try {
+        const { memoryFind, memoryFetch } = await loadBrainOps();
+
         // Query brain_observations filtered by agent name (T417/T418).
         const findResult = await memoryFind(
           {

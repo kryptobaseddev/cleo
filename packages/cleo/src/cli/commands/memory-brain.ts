@@ -166,7 +166,10 @@ export function registerMemoryBrainCommand(program: Command): void {
     .description('Save an observation to brain.db')
     .option('--title <title>', 'Short title for the observation')
     // T417: tag observation with agent provenance for per-agent mental model retrieval
-    .option('--agent <name>', 'Tag this observation with the producing agent name (Wave 8 mental models)')
+    .option(
+      '--agent <name>',
+      'Tag this observation with the producing agent name (Wave 8 mental models)',
+    )
     .action(async (text: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',

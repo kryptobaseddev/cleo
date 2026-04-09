@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/lafs",
-  "version": "2026.4.15",
+  "version": "2026.4.16",
   "private": false,
   "type": "module",
   "description": "LLM-Agent-First Specification schemas and conformance tooling",
@@ -8,20 +8,20 @@
   "types": "dist/src/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/src/index.js",
-      "types": "./dist/src/index.d.ts"
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
     },
     "./discovery": {
-      "import": "./dist/src/discovery.js",
-      "types": "./dist/src/discovery.d.ts"
+      "types": "./dist/src/discovery.d.ts",
+      "import": "./dist/src/discovery.js"
     },
     "./a2a": {
-      "import": "./dist/src/a2a/index.js",
-      "types": "./dist/src/a2a/index.d.ts"
+      "types": "./dist/src/a2a/index.d.ts",
+      "import": "./dist/src/a2a/index.js"
     },
     "./a2a/bindings": {
-      "import": "./dist/src/a2a/bindings/index.js",
-      "types": "./dist/src/a2a/bindings/index.d.ts"
+      "types": "./dist/src/a2a/bindings/index.d.ts",
+      "import": "./dist/src/a2a/bindings/index.js"
     },
     "./schemas/v1/envelope.schema.json": "./schemas/v1/envelope.schema.json",
     "./schemas/v1/error-registry.json": "./schemas/v1/error-registry.json",

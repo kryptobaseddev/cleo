@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/runtime packages/adapters packages/cleo packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -138,6 +138,7 @@ jobs:
             "packages/runtime/dist/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
+            "packages/cleo-os/dist/cli.js"
           )
           for path in "${required_artifacts[@]}"; do
             [[ -e "$path" ]] || { echo "ERROR: Missing required artifact: $path"; exit 1; }
@@ -252,8 +253,29 @@ jobs:
                    "$STAGING/packages/cleo/dist/mcp/index.js" 2>/dev/null || true
 
           tar -czf "cleocode-${VERSION}.tar.gz" -C staging "cleocode-${VERSION}"
-          sha256sum "cleocode-${VERSION}.tar.gz" > SHA256SUMS
-          echo "Tarball size: $(ls -lh "cleocode-${VERSION}.tar.gz" | awk '{print $5}')"
+
+          # ── Separate cleo-os TUI bundle ───────────────────────────────────────
+          # cleo-os is the TUI release that wraps the cleo CLI + Pi systems.
+          # Shipped as its own tarball so consumers can fetch the TUI without
+          # pulling the full monorepo snapshot.
+          CLEOOS_STAGING="staging/cleoos-${VERSION}"
+          mkdir -p "$CLEOOS_STAGING"
+          cp LICENSE README.md CHANGELOG.md "$CLEOOS_STAGING/"
+          mkdir -p "$CLEOOS_STAGING/packages/cleo-os"
+          cp -r packages/cleo-os/dist \
+                packages/cleo-os/package.json \
+                "$CLEOOS_STAGING/packages/cleo-os/"
+          for extra in extensions bin README.md LICENSE; do
+            [[ -e "packages/cleo-os/$extra" ]] \
+              && cp -r "packages/cleo-os/$extra" "$CLEOOS_STAGING/packages/cleo-os/" || true
+          done
+          chmod +x "$CLEOOS_STAGING/packages/cleo-os/dist/cli.js" 2>/dev/null || true
+          tar -czf "cleoos-${VERSION}.tar.gz" -C staging "cleoos-${VERSION}"
+
+          # Combined checksums for both tarballs
+          sha256sum "cleocode-${VERSION}.tar.gz" "cleoos-${VERSION}.tar.gz" > SHA256SUMS
+          echo "cleocode tarball size: $(ls -lh "cleocode-${VERSION}.tar.gz" | awk '{print $5}')"
+          echo "cleoos   tarball size: $(ls -lh "cleoos-${VERSION}.tar.gz" | awk '{print $5}')"
           cat SHA256SUMS
 
       - name: Generate release notes from CHANGELOG
@@ -291,6 +313,7 @@ jobs:
             --notes-file release-notes.txt \
             $PRERELEASE_FLAG \
             "cleocode-${VERSION}.tar.gz" \
+            "cleoos-${VERSION}.tar.gz" \
             SHA256SUMS
           echo "GitHub release v${VERSION} published"
 
@@ -349,7 +372,8 @@ jobs:
           }
 
           # Publish in dependency order:
-          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → cleo
+          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → cleo → cleo-os
+          # cleo-os depends on cleo + cant (workspace:*), so it must publish LAST.
           publish_pkg contracts
           publish_pkg lafs
           publish_pkg core
@@ -360,6 +384,7 @@ jobs:
           publish_pkg agents
           publish_pkg skills
           publish_pkg cleo
+          publish_pkg cleo-os
 
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Publish step failed for: ${FAILED_PKGS[*]}"
