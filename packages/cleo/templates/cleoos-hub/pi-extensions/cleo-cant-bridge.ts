@@ -11,10 +11,18 @@
  * of all declared agents, teams, and tools without hand-authored
  * protocol text.
  *
- * MVP scope (Wave 2):
+ * Wave 2 scope:
  *   - Scans project tier only: `<cwd>/.cleo/cant/` (recursive)
  *   - Three-tier resolution (global, user, project) is Wave 5
  *   - Prompt strategy: APPEND (per ULTRAPLAN L6, never replace)
+ *
+ * Wave 8 additions (T420):
+ *   - validate-on-load mental-model injection
+ *   - When the spawned agent's CANT definition has a `mentalModel` block,
+ *     fetches prior mental-model observations via memoryFind and injects
+ *     them into the Pi system prompt with VALIDATE_ON_LOAD_PREAMBLE.
+ *   - Exports `VALIDATE_ON_LOAD_PREAMBLE` and `buildMentalModelInjection`
+ *     for testability (T421).
  *
  * Requirements:
  *   - `@cleocode/cant` must be installed (provides `compileBundle`)
@@ -33,6 +41,69 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+
+// ============================================================================
+// T420: validate-on-load constants and pure helpers
+// ============================================================================
+
+/**
+ * Preamble text injected into the Pi system prompt when an agent has a
+ * `mental_model:` CANT block. The agent MUST re-evaluate each observation
+ * against the current project state before acting.
+ *
+ * Exported so empirical tests (T421) can assert on its presence.
+ */
+export const VALIDATE_ON_LOAD_PREAMBLE =
+  "===== MENTAL MODEL (validate-on-load) =====\n" +
+  "These are your prior observations, patterns, and learnings for this project.\n" +
+  "Before acting, you MUST re-evaluate each entry against current project state.\n" +
+  "If an entry is stale, note it and proceed with fresh understanding.";
+
+/** Minimal observation shape returned by memoryFind / searchBrainCompact. */
+export interface MentalModelObservation {
+  id: string;
+  type: string;
+  title: string;
+  date?: string;
+}
+
+/**
+ * Build the validate-on-load mental-model injection string.
+ *
+ * Pure function — no I/O, safe to call in tests without a real DB.
+ *
+ * @param agentName - Name of the spawned agent (used in the header line).
+ * @param observations - Prior mental-model observations to list.
+ * @returns System-prompt block containing the preamble and numbered observations,
+ *          or an empty string when `observations` is empty.
+ */
+export function buildMentalModelInjection(
+  agentName: string,
+  observations: MentalModelObservation[],
+): string {
+  if (observations.length === 0) return "";
+
+  const lines: string[] = [
+    "",
+    `// Agent: ${agentName}`,
+    VALIDATE_ON_LOAD_PREAMBLE,
+    "",
+  ];
+
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
+    const datePart = obs.date ? ` [${obs.date}]` : "";
+    lines.push(`${i + 1}. [${obs.id}] (${obs.type})${datePart}: ${obs.title}`);
+  }
+
+  lines.push("===== END MENTAL MODEL =====");
+
+  return lines.join("\n");
+}
+
+// ============================================================================
+// Internal state
+// ============================================================================
 
 /** Cached system prompt addendum from the last session_start compilation. */
 let bundlePrompt: string | null = null;
@@ -63,12 +134,80 @@ function discoverCantFiles(dir: string): string[] {
   }
 }
 
+// ============================================================================
+// T420: mental-model injection helper (async, calls memoryFind)
+// ============================================================================
+
+/**
+ * Fetch prior mental-model observations for an agent and build the
+ * validate-on-load injection block.
+ *
+ * Called in `before_agent_start` when the agent has a `mentalModel` CANT block.
+ * Best-effort: returns empty string on any failure so Pi is never blocked.
+ *
+ * @param agentName - Name of the spawned agent.
+ * @param projectRoot - Project root directory for brain.db access.
+ * @returns The validate-on-load system-prompt block, or "" on failure/empty.
+ */
+async function fetchMentalModelInjection(
+  agentName: string,
+  projectRoot: string,
+): Promise<string> {
+  try {
+    // Lazy import: @cleocode/core may not be present in all environments.
+    // memoryFind is the engine-compat wrapper (T418) that accepts `agent`.
+    const coreModule = await import("@cleocode/core") as {
+      memoryFind?: (
+        params: {
+          query: string;
+          agent?: string;
+          limit?: number;
+          tables?: string[];
+        },
+        projectRoot?: string,
+      ) => Promise<{
+        success: boolean;
+        data?: {
+          results?: MentalModelObservation[];
+        };
+      }>;
+    };
+
+    if (typeof coreModule.memoryFind !== "function") return "";
+
+    // Fetch the 10 most recent mental-model observations for this agent.
+    // Use tables filter to avoid decisions/patterns/learnings which are
+    // not agent-scoped in the current schema.
+    const result = await coreModule.memoryFind(
+      {
+        query: agentName,
+        agent: agentName,
+        limit: 10,
+        tables: ["observations"],
+      },
+      projectRoot,
+    );
+
+    if (!result.success || !result.data?.results?.length) return "";
+
+    return buildMentalModelInjection(agentName, result.data.results);
+  } catch {
+    // Best-effort — never crash Pi
+    return "";
+  }
+}
+
+// ============================================================================
+// Pi extension factory
+// ============================================================================
+
 /**
  * Pi extension factory for the CleoOS CANT bridge.
  *
  * Registers event handlers for `session_start` (compile `.cant` files)
- * and `before_agent_start` (append compiled bundle to system prompt).
- * Also registers a `/cant:bundle-info` command for introspection.
+ * and `before_agent_start` (append compiled bundle + mental-model injection
+ * to system prompt). Also registers a `/cant:bundle-info` command for
+ * introspection.
  *
  * @param pi - The Pi extension API instance.
  */
@@ -141,16 +280,58 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  // before_agent_start: APPEND compiled bundle prompt to system prompt
-  pi.on("before_agent_start", async (event: { systemPrompt?: string }) => {
-    if (!bundlePrompt) return {};
+  // before_agent_start: APPEND compiled bundle prompt + mental-model injection
+  // to system prompt (per ULTRAPLAN L6, never replace)
+  pi.on(
+    "before_agent_start",
+    async (
+      event: {
+        systemPrompt?: string;
+        agentName?: string;
+        /** T420: agent CANT definition, if resolved by Pi runtime. */
+        agentDef?: {
+          /** mentalModel block presence signals validate-on-load injection. */
+          mentalModel?: unknown;
+        };
+        /** Project root injected by Pi when available. */
+        projectRoot?: string;
+      },
+      ctx?: ExtensionContext,
+    ) => {
+      const existingPrompt = event.systemPrompt ?? "";
+      let appendix = "";
 
-    // APPEND — never replace (per ULTRAPLAN L6)
-    const existingPrompt = event.systemPrompt ?? "";
-    return {
-      systemPrompt: existingPrompt + "\n\n" + bundlePrompt,
-    };
-  });
+      // APPEND CANT bundle prompt
+      if (bundlePrompt) {
+        appendix += "\n\n" + bundlePrompt;
+      }
+
+      // T420: validate-on-load mental-model injection.
+      // Inject when the agent has a `mentalModel` CANT block.
+      const agentName = event.agentName;
+      const hasMentalModel =
+        agentName !== undefined &&
+        agentName !== "" &&
+        event.agentDef?.mentalModel !== undefined;
+
+      if (hasMentalModel && agentName) {
+        // Resolve project root: prefer explicit field, fall back to ctx.cwd
+        const projectRoot = event.projectRoot ?? ctx?.cwd ?? "";
+        if (projectRoot) {
+          const mentalModelBlock = await fetchMentalModelInjection(agentName, projectRoot);
+          if (mentalModelBlock) {
+            appendix += mentalModelBlock;
+          }
+        }
+      }
+
+      if (!appendix) return {};
+
+      return {
+        systemPrompt: existingPrompt + appendix,
+      };
+    },
+  );
 
   // /cant:bundle-info — introspection command
   pi.registerCommand("cant:bundle-info", {
