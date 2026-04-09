@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.4.13",
+  "version": "2026.4.14",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -46,7 +46,7 @@
     "proper-lockfile": "^4.1.2",
     "tar": "^7.4.3",
     "write-file-atomic": "^6.0.0",
-    "yaml": "^2.8.2",
+    "yaml": "^2.8.3",
     "zod": "^3.25.76"
   },
   "optionalDependencies": {

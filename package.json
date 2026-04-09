@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/monorepo",
-  "version": "2026.4.13",
+  "version": "2026.4.14",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.0",
@@ -39,19 +39,28 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "@biomejs/biome"
-    ]
+    ],
+    "overrides": {
+      "path-to-regexp": ">=8.4.2",
+      "brace-expansion": ">=2.0.3",
+      "picomatch": ">=4.0.4",
+      "esbuild": ">=0.25.0",
+      "yaml": ">=2.8.3",
+      "vite": "^8.0.8"
+    }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.6",
+    "@biomejs/biome": "^2.4.11",
     "@changesets/cli": "^2.30.0",
-    "@codluv/versionguard": "0.2.0",
+    "@codluv/versionguard": "1.2.0",
     "@forge-ts/cli": "^0.19.5",
     "@forge-ts/core": "^0.6.6",
     "@types/node": "^22.19.11",
     "drizzle-kit": "1.0.0-beta.19-d95b7a4",
-    "esbuild": "^0.27.4",
+    "esbuild": "^0.28.0",
     "typescript": "6.0.1-rc",
-    "vitest": "^4.0.18"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   },
   "dependencies": {
     "@cleocode/caamp": "workspace:*",

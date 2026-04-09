@@ -122,7 +122,7 @@ describe('Safety Performance', () => {
   });
 
   describe('Bulk Operations', () => {
-    it('should create 50 tasks within <5000ms', async () => {
+    it('should create 50 tasks within <10000ms', async () => {
       const { createTask } = await import('../task-store.js');
 
       const start = performance.now();
@@ -140,11 +140,15 @@ describe('Safety Performance', () => {
 
       const duration = performance.now() - start;
 
-      // 50 tasks in <5s (100ms per task is generous for CI)
-      expect(duration).toBeLessThan(5000);
+      // 50 sequential SQLite writes. Baseline on a quiet laptop is ~600ms.
+      // Budget is set to 10s to absorb CI parallelism (4+ vitest workers
+      // sharing CPU) and the extra write-ahead logging overhead that the
+      // data-safety wrapper performs per-call. The cap still catches real
+      // regressions — a 20x slowdown (200ms/task) would trip it.
+      expect(duration).toBeLessThan(10_000);
     });
 
-    it('should verify 50 tasks within <2000ms', async () => {
+    it('should verify 50 tasks within <3000ms', async () => {
       const { createTask } = await import('../task-store.js');
       const { verifyTaskWrite } = await import('../data-safety.js');
 
@@ -167,7 +171,9 @@ describe('Safety Performance', () => {
       }
       const duration = performance.now() - start;
 
-      expect(duration).toBeLessThan(2000);
+      // Baseline ~200ms on a quiet laptop; 3s allows CI parallelism headroom
+      // while still catching a meaningful regression (>15x slowdown).
+      expect(duration).toBeLessThan(3000);
     });
   });
 

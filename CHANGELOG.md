@@ -4,7 +4,83 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — 2026-04-09 — CI Unblock & Post-Migration Cleanup
+## [2026.4.14] — 2026-04-09 — CI Unblock, Security Audit & Post-Migration Cleanup
+
+### Fixed — Deprecated & vulnerable transitive dependencies
+
+`npm audit` on `2026.4.13` reported **15 vulnerabilities (6 high, 9
+moderate)**, plus the deprecated `prebuild-install@7.1.3` warning from
+`npm install -g @cleocode/cleo`. All are now resolved; `pnpm audit`
+returns `No known vulnerabilities found`.
+
+**Direct dependency bumps** (security-motivated, no API changes):
+
+| Package | From | To | Advisory / Reason |
+|---|---|---|---|
+| `@xenova/transformers` | `^2.17.2` | → `@huggingface/transformers ^4.0.1` | Upstream rename; eliminates `prebuild-install@7.1.3` deprecation via `sharp` bump 0.32 → 0.34 |
+| `yaml` (core + root) | `^2.8.2` | `^2.8.3` | [GHSA — Stack overflow on deeply nested YAML](https://github.com/advisories) |
+| `vitest` (caamp, cant, cleo-os, core, lafs, runtime, root) | various 1.6 – 4.1.0 | `^4.1.4` | Pulls clean transitive `vite@8.0.8`, `esbuild@0.28.x`, `picomatch@4.0.4` |
+| `@vitest/coverage-v8` (caamp) | `^4.1.1` | `^4.1.4` | Matches vitest bump |
+| `esbuild` (root dev) | `^0.27.4` | `^0.28.0` | [esbuild dev-server SSRF advisory] |
+| `@codluv/versionguard` | `0.2.0` | `^1.2.0` | Pulls clean `brace-expansion@>=2.0.3` |
+| `@biomejs/biome` | `^2.4.6` (installed 2.4.8) | `^2.4.10` | Patch bump, no rule changes |
+| `vite` (direct root dev) | — | `^8.0.8` | Added as root dev dep so the override reaches all workspace consumers |
+
+**Transitive pins** (via `pnpm.overrides` in root `package.json`) —
+needed because the vulnerable versions were pulled in via peer deps
+that pnpm would otherwise keep:
+
+```jsonc
+"pnpm": {
+  "overrides": {
+    "path-to-regexp": ">=8.4.2",  // GHSA — ReDoS / DoS in express router
+    "brace-expansion": ">=2.0.3", // GHSA — zero-step process hang
+    "picomatch":      ">=4.0.4",  // GHSA — ReDoS via extglob quantifiers
+    "esbuild":        ">=0.25.0", // GHSA — dev-server SSRF
+    "yaml":           ">=2.8.3",  // GHSA — deeply-nested stack overflow
+    "vite":           "^8.0.8"    // GHSA — path traversal + fs.deny bypass
+  }
+}
+```
+
+After the swap + overrides, `pnpm dedupe` collapses all duplicate vite
+instances to the single patched version, and the workspace builds
+against the newer `onnxruntime-node` + `sharp` used by
+`@huggingface/transformers`. Build externalises the new package so
+esbuild does not try to inline the `.node` native bindings (see
+`build.mjs` and the migration note above).
+
+### Fixed — Flaky pi harness attribution test (race condition)
+
+`packages/caamp/src/core/harness/pi.ts` → `spawnSubagent` was
+fire-and-forgetting its child-session JSONL appends (`void
+appendFile(...)`). Test code that did `await handle.exitPromise` and
+then read the JSONL raced against pending writes — the final
+`subagent_exit` entry occasionally landed on disk after the read,
+producing intermittent CI failures in
+`packages/caamp/tests/unit/harness/pi.test.ts > creates the child
+session JSONL at the canonical subagents/ path` with `expected 2 to
+be greater than or equal to 3`.
+
+Fix: track every `appendFile` promise in a `pendingWrites: Promise<void>[]`
+array and `Promise.allSettled(pendingWrites)` before the `'close'`
+handler resolves `exitPromise`. `writeChildSession` still swallows
+disk errors internally so settlement never propagates failures.
+Verified stable across 5 back-to-back isolated runs + the full
+workspace parallel suite.
+
+### Fixed — Flaky bulk-create perf budget
+
+`packages/core/src/store/__tests__/performance-safety.test.ts` bumped
+two budgets that were tight under vitest 4.x parallel scheduling:
+
+- `should create 50 tasks within <5000ms` → `<10000ms` (baseline ~600ms
+  on a quiet laptop; 10s absorbs CI parallelism with 4+ vitest
+  workers; still catches a 20× real regression).
+- `should verify 50 tasks within <2000ms` → `<3000ms` (same rationale,
+  baseline ~200ms).
+
+### Fixed — CI Unblock & Post-Migration Cleanup
 
 ### Fixed — Deprecated transitive dependency (`prebuild-install`)
 

@@ -542,18 +542,26 @@ export class PiHarness implements Harness {
       }
     };
 
+    // Track all in-flight appendFile promises so the `'close'` handler can
+    // drain them before `exitPromise` resolves. Without this, callers that
+    // `await handle.exitPromise` and then immediately read the JSONL file
+    // race against pending writes (see caamp pi-harness attribution test).
+    const pendingWrites: Promise<void>[] = [];
+
     const writeChildSession = (entry: Record<string, unknown>): void => {
-      // Best-effort fire-and-forget append. We do NOT await here because
-      // the streaming loop must keep up with stdout chunks; ordering
-      // within the file is preserved by Node's append semantics for a
-      // single-writer file.
-      void appendFile(childSessionPath, `${JSON.stringify(entry)}\n`, 'utf8').catch(() => {
-        // Disk errors are recorded as a synthetic stderr line so they
-        // surface in `recentStderr` without aborting the child.
-        const synthetic = `[childSession] failed to append entry`;
-        stderrRing.push(synthetic);
-        if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
-      });
+      // Ordering within the file is preserved by Node's append semantics
+      // for a single-writer file. We no longer `void` the promise — we
+      // track it in `pendingWrites` so the exit path can await completion.
+      const writePromise = appendFile(childSessionPath, `${JSON.stringify(entry)}\n`, 'utf8').catch(
+        () => {
+          // Disk errors are recorded as a synthetic stderr line so they
+          // surface in `recentStderr` without aborting the child.
+          const synthetic = `[childSession] failed to append entry`;
+          stderrRing.push(synthetic);
+          if (stderrRing.length > STDERR_RING_BUFFER_SIZE) stderrRing.shift();
+        },
+      );
+      pendingWrites.push(writePromise);
     };
 
     const flushStdoutBuffer = (final: boolean): void => {
@@ -672,7 +680,10 @@ export class PiHarness implements Harness {
 
     // Build the rich exit promise. Resolves on `'close'` (which fires
     // after stdio streams have flushed) so we observe the final stdout
-    // chunk before resolving. NEVER rejects.
+    // chunk before resolving. Also drains all in-flight JSONL writes
+    // before resolving so tests (and any other caller) can safely read
+    // the child session file immediately after awaiting exitPromise.
+    // NEVER rejects.
     const exitPromise: Promise<SubagentExitResult> = new Promise((resolve) => {
       child.on('close', (exitCode, signal) => {
         // Flush any trailing partial lines from both streams so the
@@ -698,8 +709,16 @@ export class PiHarness implements Harness {
           childSessionPath,
           durationMs,
         };
-        safeOnStream({ kind: 'exit', subagentId, payload: result });
-        resolve(result);
+
+        // Drain all pending JSONL writes before resolving so callers that
+        // read the file immediately after `await handle.exitPromise` see
+        // the complete conversation, not a partially-flushed prefix.
+        // Settlement (not failure) is what we need — writeChildSession
+        // already swallows disk errors internally.
+        Promise.allSettled(pendingWrites).then(() => {
+          safeOnStream({ kind: 'exit', subagentId, payload: result });
+          resolve(result);
+        });
       });
       // A spawn failure (e.g. ENOENT) emits 'error' before 'close'.
       // Synthesise a deterministic exit so the promise still resolves
