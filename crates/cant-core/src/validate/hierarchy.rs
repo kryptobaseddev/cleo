@@ -453,6 +453,7 @@ mod tests {
             hooks: vec![],
             context_sources: vec![],
             mental_model: vec![],
+            file_permissions: None,
             span: dummy_span(),
         }
     }

@@ -147,6 +147,12 @@ pub struct AgentDef {
     /// Lint rules `MM-001` / `MM-002` require `scope:` and `validate: true` respectively
     /// whenever this is non-empty.
     pub mental_model: Vec<Property>,
+    /// Path-scoped file permissions declared via `permissions: files:` sub-block (T422).
+    ///
+    /// `None` means no path ACL was declared (tool-level enforcement only).
+    /// `Some(_)` means the agent has explicit path constraints; an empty `write`
+    /// vec means the agent is read-only (default-deny for writes).
+    pub file_permissions: Option<PathPermissions>,
     /// Span covering the entire agent definition.
     pub span: Span,
 }
@@ -395,6 +401,42 @@ pub struct Permission {
     pub globs: Vec<String>,
     /// Span covering the entire permission line.
     pub span: Span,
+}
+
+/// Path-scoped file permissions for a CANT agent (T422 — ULTRAPLAN §9.2).
+///
+/// Declares which file path globs the agent may read, write, or delete.
+/// Enforced at runtime by the `tool_call` hook in `cleo-cant-bridge.ts`.
+///
+/// An **empty `write` list means the agent has NO write permission** (read-only).
+/// An absent field means that access level is unrestricted (default-allow).
+///
+/// ```cant
+/// agent backend-dev:
+///   role: worker
+///   permissions:
+///     files:
+///       write: ["packages/cleo/**", "crates/**"]
+///       read:  ["**/*"]
+///       delete: ["packages/cleo/**"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PathPermissions {
+    /// Glob patterns for paths this agent is allowed to write (Edit/Write tool).
+    ///
+    /// Empty vec = no writes allowed (security-first default-deny).
+    /// Absent (None on AgentDef) = unrestricted (no declared ACL).
+    pub write: Vec<String>,
+    /// Glob patterns for paths this agent is allowed to read.
+    ///
+    /// Empty vec = no reads allowed.
+    /// Absent = unrestricted (default-allow for reads).
+    pub read: Vec<String>,
+    /// Glob patterns for paths this agent is allowed to delete.
+    ///
+    /// Empty vec = no deletes allowed.
+    /// Absent = unrestricted.
+    pub delete: Vec<String>,
 }
 
 // ── Context References ──────────────────────────────────────────────

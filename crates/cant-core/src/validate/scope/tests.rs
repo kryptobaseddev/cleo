@@ -22,6 +22,7 @@ fn make_agent(name: &str, line: u32) -> AgentDef {
         hooks: vec![],
         context_sources: vec![],
         mental_model: vec![],
+        file_permissions: None,
         span: dummy_span(),
     }
 }

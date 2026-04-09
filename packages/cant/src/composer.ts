@@ -125,6 +125,51 @@ export interface SpawnPayload {
 // Agent definition (extracted from compiled .cant bundle)
 // ---------------------------------------------------------------------------
 
+/**
+ * Path-scoped file permissions for a CANT agent (T423 — ULTRAPLAN §9.2).
+ *
+ * Mirrors the Rust `PathPermissions` struct in `crates/cant-core/src/dsl/ast.rs`.
+ * Enforced at runtime by the `tool_call` hook in `cleo-cant-bridge.ts`.
+ *
+ * Security rules:
+ * - An **empty `write` array means no writes are allowed** (default-deny).
+ * - An absent field (`undefined`) means that access level is unrestricted.
+ *
+ * @example
+ * ```cant
+ * agent backend-dev:
+ *   permissions:
+ *     files:
+ *       write: ["packages/cleo/**", "crates/**"]
+ *       read:  ["**\/*"]
+ *       delete: ["packages/cleo/**"]
+ * ```
+ *
+ * @task T423
+ */
+export interface PathPermissions {
+  /**
+   * Glob patterns for paths this agent may write (Edit/Write tool).
+   *
+   * An empty array means no writes are allowed (read-only agent).
+   * `undefined` means no write ACL was declared (unrestricted).
+   */
+  write?: string[];
+  /**
+   * Glob patterns for paths this agent may read.
+   *
+   * `undefined` means reads are unrestricted (default-allow).
+   */
+  read?: string[];
+  /**
+   * Glob patterns for paths this agent may delete.
+   *
+   * An empty array means no deletes are allowed.
+   * `undefined` means deletes are unrestricted.
+   */
+  delete?: string[];
+}
+
 /** Agent definition extracted from a compiled `.cant` bundle. */
 export interface AgentDefinition {
   /** The agent name as declared in the `.cant` file. */
@@ -166,6 +211,15 @@ export interface AgentDefinition {
   } | null;
   /** Behavior when total tokens exceed the tier cap. */
   onOverflow: 'escalate_tier' | 'fail';
+  /**
+   * Path-scoped file permissions declared via `permissions: files:` in the `.cant` file.
+   *
+   * `undefined` means no path ACL was declared (tool-level enforcement only).
+   * When present, the `tool_call` hook enforces write/delete path restrictions.
+   *
+   * @task T423
+   */
+  filePermissions?: PathPermissions;
 }
 
 // ---------------------------------------------------------------------------

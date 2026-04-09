@@ -691,6 +691,7 @@ fn check_all_non_workflow_sections_ignored() {
         hooks: vec![],
         context_sources: vec![],
         mental_model: vec![],
+        file_permissions: None,
         span: dummy_span(),
     })]);
     let ctx = ValidationContext::new();

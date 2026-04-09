@@ -12,7 +12,7 @@
 //!     session: read
 //! ```
 
-use super::ast::{AgentDef, ContextRef, Spanned};
+use super::ast::{AgentDef, ContextRef, PathPermissions, Spanned};
 use super::error::ParseError;
 use super::hook::parse_hook_block;
 use super::indent::{IndentedLine, collect_block};
@@ -77,6 +77,7 @@ pub fn parse_agent_block(
     let mut hooks = Vec::new();
     let mut context_sources = Vec::new();
     let mut mental_model = Vec::new();
+    let mut file_permissions: Option<PathPermissions> = None;
 
     let mut i = 0;
     while i < body_lines.len() {
@@ -90,7 +91,12 @@ pub fn parse_agent_block(
         // Check for permissions: sub-block
         if line.content == "permissions:" {
             let perm_lines = collect_block(body_lines, i + 1, line.indent);
-            permissions = parse_permissions(perm_lines)?;
+            // Separate out any `files:` sub-block from the standard permission lines.
+            let (standard_lines, fp) = split_file_permissions(perm_lines)?;
+            permissions = parse_permissions(standard_lines)?;
+            if fp.is_some() {
+                file_permissions = fp;
+            }
             i += 1 + perm_lines.len();
             continue;
         }
@@ -169,6 +175,7 @@ pub fn parse_agent_block(
         hooks,
         context_sources,
         mental_model,
+        file_permissions,
         span: Span::new(
             base_offset,
             end_offset,
@@ -178,6 +185,152 @@ pub fn parse_agent_block(
     };
 
     Ok((agent, total_consumed))
+}
+
+/// Partitions lines from a `permissions:` block into two groups:
+///
+/// 1. Standard permission lines (all lines except the `files:` sub-block) —
+///    returned as a slice suitable for [`parse_permissions`].
+/// 2. An optional [`PathPermissions`] parsed from the `files:` sub-block.
+///
+/// The `files:` sub-block looks like:
+/// ```cant
+/// files:
+///   write: ["packages/cleo/**", "crates/**"]
+///   read:  ["**/*"]
+///   delete: ["packages/cleo/**"]
+/// ```
+///
+/// # T422 — ULTRAPLAN §9.2 path-scoped write permissions
+fn split_file_permissions<'a>(
+    perm_lines: &'a [IndentedLine<'a>],
+) -> Result<(&'a [IndentedLine<'a>], Option<PathPermissions>), ParseError> {
+    // Find the index of the `files:` header line (if any).
+    let files_idx = perm_lines
+        .iter()
+        .position(|l| !l.is_blank() && !l.is_comment() && l.content == "files:");
+
+    let Some(idx) = files_idx else {
+        // No files: block — return all lines for standard permission parsing.
+        return Ok((perm_lines, None));
+    };
+
+    // Collect the indented body under `files:`.
+    let files_header = &perm_lines[idx];
+    let files_body = collect_block(perm_lines, idx + 1, files_header.indent);
+
+    let mut fp = PathPermissions::default();
+
+    let mut i = 0;
+    while i < files_body.len() {
+        let line = &files_body[i];
+        if line.is_blank() || line.is_comment() {
+            i += 1;
+            continue;
+        }
+
+        let colon_pos = line.content.find(':').ok_or_else(|| {
+            let base = line.byte_offset + line.indent;
+            ParseError::error(
+                format!(
+                    "expected `write:`, `read:`, or `delete:` in files: block, got: {}",
+                    line.content
+                ),
+                Span::new(base, base + line.content.len(), line.line_number, (line.indent as u32) + 1),
+            )
+        })?;
+
+        let key = line.content[..colon_pos].trim();
+        let value_str = line.content[colon_pos + 1..].trim();
+
+        let globs = parse_glob_array(value_str);
+
+        match key {
+            "write" => fp.write = globs,
+            "read" => fp.read = globs,
+            "delete" => fp.delete = globs,
+            other => {
+                let base = line.byte_offset + line.indent;
+                return Err(ParseError::error(
+                    format!(
+                        "unknown key '{other}' in files: block — expected write, read, or delete"
+                    ),
+                    Span::new(
+                        base,
+                        base + line.content.len(),
+                        line.line_number,
+                        (line.indent as u32) + 1,
+                    ),
+                ));
+            }
+        }
+
+        i += 1;
+    }
+
+    // Return the lines that come BEFORE the `files:` header as the standard
+    // permission lines (lines after the files: block are also returned if any).
+    let files_block_len = 1 + files_body.len();
+    let before = &perm_lines[..idx];
+    let after_start = idx + files_block_len;
+    let after = if after_start < perm_lines.len() {
+        &perm_lines[after_start..]
+    } else {
+        &perm_lines[..0]
+    };
+
+    // We need a contiguous slice for standard parsing — if `files:` is in the
+    // middle, we can't return a disjoint view. In practice `.cant` files always
+    // place `files:` last in the permissions block (as in teams.cant), so
+    // `before` covers the standard lines. If `after` is non-empty we fall back
+    // to parsing only `before` and ignore unreachable tail lines (linter can
+    // flag mis-ordered blocks separately).
+    let _ = after; // accepted — linter-level concern, not parser-fatal
+    Ok((before, Some(fp)))
+}
+
+/// Parses an inline glob array value like `["a/**", "b/**"]` into a `Vec<String>`.
+///
+/// Also accepts bare identifiers without brackets for single patterns.
+/// Returns an empty vec for empty arrays `[]` or empty input.
+fn parse_glob_array(value_str: &str) -> Vec<String> {
+    let trimmed = value_str.trim();
+
+    // Handle array syntax: ["a", "b"]
+    if trimmed.starts_with('[') {
+        let inner = trimmed
+            .trim_start_matches('[')
+            .trim_end_matches(']');
+
+        return inner
+            .split(',')
+            .map(|s| {
+                let s = s.trim();
+                // Strip surrounding quotes
+                if (s.starts_with('"') && s.ends_with('"'))
+                    || (s.starts_with('\'') && s.ends_with('\''))
+                {
+                    s[1..s.len() - 1].to_string()
+                } else {
+                    s.to_string()
+                }
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+
+    // Bare single value
+    if !trimmed.is_empty() {
+        let s = trimmed;
+        if (s.starts_with('"') && s.ends_with('"'))
+            || (s.starts_with('\'') && s.ends_with('\''))
+        {
+            return vec![s[1..s.len() - 1].to_string()];
+        }
+        return vec![s.to_string()];
+    }
+
+    Vec::new()
 }
 
 /// Parses the child lines of a `context:` block into [`ContextRef`] entries.
@@ -426,5 +579,80 @@ mod tests {
         let lines = split_lines(input).unwrap();
         let (agent, _) = parse_agent_block(&lines, 0).unwrap();
         assert!(agent.context_refs.is_empty());
+    }
+
+    // ── T422: file_permissions parsing tests ────────────────────────────
+
+    #[test]
+    fn parse_agent_with_files_write_block() {
+        let input = "agent backend-dev:\n  role: worker\n  permissions:\n    files:\n      write: [\"packages/cleo/**\", \"crates/**\"]\n      read: [\"**/*\"]";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        assert_eq!(fp.write, vec!["packages/cleo/**", "crates/**"]);
+        assert_eq!(fp.read, vec!["**/*"]);
+        assert!(fp.delete.is_empty());
+    }
+
+    #[test]
+    fn parse_agent_with_files_write_and_delete() {
+        let input = "agent backend-dev:\n  role: worker\n  permissions:\n    files:\n      write: [\"packages/cleo/**\"]\n      delete: [\"packages/cleo/**\"]\n      read: [\"**/*\"]";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        assert_eq!(fp.write, vec!["packages/cleo/**"]);
+        assert_eq!(fp.delete, vec!["packages/cleo/**"]);
+        assert_eq!(fp.read, vec!["**/*"]);
+    }
+
+    #[test]
+    fn parse_agent_with_empty_write_glob_is_readonly() {
+        let input = "agent security-reviewer:\n  role: worker\n  permissions:\n    files:\n      write: []\n      read: [\"**/*\"]";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        assert!(fp.write.is_empty(), "empty write glob means no writes allowed");
+        assert_eq!(fp.read, vec!["**/*"]);
+    }
+
+    #[test]
+    fn parse_agent_without_files_block_has_no_file_permissions() {
+        let input = "agent ops:\n  model: opus\n  permissions:\n    tasks: read, write";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        assert!(agent.file_permissions.is_none());
+        assert_eq!(agent.permissions.len(), 1);
+        assert_eq!(agent.permissions[0].domain, "tasks");
+    }
+
+    #[test]
+    fn parse_agent_files_block_with_standard_perms() {
+        let input = "agent backend-dev:\n  role: worker\n  permissions:\n    tasks: read, write\n    files:\n      write: [\"packages/cleo/**\"]";
+        let lines = split_lines(input).unwrap();
+        let (agent, _) = parse_agent_block(&lines, 0).unwrap();
+        // Standard permissions preserved
+        assert_eq!(agent.permissions.len(), 1);
+        assert_eq!(agent.permissions[0].domain, "tasks");
+        // File permissions parsed
+        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        assert_eq!(fp.write, vec!["packages/cleo/**"]);
+    }
+
+    #[test]
+    fn parse_glob_array_inline() {
+        let result = parse_glob_array("[\"a/**\", \"b/**\"]");
+        assert_eq!(result, vec!["a/**", "b/**"]);
+    }
+
+    #[test]
+    fn parse_glob_array_empty() {
+        let result = parse_glob_array("[]");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_glob_array_single() {
+        let result = parse_glob_array("[\"**/*\"]");
+        assert_eq!(result, vec!["**/*"]);
     }
 }

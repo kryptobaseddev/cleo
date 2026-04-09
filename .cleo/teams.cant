@@ -63,51 +63,88 @@ agent product-manager:
   description: "Requirements, feature prioritization, user stories, acceptance criteria"
   tier: mid
   consult-when: "Requirements, feature prioritization, user stories, acceptance criteria"
+  permissions:
+    files:
+      write: ["docs/product/**", ".cleo/tasks/**"]
+      read: ["**/*"]
 
 agent ux-researcher:
   role: worker
   description: "User behavior, personas, journey mapping, usability, friction points"
   tier: mid
   consult-when: "User behavior, personas, journey mapping, usability, friction points"
+  permissions:
+    files:
+      write: ["docs/research/**"]
+      read: ["**/*"]
 
 agent spec-writer:
   role: worker
   description: "Authoring ADRs, technical specifications, and RFC 2119 protocol documents"
   tier: mid
   consult-when: "ADR authoring, specification writing, protocol documents"
+  permissions:
+    files:
+      write: ["docs/specs/**", ".cleo/adrs/**"]
+      read: ["**/*"]
 
 agent backend-dev:
   role: worker
   description: "APIs, databases, infrastructure, background jobs, third-party integrations"
   tier: mid
   consult-when: "APIs, databases, infrastructure, background jobs, third-party integrations"
+  permissions:
+    files:
+      write: ["packages/cleo/**", "packages/core/**", "crates/**"]
+      read: ["**/*"]
+      delete: ["packages/cleo/**"]
 
 agent frontend-dev:
   role: worker
   description: "UI components, layouts, client-side state, browser APIs, CSS"
   tier: mid
   consult-when: "UI components, layouts, client-side state, browser APIs, CSS"
+  permissions:
+    files:
+      write: ["apps/web/**", "packages/ui/**"]
+      read: ["**/*"]
 
 agent platform-engineer:
   role: worker
   description: "Build systems, CI/CD, monorepo tooling, deployment pipelines"
   tier: mid
   consult-when: "Build systems, CI/CD, monorepo tooling, deployment pipelines"
+  permissions:
+    files:
+      write: ["packages/cleo-os/**", "packages/caamp/**"]
+      read: ["**/*"]
 
 agent qa-engineer:
   role: worker
   description: "Test cases, regression testing, automation, bug reproduction"
   tier: mid
   consult-when: "Test cases, regression testing, automation, bug reproduction"
+  permissions:
+    files:
+      write: ["**/*.test.ts", "**/__tests__/**", "packages/cleo/test/**"]
+      read: ["**/*"]
 
 agent security-reviewer:
   role: worker
   description: "Threat modeling, authentication, authorization, data protection, OWASP"
   tier: mid
   consult-when: "Threat modeling, authentication, authorization, data protection, OWASP"
+  permissions:
+    files:
+      write: []
+      read: ["**/*"]
 
 agent release-manager:
   role: worker
   description: "Version gating, changelog authoring, npm publish, CalVer policy enforcement"
   tier: mid
   consult-when: "Version gating, changelog, npm publish, release notes"
+  permissions:
+    files:
+      write: ["CHANGELOG.md", "package.json", "packages/*/package.json"]
+      read: ["**/*"]

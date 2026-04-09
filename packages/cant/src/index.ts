@@ -18,6 +18,7 @@ export type {
   ContextProvider,
   ContextSlice,
   MentalModelSlice,
+  PathPermissions,
   SpawnPayload,
   Tier,
 } from './composer.js';

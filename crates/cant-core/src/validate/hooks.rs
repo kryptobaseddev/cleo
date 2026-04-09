@@ -310,6 +310,7 @@ mod tests {
             hooks,
             context_sources: vec![],
             mental_model: vec![],
+            file_permissions: None,
             span: dummy_span(),
         }
     }

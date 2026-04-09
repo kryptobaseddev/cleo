@@ -112,6 +112,143 @@ export function buildMentalModelInjection(
 }
 
 // ============================================================================
+// T424: Path-ACL helpers (pure, no external deps)
+// ============================================================================
+
+/**
+ * Path-scoped file permissions shape expected in an agentDef at runtime.
+ *
+ * Mirrors `PathPermissions` from `@cleocode/cant` (T423).
+ * Kept inline here to avoid a direct runtime import in the Pi extension context.
+ *
+ * @task T424
+ */
+interface AgentFilePermissions {
+  /** Glob patterns the agent may write to. Empty array = no writes allowed. */
+  write?: string[];
+  /** Glob patterns the agent may read from. */
+  read?: string[];
+  /** Glob patterns the agent may delete. */
+  delete?: string[];
+}
+
+/**
+ * Convert a glob pattern to a RegExp for path matching.
+ *
+ * Supports the subset of glob syntax used in CANT file permissions:
+ * - `**` matches any path segment sequence (including none)
+ * - `*` matches any characters within a single path segment
+ * - `?` matches a single character
+ * - All other characters are treated as literals
+ *
+ * @param glob - The glob pattern string.
+ * @returns A RegExp that tests absolute or relative file paths.
+ */
+function globToRegExp(glob: string): RegExp {
+  // Escape special regex characters except our glob specials
+  let regexStr = "";
+  let i = 0;
+  while (i < glob.length) {
+    const char = glob[i];
+    if (char === "*" && glob[i + 1] === "*") {
+      // ** matches everything including path separators
+      regexStr += ".*";
+      i += 2;
+      // Skip optional trailing slash after **
+      if (glob[i] === "/") i++;
+    } else if (char === "*") {
+      // * matches anything except path separator
+      regexStr += "[^/]*";
+      i++;
+    } else if (char === "?") {
+      regexStr += "[^/]";
+      i++;
+    } else if (/[.+^${}()|[\]\\]/.test(char)) {
+      regexStr += "\\" + char;
+      i++;
+    } else {
+      regexStr += char;
+      i++;
+    }
+  }
+  return new RegExp("^" + regexStr + "$");
+}
+
+/**
+ * Test whether a file path matches any of the provided glob patterns.
+ *
+ * Normalises the path to use forward slashes. Returns `false` immediately
+ * when `globs` is an empty array (default-deny for empty write lists).
+ *
+ * @param filePath - The file path to test (absolute or relative).
+ * @param globs - The glob patterns to test against.
+ * @returns `true` if `filePath` matches at least one glob pattern.
+ */
+function matchesAnyGlob(filePath: string, globs: string[]): boolean {
+  if (globs.length === 0) return false;
+  // Normalise separators; strip leading slash for relative matching
+  const normalized = filePath.replace(/\\/g, "/").replace(/^\//, "");
+  for (const glob of globs) {
+    if (globToRegExp(glob).test(normalized)) return true;
+  }
+  return false;
+}
+
+/**
+ * Attempt to extract the target file path from a Pi tool_call event.
+ *
+ * Handles the three writable tool shapes:
+ * - `Edit`: `{ input: { file_path: string } }` or `{ filePath: string }`
+ * - `Write`: `{ input: { file_path: string } }` or `{ filePath: string }`
+ * - `Bash`: best-effort scan of the command string for write destinations
+ *
+ * Returns `null` when the path cannot be determined (allow-by-default for Bash
+ * when the destination is ambiguous).
+ *
+ * @param toolName - The tool being invoked ("Edit", "Write", or "Bash").
+ * @param toolInput - The raw tool input object.
+ * @returns The extracted file path, or `null` if not determinable.
+ */
+function extractTargetPath(
+  toolName: string,
+  toolInput: Record<string, unknown> | undefined,
+): string | null {
+  if (!toolInput) return null;
+
+  if (toolName === "Edit" || toolName === "Write") {
+    // Pi uses snake_case in the actual tool call input
+    if (typeof toolInput["file_path"] === "string") return toolInput["file_path"];
+    // camelCase fallback (bridge convention)
+    if (typeof toolInput["filePath"] === "string") return toolInput["filePath"];
+    // path fallback
+    if (typeof toolInput["path"] === "string") return toolInput["path"];
+    return null;
+  }
+
+  if (toolName === "Bash") {
+    const cmd = typeof toolInput["command"] === "string" ? toolInput["command"] : null;
+    if (!cmd) return null;
+
+    // Detect common write patterns: redirection, tee, cp/mv destination
+    // Best-effort: return the first detected destination path.
+    // If ambiguous, return null (allow-by-default for Bash).
+    const redirectMatch = cmd.match(/>\s*["']?([^\s"';&|]+)/);
+    if (redirectMatch?.[1]) return redirectMatch[1];
+
+    const teeMatch = cmd.match(/\btee\s+(?:-a\s+)?["']?([^\s"';&|]+)/);
+    if (teeMatch?.[1]) return teeMatch[1];
+
+    // cp/mv destination is the last argument — very heuristic
+    const cpMvMatch = cmd.match(/\b(?:cp|mv)\s+\S+\s+["']?([^\s"';&|]+)/);
+    if (cpMvMatch?.[1]) return cpMvMatch[1];
+
+    return null; // Cannot determine — allow (workers self-report)
+  }
+
+  return null;
+}
+
+// ============================================================================
 // Internal state
 // ============================================================================
 
@@ -344,7 +481,9 @@ export default function (pi: ExtensionAPI): void {
   );
 
   // tool_call: ULTRAPLAN §10.3 — Lead agents MUST NOT execute Edit/Write/Bash.
-  // Leads dispatch; workers execute. Fires on every Pi tool_call event.
+  // T424: Worker agents with declared file permissions are restricted to their
+  //        declared write globs. Leads dispatch; workers execute within scope.
+  // Fires on every Pi tool_call event.
   // The before_agent_start handler (T420 validate-on-load) is NOT touched here.
   pi.on(
     "tool_call",
@@ -353,29 +492,78 @@ export default function (pi: ExtensionAPI): void {
       agentDef?: {
         /** Tier role declared in the .cant file (e.g. "lead", "worker", "orchestrator"). */
         role?: string;
+        /** Path-scoped file permissions declared in the .cant file (T423). */
+        filePermissions?: AgentFilePermissions;
+        /** Agent name for diagnostic messages. */
+        name?: string;
       };
       /** The tool name being invoked (e.g. "Edit", "Write", "Bash"). */
       toolName?: string;
+      /** The raw tool input object (contains file_path for Edit/Write, command for Bash). */
+      toolInput?: Record<string, unknown>;
     }) => {
       const agentDef = event.agentDef;
-      // Only restrict agents whose CANT role is explicitly "lead".
-      if (!agentDef || agentDef.role !== "lead") return {};
+      // No agentDef = no restrictions (hook is a no-op).
+      if (!agentDef) return {};
 
-      const BLOCKED_TOOLS = ["Edit", "Write", "Bash"];
       const toolName = event.toolName ?? "";
+      const BLOCKED_TOOLS = ["Edit", "Write", "Bash"];
 
-      if (!BLOCKED_TOOLS.includes(toolName)) return {};
+      // ── W7b: Lead blocking ─────────────────────────────────────────────
+      // Only restrict agents whose CANT role is explicitly "lead".
+      // Non-lead roles (worker, orchestrator, undefined) pass this gate.
+      if (agentDef.role !== "lead") {
+        // Fall through to the T424 worker path ACL check below.
+      } else {
+        // Lead role: block Edit/Write/Bash entirely.
+        if (!BLOCKED_TOOLS.includes(toolName)) return {};
 
-      // Reject the tool call with a LAFS error envelope.
-      return {
-        rejected: true,
-        error: {
-          code: 70,
-          codeName: "E_LEAD_TOOL_BLOCKED",
-          message: `Lead agents cannot execute ${toolName} — dispatch to a worker instead`,
-          fix: "Use the delegate tool to spawn a worker agent for this work",
-        },
-      };
+        // Reject the tool call with a LAFS error envelope.
+        return {
+          rejected: true,
+          error: {
+            code: 70,
+            codeName: "E_LEAD_TOOL_BLOCKED",
+            message: `Lead agents cannot execute ${toolName} — dispatch to a worker instead`,
+            fix: "Use the delegate tool to spawn a worker agent for this work",
+          },
+        };
+      }
+
+      // ── T424: Worker path ACL ──────────────────────────────────────────
+      // Workers with declared file permissions can only write inside their
+      // declared globs. Applies to Edit, Write, and Bash (best-effort).
+      if (
+        agentDef.role === "worker" &&
+        agentDef.filePermissions !== undefined &&
+        BLOCKED_TOOLS.includes(toolName)
+      ) {
+        const writeGlobs = agentDef.filePermissions.write;
+        // `undefined` write field = no declared write ACL = allow through.
+        // Empty array [] = explicit no-writes = default-deny.
+        if (writeGlobs !== undefined) {
+          const targetPath = extractTargetPath(toolName, event.toolInput);
+          if (targetPath !== null && !matchesAnyGlob(targetPath, writeGlobs)) {
+            const agentName = agentDef.name ?? "worker";
+            const scopeList =
+              writeGlobs.length > 0 ? writeGlobs.join(", ") : "(none — this worker is read-only)";
+            return {
+              rejected: true,
+              error: {
+                code: 71,
+                codeName: "E_WORKER_PATH_ACL_VIOLATION",
+                message: `Worker ${agentName} is not allowed to write to ${targetPath}`,
+                fix:
+                  `This worker can only write inside: ${scopeList}. ` +
+                  "Either update the worker's permissions.files.write glob in " +
+                  ".cleo/teams.cant, or dispatch to a different worker with matching scope.",
+              },
+            };
+          }
+        }
+      }
+
+      return {};
     },
   );
 
