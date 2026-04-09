@@ -28,6 +28,8 @@ import {
   searchBrainCompact,
   timelineBrain,
 } from './brain-retrieval.js';
+// T419: async reinforcement queue for mental-model writes (ULTRAPLAN L5)
+import { isMentalModelObservation, mentalModelQueue } from './mental-model-queue.js';
 import {
   learningStats,
   type SearchLearningParams,
@@ -412,6 +414,8 @@ export async function memoryFind(
     tables?: string[];
     dateStart?: string;
     dateEnd?: string;
+    /** T418: filter results to observations produced by a specific agent. */
+    agent?: string;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -425,6 +429,7 @@ export async function memoryFind(
         | undefined,
       dateStart: params.dateStart,
       dateEnd: params.dateEnd,
+      agent: params.agent,
     });
     return { success: true, data: result };
   } catch (error) {
@@ -536,19 +541,36 @@ export async function memoryObserve(
     project?: string;
     sourceSessionId?: string;
     sourceType?: string;
+    /** T417: agent provenance — name of the spawned agent producing this observation. */
+    agent?: string;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const result = await observeBrain(root, {
+    const observeParams: ObserveBrainParams = {
       text: params.text,
       title: params.title,
       type: params.type as ObserveBrainParams['type'],
       project: params.project,
       sourceSessionId: params.sourceSessionId,
       sourceType: params.sourceType as ObserveBrainParams['sourceType'],
-    });
+      agent: params.agent,
+    };
+
+    // T419: route mental-model observations (agent-tagged, relevant type) through
+    // the async reinforcement queue for non-blocking writes (ULTRAPLAN L5).
+    // All other observations use the existing synchronous path.
+    let result: Awaited<ReturnType<typeof observeBrain>>;
+    if (isMentalModelObservation(observeParams) && observeParams.agent) {
+      result = await mentalModelQueue.enqueue(root, {
+        ...observeParams,
+        agent: observeParams.agent,
+      });
+    } else {
+      result = await observeBrain(root, observeParams);
+    }
+
     return { success: true, data: result };
   } catch (error) {
     return {

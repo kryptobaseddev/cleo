@@ -85,6 +85,8 @@ export function registerMemoryBrainCommand(program: Command): void {
     .option('--min-confidence <n>', 'Minimum confidence for learnings', parseFloat)
     .option('--actionable', 'Only show actionable learnings')
     .option('--limit <n>', 'Maximum results', parseInt)
+    // T418: agent filter for per-agent mental model retrieval
+    .option('--agent <name>', 'Filter observations by agent provenance name (Wave 8 mental models)')
     .option('--json', 'Output as JSON')
     .action(async (query: string, opts: Record<string, unknown>) => {
       const memType = opts['type'] as string | undefined;
@@ -122,6 +124,8 @@ export function registerMemoryBrainCommand(program: Command): void {
           {
             query,
             limit: opts['limit'],
+            // T418: forward agent filter when provided
+            ...(opts['agent'] !== undefined && { agent: opts['agent'] }),
           },
           { command: 'memory', operation: 'memory.find' },
         );
@@ -161,6 +165,8 @@ export function registerMemoryBrainCommand(program: Command): void {
     .command('observe <text>')
     .description('Save an observation to brain.db')
     .option('--title <title>', 'Short title for the observation')
+    // T417: tag observation with agent provenance for per-agent mental model retrieval
+    .option('--agent <name>', 'Tag this observation with the producing agent name (Wave 8 mental models)')
     .action(async (text: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
@@ -169,6 +175,7 @@ export function registerMemoryBrainCommand(program: Command): void {
         {
           text,
           title: opts['title'],
+          ...(opts['agent'] !== undefined && { agent: opts['agent'] }),
         },
         { command: 'memory', operation: 'memory.observe' },
       );

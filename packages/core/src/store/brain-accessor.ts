@@ -251,6 +251,8 @@ export class BrainDataAccessor {
       project?: string;
       sourceType?: (typeof brainSchema.BRAIN_OBSERVATION_SOURCE_TYPES)[number];
       sourceSessionId?: string;
+      /** T417: filter by agent provenance name (Wave 8 mental models). */
+      agent?: string;
       limit?: number;
     } = {},
   ): Promise<BrainObservationRow[]> {
@@ -267,6 +269,9 @@ export class BrainDataAccessor {
     }
     if (params.sourceSessionId) {
       conditions.push(eq(brainSchema.brainObservations.sourceSessionId, params.sourceSessionId));
+    }
+    if (params.agent) {
+      conditions.push(eq(brainSchema.brainObservations.agent, params.agent));
     }
 
     let query = this.db

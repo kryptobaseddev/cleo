@@ -445,6 +445,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'agent',
+        type: 'string',
+        required: false,
+        description: 'Filter results to observations produced by the named agent (T418 mental models)',
+        cli: { flag: '--agent <name>' },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',

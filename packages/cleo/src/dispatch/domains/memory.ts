@@ -77,6 +77,8 @@ export class MemoryHandler implements DomainHandler {
               tables: params?.tables as string[] | undefined,
               dateStart: params?.dateStart as string | undefined,
               dateEnd: params?.dateEnd as string | undefined,
+              // T418: optional agent filter for per-agent mental model retrieval
+              agent: params?.agent as string | undefined,
             },
             projectRoot,
           );
@@ -300,6 +302,8 @@ export class MemoryHandler implements DomainHandler {
               project: params?.project as string | undefined,
               sourceSessionId: params?.sourceSessionId as string | undefined,
               sourceType: params?.sourceType as string | undefined,
+              // T417: optional agent provenance for mental model observations
+              agent: params?.agent as string | undefined,
             },
             projectRoot,
           );

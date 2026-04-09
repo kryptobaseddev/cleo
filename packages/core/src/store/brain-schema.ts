@@ -172,6 +172,8 @@ export const brainObservations = sqliteTable(
     sourceType: text('source_type', { enum: BRAIN_OBSERVATION_SOURCE_TYPES })
       .notNull()
       .default('agent'),
+    /** T383/T417: agent provenance — identifies the spawned agent that produced this observation. Null for legacy entries. */
+    agent: text('agent'), // nullable — null for legacy observations
     contentHash: text('content_hash'), // SHA-256 prefix for dedup
     discoveryTokens: integer('discovery_tokens'), // cost to produce this observation
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -187,6 +189,8 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_content_hash_created_at').on(table.contentHash, table.createdAt),
     // T033: type + project compound filter optimization
     index('idx_brain_observations_type_project').on(table.type, table.project),
+    // T417: agent provenance index for memory.find --agent filter
+    index('idx_brain_observations_agent').on(table.agent),
   ],
 );
 

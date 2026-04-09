@@ -58,6 +58,8 @@ export interface SearchBrainCompactParams {
   tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
   dateStart?: string;
   dateEnd?: string;
+  /** T418: filter results to observations produced by a specific agent (Wave 8 mental models). */
+  agent?: string;
 }
 
 /** Result from searchBrainCompact. */
@@ -121,6 +123,8 @@ export interface ObserveBrainParams {
   project?: string;
   sourceSessionId?: string;
   sourceType?: BrainObservationSourceType;
+  /** T417: agent provenance — the name of the spawned agent producing this observation. */
+  agent?: string;
 }
 
 /** Result from observeBrain. */
@@ -149,15 +153,21 @@ export async function searchBrainCompact(
   projectRoot: string,
   params: SearchBrainCompactParams,
 ): Promise<SearchBrainCompactResult> {
-  const { query, limit, tables, dateStart, dateEnd } = params;
+  const { query, limit, tables, dateStart, dateEnd, agent } = params;
 
   if (!query || !query.trim()) {
     return { results: [], total: 0, tokensEstimated: 0 };
   }
 
+  // T418: when agent filter is set, restrict search to observations table only
+  const effectiveTables =
+    agent !== undefined && agent !== null
+      ? (['observations'] as Array<'decisions' | 'patterns' | 'learnings' | 'observations'>)
+      : tables;
+
   const searchResult = await searchBrain(projectRoot, query, {
     limit: limit ?? 10,
-    tables,
+    tables: effectiveTables,
   });
 
   // Project full results to compact format.
@@ -166,38 +176,45 @@ export async function searchBrainCompact(
   // We handle both naming conventions for robustness.
   let results: BrainCompactHit[] = [];
 
-  for (const d of searchResult.decisions) {
-    const raw = d as Record<string, unknown>;
-    results.push({
-      id: d.id,
-      type: 'decision',
-      title: d.decision.slice(0, 80),
-      date: (d.createdAt ?? (raw['created_at'] as string)) || '',
-    });
-  }
+  if (!agent) {
+    for (const d of searchResult.decisions) {
+      const raw = d as Record<string, unknown>;
+      results.push({
+        id: d.id,
+        type: 'decision',
+        title: d.decision.slice(0, 80),
+        date: (d.createdAt ?? (raw['created_at'] as string)) || '',
+      });
+    }
 
-  for (const p of searchResult.patterns) {
-    const raw = p as Record<string, unknown>;
-    results.push({
-      id: p.id,
-      type: 'pattern',
-      title: p.pattern.slice(0, 80),
-      date: (p.extractedAt ?? (raw['extracted_at'] as string)) || '',
-    });
-  }
+    for (const p of searchResult.patterns) {
+      const raw = p as Record<string, unknown>;
+      results.push({
+        id: p.id,
+        type: 'pattern',
+        title: p.pattern.slice(0, 80),
+        date: (p.extractedAt ?? (raw['extracted_at'] as string)) || '',
+      });
+    }
 
-  for (const l of searchResult.learnings) {
-    const raw = l as Record<string, unknown>;
-    results.push({
-      id: l.id,
-      type: 'learning',
-      title: l.insight.slice(0, 80),
-      date: (l.createdAt ?? (raw['created_at'] as string)) || '',
-    });
+    for (const l of searchResult.learnings) {
+      const raw = l as Record<string, unknown>;
+      results.push({
+        id: l.id,
+        type: 'learning',
+        title: l.insight.slice(0, 80),
+        date: (l.createdAt ?? (raw['created_at'] as string)) || '',
+      });
+    }
   }
 
   for (const o of searchResult.observations) {
     const raw = o as Record<string, unknown>;
+    // T418: apply agent post-filter when specified
+    if (agent) {
+      const rowAgent = (o.agent ?? (raw['agent'] as string | null)) ?? null;
+      if (rowAgent !== agent) continue;
+    }
     results.push({
       id: o.id,
       type: 'observation',
@@ -524,7 +541,15 @@ export async function observeBrain(
   projectRoot: string,
   params: ObserveBrainParams,
 ): Promise<ObserveBrainResult> {
-  const { text, title: titleParam, type: typeParam, project, sourceSessionId, sourceType } = params;
+  const {
+    text,
+    title: titleParam,
+    type: typeParam,
+    project,
+    sourceSessionId,
+    sourceType,
+    agent,
+  } = params;
 
   if (!text || !text.trim()) {
     throw new Error('Observation text is required');
@@ -588,6 +613,7 @@ export async function observeBrain(
     project: project ?? null,
     sourceSessionId: validSessionId,
     sourceType: sourceType ?? 'agent',
+    agent: agent ?? null,
     createdAt: now,
   });
 
