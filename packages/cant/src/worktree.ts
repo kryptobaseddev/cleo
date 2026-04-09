@@ -25,7 +25,16 @@ export interface WorktreeRequest {
   reason: 'subagent' | 'experiment' | 'parallel-wave';
 }
 
-/** Handle returned after worktree creation; used for merge and cleanup. */
+/**
+ * Handle returned after worktree creation; used for merge, env-var binding, and cleanup.
+ *
+ * @remarks
+ * The `projectHash` field was added in T380/ADR-041 so callers can populate
+ * `CLEO_PROJECT_HASH` in spawned subagent environments without threading
+ * {@link WorktreeConfig} through every call site.
+ *
+ * @task T380
+ */
 export interface WorktreeHandle {
   /** Absolute path to the worktree directory. */
   path: string;
@@ -35,6 +44,17 @@ export interface WorktreeHandle {
   baseRef: string;
   /** Task ID. */
   taskId: string;
+  /**
+   * Project hash used to scope this worktree under the XDG worktree root.
+   *
+   * @remarks
+   * Sourced from {@link WorktreeConfig.projectHash} at creation time.
+   * Exposed here so spawn adapters can populate the `CLEO_PROJECT_HASH`
+   * environment variable without re-threading the full config.
+   *
+   * @task T380
+   */
+  projectHash: string;
   /** Clean up: remove the worktree and optionally delete the branch. */
   cleanup(deleteBranch?: boolean): void;
 }
@@ -122,7 +142,14 @@ export function createWorktree(request: WorktreeRequest, config: WorktreeConfig)
     stdio: 'pipe',
   });
 
-  return buildHandle(worktreePath, branch, request.baseRef, request.taskId, config.gitRoot);
+  return buildHandle(
+    worktreePath,
+    branch,
+    request.baseRef,
+    request.taskId,
+    config.gitRoot,
+    config.projectHash,
+  );
 }
 
 /**
@@ -203,6 +230,11 @@ export function listWorktrees(config: WorktreeConfig): WorktreeEntry[] {
 /**
  * Build a WorktreeHandle with a cleanup closure.
  *
+ * @remarks
+ * The `projectHash` parameter was added in T380/ADR-041 and is stored on the
+ * returned handle so spawn adapters can populate `CLEO_PROJECT_HASH` without
+ * re-threading {@link WorktreeConfig}.
+ *
  * @internal
  */
 function buildHandle(
@@ -211,12 +243,14 @@ function buildHandle(
   baseRef: string,
   taskId: string,
   gitRoot: string,
+  projectHash: string,
 ): WorktreeHandle {
   return {
     path: worktreePath,
     branch,
     baseRef,
     taskId,
+    projectHash,
     cleanup(deleteBranch = false) {
       try {
         execSync(`git worktree remove "${worktreePath}" --force`, {

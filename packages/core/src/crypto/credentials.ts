@@ -134,6 +134,34 @@ async function getMachineKey(): Promise<Buffer> {
 /**
  * Derive a per-project encryption key from the machine key.
  * Uses HMAC-SHA256(machine-key, project-path) to produce a 32-byte AES key.
+ *
+ * @remarks
+ * **KDF COORDINATION NOTE (T380/ADR-041 §D5, ADR-037 §5)**
+ *
+ * This KDF is intentionally NOT changed in T380. The current scheme
+ * (`HMAC-SHA256(machine-key, projectPath)`) is project-path-bound, which is
+ * correct for the current project-tier signaldock.db layout.
+ *
+ * ADR-037 §5 specifies the replacement KDF:
+ * ```
+ * apiKey = HMAC-SHA256(machine-key || globalSalt, agentId)
+ * ```
+ * where `globalSalt` is a 32-byte per-machine random value stored at
+ * `$XDG_DATA_HOME/cleo/global-salt`.
+ *
+ * The replacement KDF MUST be implemented as part of the global-signaldock
+ * migration (T310 + T362). Swapping it here, before that migration, would
+ * silently invalidate all stored encrypted API keys without providing the
+ * global-salt infrastructure needed to re-encrypt them.
+ *
+ * Once T310/T362 land, this function should be REPLACED (not extended) with
+ * the new `deriveAgentKey(agentId: string)` helper defined in that epic.
+ * Remove this comment block when the replacement lands.
+ *
+ * @see ADR-037 §5 — full KDF design and migration plan
+ * @see T310 — GlobalAgentRegistryAccessor + KDF refactor
+ * @see T362 — parallel KDF coordination
+ * @task T380
  */
 async function deriveProjectKey(projectPath: string): Promise<Buffer> {
   const machineKey = await getMachineKey();

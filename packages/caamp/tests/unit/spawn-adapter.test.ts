@@ -39,7 +39,9 @@ describe("SpawnAdapter interface", () => {
     expect(running[0]?.status).toBe("running");
   });
 
-  it("SpawnOptions has correct shape", () => {
+  it("SpawnOptions has correct shape with deprecated isolate boolean", () => {
+    // isolate: boolean is kept for one release cycle (v2026.5.x removal target)
+    // per ADR-041 §D1. This test documents the backward-compat contract.
     const opts: SpawnOptions = {
       prompt: "Hello",
       model: "claude-opus-4-6",
@@ -49,5 +51,30 @@ describe("SpawnAdapter interface", () => {
     };
     expect(opts.prompt).toBe("Hello");
     expect(opts.tools).toHaveLength(2);
+    expect(opts.isolate).toBe(true);
+  });
+
+  it("SpawnOptions accepts worktree handle (T380 ADR-041)", () => {
+    // Construct a minimal WorktreeHandle-shaped object for type-checking.
+    // Production code obtains real handles via createWorktree() in @cleocode/cant.
+    const fakeHandle = {
+      path: '/tmp/worktrees/T999',
+      branch: 'cleo/T999-abc123',
+      baseRef: 'main',
+      taskId: 'T999',
+      projectHash: 'deadbeef',
+      cleanup: (_deleteBranch?: boolean) => undefined,
+    } as const;
+
+    const opts: SpawnOptions = {
+      prompt: "work on T999",
+      worktree: fakeHandle,
+    };
+
+    expect(opts.worktree?.path).toBe('/tmp/worktrees/T999');
+    expect(opts.worktree?.branch).toBe('cleo/T999-abc123');
+    expect(opts.worktree?.projectHash).toBe('deadbeef');
+    // When worktree is set, isolate should not be needed
+    expect(opts.isolate).toBeUndefined();
   });
 });

@@ -15,6 +15,7 @@
  * @packageDocumentation
  */
 
+import type { WorktreeHandle } from '@cleocode/cant';
 import type { Provider } from '../../types.js';
 import type { HarnessTier } from './scope.js';
 
@@ -595,11 +596,33 @@ export interface SubagentSpawnOptions {
    *
    * @remarks
    * Useful when the same task description is reused across multiple
-   * working directories.
+   * working directories. When {@link worktree} is also set, the worktree
+   * path is used as the cwd and this field is ignored.
    *
    * @defaultValue undefined
    */
   cwd?: string;
+  /**
+   * Git worktree handle providing physical + logical isolation for the
+   * spawned subagent (ADR-041 §D2).
+   *
+   * @remarks
+   * When set, `PiHarness.spawnSubagent` MUST:
+   * 1. Pass `cwd: worktree.path` to the Pi subprocess.
+   * 2. Inject the following env vars (before `opts.env` and `task.env`):
+   *    - `CLEO_WORKTREE_ROOT`   = worktree.path
+   *    - `CLEO_WORKTREE_BRANCH` = worktree.branch
+   *    - `CLEO_PROJECT_HASH`    = worktree.projectHash
+   *
+   * These env vars allow `getProjectRoot()` inside the worker to resolve
+   * DB paths against the correct worktree directory via the
+   * `worktreeScope` AsyncLocalStorage (ADR-041 §D3) or direct env-var
+   * inspection when AsyncLocalStorage is not in scope.
+   *
+   * @defaultValue undefined
+   * @task T380
+   */
+  worktree?: WorktreeHandle;
 }
 
 /**

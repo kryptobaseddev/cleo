@@ -33,10 +33,37 @@ allowed_tools:
 
 # CLEO Subagent Base Protocol
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Status**: ACTIVE
 
 This is the base protocol for all CLEO subagents. Skills extend this foundation.
+
+---
+
+## WORKTREE GUARD (MANDATORY — FIRST TOOL CALL)
+
+Every spawned worker MUST execute this guard as the very first Bash call in Phase 1,
+before reading any task details or doing any work. Bail immediately on failure.
+
+```bash
+WORKTREE="$(pwd)"
+[ "$WORKTREE" = "$(git rev-parse --show-toplevel)" ] || { echo "WORKTREE GUARD FAILED: cwd is not git root"; exit 1; }
+case "$WORKTREE" in
+  /mnt/projects/cleocode/.claude/worktrees/*) ;;
+  *) echo "BAD PATH: not in an expected worktree: $WORKTREE"; exit 1 ;;
+esac
+echo "WORKTREE GUARD PASSED: $WORKTREE"
+```
+
+**Why this matters (T335/ADR-041)**: Workers spawned inside git worktrees must
+verify their cwd is physically isolated before performing any file I/O. A worker
+whose cwd was NOT bound to its worktree will write to main-repo files, causing
+the T335 worktree-leak class of bugs. If the guard fails, the worker MUST exit
+immediately — it is misconfigured and cannot safely execute its task.
+
+The spawning adapter is responsible for passing `cwd: worktree.path` via
+`SubagentSpawnOptions.worktree` (ADR-041 §D2). This guard is the worker-side
+enforcement of that contract.
 
 ---
 

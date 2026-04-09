@@ -15,12 +15,83 @@
  * @task T4458
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
+
+// ============================================================================
+// Worktree Scope (T380/ADR-041 §D3)
+// ============================================================================
+
+/**
+ * Async context payload set by the spawn adapter when launching a subagent
+ * inside a git worktree (ADR-041 §D3).
+ *
+ * @remarks
+ * When `worktreeScope.run(scope, fn)` is active, `getProjectRoot()` returns
+ * `scope.worktreeRoot` instead of walking ancestors. All DB path functions
+ * that delegate to `getProjectRoot()` therefore direct their I/O to the
+ * worktree's `.cleo/` directory, closing the T335 worktree-leak root cause.
+ *
+ * For processes that were spawned with `CLEO_WORKTREE_ROOT` in their
+ * environment (but where AsyncLocalStorage is not in scope), callers should
+ * populate the store via:
+ * ```ts
+ * worktreeScope.run(
+ *   { worktreeRoot: process.env.CLEO_WORKTREE_ROOT, projectHash: process.env.CLEO_PROJECT_HASH },
+ *   () => { ... }
+ * );
+ * ```
+ *
+ * @task T380
+ * @public
+ */
+export interface WorktreeScope {
+  /**
+   * Absolute path to the worktree directory (value of `CLEO_WORKTREE_ROOT`).
+   */
+  worktreeRoot: string;
+  /**
+   * Project hash used to scope the worktree under the XDG worktree root
+   * (value of `CLEO_PROJECT_HASH`).
+   */
+  projectHash: string;
+}
+
+/**
+ * AsyncLocalStorage instance that carries the active {@link WorktreeScope}
+ * for the current async execution context.
+ *
+ * @remarks
+ * Set by the spawn adapter (or any caller that wants to redirect CLEO path
+ * resolution to a worktree directory) before invoking subagent logic.
+ * `getProjectRoot()` checks this store BEFORE the `CLEO_ROOT` env-var and
+ * ancestor-walk, so scoped callers transparently receive the worktree root.
+ *
+ * Callers outside a worktree context receive `undefined` from
+ * `worktreeScope.getStore()` and fall through to the existing resolution
+ * order unchanged.
+ *
+ * @example
+ * ```ts
+ * import { worktreeScope } from '@cleocode/core/paths';
+ *
+ * worktreeScope.run(
+ *   { worktreeRoot: '/path/to/worktree', projectHash: 'abc123' },
+ *   async () => {
+ *     const root = getProjectRoot(); // returns '/path/to/worktree'
+ *   }
+ * );
+ * ```
+ *
+ * @task T380
+ * @public
+ */
+export const worktreeScope = new AsyncLocalStorage<WorktreeScope>();
 
 /**
  * Check if a CLEO project is initialized at the given root.
@@ -209,6 +280,14 @@ export function getCleoDirAbsolute(cwd?: string): string {
  * ```
  */
 export function getProjectRoot(cwd?: string): string {
+  // 0. AsyncLocalStorage worktree scope (T380/ADR-041 §D3) — checked FIRST.
+  //    When a spawn adapter wraps execution in worktreeScope.run(...), the
+  //    scoped root wins over all env-var and walk-based resolution.
+  const scope = worktreeScope.getStore();
+  if (scope !== undefined) {
+    return scope.worktreeRoot;
+  }
+
   // 1. Honour CLEO_ROOT env var — bypass walk entirely
   if (process.env['CLEO_ROOT']) {
     return process.env['CLEO_ROOT'];
