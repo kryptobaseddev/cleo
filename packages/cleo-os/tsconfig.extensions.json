@@ -18,7 +18,8 @@
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "noEmitOnError": false
   },
   "include": ["extensions/**/*.ts"],
   "exclude": ["node_modules", "dist"]

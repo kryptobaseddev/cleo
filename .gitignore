@@ -84,6 +84,12 @@ packages/*/examples/**/*.js.map
 packages/*/examples/**/*.d.ts
 packages/*/examples/**/*.d.ts.map
 
+# Extensions: .ts sources only; compiled siblings are build artifacts
+packages/*/extensions/**/*.js
+packages/*/extensions/**/*.js.map
+packages/*/extensions/**/*.d.ts
+packages/*/extensions/**/*.d.ts.map
+
 # Intentionally tracked hand-written files that match the patterns above
 # (do NOT ignore these — they are the real entry points):
 !packages/cleo/bin/postinstall.js
