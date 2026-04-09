@@ -33,6 +33,9 @@ import type { JsonRestoreReport } from './restore-json-merge.js';
  * Warning emitted when a signaldock.db agent was encrypted with the
  * source machine's global-salt and therefore cannot be decrypted on the
  * target machine.
+ *
+ * @task T357
+ * @epic T311
  */
 export interface ReauthWarning {
   /** Canonical agent identifier, e.g. `"cleo-prime"`. */
@@ -44,6 +47,9 @@ export interface ReauthWarning {
 /**
  * Warning emitted when a bundled database's schema version differs from
  * the local schema version.
+ *
+ * @task T357
+ * @epic T311
  */
 export interface SchemaCompatWarning {
   /** Database name without extension, e.g. `"brain"` or `"conduit"`. */
@@ -64,6 +70,9 @@ export interface SchemaCompatWarning {
 
 /**
  * All inputs required to build the `.cleo/restore-conflicts.md` report.
+ *
+ * @task T357
+ * @epic T311
  */
 export interface BuildConflictReportInput {
   /** Per-file A/B comparison results produced by T354. */

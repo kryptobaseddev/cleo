@@ -51,6 +51,9 @@ const SQLITE_SCHEMA_VERSION_MIRROR = '2.0.0';
  *
  * @typeParam T - The shape of the generated file content. Defaults to
  *   `Record<string, unknown>` when the exact shape is not statically known.
+ *
+ * @task T352
+ * @epic T311
  */
 export interface RegeneratedFile<T = Record<string, unknown>> {
   /** The filename that `cleo init` would write. */
@@ -223,6 +226,9 @@ export function regenerateProjectContextJson(projectRoot: string): RegeneratedFi
  *
  * @param projectRoot - Absolute or relative path to the project root.
  * @returns Object containing all three `RegeneratedFile` results.
+ *
+ * @task T352
+ * @epic T311
  */
 export function regenerateAllJson(projectRoot: string): {
   config: RegeneratedFile;

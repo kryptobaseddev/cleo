@@ -36,6 +36,9 @@ import {
  * The three JSON filenames managed by the restore engine.
  *
  * Each filename maps to a distinct classification ruleset (spec §6.3).
+ *
+ * @task T354
+ * @epic T311
  */
 export type FilenameForRestore = 'config.json' | 'project-info.json' | 'project-context.json';
 
@@ -48,6 +51,9 @@ export type FilenameForRestore = 'config.json' | 'project-info.json' | 'project-
  * - `project-identity`  — field identifies the project in project-info.json; keep B.
  * - `auto-detect`       — field is auto-detected from the local environment; keep A.
  * - `unknown`           — no classification rule matched; flag for manual review.
+ *
+ * @task T354
+ * @epic T311
  */
 export type FieldCategory =
   | 'identical'
@@ -64,6 +70,9 @@ export type FieldCategory =
  * - `B`             — use the imported value.
  * - `manual-review` — no safe auto-resolution; local value (A) is kept as a
  *                     safe default pending operator review.
+ *
+ * @task T354
+ * @epic T311
  */
 export type Resolution = 'A' | 'B' | 'manual-review';
 
@@ -72,6 +81,9 @@ export type Resolution = 'A' | 'B' | 'manual-review';
  *
  * Produced by {@link regenerateAndCompare} for every leaf path encountered
  * during the recursive walk of both objects.
+ *
+ * @task T354
+ * @epic T311
  */
 export interface FieldClassification {
   /** JSON dot-path of the field, e.g. "brain.embeddingProvider" or "testing.framework". */
@@ -100,6 +112,9 @@ export interface FieldClassification {
  *
  * Returned by {@link regenerateAndCompare}. Caller persists `applied` to disk
  * and writes the full report to `.cleo/restore-conflicts.md`.
+ *
+ * @task T354
+ * @epic T311
  */
 export interface JsonRestoreReport {
   /** Which file was compared. */
@@ -127,6 +142,9 @@ export interface JsonRestoreReport {
  *
  * The caller supplies the imported content (B) and the locally regenerated
  * content (A). The engine classifies and resolves each field.
+ *
+ * @task T354
+ * @epic T311
  */
 export interface RegenerateAndCompareInput {
   /** Which of the three managed JSON files is being compared. */

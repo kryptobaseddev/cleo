@@ -211,6 +211,10 @@ CLEO provides 80+ commands organized into domains:
 |---------|-------------|
 | `cleo config` | Configuration |
 | `cleo backup` | Backup data |
+| `cleo backup export` | Pack a portable `.cleobundle.tar.gz` |
+| `cleo backup import` | Restore from a portable bundle |
+| `cleo backup inspect` | Print bundle manifest without extracting |
+| `cleo restore finalize` | Apply manually-resolved conflicts |
 | `cleo env` | Environment vars |
 | `cleo mcp-install` | Install MCP |
 | `cleo testing` | Testing setup |
@@ -225,6 +229,29 @@ CLEO provides 80+ commands organized into domains:
 | `cleo adr` | ADR management |
 | `cleo map` | Codebase map |
 | `cleo commands` | List all commands |
+
+### Cross-machine backup export/import (v2026.4.13+)
+
+The `cleo backup` command supports portable `.cleobundle.tar.gz` archives for
+cross-machine backup transfer:
+
+- `cleo backup export <name> [--scope project|global|all] [--encrypt]` — pack
+  project + global data into a portable bundle
+- `cleo backup import <bundle> [--force]` — restore from a bundle. Uses
+  intelligent A/B regenerate-and-compare for JSON files (`config.json`,
+  `project-info.json`, `project-context.json`). Conflicts are written to
+  `.cleo/restore-conflicts.md` for review.
+- `cleo backup inspect <bundle>` — print manifest without extracting
+- `cleo restore finalize` — apply manually-resolved conflicts from
+  `.cleo/restore-conflicts.md`
+
+See [ADR-038](../../.cleo/adrs/ADR-038-backup-portability.md) for the
+full specification.
+
+### Portable backups
+
+Use `cleo backup export --scope all` to create a `.cleobundle.tar.gz` that
+can be restored on a different machine via `cleo backup import`.
 
 ## MCP Server
 
