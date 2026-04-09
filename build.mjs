@@ -161,6 +161,7 @@ async function build() {
   //   runtime    (deps: contracts, core)
   //   adapters   (deps: contracts — built via esbuild + tsc emit)
   //   cleo       (deps: all of the above — built via esbuild)
+  //   cleo-os    (deps: cleo, cant — TUI wrapper)
   //
   // The CI lint job at .github/workflows/ci.yml `Build & Verify` runs
   // `node build.mjs` from a fresh state (no dist, no tsbuildinfo) on every
@@ -243,6 +244,18 @@ async function build() {
   // Make CLI entry executable (shebang only works with +x)
   await chmod('packages/cleo/dist/cli/index.js', 0o755);
   console.log('  -> packages/cleo/dist/cli/index.js');
+
+  // CleoOS wraps @cleocode/cleo + Pi — depends on cleo and cant (both built above).
+  // Uses build:src (main tsc only) — extensions have their own tsconfig and are
+  // compiled separately via build:extensions when needed. This avoids blocking
+  // the monorepo build on optional extension type issues.
+  console.log('Building @cleocode/cleo-os...');
+  execFileSync('pnpm', ['--filter', '@cleocode/cleo-os', 'run', 'build:src'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  await chmod('packages/cleo-os/dist/cli.js', 0o755).catch(() => {});
+  console.log('  -> packages/cleo-os/dist/');
 
   console.log('\nBuild complete.');
 }
