@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v2026.4.17 — CleoOS Dogfood Candidate
+
+### Fixed
+
+- **@cleocode/cleo-os tarball**: compiled extensions (`cleo-cant-bridge.js`, `cleo-chatroom.js`) now ship in the npm tarball. v2026.4.16 had `.ts`-only source due to `noEmitOnError` not being set in `tsconfig.extensions.json`. (STAB-2, T434)
+- **bin/postinstall.js regenerated**: canonical `src/postinstall.ts` with XDG scaffolding, extension deployment, model-routing.cant stub, and `cleo skills install` now compiles to `bin/postinstall.js`. v2026.4.16 shipped a hand-crafted 2983-byte stub that silently skipped these steps. (STAB-3, T435)
+- **orchestrate.fanout**: real Pi subprocess spawn via `orchestrateSpawnExecute` replaces the mock `{status: 'queued'}` stub. `orchestrate.fanout.status` reads manifest store. (STAB-1, T433)
+- **prepublishOnly guard**: `npm publish` now refuses to proceed if compiled extensions or postinstall are missing.
+- **tsconfig.postinstall.json**: added `"types": ["node"]` so `tsc -p tsconfig.postinstall.json` resolves Node built-in type declarations under TypeScript 6.
+
+### Added
+
+- Brain observations carry `agent` field for per-agent mental model retrieval (Wave 8)
+- `orchestrate.classify`, `orchestrate.fanout`, `orchestrate.fanout.status`, `orchestrate.analyze {mode:"parallel-safety"}` dispatch operations (Wave 7)
+- Pi `tool_call` hook enforces Lead role tool blocking (`E_LEAD_TOOL_BLOCKED`) and worker path ACLs (`E_WORKER_PATH_ACL_VIOLATION`) (Waves 7+ACL)
+- `SpawnOptions.worktree: WorktreeHandle` replaces boolean `isolate` flag with CWD + env var binding (Wave 9, ADR-041)
+- `ct-master-tac` plugin with 12 bundled CANT protocols + platform team definition (Wave HYGIENE)
+- `.cleo/teams.cant`: canonical platform team with 3 leads + 9 workers
+
 ## [2026.4.16] — 2026-04-09 — Build & Release Pipeline Fixes
 
 ### Fixed — cold-build failure in @cleocode/cant

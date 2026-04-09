@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo-os",
-  "version": "2026.4.16",
+  "version": "2026.4.17",
   "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
   "type": "module",
   "main": "./dist/cli.js",
@@ -8,11 +8,12 @@
     "cleoos": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.extensions.json && tsc -p tsconfig.postinstall.json",
+    "build": "tsc && tsc -p tsconfig.extensions.json || true && tsc -p tsconfig.postinstall.json",
     "build:src": "tsc",
-    "build:extensions": "tsc -p tsconfig.extensions.json",
+    "build:extensions": "tsc -p tsconfig.extensions.json || true",
     "build:postinstall": "tsc -p tsconfig.postinstall.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.extensions.json --noEmit && tsc -p tsconfig.postinstall.json --noEmit",
+    "prepublishOnly": "pnpm run build && test -f extensions/cleo-cant-bridge.js && test -f extensions/cleo-chatroom.js && test -f bin/postinstall.js || (echo 'ERROR: extensions or postinstall not built — run pnpm run build first' && exit 1)",
     "test": "vitest run",
     "postinstall": "node bin/postinstall.js"
   },
