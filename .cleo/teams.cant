@@ -1,0 +1,113 @@
+# Canonical platform team for CleoOS multi-agent hierarchy.
+#
+# Mirrors the 3-tier structure from ULTRAPLAN §10 and the Pi multi-team config
+# at /mnt/projects/agentic-engineer/lead-agents/.pi/multi-team/multi-team-config.yaml.
+#
+# Three leads map to the RCASD-IVTR+C lifecycle:
+#   - planning-lead:    research, consensus, architecture-decision, specification, decomposition
+#   - engineering-lead: implementation
+#   - validation-lead:  validation, testing, release
+#
+# Workers under each lead are listed in the `workers:` sub-block.
+# Enforcement is strict — the tool_call hook rejects Edit/Write/Bash on lead-role agents.
+
+team platform:
+  name: Platform Team
+  orchestrator: cleo-prime
+  enforcement: strict
+  consult-when: "Orchestrator-level escalation when a request crosses team boundaries or requires human-in-the-loop governance"
+  stages: [research, consensus, architecture-decision, specification, decomposition, implementation, validation, testing, release]
+
+  leads:
+    planning: planning-lead
+    engineering: engineering-lead
+    validation: validation-lead
+
+  workers:
+    planning: [product-manager, ux-researcher, spec-writer]
+    engineering: [backend-dev, frontend-dev, platform-engineer]
+    validation: [qa-engineer, security-reviewer, release-manager]
+
+agent planning-lead:
+  role: lead
+  description: "Decides WHAT to build and why — owns research, consensus, ADRs, specs, and decomposition. Dispatches to planning workers. MUST NOT execute Edit/Write/Bash directly."
+  consult-when: "Deciding WHAT to build and why — research, consensus, ADRs, specs, decomposition"
+  stages: [research, consensus, architecture-decision, specification, decomposition]
+  workers:
+    - product-manager
+    - ux-researcher
+    - spec-writer
+
+agent engineering-lead:
+  role: lead
+  description: "Decides HOW to build — owns implementation strategy, code review, and refactoring direction. Dispatches to engineering workers. MUST NOT execute Edit/Write/Bash directly."
+  consult-when: "Deciding HOW to build — implementation, code writing, refactoring, API design"
+  stages: [implementation]
+  workers:
+    - backend-dev
+    - frontend-dev
+    - platform-engineer
+
+agent validation-lead:
+  role: lead
+  description: "Verifies it works — owns validation, testing strategy, security review, and release gating. Dispatches to validation workers. MUST NOT execute Edit/Write/Bash directly."
+  consult-when: "Does it work — validation, testing, security review, release"
+  stages: [validation, testing, release]
+  workers:
+    - qa-engineer
+    - security-reviewer
+    - release-manager
+
+agent product-manager:
+  role: worker
+  description: "Requirements, feature prioritization, user stories, acceptance criteria"
+  tier: mid
+  consult-when: "Requirements, feature prioritization, user stories, acceptance criteria"
+
+agent ux-researcher:
+  role: worker
+  description: "User behavior, personas, journey mapping, usability, friction points"
+  tier: mid
+  consult-when: "User behavior, personas, journey mapping, usability, friction points"
+
+agent spec-writer:
+  role: worker
+  description: "Authoring ADRs, technical specifications, and RFC 2119 protocol documents"
+  tier: mid
+  consult-when: "ADR authoring, specification writing, protocol documents"
+
+agent backend-dev:
+  role: worker
+  description: "APIs, databases, infrastructure, background jobs, third-party integrations"
+  tier: mid
+  consult-when: "APIs, databases, infrastructure, background jobs, third-party integrations"
+
+agent frontend-dev:
+  role: worker
+  description: "UI components, layouts, client-side state, browser APIs, CSS"
+  tier: mid
+  consult-when: "UI components, layouts, client-side state, browser APIs, CSS"
+
+agent platform-engineer:
+  role: worker
+  description: "Build systems, CI/CD, monorepo tooling, deployment pipelines"
+  tier: mid
+  consult-when: "Build systems, CI/CD, monorepo tooling, deployment pipelines"
+
+agent qa-engineer:
+  role: worker
+  description: "Test cases, regression testing, automation, bug reproduction"
+  tier: mid
+  consult-when: "Test cases, regression testing, automation, bug reproduction"
+
+agent security-reviewer:
+  role: worker
+  description: "Threat modeling, authentication, authorization, data protection, OWASP"
+  tier: mid
+  consult-when: "Threat modeling, authentication, authorization, data protection, OWASP"
+
+agent release-manager:
+  role: worker
+  description: "Version gating, changelog authoring, npm publish, CalVer policy enforcement"
+  tier: mid
+  consult-when: "Version gating, changelog, npm publish, release notes"

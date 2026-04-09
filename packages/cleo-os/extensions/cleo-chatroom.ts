@@ -36,8 +36,14 @@ import { Type } from "@sinclair/typebox";
 // Message model
 // ---------------------------------------------------------------------------
 
+/**
+ * Tier role of an agent in the 3-tier hierarchy (ULTRAPLAN §10).
+ * Used to apply distinct TUI styling per tier.
+ */
+export type AgentTierRole = "orchestrator" | "lead" | "worker";
+
 /** A single inter-agent chat message. */
-interface ChatMessage {
+export interface ChatMessage {
   /** ISO-8601 timestamp of when the message was created. */
   timestamp: string;
   /** Name of the sending agent. */
@@ -48,6 +54,14 @@ interface ChatMessage {
   channel: "send_to_lead" | "broadcast_to_team" | "report_to_orchestrator" | "query_peer";
   /** The message text. */
   text: string;
+  /**
+   * Optional tier role of the sending agent.
+   *
+   * When present, the TUI row is prefixed and (if ANSI is available)
+   * coloured by tier: orchestrator = green ([O]), lead = yellow ([L]),
+   * worker = blue ([W]).  Defaults to "worker" when absent.
+   */
+  role?: AgentTierRole;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,14 +100,39 @@ function recordMessage(msg: ChatMessage): void {
 }
 
 /**
+ * Return the single-character tier prefix for a chat message row.
+ *
+ * - `[O]` orchestrator (green in ANSI-capable terminals)
+ * - `[L]` lead         (yellow)
+ * - `[W]` worker       (blue, default)
+ *
+ * @param role - The sending agent's tier role, or `undefined` to default to worker.
+ * @returns The three-character prefix string.
+ */
+export function tierPrefix(role: AgentTierRole | undefined): string {
+  switch (role) {
+    case "orchestrator":
+      return "[O]";
+    case "lead":
+      return "[L]";
+    default:
+      return "[W]";
+  }
+}
+
+/**
  * Format a chat message for TUI display.
+ *
+ * Each row is prefixed with a tier indicator ([O]/[L]/[W]) so orchestrator,
+ * lead, and worker traffic is visually distinct in the chat panel (ULTRAPLAN §13).
  *
  * @param msg - The message to format.
  * @returns A single-line string representation.
  */
-function formatMessage(msg: ChatMessage): string {
+export function formatMessage(msg: ChatMessage): string {
   const time = msg.timestamp.slice(11, 19);
-  return `[${time}] ${msg.from} -> ${msg.to}: ${msg.text}`;
+  const prefix = tierPrefix(msg.role);
+  return `${prefix} [${time}] ${msg.from} -> ${msg.to}: ${msg.text}`;
 }
 
 /**
@@ -123,12 +162,26 @@ const SendToLeadParams = Type.Object({
   message: Type.String({ description: "Message to send to your team lead" }),
   from: Type.String({ description: "Your agent name" }),
   lead: Type.String({ description: "Name of the lead agent" }),
+  role: Type.Optional(
+    Type.Union([
+      Type.Literal("orchestrator"),
+      Type.Literal("lead"),
+      Type.Literal("worker"),
+    ], { description: "Tier role of the sending agent for TUI row styling" }),
+  ),
 });
 
 const BroadcastToTeamParams = Type.Object({
   message: Type.String({ description: "Message to broadcast to the team" }),
   from: Type.String({ description: "Your agent name (lead)" }),
   group: Type.String({ description: "Team group name (e.g. 'backend')" }),
+  role: Type.Optional(
+    Type.Union([
+      Type.Literal("orchestrator"),
+      Type.Literal("lead"),
+      Type.Literal("worker"),
+    ], { description: "Tier role of the sending agent for TUI row styling" }),
+  ),
 });
 
 const ReportToOrchestratorParams = Type.Object({
@@ -137,12 +190,26 @@ const ReportToOrchestratorParams = Type.Object({
   orchestrator: Type.String({
     description: "Name of the orchestrator agent",
   }),
+  role: Type.Optional(
+    Type.Union([
+      Type.Literal("orchestrator"),
+      Type.Literal("lead"),
+      Type.Literal("worker"),
+    ], { description: "Tier role of the sending agent for TUI row styling" }),
+  ),
 });
 
 const QueryPeerParams = Type.Object({
   message: Type.String({ description: "Query for your peer worker" }),
   from: Type.String({ description: "Your agent name" }),
   peer: Type.String({ description: "Name of the peer worker to query" }),
+  role: Type.Optional(
+    Type.Union([
+      Type.Literal("orchestrator"),
+      Type.Literal("lead"),
+      Type.Literal("worker"),
+    ], { description: "Tier role of the sending agent for TUI row styling" }),
+  ),
 });
 
 // ---------------------------------------------------------------------------
@@ -194,7 +261,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: SendToLeadParams,
     async execute(
       _id: string,
-      params: { message: string; from: string; lead: string },
+      params: { message: string; from: string; lead: string; role?: AgentTierRole },
       _signal: AbortSignal,
       _onUpdate: (text: string) => void,
       ctx: ExtensionContext,
@@ -205,6 +272,7 @@ export default function (pi: ExtensionAPI): void {
         to: params.lead,
         channel: "send_to_lead",
         text: params.message,
+        role: params.role,
       };
       recordMessage(msg);
       renderWidget(ctx);
@@ -231,7 +299,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: BroadcastToTeamParams,
     async execute(
       _id: string,
-      params: { message: string; from: string; group: string },
+      params: { message: string; from: string; group: string; role?: AgentTierRole },
       _signal: AbortSignal,
       _onUpdate: (text: string) => void,
       ctx: ExtensionContext,
@@ -242,6 +310,7 @@ export default function (pi: ExtensionAPI): void {
         to: `team:${params.group}`,
         channel: "broadcast_to_team",
         text: params.message,
+        role: params.role,
       };
       recordMessage(msg);
       renderWidget(ctx);
@@ -268,7 +337,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: ReportToOrchestratorParams,
     async execute(
       _id: string,
-      params: { message: string; from: string; orchestrator: string },
+      params: { message: string; from: string; orchestrator: string; role?: AgentTierRole },
       _signal: AbortSignal,
       _onUpdate: (text: string) => void,
       ctx: ExtensionContext,
@@ -279,6 +348,7 @@ export default function (pi: ExtensionAPI): void {
         to: params.orchestrator,
         channel: "report_to_orchestrator",
         text: params.message,
+        role: params.role,
       };
       recordMessage(msg);
       renderWidget(ctx);
@@ -305,7 +375,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: QueryPeerParams,
     async execute(
       _id: string,
-      params: { message: string; from: string; peer: string },
+      params: { message: string; from: string; peer: string; role?: AgentTierRole },
       _signal: AbortSignal,
       _onUpdate: (text: string) => void,
       ctx: ExtensionContext,
@@ -316,6 +386,7 @@ export default function (pi: ExtensionAPI): void {
         to: params.peer,
         channel: "query_peer",
         text: params.message,
+        role: params.role,
       };
       recordMessage(msg);
       renderWidget(ctx);

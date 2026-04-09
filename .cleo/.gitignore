@@ -18,6 +18,7 @@
 # Allow list
 !.gitignore
 !project-context.json
+!teams.cant
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 !adrs/

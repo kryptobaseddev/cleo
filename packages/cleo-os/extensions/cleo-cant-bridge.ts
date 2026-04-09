@@ -343,6 +343,42 @@ export default function (pi: ExtensionAPI): void {
     },
   );
 
+  // tool_call: ULTRAPLAN §10.3 — Lead agents MUST NOT execute Edit/Write/Bash.
+  // Leads dispatch; workers execute. Fires on every Pi tool_call event.
+  // The before_agent_start handler (T420 validate-on-load) is NOT touched here.
+  pi.on(
+    "tool_call",
+    async (event: {
+      /** CANT agent definition resolved by Pi at spawn time, if available. */
+      agentDef?: {
+        /** Tier role declared in the .cant file (e.g. "lead", "worker", "orchestrator"). */
+        role?: string;
+      };
+      /** The tool name being invoked (e.g. "Edit", "Write", "Bash"). */
+      toolName?: string;
+    }) => {
+      const agentDef = event.agentDef;
+      // Only restrict agents whose CANT role is explicitly "lead".
+      if (!agentDef || agentDef.role !== "lead") return {};
+
+      const BLOCKED_TOOLS = ["Edit", "Write", "Bash"];
+      const toolName = event.toolName ?? "";
+
+      if (!BLOCKED_TOOLS.includes(toolName)) return {};
+
+      // Reject the tool call with a LAFS error envelope.
+      return {
+        rejected: true,
+        error: {
+          code: 70,
+          codeName: "E_LEAD_TOOL_BLOCKED",
+          message: `Lead agents cannot execute ${toolName} — dispatch to a worker instead`,
+          fix: "Use the delegate tool to spawn a worker agent for this work",
+        },
+      };
+    },
+  );
+
   // /cant:bundle-info — introspection command
   pi.registerCommand("cant:bundle-info", {
     description: "Show the state of the CANT bundle compiled at session start",
