@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.18] — CLI Help UX Overhaul
+
+### Fixed
+
+- **cleo --help**: replaced flat 100+ command dump with 13 domain-grouped sections (Task Management, Sessions & Planning, Memory & Notes, etc.)
+- **alias deduplication**: aliases (`ls`, `done`, `rm`, `tags`, `note`, `pipeline`) now shown inline as `list (ls)` instead of duplicated entries
+- **help padding**: eliminated massive horizontal whitespace caused by multi-line `buildOperationHelp` descriptions leaking into citty's column formatter
+- **cargo fmt**: fixed Rust formatting in cant-core and cant-router crates
+
+### Changed
+
+- Custom `showUsage` renderer passed to citty's `runMain` for root help; sub-command help (`cleo add --help`) unchanged
+
 ## [2026.4.17] — CleoOS Dogfood Candidate
 
 ### Fixed

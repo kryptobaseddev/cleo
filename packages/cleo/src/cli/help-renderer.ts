@@ -327,7 +327,7 @@ export function createCustomShowUsage(
   return async <T extends ArgsDef = ArgsDef>(cmd: CommandDef<T>, parent?: CommandDef<T>) => {
     // Root command (no parent) → show grouped help
     if (!parent) {
-      const meta = typeof cmd.meta === 'function' ? await cmd.meta() : cmd.meta;
+      const meta = await (typeof cmd.meta === 'function' ? cmd.meta() : cmd.meta);
       if (meta?.name === 'cleo') {
         console.log(renderGroupedHelp(version, shims, aliasMap) + '\n');
         return;
