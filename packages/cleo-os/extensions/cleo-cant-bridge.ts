@@ -46,13 +46,30 @@
  * @packageDocumentation
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import {
+  accentPrimary,
+  bold,
+  textSecondary,
+  BOX_HORIZONTAL,
+  BOX_VERTICAL,
+  BOX_TOP_LEFT,
+  BOX_TOP_RIGHT,
+  BOX_BOTTOM_LEFT,
+  BOX_BOTTOM_RIGHT,
+  BOX_LEFT_T,
+  BOX_RIGHT_T,
+  ICON_FORGE,
+  ICON_DIAMOND,
+  ICON_TRIANGLE,
+  LINE_VERTICAL,
+} from "./tui-theme.js";
 
 // ============================================================================
 // T420: validate-on-load constants and pure helpers
@@ -251,55 +268,13 @@ function extractTargetPath(
 }
 
 // ============================================================================
-// T442: ANSI color helpers for TUI visual identity
+// T442: ANSI color helpers — imported from shared tui-theme.ts
 // ============================================================================
-
-/** ANSI escape code prefix. */
-const ESC = "\x1b[";
-
-/** ANSI reset sequence — clears all styling. */
-const RESET = `${ESC}0m`;
-
-/**
- * Wrap text in ANSI 256-color foreground.
- *
- * @param text - The text to colorize.
- * @param code - ANSI 256-color code.
- * @returns The text wrapped in ANSI color escape sequences.
- */
-function ansi256(text: string, code: number): string {
-  return `${ESC}38;5;${code}m${text}${RESET}`;
-}
-
-/**
- * Purple accent color (approximate #a855f7 in 256-color palette).
- *
- * @param text - The text to style with purple.
- * @returns Purple-styled ANSI text.
- */
-function purple(text: string): string {
-  return ansi256(text, 135);
-}
-
-/**
- * Dim/muted text (gray, approximate #94a3b8).
- *
- * @param text - The text to dim.
- * @returns Dim-styled ANSI text.
- */
-function dim(text: string): string {
-  return ansi256(text, 245);
-}
-
-/**
- * Bold text via ANSI escape.
- *
- * @param text - The text to bold.
- * @returns Bold-styled ANSI text.
- */
-function bold(text: string): string {
-  return `${ESC}1m${text}${RESET}`;
-}
+// All color constants and styling functions are imported from tui-theme.ts
+// at the top of this file. The design tokens map to:
+//   accentPrimary  → #a855f7 (ANSI 135) — banner chrome, headers
+//   textSecondary  → #94a3b8 (ANSI 245) — dim/muted text
+//   bold           → ANSI bold escape    — headings, emphasis
 
 // ============================================================================
 // T442: Session banner rendering
@@ -338,13 +313,13 @@ export function buildSessionBanner(
   sessionId: string,
 ): string[] {
   const WIDTH = 44;
-  const hBar = "\u2550".repeat(WIDTH);
+  const hBar = BOX_HORIZONTAL.repeat(WIDTH);
 
   // Build the content strings (plain, without ANSI, for padding calculation)
-  const titleText = "        \u2692  C L E O O S  \u2692";
+  const titleText = `        ${ICON_FORGE}  C L E O O S  ${ICON_FORGE}`;
   const subtitleText = "     The Agentic Development Forge";
   const statsText =
-    `  Agents: ${counts.agents}  \u2502  Teams: ${counts.teams}  \u2502  Tools: ${counts.tools}`;
+    `  Agents: ${counts.agents}  ${LINE_VERTICAL}  Teams: ${counts.teams}  ${LINE_VERTICAL}  Tools: ${counts.tools}`;
   const sessionText = `  Session: ${sessionId.length > 20 ? sessionId.slice(0, 20) + "..." : sessionId}`;
 
   /**
@@ -356,17 +331,17 @@ export function buildSessionBanner(
    */
   function padLine(content: string, styledContent: string): string {
     const pad = Math.max(0, WIDTH - content.length);
-    return purple("  \u2551") + styledContent + " ".repeat(pad) + purple("\u2551");
+    return accentPrimary(`  ${BOX_VERTICAL}`) + styledContent + " ".repeat(pad) + accentPrimary(BOX_VERTICAL);
   }
 
   return [
-    purple(`  \u2554${hBar}\u2557`),
-    padLine(titleText, bold(purple(titleText))),
-    padLine(subtitleText, dim(subtitleText)),
-    purple(`  \u2560${hBar}\u2563`),
-    padLine(statsText, dim(statsText)),
-    padLine(sessionText, dim(sessionText)),
-    purple(`  \u255A${hBar}\u255D`),
+    accentPrimary(`  ${BOX_TOP_LEFT}${hBar}${BOX_TOP_RIGHT}`),
+    padLine(titleText, bold(accentPrimary(titleText))),
+    padLine(subtitleText, textSecondary(subtitleText)),
+    accentPrimary(`  ${BOX_LEFT_T}${hBar}${BOX_RIGHT_T}`),
+    padLine(statsText, textSecondary(statsText)),
+    padLine(sessionText, textSecondary(sessionText)),
+    accentPrimary(`  ${BOX_BOTTOM_LEFT}${hBar}${BOX_BOTTOM_RIGHT}`),
   ];
 }
 
@@ -647,10 +622,10 @@ export default function (pi: ExtensionAPI): void {
         const bannerLines = buildSessionBanner(lastBundleCounts, sessionId);
         ctx.ui.setWidget("cleo-banner", bannerLines, { placement: "aboveEditor" });
 
-        // Set persistent status bar entries
-        ctx.ui.setStatus("cleo-agents", `\u2692 ${bundle.agents.length} agents`);
-        ctx.ui.setStatus("cleo-team", `\u25C6 ${teamName}`);
-        ctx.ui.setStatus("cleo-tier", "\u25B2 high");
+        // Set persistent status bar entries using design system icons
+        ctx.ui.setStatus("cleo-agents", `${ICON_FORGE} ${bundle.agents.length} agents`);
+        ctx.ui.setStatus("cleo-team", `${ICON_DIAMOND} ${teamName}`);
+        ctx.ui.setStatus("cleo-tier", `${ICON_TRIANGLE} high`);
 
         // Keep the existing CANT bridge status
         ctx.ui.setStatus(

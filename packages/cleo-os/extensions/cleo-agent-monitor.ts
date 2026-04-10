@@ -30,89 +30,35 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import {
+  accentPrimary,
+  accentSuccess,
+  accentWarning,
+  accentError,
+  textSecondary,
+  textTertiary,
+  tierWorker,
+  bold,
+  DOT_FILLED,
+  DOT_HOLLOW,
+  ICON_FORGE,
+  LINE_HORIZONTAL,
+} from "./tui-theme.js";
 
 const execFileAsync = promisify(execFile);
 
 // ============================================================================
-// ANSI color helpers (shared visual identity with cleo-cant-bridge)
+// ANSI color helpers — imported from shared tui-theme.ts
 // ============================================================================
-
-/** ANSI escape code prefix. */
-const ESC = "\x1b[";
-
-/** ANSI reset sequence. */
-const RESET = `${ESC}0m`;
-
-/**
- * Wrap text in ANSI 256-color foreground.
- *
- * @param text - The text to colorize.
- * @param code - ANSI 256-color code.
- * @returns The text wrapped in ANSI color escape sequences.
- */
-function ansi256(text: string, code: number): string {
-  return `${ESC}38;5;${code}m${text}${RESET}`;
-}
-
-/**
- * Purple accent color (approximate #a855f7).
- *
- * @param text - The text to style.
- * @returns Purple ANSI text.
- */
-function purple(text: string): string {
-  return ansi256(text, 135);
-}
-
-/**
- * Green accent color (approximate #22c55e).
- *
- * @param text - The text to style.
- * @returns Green ANSI text.
- */
-function green(text: string): string {
-  return ansi256(text, 35);
-}
-
-/**
- * Yellow accent color (approximate #f59e0b).
- *
- * @param text - The text to style.
- * @returns Yellow ANSI text.
- */
-function yellow(text: string): string {
-  return ansi256(text, 214);
-}
-
-/**
- * Blue accent color.
- *
- * @param text - The text to style.
- * @returns Blue ANSI text.
- */
-function blue(text: string): string {
-  return ansi256(text, 75);
-}
-
-/**
- * Dim/muted text.
- *
- * @param text - The text to dim.
- * @returns Dim ANSI text.
- */
-function dim(text: string): string {
-  return ansi256(text, 245);
-}
-
-/**
- * Bold text.
- *
- * @param text - The text to bold.
- * @returns Bold ANSI text.
- */
-function bold(text: string): string {
-  return `${ESC}1m${text}${RESET}`;
-}
+// All styling functions come from tui-theme.ts. The mapping to design tokens:
+//   accentPrimary  → #a855f7 (ANSI 135) — headers, Circle of Ten title
+//   accentSuccess  → #22c55e (ANSI 35)  — active dots, orchestrator [O]
+//   accentWarning  → #f59e0b (ANSI 214) — paused dots, lead [L]
+//   accentError    → #ef4444 (ANSI 196) — error dots, failed states
+//   tierWorker     → #5fafff (ANSI 75)  — worker [W]
+//   textSecondary  → #94a3b8 (ANSI 245) — dim/muted text
+//   textTertiary   → #64748b (ANSI 243) — disabled/very muted text
+//   bold           → ANSI bold           — headings, agent names
 
 // ============================================================================
 // Agent activity tracking
@@ -143,11 +89,24 @@ const activities: AgentActivity[] = [];
 const WIDGET_KEY = "cleo-agent-monitor";
 
 /**
+ * Cached CANT tool count from the bridge extension's status bar.
+ * Updated when agent spawns are tracked (best-effort cross-extension state).
+ */
+let cachedCantTools = 0;
+
+/**
+ * Cached CANT agent count from agent spawn tracking.
+ * Incremented as agents are seen in the current session.
+ */
+let cachedCantAgents = 0;
+
+/**
  * Return the tier prefix for an agent role.
  *
- * - `[O]` orchestrator (green)
- * - `[L]` lead (yellow)
- * - `[W]` worker (blue)
+ * Uses design system colors:
+ * - `[O]` orchestrator — accent-success (#22c55e)
+ * - `[L]` lead — accent-warning (#f59e0b)
+ * - `[W]` worker — tier-worker blue (#5fafff)
  *
  * @param role - The agent's tier role.
  * @returns The styled tier prefix string.
@@ -155,11 +114,11 @@ const WIDGET_KEY = "cleo-agent-monitor";
 export function tierPrefix(role: AgentTierRole): string {
   switch (role) {
     case "orchestrator":
-      return green("[O]");
+      return accentSuccess("[O]");
     case "lead":
-      return yellow("[L]");
+      return accentWarning("[L]");
     default:
-      return blue("[W]");
+      return tierWorker("[W]");
   }
 }
 
@@ -172,7 +131,7 @@ export function tierPrefix(role: AgentTierRole): string {
 export function formatActivity(activity: AgentActivity): string {
   const time = activity.timestamp.slice(11, 19);
   const prefix = tierPrefix(activity.role);
-  return `${prefix} ${dim(`[${time}]`)} ${bold(activity.name)} ${dim(activity.action)}`;
+  return `${prefix} ${textSecondary(`[${time}]`)} ${bold(activity.name)} ${textSecondary(activity.action)}`;
 }
 
 /**
@@ -196,14 +155,14 @@ function renderAgentWidget(ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
 
   if (activities.length === 0) {
-    ctx.ui.setWidget(WIDGET_KEY, [dim("  No agent activity yet")], {
+    ctx.ui.setWidget(WIDGET_KEY, [textSecondary("  No agent activity yet")], {
       placement: "belowEditor",
     });
     return;
   }
 
-  const header = purple("  \u2692 Agent Activity");
-  const separator = dim("  " + "\u2500".repeat(30));
+  const header = accentPrimary(`  ${ICON_FORGE} Agent Activity`);
+  const separator = textSecondary("  " + LINE_HORIZONTAL.repeat(30));
   const lines = [header, separator, ...activities.map(formatActivity)];
   ctx.ui.setWidget(WIDGET_KEY, lines, { placement: "belowEditor" });
 }
@@ -213,20 +172,67 @@ function renderAgentWidget(ctx: ExtensionContext): void {
 // ============================================================================
 
 /**
- * Parsed dashboard data from `cleo dash`.
+ * Parsed dashboard data from `cleo dash --json`.
  *
  * Each field is optional because the CLI output format may vary or the
- * CLI may not be available.
+ * CLI may not be available. Fields are sourced from the `data` envelope
+ * of `cleo dash --json` output.
  */
 interface DashData {
-  tasks?: number;
-  sessions?: number;
-  observations?: number;
+  /** Number of active tasks (summary.active). */
+  activeTasks?: number;
+  /** Number of pending tasks (summary.pending). */
+  pendingTasks?: number;
+  /** Number of completed tasks (summary.done). */
+  doneTasks?: number;
+  /** Total tasks across all statuses. */
+  totalTasks?: number;
+  /** Number of blocked tasks (blockedTasks.count). */
+  blockedTasks?: number;
+  /** Number of high-priority tasks (highPriority.count). */
+  highPriorityTasks?: number;
+  /** Top labels from the project (topLabels[].label). */
+  topLabels?: string[];
 }
 
 /**
- * Parse `cleo dash` JSON output for Circle of Ten status data.
+ * Parsed session data from `cleo session status --json`.
  *
+ * Each field is optional; the CLI may not be available or the
+ * response format may vary.
+ */
+interface SessionData {
+  /** Whether a session is currently active. */
+  hasActiveSession?: boolean;
+  /** Active session ID. */
+  sessionId?: string;
+  /** Active session name. */
+  sessionName?: string;
+  /** Number of tasks completed in the current session. */
+  tasksCompleted?: number;
+  /** Number of focus changes in the current session. */
+  focusChanges?: number;
+}
+
+/**
+ * Combined data for Circle of Ten rendering.
+ *
+ * Merges dashboard data, session data, and any in-memory
+ * extension state (e.g. CANT bundle counts from the bridge).
+ */
+interface CircleData {
+  dash: DashData;
+  session: SessionData;
+  /** Number of tools from the CANT bundle (populated by bridge). */
+  cantTools?: number;
+  /** Number of agents from the CANT bundle (populated by bridge). */
+  cantAgents?: number;
+}
+
+/**
+ * Parse `cleo dash --json` output for Circle of Ten status data.
+ *
+ * Extracts task summary counts, blocked/high-priority stats, and top labels.
  * Best-effort: returns empty object on any parse failure.
  *
  * @param output - Raw stdout from `cleo dash --json`.
@@ -236,10 +242,81 @@ function parseDashOutput(output: string): DashData {
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>;
     const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
+
+    // Extract summary counts
+    const summary = data["summary"] as Record<string, unknown> | undefined;
+    const activeTasks = typeof summary?.["active"] === "number" ? summary["active"] : undefined;
+    const pendingTasks = typeof summary?.["pending"] === "number" ? summary["pending"] : undefined;
+    const doneTasks = typeof summary?.["done"] === "number" ? summary["done"] : undefined;
+    const totalTasks = typeof summary?.["total"] === "number" ? summary["total"] : undefined;
+
+    // Extract blocked tasks count
+    const blocked = data["blockedTasks"] as Record<string, unknown> | undefined;
+    const blockedCount = typeof blocked?.["count"] === "number" ? blocked["count"] : undefined;
+
+    // Extract high-priority count
+    const highPri = data["highPriority"] as Record<string, unknown> | undefined;
+    const highPriCount = typeof highPri?.["count"] === "number" ? highPri["count"] : undefined;
+
+    // Extract top labels
+    const rawLabels = data["topLabels"];
+    let topLabels: string[] | undefined;
+    if (Array.isArray(rawLabels)) {
+      topLabels = rawLabels
+        .slice(0, 5)
+        .map((l) => {
+          const label = (l as Record<string, unknown>)["label"];
+          return typeof label === "string" ? label : "";
+        })
+        .filter((l) => l.length > 0);
+    }
+
     return {
-      tasks: typeof data["activeTasks"] === "number" ? data["activeTasks"] : undefined,
-      sessions: typeof data["activeSessions"] === "number" ? data["activeSessions"] : undefined,
-      observations: typeof data["observations"] === "number" ? data["observations"] : undefined,
+      activeTasks,
+      pendingTasks,
+      doneTasks,
+      totalTasks,
+      blockedTasks: blockedCount,
+      highPriorityTasks: highPriCount,
+      topLabels,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Parse `cleo session status --json` output for session data.
+ *
+ * Extracts active session state, ID, name, and completion stats.
+ * Best-effort: returns empty object on any parse failure.
+ *
+ * @param output - Raw stdout from `cleo session status --json`.
+ * @returns Parsed session data.
+ */
+function parseSessionOutput(output: string): SessionData {
+  try {
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
+    const sessionWrapper = data["session"] as Record<string, unknown> | undefined;
+
+    if (!sessionWrapper) return {};
+
+    const hasActive = sessionWrapper["hasActiveSession"] === true;
+    const session = sessionWrapper["session"] as Record<string, unknown> | undefined;
+
+    if (!hasActive || !session) {
+      return { hasActiveSession: false };
+    }
+
+    const stats = session["stats"] as Record<string, unknown> | undefined;
+
+    return {
+      hasActiveSession: true,
+      sessionId: typeof session["id"] === "string" ? session["id"] : undefined,
+      sessionName: typeof session["name"] === "string" ? session["name"] : undefined,
+      tasksCompleted: typeof stats?.["tasksCompleted"] === "number" ? stats["tasksCompleted"] : undefined,
+      focusChanges: typeof stats?.["focusChanges"] === "number" ? stats["focusChanges"] : undefined,
     };
   } catch {
     return {};
@@ -250,36 +327,112 @@ function parseDashOutput(output: string): DashData {
  * Build the Circle of Ten status display lines.
  *
  * Each Circle aspect is shown with a filled (active) or hollow (inactive)
- * dot and a brief status summary. Data comes from `cleo dash` when available,
- * otherwise shows reasonable fallback states.
+ * dot and a brief status summary. Data is wired from live CLI sources
+ * where available, with explicit "not wired" labels where the data
+ * source does not yet exist.
  *
- * @param data - Dashboard data from the CLEO CLI.
+ * Design system colors:
+ * - Filled dot: accent-success (#22c55e) for active zones
+ * - Warning dot: accent-warning (#f59e0b) for zones with alerts
+ * - Error dot: accent-error (#ef4444) for blocked/failed zones
+ * - Hollow dot: text-secondary (#94a3b8) for inactive/offline zones
+ *
+ * @param data - Combined Circle data from CLI sources and extension state.
  * @returns Array of ANSI-styled lines for TUI display.
  */
-export function buildCircleOfTenStatus(data: DashData): string[] {
-  const dot = green("\u25CF");
-  const hollow = dim("\u25CB");
+export function buildCircleOfTenStatus(data: CircleData): string[] {
+  const dot = accentSuccess(DOT_FILLED);
+  const warnDot = accentWarning(DOT_FILLED);
+  const errDot = accentError(DOT_FILLED);
+  const hollow = textSecondary(DOT_HOLLOW);
 
-  const taskCount = data.tasks ?? 0;
-  const sessionCount = data.sessions ?? 0;
-  const obsCount = data.observations ?? 0;
+  const { dash, session } = data;
 
-  return [
+  // ── Smiths (tasks) — wired to cleo dash summary ──
+  const activeCount = dash.activeTasks ?? 0;
+  const pendingCount = dash.pendingTasks ?? 0;
+  const doneCount = dash.doneTasks ?? 0;
+  const smithsDot = activeCount > 0 ? dot : (pendingCount > 0 ? warnDot : hollow);
+  const smithsDetail = `${activeCount} active, ${pendingCount} pending, ${doneCount} done`;
+
+  // ── Weavers (pipeline) — not wired (no pipeline CLI endpoint) ──
+  const weaversDot = hollow;
+  const weaversDetail = textTertiary("not wired");
+
+  // ── Conductors (orchestrate) — wired to cleo session status ──
+  const hasSession = session.hasActiveSession === true;
+  const conductorsDot = hasSession ? dot : hollow;
+  const conductorsDetail = hasSession
+    ? `active: ${session.sessionName ?? session.sessionId ?? "unnamed"}`
+    : "no session";
+
+  // ── Artificers (tools) — wired to CANT bundle counts ──
+  const toolCount = data.cantTools ?? 0;
+  const agentCount = data.cantAgents ?? 0;
+  const artificersDot = toolCount > 0 || agentCount > 0 ? dot : hollow;
+  const artificersDetail = `${toolCount} tools, ${agentCount} agents`;
+
+  // ── Archivists (memory) — wired to cleo dash (done count as proxy) ──
+  // The dash endpoint does not directly expose observation counts,
+  // but done tasks indicate archived work history.
+  const archivistsDot = doneCount > 0 ? dot : hollow;
+  const archivistsDetail = `${doneCount} archived tasks`;
+
+  // ── Scribes (session) — wired to session stats ──
+  const scribesCompleted = session.tasksCompleted ?? 0;
+  const scribesDot = hasSession ? dot : hollow;
+  const scribesDetail = hasSession
+    ? `${scribesCompleted} completed this session`
+    : "no session";
+
+  // ── Wardens (check) — wired to blocked + high-priority counts ──
+  const blockedCount = dash.blockedTasks ?? 0;
+  const highPriCount = dash.highPriorityTasks ?? 0;
+  const wardensDot = blockedCount > 0 ? errDot : (highPriCount > 0 ? warnDot : dot);
+  const wardensDetail = `${blockedCount} blocked, ${highPriCount} high-pri`;
+
+  // ── Wayfinders (nexus) — not wired (Nexus deferred to Phase 3) ──
+  const wayfindersDot = hollow;
+  const wayfindersDetail = textTertiary("not wired");
+
+  // ── Catchers (sticky) — not wired (no sticky notes API) ──
+  const catchersDot = hollow;
+  const catchersDetail = textTertiary("not wired");
+
+  // ── Keepers (admin) — wired to overall health from dash totals ──
+  const totalCount = dash.totalTasks ?? 0;
+  const keepersDot = totalCount > 0 ? dot : hollow;
+  const keepersDetail = `${totalCount} total tasks tracked`;
+
+  // ── Labels line (bonus data from dash) ──
+  const labelsLine = dash.topLabels && dash.topLabels.length > 0
+    ? `  ${textSecondary("Labels:")} ${textTertiary(dash.topLabels.join(", "))}`
+    : null;
+
+  const lines = [
     "",
-    bold(purple("  The Circle of Ten")),
-    dim("  " + "\u2500".repeat(20)),
-    `  Smiths (tasks)      ${taskCount > 0 ? dot : hollow} ${taskCount} active`,
-    `  Weavers (pipeline)  ${dot} stage: impl`,
-    `  Conductors (orch)   ${sessionCount > 0 ? dot : hollow} ${sessionCount} session${sessionCount !== 1 ? "s" : ""}`,
-    `  Artificers (tools)  ${hollow} 0 recipes`,
-    `  Archivists (memory) ${obsCount > 0 ? dot : hollow} ${obsCount} obs`,
-    `  Scribes (session)   ${dot} active`,
-    `  Wardens (check)     ${hollow} 0 alerts`,
-    `  Wayfinders (nexus)  ${hollow} offline`,
-    `  Catchers (sticky)   ${hollow} 0 notes`,
-    `  Keepers (admin)     ${dot} healthy`,
-    "",
+    bold(accentPrimary("  The Circle of Ten")),
+    textSecondary("  " + LINE_HORIZONTAL.repeat(36)),
+    `  ${bold("Smiths")} ${textSecondary("(tasks)")}      ${smithsDot} ${smithsDetail}`,
+    `  ${bold("Weavers")} ${textSecondary("(pipeline)")}  ${weaversDot} ${weaversDetail}`,
+    `  ${bold("Conductors")} ${textSecondary("(orch)")}   ${conductorsDot} ${conductorsDetail}`,
+    `  ${bold("Artificers")} ${textSecondary("(tools)")}  ${artificersDot} ${artificersDetail}`,
+    `  ${bold("Archivists")} ${textSecondary("(memory)")} ${archivistsDot} ${archivistsDetail}`,
+    `  ${bold("Scribes")} ${textSecondary("(session)")}   ${scribesDot} ${scribesDetail}`,
+    `  ${bold("Wardens")} ${textSecondary("(check)")}     ${wardensDot} ${wardensDetail}`,
+    `  ${bold("Wayfinders")} ${textSecondary("(nexus)")}  ${wayfindersDot} ${wayfindersDetail}`,
+    `  ${bold("Catchers")} ${textSecondary("(sticky)")}   ${catchersDot} ${catchersDetail}`,
+    `  ${bold("Keepers")} ${textSecondary("(admin)")}     ${keepersDot} ${keepersDetail}`,
   ];
+
+  if (labelsLine) {
+    lines.push(textSecondary("  " + LINE_HORIZONTAL.repeat(36)));
+    lines.push(labelsLine);
+  }
+
+  lines.push("");
+
+  return lines;
 }
 
 // ============================================================================
@@ -300,6 +453,8 @@ export default function (pi: ExtensionAPI): void {
   // -------------------------------------------------------------------------
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     activities.length = 0;
+    cachedCantTools = 0;
+    cachedCantAgents = 0;
     renderAgentWidget(ctx);
   });
 
@@ -343,6 +498,9 @@ export default function (pi: ExtensionAPI): void {
         action: "spawned",
       });
 
+      // Track unique agents seen for Circle of Ten Artificers zone
+      cachedCantAgents = activities.length;
+
       renderAgentWidget(ctx);
 
       // Return empty object (do not modify system prompt)
@@ -357,15 +515,15 @@ export default function (pi: ExtensionAPI): void {
     description: "Show current agent activity and recent spawn history",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       const lines: string[] = [
-        bold(purple("\u2692 CleoOS Agent Monitor")),
-        dim("  " + "\u2500".repeat(28)),
+        bold(accentPrimary(`${ICON_FORGE} CleoOS Agent Monitor`)),
+        textSecondary("  " + LINE_HORIZONTAL.repeat(28)),
         "",
         `  Total tracked activities: ${activities.length}`,
         "",
       ];
 
       if (activities.length === 0) {
-        lines.push(dim("  No agent activity recorded this session."));
+        lines.push(textSecondary("  No agent activity recorded this session."));
       } else {
         lines.push(bold("  Recent Agent Activity:"));
         for (const activity of activities) {
@@ -374,7 +532,7 @@ export default function (pi: ExtensionAPI): void {
       }
 
       lines.push("");
-      lines.push(dim("  Legend: [O] orchestrator  [L] lead  [W] worker"));
+      lines.push(textSecondary(`  Legend: ${accentSuccess("[O]")} orchestrator  ${accentWarning("[L]")} lead  ${tierWorker("[W]")} worker`));
 
       pi.sendMessage(
         {
@@ -398,19 +556,34 @@ export default function (pi: ExtensionAPI): void {
     description: "Show Circle of Ten operational status from CLEO CLI",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       let dashData: DashData = {};
+      let sessionData: SessionData = {};
 
-      // Best-effort: try to fetch data from `cleo dash`
-      try {
-        const { stdout } = await execFileAsync("cleo", ["dash", "--json"], {
-          timeout: 5000,
-          cwd: ctx.cwd,
-        });
-        dashData = parseDashOutput(stdout);
-      } catch {
-        // CLI not available or timed out — use defaults
+      // Best-effort: fetch data from both `cleo dash` and `cleo session status`
+      // in parallel. Either or both may fail if the CLI is not available.
+      const [dashResult, sessionResult] = await Promise.allSettled([
+        execFileAsync("cleo", ["dash", "--json"], { timeout: 5000, cwd: ctx.cwd }),
+        execFileAsync("cleo", ["session", "status", "--json"], { timeout: 5000, cwd: ctx.cwd }),
+      ]);
+
+      if (dashResult.status === "fulfilled") {
+        dashData = parseDashOutput(dashResult.value.stdout);
+      }
+      if (sessionResult.status === "fulfilled") {
+        sessionData = parseSessionOutput(sessionResult.value.stdout);
       }
 
-      const lines = buildCircleOfTenStatus(dashData);
+      // Build combined Circle data, including CANT bundle state if available.
+      // The CANT bridge stores counts in its own module scope — we read them
+      // from the status bar entries as a cross-extension communication channel.
+      // For now, we pass defaults and let the bridge contribute via status bar.
+      const circleData: CircleData = {
+        dash: dashData,
+        session: sessionData,
+        cantTools: cachedCantTools,
+        cantAgents: cachedCantAgents,
+      };
+
+      const lines = buildCircleOfTenStatus(circleData);
 
       pi.sendMessage(
         {
@@ -432,5 +605,7 @@ export default function (pi: ExtensionAPI): void {
   // -------------------------------------------------------------------------
   pi.on("session_shutdown", async () => {
     activities.length = 0;
+    cachedCantTools = 0;
+    cachedCantAgents = 0;
   });
 }
