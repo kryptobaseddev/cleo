@@ -32,6 +32,11 @@ function collectExtensionPaths(): string[] {
     extensions.push(bridgePath);
   }
 
+  const monitorPath = join(paths.extensions, 'cleo-agent-monitor.js');
+  if (existsSync(monitorPath)) {
+    extensions.push(monitorPath);
+  }
+
   return extensions;
 }
 

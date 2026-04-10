@@ -21,7 +21,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -181,6 +181,63 @@ function scaffoldDefaultCant(cantDir: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Starter bundle deployment
+// ---------------------------------------------------------------------------
+
+/**
+ * Deploy the starter CANT bundle to the global XDG CANT directory.
+ *
+ * Copies `starter-bundle/` contents (team.cant + agents/*.cant) to
+ * `~/.local/share/cleo/cant/starter/`. Only copies files that do not
+ * already exist (idempotent). This gives every new `cleoos` session a
+ * working multi-agent team topology for the CANT bridge to compile.
+ *
+ * @param pkgRoot - Absolute path to the installed package root.
+ * @param cantDir - Absolute path to the XDG CANT directory.
+ */
+function deployStarterBundle(pkgRoot: string, cantDir: string): void {
+  const bundleSrc = join(pkgRoot, 'starter-bundle');
+  if (!existsSync(bundleSrc)) {
+    process.stdout.write('CleoOS: skipping starter bundle (source not found)\n');
+    return;
+  }
+
+  const starterDest = join(cantDir, 'starter');
+  const agentsDest = join(starterDest, 'agents');
+
+  // Ensure destination directories exist
+  ensureDir(starterDest);
+  ensureDir(agentsDest);
+
+  // Copy team.cant
+  const teamSrc = join(bundleSrc, 'team.cant');
+  const teamDest = join(starterDest, 'team.cant');
+  if (existsSync(teamSrc) && !existsSync(teamDest)) {
+    cpSync(teamSrc, teamDest);
+    process.stdout.write(`CleoOS: deployed starter team.cant to ${teamDest}\n`);
+  }
+
+  // Copy agent .cant files
+  const agentsSrcDir = join(bundleSrc, 'agents');
+  if (existsSync(agentsSrcDir)) {
+    try {
+      const entries = readdirSync(agentsSrcDir);
+      for (const entry of entries) {
+        if (!entry.endsWith('.cant')) continue;
+        const src = join(agentsSrcDir, entry);
+        const dest = join(agentsDest, entry);
+        if (!existsSync(dest)) {
+          cpSync(src, dest);
+          process.stdout.write(`CleoOS: deployed starter ${entry} to ${dest}\n`);
+        }
+      }
+    } catch {
+      // Best-effort: non-fatal.
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Skill installation
 // ---------------------------------------------------------------------------
 
@@ -229,11 +286,15 @@ function main(): void {
   // 2. Deploy compiled extensions
   deployExtension('cleo-cant-bridge', pkgRoot, paths.extensions);
   deployExtension('cleo-chatroom', pkgRoot, paths.extensions);
+  deployExtension('cleo-agent-monitor', pkgRoot, paths.extensions);
 
   // 3. Write default CANT stub (only if file does not exist)
   scaffoldDefaultCant(paths.cant);
 
-  // 4. Install CleoOS skills (best-effort)
+  // 4. Deploy starter CANT bundle (team + agents) to global tier
+  deployStarterBundle(pkgRoot, paths.cant);
+
+  // 5. Install CleoOS skills (best-effort)
   installSkills();
 
   process.stdout.write('CleoOS: postinstall complete\n');
