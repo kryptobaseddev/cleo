@@ -1,10 +1,11 @@
 # CLEO Operation Constitution
 
-**Version**: 2026.3.17
+**Version**: 2026.4.24
 **Status**: APPROVED
-**Date**: 2026-03-17
-**Task**: T5721
+**Date**: 2026-04-10
+**Task**: T451 (update); T5721 (original)
 **Supersedes**: CLEO-OPERATIONS-REFERENCE.md
+**ADR**: ADR-042 (conduit domain disposition and registry alignment)
 
 ---
 
@@ -181,7 +182,7 @@ interface OperationDef {
 
 ## 7. Domain Operation Tables
 
-### 6.1 tasks (29 operations)
+### 6.1 tasks (32 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -214,6 +215,13 @@ interface OperationDef {
 | mutate | `stop` | Stop working on task | 0 | -- | No |
 | mutate | `sync.reconcile` | Reconcile external tasks with CLEO as SSoT | 1 | `providerId`, `externalTasks` | No |
 | mutate | `sync.links.remove` | Remove all external task links for a provider | 1 | `providerId` | Yes |
+| query | `impact` | Predict downstream effects of a change using keyword matching and reverse dependency graph traversal | 1 | -- | Yes |
+| mutate | `claim` | Claim a task by assigning it to the current session (multi-agent mutex ownership) | 0 | `taskId` | No |
+| mutate | `unclaim` | Unclaim a task by removing the current assignee; pair of `tasks.claim` | 0 | `taskId` | No |
+
+**Canonical additions (ADR-042):**
+- `tasks.impact` — blast-radius planning utility for orchestrators; non-substitutable by any existing query
+- `tasks.claim` / `tasks.unclaim` — mutex ownership pair for multi-agent parallelism (promoted per T443 audit)
 
 **Merged operations (removed from registry):**
 - `tasks.exists` → use `tasks.find {exact:true}` and check `results.length > 0`
@@ -287,7 +295,7 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 
 **Promoted to tier 0:** `memory.find` and `memory.observe` (both appear in the mandatory efficiency sequence)
 
-### 6.4 check (17 operations)
+### 6.4 check (18 operations)
 
 Includes 3 operations moved in from admin.
 
@@ -310,6 +318,10 @@ Includes 3 operations moved in from admin.
 | mutate | `compliance.sync` | Sync project compliance metrics to global | 1 | -- | No |
 | mutate | `test.run` | Execute test suite | 1 | -- | No |
 | mutate | `gate.set` | Set or reset verification gate state | 1 | `taskId` | No |
+| query | `workflow.compliance` | WF-001..WF-005 compliance dashboard: AC rate, session rate, gate rate (cross-session aggregate metrics) | 1 | -- | Yes |
+
+**Canonical additions (ADR-042):**
+- `check.workflow.compliance` — T065 agent workflow compliance telemetry; distinct schema-level behavior not covered by any existing check operation
 
 **Merged operations (removed from registry):**
 - `check.compliance.violations` → use `check.compliance.summary {detail:true}`
@@ -327,7 +339,7 @@ Includes 3 operations moved in from admin.
 - `admin.grade.list` → `check.grade.list`
 - `admin.archive.stats` → `check.archive.stats`
 
-### 6.5 pipeline (31 operations)
+### 6.5 pipeline (32 operations)
 
 The pipeline domain manages RCASD-IVTR+C lifecycle stages, the pipelineManifest table in tasks.db, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
 
@@ -364,6 +376,10 @@ The pipeline domain manages RCASD-IVTR+C lifecycle stages, the pipelineManifest 
 | mutate | `chain.add` | Store a validated chain definition | 2 | `chain` | No |
 | mutate | `chain.instantiate` | Create chain instance for epic | 2 | `chainId`, `epicId` | No |
 | mutate | `chain.advance` | Advance instance to next stage | 2 | `instanceId`, `nextStage` | No |
+| query | `stage.guidance` | Stage-aware LLM prompt guidance; Pi extensions shell out to this on `before_agent_start` (ADR-035) | 1 | -- | Yes |
+
+**Canonical additions (ADR-042):**
+- `pipeline.stage.guidance` — active Pi harness usage on agent start; removing it would break a mandatory workflow
 
 **Merged operations (removed from registry):**
 - `pipeline.stage.gates` → use `pipeline.stage.status {include:["gates"]}`
@@ -381,9 +397,9 @@ The pipeline domain manages RCASD-IVTR+C lifecycle stages, the pipelineManifest 
 - `pipeline.chain.gate.pass` → removed from registry
 - `pipeline.chain.gate.fail` → removed from registry
 
-### 6.6 orchestrate (16 operations)
+### 6.6 orchestrate (19 canonical operations; 24 in table including 5 experimental)
 
-The entire orchestrate domain is tier 1. All operations are orchestrator-specific and not needed at cold-start.
+The core orchestrate operations are tier 1. CleoOS dispatch ops (`classify`, `fanout`, `fanout.status`) are tier 2. The 5 `conduit.*` sub-ops are experimental (no CLI surface yet) and listed for discoverability but excluded from the canonical summary count. All operations are orchestrator-specific and not needed at cold-start.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -403,6 +419,22 @@ The entire orchestrate domain is tier 1. All operations are orchestrator-specifi
 | mutate | `parallel` | Begin or end parallel execution wave; `action:"start"\|"end"` | 1 | -- | No |
 | mutate | `handoff` | Composite handoff (context.inject -> session.end -> spawn) | 1 | `taskId`, `protocolType` | No |
 | mutate | `tessera.instantiate` | Instantiate a Tessera template into a chain instance | 1 | `templateId`, `epicId` | No |
+| query | `classify` | Classify a request against CANT team registry to route to correct team, lead, and protocol | 2 | -- | Yes |
+| mutate | `fanout` | Fan out N spawn requests in parallel via `Promise.allSettled` (RCASD wave execution) | 2 | -- | No |
+| query | `fanout.status` | Get status of a running fanout by its manifest entry ID; polling complement to `orchestrate.fanout` | 2 | -- | Yes |
+| query | `conduit.status` | **[experimental]** Check agent connection status and unread count (conduit.db; ADR-037/ADR-042) | 1 | -- | Yes |
+| query | `conduit.peek` | **[experimental]** One-shot poll for new messages without acking | 1 | -- | Yes |
+| mutate | `conduit.start` | **[experimental]** Start continuous message polling for the active agent | 1 | -- | No |
+| mutate | `conduit.stop` | **[experimental]** Stop the active polling loop | 1 | -- | No |
+| mutate | `conduit.send` | **[experimental]** Send a message to an agent or conversation | 1 | -- | No |
+
+**Canonical additions (ADR-042):**
+- `orchestrate.classify` — core CANT-based request routing primitive; non-substitutable
+- `orchestrate.fanout` — workhorse of multi-agent parallel dispatch (RCASD waves)
+- `orchestrate.fanout.status` — polling complement to `fanout`; forms an atomic pair
+
+**Experimental additions (ADR-042 Decision 2):**
+- `orchestrate.conduit.*` — 5 agent messaging ops moved from the former `conduit` domain per ADR-042 Decision 1. Classified experimental: zero CLI surface, no documented mandatory workflow. Will be promoted to canonical when Shell 2 of the Conduit 4-shell stack is formally specified. These appear in the table for discoverability but are NOT counted in the canonical summary total.
 
 **Merged operations (removed from registry):**
 - `orchestrate.critical.path` → use `orchestrate.analyze {mode:"critical-path"}`
@@ -466,9 +498,9 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 **Moved in from admin:**
 - `admin.sync` / `admin.sync.status` / `admin.sync.clear` → Removed (TodoWrite system replaced by provider-agnostic reconciliation engine in `@cleocode/core`)
 
-### 6.8 admin (30 operations)
+### 6.8 admin (37 canonical operations; 39 in registry including 2 experimental)
 
-Includes 1 operation moved in from session. Note: actual before-count was 50 ops (not 44).
+Includes 1 operation moved in from session. ADR-042 added 7 canonical ops. `admin.map` (query and mutate forms) are experimental and excluded from the canonical count — they remain in the registry for development use.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -502,6 +534,22 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 | mutate | `detect` | Refresh project-context.json — re-detect project type and LLM hints | 1 | -- | Yes |
 | mutate | `context.inject` | Inject protocol content into context (moved from session) | 1 | `protocolType` | Yes |
 | mutate | `health` | Auto-repair failed health checks; `mode:"repair"` | 1 | -- | No |
+| query | `paths` | Report all CleoOS paths (project + global hub) and scaffolding status | 1 | -- | Yes |
+| query | `smoke` | Operational smoke test: one read-only query per domain; validates all domains reachable in a single call | 0 | -- | Yes |
+| mutate | `scaffold-hub` | Create CleoOS Hub directories (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile (ADR-035) | 1 | -- | Yes |
+| query | `config.presets` | List all strictness presets with descriptions and values; companion to `admin.config.set-preset` | 1 | -- | Yes |
+| mutate | `config.set-preset` | Apply a named strictness preset (strict, standard, minimal); non-substitutable by `admin.config.set` | 1 | -- | Yes |
+| query | `hooks.matrix` | Cross-provider hook support matrix using CAAMP canonical taxonomy | 1 | -- | Yes |
+| query | `backup` | List available backups (read-only); use `admin.backup` mutate to create or restore | 1 | -- | Yes |
+
+**Canonical additions (ADR-042):**
+- `admin.paths` — diagnostic utility for agents troubleshooting installation or path issues
+- `admin.smoke` — lightweight domain-reachability check; essential for CI and post-upgrade verification (tier 0)
+- `admin.scaffold-hub` — bootstrapping operation for Hub architecture; absence forces manual directory creation
+- `admin.config.presets` — read-only companion required before any `config.set-preset` call
+- `admin.config.set-preset` — prescribed preset-profile application; non-substitutable by `config.set`
+- `admin.hooks.matrix` — cross-provider hook visibility for agents selecting execution environments
+- `admin.backup` (query) — list-backups companion to the existing mutate form; previously undocumented gateway
 
 **Merged operations (removed from registry):**
 - `admin.doctor` → use `admin.health {mode:"diagnose"}`
@@ -531,7 +579,7 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 **Moved in from session:**
 - `session.context.inject` → `admin.context.inject`
 
-### 6.9 nexus (20 operations)
+### 6.9 nexus (22 operations)
 
 `nexus.status` and `nexus.list` are promoted to tier 1 as the discovery entry points. All other nexus operations are tier 2.
 
@@ -557,6 +605,12 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 | mutate | `reconcile` | Reconcile project identity with global nexus registry | 2 | -- | Yes |
 | mutate | `share.snapshot.export` | Export project snapshot | 2 | -- | No |
 | mutate | `share.snapshot.import` | Import project snapshot | 2 | -- | No |
+| query | `transfer.preview` | Preview a cross-project task transfer without committing; required safety step before `nexus.transfer` | 2 | `taskIds`, `sourceProject`, `targetProject` | Yes |
+| mutate | `transfer` | Transfer tasks between NEXUS projects (cross-DB operation) | 2 | `taskIds`, `sourceProject`, `targetProject` | No |
+
+**Canonical additions (ADR-042):**
+- `nexus.transfer.preview` — mandatory safety check before any cross-project transfer; no existing op covers it
+- `nexus.transfer` — cross-project task handoff capability; non-substitutable by any existing nexus operation
 
 **Removed operations:**
 - `nexus.critical-path` — exact alias for `nexus.path.show` (same handler)
@@ -596,21 +650,23 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 
 ### Summary Counts
 
+> **ADR-042 update (v2026.4.24)**: 17 canonical operations added across 6 domains. 7 experimental operations (`orchestrate.conduit.*` ×5, `admin.map` ×2) appear in Section 6.6 tables or remain registry-only, and are **excluded from this count** pending CLI surface and workflow documentation. Registry total is 231; constitutional canonical total is 224; 7 experimental ops remain undocumented by design.
+
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 14 | 29 |
+| tasks | 16 | 16 | 32 |
 | session | 8 | 7 | 15 |
 | memory | 11 | 7 | 18 |
-| check | 13 | 4 | 17 |
-| pipeline | 14 | 17 | 31 |
-| orchestrate | 9 | 7 | 16 |
+| check | 14 | 4 | 18 |
+| pipeline | 15 | 17 | 32 |
+| orchestrate | 11 | 8 | 19 |
 | tools | 19 | 6 | 25 |
-| admin | 16 | 16 | 32 |
-| nexus | 12 | 8 | 20 |
+| admin | 20 | 17 | 37 |
+| nexus | 13 | 9 | 22 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **119** | **90** | **209** |
+| **Total** | **129** | **95** | **224** |
 
-> These counts should match `packages/cleo/src/dispatch/registry.ts`. The registry is the authoritative source of truth for the current operation count.
+> Orchestrate counts exclude the 5 experimental `orchestrate.conduit.*` operations (which appear in the Section 6.6 table for discoverability). Admin counts exclude `admin.map` (query and mutate forms) which are experimental. The registry is the authoritative source of truth for the current operation count.
 
 ---
 
