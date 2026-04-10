@@ -5,7 +5,9 @@
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "cleoos": "dist/cli.js"
+    "cleoos": "dist/cli.js",
+    "cleo": "node_modules/@cleocode/cleo/dist/cli/index.js",
+    "ct": "node_modules/@cleocode/cleo/dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.extensions.json || true && tsc -p tsconfig.postinstall.json",
