@@ -10,7 +10,7 @@
  * - orchestrate.tessera list / instantiate — tessera template operations
  * - orchestrate.unblock — unblock opportunity analysis
  *
- * Agent-only ops (no CLI surface — programmatic multi-agent use only):
+ * T483 — 100% CLI coverage additions:
  * - orchestrate.bootstrap     — brain state load for agent bootstrapping
  * - orchestrate.classify      — CANT prompt-based team routing
  * - orchestrate.fanout        — Promise.allSettled spawn wrapper
@@ -228,6 +228,193 @@ export function registerOrchestrateCommand(program: Command): void {
         'orchestrate',
         'unblock.opportunities',
         {},
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: bootstrap — brain state load for agent bootstrapping
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('bootstrap')
+    .description('Load brain state for agent bootstrapping')
+    .option('--epic <epicId>', 'Epic ID to scope bootstrap context to')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'orchestrate',
+        'bootstrap',
+        { epicId: opts['epic'] },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: classify — CANT prompt-based team routing
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('classify <request>')
+    .description('Classify a request using CANT prompt-based team routing')
+    .action(async (request: string) => {
+      await dispatchFromCli(
+        'query',
+        'orchestrate',
+        'classify',
+        { request },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: fanout-status — in-process fanout manifest lookup
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('fanout-status')
+    .description('Get fanout status for an epic')
+    .option('--epic <epicId>', 'Epic ID to scope fanout status to')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'orchestrate',
+        'fanout.status',
+        { epicId: opts['epic'] },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: handoff — composite session handoff + successor spawn
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('handoff <taskId>')
+    .description('Perform session handoff and spawn successor for a task')
+    .requiredOption('--protocol <type>', 'Protocol type for handoff')
+    .action(async (taskId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'handoff',
+        { taskId, protocolType: opts['protocol'] },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: spawn-execute — adapter-registry spawn execution
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('spawn-execute <taskId>')
+    .description('Execute spawn for a task via the adapter registry')
+    .action(async (taskId: string) => {
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'spawn.execute',
+        { taskId },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: fanout — Promise.allSettled spawn wrapper
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('fanout <epicId>')
+    .description('Fan out tasks for an epic using parallel spawn')
+    .option('--tasks <ids>', 'Comma-separated task IDs to fan out')
+    .action(async (epicId: string, opts: Record<string, unknown>) => {
+      const taskIds =
+        typeof opts['tasks'] === 'string'
+          ? (opts['tasks'] as string).split(',').map((s) => s.trim())
+          : undefined;
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'fanout',
+        { epicId, taskIds },
+        { command: 'orchestrate' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // T483: conduit subcommands — agent-to-agent messaging (ADR-042)
+  // ---------------------------------------------------------------------------
+
+  orch
+    .command('conduit-status')
+    .description('Get conduit messaging status')
+    .action(async () => {
+      await dispatchFromCli(
+        'query',
+        'orchestrate',
+        'conduit.status',
+        {},
+        { command: 'orchestrate' },
+      );
+    });
+
+  orch
+    .command('conduit-peek')
+    .description('Peek at queued conduit messages')
+    .option('--limit <n>', 'Maximum number of messages to return', parseInt)
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'orchestrate',
+        'conduit.peek',
+        { limit: opts['limit'] },
+        { command: 'orchestrate' },
+      );
+    });
+
+  orch
+    .command('conduit-start')
+    .description('Start the conduit message loop')
+    .option('--poll-interval <ms>', 'Polling interval in milliseconds', parseInt)
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'conduit.start',
+        { pollInterval: opts['pollInterval'] },
+        { command: 'orchestrate' },
+      );
+    });
+
+  orch
+    .command('conduit-stop')
+    .description('Stop the conduit message loop')
+    .action(async () => {
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'conduit.stop',
+        {},
+        { command: 'orchestrate' },
+      );
+    });
+
+  orch
+    .command('conduit-send <content>')
+    .description('Send a message via conduit to an agent or conversation')
+    .option('--to <agentId>', 'Target agent ID')
+    .option('--conversation <id>', 'Conversation ID to send into')
+    .action(async (content: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'orchestrate',
+        'conduit.send',
+        {
+          content,
+          agentId: opts['to'],
+          conversationId: opts['conversation'],
+        },
         { command: 'orchestrate' },
       );
     });

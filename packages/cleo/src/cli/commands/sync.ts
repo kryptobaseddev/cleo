@@ -2,18 +2,18 @@
  * CLI sync command group — external task synchronisation management.
  *
  * Surfaces the tasks.sync sub-domain for inspecting and removing external
- * task links. The tasks.sync.reconcile operation is intentionally excluded
- * from the CLI because it requires a structured ExternalTask[] payload that
- * must be supplied programmatically by an agent or integration layer, not
- * typed as shell arguments.
+ * task links, and for reconciling an external task list from a JSON file.
  *
  * Commands:
  *   cleo sync links                        — list all external task links
  *   cleo sync links --provider <id>        — filter by provider
  *   cleo sync links --task <taskId>        — filter by CLEO task ID
  *   cleo sync links remove <providerId>    — remove all links for a provider
+ *   cleo sync reconcile <file> --provider <id> [--conflict-policy <policy>]
+ *                                          — reconcile external tasks from a JSON file
  *
  * @task T473
+ * @task T483
  * @epic T443
  */
 
@@ -72,4 +72,41 @@ export function registerSyncCommand(program: Command): void {
       { command: 'sync', operation: 'tasks.sync.links' },
     );
   });
+
+  // -- sync reconcile --
+  sync
+    .command('reconcile <file>')
+    .description('Reconcile external tasks from a JSON file against CLEO tasks')
+    .requiredOption('--provider <providerId>', 'Provider ID (e.g. linear, jira, github)')
+    .option(
+      '--conflict-policy <policy>',
+      'How to resolve conflicts: keep-cleo, keep-external, or newest (default: keep-cleo)',
+      'keep-cleo',
+    )
+    .action(async (file: string, opts: Record<string, unknown>) => {
+      const { readFileSync } = await import('node:fs');
+      let externalTasks: unknown;
+      try {
+        externalTasks = JSON.parse(readFileSync(file, 'utf8'));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Failed to read or parse external tasks file: ${message}`);
+        process.exit(2);
+      }
+      if (!Array.isArray(externalTasks)) {
+        console.error('External tasks file must contain a JSON array');
+        process.exit(2);
+      }
+      await dispatchFromCli(
+        'mutate',
+        'tasks',
+        'sync.reconcile',
+        {
+          providerId: opts['provider'] as string,
+          externalTasks,
+          conflictPolicy: opts['conflictPolicy'] as string | undefined,
+        },
+        { command: 'sync', operation: 'tasks.sync.reconcile' },
+      );
+    });
 }
