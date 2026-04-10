@@ -3,37 +3,61 @@
 > Referenced from: @skills/ct-orchestrator/SKILL.md
 > Load when: Need details on spawning subagents, skill dispatch, template selection, or programmatic spawning workflows
 
-## Subagent Spawning
+## Two-Step Spawn Pattern
 
-### Quick Spawn Workflow
+Spawning is ALWAYS a two-step process: CLEO **prepares** the prompt, then the provider **executes** it.
+
+### Step 1: Prepare via CLEO CLI
 
 ```bash
-# 1. Get next ready task
-cleo orchestrator next --epic T1575
+# Get next dependency-safe task
+cleo orchestrate next --epic T1575
 
-# 2. Generate spawn command with prompt
-cleo orchestrator spawn T1586
+# Generate fully-resolved spawn prompt
+cleo orchestrate spawn T1586
 
-# 3. Or specify a skill template
-cleo orchestrator spawn T1586 --template ct-research-agent
-cleo orchestrator spawn T1586 --template RESEARCH-AGENT  # aliases work
+# Or specify a skill template
+cleo orchestrate spawn T1586 --template ct-research-agent
+cleo orchestrate spawn T1586 --template RESEARCH-AGENT  # aliases work
 ```
-
-### Manual Spawn (when CLI spawn unavailable)
-
-Use Task tool with `subagent_type="general-purpose"` and include:
-1. Subagent protocol block (RFC 2119 requirements)
-2. Context from previous agents (manifest `key_findings` ONLY)
-3. Clear task definition and completion criteria
-
-### Spawn Output
 
 The `spawn` command returns:
 - `taskId`: Target task
 - `template`: Skill used
 - `topicSlug`: Slugified topic name
 - `outputFile`: Expected output filename
-- `prompt`: Complete prompt ready for Task tool
+- `prompt`: Complete prompt with base protocol + conditional protocol + task context + resolved tokens
+
+### Step 2: Execute via Provider
+
+**Claude Code** (preferred when available):
+```
+Agent({
+  description: "Worker: Implement auth module (T1586)",
+  subagent_type: "cleo-subagent",
+  model: "haiku",           // preferred, not required
+  prompt: "<resolved prompt from step 1>"
+})
+```
+
+**Team Lead spawn** (for RCASD planning, validation):
+```
+Agent({
+  description: "Team Lead: Auth system architecture (T1575)",
+  subagent_type: "cleo-subagent",
+  model: "sonnet",          // preferred, not required
+  prompt: "<resolved prompt from step 1>"
+})
+```
+
+**Other harnesses** (Cursor, OpenCode, Codex, etc.): Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through MANIFEST.jsonl.
+
+### Fallback Spawn (when CLI spawn unavailable)
+
+Use the provider's agent mechanism directly with:
+1. Subagent protocol block from `references/SUBAGENT-PROTOCOL-BLOCK.md`
+2. Context from previous agents (manifest `key_findings` ONLY)
+3. Clear task definition and completion criteria
 
 ---
 
@@ -86,11 +110,11 @@ skills/ct-documentor/SKILL.md
 
 ```bash
 # Step 1: Get ready task
-cleo orchestrator next --epic T1575
+cleo orchestrate next --epic T1575
 # Returns: { nextTask: { id: "T1586", title: "...", priority: "high" } }
 
 # Step 2: Generate spawn prompt (handles all token injection)
-spawn_result=$(cleo orchestrator spawn T1586)
+spawn_result=$(cleo orchestrate spawn T1586)
 
 # Step 3: Extract prompt and use with Task tool
 prompt=$(echo "$spawn_result" | jq -r '.result.prompt')

@@ -16,7 +16,7 @@ The `spawn` command handles token injection automatically. For manual injection,
 # 3. Gets task context from CLEO
 # 4. Extracts manifest summaries
 # 5. Injects all tokens
-cleo orchestrator spawn T1586 --template ct-research-agent
+cleo orchestrate spawn T1586 --template ct-research-agent
 ```
 
 ### Manual Token Injection

@@ -5,7 +5,7 @@ Activate orchestrator mode for managing complex multi-agent workflows.
 ## Quick Start
 
 1. **Activate**: Say "activate orchestrator mode" or use Skill tool
-2. **Operate**: Follow ORC-001 through ORC-005 constraints
+2. **Operate**: Follow ORC-001 through ORC-009 constraints
 3. **Delegate**: Use Task tool to spawn subagents for all work
 
 ## Installation
@@ -27,8 +27,8 @@ Skill: orchestrator
 
 Install to your project for persistent availability:
 ```bash
-cleo orchestrator skill --install    # Copy to .cleo/skills/
-cleo orchestrator skill --verify     # Verify installation
+cleo orchestrate skill --install    # Copy to .cleo/skills/
+cleo orchestrate skill --verify     # Verify installation
 ```
 
 ## Files
@@ -51,7 +51,8 @@ This is the critical difference from CLAUDE.md injection, which affected all age
 
 See [SKILL.md](SKILL.md) for quick reference or [ORCHESTRATOR-PROTOCOL-SPEC.md](../../docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints) for full specification.
 
-**Summary**: ORC-001 (high-level) | ORC-002 (delegate) | ORC-003 (no full reads) | ORC-004 (dependency order) | ORC-005 (10K budget)
+**Core Identity**: ORC-001 (HITL interface) | ORC-002 (no code) | ORC-003 (no full reads)
+**Operational**: ORC-004 (dep order) | ORC-005 (10K budget) | ORC-006 (3 files/agent) | ORC-007 (epic traced) | ORC-008 (no arch decisions) | ORC-009 (manifest handoffs)
 
 ## Why Skill-Based?
 

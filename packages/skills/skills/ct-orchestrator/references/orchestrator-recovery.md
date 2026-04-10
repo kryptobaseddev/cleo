@@ -19,10 +19,10 @@
 
 ```bash
 # Check current context usage
-cleo orchestrator context
+cleo orchestrate context
 
 # With specific token count
-cleo orchestrator context --tokens 5000
+cleo orchestrate context --tokens 5000
 ```
 
 **Status Thresholds**:
@@ -100,14 +100,14 @@ cleo config set retention.autoEndActiveAfterDays 14  # Extend to 2 weeks
 
 ```bash
 # Full protocol validation
-cleo orchestrator validate
+cleo orchestrate validate
 
 # Validate for specific epic
-cleo orchestrator validate --epic T1575
+cleo orchestrate validate --epic T1575
 
 # Validate specific subagent output
-cleo orchestrator validate --subagent research-id-2026-01-18
+cleo orchestrate validate --subagent research-id-2026-01-18
 
 # Manifest only
-cleo orchestrator validate --manifest
+cleo orchestrate validate --manifest
 ```

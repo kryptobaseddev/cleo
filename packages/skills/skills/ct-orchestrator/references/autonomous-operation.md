@@ -26,7 +26,7 @@ Use this protocol block when operating autonomously:
 ### WORKFLOW
 
 1. **Session**: `cleo session list` → resume OR start with `--scope epic:T####`
-2. **Waves**: `cleo orchestrator analyze T####` → compute dependency waves
+2. **Waves**: `cleo orchestrate analyze T####` → compute dependency waves
 3. **Spawn Loop**:
    - Spawn subagent via Task tool (subagent_type: cleo-subagent)
    - Wait for return message
@@ -55,7 +55,7 @@ Use this protocol block when operating autonomously:
 | "NEVER read Task Output" | Read manifest summaries only | AUTO-002 |
 | "epic-architect creates full chain" | Decomposition is spawned subagent | AUTO-003 |
 | Skip verification between spawns | Verify manifest before next spawn | AUTO-004 |
-| No wave ordering | Use `cleo orchestrator analyze` | AUTO-005 |
+| No wave ordering | Use `cleo orchestrate analyze` | AUTO-005 |
 | "Read TaskOutput for results" | Read manifest key_findings only | TOOL-001 |
 
 ## Decision Trees
@@ -127,7 +127,7 @@ cleo session list --scope epic:<epic_id>
 cleo session resume <session_id>
 
 # 5. Continue from next_tasks
-cleo orchestrator next --epic <epic_id>
+cleo orchestrate next --epic <epic_id>
 ```
 
 ## Exit Codes

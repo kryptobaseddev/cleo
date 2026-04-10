@@ -10,20 +10,29 @@
  * @task T5240
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 
 /** Lines that should appear in CLAUDE.md to reference CLEO. */
 const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
+
+/** Resolve the commands directory bundled with this adapter. */
+function getAdapterCommandsDir(): string {
+  // Works in both ESM (import.meta.url) and compiled output
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  return join(thisDir, 'commands');
+}
 
 /**
  * Install provider for Claude Code.
  *
  * Manages CLEO's integration with Claude Code by:
  * 1. Ensuring CLAUDE.md contains @-references to CLEO instruction files
- * 2. Registering the brain observation plugin in ~/.claude/settings.json
+ * 2. Installing adapter-provided commands to .claude/commands/
+ * 3. Registering the brain observation plugin in ~/.claude/settings.json
  *
  * @remarks
  * Installation is idempotent -- running install multiple times on the same
@@ -50,7 +59,13 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
       details.instructionFile = join(projectDir, 'CLAUDE.md');
     }
 
-    // Step 2: Register plugin in ~/.claude/settings.json
+    // Step 2: Install adapter-provided commands to .claude/commands/
+    const commandsInstalled = this.installCommands(projectDir);
+    if (commandsInstalled.length > 0) {
+      details.commands = commandsInstalled;
+    }
+
+    // Step 3: Register plugin in ~/.claude/settings.json
     const pluginResult = this.registerPlugin();
     if (pluginResult) {
       details.plugin = pluginResult;
@@ -139,6 +154,37 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
 
     writeFileSync(claudeMdPath, content, 'utf-8');
     return true;
+  }
+
+  /**
+   * Install Claude Code-specific commands to .claude/commands/ in the project.
+   *
+   * These commands extend CLEO's provider-neutral skills with Claude Code-specific
+   * operational patterns (Agent tool spawn templates, model assignment, context guardrails).
+   *
+   * @param projectDir - Project root directory
+   * @returns Array of installed command filenames
+   */
+  private installCommands(projectDir: string): string[] {
+    const adapterCommandsDir = getAdapterCommandsDir();
+    if (!existsSync(adapterCommandsDir)) {
+      return [];
+    }
+
+    const targetDir = join(projectDir, '.claude', 'commands');
+    mkdirSync(targetDir, { recursive: true });
+
+    const installed: string[] = [];
+    const files = readdirSync(adapterCommandsDir).filter((f) => f.endsWith('.md'));
+
+    for (const file of files) {
+      const src = join(adapterCommandsDir, file);
+      const dest = join(targetDir, file);
+      copyFileSync(src, dest);
+      installed.push(file);
+    }
+
+    return installed;
   }
 
   /**

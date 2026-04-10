@@ -73,7 +73,7 @@ fi
 ### Enforcement Sequence
 
 ```
-1. Generate spawn prompt  ->  orchestrator_spawn_for_task() or cleo orchestrator spawn
+1. Generate spawn prompt  ->  orchestrator_spawn_for_task() or cleo orchestrate spawn
 2. VERIFY protocol block  ->  Check prompt contains "SUBAGENT PROTOCOL"
 3. Spawn subagent         ->  Task tool with validated prompt
 4. Receive return message ->  VALIDATE against allowed formats

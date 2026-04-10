@@ -15,20 +15,20 @@ cleo add "Implement auth system" --type epic --size large --phase core
 cleo session start --scope epic:T1575 --auto-start
 
 # 3. Spawn planning subagent (decomposition protocol)
-cleo orchestrator spawn T1575  # Auto-detects epic → uses decomposition protocol
+cleo orchestrate spawn T1575  # Auto-detects epic → uses decomposition protocol
 
 # 4. Wait for decomposition completion
 cleo research show <research-id>
 
 # 5. Continue with wave-0 tasks
-cleo orchestrator next --epic T1575
+cleo orchestrate next --epic T1575
 ```
 
 ## Pattern: Resuming Interrupted Work
 
 ```bash
 # 1. Check state on conversation start
-cleo orchestrator start --epic T1575
+cleo orchestrate start --epic T1575
 # Shows: session active, current T1586, next task T1589
 
 # 2. Check for incomplete subagent work
@@ -37,7 +37,7 @@ cleo research pending
 
 # 3. Resume focused task or spawn followup
 cleo show T1586 --brief
-cleo orchestrator spawn T1586  # Re-spawn if needed
+cleo orchestrate spawn T1586  # Re-spawn if needed
 ```
 
 ## Pattern: Handling Manifest Followups
@@ -52,19 +52,19 @@ cleo add "Add error handling to auth" --parent T1586 --depends T1586
 cleo add "Write auth tests" --parent T1586 --depends T1586
 
 # 3. Spawn for new tasks
-cleo orchestrator next --epic T1575
-cleo orchestrator spawn T1590
+cleo orchestrate next --epic T1575
+cleo orchestrate spawn T1590
 ```
 
 ## Pattern: Parallel Execution
 
 ```bash
 # 1. Analyze dependency waves
-cleo orchestrator analyze T1575
+cleo orchestrate analyze T1575
 # Shows: Wave 0: T1578, T1580, T1582 (no deps)
 
 # 2. Verify parallel safety
-cleo orchestrator ready --epic T1575
+cleo orchestrate ready --epic T1575
 # Returns: ["T1578", "T1580", "T1582"]
 
 # 3. Spawn multiple subagents (different sessions)
@@ -84,10 +84,10 @@ cleo phase show
 # Returns: "core"
 
 # 2. Get tasks in current phase
-cleo orchestrator ready --epic T1575 --phase core
+cleo orchestrate ready --epic T1575 --phase core
 
 # 3. Spawn within phase context
-cleo orchestrator spawn T1586
+cleo orchestrate spawn T1586
 
 # 4. When phase complete, advance
 cleo phases stats
@@ -105,7 +105,7 @@ cleo research show <research-id>
 cleo show T1586
 
 # 3. Spawn validation subagent
-cleo orchestrator spawn T1590  # Validation task
+cleo orchestrate spawn T1590  # Validation task
 
 # 4. Set verification gates
 cleo verify T1586 --gate testsPassed
@@ -144,14 +144,14 @@ See `src/protocols/release.md` for the full release protocol specification.
 
 ```bash
 # RCASD-IVTR+C PIPELINE (setup phase)
-cleo orchestrator spawn T100  # research protocol
-cleo orchestrator spawn T101  # consensus protocol
-cleo orchestrator spawn T102  # specification protocol
-cleo orchestrator spawn T103  # decomposition protocol
+cleo orchestrate spawn T100  # research protocol
+cleo orchestrate spawn T101  # consensus protocol
+cleo orchestrate spawn T102  # specification protocol
+cleo orchestrate spawn T103  # decomposition protocol
 
 # EXECUTION (core phase)
-cleo orchestrator spawn T104  # implementation protocol
-cleo orchestrator spawn T105  # implementation protocol
+cleo orchestrate spawn T104  # implementation protocol
+cleo orchestrate spawn T105  # implementation protocol
 # ...more implementation tasks...
 
 # CONTRIBUTION (tracked automatically)
