@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.20] — 2026-04-10 — Hotfix: tui-theme.js missing from deployed extensions
+
+### Fixed
+
+- `postinstall.ts`: deploy `tui-theme.js` alongside extensions so
+  `cleo-cant-bridge.js` and `cleo-agent-monitor.js` can resolve the
+  shared theme import at runtime. Previously `cleoos` crashed on first
+  run with `Cannot find module './tui-theme.js'`.
+- `prepublishOnly` guard now checks for `tui-theme.js` in addition to
+  the three extension files.
+
 ## [2026.4.19] — 2026-04-10 — CleoOS Agent Platform
 
 T250 epic: five workstreams shipping the content layer that makes CleoOS
