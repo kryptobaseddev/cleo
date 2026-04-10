@@ -135,53 +135,35 @@ export function registerSkillsCommand(program: Command): void {
       );
     });
 
-  // Subcommand: enable
+  // Subcommand: enable (alias for install — skill.enable was removed in T5615)
   skillsCmd
     .command('enable <skill-name>')
-    .description('Enable a skill')
+    .description('Enable a skill (alias for install)')
     .action(async (skillName: string) => {
       await dispatchFromCli(
         'mutate',
         'tools',
-        'skill.enable',
+        'skill.install',
         {
           name: skillName,
         },
-        { command: 'skills', operation: 'tools.skill.enable' },
+        { command: 'skills', operation: 'tools.skill.install' },
       );
     });
 
-  // Subcommand: disable
+  // Subcommand: disable (alias for uninstall — skill.disable was removed in T5615)
   skillsCmd
     .command('disable <skill-name>')
-    .description('Disable a skill')
+    .description('Disable a skill (alias for uninstall)')
     .action(async (skillName: string) => {
       await dispatchFromCli(
         'mutate',
         'tools',
-        'skill.disable',
+        'skill.uninstall',
         {
           name: skillName,
         },
-        { command: 'skills', operation: 'tools.skill.disable' },
-      );
-    });
-
-  // Subcommand: configure
-  skillsCmd
-    .command('configure <skill-name>')
-    .description('Configure a skill')
-    .option('--set <key=value>', 'Set configuration value')
-    .action(async (skillName: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'tools',
-        'skill.configure',
-        {
-          name: skillName,
-          config: opts['set'],
-        },
-        { command: 'skills', operation: 'tools.skill.configure' },
+        { command: 'skills', operation: 'tools.skill.uninstall' },
       );
     });
 

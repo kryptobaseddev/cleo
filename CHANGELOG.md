@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.23] — 2026-04-10 — Contracts type safety + docs cleanup
+
+### Fixed — Inline type duplicates removed from dispatch engine
+
+`TaskRecord` (80 lines) and `MinimalTaskRecord` (12 lines) were defined
+inline in `task-engine.ts` instead of using `@cleocode/contracts`. This
+caused a CI typecheck failure (TS2352) on the `--fields` code path.
+Both types now import from contracts (canonical source) and are
+re-exported for backward compatibility.
+
+- Added `pipelineStage` to contracts `TaskRecord`
+- Added `depends`, `type`, `size` to contracts `MinimalTaskRecord`
+- Fixed `taskToRecord` to use `TaskRecordRelation` for relates mapping
+
+### Changed — Documentation
+
+- Removed MCP adapter references from 8 spec/concept docs (MCP fully
+  removed per prior ADR)
+- Added Pi harness design docs: agent TUI, architecture, wireframes
+- Updated LOOM distillation flow with current two-path implementation
+
 ## [2026.4.22] — 2026-04-10 — Agent UX patch: orphan prevention, find readiness, batch creation
 
 ### Fixed — Orphaned tasks from validation retries (#89)

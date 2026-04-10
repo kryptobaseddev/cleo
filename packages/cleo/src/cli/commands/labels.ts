@@ -1,6 +1,10 @@
 /**
  * CLI labels command - label management.
- * Routes through dispatch layer to tasks.label.list and tasks.label.show.
+ * Routes through dispatch layer to tasks.label.list.
+ *
+ * Note: `tasks.label.show` was removed in T5615 rationalization.
+ * Use `tasks.label.list` with a `{label}` filter param instead.
+ *
  * @task T4538
  * @epic T4454
  */
@@ -28,7 +32,7 @@ export function registerLabelsCommand(program: Command): void {
     .command('show <label>')
     .description('Show tasks with specific label')
     .action(async (label: string) => {
-      await dispatchFromCli('query', 'tasks', 'label.show', { label }, { command: 'labels' });
+      await dispatchFromCli('query', 'tasks', 'label.list', { label }, { command: 'labels' });
     });
 
   labels

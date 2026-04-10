@@ -1,16 +1,16 @@
 /**
  * CLI command: cleo observe <text>
- * Saves an observation to brain.db via the memory system.
+ * Saves an observation to brain.db via the dispatch layer.
  *
- * Provides CLI parity for the `mutate memory observe` dispatch operation.
+ * Convenience alias for `cleo memory observe <text>`. Both route through
+ * the `mutate memory observe` dispatch operation.
  *
- * @task T338 — migrated from custom {success, result} envelope to canonical
- *   CliEnvelope via cliOutput() (ADR-039).
+ * @task T338 — migrated from custom envelope to canonical CliEnvelope (ADR-039).
+ * @task CLI-audit — migrated from direct observeBrain() call to dispatchFromCli.
  */
 
-import { getProjectRoot } from '@cleocode/core';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { cliError, cliOutput } from '../renderers/index.js';
 
 export function registerObserveCommand(program: Command): void {
   program
@@ -22,30 +22,17 @@ export function registerObserveCommand(program: Command): void {
       'Observation type (discovery, decision, bugfix, refactor, feature, change, pattern, session_summary)',
     )
     .action(async (text: string, opts: { title?: string; type?: string }) => {
-      const projectDir = getProjectRoot();
-      const { observeBrain } = await import('@cleocode/core');
-
-      try {
-        const result = await observeBrain(projectDir, {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'observe',
+        {
           text,
           title: opts.title,
-          type: opts.type as Parameters<typeof observeBrain>[1]['type'],
+          ...(opts.type !== undefined && { type: opts.type }),
           sourceType: 'manual',
-        });
-
-        // Use cliOutput to emit the canonical CliEnvelope shape (ADR-039).
-        // Replaces the previous custom {success, result} output.
-        cliOutput(
-          {
-            id: result.id,
-            type: result.type,
-            createdAt: result.createdAt,
-          },
-          { command: 'observe', operation: 'memory.observe' },
-        );
-      } catch (err) {
-        cliError(err instanceof Error ? err.message : String(err), 1);
-        process.exitCode = 1;
-      }
+        },
+        { command: 'observe', operation: 'memory.observe' },
+      );
     });
 }

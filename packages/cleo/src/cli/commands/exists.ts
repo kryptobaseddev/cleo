@@ -1,8 +1,10 @@
 /**
  * CLI exists command - check if a task ID exists.
  *
- * Fix #68: Calls getTask() from core directly (tasks.exists was never
- * registered in the operation registry).
+ * Intentional dispatch bypass: `tasks.exists` was removed during the T5615
+ * rationalization. The canonical replacement is `tasks.find {exact:true}` and
+ * checking `results.length > 0`. This command calls `getTask()` from core
+ * directly for simplicity and exit-code semantics (0=exists, 4=not found).
  *
  * @task T4454
  */
