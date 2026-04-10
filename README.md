@@ -1,4 +1,8 @@
-# CLEO - Contextual Language Engine & Orchestrator
+<p align="center">
+  <img src="docs/images/banner.png" alt="CLEO — Agent First Task Orchestration" width="100%" />
+</p>
+
+# CLEO
 
 [![npm version](https://img.shields.io/npm/v/@cleocode/cleo.svg)](https://www.npmjs.com/package/@cleocode/cleo)
 [![CI](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml/badge.svg)](https://github.com/kryptobaseddev/cleo/actions/workflows/ci.yml)
@@ -7,20 +11,29 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
 
-CLEO is a comprehensive task management and agent orchestration system designed for AI-powered software development workflows. It provides structured task tracking, session management, memory systems, and multi-provider AI integration through a unified CLI.
+Every developer who has ever returned to a project after weeks away and found only ruins knows the wound CLEO was built to heal. The agents are powerful. But power without memory is chaos. Brilliance without continuity is waste. CLEO is the companion that remembers where you left off — the one who keeps the thread when life pulls you away.
+
+Agent-first task orchestration. Persistent memory. Multi-provider coordination. One CLI to command them all.
 
 ## What is CLEO?
 
-CLEO stands for **Contextual Language Engine & Orchestrator**. It's built to solve the coordination challenges that arise when working with multiple AI coding assistants across complex software projects.
+CLEO is built for the developers who build after the world goes quiet — the ones carrying six unfinished ideas and the stubborn belief that this next session might be the one where everything clicks. It solves the coordination crisis of working with multiple AI agents across complex projects by giving them something they've never had: structure, memory, and a lifecycle that survives interruption.
+
+### The Four Great Systems
+
+| System | Purpose |
+|--------|---------|
+| **BRAIN** | Memory that does not decay — observations, patterns, and learnings persisted across sessions with semantic search |
+| **LOOM** | The lifecycle that governs all work — 9-stage RCASD-IVTR+C pipeline from idea to shipped release |
+| **NEXUS** | The network between projects — cross-repo coordination, shared patterns, federated intelligence |
+| **LAFS** | The common tongue — every response wrapped in a structured envelope that any LLM provider can parse |
 
 ### Core Capabilities
 
-- **Task Management**: Hierarchical task tracking with dependencies, priorities, and lifecycle states
-- **Session Management**: Contextual work sessions with automatic state persistence
-- **Agent Orchestration**: Multi-agent coordination with protocol compliance
-- **Memory Systems**: Persistent knowledge storage with brain-like retrieval
+- **Task Management**: Hierarchical tracking with dependencies, priorities, and lifecycle states
+- **Session Management**: Contextual work sessions that survive across conversations
+- **Agent Orchestration**: Multi-agent coordination through the [Circle of Ten](#the-circle-of-ten) domains
 - **Multi-Provider Support**: Works with Claude Code, OpenCode, Cursor, Gemini, Codex, and more
-- **Lifecycle Pipeline**: 9-stage RCASD-IVTR+C lifecycle with verification gates
 
 ## Monorepo Structure
 
@@ -142,49 +155,50 @@ pnpm test
 ## Key Features
 
 ### Task Management
-- Hierarchical tasks with parent-child relationships
-- Priority levels and sizing estimates (small/medium/large)
-- Dependency tracking with readiness detection
-- Automatic sequencing and critical path analysis
+- Hierarchical tasks with parent-child relationships and dependency tracking
+- Wave-based parallel execution with automatic sequencing and critical path analysis
+- Priority levels, sizing estimates (small/medium/large), and readiness detection
 - Batch creation via `cleo add-batch`
 
 ### Session Management
 - Contextual work sessions with epic scope binding
 - Session-scoped parent inheritance for task creation
-- Briefing generation for context handoff
+- Briefing generation for context handoff across conversations
 - Safe stop and checkpoint mechanisms
 
 ### Memory Systems
-- Brain-like knowledge storage with semantic search
-- Sticky notes for ephemeral context
+- BRAIN-powered knowledge storage with semantic search
+- Sticky notes for ephemeral context capture
 - Memory bridges for cross-session persistence
-- 3-layer retrieval: search → timeline → fetch
+- 3-layer retrieval: search -> timeline -> fetch
 
 ### Agent Orchestration
-- Subagent spawning with protocol compliance
-- Wave-based parallel execution
+- Subagent spawning with protocol compliance via LOOM lifecycle
+- Wave-based parallel execution across dependency-safe tasks
 - Consensus workflows for multi-agent decisions
-- LOOM (Logical Order of Operations Methodology) lifecycle
+- LOOM lifecycle — every piece of work flows through Research, Consensus, Architecture, Specification, Decomposition, then Implementation, Validation, Testing, Release
 
 ### Multi-Provider Support
 - Claude Code integration with statusline sync
 - OpenCode, Cursor, Gemini, Codex, Kimi adapters
 - Extensible adapter architecture via CAAMP
 
-## Commands Overview
+## The Circle of Ten
 
-CLEO provides 100+ commands organized into domains:
+CLEO organizes all work through ten canonical domains — the houses where work gets done:
 
-| Domain | Commands |
-|--------|----------|
-| **Tasks** | add, add-batch, list, show, find, complete, update, delete, archive, start, stop, current, next, deps, tree, labels, blockers, stats, history, reorder, reparent, relates, exists |
-| **Session** | session start/end/list/resume, briefing, phase, checkpoint, safestop |
-| **Memory** | memory, memory-brain, observe, context, inject, sync, sticky, refresh-memory |
-| **Check** | validate, verify, compliance, doctor, analyze |
-| **Pipeline** | release, lifecycle, promote, upgrade, roadmap, plan, phases, log, issue, bug |
-| **Orchestration** | orchestrate, ops, consensus, contribution, decomposition, implementation, sequence, dash |
-| **Nexus** | nexus, init, remote, push, pull, snapshot, export, import |
-| **Admin** | config, backup, skills, migrate, grade, map, commands, adr, token, otel |
+| Domain | House | What Happens Here | Key Commands |
+|--------|-------|-------------------|--------------|
+| `tasks` | The Smiths | Work is forged — create, track, complete | add, find, show, complete, deps, tree |
+| `session` | The Scribes | The living present — context that survives | start, end, resume, briefing, checkpoint |
+| `memory` | The Archivists | Knowledge that does not decay | observe, memory-brain, sync, sticky |
+| `check` | The Wardens | Integrity stands guard | validate, verify, compliance, doctor |
+| `pipeline` | The Weavers | The lifecycle threads forward | release, lifecycle, phases, promote |
+| `orchestrate` | The Conductors | Agents move in concert | orchestrate, consensus, contribution, dash |
+| `tools` | The Artificers | Capabilities are crafted | skills, providers |
+| `admin` | The Keepers | The realm stays healthy | config, backup, migrate, grade |
+| `nexus` | The Wayfinders | Projects find each other | nexus, remote, push, pull, snapshot |
+| `sticky` | The Catchers | Quick capture before the thought escapes | sticky |
 
 ## Contributing
 
@@ -209,10 +223,21 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Documentation
 
-- [Architecture Guide](docs/architecture)
-- [Operations Reference](docs/specs/CLEO-OPERATIONS-REFERENCE.md)
+- [Architecture Guide](docs/concepts/CLEO-ARCHITECTURE-GUIDE.md)
+- [Operations Constitution](docs/specs/CLEO-OPERATION-CONSTITUTION.md)
+- [Canon Index](docs/concepts/CLEO-CANON-INDEX.md)
 - [Skill Development](docs/skills)
 - [LAFS Specification](packages/lafs/README.md)
+
+## The Story of CLEO
+
+CLEO was not born from a product brief. It was born from a refusal — one developer, sick to the bone on a fevered night, who decided he would rather build a new world than keep losing the thread in the old one. The agents were powerful. But they forgot too easily. The projects were ambitious. But they died on the shelf. The tools were brilliant. But brilliance without memory was just another kind of chaos.
+
+So he gave the struggle names. He gave it terrain. He gave it companions. And at the heart of that world, carrying memory like a lantern through the dark, CLEO opened its eyes.
+
+- [The Founding Story](docs/concepts/CLEO-FOUNDING-STORY.md) — told by the builder
+- [The Awakening Story](docs/concepts/CLEO-AWAKENING-STORY.md) — told by CLEO
+- [The Canon Index](docs/concepts/CLEO-CANON-INDEX.md) — the complete lore, in reading order
 
 ## Support
 
