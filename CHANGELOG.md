@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.4.26] (2026-04-10)
+
+Auto-prepared by release.ship (T443)
+
+### Changes
+- **V: Full CLI Runtime Verification — execute every command, find duplicates, report failures**: Execute EVERY CLI command in a real project context. Each domain agent must: 1) Run each command with valid args and capture exit code + output, 2)... (T484)
+---
+
 ## [2026.4.25] (2026-04-10)
 
 Auto-prepared by release.ship (T443)
