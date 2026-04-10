@@ -102,7 +102,7 @@ The live workshop also has named runtime forms:
 | **The Hearth** | surface | The terminal-facing workshop surface where sessions, roles, and tools stay close at hand |
 | **The Circle of Ten** | role overlay | The role overlay mapped 1:1 to the ten canonical domains |
 | **The Impulse** | motion | The self-propelling motion that advances ready work through Warp-bound chains |
-| **Conduit** | relay path | Agent relay using LAFS envelopes and A2A delegation only; `sticky` is not the live relay lane |
+| **Conduit** | relay path | Agent-to-agent communication layer. 4-shell stack: Shell 1 = Pi native process spawn (parent/child relay, free), Shell 2 = `conduit.db` SQLite (project-local messaging, v2026.4.12), Shell 3 = `signaldock-sdk` Rust via `api.signaldock.io` (cross-machine, shipped), Shell 4 = Rust broker with leases + DLQ (planned). The Chat Room is a Hearth TUI surface, NOT a Conduit shell. `sticky` is not the live relay lane. |
 | **Watchers** | patrols | Long-running Cascades that patrol continuity, gates, and system health |
 | **The Sweep** | quality loop | Quality patrol in motion |
 | **Refinery** | convergence gate | Convergence gate where parallel changes are proven fit to join |
@@ -159,6 +159,36 @@ The live workshop also has named runtime forms:
 ```
 
 The Catchers keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`; they do not create an eleventh house.
+
+---
+
+## 5.1. The Three-Tier Hierarchy
+
+Multi-agent coordination uses three tiers, each with distinct powers enforced at the Pi `tool_call` hook level:
+
+| Tier | Role | Power | Constraint |
+|------|------|-------|------------|
+| **Orchestrator** | Runs the Conductor Loop (`/cleo:auto <epicId>`) | Full system access | HITL boundary |
+| **Lead** | Coordinates a worker group, reviews output | Read + delegate | CANNOT execute `Edit`, `Write`, or `Bash` |
+| **Worker** | Executes concrete code changes | Read + write within domain | Path ACL: `permissions.files: write[glob]` |
+
+Defined in `.cleo/teams.cant`. Enforced by the CANT bridge's `tool_call` hook (Wave 7b).
+
+---
+
+## 5.2. The Runtime Stack
+
+The technology layer that makes the realm operational:
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Operator surface** | Pi Coding Agent (TUI) | Terminal-facing code editor + model interaction |
+| **Extension host** | CleoOS Pi extensions | CANT bridge, chat room, ACL enforcement |
+| **CLI + governance** | `@cleocode/cleo` (90+ commands) | Task management, lifecycle, backup |
+| **Kernel** | `@cleocode/core` | Business logic: tasks, sessions, memory, orchestration |
+| **Local messaging** | `conduit.db` (SQLite) | Project-tier agent-to-agent relay |
+| **Global identity** | `signaldock.db` + `signaldock-sdk` (Rust) | Cross-machine agent registry via api.signaldock.io |
+| **Storage** | SQLite via Drizzle ORM | 5 databases across 2 tiers (project + global) |
 
 ---
 

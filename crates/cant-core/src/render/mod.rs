@@ -34,8 +34,8 @@
 //! at a glance which rendering support is still missing.
 
 use crate::dsl::ast::{
-    AgentDef, CantDocument, ContextRef, DocumentKind, Frontmatter, Permission, Property, ProseBlock,
-    Section, SkillDef, StringValue, Value,
+    AgentDef, CantDocument, ContextRef, DocumentKind, Frontmatter, Permission, Property,
+    ProseBlock, Section, SkillDef, StringValue, Value,
 };
 
 pub mod protocol;

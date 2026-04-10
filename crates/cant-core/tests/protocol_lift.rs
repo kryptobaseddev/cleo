@@ -177,7 +177,11 @@ fn all_twelve_protocol_files_exist() {
     ];
     for name in &expected {
         let path = protocol_cant_path(name);
-        assert!(path.exists(), "missing protocol .cant file: {}", path.display());
+        assert!(
+            path.exists(),
+            "missing protocol .cant file: {}",
+            path.display()
+        );
     }
 }
 

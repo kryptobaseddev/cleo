@@ -15,8 +15,7 @@ use crate::dsl::parse_document;
 // ── Helper: parse a source string and return its document, panicking on
 //    parse errors so test failures point at the offending input.
 fn parse(src: &str) -> crate::dsl::ast::CantDocument {
-    parse_document(src)
-        .unwrap_or_else(|errs| panic!("expected clean parse, got errors: {errs:#?}"))
+    parse_document(src).unwrap_or_else(|errs| panic!("expected clean parse, got errors: {errs:#?}"))
 }
 
 #[test]
@@ -49,7 +48,10 @@ fn render_simple_property_string_value() {
         panic!("expected Agent section");
     };
     let prop = &agent.properties[0];
-    assert_eq!(render_property(prop, 1), "  prompt: \"You coordinate things\"\n");
+    assert_eq!(
+        render_property(prop, 1),
+        "  prompt: \"You coordinate things\"\n"
+    );
 }
 
 #[test]
@@ -70,10 +72,7 @@ fn render_array_value() {
     };
     let prop = &agent.properties[0];
     // Arrays render with single-space separators after commas.
-    assert_eq!(
-        render_value(&prop.value),
-        "[\"ct-deploy\", \"ct-monitor\"]"
-    );
+    assert_eq!(render_value(&prop.value), "[\"ct-deploy\", \"ct-monitor\"]");
 }
 
 #[test]
@@ -106,8 +105,7 @@ fn render_agent_block_minimal() {
 
 #[test]
 fn render_agent_with_permissions_block() {
-    let src =
-        "agent scanner:\n  model: opus\n  permissions:\n    tasks: read, write\n    session: read\n";
+    let src = "agent scanner:\n  model: opus\n  permissions:\n    tasks: read, write\n    session: read\n";
     let doc = parse(src);
     let Section::Agent(agent) = &doc.sections[0] else {
         panic!("expected Agent section");

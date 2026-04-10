@@ -122,8 +122,7 @@ mod tests {
 
     #[test]
     fn parse_simple_tool() {
-        let input =
-            "tool dispatch_worker:\n  description: \"Spawn a subagent\"\n  tier: lead";
+        let input = "tool dispatch_worker:\n  description: \"Spawn a subagent\"\n  tier: lead";
         let lines = split_lines(input).unwrap();
         let (tool, consumed) = parse_tool_block(&lines, 0).unwrap();
         assert_eq!(consumed, 3);

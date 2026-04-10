@@ -44,10 +44,7 @@ pub fn route_with_caps(
             vec!["kimi-k2.5".to_string(), "claude-haiku-4-5".to_string()],
             0.50_f64,
             30_000_u64,
-            format!(
-                "mid tier: 0.35 <= score={:.3} < 0.75",
-                classification.score
-            ),
+            format!("mid tier: 0.35 <= score={:.3} < 0.75", classification.score),
         ),
         Tier::Low => (
             "claude-haiku-4-5",

@@ -261,7 +261,11 @@ mod tests {
             Some("scope exceeds single sprint")
         );
         // Also present as a regular property for lint-rule key-lookup.
-        assert!(team.properties.iter().any(|p| p.key.value == "consult-when"));
+        assert!(
+            team.properties
+                .iter()
+                .any(|p| p.key.value == "consult-when")
+        );
     }
 
     #[test]

@@ -19,15 +19,8 @@
   },
   "dependencies": {
     "@cleocode/cant": "workspace:*",
-    "@cleocode/cleo": "workspace:*"
-  },
-  "peerDependencies": {
+    "@cleocode/cleo": "workspace:*",
     "@mariozechner/pi-coding-agent": ">=0.60.0"
-  },
-  "peerDependenciesMeta": {
-    "@mariozechner/pi-coding-agent": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "typescript": "^6.0.2",

@@ -25,6 +25,7 @@ import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
 import { ShimCommand } from './commander-shim.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
+import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
 import { resolveFormat } from './middleware/output-format.js';
 
 function getPackageVersion(): string {
@@ -494,4 +495,9 @@ const main = defineCommand({
   subCommands,
 });
 
-runMain(main);
+// Build alias map for help rendering (alias name → primary command name)
+const aliasMap = buildAliasMap(rootShim._subcommands);
+
+// Use custom grouped help renderer for root --help; sub-commands use citty's default
+const customShowUsage = createCustomShowUsage(CLI_VERSION, rootShim._subcommands, aliasMap);
+runMain(main, { showUsage: customShowUsage });

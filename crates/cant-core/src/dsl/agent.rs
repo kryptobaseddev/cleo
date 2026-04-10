@@ -236,7 +236,12 @@ fn split_file_permissions<'a>(
                     "expected `write:`, `read:`, or `delete:` in files: block, got: {}",
                     line.content
                 ),
-                Span::new(base, base + line.content.len(), line.line_number, (line.indent as u32) + 1),
+                Span::new(
+                    base,
+                    base + line.content.len(),
+                    line.line_number,
+                    (line.indent as u32) + 1,
+                ),
             )
         })?;
 
@@ -298,9 +303,7 @@ fn parse_glob_array(value_str: &str) -> Vec<String> {
 
     // Handle array syntax: ["a", "b"]
     if trimmed.starts_with('[') {
-        let inner = trimmed
-            .trim_start_matches('[')
-            .trim_end_matches(']');
+        let inner = trimmed.trim_start_matches('[').trim_end_matches(']');
 
         return inner
             .split(',')
@@ -322,9 +325,7 @@ fn parse_glob_array(value_str: &str) -> Vec<String> {
     // Bare single value
     if !trimmed.is_empty() {
         let s = trimmed;
-        if (s.starts_with('"') && s.ends_with('"'))
-            || (s.starts_with('\'') && s.ends_with('\''))
-        {
+        if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
             return vec![s[1..s.len() - 1].to_string()];
         }
         return vec![s.to_string()];
@@ -588,7 +589,10 @@ mod tests {
         let input = "agent backend-dev:\n  role: worker\n  permissions:\n    files:\n      write: [\"packages/cleo/**\", \"crates/**\"]\n      read: [\"**/*\"]";
         let lines = split_lines(input).unwrap();
         let (agent, _) = parse_agent_block(&lines, 0).unwrap();
-        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        let fp = agent
+            .file_permissions
+            .as_ref()
+            .expect("file_permissions should be Some");
         assert_eq!(fp.write, vec!["packages/cleo/**", "crates/**"]);
         assert_eq!(fp.read, vec!["**/*"]);
         assert!(fp.delete.is_empty());
@@ -599,7 +603,10 @@ mod tests {
         let input = "agent backend-dev:\n  role: worker\n  permissions:\n    files:\n      write: [\"packages/cleo/**\"]\n      delete: [\"packages/cleo/**\"]\n      read: [\"**/*\"]";
         let lines = split_lines(input).unwrap();
         let (agent, _) = parse_agent_block(&lines, 0).unwrap();
-        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        let fp = agent
+            .file_permissions
+            .as_ref()
+            .expect("file_permissions should be Some");
         assert_eq!(fp.write, vec!["packages/cleo/**"]);
         assert_eq!(fp.delete, vec!["packages/cleo/**"]);
         assert_eq!(fp.read, vec!["**/*"]);
@@ -610,8 +617,14 @@ mod tests {
         let input = "agent security-reviewer:\n  role: worker\n  permissions:\n    files:\n      write: []\n      read: [\"**/*\"]";
         let lines = split_lines(input).unwrap();
         let (agent, _) = parse_agent_block(&lines, 0).unwrap();
-        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
-        assert!(fp.write.is_empty(), "empty write glob means no writes allowed");
+        let fp = agent
+            .file_permissions
+            .as_ref()
+            .expect("file_permissions should be Some");
+        assert!(
+            fp.write.is_empty(),
+            "empty write glob means no writes allowed"
+        );
         assert_eq!(fp.read, vec!["**/*"]);
     }
 
@@ -634,7 +647,10 @@ mod tests {
         assert_eq!(agent.permissions.len(), 1);
         assert_eq!(agent.permissions[0].domain, "tasks");
         // File permissions parsed
-        let fp = agent.file_permissions.as_ref().expect("file_permissions should be Some");
+        let fp = agent
+            .file_permissions
+            .as_ref()
+            .expect("file_permissions should be Some");
         assert_eq!(fp.write, vec!["packages/cleo/**"]);
     }
 

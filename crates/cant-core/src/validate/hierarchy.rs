@@ -506,10 +506,7 @@ mod tests {
 
     #[test]
     fn team001_with_orchestrator_passes() {
-        let team = make_team(
-            "platform",
-            vec![prop("orchestrator", ident("cleo-prime"))],
-        );
+        let team = make_team("platform", vec![prop("orchestrator", ident("cleo-prime"))]);
         let diags = run(Section::Team(team));
         assert!(diags.iter().all(|d| d.rule_id != "TEAM-001"));
     }
@@ -584,10 +581,7 @@ mod tests {
     fn team002_no_leads_skips_consult_when_check() {
         // A team without a leads sub-block should not fire TEAM-002 for
         // consult-when or stages — those rules only apply when leads exist.
-        let team = make_team(
-            "minimal",
-            vec![prop("orchestrator", ident("cleo-prime"))],
-        );
+        let team = make_team("minimal", vec![prop("orchestrator", ident("cleo-prime"))]);
         let diags = run(Section::Team(team));
         assert!(diags.iter().all(|d| d.rule_id != "TEAM-002"));
     }
@@ -628,7 +622,10 @@ mod tests {
             vec![
                 prop("role", ident("worker")),
                 prop("parent", ident("engineering-lead")),
-                prop("core", Value::Array(vec![ident("Edit"), ident("Write"), ident("Bash")])),
+                prop(
+                    "core",
+                    Value::Array(vec![ident("Edit"), ident("Write"), ident("Bash")]),
+                ),
             ],
         );
         let diags = run(Section::Agent(agent));
@@ -705,10 +702,7 @@ mod tests {
 
     #[test]
     fn tier002_mid_max_tokens_over_cap_fires() {
-        let mut agent = make_agent(
-            "backend-dev",
-            vec![prop("tier", ident("mid"))],
-        );
+        let mut agent = make_agent("backend-dev", vec![prop("tier", ident("mid"))]);
         agent.mental_model = vec![
             prop("scope", ident("project")),
             prop("validate", Value::Boolean(true)),

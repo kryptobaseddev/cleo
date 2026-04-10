@@ -55,7 +55,7 @@ The live workshop also has named runtime forms for autonomous motion. These name
 | **The Hearth** | surface | session, orchestrate, tools | Terminal-facing workshop surface where active sessions, roles, and capabilities gather |
 | **The Circle of Ten** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Catchers, Keepers |
 | **The Impulse** | motion | orchestrate, pipeline, tasks | Self-propelling motion that advances ready work through governed chains |
-| **Conduit** | relay path | orchestrate, session, nexus | Agent relay path using LAFS envelopes and A2A delegation only. `sticky` may hold drafted handoff material, but it is not the live relay lane |
+| **Conduit** | relay path | orchestrate, session, nexus | Agent relay path. 4-shell stack: Shell 1 (Pi native process spawn, parent/child relay, free), Shell 2 (`conduit.db` project-local SQLite, v2026.4.12), Shell 3 (`signaldock-sdk` Rust via `api.signaldock.io`, cross-machine, shipped), Shell 4 (Rust broker with leases + DLQ, planned). The Chat Room TUI is a Hearth surface, not a Conduit shell. `sticky` is not the live relay lane. |
 | **Watchers** | patrols | pipeline, orchestrate, check, admin | Long-running Cascades that patrol health, continuity, and gate state |
 | **The Sweep** | quality loop | check, pipeline, orchestrate | Quality patrol loop expressed as review, repair, and re-verification |
 | **Refinery** | convergence gate | pipeline, check, orchestrate | Convergence gate where changes are proven ready to join and advance |
@@ -107,17 +107,26 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 
 ## 3. Package Boundary
 
-`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the CLI and MCP protocol layers:
+`@cleocode/core` is the standalone business logic kernel. The `@cleocode/cleo` product assembles it together with the CLI layer. `@cleocode/cleo-os` wraps both with Pi and the CleoOS extension host:
 
 ```
 +-----------------------------------------------------------+
-|                   @cleocode/cleo                        |
-|  (assembled CLI + MCP product, published on npm)          |
+|                   @cleocode/cleo-os                       |
+|  (CleoOS — batteries-included Pi wrapper)                 |
+|  extensions/cleo-cant-bridge.ts  <- CANT runtime bridge   |
+|  extensions/cleo-chatroom.ts     <- Hearth TUI (not Conduit)|
+|  src/cli.ts                      <- cleoos launcher        |
+|  dep: @mariozechner/pi-coding-agent                       |
++-----------------------------------------------------------+
+        |
+        v
++-----------------------------------------------------------+
+|                   @cleocode/cleo                          |
+|  (assembled CLI product, published on npm)                |
 |                                                           |
 |  +--------+   +--------+                                  |
-|  |  CLI   |   |  MCP   |  <-- adapter layers              |
-|  | (86 cmds)  |(query/ |                                  |
-|  |        |   | mutate)|                                  |
+|  |  CLI   |   |  Pi   |  <-- adapter layers               |
+|  | (90+ cmds) | (ext) |                                   |
 |  +---+----+   +---+----+                                  |
 |      |            |                                        |
 |      v            v                                        |
