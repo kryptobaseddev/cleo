@@ -506,7 +506,10 @@ export async function addTask(
         {
           fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
           alternatives: [
-            'cleo add "Epic title" --type epic --priority high',
+            {
+              action: 'Create as epic',
+              command: 'cleo add "Epic title" --type epic --priority high',
+            },
           ],
         },
       );

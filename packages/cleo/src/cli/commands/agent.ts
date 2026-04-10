@@ -12,6 +12,7 @@
  *   cleo agent start      — start the daemon poller for an agent
  *   cleo agent install    — install an agent from .cantz archive or directory
  *   cleo agent pack       — package an agent directory as .cantz archive
+ *   cleo agent create     — scaffold a new agent package with persona.cant and manifest.json
  *
  * **Daemon vs. Pi session — important distinction.** The daemon spawned
  * by `cleo agent start` ONLY polls SignalDock for inbound messages and
@@ -2027,4 +2028,774 @@ agent ${agentId}:
         process.exitCode = 1;
       }
     });
+
+  // --- cleo agent create ---
+  /**
+   * Scaffold a complete agent package with persona.cant, manifest.json,
+   * and optional expertise seed files.
+   *
+   * Creates a directory structure conforming to the CANTZ package standard
+   * (docs/specs/CANTZ-PACKAGE-STANDARD.md) with role-based persona templates
+   * derived from the starter-bundle canonical agents.
+   *
+   * Template roles:
+   * - **orchestrator**: read-only tools, high tier, dispatch-focused
+   * - **lead**: read-only tools, mid tier, task decomposition
+   * - **worker**: full tool access, mid tier, code execution
+   * - **docs-worker**: documentation-focused worker variant
+   *
+   * @task T439
+   * @epic T250
+   * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+   * @see packages/cleo-os/starter-bundle/agents/ — canonical format reference
+   */
+  agent
+    .command('create')
+    .description('Scaffold a new agent package with persona.cant and manifest.json')
+    .requiredOption('--name <name>', 'Agent name (kebab-case)')
+    .requiredOption('--role <role>', 'Agent role: orchestrator, lead, worker, or docs-worker')
+    .option('--tier <tier>', 'Agent tier: low, mid, or high (defaults based on role)')
+    .option('--team <teamName>', 'Team this agent belongs to')
+    .option('--domain <description>', 'Domain description for file permissions and context')
+    .option('--global', 'Create in global tier (~/.local/share/cleo/cant/agents/)')
+    .option('--seed-brain', 'Create expertise/mental-model-seed.md and seed a BRAIN observation')
+    .option('--parent <parentAgent>', 'Parent agent name in the hierarchy')
+    .action(async (opts: Record<string, unknown>) => {
+      try {
+        const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const { homedir } = await import('node:os');
+
+        const name = opts['name'] as string;
+        const role = opts['role'] as string;
+        const tier = (opts['tier'] as string | undefined) ?? inferTierFromRole(role);
+        const team = opts['team'] as string | undefined;
+        const domain = opts['domain'] as string | undefined;
+        const isGlobal = opts['global'] === true;
+        const seedBrain = opts['seedBrain'] === true;
+        const parent = opts['parent'] as string | undefined;
+
+        // Validate role
+        const validRoles = ['orchestrator', 'lead', 'worker', 'docs-worker'];
+        if (!validRoles.includes(role)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Invalid role "${role}". Must be one of: ${validRoles.join(', ')}`,
+                fix: `cleo agent create --name ${name} --role worker`,
+              },
+            },
+            { command: 'agent create' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Validate tier
+        const validTiers = ['low', 'mid', 'high'];
+        if (!validTiers.includes(tier)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Invalid tier "${tier}". Must be one of: ${validTiers.join(', ')}`,
+                fix: `cleo agent create --name ${name} --role ${role} --tier mid`,
+              },
+            },
+            { command: 'agent create' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Validate name is kebab-case
+        if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Agent name must be kebab-case: "${name}"`,
+                fix: 'Use lowercase letters, numbers, and hyphens. Must start with a letter.',
+              },
+            },
+            { command: 'agent create' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Determine target directory
+        let targetRoot: string;
+        if (isGlobal) {
+          const home = homedir();
+          const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+          targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
+        } else {
+          targetRoot = join(process.cwd(), '.cleo', 'cant', 'agents');
+        }
+
+        const agentDir = join(targetRoot, name);
+
+        // Check if agent directory already exists
+        if (existsSync(agentDir)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Agent directory already exists: ${agentDir}`,
+                fix: 'Remove the existing directory or choose a different name.',
+              },
+            },
+            { command: 'agent create' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Create directory structure
+        mkdirSync(agentDir, { recursive: true });
+
+        // Generate persona.cant from role template
+        const personaContent = generatePersonaCant({
+          name,
+          role,
+          tier,
+          team,
+          domain,
+          parent,
+        });
+        writeFileSync(join(agentDir, 'persona.cant'), personaContent, 'utf-8');
+
+        // Generate manifest.json
+        const manifest = generateManifest({ name, role, tier, domain });
+        writeFileSync(
+          join(agentDir, 'manifest.json'),
+          `${JSON.stringify(manifest, null, 2)}\n`,
+          'utf-8',
+        );
+
+        // Track created files for summary
+        const createdFiles: string[] = [
+          join(agentDir, 'persona.cant'),
+          join(agentDir, 'manifest.json'),
+        ];
+
+        // Generate team config if team specified
+        if (team) {
+          const teamConfigContent = generateTeamConfig(name, role, team);
+          writeFileSync(join(agentDir, 'team-config.cant'), teamConfigContent, 'utf-8');
+          createdFiles.push(join(agentDir, 'team-config.cant'));
+        }
+
+        // Seed brain expertise if requested
+        if (seedBrain) {
+          const expertiseDir = join(agentDir, 'expertise');
+          mkdirSync(expertiseDir, { recursive: true });
+          const seedContent = generateMentalModelSeed(name, role, domain);
+          writeFileSync(join(expertiseDir, 'mental-model-seed.md'), seedContent, 'utf-8');
+          createdFiles.push(join(expertiseDir, 'mental-model-seed.md'));
+
+          // Best-effort BRAIN observation via CLI
+          try {
+            const { execFile } = await import('node:child_process');
+            const { promisify } = await import('node:util');
+            const execFileAsync = promisify(execFile);
+            await execFileAsync(
+              'cleo',
+              [
+                'observe',
+                `Agent ${name} created with role ${role}`,
+                '--title',
+                `Agent creation: ${name}`,
+              ],
+              { encoding: 'utf-8', timeout: 10000 },
+            ).catch(() => {
+              // Best-effort — do not fail create if observe fails
+            });
+          } catch {
+            // Best-effort — do not fail create if observe fails
+          }
+        }
+
+        // Best-effort agent registration in signaldock.db
+        let registered = false;
+        try {
+          const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+          await getDb();
+          const registry = new AgentRegistryAccessor(process.cwd());
+          const existing = await registry.get(name);
+
+          if (!existing) {
+            const descMatch = personaContent.match(/description:\s*"([^"]+)"/);
+            const displayName = descMatch?.[1] ?? name;
+
+            await registry.register({
+              agentId: name,
+              displayName,
+              apiKey: 'local-created',
+              apiBaseUrl: 'local',
+              classification: role,
+              privacyTier: 'private',
+              capabilities: [],
+              skills: [],
+              transportType: 'http',
+              transportConfig: {},
+              isActive: false,
+            });
+            registered = true;
+          }
+        } catch {
+          // Registration is best-effort — do not fail the create
+        }
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agent: name,
+              role,
+              tier,
+              directory: agentDir,
+              scope: isGlobal ? 'global' : 'project',
+              files: createdFiles,
+              registered,
+              brainSeeded: seedBrain,
+            },
+          },
+          { command: 'agent create' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_CREATE', message: String(err) } },
+          { command: 'agent create' },
+        );
+        process.exitCode = 1;
+      }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Agent create template helpers
+// ---------------------------------------------------------------------------
+
+/** Agent role type for template generation. */
+type AgentRole = 'orchestrator' | 'lead' | 'worker' | 'docs-worker';
+
+/** Parameters for persona.cant generation. */
+interface PersonaParams {
+  name: string;
+  role: string;
+  tier: string;
+  team?: string;
+  domain?: string;
+  parent?: string;
+}
+
+/** Parameters for manifest.json generation. */
+interface ManifestParams {
+  name: string;
+  role: string;
+  tier: string;
+  domain?: string;
+}
+
+/**
+ * Infer the default tier from the agent role.
+ *
+ * - orchestrator -> high
+ * - lead -> mid
+ * - worker -> mid
+ * - docs-worker -> mid
+ *
+ * @param role - The agent role string.
+ * @returns The inferred tier string.
+ */
+function inferTierFromRole(role: string): string {
+  if (role === 'orchestrator') return 'high';
+  return 'mid';
+}
+
+/**
+ * Generate a `persona.cant` file from role-based templates.
+ *
+ * Templates are derived from the canonical starter-bundle agents at
+ * `packages/cleo-os/starter-bundle/agents/`. Each role maps to a
+ * specific set of tools, permissions, context sources, and behavioral
+ * hooks.
+ *
+ * @param params - Agent persona parameters.
+ * @returns The complete persona.cant file content.
+ *
+ * @see packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant
+ * @see packages/cleo-os/starter-bundle/agents/dev-lead.cant
+ * @see packages/cleo-os/starter-bundle/agents/code-worker.cant
+ * @see packages/cleo-os/starter-bundle/agents/docs-worker.cant
+ */
+function generatePersonaCant(params: PersonaParams): string {
+  const { name, role, tier, team, domain, parent } = params;
+
+  switch (role as AgentRole) {
+    case 'orchestrator':
+      return generateOrchestratorPersona(name, tier, team, parent);
+    case 'lead':
+      return generateLeadPersona(name, tier, team, domain, parent);
+    case 'worker':
+      return generateWorkerPersona(name, tier, team, domain, parent);
+    case 'docs-worker':
+      return generateDocsWorkerPersona(name, tier, team, domain, parent);
+    default:
+      return generateWorkerPersona(name, tier, team, domain, parent);
+  }
+}
+
+/**
+ * Generate an orchestrator persona.cant.
+ *
+ * Orchestrators coordinate work but do not execute code. They hold
+ * read-only core tools (Read, Grep, Glob) plus dispatch tools for
+ * routing work to leads and workers.
+ *
+ * @param name - Agent name (kebab-case).
+ * @param tier - Agent tier.
+ * @param team - Optional team name.
+ * @param parent - Optional parent agent.
+ * @returns The persona.cant content string.
+ */
+function generateOrchestratorPersona(
+  name: string,
+  tier: string,
+  team?: string,
+  parent?: string,
+): string {
+  const parentLine = parent ? `\n  parent: ${parent}` : '';
+  const teamComment = team ? `\n# Team: ${team}` : '';
+
+  return `---
+kind: agent
+version: "1"
+---
+
+# ${name} — orchestrator agent.${teamComment}
+# Coordinates the team, classifies work, dispatches to leads/workers.
+
+agent ${name}:
+  role: orchestrator${parentLine}
+  tier: ${tier}
+  description: "Orchestrator agent. Reads task context, classifies work, dispatches to leads, and synthesizes results. Does not execute code — coordinates."
+  consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when a lead reports a blocking ambiguity"
+
+  context_sources:
+    - source: decisions
+      query: "recent architectural and project decisions"
+      max_entries: 5
+    - source: patterns
+      query: "project conventions and established patterns"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 2000
+    on_load:
+      validate: true
+
+  permissions:
+    tasks: read, write
+    session: read, write
+    memory: read, write
+
+  skills:
+    - ct-cleo
+    - ct-task-executor
+
+  tools:
+    core: [Read, Grep, Glob]
+    dispatch: [dispatch_worker, report_to_user]
+
+  on SessionStart:
+    session "Read active tasks and recent decisions to build situational awareness"
+      context: [active-tasks, memory-bridge, recent-decisions]
+
+  on TaskCompleted:
+    if **the completed task unblocks downstream work**:
+      session "Reassess task queue and dispatch next work"
+`;
+}
+
+/**
+ * Generate a lead persona.cant.
+ *
+ * Leads decide HOW to build and dispatch work to workers. They hold
+ * read-only tools per TEAM-002 / ULTRAPLAN 10.3 — no Edit, Write, or
+ * Bash access.
+ *
+ * @param name - Agent name (kebab-case).
+ * @param tier - Agent tier.
+ * @param team - Optional team name.
+ * @param domain - Optional domain description.
+ * @param parent - Optional parent agent.
+ * @returns The persona.cant content string.
+ */
+function generateLeadPersona(
+  name: string,
+  tier: string,
+  team?: string,
+  domain?: string,
+  parent?: string,
+): string {
+  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: cleo-orchestrator';
+  const teamComment = team ? `\n# Team: ${team}` : '';
+  const domainDesc = domain ? ` Specializes in ${domain}.` : '';
+
+  return `---
+kind: agent
+version: "1"
+---
+
+# ${name} — lead agent.${teamComment}
+# Decomposes tasks, reviews worker output, decides technical approach.
+# MUST NOT hold Edit/Write/Bash tools (TEAM-002 / ULTRAPLAN 10.3).
+
+agent ${name}:
+  role: lead${parentLine}
+  tier: ${tier}
+  description: "Development lead.${domainDesc} Decomposes tasks into concrete implementation steps, reviews worker output, and decides technical approach. Does not write code directly."
+  consult-when: "Implementation strategy, code architecture, refactoring direction, task decomposition, or when workers need clarification"
+
+  context_sources:
+    - source: patterns
+      query: "codebase conventions and architecture patterns"
+      max_entries: 5
+    - source: decisions
+      query: "technical decisions affecting implementation"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 1000
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      read: ["**/*"]
+
+  skills:
+    - ct-cleo
+    - ct-dev-workflow
+    - ct-task-executor
+
+  tools:
+    core: [Read, Grep, Glob]
+    dispatch: [dispatch_worker, report_to_orchestrator]
+
+  on SessionStart:
+    session "Review current task assignments and worker availability"
+      context: [active-tasks, memory-bridge]
+
+  on TaskCompleted:
+    if **the completed task introduced new code**:
+      session "Review worker output for quality and completeness before reporting to orchestrator"
+`;
+}
+
+/**
+ * Generate a worker persona.cant.
+ *
+ * Workers execute code changes within declared file globs. They hold
+ * the full tool set (Read, Edit, Write, Bash, Glob, Grep) and operate
+ * within file permission boundaries derived from the `--domain` flag.
+ *
+ * @param name - Agent name (kebab-case).
+ * @param tier - Agent tier.
+ * @param team - Optional team name.
+ * @param domain - Optional domain description for file permissions.
+ * @param parent - Optional parent agent.
+ * @returns The persona.cant content string.
+ */
+function generateWorkerPersona(
+  name: string,
+  tier: string,
+  team?: string,
+  domain?: string,
+  parent?: string,
+): string {
+  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: dev-lead';
+  const teamComment = team ? `\n# Team: ${team}` : '';
+  const domainDesc = domain ? ` Specializes in ${domain}.` : '';
+  const writeGlobs = deriveWriteGlobs(domain);
+
+  return `---
+kind: agent
+version: "1"
+---
+
+# ${name} — worker agent.${teamComment}
+# Executes code changes within declared file globs.
+
+agent ${name}:
+  role: worker${parentLine}
+  tier: ${tier}
+  description: "Code worker.${domainDesc} Reads requirements, writes code, runs tests, and validates changes. Operates within declared file permission globs."
+  consult-when: "Writing code, fixing bugs, running tests, formatting, or any file modification task"
+
+  context_sources:
+    - source: patterns
+      query: "coding conventions and testing patterns"
+      max_entries: 5
+    - source: learnings
+      query: "past implementation mistakes and fixes"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 1000
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      write: ${JSON.stringify(writeGlobs)}
+      read: ["**/*"]
+      delete: ${JSON.stringify(writeGlobs)}
+
+  skills:
+    - ct-cleo
+    - ct-dev-workflow
+    - ct-task-executor
+
+  tools:
+    core: [Read, Edit, Write, Bash, Glob, Grep]
+
+  on SessionStart:
+    session "Check assigned task and read relevant source files before starting work"
+      context: [active-tasks, memory-bridge]
+
+  on PostToolUse:
+    if tool.name == "Write" or tool.name == "Edit":
+      session "Verify the change compiles and passes lint before proceeding"
+`;
+}
+
+/**
+ * Generate a docs-worker persona.cant.
+ *
+ * Documentation workers write and maintain documentation within declared
+ * documentation file globs. They carry documentation-specific skills and
+ * context sources.
+ *
+ * @param name - Agent name (kebab-case).
+ * @param tier - Agent tier.
+ * @param team - Optional team name.
+ * @param domain - Optional domain description.
+ * @param parent - Optional parent agent.
+ * @returns The persona.cant content string.
+ */
+function generateDocsWorkerPersona(
+  name: string,
+  tier: string,
+  team?: string,
+  domain?: string,
+  parent?: string,
+): string {
+  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: dev-lead';
+  const teamComment = team ? `\n# Team: ${team}` : '';
+  const domainDesc = domain ? ` Specializes in ${domain} documentation.` : '';
+
+  return `---
+kind: agent
+version: "1"
+---
+
+# ${name} — documentation worker agent.${teamComment}
+# Writes and maintains documentation within declared globs.
+
+agent ${name}:
+  role: worker${parentLine}
+  tier: ${tier}
+  description: "Documentation worker.${domainDesc} Writes READMEs, updates guides, adds TSDoc comments, and maintains project documentation. Operates within declared documentation file globs."
+  consult-when: "Writing documentation, updating READMEs, adding TSDoc comments, or improving existing docs"
+
+  context_sources:
+    - source: patterns
+      query: "documentation conventions and style patterns"
+      max_entries: 3
+    - source: decisions
+      query: "architectural decisions needing documentation"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 1000
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      write: ["docs/**", "**/*.md", "**/*.mdx"]
+      read: ["**/*"]
+      delete: ["docs/**"]
+
+  skills:
+    - ct-cleo
+    - ct-documentor
+    - ct-docs-write
+
+  tools:
+    core: [Read, Edit, Write, Bash, Glob, Grep]
+
+  on SessionStart:
+    session "Check assigned documentation task and review existing docs for context"
+      context: [active-tasks, memory-bridge]
+
+  on PostToolUse:
+    if tool.name == "Write" or tool.name == "Edit":
+      session "Verify markdown renders correctly and follows project style conventions"
+`;
+}
+
+/**
+ * Derive file write globs from a domain description string.
+ *
+ * Maps common domain keywords to appropriate file glob patterns.
+ * Falls back to the default `["src/**", "packages/**"]` when no
+ * domain is specified or no keywords match.
+ *
+ * @param domain - Optional domain description string.
+ * @returns Array of glob pattern strings for file write permissions.
+ */
+function deriveWriteGlobs(domain?: string): string[] {
+  const defaults = ['src/**', 'packages/**', 'lib/**', 'test/**', 'tests/**'];
+  if (!domain) return defaults;
+
+  const lower = domain.toLowerCase();
+
+  // Domain-specific glob mappings
+  if (lower.includes('frontend') || lower.includes('ui') || lower.includes('component')) {
+    return ['src/**', 'packages/**', 'components/**', 'styles/**', 'public/**', 'test/**'];
+  }
+  if (lower.includes('backend') || lower.includes('api') || lower.includes('server')) {
+    return ['src/**', 'packages/**', 'lib/**', 'api/**', 'test/**', 'tests/**'];
+  }
+  if (lower.includes('infra') || lower.includes('deploy') || lower.includes('ci')) {
+    return ['.github/**', 'infra/**', 'deploy/**', 'scripts/**', 'Dockerfile*'];
+  }
+  if (lower.includes('test') || lower.includes('qa') || lower.includes('quality')) {
+    return ['test/**', 'tests/**', 'src/**/*.test.*', 'src/**/*.spec.*', 'packages/**/*.test.*'];
+  }
+  if (lower.includes('rust') || lower.includes('crate')) {
+    return ['crates/**', 'src/**', 'Cargo.toml', 'test/**'];
+  }
+  if (lower.includes('doc')) {
+    return ['docs/**', '**/*.md', '**/*.mdx'];
+  }
+
+  return defaults;
+}
+
+/**
+ * Generate a `manifest.json` object for the agent package.
+ *
+ * Conforms to the CANTZ-PACKAGE-STANDARD.md Section 2.3 schema.
+ *
+ * @param params - Manifest generation parameters.
+ * @returns A plain object ready for JSON serialization.
+ */
+function generateManifest(params: ManifestParams): Record<string, unknown> {
+  return {
+    name: params.name,
+    version: '1.0.0',
+    description: `${capitalizeFirst(params.role)} agent${params.domain ? ` for ${params.domain}` : ''}`,
+    cant: {
+      minVersion: '1',
+      tier: params.tier,
+      role: params.role === 'docs-worker' ? 'worker' : params.role,
+    },
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Generate a team configuration CANT file fragment.
+ *
+ * Creates a minimal team-config.cant that declares the agent's
+ * membership in a named team.
+ *
+ * @param name - Agent name.
+ * @param role - Agent role.
+ * @param team - Team name.
+ * @returns The team-config.cant content string.
+ */
+function generateTeamConfig(name: string, role: string, team: string): string {
+  return `---
+kind: team-config
+version: "1"
+---
+
+# Team membership for ${name}
+
+team ${team}:
+  member ${name}:
+    role: ${role}
+    status: active
+`;
+}
+
+/**
+ * Generate a mental model seed markdown file.
+ *
+ * Creates an initial expertise document with placeholder sections
+ * for the agent to populate as it learns about the project domain.
+ *
+ * @param name - Agent name.
+ * @param role - Agent role.
+ * @param domain - Optional domain description.
+ * @returns The mental-model-seed.md content string.
+ */
+function generateMentalModelSeed(name: string, role: string, domain?: string): string {
+  const domainSection = domain
+    ? `## Domain\n\n${domain}\n`
+    : `## Domain\n\nTODO: Describe the domain this agent specializes in.\n`;
+
+  return `# Mental Model Seed: ${name}
+
+> Auto-generated at ${new Date().toISOString()}
+> Role: ${role}
+
+${domainSection}
+## Key Patterns
+
+TODO: Document recurring patterns this agent should recognize.
+
+## Known Pitfalls
+
+TODO: Document common mistakes or anti-patterns in this domain.
+
+## Decision History
+
+TODO: Track important decisions and their rationale.
+
+## Learning Log
+
+TODO: Record discoveries and insights as the agent operates.
+`;
+}
+
+/**
+ * Capitalize the first letter of a string.
+ *
+ * @param str - Input string.
+ * @returns String with the first character uppercased.
+ */
+function capitalizeFirst(str: string): string {
+  if (str.length === 0) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
