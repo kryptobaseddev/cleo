@@ -44,4 +44,15 @@ describe('resolveCleoOsPaths', () => {
     const paths = resolveCleoOsPaths();
     expect(paths.extensions).toBe(paths.data + '/extensions');
   });
+
+  it('cantUser directory is under config root', () => {
+    const paths = resolveCleoOsPaths();
+    expect(paths.cantUser).toBe(paths.config + '/cant');
+  });
+
+  it('cantUser respects XDG_CONFIG_HOME override', () => {
+    process.env['XDG_CONFIG_HOME'] = '/tmp/test-xdg-config';
+    const paths = resolveCleoOsPaths();
+    expect(paths.cantUser).toBe('/tmp/test-xdg-config/cleo/cant');
+  });
 });

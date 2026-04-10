@@ -1,5 +1,5 @@
 /**
- * CleoOS CANT bridge — Wave 2 Pi extension.
+ * CleoOS CANT bridge — Wave 2 + Wave 5 Pi extension.
  *
  * CANONICAL LOCATION: `packages/cleo-os/extensions/cleo-cant-bridge.ts`
  *
@@ -12,16 +12,17 @@
  * Installed to: $XDG_DATA_HOME/cleo/extensions/cleo-cant-bridge.js
  * Loaded by:    Pi via `--extension <path>` injected by CleoOS cli.ts
  *
- * This bridge discovers `.cant` files in the project's `.cleo/cant/`
- * directory at session start, compiles them via `@cleocode/cant`'s
- * `compileBundle()`, and appends the compiled declarations to Pi's
- * system prompt on `before_agent_start`. This gives the LLM awareness
- * of all declared agents, teams, and tools without hand-authored
- * protocol text.
+ * This bridge discovers `.cant` files across the 3-tier hierarchy at
+ * session start, compiles them via `@cleocode/cant`'s `compileBundle()`,
+ * and appends the compiled declarations to Pi's system prompt on
+ * `before_agent_start`. This gives the LLM awareness of all declared
+ * agents, teams, and tools without hand-authored protocol text.
  *
- * Wave 2 scope:
- *   - Scans project tier only: `<cwd>/.cleo/cant/` (recursive)
- *   - Three-tier resolution (global, user, project) is Wave 5
+ * 3-tier resolution (T438, ULTRAPLAN Section 2.4):
+ *   - Global:  `~/.local/share/cleo/cant/` (lowest precedence)
+ *   - User:    `~/.config/cleo/cant/`
+ *   - Project: `<cwd>/.cleo/cant/` (highest precedence)
+ *   - Override semantics: project > user > global, matched by basename
  *   - Prompt strategy: APPEND (per ULTRAPLAN L6, never replace)
  *
  * Wave 8 additions (T420):
@@ -46,7 +47,8 @@
  */
 
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -249,6 +251,126 @@ function extractTargetPath(
 }
 
 // ============================================================================
+// T442: ANSI color helpers for TUI visual identity
+// ============================================================================
+
+/** ANSI escape code prefix. */
+const ESC = "\x1b[";
+
+/** ANSI reset sequence — clears all styling. */
+const RESET = `${ESC}0m`;
+
+/**
+ * Wrap text in ANSI 256-color foreground.
+ *
+ * @param text - The text to colorize.
+ * @param code - ANSI 256-color code.
+ * @returns The text wrapped in ANSI color escape sequences.
+ */
+function ansi256(text: string, code: number): string {
+  return `${ESC}38;5;${code}m${text}${RESET}`;
+}
+
+/**
+ * Purple accent color (approximate #a855f7 in 256-color palette).
+ *
+ * @param text - The text to style with purple.
+ * @returns Purple-styled ANSI text.
+ */
+function purple(text: string): string {
+  return ansi256(text, 135);
+}
+
+/**
+ * Dim/muted text (gray, approximate #94a3b8).
+ *
+ * @param text - The text to dim.
+ * @returns Dim-styled ANSI text.
+ */
+function dim(text: string): string {
+  return ansi256(text, 245);
+}
+
+/**
+ * Bold text via ANSI escape.
+ *
+ * @param text - The text to bold.
+ * @returns Bold-styled ANSI text.
+ */
+function bold(text: string): string {
+  return `${ESC}1m${text}${RESET}`;
+}
+
+// ============================================================================
+// T442: Session banner rendering
+// ============================================================================
+
+/**
+ * Cached bundle counts from the last session_start compilation.
+ * Used by the banner and status bar entries.
+ */
+export interface BundleCounts {
+  /** Number of agents declared in the CANT bundle. */
+  agents: number;
+  /** Number of teams declared in the CANT bundle. */
+  teams: number;
+  /** Number of tools declared in the CANT bundle. */
+  tools: number;
+  /** Name of the first team in the bundle, or "none" if no teams. */
+  teamName: string;
+}
+
+/** Cached bundle counts, set during session_start. */
+let lastBundleCounts: BundleCounts | null = null;
+
+/**
+ * Build the CleoOS branded session banner lines.
+ *
+ * Renders a box-drawing banner with the forge aesthetic using purple
+ * ANSI accents and the compiled CANT bundle counts.
+ *
+ * @param counts - Agent, team, and tool counts from the CANT bundle.
+ * @param sessionId - The current session ID, if available.
+ * @returns An array of pre-formatted ANSI lines for the widget.
+ */
+export function buildSessionBanner(
+  counts: BundleCounts,
+  sessionId: string,
+): string[] {
+  const WIDTH = 44;
+  const hBar = "\u2550".repeat(WIDTH);
+
+  // Build the content strings (plain, without ANSI, for padding calculation)
+  const titleText = "        \u2692  C L E O O S  \u2692";
+  const subtitleText = "     The Agentic Development Forge";
+  const statsText =
+    `  Agents: ${counts.agents}  \u2502  Teams: ${counts.teams}  \u2502  Tools: ${counts.tools}`;
+  const sessionText = `  Session: ${sessionId.length > 20 ? sessionId.slice(0, 20) + "..." : sessionId}`;
+
+  /**
+   * Pad content to fill the banner width.
+   *
+   * @param content - The visible content string.
+   * @param styledContent - The ANSI-styled version of the content.
+   * @returns The padded line with box-drawing border characters.
+   */
+  function padLine(content: string, styledContent: string): string {
+    const pad = Math.max(0, WIDTH - content.length);
+    return purple("  \u2551") + styledContent + " ".repeat(pad) + purple("\u2551");
+  }
+
+  return [
+    purple(`  \u2554${hBar}\u2557`),
+    padLine(titleText, bold(purple(titleText))),
+    padLine(subtitleText, dim(subtitleText)),
+    purple(`  \u2560${hBar}\u2563`),
+    padLine(statsText, dim(statsText)),
+    padLine(sessionText, dim(sessionText)),
+    purple(`  \u255A${hBar}\u255D`),
+  ];
+}
+
+// ============================================================================
 // Internal state
 // ============================================================================
 
@@ -279,6 +401,99 @@ function discoverCantFiles(dir: string): string[] {
   } catch {
     return [];
   }
+}
+
+// ============================================================================
+// T438: 3-tier CANT discovery (global > user > project, project wins)
+// ============================================================================
+
+/** Per-tier file counts for diagnostic reporting. */
+interface TierDiscoveryStats {
+  global: number;
+  user: number;
+  project: number;
+  overrides: number;
+  merged: number;
+}
+
+/**
+ * Resolve XDG-compliant paths for the 3-tier CANT hierarchy.
+ *
+ * Respects `XDG_DATA_HOME` and `XDG_CONFIG_HOME` environment variables.
+ * Falls back to XDG defaults (`~/.local/share/` and `~/.config/`).
+ *
+ * @param projectDir - The project root directory (for the project tier).
+ * @returns An object with `global`, `user`, and `project` CANT directory paths.
+ */
+function resolveThreeTierPaths(projectDir: string): {
+  global: string;
+  user: string;
+  project: string;
+} {
+  const home = homedir();
+  const xdgData =
+    process.env["XDG_DATA_HOME"] ?? join(home, ".local", "share");
+  const xdgConfig = process.env["XDG_CONFIG_HOME"] ?? join(home, ".config");
+
+  return {
+    global: join(xdgData, "cleo", "cant"),
+    user: join(xdgConfig, "cleo", "cant"),
+    project: join(projectDir, ".cleo", "cant"),
+  };
+}
+
+/**
+ * Discover `.cant` files across all three tiers with override semantics.
+ *
+ * Scans global, user, and project tiers. Files in higher-precedence tiers
+ * override files in lower-precedence tiers that share the same basename.
+ * The precedence order is: project > user > global.
+ *
+ * @param projectDir - The project root directory.
+ * @returns An object containing the merged file list and per-tier statistics.
+ */
+function discoverCantFilesMultiTier(projectDir: string): {
+  files: string[];
+  stats: TierDiscoveryStats;
+} {
+  const paths = resolveThreeTierPaths(projectDir);
+
+  const globalFiles = discoverCantFiles(paths.global);
+  const userFiles = discoverCantFiles(paths.user);
+  const projectFiles = discoverCantFiles(paths.project);
+
+  // Build basename-keyed map; lowest precedence first so higher tiers override
+  const fileMap = new Map<string, string>();
+
+  for (const file of globalFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  const afterGlobal = fileMap.size;
+
+  for (const file of userFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  const afterUser = fileMap.size;
+
+  for (const file of projectFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  const totalUniqueInputs = globalFiles.length + userFiles.length + projectFiles.length;
+  const overrides = totalUniqueInputs - fileMap.size;
+
+  return {
+    files: Array.from(fileMap.values()),
+    stats: {
+      global: globalFiles.length,
+      user: userFiles.length,
+      project: projectFiles.length,
+      overrides,
+      merged: fileMap.size,
+    },
+  };
 }
 
 // ============================================================================
@@ -359,16 +574,15 @@ async function fetchMentalModelInjection(
  * @param pi - The Pi extension API instance.
  */
 export default function (pi: ExtensionAPI): void {
-  // session_start: discover and compile .cant files from the project tier
+  // session_start: discover and compile .cant files from all 3 tiers
+  // T438: 3-tier resolution — global, user, project (project wins)
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     bundlePrompt = null;
     lastDiagnosticSummary = null;
+    lastBundleCounts = null;
 
     try {
-      const cantDir = join(ctx.cwd, ".cleo", "cant");
-      if (!existsSync(cantDir)) return;
-
-      const files = discoverCantFiles(cantDir);
+      const { files, stats } = discoverCantFilesMultiTier(ctx.cwd);
       if (files.length === 0) return;
 
       // Dynamic import: @cleocode/cant may not be installed in all environments
@@ -390,11 +604,23 @@ export default function (pi: ExtensionAPI): void {
         bundlePrompt = prompt;
       }
 
-      // Build diagnostic summary
+      // T442: Cache bundle counts for banner and status bar
+      const teamName = bundle.teams.length > 0
+        ? bundle.teams[0].name
+        : "none";
+      lastBundleCounts = {
+        agents: bundle.agents.length,
+        teams: bundle.teams.length,
+        tools: bundle.tools.length,
+        teamName,
+      };
+
+      // Build diagnostic summary with per-tier counts
       const errorDiags = bundle.diagnostics.filter((d) => d.severity === "error");
       const warnDiags = bundle.diagnostics.filter((d) => d.severity === "warning");
       lastDiagnosticSummary = [
-        `Files: ${files.length}`,
+        `Files: ${files.length} (global: ${stats.global}, user: ${stats.user}, project: ${stats.project})`,
+        `Overrides: ${stats.overrides}`,
         `Agents: ${bundle.agents.length}`,
         `Teams: ${bundle.teams.length}`,
         `Tools: ${bundle.tools.length}`,
@@ -406,16 +632,30 @@ export default function (pi: ExtensionAPI): void {
       // Notify on errors
       if (errorDiags.length > 0 && ctx.hasUI) {
         ctx.ui.notify(
-          `CleoOS CANT bridge: ${errorDiags.length} validation error(s) in .cleo/cant/`,
+          `CleoOS CANT bridge: ${errorDiags.length} validation error(s) in CANT files`,
           "warning",
         );
       }
 
-      // Success notification
+      // T442: Render branded session banner and status bar entries
       if (ctx.hasUI) {
+        // Derive a session ID from the session manager or use a fallback
+        const sessionId = ctx.sessionManager?.getSessionId?.()
+          ?? `ses_${new Date().toISOString().replace(/[:.T-]/g, "").slice(0, 14)}`;
+
+        // Render the CleoOS banner widget above the editor
+        const bannerLines = buildSessionBanner(lastBundleCounts, sessionId);
+        ctx.ui.setWidget("cleo-banner", bannerLines, { placement: "aboveEditor" });
+
+        // Set persistent status bar entries
+        ctx.ui.setStatus("cleo-agents", `\u2692 ${bundle.agents.length} agents`);
+        ctx.ui.setStatus("cleo-team", `\u25C6 ${teamName}`);
+        ctx.ui.setStatus("cleo-tier", "\u25B2 high");
+
+        // Keep the existing CANT bridge status
         ctx.ui.setStatus(
           "cleo-cant-bridge",
-          `CANT: ${bundle.agents.length} agent(s), ${files.length} file(s)`,
+          `CANT: ${bundle.agents.length} agent(s), ${files.length} file(s) [G:${stats.global} U:${stats.user} P:${stats.project}]`,
         );
       }
     } catch (err: unknown) {
@@ -594,5 +834,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", async () => {
     bundlePrompt = null;
     lastDiagnosticSummary = null;
+    lastBundleCounts = null;
   });
 }

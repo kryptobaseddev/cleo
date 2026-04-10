@@ -26,6 +26,8 @@ export interface CleoOsPaths {
   extensions: string;
   /** Global CANT source: <data>/cant/ */
   cant: string;
+  /** User-tier CANT source: <config>/cant/ */
+  cantUser: string;
   /** Auth/keystore directory: <config>/auth/ */
   auth: string;
 }
@@ -53,6 +55,7 @@ export function resolveCleoOsPaths(): CleoOsPaths {
     agentDir: data,
     extensions: join(data, 'extensions'),
     cant: join(data, 'cant'),
+    cantUser: join(config, 'cant'),
     auth: join(config, 'auth'),
   };
 }
