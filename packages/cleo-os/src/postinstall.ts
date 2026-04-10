@@ -284,6 +284,9 @@ function main(): void {
   }
 
   // 2. Deploy compiled extensions
+  // tui-theme is a shared library imported by cleo-cant-bridge and
+  // cleo-agent-monitor — it must be present before either extension loads.
+  deployExtension('tui-theme', pkgRoot, paths.extensions);
   deployExtension('cleo-cant-bridge', pkgRoot, paths.extensions);
   deployExtension('cleo-chatroom', pkgRoot, paths.extensions);
   deployExtension('cleo-agent-monitor', pkgRoot, paths.extensions);
