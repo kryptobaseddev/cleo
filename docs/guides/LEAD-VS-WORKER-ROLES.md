@@ -63,14 +63,14 @@ Workers receive the **full tool set** (Read, Write, Edit, Bash, Glob, Grep, plus
 
 ## Bridge Enforcement at `tool_call` Time
 
-**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 488-568)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 728-808)
 
 The `tool_call` event handler implements a two-tier enforcement pipeline:
 
 ### Lead Blocking (First Gate)
 
 ```typescript
-// cleo-cant-bridge.ts, line 515-531
+// cleo-cant-bridge.ts, line 755-771
 if (agentDef.role !== "lead") {
   // Fall through to worker path ACL check
 } else {
@@ -92,7 +92,7 @@ When a lead agent attempts to invoke Edit, Write, or Bash, the hook returns a LA
 ### Worker Path ACL (Second Gate)
 
 ```typescript
-// cleo-cant-bridge.ts, line 533-567
+// cleo-cant-bridge.ts, line 776-804
 if (
   agentDef.role === "worker" &&
   agentDef.filePermissions !== undefined &&
@@ -119,7 +119,7 @@ Workers with declared `filePermissions.write` globs are restricted to writing on
 
 ### Path Extraction
 
-**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 212-249)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 214-251)
 
 The `extractTargetPath()` function extracts the target file path from tool inputs:
 
@@ -133,7 +133,7 @@ For Bash commands where the write destination cannot be determined, the function
 
 ### Glob Matching
 
-**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 147-195)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 149-197)
 
 Glob patterns are converted to RegExp for matching. Supported patterns:
 

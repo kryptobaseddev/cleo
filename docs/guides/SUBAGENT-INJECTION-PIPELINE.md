@@ -33,29 +33,34 @@ flowchart TD
 
 `.cant` files are discovered by the **cleo-cant-bridge** Pi extension at session start.
 
-**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 363-428)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 579-668)
 
-The bridge scans the project tier directory `<cwd>/.cleo/cant/` recursively:
+The bridge scans all three tiers of the CANT hierarchy using `discoverCantFilesMultiTier()`:
 
 ```typescript
-// cleo-cant-bridge.ts, line 363-370
+// cleo-cant-bridge.ts, line 579-586
 pi.on("session_start", async (_event, ctx) => {
-  const cantDir = join(ctx.cwd, ".cleo", "cant");
-  if (!existsSync(cantDir)) return;
-  const files = discoverCantFiles(cantDir);
+  bundlePrompt = null;
+  lastDiagnosticSummary = null;
+  lastBundleCounts = null;
+
+  const { files, stats } = discoverCantFilesMultiTier(ctx.cwd);
+  if (files.length === 0) return;
   // ...
 });
 ```
 
-The `discoverCantFiles()` function (line 267-282) uses `readdirSync` with `{ recursive: true }` to find all files ending in `.cant`.
+The `discoverCantFilesMultiTier()` function (line 455-497) resolves XDG-compliant paths via `resolveThreeTierPaths()` (line 428-443), then scans each tier with the single-directory `discoverCantFiles()` helper (line 389-404) and merges results using basename-keyed override semantics.
 
-**Resolution tiers** (current implementation is project-only; three-tier resolution is Wave 5):
+**Resolution tiers** (3-tier discovery implemented in T438):
 
-| Tier | Path | Status |
-|------|------|--------|
-| Project | `<project>/.cleo/cant/` | Active (Wave 2) |
-| User | `~/.local/share/cleo/cant/` | Planned (Wave 5) |
-| Global | System-level | Planned (Wave 5) |
+| Tier | Path | Precedence |
+|------|------|------------|
+| Global | `$XDG_DATA_HOME/cleo/cant/` (`~/.local/share/cleo/cant/`) | Lowest |
+| User | `$XDG_CONFIG_HOME/cleo/cant/` (`~/.config/cleo/cant/`) | Middle |
+| Project | `<project>/.cleo/cant/` | Highest |
+
+Files in higher-precedence tiers override files in lower-precedence tiers that share the same basename (project > user > global).
 
 ### Compilation via `compileBundle()`
 
@@ -87,11 +92,12 @@ Agent entity extraction happens in `extractAgents()` (line 234-266), which walks
 
 ### System Prompt Injection
 
-The compiled bundle prompt is appended to the Pi system prompt during the `before_agent_start` event (line 432-481):
+The compiled bundle prompt is appended to the Pi system prompt during the `before_agent_start` event (line 672-721):
 
 ```typescript
-// cleo-cant-bridge.ts, line 432
+// cleo-cant-bridge.ts, line 672
 pi.on("before_agent_start", async (event, ctx) => {
+  const existingPrompt = event.systemPrompt ?? "";
   let appendix = "";
   if (bundlePrompt) {
     appendix += "\n\n" + bundlePrompt;
@@ -300,11 +306,11 @@ This is the central function that connects all the pieces:
 
 ## Runtime Enforcement: cleo-cant-bridge `tool_call` Hook
 
-**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 488-568)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 728-808)
 
 The `tool_call` event handler enforces role-based restrictions at runtime:
 
-### Lead Agent Blocking (line 515-531)
+### Lead Agent Blocking (line 755-771)
 
 Agents with CANT role `"lead"` are blocked from executing `Edit`, `Write`, and `Bash` tools. They receive a LAFS error envelope:
 
@@ -320,7 +326,7 @@ Agents with CANT role `"lead"` are blocked from executing `Edit`, `Write`, and `
 }
 ```
 
-### Worker Path ACL (line 533-567)
+### Worker Path ACL (line 776-804)
 
 Workers with declared `filePermissions.write` globs are restricted to writing only within those paths. The enforcement:
 

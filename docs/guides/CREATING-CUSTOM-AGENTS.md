@@ -177,15 +177,17 @@ The cleo-cant-bridge Pi extension scans this directory recursively at session st
       frontend-dev.cant
 ```
 
-### Global Tier (planned for Wave 5)
+### Global and User Tiers (implemented in T438)
 
-For agents shared across all projects, place them in:
+For agents shared across all projects, place them in the global or user tier:
 
-```
-~/.local/share/cleo/cant/
-```
+| Tier | Path | Precedence |
+|------|------|------------|
+| Global | `$XDG_DATA_HOME/cleo/cant/` (`~/.local/share/cleo/cant/`) | Lowest |
+| User | `$XDG_CONFIG_HOME/cleo/cant/` (`~/.config/cleo/cant/`) | Middle |
+| Project | `<project>/.cleo/cant/` | Highest |
 
-This tier is not yet implemented in the current Wave 2 bridge.
+Files in higher-precedence tiers override files in lower-precedence tiers that share the same basename. For example, a project-tier `backend-dev.cant` overrides a global-tier `backend-dev.cant`.
 
 ### Seed Agents (reference)
 
