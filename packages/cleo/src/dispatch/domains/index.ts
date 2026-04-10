@@ -51,6 +51,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('admin', new AdminHandler());
   handlers.set('nexus', new NexusHandler());
   handlers.set('sticky', new StickyHandler());
-  handlers.set('conduit', new ConduitHandler());
+  // ADR-042: conduit ops moved to orchestrate.conduit.* — ConduitHandler
+  // is instantiated inside OrchestrateHandler; no standalone domain entry needed.
   return handlers;
 }

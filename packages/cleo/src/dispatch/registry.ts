@@ -3123,11 +3123,11 @@ export const OPERATIONS: OperationDef[] = [
   // orchestrate — Wave 7a: analyze parallel-safety mode (T410)
   // Note: orchestrate.analyze already registered above; this documents the new
   // mode="parallel-safety" variant via the existing analyze operation's params.
-  // conduit — agent messaging operations (replaces standalone clawmsgr scripts)
+  // conduit — agent messaging operations (ADR-042: moved under orchestrate domain)
   {
     gateway: 'query' as const,
-    domain: 'conduit',
-    operation: 'status',
+    domain: 'orchestrate',
+    operation: 'conduit.status',
     description: 'conduit.status (query) — check agent connection status and unread count',
     tier: 2,
     idempotent: true,
@@ -3144,8 +3144,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query' as const,
-    domain: 'conduit',
-    operation: 'peek',
+    domain: 'orchestrate',
+    operation: 'conduit.peek',
     description: 'conduit.peek (query) — one-shot poll for new messages without acking',
     tier: 2,
     idempotent: true,
@@ -3168,8 +3168,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'conduit',
-    operation: 'start',
+    domain: 'orchestrate',
+    operation: 'conduit.start',
     description: 'conduit.start (mutate) — start continuous message polling for the active agent',
     tier: 2,
     idempotent: true,
@@ -3198,8 +3198,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'conduit',
-    operation: 'stop',
+    domain: 'orchestrate',
+    operation: 'conduit.stop',
     description: 'conduit.stop (mutate) — stop the active polling loop',
     tier: 2,
     idempotent: true,
@@ -3208,8 +3208,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'conduit',
-    operation: 'send',
+    domain: 'orchestrate',
+    operation: 'conduit.send',
     description: 'conduit.send (mutate) — send a message to an agent or conversation',
     tier: 2,
     idempotent: false,
