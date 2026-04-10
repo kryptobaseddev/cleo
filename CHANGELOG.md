@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.21] — 2026-04-10 — Extension deployment fixes + batteries-included install
+
+### Fixed — Extensions not updating on upgrade
+
+The postinstall `deployExtension()` function skipped copying if the
+destination file already existed. This meant upgrading `@cleocode/cleo-os`
+never updated the deployed extensions — users were stuck on old Wave 2
+versions with no TUI features. Now unconditionally overwrites managed
+extensions with `cpSync(force: true)`. User-editable configs like
+`model-routing.cant` are still preserved.
+
+### Added — `cleo` and `ct` binaries re-exported from cleo-os
+
+`npm install -g @cleocode/cleo-os` now installs both `cleoos` AND `cleo`
+on PATH. Previously the `cleo` CLI binary was a nested dependency without
+a global symlink, so Circle of Ten dashboard data and skills install
+silently failed.
+
 ## [2026.4.20] — 2026-04-10 — Hotfix: tui-theme.js missing from deployed extensions
 
 ### Fixed
