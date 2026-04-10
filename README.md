@@ -7,7 +7,7 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
 
-CLEO is a comprehensive task management and agent orchestration system designed for AI-powered software development workflows. It provides structured task tracking, session management, memory systems, and multi-provider AI integration through a unified interface.
+CLEO is a comprehensive task management and agent orchestration system designed for AI-powered software development workflows. It provides structured task tracking, session management, memory systems, and multi-provider AI integration through a unified CLI.
 
 ## What is CLEO?
 
@@ -19,21 +19,26 @@ CLEO stands for **Contextual Language Engine & Orchestrator**. It's built to sol
 - **Session Management**: Contextual work sessions with automatic state persistence
 - **Agent Orchestration**: Multi-agent coordination with protocol compliance
 - **Memory Systems**: Persistent knowledge storage with brain-like retrieval
-- **Multi-Provider Support**: Works with Claude Code, OpenCode, Cursor, and more
-- **MCP Server**: Full Model Context Protocol integration for AI assistants
+- **Multi-Provider Support**: Works with Claude Code, OpenCode, Cursor, Gemini, Codex, and more
+- **Lifecycle Pipeline**: 9-stage RCASD-IVTR+C lifecycle with verification gates
 
 ## Monorepo Structure
 
-This monorepo contains 6 packages that work together to provide the complete CLEO ecosystem:
+This monorepo contains 11 packages organized in a 4-layer architecture:
 
-| Package | Purpose | Description |
-|---------|---------|-------------|
-| [`@cleocode/contracts`](packages/contracts) | Type Definitions | Domain types, interfaces, and contracts - the foundation of the type system |
-| [`@cleocode/core`](packages/core) | Business Logic | Task management, sessions, memory, orchestration, and lifecycle management |
-| [`@cleocode/adapters`](packages/adapters) | Provider Integration | Unified adapters for Claude Code, OpenCode, Cursor, and other AI providers |
-| [`@cleocode/agents`](packages/agents) | Agent Protocols | Subagent templates and protocol definitions for autonomous execution |
-| [`@cleocode/skills`](packages/skills) | Skill Definitions | Pre-built skills and capabilities for common development workflows |
-| [`@cleocode/cleo`](packages/cleo) | CLI & MCP Server | Command-line interface and Model Context Protocol server |
+| Layer | Package | Purpose |
+|-------|---------|---------|
+| **Foundation** | [`@cleocode/contracts`](packages/contracts) | Domain types, interfaces, and contracts — zero-dependency type SSoT |
+| **Foundation** | [`@cleocode/lafs`](packages/lafs) | Language-Agnostic Feedback Schema — canonical error envelope protocol |
+| **Protocol** | [`@cleocode/adapters`](packages/adapters) | Provider adapters for Claude Code, OpenCode, Cursor, Gemini, Codex, Kimi |
+| **Protocol** | [`@cleocode/agents`](packages/agents) | Subagent templates and LOOM lifecycle protocol definitions |
+| **Protocol** | [`@cleocode/skills`](packages/skills) | Pre-built skills and capabilities for development workflows |
+| **Protocol** | [`@cleocode/cant`](packages/cant) | CANT protocol parser with napi-rs Rust binding |
+| **Feature** | [`@cleocode/caamp`](packages/caamp) | Central AI Agent Managed Packages — unified provider registry and MCP management |
+| **Feature** | [`@cleocode/runtime`](packages/runtime) | Long-running process layer (polling, SSE, heartbeat) |
+| **Kernel** | [`@cleocode/core`](packages/core) | Business logic SDK — tasks, sessions, memory, orchestration, lifecycle |
+| **Product** | [`@cleocode/cleo`](packages/cleo) | Command-line interface — thin wrapper over core |
+| **Product** | [`@cleocode/cleo-os`](packages/cleo-os) | Batteries-included distribution with CANT bridge and TUI extensions |
 
 ## Quick Start
 
@@ -43,21 +48,15 @@ This monorepo contains 6 packages that work together to provide the complete CLE
 # Install globally for CLI access
 npm install -g @cleocode/cleo
 
-# Or use with npx (no installation required)
-npx @cleocode/cleo init
+# Or the batteries-included distribution
+npm install -g @cleocode/cleo-os
 ```
 
 ### Initialize a Project
 
 ```bash
-# Navigate to your project
 cd my-project
-
-# Initialize CLEO
 cleo init
-
-# Or use the shorthand
-cleo init --with-examples
 ```
 
 ### Basic Usage
@@ -66,36 +65,17 @@ cleo init --with-examples
 # Add a task
 cleo add "Implement user authentication" --priority high
 
-# List tasks
-cleo list
+# Search tasks (agent-optimized, returns readiness info)
+cleo find "auth" --status pending
 
 # Start a work session
-cleo session start "Authentication Feature"
+cleo session start --scope global --name "Auth Feature"
 
 # Show current task context
 cleo current
 
 # Complete a task
-cleo complete T1234
-```
-
-### Using the MCP Server
-
-CLEO includes a full MCP (Model Context Protocol) server for AI assistants:
-
-```bash
-# Start the MCP server
-cleo mcp
-
-# Or configure in your MCP settings (Claude Desktop, etc.)
-{
-  "mcpServers": {
-    "cleo": {
-      "command": "cleo",
-      "args": ["mcp"]
-    }
-  }
-}
+cleo complete T001
 ```
 
 ## Development Setup
@@ -108,101 +88,77 @@ cleo mcp
 ### Clone and Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/cleocode/cleo.git
+git clone https://github.com/kryptobaseddev/cleo.git
 cd cleo
 
-# Install dependencies
 pnpm install
-
-# Build all packages
 pnpm build
-
-# Run tests
 pnpm test
 ```
 
 ### Package Development
 
 ```bash
-# Build a specific package
-pnpm build:contracts
-pnpm build:core
-pnpm build:cleo
-
-# Type checking
+# Type checking (project references)
 pnpm typecheck
 
-# Linting
-pnpm lint
-pnpm lint:fix
-```
+# Linting and formatting
+pnpm biome check --write .
 
-### Database Operations
-
-```bash
-# Generate migrations
-pnpm db:generate
-
-# Open Drizzle Studio
-pnpm db:studio
+# Run tests
+pnpm test
 ```
 
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    @cleocode/cleo                           │
-│              CLI + MCP Server Entry Point                   │
+│              @cleocode/cleo  +  @cleocode/cleo-os           │
+│                    CLI Product Layer                         │
+│    89 commands • dispatch routing • output formatting        │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+┌────────────────────────────┴────────────────────────────────┐
+│                      @cleocode/core                         │
+│                   Business Logic Kernel                      │
+│   Tasks • Sessions • Memory • Orchestration • Lifecycle     │
+│   Validation • Intelligence • Nexus • Release • Agents      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+      ┌──────────────────────┼──────────────────────┐
+      │                      │                      │
+┌─────┴──────┐  ┌────────────┴────────────┐  ┌─────┴──────┐
+│  adapters  │  │  caamp • cant • runtime │  │  agents    │
+│ (providers)│  │  (protocols & features) │  │  skills    │
+└────────────┘  └─────────────────────────┘  └────────────┘
+                             │
+┌────────────────────────────┴────────────────────────────────┐
+│            @cleocode/contracts  +  @cleocode/lafs           │
+│              Types • Interfaces • Error Protocol             │
+│                   Zero-dependency foundation                 │
 └─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                    @cleocode/core                           │
-│     Tasks • Sessions • Memory • Orchestration • Lifecycle   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-┌───────▼───────┐   ┌────────▼────────┐   ┌────────▼────────┐
-│   adapters    │   │     memory      │   │   orchestration │
-│   sessions    │   │     brain       │   │   phases        │
-│   tasks       │   │     sticky      │   │   lifecycle     │
-│   compliance  │   │     inject      │   │   release       │
-└───────────────┘   └─────────────────┘   └─────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                  @cleocode/contracts                        │
-│            Types • Interfaces • Contracts                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-┌───────▼───────┐   ┌────────▼────────┐   ┌────────▼────────┐
-│   adapters    │   │     agents      │   │     skills      │
-│  (providers)  │   │  (protocols)    │   │ (definitions)   │
-└───────────────┘   └─────────────────┘   └─────────────────┘
 ```
 
 ## Key Features
 
 ### Task Management
 - Hierarchical tasks with parent-child relationships
-- Priority levels and sizing estimates
-- Dependency tracking and blocker identification
+- Priority levels and sizing estimates (small/medium/large)
+- Dependency tracking with readiness detection
 - Automatic sequencing and critical path analysis
-- Archive and restore functionality
+- Batch creation via `cleo add-batch`
 
 ### Session Management
-- Contextual work sessions with automatic persistence
-- Session notes and progress tracking
-- Safe stop and checkpoint mechanisms
+- Contextual work sessions with epic scope binding
+- Session-scoped parent inheritance for task creation
 - Briefing generation for context handoff
+- Safe stop and checkpoint mechanisms
 
 ### Memory Systems
 - Brain-like knowledge storage with semantic search
 - Sticky notes for ephemeral context
 - Memory bridges for cross-session persistence
-- Context injection for AI assistants
+- 3-layer retrieval: search → timeline → fetch
 
 ### Agent Orchestration
 - Subagent spawning with protocol compliance
@@ -212,25 +168,23 @@ pnpm db:studio
 
 ### Multi-Provider Support
 - Claude Code integration with statusline sync
-- OpenCode adapter with spawn hooks
-- Cursor support
-- Extensible adapter architecture
+- OpenCode, Cursor, Gemini, Codex, Kimi adapters
+- Extensible adapter architecture via CAAMP
 
 ## Commands Overview
 
-CLEO provides 80+ commands organized into domains:
+CLEO provides 100+ commands organized into domains:
 
 | Domain | Commands |
 |--------|----------|
-| **Tasks** | add, list, show, find, complete, update, delete, archive, start, stop, current, next |
-| **Session** | session, briefing, phase, checkpoint, safestop |
-| **Memory** | memory, memory-brain, observe, context, inject, sync, sticky, note |
+| **Tasks** | add, add-batch, list, show, find, complete, update, delete, archive, start, stop, current, next, deps, tree, labels, blockers, stats, history, reorder, reparent, relates, exists |
+| **Session** | session start/end/list/resume, briefing, phase, checkpoint, safestop |
+| **Memory** | memory, memory-brain, observe, context, inject, sync, sticky, refresh-memory |
 | **Check** | validate, verify, compliance, doctor, analyze |
-| **Pipeline** | release, lifecycle, promote, upgrade, specification, roadmap, plan |
-| **Orchestration** | orchestrate, ops, consensus, contribution, decomposition, implementation |
-| **Research** | research, extract, web, docs |
+| **Pipeline** | release, lifecycle, promote, upgrade, roadmap, plan, phases, log, issue, bug |
+| **Orchestration** | orchestrate, ops, consensus, contribution, decomposition, implementation, sequence, dash |
 | **Nexus** | nexus, init, remote, push, pull, snapshot, export, import |
-| **Admin** | config, backup, skills, migrate, grade, map, commands |
+| **Admin** | config, backup, skills, migrate, grade, map, commands, adr, token, otel |
 
 ## Contributing
 
@@ -255,16 +209,10 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Documentation
 
-- [API Documentation](docs/api)
 - [Architecture Guide](docs/architecture)
+- [Operations Reference](docs/specs/CLEO-OPERATIONS-REFERENCE.md)
 - [Skill Development](docs/skills)
-- [MCP Specification](docs/mcp)
-
-## Community
-
-- [GitHub Discussions](https://github.com/cleocode/cleo/discussions)
-- [Discord Server](https://discord.gg/cleocode)
-- [Twitter/X @cleocode](https://twitter.com/cleocode)
+- [LAFS Specification](packages/lafs/README.md)
 
 ## Support
 

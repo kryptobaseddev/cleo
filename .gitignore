@@ -120,3 +120,4 @@ packages/*/.cleo/*.db
 packages/*/.cleo/*.db-wal
 packages/*/.cleo/*.db-shm
 packages/*/.cleo/*.db-journal
+.gitnexus

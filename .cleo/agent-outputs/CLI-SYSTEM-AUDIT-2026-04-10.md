@@ -10,14 +10,22 @@
 
 | Metric | Value |
 |--------|-------|
-| Registry operations | **216** (constitution says 209 — drift of +7) |
+| Registry operations | **231** (constitution says 209 — drift of +22) |
 | Canonical domains | **11** (constitution says 10 — `conduit` undocumented) |
-| CLI coverage | **137 of 216** (63%) |
-| Uncovered operations | **79** |
+| CLI coverage | **~142 of 231** (~61%) |
+| Uncovered operations | **~89** |
 | Broken routes (FIXED) | **5** (promote, labels show, skills enable/disable/configure) |
 | Dispatch bypasses (FIXED) | **1** (observe.ts → now routes through dispatch) |
-| Intentional bypasses | **12** (documented in code) |
+| Intentional bypasses | **17** (documented in code) |
 | Duplicate routes (FIXED) | **1** (observe.ts + memory-brain.ts → now both dispatch) |
+
+> **Consensus note (2026-04-10)**: Operation count verified by 3 independent lead agents.
+> `grep -c "gateway: '" registry.ts` = 231 (excludes 5 non-literal references).
+> Lead 1 (Code Reviewer) initially counted 235 (included utility function signatures).
+> Lead 2 (System Architect) counted 231 (correct). Lead 3 (Quality Engineer) confirmed
+> tools domain coverage was overcounted in original audit (28% actual, not 45%).
+> Architectural recommendation: Fold conduit's 5 ops into orchestrate domain to
+> preserve the 10-domain invariant per constitution §12 and System Flow Atlas.
 
 ---
 
@@ -69,17 +77,21 @@ Operations in registry not in constitution tables:
 | Domain | Registry Ops | CLI Covered | CLI Missing | Coverage % |
 |--------|-------------|-------------|-------------|------------|
 | tasks | 32 | 24 | 8 | 75% |
-| session | 14 | 10 | 4 | 71% |
-| memory | 19 | 11 | 8 | 58% |
-| check | 16 | 13 | 3 | 81% |
-| pipeline | 31 | 18 | 13 | 58% |
-| orchestrate | 18 | 8 | 10 | 44% |
-| tools | 22 | 10 | 12 | 45% |
-| admin | 34 | 23 | 11 | 68% |
-| nexus | 19 | 14 | 5 | 74% |
+| session | 15 | 10 | 5 | 67% |
+| memory | 18 | 11 | 7 | 61% |
+| check | 18 | 14 | 4 | 78% |
+| pipeline | 32 | 19 | 13 | 59% |
+| orchestrate | 19 | 8 | 11 | 42% |
+| tools | 29 | 8 | 21 | 28% |
+| admin | 39 | 28 | 11 | 72% |
+| nexus | 22 | 14 | 8 | 64% |
 | sticky | 6 | 6 | 0 | 100% |
 | conduit | 5 | 0 | 5 | 0% |
-| **TOTAL** | **216** | **137** | **79** | **63%** |
+| **TOTAL** | **231** | **~142** | **~89** | **~61%** |
+
+> Per-domain counts verified by Lead 2 (System Architect) against registry SSoT.
+> Tools domain corrected per Lead 3 (Quality Engineer): 29 ops total including
+> code.* (4), provider.* (6), adapter.* (6) sub-domains — coverage is 28%, not 45%.
 
 ### Key Missing Areas
 - **conduit domain**: 0% — no CLI surface at all (5 ops)

@@ -1,14 +1,16 @@
 # @cleocode/cleo
 
-CLEO CLI + MCP Server - the assembled product consuming @cleocode/core.
+CLEO CLI — the assembled product consuming @cleocode/core.
 
 ## Overview
 
-This is the main CLEO package that brings together all other packages into a unified command-line interface and Model Context Protocol (MCP) server. It provides:
+This is the main CLEO package that brings together all other packages into a unified command-line interface. It provides:
 
-- **CLI**: 80+ commands for task management, sessions, memory, and more
-- **MCP Server**: Full integration with AI assistants via the Model Context Protocol
+- **CLI**: 100+ commands for task management, sessions, memory, orchestration, and more
+- **Dispatch Layer**: CQRS routing with query/mutate gateways, middleware pipeline, and LAFS envelope formatting
 - **Admin Tools**: Configuration, backup, migration, and system management
+
+The CLI is a thin wrapper — all business logic lives in [@cleocode/core](../core).
 
 ## Installation
 
@@ -18,23 +20,13 @@ This is the main CLEO package that brings together all other packages into a uni
 npm install -g @cleocode/cleo
 ```
 
-```bash
-pnpm add -g @cleocode/cleo
-```
+### Batteries-Included (CleoOS)
 
 ```bash
-yarn global add @cleocode/cleo
+npm install -g @cleocode/cleo-os
 ```
 
-### Local Installation
-
-```bash
-npm install @cleocode/cleo
-```
-
-```bash
-pnpm add @cleocode/cleo
-```
+This installs `cleo`, `ct`, and `cleoos` binaries with CANT bridge and TUI extensions.
 
 ### Using npx (No Installation)
 
@@ -47,33 +39,27 @@ npx @cleocode/cleo <command>
 ### Initialize CLEO in Your Project
 
 ```bash
-# Navigate to your project
 cd my-project
-
-# Initialize CLEO
 cleo init
-
-# Or with examples
-cleo init --with-examples
 ```
 
 ### Basic Commands
 
 ```bash
 # Add a task
-cleo add "Implement user authentication"
+cleo add "Implement user authentication" --priority high --acceptance "AC1|AC2|AC3"
 
-# List tasks
-cleo list
+# Search tasks (returns readiness info: depends, type, size)
+cleo find "auth" --status pending
 
 # Start a work session
-cleo session start "Authentication Feature"
+cleo session start --scope global --name "Auth Feature"
 
 # Show current context
 cleo current
 
 # Complete a task
-cleo complete T1234
+cleo complete T001
 
 # Get help
 cleo --help
@@ -82,16 +68,19 @@ cleo <command> --help
 
 ## CLI Commands
 
-CLEO provides 80+ commands organized into domains:
+CLEO provides 100+ commands organized into domains:
 
 ### Task Management
 
 | Command | Description |
 |---------|-------------|
 | `cleo add <title>` | Create a new task |
+| `cleo add-batch --file tasks.json` | Batch create tasks from JSON |
 | `cleo list` | List all tasks |
 | `cleo show <id>` | Show task details |
-| `cleo find <query>` | Search tasks |
+| `cleo find <query>` | Search tasks (agent-optimized, includes readiness) |
+| `cleo find <query> --verbose` | Search with full task fields |
+| `cleo find <query> --fields labels,acceptance` | Search with specific extra fields |
 | `cleo complete <id>` | Mark task as complete |
 | `cleo update <id>` | Update task properties |
 | `cleo delete <id>` | Delete a task |
@@ -103,7 +92,6 @@ CLEO provides 80+ commands organized into domains:
 | `cleo deps <id>` | Show task dependencies |
 | `cleo tree <id>` | Show task tree |
 | `cleo labels` | Manage labels |
-| `cleo tags` | Manage tags |
 | `cleo blockers` | Show blockers |
 | `cleo stats` | Task statistics |
 | `cleo history <id>` | Task history |
@@ -111,16 +99,16 @@ CLEO provides 80+ commands organized into domains:
 | `cleo reparent <id> <parent>` | Change parent task |
 | `cleo relates <id> <target>` | Add relation |
 | `cleo exists <id>` | Check if task exists |
+| `cleo promote <id>` | Promote task to root level |
 
 ### Session Management
 
 | Command | Description |
 |---------|-------------|
-| `cleo session` | Session management |
-| `cleo session start [name]` | Start a new session |
+| `cleo session start [--scope] [--name]` | Start a new session |
 | `cleo session list` | List sessions |
 | `cleo session resume <id>` | Resume a session |
-| `cleo session end [id]` | End current/session |
+| `cleo session end [id]` | End current session |
 | `cleo briefing` | Generate session briefing |
 | `cleo phase` | Phase management |
 | `cleo checkpoint` | Create checkpoint |
@@ -132,13 +120,12 @@ CLEO provides 80+ commands organized into domains:
 |---------|-------------|
 | `cleo memory` | Memory operations |
 | `cleo memory-brain` | Brain memory search |
-| `cleo observe` | Observe and store memory |
+| `cleo observe <text>` | Save observation to brain.db |
 | `cleo context` | Show context |
 | `cleo inject` | Inject context |
 | `cleo sync` | Sync memory |
 | `cleo sticky` | Sticky notes |
-| `cleo note` | Add session note |
-| `cleo refresh-memory` | Refresh memory |
+| `cleo refresh-memory` | Refresh memory bridge |
 
 ### Validation & Compliance
 
@@ -156,17 +143,14 @@ CLEO provides 80+ commands organized into domains:
 |---------|-------------|
 | `cleo release` | Release management |
 | `cleo lifecycle` | Lifecycle operations |
-| `cleo promote` | Promote task/stage |
+| `cleo promote <id>` | Promote task/stage |
 | `cleo upgrade` | Upgrade CLEO |
-| `cleo specification` | Write specification |
-| `cleo detect-drift` | Detect drift |
 | `cleo roadmap` | Roadmap planning |
 | `cleo plan` | Create plan |
 | `cleo phases` | Phase operations |
 | `cleo log` | View logs |
 | `cleo issue` | Issue management |
 | `cleo bug` | Bug tracking |
-| `cleo generate-changelog` | Generate changelog |
 
 ### Orchestration
 
@@ -181,15 +165,6 @@ CLEO provides 80+ commands organized into domains:
 | `cleo sequence` | Task sequencing |
 | `cleo dash` | Dashboard |
 
-### Research
-
-| Command | Description |
-|---------|-------------|
-| `cleo research` | Research topics |
-| `cleo extract` | Extract information |
-| `cleo web` | Web search |
-| `cleo docs` | Documentation lookup |
-
 ### Nexus & Sync
 
 | Command | Description |
@@ -202,8 +177,6 @@ CLEO provides 80+ commands organized into domains:
 | `cleo snapshot` | Create snapshot |
 | `cleo export` | Export data |
 | `cleo import` | Import data |
-| `cleo export-tasks` | Export tasks |
-| `cleo import-tasks` | Import tasks |
 
 ### Administration
 
@@ -213,128 +186,28 @@ CLEO provides 80+ commands organized into domains:
 | `cleo backup` | Backup data |
 | `cleo backup export` | Pack a portable `.cleobundle.tar.gz` |
 | `cleo backup import` | Restore from a portable bundle |
-| `cleo backup inspect` | Print bundle manifest without extracting |
-| `cleo restore finalize` | Apply manually-resolved conflicts |
-| `cleo env` | Environment vars |
-| `cleo mcp-install` | Install MCP |
-| `cleo testing` | Testing setup |
+| `cleo backup inspect` | Print bundle manifest |
+| `cleo restore finalize` | Apply resolved conflicts |
 | `cleo skills` | Skills management |
 | `cleo self-update` | Update CLEO |
-| `cleo install-global` | Global install |
 | `cleo grade` | Grade session |
 | `cleo migrate` | Run migrations |
-| `cleo migrate-claude-mem` | Migrate Claude memories |
-| `cleo otel` | OpenTelemetry |
-| `cleo token` | Token management |
 | `cleo adr` | ADR management |
 | `cleo map` | Codebase map |
 | `cleo commands` | List all commands |
+| `cleo otel` | OpenTelemetry |
+| `cleo token` | Token management |
 
-### Cross-machine backup export/import (v2026.4.13+)
-
-The `cleo backup` command supports portable `.cleobundle.tar.gz` archives for
-cross-machine backup transfer:
-
-- `cleo backup export <name> [--scope project|global|all] [--encrypt]` — pack
-  project + global data into a portable bundle
-- `cleo backup import <bundle> [--force]` — restore from a bundle. Uses
-  intelligent A/B regenerate-and-compare for JSON files (`config.json`,
-  `project-info.json`, `project-context.json`). Conflicts are written to
-  `.cleo/restore-conflicts.md` for review.
-- `cleo backup inspect <bundle>` — print manifest without extracting
-- `cleo restore finalize` — apply manually-resolved conflicts from
-  `.cleo/restore-conflicts.md`
-
-See [ADR-038](../../.cleo/adrs/ADR-038-backup-portability.md) for the
-full specification.
-
-### Portable backups
-
-Use `cleo backup export --scope all` to create a `.cleobundle.tar.gz` that
-can be restored on a different machine via `cleo backup import`.
-
-## MCP Server
-
-CLEO includes a full MCP server for AI assistant integration.
-
-### Starting the MCP Server
+### Cross-machine Backup (v2026.4.13+)
 
 ```bash
-# Start MCP server
-cleo mcp
-
-# Or directly
-node ./node_modules/@cleocode/cleo/dist/mcp/index.js
+cleo backup export <name> [--scope project|global|all] [--encrypt]
+cleo backup import <bundle> [--force]
+cleo backup inspect <bundle>
+cleo restore finalize
 ```
 
-### Configuring with Claude Desktop
-
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "cleo": {
-      "command": "cleo",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-### MCP Tools
-
-The MCP server exposes two main tools:
-
-#### `query` - Read Operations
-
-Query operations never modify state. They are cached by default.
-
-```json
-{
-  "domain": "tasks",
-  "operation": "list",
-  "params": {
-    "status": ["pending", "in_progress"],
-    "limit": 10
-  }
-}
-```
-
-Available domains:
-- `tasks` - Task queries (list, show, find, deps)
-- `session` - Session queries (status, list)
-- `memory` - Memory queries (search, observe)
-- `orchestrate` - Orchestration queries (status, analyze)
-- `admin` - Admin queries (config, health)
-- `skills` - Skill queries (list, show)
-- `nexus` - Nexus queries (status, remote)
-- `check` - Validation queries (compliance, verify)
-- And more...
-
-#### `mutate` - Write Operations
-
-Mutate operations modify state and are validated, logged, and atomic.
-
-```json
-{
-  "domain": "tasks",
-  "operation": "add",
-  "params": {
-    "title": "New task",
-    "priority": "high"
-  }
-}
-```
-
-### MCP Resources
-
-Memory resources are exposed for context retrieval:
-
-- `cleo://memory/brain` - Brain memory entries
-- `cleo://memory/context` - Current context
-- `cleo://memory/sticky` - Sticky notes
-- `cleo://session/current` - Current session info
+See [ADR-038](../../.cleo/adrs/ADR-038-backup-portability.md) for the full specification.
 
 ## Global Options
 
@@ -354,39 +227,29 @@ cleo --mvi <level> <command>      # Control detail level
 
 ## Configuration
 
-CLEO can be configured via:
-
 ### Environment Variables
 
 ```bash
 export CLEO_LOG_LEVEL=debug
-export CLEO_CONFIG_PATH=./.cleo/config.yaml
-export CLEO_DATA_DIR=./.cleo
+export CLEO_PROJECT_ROOT=/path/to/project   # Override cwd-based project detection
+export CLEO_ROOT=/path/to/project           # Alias for CLEO_PROJECT_ROOT
 ```
 
 ### Configuration File
 
-```yaml
-# .cleo/config.yaml
-logging:
-  level: info
-  format: json
-
-session:
-  auto_start: true
-  default_scope: feature
-
-lifecycle:
-  enforcement: strict
-  
-output:
-  format: human
-  
-sharing:
-  mode: local
+```json
+// .cleo/config.json
+{
+  "logging": { "level": "info" },
+  "session": { "enforcement": { "requiredForMutate": true } },
+  "lifecycle": { "mode": "advisory" },
+  "enforcement": {
+    "acceptance": { "mode": "block", "minimumCriteria": 3 }
+  }
+}
 ```
 
-### CLI Options
+### CLI Config Commands
 
 ```bash
 cleo config set logging.level debug
@@ -396,9 +259,7 @@ cleo config list
 
 ## Programmatic Usage
 
-While the CLI is the primary interface, you can also use CLEO programmatically:
-
-### As a Module
+While the CLI is the primary interface, you can use the core SDK directly:
 
 ```typescript
 import { Cleo } from '@cleocode/core';
@@ -412,97 +273,28 @@ await cleo.tasks.add({ title: 'New task' });
 await cleo.destroy();
 ```
 
-### MCP Client
-
-```typescript
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-
-const client = new Client({ name: 'my-client', version: '1.0.0' });
-await client.connect(transport);
-
-// Call CLEO tools
-const result = await client.callTool('query', {
-  domain: 'tasks',
-  operation: 'list'
-});
-```
-
-## API Overview
-
-### Exports
-
-The package exports two main entry points:
-
-```typescript
-// CLI entry point (default)
-import '@cleocode/cleo';
-
-// MCP server entry point
-import '@cleocode/cleo/mcp';
-```
-
-### Binaries
-
-Multiple binary names are provided:
-
-- `cleo` - Primary command
-- `ct` - Short alias
-
-## Development
-
-### Building
-
-```bash
-# Build the package
-pnpm build
-
-# Type check
-pnpm typecheck
-```
-
-### Testing
-
-```bash
-# Run tests
-pnpm test
-
-# Run specific test
-pnpm test -- cleo.test.ts
-```
-
-### Database
-
-```bash
-# Generate migrations
-pnpm db:generate
-
-# Open Drizzle Studio
-pnpm db:studio
-```
-
 ## Architecture
 
 ```
 ┌─────────────────────────────────────┐
 │        @cleocode/cleo               │
-│  ┌──────────────┬─────────────────┐ │
-│  │     CLI      │   MCP Server    │ │
-│  │   (citty)    │    (stdio)      │ │
-│  └──────────────┴─────────────────┘ │
-│           │                         │
-│  ┌────────┴─────────────────────┐   │
-│  │     Dispatch Layer           │   │
-│  │  - Query/Mutate routing      │   │
-│  │  - Rate limiting             │   │
-│  │  - Caching                   │   │
-│  │  - Background jobs           │   │
-│  └──────────────────────────────┘   │
-│           │                         │
-│  ┌────────┴─────────────────────┐   │
-│  │     @cleocode/core           │   │
-│  │  - Tasks, Sessions, Memory   │   │
-│  │  - Orchestration             │   │
-│  │  - Compliance                │   │
+│  ┌──────────────────────────────┐   │
+│  │          CLI Layer           │   │
+│  │  89 commands (commander.js)  │   │
+│  └──────────────┬───────────────┘   │
+│                 │                    │
+│  ┌──────────────┴───────────────┐   │
+│  │       Dispatch Layer         │   │
+│  │  CQRS query/mutate routing   │   │
+│  │  12 domain handlers          │   │
+│  │  19 engine wrappers          │   │
+│  │  Middleware pipeline          │   │
+│  └──────────────┬───────────────┘   │
+│                 │                    │
+│  ┌──────────────┴───────────────┐   │
+│  │       @cleocode/core         │   │
+│  │  Tasks • Sessions • Memory   │   │
+│  │  Orchestration • Lifecycle   │   │
 │  └──────────────────────────────┘   │
 └─────────────────────────────────────┘
 ```
@@ -523,69 +315,43 @@ cleo upgrade
 
 **"Permission denied"**
 ```bash
-# Fix permissions
 chmod +x $(which cleo)
-```
-
-**MCP connection issues**
-```bash
-# Check MCP status
-cleo doctor
-
-# Reinstall MCP
-cleo mcp-install
 ```
 
 ### Debug Mode
 
 ```bash
-# Enable debug logging
 export CLEO_LOG_LEVEL=debug
 cleo <command>
-
-# Or via config
-cleo config set logging.level debug
 ```
 
 ### Getting Help
 
 ```bash
-# General help
 cleo --help
-
-# Command help
 cleo <command> --help
-
-# System health
 cleo doctor
-
-# List all commands
 cleo commands
 ```
 
 ## Dependencies
 
-### Production Dependencies
+### Production
 
-- `@cleocode/core` - Business logic
-- `@cleocode/contracts` - Type definitions
-- `@cleocode/caamp` - Context-aware memory
-- `@cleocode/lafs` - Feedback schema
-- `@modelcontextprotocol/sdk` - MCP protocol
-- `drizzle-orm` - Database ORM
-- `citty` - CLI framework
-- `pino` - Logging
-- And more...
+- `@cleocode/core` — Business logic SDK
+- `@cleocode/contracts` — Shared type definitions
+- `@cleocode/caamp` — Provider registry
+- `@cleocode/cant` — CANT protocol parser
+- `@cleocode/lafs` — Error envelope protocol
+- `@cleocode/runtime` — Long-running process layer
+- `drizzle-orm` — Database ORM
+- `pino` — Logging
 
-### Development Dependencies
+### Binaries
 
-- `typescript` - Type checking
-- `vitest` - Testing
+- `cleo` — Primary command
+- `ct` — Short alias
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
-
----
-
-For more information, visit [https://cleo.dev](https://cleo.dev)
+MIT License - see [LICENSE](../../LICENSE) for details.
