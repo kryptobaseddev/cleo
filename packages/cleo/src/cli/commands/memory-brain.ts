@@ -170,6 +170,11 @@ export function registerMemoryBrainCommand(program: Command): void {
       '--agent <name>',
       'Tag this observation with the producing agent name (Wave 8 mental models)',
     )
+    .option(
+      '--type <type>',
+      'Observation type (discovery, decision, bugfix, refactor, feature, change, pattern, session_summary)',
+    )
+    .option('--source-type <sourceType>', 'Source type override (default: manual)')
     .action(async (text: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
@@ -179,6 +184,8 @@ export function registerMemoryBrainCommand(program: Command): void {
           text,
           title: opts['title'],
           ...(opts['agent'] !== undefined && { agent: opts['agent'] }),
+          ...(opts['type'] !== undefined && { type: opts['type'] }),
+          sourceType: (opts['sourceType'] as string | undefined) ?? 'manual',
         },
         { command: 'memory', operation: 'memory.observe' },
       );
@@ -226,9 +233,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- decision find --
+  // -- decision-find --
   memory
-    .command('decision find [query]')
+    .command('decision-find [query]')
     .description('Search decisions stored in brain.db')
     .option('--limit <n>', 'Maximum results', parseInt)
     .option('--json', 'Output as JSON')
@@ -245,9 +252,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- decision store --
+  // -- decision-store --
   memory
-    .command('decision store')
+    .command('decision-store')
     .description('Store a decision to brain.db')
     .requiredOption('--decision <text>', 'The decision that was made')
     .requiredOption('--rationale <text>', 'Rationale behind the decision')
@@ -284,9 +291,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- graph show --
+  // -- graph-show --
   memory
-    .command('graph show <nodeId>')
+    .command('graph-show <nodeId>')
     .description('Get a PageIndex graph node and its edges')
     .option('--json', 'Output as JSON')
     .action(async (nodeId: string, _opts: Record<string, unknown>) => {
@@ -299,9 +306,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- graph neighbors --
+  // -- graph-neighbors --
   memory
-    .command('graph neighbors <nodeId>')
+    .command('graph-neighbors <nodeId>')
     .description('Get neighbor nodes from the PageIndex graph')
     .option('--depth <n>', 'Traversal depth', parseInt)
     .option('--limit <n>', 'Maximum neighbors', parseInt)
@@ -320,9 +327,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- graph add --
+  // -- graph-add --
   memory
-    .command('graph add')
+    .command('graph-add')
     .description('Add a node or edge to the PageIndex graph')
     .option('--node-id <id>', 'Node ID to add')
     .option('--label <text>', 'Label for the node')
@@ -346,9 +353,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- graph remove --
+  // -- graph-remove --
   memory
-    .command('graph remove')
+    .command('graph-remove')
     .description('Remove a node or edge from the PageIndex graph')
     .option('--node-id <id>', 'Node ID to remove')
     .option('--from <id>', 'Source node ID of the edge to remove')
@@ -368,9 +375,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- reason why (causal trace through task dependency chains) --
+  // -- reason-why (causal trace through task dependency chains) --
   memory
-    .command('reason why <taskId>')
+    .command('reason-why <taskId>')
     .description('Causal trace through task dependency chains')
     .option('--depth <n>', 'Maximum trace depth', parseInt)
     .option('--json', 'Output as JSON')
@@ -387,9 +394,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- reason similar (find semantically similar brain entries) --
+  // -- reason-similar (find semantically similar brain entries) --
   memory
-    .command('reason similar <entryId>')
+    .command('reason-similar <entryId>')
     .description('Find semantically similar brain entries')
     .option('--limit <n>', 'Maximum results', parseInt)
     .option('--json', 'Output as JSON')
@@ -406,9 +413,9 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
-  // -- search hybrid (hybrid search across FTS5, vector, and graph) --
+  // -- search-hybrid (hybrid search across FTS5, vector, and graph) --
   memory
-    .command('search hybrid <query>')
+    .command('search-hybrid <query>')
     .description('Hybrid search across FTS5, vector, and graph indexes')
     .option('--limit <n>', 'Maximum results', parseInt)
     .option('--json', 'Output as JSON')

@@ -27,7 +27,7 @@ export function registerClaimCommand(program: Command): void {
         'tasks',
         'claim',
         {
-          taskId,
+          id: taskId,
           agentId: opts['agent'] as string | undefined,
         },
         { command: 'claim', operation: 'tasks.claim' },
@@ -53,7 +53,7 @@ export function registerUnclaimCommand(program: Command): void {
         'mutate',
         'tasks',
         'unclaim',
-        { taskId },
+        { id: taskId },
         { command: 'unclaim', operation: 'tasks.unclaim' },
       );
     });

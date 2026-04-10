@@ -23,13 +23,14 @@ export function registerTestingCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'manifest',
+        'protocol',
         {
+          protocolType: 'testing',
+          mode: 'task',
           taskId,
           strict: !!opts['strict'],
-          type: 'testing',
         },
-        { command: 'testing', operation: 'check.manifest' },
+        { command: 'testing', operation: 'check.protocol' },
       );
     });
 

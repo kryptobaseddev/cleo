@@ -66,7 +66,7 @@ export function registerDepsCommand(program: Command): void {
         {
           epicId,
         },
-        { command: 'deps', operation: 'tasks.depends' },
+        { command: 'deps', operation: 'orchestrate.waves' },
       );
     });
 

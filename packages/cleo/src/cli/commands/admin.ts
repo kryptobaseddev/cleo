@@ -202,6 +202,13 @@ export function registerAdminCommand(program: Command): void {
     .option('--task <id>', 'Scope injection to a specific task ID')
     .option('--variant <variant>', 'Select a named protocol variant')
     .action(async (protocolType: string, opts: Record<string, unknown>) => {
+      if (!protocolType || typeof protocolType !== 'string' || protocolType.trim() === '') {
+        console.error('Error: missing required argument <protocolType>');
+        console.error(
+          'Usage: cleo admin context-inject <protocolType> [--task <id>] [--variant <variant>]',
+        );
+        process.exit(1);
+      }
       await dispatchFromCli(
         'mutate',
         'admin',

@@ -1,5 +1,5 @@
 /**
- * CLI skills command - skill management: list, discover, validate, info, install.
+ * CLI skills command - skill management: list, search, validate, info, install.
  *
  * @task T4555
  * @epic T4545
@@ -15,7 +15,7 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerSkillsCommand(program: Command): void {
   const skillsCmd = program
     .command('skills')
-    .description('Skill management: list, discover, validate, info, install');
+    .description('Skill management: list, search, validate, info, install');
 
   // Subcommand: list
   skillsCmd
@@ -50,22 +50,6 @@ export function registerSkillsCommand(program: Command): void {
           source: opts['mp'] ? 'skillsmp' : opts['all'] ? 'all' : 'local',
         },
         { command: 'skills', operation: 'tools.skill.find' },
-      );
-    });
-
-  // Subcommand: discover
-  skillsCmd
-    .command('discover')
-    .description('Scan and discover available skills')
-    .action(async () => {
-      await dispatchFromCli(
-        'query',
-        'tools',
-        'skill.list',
-        {
-          scope: 'project',
-        },
-        { command: 'skills', operation: 'tools.skill.list' },
       );
     });
 
