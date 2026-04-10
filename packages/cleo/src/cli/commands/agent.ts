@@ -10,6 +10,8 @@
  *   cleo agent poll       — one-shot message check
  *   cleo agent send       — send a message to an agent or conversation
  *   cleo agent start      — start the daemon poller for an agent
+ *   cleo agent install    — install an agent from .cantz archive or directory
+ *   cleo agent pack       — package an agent directory as .cantz archive
  *
  * **Daemon vs. Pi session — important distinction.** The daemon spawned
  * by `cleo agent start` ONLY polls SignalDock for inbound messages and
@@ -1687,5 +1689,342 @@ agent ${agentId}:
         },
         { command: 'agent health' },
       );
+    });
+
+  // --- cleo agent install <path> ---
+  /**
+   * Install an agent from a `.cantz` archive or a directory containing `persona.cant`.
+   *
+   * - If the path is a `.cantz` file, extracts the ZIP to a temp directory first.
+   * - Validates that `persona.cant` exists in the source.
+   * - Copies the agent directory to the target tier.
+   * - Default: project tier (`.cleo/cant/agents/<name>/`).
+   * - `--global`: global tier (`~/.local/share/cleo/cant/agents/`).
+   * - Best-effort agent registration in signaldock.db.
+   *
+   * @task T438
+   * @epic T250
+   * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+   */
+  agent
+    .command('install <path>')
+    .description('Install an agent from a .cantz archive or agent directory')
+    .option('--global', 'Install to global tier (~/.local/share/cleo/cant/agents/)')
+    .action(async (sourcePath: string, opts: Record<string, unknown>) => {
+      try {
+        const { existsSync, mkdirSync, cpSync, readFileSync, rmSync, statSync } = await import(
+          'node:fs'
+        );
+        const { join, basename, resolve } = await import('node:path');
+        const { homedir } = await import('node:os');
+        const { tmpdir } = await import('node:os');
+
+        const resolvedPath = resolve(sourcePath);
+
+        if (!existsSync(resolvedPath)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NOT_FOUND',
+                message: `Path does not exist: ${resolvedPath}`,
+              },
+            },
+            { command: 'agent install' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+
+        let agentDir: string;
+        let agentName: string;
+        let tempDir: string | null = null;
+
+        const isCantzArchive = resolvedPath.endsWith('.cantz') && statSync(resolvedPath).isFile();
+
+        if (isCantzArchive) {
+          // Extract ZIP to temp directory
+          const { execFileSync } = await import('node:child_process');
+          tempDir = join(tmpdir(), `cleo-agent-install-${Date.now()}`);
+          mkdirSync(tempDir, { recursive: true });
+
+          try {
+            execFileSync('unzip', ['-o', '-q', resolvedPath, '-d', tempDir], {
+              encoding: 'utf-8',
+              timeout: 30000,
+            });
+          } catch (unzipErr) {
+            if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+            cliOutput(
+              {
+                success: false,
+                error: {
+                  code: 'E_VALIDATION',
+                  message: `Failed to extract .cantz archive: ${String(unzipErr)}`,
+                },
+              },
+              { command: 'agent install' },
+            );
+            process.exitCode = 6;
+            return;
+          }
+
+          // Find the top-level directory inside the extracted archive
+          const { readdirSync } = await import('node:fs');
+          const topLevel = readdirSync(tempDir).filter((entry) => {
+            const entryPath = join(tempDir as string, entry);
+            return statSync(entryPath).isDirectory();
+          });
+
+          if (topLevel.length !== 1) {
+            if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+            cliOutput(
+              {
+                success: false,
+                error: {
+                  code: 'E_VALIDATION',
+                  message: `Archive must contain exactly one top-level directory, found ${topLevel.length}`,
+                },
+              },
+              { command: 'agent install' },
+            );
+            process.exitCode = 6;
+            return;
+          }
+
+          agentName = topLevel[0];
+          agentDir = join(tempDir, agentName);
+        } else if (statSync(resolvedPath).isDirectory()) {
+          agentDir = resolvedPath;
+          agentName = basename(resolvedPath);
+        } else {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Path must be a .cantz file or a directory: ${resolvedPath}`,
+              },
+            },
+            { command: 'agent install' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Validate persona.cant exists
+        const personaPath = join(agentDir, 'persona.cant');
+        if (!existsSync(personaPath)) {
+          if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Agent directory must contain persona.cant: ${personaPath}`,
+              },
+            },
+            { command: 'agent install' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        // Determine target tier directory
+        const isGlobal = opts['global'] === true;
+        let targetRoot: string;
+
+        if (isGlobal) {
+          const home = homedir();
+          const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+          targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
+        } else {
+          targetRoot = join(process.cwd(), '.cleo', 'cant', 'agents');
+        }
+
+        const targetDir = join(targetRoot, agentName);
+
+        // Copy agent directory to target
+        mkdirSync(targetRoot, { recursive: true });
+        cpSync(agentDir, targetDir, { recursive: true, force: true });
+
+        // Cleanup temp directory if we extracted from .cantz
+        if (tempDir) {
+          rmSync(tempDir, { recursive: true, force: true });
+        }
+
+        // Best-effort agent registration in signaldock.db
+        let registered = false;
+        try {
+          const persona = readFileSync(join(targetDir, 'persona.cant'), 'utf-8');
+          // Extract display name from persona.cant (best-effort parse)
+          const descMatch = persona.match(/description:\s*"([^"]+)"/);
+          const displayName = descMatch?.[1] ?? agentName;
+
+          const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
+          await getDb();
+          const registry = new AgentRegistryAccessor(process.cwd());
+          const existing = await registry.get(agentName);
+
+          if (!existing) {
+            await registry.register({
+              agentId: agentName,
+              displayName,
+              apiKey: 'local-installed',
+              apiBaseUrl: 'local',
+              classification: 'specialist',
+              privacyTier: 'private',
+              capabilities: [],
+              skills: [],
+              transportType: 'http',
+              transportConfig: {},
+              isActive: false,
+            });
+            registered = true;
+          }
+        } catch {
+          // Registration is best-effort — do not fail the install
+        }
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agent: agentName,
+              tier: isGlobal ? 'global' : 'project',
+              path: targetDir,
+              registered,
+            },
+          },
+          { command: 'agent install' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_INSTALL', message: String(err) } },
+          { command: 'agent install' },
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // --- cleo agent pack <dir> ---
+  /**
+   * Package an agent directory into a `.cantz` ZIP archive.
+   *
+   * Validates that the source directory contains `persona.cant`, then
+   * creates a ZIP archive named `<dirname>.cantz` in the current working
+   * directory.
+   *
+   * @task T438
+   * @epic T250
+   * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+   */
+  agent
+    .command('pack <dir>')
+    .description('Package an agent directory as a .cantz archive')
+    .action(async (dir: string) => {
+      try {
+        const { existsSync, statSync } = await import('node:fs');
+        const { resolve, basename, dirname } = await import('node:path');
+        const { execFileSync } = await import('node:child_process');
+
+        const resolvedDir = resolve(dir);
+
+        if (!existsSync(resolvedDir) || !statSync(resolvedDir).isDirectory()) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_NOT_FOUND',
+                message: `Directory does not exist: ${resolvedDir}`,
+              },
+            },
+            { command: 'agent pack' },
+          );
+          process.exitCode = 4;
+          return;
+        }
+
+        // Validate persona.cant exists
+        const { join } = await import('node:path');
+        const personaPath = join(resolvedDir, 'persona.cant');
+        if (!existsSync(personaPath)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Agent directory must contain persona.cant: ${personaPath}`,
+              },
+            },
+            { command: 'agent pack' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        const agentName = basename(resolvedDir);
+        const archiveName = `${agentName}.cantz`;
+        const archivePath = resolve(archiveName);
+        const parentDir = dirname(resolvedDir);
+
+        // Create ZIP archive — run zip from parent directory so the
+        // archive contains agentName/ as the top-level directory
+        try {
+          execFileSync('zip', ['-r', archivePath, agentName], {
+            cwd: parentDir,
+            encoding: 'utf-8',
+            timeout: 30000,
+          });
+        } catch (zipErr) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_PACK',
+                message: `Failed to create archive: ${String(zipErr)}`,
+              },
+            },
+            { command: 'agent pack' },
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // Get file count and archive size
+        const archiveStats = statSync(archivePath);
+        const { readdirSync } = await import('node:fs');
+        let fileCount = 0;
+        const countFiles = (dirPath: string): void => {
+          const entries = readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isFile()) {
+              fileCount++;
+            } else if (entry.isDirectory()) {
+              countFiles(join(dirPath, entry.name));
+            }
+          }
+        };
+        countFiles(resolvedDir);
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              archive: archivePath,
+              agent: agentName,
+              files: fileCount,
+              size: archiveStats.size,
+            },
+          },
+          { command: 'agent pack' },
+        );
+      } catch (err) {
+        cliOutput(
+          { success: false, error: { code: 'E_PACK', message: String(err) } },
+          { command: 'agent pack' },
+        );
+        process.exitCode = 1;
+      }
     });
 }
