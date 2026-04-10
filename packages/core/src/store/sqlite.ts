@@ -473,8 +473,10 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
   // @see https://github.com/anthropics/cleo/issues/83
   ensureColumns(nativeDb, 'sessions', REQUIRED_SESSION_COLUMNS, 'sqlite');
 
-  // Run pending migrations with SQLITE_BUSY retry
-  migrateWithRetry(db, migrationsFolder);
+  // Run pending migrations with SQLITE_BUSY retry.
+  // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
+  // partial migration (Scenario 3) that slips through the proactive check above.
+  migrateWithRetry(db, migrationsFolder, nativeDb, 'tasks', 'sqlite');
 
   // Defensive column safety net
   ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');

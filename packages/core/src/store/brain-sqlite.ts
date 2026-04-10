@@ -92,8 +92,10 @@ function runBrainMigrations(
   // Bootstrap baseline + reconcile stale journal entries
   reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
 
-  // Run pending migrations with SQLITE_BUSY retry
-  migrateWithRetry(db, migrationsFolder);
+  // Run pending migrations with SQLITE_BUSY retry.
+  // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
+  // partial migration (Scenario 3) that slips through the proactive check above.
+  migrateWithRetry(db, migrationsFolder, nativeDb, 'brain_decisions', 'brain');
 }
 
 /**

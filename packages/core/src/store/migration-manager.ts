@@ -73,7 +73,11 @@ export function createSafetyBackup(dbPath: string): void {
  * Handles three scenarios:
  * 1. Tables exist but no __drizzle_migrations — bootstrap baseline as applied
  * 2. Journal has orphaned hashes (from older CLEO version) — clear and re-mark all as applied
- * 3. Journal is healthy — no-op
+ * 3. Journal exists but is missing entries for migrations whose DDL has already been applied
+ *    (e.g., ALTER TABLE ADD COLUMN ran but journal entry was never written — happens when
+ *    migrations are cherry-picked from worktrees or the process crashes mid-migration).
+ *    Auto-inserts the missing journal entry so Drizzle skips the migration instead of
+ *    re-running ALTER TABLE and crashing on "duplicate column name".
  *
  * @param nativeDb - Native SQLite database handle
  * @param migrationsFolder - Path to the drizzle migrations folder
@@ -127,21 +131,117 @@ export function reconcileJournal(
       }
     }
   }
+
+  // Scenario 3: Journal exists but is missing entries for already-applied migrations.
+  // Detects migrations whose DDL columns already exist in the database but whose
+  // journal entry was never written (e.g., cherry-picked from a worktree, or process
+  // crashed after the ALTER TABLE succeeded but before the journal INSERT committed).
+  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const journalEntries = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations"')
+      .all() as Array<{ hash: string }>;
+    const journaledHashes = new Set(journalEntries.map((e) => e.hash));
+
+    for (const migration of localMigrations) {
+      if (journaledHashes.has(migration.hash)) continue;
+
+      // Parse the migration SQL for ALTER TABLE ... ADD COLUMN statements.
+      // drizzle's readMigrationFiles returns sql as string[] (one entry per
+      // statement-breakpoint-separated statement), so join them for regex scanning.
+      const alterColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+      const alterMatches: Array<{ table: string; column: string }> = [];
+      const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
+      const fullSql = sqlStatements.join('\n');
+      for (const m of fullSql.matchAll(alterColumnRegex)) {
+        alterMatches.push({ table: m[1] as string, column: m[2] as string });
+      }
+
+      // Only auto-reconcile migrations that consist entirely of ALTER TABLE ADD COLUMN
+      // statements (and contain at least one). Pure CREATE INDEX / DROP INDEX migrations
+      // that have no journal entry are genuinely pending and must run normally.
+      if (alterMatches.length === 0) continue;
+
+      // Check whether all ADD COLUMN targets already exist in their tables.
+      const allColumnsExist = alterMatches.every(({ table, column }) => {
+        if (!tableExists(nativeDb, table)) return false;
+        const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+          name: string;
+        }>;
+        return cols.some((c) => c.name === column);
+      });
+
+      if (allColumnsExist) {
+        const log = getLogger(logSubsystem);
+        log.warn(
+          { migration: migration.name, columns: alterMatches },
+          `Detected partially-applied migration ${migration.name} — columns exist but journal entry missing. Auto-reconciling.`,
+        );
+        nativeDb.exec(
+          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${migration.hash}', ${migration.folderMillis})`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Check whether an error is a SQLite "duplicate column name" error.
+ *
+ * These are thrown when an ALTER TABLE ADD COLUMN statement is re-executed
+ * after the column was already added (Scenario 3 in reconcileJournal).
+ */
+export function isDuplicateColumnError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /duplicate column name/i.test(err.message);
 }
 
 /**
  * Run Drizzle migrations with SQLITE_BUSY retry and exponential backoff.
  *
+ * Also handles "duplicate column name" errors (Scenario 3): if Drizzle tries to
+ * re-apply a migration whose DDL columns already exist (journal entry missing),
+ * this function calls reconcileJournal again to insert the missing entry and
+ * retries migrate() once more. This is the belt-and-suspenders safety net for
+ * any partial migration that slips through the proactive reconcileJournal check.
+ *
  * @param db - Drizzle database instance
  * @param migrationsFolder - Path to the drizzle migrations folder
+ * @param nativeDb - Optional native SQLite handle for duplicate-column auto-reconcile
+ * @param existenceTable - Optional existence-check table name for auto-reconcile
+ * @param logSubsystem - Optional logger subsystem name for auto-reconcile warnings
  */
-// biome-ignore lint/suspicious/noExplicitAny: Drizzle's NodeSQLiteDatabase is generic — accepting any schema avoids coupling to a specific schema type
-export function migrateWithRetry(db: NodeSQLiteDatabase<any>, migrationsFolder: string): void {
+export function migrateWithRetry(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle's NodeSQLiteDatabase is generic — accepting any schema avoids coupling to a specific schema type
+  db: NodeSQLiteDatabase<any>,
+  migrationsFolder: string,
+  nativeDb?: DatabaseSync,
+  existenceTable?: string,
+  logSubsystem?: string,
+): void {
+  let duplicateColumnReconciled = false;
+
   for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
     try {
       migrate(db, { migrationsFolder });
       return;
     } catch (err) {
+      // Belt-and-suspenders: if Drizzle hits a duplicate column name error on
+      // the first attempt and we have the native DB handle, run Scenario 3
+      // reconcileJournal and retry once. This catches any partial migration that
+      // slipped through the proactive check run before migrateWithRetry.
+      if (
+        isDuplicateColumnError(err) &&
+        !duplicateColumnReconciled &&
+        nativeDb !== undefined &&
+        existenceTable !== undefined &&
+        logSubsystem !== undefined
+      ) {
+        duplicateColumnReconciled = true;
+        reconcileJournal(nativeDb, migrationsFolder, existenceTable, logSubsystem);
+        continue;
+      }
+
       if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
         throw err;
       }
