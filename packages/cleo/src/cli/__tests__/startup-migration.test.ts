@@ -100,6 +100,12 @@ vi.mock('../commander-shim.js', () => {
     option() {
       return this;
     }
+    requiredOption() {
+      return this;
+    }
+    argument() {
+      return this;
+    }
     action() {
       return this;
     }
