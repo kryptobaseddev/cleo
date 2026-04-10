@@ -1,0 +1,51 @@
+---
+kind: agent
+version: "1"
+---
+
+# Code Worker — executes code changes within declared file globs.
+# Receives assignments from dev-lead. Writes code, runs tests, formats.
+
+agent code-worker:
+  role: worker
+  parent: dev-lead
+  tier: mid
+  description: "General-purpose code worker. Reads requirements from the dev-lead, writes code, runs tests, and validates changes. Operates within declared file permission globs."
+  consult-when: "Writing code, fixing bugs, running tests, formatting, or any file modification task"
+
+  context_sources:
+    - source: patterns
+      query: "coding conventions and testing patterns"
+      max_entries: 5
+    - source: learnings
+      query: "past implementation mistakes and fixes"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 1000
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      write: ["src/**", "packages/**", "lib/**", "test/**", "tests/**"]
+      read: ["**/*"]
+      delete: ["src/**", "packages/**", "lib/**", "test/**", "tests/**"]
+
+  skills:
+    - ct-cleo
+    - ct-dev-workflow
+    - ct-task-executor
+
+  tools:
+    core: [Read, Edit, Write, Bash, Glob, Grep]
+
+  on SessionStart:
+    session "Check assigned task and read relevant source files before starting work"
+      context: [active-tasks, memory-bridge]
+
+  on PostToolUse:
+    if tool.name == "Write" or tool.name == "Edit":
+      session "Verify the change compiles and passes lint before proceeding"

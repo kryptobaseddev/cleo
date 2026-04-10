@@ -828,6 +828,73 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
+  // T441: Deploy starter CANT bundle (team + agents) to project-tier .cleo/cant/
+  // This gives the CANT bridge a working team topology on first `cleoos` run.
+  // Only deploys if .cleo/cant/ does not already contain .cant files (idempotent).
+  try {
+    const cantDir = join(cleoDir, 'cant');
+    const cantAgentsDir = join(cantDir, 'agents');
+    const hasCantFiles =
+      existsSync(cantDir) &&
+      readdirSync(cantDir, { recursive: true }).some(
+        (f) => typeof f === 'string' && f.endsWith('.cant'),
+      );
+
+    if (!hasCantFiles) {
+      // Resolve the starter-bundle from @cleocode/cleo-os package
+      let starterBundleSrc: string | null = null;
+      try {
+        const { createRequire } = await import('node:module');
+        const req = createRequire(import.meta.url);
+        const cleoOsPkgMain = req.resolve('@cleocode/cleo-os/package.json');
+        const cleoOsPkgRoot = dirname(cleoOsPkgMain);
+        const candidate = join(cleoOsPkgRoot, 'starter-bundle');
+        if (existsSync(candidate)) {
+          starterBundleSrc = candidate;
+        }
+      } catch {
+        // Not resolvable via require.resolve — try workspace fallbacks
+      }
+
+      if (!starterBundleSrc) {
+        const packageRoot = getPackageRoot();
+        const fallbacks = [
+          join(packageRoot, '..', 'cleo-os', 'starter-bundle'),
+          join(packageRoot, '..', '..', 'packages', 'cleo-os', 'starter-bundle'),
+        ];
+        starterBundleSrc = fallbacks.find((p) => existsSync(p)) ?? null;
+      }
+
+      if (starterBundleSrc) {
+        await mkdir(cantDir, { recursive: true });
+        await mkdir(cantAgentsDir, { recursive: true });
+
+        // Copy team.cant
+        const teamSrc = join(starterBundleSrc, 'team.cant');
+        const teamDst = join(cantDir, 'team.cant');
+        if (existsSync(teamSrc) && !existsSync(teamDst)) {
+          await copyFile(teamSrc, teamDst);
+        }
+
+        // Copy agent .cant files
+        const agentsSrc = join(starterBundleSrc, 'agents');
+        if (existsSync(agentsSrc)) {
+          const agentFiles = readdirSync(agentsSrc).filter((f) => f.endsWith('.cant'));
+          for (const agentFile of agentFiles) {
+            const dst = join(cantAgentsDir, agentFile);
+            if (!existsSync(dst)) {
+              await copyFile(join(agentsSrc, agentFile), dst);
+            }
+          }
+        }
+
+        created.push('starter-bundle: team + agent .cant files deployed to .cleo/cant/');
+      }
+    }
+  } catch (err) {
+    warnings.push(`Starter bundle deploy: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // T283: Optional install of canonical CleoOS seed agent personas
   if (opts.installSeedAgents) {
     try {

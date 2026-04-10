@@ -1,0 +1,20 @@
+---
+kind: team
+version: "1"
+---
+
+# Starter Team — default team topology for new CleoOS projects.
+# Deployed by `cleoos init` or postinstall. Customize for your project.
+
+team starter:
+  name: Starter Team
+  orchestrator: cleo-orchestrator
+  enforcement: strict
+  consult-when: "Cross-boundary decisions, human-in-the-loop governance, or when a task spans multiple stages"
+  stages: [research, specification, implementation, validation, testing]
+
+  leads:
+    development: dev-lead
+
+  workers:
+    development: [code-worker, docs-worker]

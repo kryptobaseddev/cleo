@@ -1,0 +1,49 @@
+---
+kind: agent
+version: "1"
+---
+
+# Starter Orchestrator — coordinates the starter team.
+# Routes tasks to the dev-lead and synthesizes results for the user.
+
+agent cleo-orchestrator:
+  role: orchestrator
+  tier: high
+  description: "Starter team orchestrator. Reads task context, classifies work, dispatches to the dev-lead, and synthesizes results. Does not execute code — coordinates."
+  consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when the dev-lead reports a blocking ambiguity"
+
+  context_sources:
+    - source: decisions
+      query: "recent architectural and project decisions"
+      max_entries: 5
+    - source: patterns
+      query: "project conventions and established patterns"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 2000
+    on_load:
+      validate: true
+
+  permissions:
+    tasks: read, write
+    session: read, write
+    memory: read, write
+
+  skills:
+    - ct-cleo
+    - ct-task-executor
+
+  tools:
+    core: [Read, Grep, Glob]
+    dispatch: [dispatch_worker, report_to_user]
+
+  on SessionStart:
+    session "Read active tasks and recent decisions to build situational awareness"
+      context: [active-tasks, memory-bridge, recent-decisions]
+
+  on TaskCompleted:
+    if **the completed task unblocks downstream work**:
+      session "Reassess task queue and dispatch next work to dev-lead"
