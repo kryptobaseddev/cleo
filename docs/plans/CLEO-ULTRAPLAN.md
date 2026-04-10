@@ -82,16 +82,18 @@ runtime by `packages/cleo-os/src/xdg.ts`:
 ~/.local/share/cleo/          ← XDG_DATA_HOME/cleo (or custom via env)
   extensions/                 ← compiled Pi extensions live here
   cant/                       ← global-tier .cant source tree
-  worktrees/<projectHash>/    ← per-project git worktree roots (§14)
-  auth/                       ← keystore (XDG_CONFIG_HOME/cleo/auth/)
+  worktrees/<projectHash>/    ← per-project git worktree roots (§14, resolved by cant/worktree.ts)
 
 ~/.config/cleo/               ← XDG_CONFIG_HOME/cleo
   auth/                       ← API key storage backend
 ```
 
 The `resolveCleoOsPaths()` function returns a typed `CleoOsPaths` record
-with all six paths pre-resolved. Every CleoOS subsystem that needs a path
-MUST call this function rather than constructing paths by hand.
+with six paths pre-resolved (`data`, `config`, `agentDir`, `extensions`,
+`cant`, `auth`). `worktrees/` is resolved separately by
+`packages/cant/src/worktree.ts` via `resolveWorktreeRoot()`. Every CleoOS
+subsystem that needs a path MUST call these functions rather than
+constructing paths by hand.
 
 ### 2.2 Greenfield Detection
 

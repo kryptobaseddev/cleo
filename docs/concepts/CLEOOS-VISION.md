@@ -101,16 +101,18 @@ The autonomous runtime does not create new domains. It layers execution behavior
 
 ### 4.2 Conduit Protocol
 
-Conduit is the live agent-to-agent relay path within CleoOS.
+Conduit is the agent coordination layer within CleoOS, organized as a 4-shell layered model:
 
-Specified in `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`, it provides structured message delivery between workers, sessions, and runtime surfaces:
+| Shell | Layer | Status |
+|-------|-------|--------|
+| 1 | **Pi native** -- within a single Pi session, agents coordinate via the Chat Room extension tools (`send_to_lead`, `broadcast_to_team`, `report_to_orchestrator`, `query_peer`) | Shipped (Wave 7) |
+| 2 | **conduit.db** -- project-scoped persistent relay store for durable cross-session message delivery and agent coordination state | Shipped (v2026.4.11) |
+| 3 | **signaldock.io** -- cloud relay for cross-machine and cross-project agent messaging via the SignalDock service | Active |
+| 4 | **Future broker** -- full autonomous broker with SSE fanout, leases, and dead-letter handling (specified in `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`) | Not built |
 
-- **LAFS envelope discipline** -- all messages are LAFS-shaped, ensuring provider neutrality
-- **Structured addressing** -- workers, aspects, sessions, threads, and runtime services are addressable by kind and ID
-- **Durable delivery** -- messages survive crashes via a persistent relay store with retry, lease, and dead-letter handling
-- **Split architecture** -- TypeScript owns semantics (message shape, authorization, domain consequences); Rust owns delivery (broker, retries, leases, socket fanout)
+All messages across shells are LAFS-shaped, ensuring provider neutrality. The earlier vision of a Rust delivery broker (Shell 4) is specified but not implemented; Shells 1-3 cover all current coordination needs.
 
-Conduit is a runtime form, not a new domain. Its state surfaces through `orchestrate` (queue state, broker status), `session` (session-scoped trace), and `nexus` (cross-project relay evidence).
+Conduit is a runtime form, not a new domain. Its state surfaces through `orchestrate` (queue state), `session` (session-scoped trace), and `nexus` (cross-project relay evidence).
 
 ### 4.3 Provider Ecosystem
 
@@ -122,11 +124,11 @@ CleoOS is provider-neutral by design. The adapter system in `@cleocode/adapters`
 - **Gemini CLI** -- Full adapter (10 hooks + getTranscript + install) — new in T158 (T161)
 - **Codex** -- Partial adapter (3 hooks + getTranscript + install) — new in T158 (T162)
 - **Kimi** -- Minimal adapter (install only) — new in T158 (T163)
-- **Future providers** -- Any tool that can speak MCP or implement the `CLEOProviderAdapter` interface
+- **Future providers** -- Any tool that implements the Pi ExtensionAPI or the `CLEOProviderAdapter` interface
 
 Discovery is manifest-based: each adapter declares detection patterns (environment variables, files, CLI availability), and the `AdapterManager` in core automatically activates the matching adapter at startup.
 
-The Memory Bridge ensures every provider starts with context: a static seed file (`.cleo/memory-bridge.md`), guided self-retrieval via the `ct-memory` skill, and dynamic MCP resource endpoints (`cleo://memory/*`).
+The Memory Bridge ensures every provider starts with context: a static seed file (`.cleo/memory-bridge.md`), guided self-retrieval via the `ct-memory` skill, and BRAIN queries via the CLI (`cleo memory find`).
 
 ### 4.4 Project Lifecycle
 
@@ -211,7 +213,7 @@ CleoOS is organized in layers, each with a clear responsibility:
 |  |           @cleocode/contracts (types)                    |     |
 |  +---------------------------------------------------------+     |
 |  |           SQLite (node:sqlite via Drizzle ORM)           |     |
-|  |  tasks.db    brain.db    nexus.db                        |     |
+|  |  tasks.db  brain.db  nexus.db  conduit.db  signaldock.db |     |
 |  +---------------------------------------------------------+     |
 +==================================================================+
 ```
@@ -226,10 +228,10 @@ Each layer depends only on the layers below it. The kernel never reaches up into
 
 The kernel is shipped and operational:
 
-- `@cleocode/core` v2026.3.72 -- standalone business logic kernel with 45 domain modules
+- `@cleocode/core` v2026.4.18 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
-- `@cleocode/cleo` -- full CLI + MCP product (registry-defined operations across 10 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
+- `@cleocode/cleo` -- full CLI product (registry-defined operations across 10 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
 - BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
 - NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
@@ -250,6 +252,13 @@ The kernel is shipped and operational:
 - Brain Memory Automation (T134 epic, v2026.3.70): `BrainConfig` typed section, local embedding via `@xenova/transformers` all-MiniLM-L6-v2, async embedding queue, lifecycle-driven bridge refresh with debounce, context-aware bridge generation, session summarization (dual-mode), auto-link observations to focused task, embedding backfill CLI (`cleo backfill --embeddings`), brain maintenance command (`cleo brain maintenance`), cross-provider transcript extraction via adapter hook, updated injection templates and CLEO-BRAIN-SPECIFICATION.md v2.0.0
 - Facade API Interfaces in Contracts (v2026.3.71): All 13 facade interfaces + 20 supporting types moved to `@cleocode/contracts`. CleoOS imports types from contracts, not core — clean dependency boundary.
 - Session Serialize/Restore (v2026.3.72): `sessions.serialize()` captures full session state snapshot (session, handoff, decisions, brain observations, active task context). `sessions.restore()` hydrates from snapshot with agent handoff tracking, scope conflict detection, and hook dispatch. Foundation for CleoOS Phase 3 agent session persistence.
+- CleoOS Pi Pivot (v2026.4.6-v2026.4.10): Pi locked as primary harness per ADR-035. `@cleocode/cleo-os` wraps Pi via the ExtensionAPI with zero fork burden. Autonomous server daemon approach abandoned in favor of Pi extensions.
+- CANT Bridge (v2026.4.8): `cleo-cant-bridge.ts` Pi extension compiles `.cant` files, injects bundle prompt into agent system prompt, enforces `permissions.files` ACL at runtime, and validates mental models on load.
+- 3-Tier Agent Hierarchy (v2026.4.8): `kind: team` CANT declarations with orchestrator/lead/worker role enforcement. Lead agents blocked from `Edit`/`Write`/`Bash`. Chat Room extension for inter-agent coordination.
+- Conduit/SignalDock Separation (v2026.4.11): `conduit.db` (project-scoped agent relay) and `signaldock.db` (global agent registry) split per ADR-037, replacing the single agent store.
+- Backup Portability (v2026.4.13): `.cleobundle` archive format for cross-machine backup export/import with `cleo backup export`, `cleo backup import`, and `cleo backup inspect` commands.
+- Mental Model Injection (v2026.4.8): Per-agent BRAIN namespace with validate-on-load preamble, async reinforcement writes, and bounded growth via `max_tokens` cap.
+- .cantz Packaging (in progress): Compressed CANT bundle format for distributing agent/team/tool definitions as portable archives.
 
 ### What Is Specified (Runtime, Conduit)
 
@@ -302,8 +311,9 @@ CleoOS inherits and extends the principles from `@cleocode/core`:
 - CleoOS is **not a cloud platform**. It runs locally, on the developer's machine, in their terminal.
 - CleoOS is **not a replacement for CLEO**. It is the full realization of what CLEO's four systems become when assembled into a complete environment.
 - CleoOS is **not an AI model**. It coordinates AI agents but does not provide intelligence itself. The intelligence comes from the models; CleoOS provides memory, governance, and continuity.
-- CleoOS is **not a new protocol**. It uses LAFS, A2A, and MCP. It does not invent new communication standards.
+- CleoOS is **not a new protocol**. It uses LAFS and A2A for structured agent communication and extends Pi via the ExtensionAPI. It does not invent new communication standards.
 - CleoOS is **not a multi-tenant SaaS**. It is built for one developer and their agents, with NEXUS providing optional cross-project coordination.
+- CleoOS is **not a fork of Pi**. It wraps Pi via the ExtensionAPI, preserving full compatibility with upstream Pi releases.
 
 ---
 
