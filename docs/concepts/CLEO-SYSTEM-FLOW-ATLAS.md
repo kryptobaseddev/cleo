@@ -185,14 +185,14 @@ See `docs/specs/CORE-PACKAGE-SPEC.md` for the normative contract.
 Every CLEO operation follows the same path through the dispatch architecture:
 
 ```
-User Input
-    |
-    v
-+--------+     +--------+
-|  CLI   |     |  MCP   |    <-- Adapter layer (parses input, builds DispatchRequest)
-+---+----+     +---+----+
-    |              |
-    v              v
+       User Input
+           |
+           v
+       +--------+     
+       |  CLI   |         <-- Adapter layer (parses input, builds DispatchRequest)
+       +---+----+     
+           |
+           v
 +---+--------------+----+
 |   Gateway Router      |    <-- Routes to query or mutate gateway
 | (query/mutate)   |
@@ -243,7 +243,7 @@ tasks.db  brain.db  MANIFEST  sessions/  config.json
 
 ### Request Lifecycle
 
-1. **Parse**: CLI adapter or MCP adapter parses user input into a `DispatchRequest`.
+1. **Parse**: CLI adapter adapter parses user input into a `DispatchRequest`.
 2. **Route**: Gateway router sends request to the appropriate gateway (query or mutate).
 3. **Resolve**: Registry looks up `OperationDef` by domain + operation. Returns `E_INVALID_OPERATION` if not found.
 4. **Validate**: Required params are checked. Returns `E_INVALID_INPUT` if missing.
@@ -347,51 +347,106 @@ Domains interact with each other through core business logic, not directly. The 
 
 ## 7. LOOM Distillation Flow
 
-LOOM is the conceptual system that manages the lifecycle pipeline and artifact ledger. The distillation flow describes how artifacts in the `pipelineManifest` table (tasks.db) feed into brain.db observations.
+LOOM is the conceptual system that manages the lifecycle pipeline and artifact ledger. This section describes how artifacts enter the manifest and how memory is persisted to brain.db.
+
+### Current Implementation
+
+Two independent write paths exist today:
 
 ```
-Research / Implementation Work
-         |
-         v
-+--------+---------+
-| pipeline.manifest|    <-- Agent appends artifact entry
-|    .append       |
-+--------+---------+
-         |
-         v
-+--------+---------+
-| pipelineManifest |    <-- Pipeline manifest table in tasks.db
-|  (pipeline owns) |    <-- Entries: { type, content, taskId, timestamp, ... }
-+--------+---------+
-         |
-         | (distillation -- triggered by session.end or manual)
-         v
-+--------+---------+
-| memory.observe   |    <-- Distilled into observation
-| memory.decision  |    <-- Or stored as decision
-|    .store        |
-| memory.pattern   |    <-- Or stored as pattern
-|    .store        |
-| memory.learning  |    <-- Or stored as learning
-|    .store        |
-+--------+---------+
-         |
-         v
-+--------+---------+
-|    brain.db      |    <-- Persistent cognitive memory
-| (memory owns)    |    <-- FTS5 searchable, linked to tasks
-+------------------+
+Path A: Manifest Append (pipeline domain)
+
+  Research / Implementation Work
+           |
+           v
+  +--------+---------+
+  | cleo research add|    <-- Agent appends artifact entry
+  |   --task T1234   |    <-- CLI routes to pipeline.manifest.append
+  +--------+---------+
+           |
+           v
+  +--------+---------+
+  | pipelineManifest |    <-- Pipeline manifest table in tasks.db
+  |  (pipeline owns) |    <-- Entries: { type, content, taskId, timestamp, distilled: false }
+  +------------------+
+
+
+Path B: Direct Memory Storage (memory domain)
+
+  Agent observation / decision / pattern / learning
+           |
+           v
+  +--------------------+
+  | cleo observe <text>|    <-- Stores observation directly
+  | cleo memory store  |    <-- --type pattern | learning
+  |   --type <type>    |    <-- Routes to memory.pattern.store / memory.learning.store
+  +--------+-----------+
+           |
+           v
+  +--------+---------+
+  |    brain.db      |    <-- Persistent cognitive memory
+  | (memory owns)    |    <-- FTS5 searchable, linked to tasks
+  +------------------+
+
+
+Path C: Session End Memory Persistence
+
+  cleo session end
+           |
+           v
+  +--------+---------+
+  | session.debrief  |    <-- Auto-generates session summary
+  +--------+---------+
+           |
+           v
+  +------------------+
+  | persistSession   |    <-- Stores debrief data (decisions,
+  |   Memory()       |        assumptions, summary) into brain.db
+  +--------+---------+
+           |
+           v
+  +--------+---------+
+  |    brain.db      |    <-- Session insights preserved
+  +------------------+
 ```
 
-### Distillation Rules
+### CLI Command Reference
 
-1. Manifest entries are raw artifacts: research notes, implementation decisions, validation results.
-2. Distillation extracts the durable insight from an artifact and stores it in the appropriate brain.db table.
-3. Observations capture factual findings.
-4. Decisions capture choices with rationale.
-5. Patterns capture reusable workflows or anti-patterns.
-6. Learnings capture insights with confidence levels.
-7. Memory links connect brain entries back to their source tasks.
+| CLI Command | Dispatch Operation | Domain | Gateway |
+|-------------|-------------------|--------|---------|
+| `cleo research add --task <id> --topic "..."` | `pipeline.manifest.append` | pipeline | mutate |
+| `cleo observe <text> [--title "..."]` | `memory.observe` | memory | mutate |
+| `cleo memory store --type pattern --content "..."` | `memory.pattern.store` | memory | mutate |
+| `cleo memory store --type learning --content "..."` | `memory.learning.store` | memory | mutate |
+| `cleo memory find <query>` | `memory.find` | memory | query |
+| `cleo session end` | `session.end` (triggers `persistSessionMemory`) | session | mutate |
+
+> **Note:** `memory.decision.store` exists in the dispatch registry but does not yet have a dedicated CLI command. It is accessible programmatically via the dispatch layer.
+
+### Planned: Manifest Distillation (Not Yet Implemented)
+
+The `pipelineManifest` schema includes a `distilled` column and `brain_obs_id` foreign key, designed for a future distillation pipeline that would automatically extract durable insights from manifest entries into brain.db. This would connect Path A to Path B:
+
+```
+pipelineManifest (distilled=false)
+         |
+         | (future: triggered by session.end or manual command)
+         v
+brain.db (observation / decision / pattern / learning)
+         |
+         v
+pipelineManifest (distilled=true, brain_obs_id set)
+```
+
+Until distillation is implemented, agents store memory directly via Path B or Path C.
+
+### Memory Entry Types
+
+1. **Observations** capture factual findings (`cleo observe`).
+2. **Decisions** capture choices with rationale (dispatch-only: `memory.decision.store`).
+3. **Patterns** capture reusable workflows or anti-patterns (`cleo memory store --type pattern`).
+4. **Learnings** capture insights with confidence levels (`cleo memory store --type learning`).
+5. **Memory links** connect brain entries back to their source tasks.
 
 ---
 
@@ -403,10 +458,10 @@ Search for cognitive memory entries matching a keyword.
 
 ```
 Agent calls:
-  query { domain: "memory", operation: "find", params: { query: "atomic" } }
+  cleo memory find "atomic"
 
 Flow:
-  MCP Adapter
+  CLI Parser (parses command + args into DispatchRequest)
     -> Gateway: query
     -> Registry: resolve("query", "memory", "find") -> OperationDef (tier 1)
     -> Validate: requiredParams ["query"] -> present
@@ -424,11 +479,10 @@ Append a research artifact to the manifest ledger.
 
 ```
 Agent calls:
-  mutate { domain: "pipeline", operation: "manifest.append",
-                params: { entry: { type: "research", content: "..." } } }
+  cleo manifest append --type research --content "..."
 
 Flow:
-  MCP Adapter
+  CLI Parser (parses command + args into DispatchRequest)
     -> Gateway: mutate
     -> Registry: resolve("mutate", "pipeline", "manifest.append") -> OperationDef (tier 1)
     -> Validate: requiredParams ["entry"] -> present
@@ -446,11 +500,10 @@ Inject a protocol's context into the current session.
 
 ```
 Agent calls:
-  mutate { domain: "session", operation: "context.inject",
-                params: { protocolType: "research", taskId: "T5241" } }
+  cleo session context inject --protocol research --task T5241
 
 Flow:
-  MCP Adapter
+  CLI Parser (parses command + args into DispatchRequest)
     -> Gateway: mutate
     -> Registry: resolve("mutate", "session", "context.inject") -> OperationDef (tier 1)
     -> Validate: requiredParams ["protocolType"] -> present
@@ -470,20 +523,19 @@ Progressive disclosure minimizes the cognitive load on agents by starting with a
 
 ```
 Step 1: Agent starts session (tier 0)
-  mutate { domain: "session", operation: "start", params: { scope: "T5241" } }
+  cleo session start --scope T5241
   -> Agent sees: tasks, session, check, pipeline, orchestrate, tools, admin ops
 
 Step 2: Agent needs to recall past decisions
-  query { domain: "admin", operation: "help", params: { tier: 1 } }
+  cleo help --tier 1
   -> Agent now sees: + memory domain (17 ops), + manifest ops, + session advanced
 
 Step 3: Agent searches brain.db
-  query { domain: "memory", operation: "find", params: { query: "authentication" } }
+  cleo memory find "authentication"
   -> Returns matching observations, decisions, patterns, learnings
 
 Step 4: Agent stores a new learning
-  mutate { domain: "memory", operation: "learning.store",
-                params: { insight: "JWT tokens require refresh", source: "T5241" } }
+  cleo memory learning store --insight "JWT tokens require refresh" --source T5241
 ```
 
 ### Tier Budget
@@ -582,7 +634,7 @@ Every `DispatchResponse` includes `_meta` with:
     "operation": "find",
     "timestamp": "2026-03-03T12:00:00Z",
     "duration_ms": 42,
-    "source": "mcp",
+    "source": "cli",
     "requestId": "req-abc123",
     "sessionId": "S-001"
   }
@@ -620,7 +672,7 @@ These rules MUST always hold true in a correct CLEO installation:
 | **Domain** | One of 10 canonical runtime boundaries (tasks, session, memory, etc.). |
 | **Engine** | Adapter layer between domain handlers and core business logic. |
 | **FTS5** | SQLite Full-Text Search extension, version 5. Used by brain.db for text search. |
-| **Gateway** | One of two MCP tools: `query` (read) or `mutate` (write). |
+| **Gateway** | One of two dispatch gateways: `query` (read) or `mutate` (write). Accessed via CLI commands. |
 | **LAFS** | Progressive disclosure protocol. Controls which operations and fields are visible. |
 | **LOOM** | Lifecycle management system. Pipeline domain + manifest + release orchestration. |
 | **pipelineManifest** | Pipeline manifest table in tasks.db, owned by the pipeline domain. |
@@ -640,6 +692,6 @@ These rules MUST always hold true in a correct CLEO installation:
 - `docs/specs/CORE-PACKAGE-SPEC.md` -- @cleocode/core standalone package contract
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md` -- BRAIN capability specification
-- `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` -- CLI operations reference
 - `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT for operations
 - `packages/cleo/src/dispatch/types.ts` -- Canonical type definitions

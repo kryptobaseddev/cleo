@@ -56,7 +56,7 @@ The `.cleo/` directory is CLEO's **portable brain** - a complete, self-contained
 .cleo/
 ├── tasks.db              # SQLite: tasks, sessions, lifecycle, audit, pipeline manifest
 ├── brain.db              # SQLite: observations, patterns, learnings, decisions, memory links
-├── signaldock.db         # SQLite: local agent messaging infrastructure
+├── conduit.db            # SQLite: project-tier agent messaging (ADR-037)
 ├── config.json           # Project configuration
 ├── project-info.json     # Project identity (projectHash, projectId)
 ├── project-context.json  # LLM agent guidance (language, framework, conventions)
@@ -105,7 +105,7 @@ CLEO MUST preserve these five pillars across all interfaces and roadmap phases:
    Every artifact is traceable to task, decision, agent, and operation event.
 
 3. **Interoperable Interfaces**  
-   CLI and MCP are first-class interfaces. Provider-specific adapters are optional, never required.
+   The CLI is the first-class runtime interface. Provider-specific adapters are optional, never required.
 
 4. **Deterministic Safety**  
    Validation layers, lifecycle gates, atomic operations, and immutable logs protect system integrity.
@@ -157,19 +157,16 @@ CLEO MUST treat research manifests and agent outputs as first-class memory artif
 
 The TypeScript CLI (`packages/cleo/src/cli/`) is the primary runtime interface (per ADR-004). It is 100% compliant with the shared-core architecture pattern, delegating all business logic to `packages/core/src/` modules (validated 2026-02-16, T4565). There are ~86 command files in `packages/cleo/src/cli/commands/`. The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
 
-### 9.2 MCP
+### 9.2 Dispatch Architecture
 
-MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`query`, `mutate`) with registry-defined operations (see `packages/cleo/src/dispatch/registry.ts` for current count) across 10 canonical domains. The MCP engine (`packages/cleo/src/dispatch/engines/`) delegates to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
+The CLI exposes 2 dispatch gateways (`query`, `mutate`) following the CQRS pattern, with registry-defined operations (see `packages/cleo/src/dispatch/registry.ts` for current count) across 10 canonical domains. The dispatch engines (`packages/cleo/src/dispatch/engines/`) delegate to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
 
-**Architecture status (updated 2026-03-06)**: The MCP engine now imports directly from `packages/core/src/` modules. See `packages/cleo/src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
-
-MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
+All operations route through `packages/cleo/src/dispatch/`.
 
 ### 9.3 Shared-Core Architecture (Salesforce DX Pattern)
 
-Both CLI and MCP interfaces MUST delegate to a shared core (`packages/core/src/`). Current compliance:
+The CLI interface MUST delegate to a shared core (`packages/core/src/`). Current compliance:
 - **CLI**: 100% compliant (~86 command files route through `packages/core/src/`)
-- **MCP**: ~95% compliant (operations run natively via `packages/core/src/`; some require CLI fallback)
 
 ### 9.4 Adapters
 
@@ -210,7 +207,7 @@ cleo admin.validate
 The same `.cleo/` brain works with:
 - Claude Code
 - OpenCode
-- Any MCP-compatible tool
+- Cursor, Gemini CLI, Codex, Kimi (via provider adapters)
 - Direct CLI usage
 
 ## 12. Governance and Change Control
@@ -243,6 +240,6 @@ Documentation and implementation MUST use the same canonical terms for:
 - `README.md`
 - `docs/ROADMAP.md`
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
-- `docs/specs/MCP-SERVER-SPECIFICATION.md`
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit, historical)
 - `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

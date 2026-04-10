@@ -95,7 +95,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |                                                                     |
 |  +-----------------------------------------------------------------+
 |  |               Shared Core (packages/core/src/)                  |
-|  |  CLI (citty)         |  MCP (query/mutate)  | API    |
+|  |  CLI (citty)        | API    |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
 |  |  .cleo/tasks.db     .cleo/brain.db    .cleo/signaldock.db        |
@@ -220,9 +220,9 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (9 core tables: decisions, patterns, learnings, observations, memory_links, sticky_notes, schema_meta, page_nodes, page_edges -- plus FTS5 and vec0 virtual tables), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, registry-defined MCP operations (see `packages/cleo/src/dispatch/registry.ts` for current count), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + MCP resource endpoints -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **MCP resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (MCP vs CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
+**Shipped**: `brain.db` (9 core tables: decisions, patterns, learnings, observations, memory_links, sticky_notes, schema_meta, page_nodes, page_edges -- plus FTS5 and vec0 virtual tables), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, registry-defined CLI operations (see `packages/cleo/src/dispatch/registry.ts` for current count), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, **Provider Adapter System** (discovery-based loading -- ADR-031), **Provider-Agnostic Memory Bridge** (3-layer: static seed + guided self-retrieval + CLI resource endpoints -- ADR-032), **ct-memory skill** (brain memory protocol with progressive disclosure), **CLI resource endpoints** (cleo://memory/recent, learnings, patterns, handoff), **token-efficiency routing table** (CLI channel preference per operation), **RFC 9457 ProblemDetails** error responses, **unified error catalog** (single source of truth for all exit codes), **`@cleocode/core` standalone package** (all business logic independently installable, 3 consumer patterns: Facade/tree-shaking/custom store -- Epic T5701)
 
-**In Progress**: PageIndex graph tables (T5160), NEXUS MCP wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
+**In Progress**: PageIndex graph tables (T5160), NEXUS CLI wiring (nexus-wirer), knowledge graph relationships (updates/extends/derives)
 
 **Planned**: Reasoning engine (T5162-T5163), active memory circulation (Living BRAIN), full knowledge graph with temporal reasoning
 
@@ -468,7 +468,7 @@ NEXUS leverages graph structures built into each project's `tasks.db` and `brain
 
 ## Anti-Hallucination Protocol
 
-Every MCP mutate operation undergoes **four-layer validation** (CLI operations rely on domain-specific validation within core modules):
+Every operation undergoes **four-layer validation** (CLI operations rely on domain-specific validation within core modules):
 
 ### Layer 1: Schema -- JSON Schema Enforcement
 
@@ -535,17 +535,16 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 ## Shared-Core Architecture
 
-CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
+CLEO uses a shared-core architecture where CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), registry-defined operations across 10 canonical domains (see `packages/cleo/src/dispatch/registry.ts`) -- the agent interface
-- **CLI (Backup)**: 100+ commands via citty -- the human interface
-- **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. Both MCP and CLI delegate here. Consumers can install it independently.
+- **CLI**: 100+ commands via citty -- registry-defined operations across 10 canonical domains (see `packages/cleo/src/dispatch/registry.ts`)
+- **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. CLI delegates here. Consumers can install it independently.
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
 
 ### Package Boundary
 
 ```
-@cleocode/cleo (assembled CLI + MCP product)
+@cleocode/cleo (assembled CLI product)
   |-- @cleocode/core (standalone business logic kernel)
         |-- @cleocode/contracts (types + interfaces, zero runtime deps)
         |-- Domains: tasks, sessions, memory, orchestration,

@@ -4,7 +4,7 @@
 
 > Status: DRAFT — requires owner sign-off
 > Author: versionguard-opencode-13e7defc + owner collaboration
-> Date: 2026-03-24
+> Date: 2026-03-24 (updated 2026-04-10)
 > Scope: All packages, crates, repos, data flows, and integration points
 
 ---
@@ -15,49 +15,72 @@ The CLEO ecosystem spans three repositories. Each has a distinct purpose, visibi
 
 | Repository | Visibility | Language | Purpose |
 |---|---|---|---|
-| `cleocode/` | Public | TypeScript + Rust | Protocol kernel, libraries, CLI, canonical types |
-| `signaldock-core/` | Private | Rust | Agent messaging backend (hosted service) |
+| `cleocode/` | Public | TypeScript + Rust | Protocol kernel, libraries, CLI, canonical types, SignalDock crates |
 | `llmtxt/` | Public | TypeScript + Rust | Content infrastructure (`@codluv/llmtxt`) |
 
-**Principle**: `cleocode/` defines protocols and types. `signaldock-core/` and `llmtxt/` implement and consume them. The SSoT for all shared contracts lives in `cleocode/`.
+> **Note**: The SignalDock crates (formerly in a separate private `signaldock-core/` repo) have been consolidated into the `cleocode/` monorepo under `crates/signaldock-*`. The SSoT for all shared contracts and SignalDock domain logic lives in `cleocode/`.
 
 ---
 
 ## 2. CleoCode Monorepo — Complete Package Map
 
-### 2.1 TypeScript Packages (existing)
+### 2.1 TypeScript Packages (11 packages)
 
 ```
 cleocode/packages/
   contracts/     @cleocode/contracts     Zero-dep type SSoT (leaf package)
-  lafs/          @cleocode/lafs          LAFS response envelope implementation
+  lafs/          @cleocode/lafs          LAFS response envelope implementation + native validation via lafs-napi
   caamp/         @cleocode/caamp         Hook normalization (16 canonical events)
+  cant/          @cleocode/cant          CANT protocol — wraps cant-core via napi-rs + directive interpretation
   core/          @cleocode/core          Business logic kernel (see registry.ts)
-  cleo/          @cleocode/cleo          CLI + MCP product wrapper
-  adapters/      @cleocode/adapters      Provider adapters
+  cleo/          @cleocode/cleo          CLI product wrapper
+  cleo-os/       @cleocode/cleo-os       CleoOS — batteries-included Pi wrapper with CANT bridge + extensions
+  adapters/      @cleocode/adapters      Provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
   agents/        @cleocode/agents        Agent lifecycle management
   skills/        @cleocode/skills        Skill registry and dispatch
+  runtime/       @cleocode/runtime       Agent polling, SSE connections, heartbeat, key rotation
 ```
 
-### 2.2 TypeScript Package (new)
+### 2.2 Rust Crates (`cleocode/crates/` — 16 crates)
 
-```
-cleocode/packages/
-  cant/          @cleocode/cant          CANT protocol — wraps cant-core WASM
-                                         + directive-to-operation interpretation
-```
-
-### 2.3 Rust Crates (NEW — `cleocode/crates/`)
+#### Core Protocol Crates (rlib — pure Rust libraries)
 
 ```
 cleocode/crates/
-  lafs-core/       lafs-core               LAFS envelope types + validation (Rust SSoT)
-  conduit-core/    conduit-core            Conduit wire types (Rust SSoT)
-  cant-core/       cant-core               CANT grammar parser (complex, shared SSoT)
-  signaldock-core/ signaldock-core         Shared domain types for SignalDock integration
+  lafs-core/             lafs-core               LAFS envelope types + validation (Rust SSoT)
+  conduit-core/          conduit-core            Conduit wire types (Rust SSoT, depends on lafs-core)
+  cant-core/             cant-core               CANT grammar parser (nom-based, depends on conduit-core)
+  cant-router/           cant-router             CleoOS v2 model router — 3-layer classifier + router + pipeline
+  cant-runtime/          cant-runtime            CANT DSL pipeline executor (async, depends on cant-core + tokio)
 ```
 
-These four crates are the **Rust SSoT** for the core protocols and SignalDock integration. They are compiled to WASM for TS consumption and imported natively by SignalDock.
+#### napi-rs Binding Crates (cdylib → .node native addons)
+
+```
+  cant-napi/             cant-napi               napi-rs bindings for cant-core (produces .node binary)
+  lafs-napi/             lafs-napi               napi-rs bindings for lafs-core schema validation (produces .node binary)
+```
+
+#### Tooling Crates
+
+```
+  cant-lsp/              cant-lsp                Language Server Protocol implementation for CANT DSL
+  integration-tests/     integration-tests       Cross-crate integration test suite
+```
+
+#### SignalDock Domain Crates (consolidated from former private repo)
+
+```
+  signaldock-core/       signaldock-core         Shared domain types (agent, conversation, privacy — optional WASM feature for browser)
+  signaldock-protocol/   signaldock-protocol     Thin re-export layer: lafs-core + conduit-core + cant-core + server error types
+  signaldock-storage/    signaldock-storage       SQLite/PostgreSQL adapters via Diesel (default: sqlite)
+  signaldock-transport/  signaldock-transport     Delivery adapters: SSE, Webhook, WebSocket, HTTP/2 (optional: redis-pubsub)
+  signaldock-sdk/        signaldock-sdk           Service orchestration layer (AgentService, MessageService, etc.)
+  signaldock-runtime/    signaldock-runtime       Standalone CLI agent connector binary
+  signaldock-payments/   signaldock-payments      x402 payment protocol for agent services
+```
+
+The core protocol crates (`lafs-core`, `conduit-core`, `cant-core`) are pure Rust libraries compiled as `rlib`. TypeScript consumption uses **napi-rs native bindings** (not WASM) via the `cant-napi` and `lafs-napi` bridge crates, which produce `.node` binaries for each target platform. `signaldock-core` retains an optional `wasm` feature for browser integration but it is disabled by default.
 
 ### 2.4 Dependency Graph
 
@@ -76,7 +99,7 @@ These four crates are the **Rust SSoT** for the core protocols and SignalDock in
      - contracts      depends on:        - lafs
      - ajv             - contracts
      - a2a-js          - lafs
-                       - cant-core WASM
+                       - cant-core (via cant-napi)
               │           │               │
               └─────┬─────┘               │
                     ▼                     │
@@ -90,7 +113,7 @@ These four crates are the **Rust SSoT** for the core protocols and SignalDock in
                     │
                     ▼
               @cleocode/cleo
-              (CLI + MCP product)
+              (CLI product)
               depends on:
                - core
                - lafs (output formatting)
@@ -110,81 +133,88 @@ These four crates are the **Rust SSoT** for the core protocols and SignalDock in
   conduit-core (depends on lafs-core — messages carry LAFS envelopes)
       │
   cant-core (depends on conduit-core — parses ConduitMessage content)
+      │                                  build.rs generates events from hook-mappings.json
+      ├─── cant-runtime (async pipeline executor — depends on cant-core + tokio)
+      ├─── cant-napi (napi-rs binding — depends on cant-core + cant-runtime)
+      └─── cant-lsp (LSP server binary — depends on cant-core + tower-lsp)
+
+  lafs-napi (napi-rs binding — depends on lafs-core)
+
+  signaldock-core (depends on conduit-core — optional wasm feature for browser)
+      │
+  signaldock-protocol (re-exports lafs-core + conduit-core + cant-core + signaldock-core)
+      │
+      ├─── signaldock-storage (Diesel SQLite/PostgreSQL — depends on signaldock-protocol)
+      ├─── signaldock-transport (SSE/Webhook/WS/H2 — depends on signaldock-protocol)
+      │
+      └─── signaldock-sdk (service layer — depends on protocol + storage + transport + cant-core)
+
+  signaldock-runtime (standalone CLI binary — depends on clap, reqwest, tokio)
+  signaldock-payments (x402 payment — depends on axum, reqwest)
 ```
 
-### 2.6 Rust → WASM → TS Pipeline
+### 2.6 Rust → napi-rs → TS Pipeline
 
-Same proven pattern as `llmtxt-core`:
+Rust libraries are exposed to TypeScript via **napi-rs** native addons (not WASM). This produces platform-specific `.node` binaries:
 
 ```
-crates/lafs-core/     → wasm-pack build → packages/lafs/src/wasm/
-crates/conduit-core/  → wasm-pack build → packages/contracts/src/wasm/ (or standalone)
-crates/cant-core/     → wasm-pack build → packages/cant/src/wasm/
+crates/cant-core/  → rlib (linked by cant-napi)
+crates/cant-napi/  → cargo build --release → .node binary → packages/cant/napi/
+                     Loaded by packages/cant/src/native-loader.ts via require()
+
+crates/lafs-core/  → rlib (linked by lafs-napi)
+crates/lafs-napi/  → cargo build --release → .node binary → packages/lafs/ (native-loader.ts)
+                     Fallback: AJV schema validation when native unavailable
 ```
+
+**Build requirements**: Rust 1.88+, `cargo`, `@napi-rs/cli` (`pnpm dlx @napi-rs/cli`)
+
+**Platform prebuilds**: linux-x64-gnu (2.0 MB cant-napi, 7.0 MB lafs-napi). Published in npm tarball — consumers need no Rust toolchain.
+
+> **Historical note**: The prior architecture used `wasm-pack` + `wasm-bindgen` to produce `.wasm` binaries. This was replaced by napi-rs in the CANT DSL Implementation (Phase 1). `initCantParser()` and `initWasm()` are retained as no-ops for backward compatibility.
 
 ---
 
-## 3. SignalDock — Current vs Target
+## 3. SignalDock — Consolidated Architecture
 
-### 3.1 Current Structure
+> **Update (2026-04-10)**: All SignalDock crates have been consolidated from the former private `signaldock-core/` repository into the `cleocode/` monorepo under `crates/signaldock-*`. There is no longer a separate repository.
+
+### 3.1 Current Structure (in cleocode/ monorepo)
 
 ```
-signaldock-core/
-  crates/
-    signaldock-protocol/    Domain types, envelope, error, conduit, message
-    signaldock-storage/     SQLite adapters, migrations, trait definitions
-    signaldock-transport/   SSE, webhook, WebSocket, HTTP/2 delivery
-    signaldock-sdk/         Service layer (AgentService, MessageService, etc.)
-    signaldock-payments/    Payment facilitation (Stripe, Square)
-  apps/
-    signaldock-api/         Axum REST API (the deployed service)
-    signaldock-worker/      Background job processor
-  bindings/
-    node/                   Future napi-rs binding (commented out)
-    python/                 Future PyO3 binding (commented out)
+cleocode/crates/
+  signaldock-core/          Shared domain types (agent, conversation, privacy tiers)
+  signaldock-protocol/      Re-export layer: lafs-core + conduit-core + cant-core + server errors
+  signaldock-storage/       Diesel adapters (SQLite default, PostgreSQL optional), migrations
+  signaldock-transport/     SSE, Webhook, WebSocket, HTTP/2 delivery (optional: redis-pubsub)
+  signaldock-sdk/           Service layer (AgentService, MessageService, delivery orchestration)
+  signaldock-runtime/       Standalone CLI agent connector binary
+  signaldock-payments/      x402 payment protocol (Stripe, Square)
 ```
 
 ### 3.2 Current Dependencies
 
 ```
-signaldock-api depends on:
-  ├── signaldock-protocol   (all domain types)
-  ├── signaldock-storage    (SQLite persistence)
+signaldock-sdk depends on:
+  ├── signaldock-protocol   (re-exports lafs-core, conduit-core, cant-core, signaldock-core)
+  ├── signaldock-storage    (Diesel persistence)
   ├── signaldock-transport  (delivery adapters)
-  ├── signaldock-sdk        (service orchestration)
-  ├── signaldock-payments   (payment facilitation)
-  └── llmtxt-core           (content compression, via git dep)
+  └── cant-core             (direct dep for message content parsing)
 ```
 
-### 3.3 Target Dependencies (after migration)
+The protocol consolidation described in the original plan is **complete**: `signaldock-protocol` re-exports the canonical crate types. The separate `envelope.rs` and `conduit.rs` files have been replaced by imports from `lafs-core` and `conduit-core`.
 
-```
-signaldock-api depends on:
-  ├── lafs-core             NEW (git dep from cleocode/) — replaces envelope.rs
-  ├── conduit-core          NEW (git dep from cleocode/) — replaces conduit.rs
-  ├── cant-core             NEW (git dep from cleocode/) — replaces extract_from_content()
-  ├── signaldock-protocol   (domain types ONLY — agent, message, conversation, claim, etc.)
-  ├── signaldock-storage    (unchanged)
-  ├── signaldock-transport  (unchanged)
-  ├── signaldock-sdk        (unchanged)
-  ├── signaldock-payments   (unchanged)
-  └── llmtxt-core           (unchanged, git dep from llmtxt/)
-```
+### 3.3 Protocol Consolidation (COMPLETED)
 
-### 3.4 What Gets Removed from signaldock-protocol
+`signaldock-protocol` is now a thin re-export layer. The canonical protocol types are sourced from core crates:
 
-| File | Status | Replacement |
+| Source | Re-exported from | Status |
 |---|---|---|
-| `envelope.rs` | **DELETE** | `lafs-core` crate (canonical LAFS envelope types) |
-| `conduit.rs` | **DELETE** | `conduit-core` crate (canonical Conduit wire types) |
-| `message.rs` `MessageMetadata::extract_from_content()` | **DELETE** | `cant-core` crate (canonical CANT parser) |
-| `error.rs` | **KEEP + ALIGN** | Error codes stay in signaldock-protocol, but `ErrorCategory` enum aligns to LAFS categories |
-| `agent.rs` | **KEEP** | SignalDock-specific (agent registration, stats, classes) |
-| `claim.rs` | **KEEP** | SignalDock-specific (claim codes) |
-| `connection.rs` | **KEEP** | SignalDock-specific |
-| `conversation.rs` | **KEEP** | SignalDock-specific |
-| `message.rs` (struct) | **KEEP** | SignalDock internal Message type (UUID-based, not Conduit) |
-| `user.rs` | **KEEP** | SignalDock-specific (human user accounts) |
+| LAFS envelope types | `lafs-core` | DONE — `pub use lafs_core::*` |
+| Conduit wire types | `conduit-core` | DONE — `pub use conduit_core::*` |
+| CANT parsing | `cant-core` | DONE — replaces `extract_from_content()` |
+| Server error types | `signaldock-protocol` (local) | KEPT — SignalDock-specific `ErrorCategory` aligned to LAFS |
+| Agent/conversation/claim types | `signaldock-core` | KEPT — SignalDock-specific domain types |
 
 ### 3.5 Wire Format Migration (14 Divergences → 0)
 
@@ -284,10 +314,14 @@ llmtxt/
 | CANT Component | Location | Language | Purpose |
 |---|---|---|---|
 | Spec document | `cleocode/docs/concepts/CLEO-CANT.md` | Markdown | Canonical grammar reference |
-| Parser crate | `cleocode/crates/cant-core/` | Rust | Complex grammar parsing (SSoT) |
-| TS wrapper | `cleocode/packages/cant/` | TypeScript | WASM wrapper + CLEO interpretation layer |
+| Parser crate | `cleocode/crates/cant-core/` | Rust | Complex grammar parsing (nom-based SSoT) |
+| Runtime crate | `cleocode/crates/cant-runtime/` | Rust | Async pipeline executor |
+| napi-rs bridge | `cleocode/crates/cant-napi/` | Rust | Native bindings → .node binary |
+| TS wrapper | `cleocode/packages/cant/` | TypeScript | napi-rs loader + CLEO interpretation layer |
+| LSP server | `cleocode/crates/cant-lsp/` | Rust | Language Server Protocol for IDE integration |
+| Router | `cleocode/crates/cant-router/` | Rust | CleoOS v2 model router (3-layer classifier) |
 | Interpretation | `cleocode/packages/core/src/nexus/workspace.ts` | TypeScript | Directive → operation routing via NEXUS |
-| Server extraction | `signaldock-core/` (imports `cant-core`) | Rust | Server-side CANT parsing on message POST |
+| Server extraction | `cleocode/crates/signaldock-sdk/` (imports `cant-core`) | Rust | Server-side CANT parsing on message POST |
 | Result types | `cleocode/packages/contracts/` | TypeScript | `ParsedDirective`, `CANTHeader`, etc. |
 
 ### 5.2 Data Flow
@@ -321,7 +355,7 @@ Agent sends message:
   ├─ Parse LAFS envelope (via @cleocode/lafs)
   │
   ├─ Read metadata.cant (already parsed by server)
-  │   OR parse locally via @cleocode/cant (WASM)
+  │   OR parse locally via @cleocode/cant (napi-rs native addon)
   │
   └─ Route to @cleocode/core
        │
@@ -342,25 +376,25 @@ Agent sends message:
   └─ Return LAFS envelope with operation result
 ```
 
-### 5.3 CANT Extraction — Current vs Target
+### 5.3 CANT Extraction (IMPLEMENTED)
 
-**Current** (`signaldock-protocol/message.rs:41`):
-```rust
-// Hand-rolled, whitelist is incomplete, no structured output type
-const DIRECTIVE_WHITELIST: &[&str] = &["action", "info", "review", "decision", "blocked"];
-// Missing: claim, done, complete, ack, proposal, response, status, checkin
-pub fn extract_from_content(content: &str) -> MessageMetadata { ... }
-```
+`cant-core` is the canonical parser. `signaldock-sdk` imports it directly for server-side parsing:
 
-**Target** (`cleocode/crates/cant-core/`):
 ```rust
-// Complete canonical grammar, structured output, all 12 directives
+// cleocode/crates/cant-core/ — canonical grammar parser (nom-based)
 pub fn parse(content: &str) -> ParsedCANTMessage { ... }
-// Directive taxonomy from CLEO-CANT.md spec
-// Complex grammar support for future extensions
+// Complete directive taxonomy from CLEO-CANT.md spec
+// All 12+ canonical directives supported
 ```
 
-**GOTCHA**: SignalDock's current `DIRECTIVE_WHITELIST` only has 5 of the 12 canonical directives. `/claim`, `/done`, `/complete`, `/ack`, `/proposal`, `/response`, `/status`, `/checkin` are not extracted. Any agent using these directives today has them silently dropped from metadata. This is a data loss bug that `cant-core` fixes.
+TypeScript consumption via napi-rs:
+```typescript
+// packages/cant/src/native-loader.ts — loads cant-napi .node binary
+import { cantParse } from './native-loader.js';
+const result = cantParse(content); // Calls Rust cant-core via napi-rs
+```
+
+The former `DIRECTIVE_WHITELIST` (5 directives) and `extract_from_content()` in signaldock-protocol have been replaced by `cant-core::parse()` which supports the full directive taxonomy.
 
 ---
 
@@ -549,7 +583,7 @@ ConduitClient (polling via onMessage() handler)
   │    └─ dispatch: tasks.complete({ taskId: "T1234" })
   │
   ├─ CLEO Core executes operation:
-  │    ├─ 4-layer validation (LAFS MCP middleware)
+  │    ├─ 4-layer validation (LAFS middleware)
   │    ├─ State machine: task status → completed
   │    ├─ Audit log entry (within same transaction)
   │    └─ Hook: onTaskComplete fires
@@ -601,11 +635,11 @@ Agent wants to share a document:
 
 ### 9.3 RESOLVED by cant-core
 
-| Duplication | Current | After |
+| Duplication | Before | After (DONE) |
 |---|---|---|
 | CANT extraction (Rust) | `signaldock-protocol/message.rs:extract_from_content()` | `cant-core::parse()` |
-| CANT extraction (TS) | `core/nexus/workspace.ts:parseDirective()` | `@cleocode/cant` (WASM wrapper) |
-| Directive whitelist | 5 directives in Rust, 6 verbs in TS (different sets!) | 12 canonical directives in cant-core |
+| CANT extraction (TS) | `core/nexus/workspace.ts:parseDirective()` | `@cleocode/cant` (napi-rs wrapper via cant-napi) |
+| Directive whitelist | 5 directives in Rust, 6 verbs in TS (different sets!) | Full canonical directives in cant-core |
 | Task ref pattern | `T` + 3-6 digits (Rust) vs `/T(\d+)/g` regex (TS) | One grammar in cant-core |
 
 ### 9.4 RESOLVED by contracts as type SSoT
@@ -630,22 +664,23 @@ SignalDock's LAFS alignment changes the wire format for every API consumer. This
 - Any direct API consumers (curl scripts, test suites)
 - E2E tests
 
-### 10.2 Rust in a TS Monorepo
+### 10.2 Rust in a TS Monorepo (IMPLEMENTED)
 
-Adding `crates/` to `cleocode/` means the monorepo now has both `pnpm` (TS) and `cargo` (Rust) build systems. Need:
-- `Cargo.toml` at monorepo root (workspace config)
-- `rust-toolchain.toml` for version pinning
-- CI pipeline additions: `cargo test`, `cargo clippy`, `wasm-pack build`
-- `.gitignore` for `target/`
+The monorepo has both `pnpm` (TS) and `cargo` (Rust) build systems:
+- `Cargo.toml` at monorepo root — workspace with 16 member crates
+- `rust-toolchain.toml` — Rust 1.88.0, clippy, rustfmt
+- Cargo workspace version: 2026.4.13
+- `.gitignore` excludes `target/`
 
-The `llmtxt/` repo already demonstrates this dual-language monorepo pattern. Clone its build infrastructure.
+### 10.3 napi-rs Build Pipeline
 
-### 10.3 WASM Build Complexity
+Two crates produce `.node` native addons via napi-rs:
+- `cant-napi` → `cant-napi.linux-x64-gnu.node` (2.0 MB)
+- `lafs-napi` → `lafs-napi.linux-x64-gnu.node` (7.0 MB)
 
-Three crates → three WASM builds → three TS packages wrapping them. The WASM build pipeline must be reliable. Follow `llmtxt-core`'s proven approach:
-- `wasm-pack build --target web`
-- WASM binary checked into the TS package (not built on npm install)
-- Fallback: pure-TS implementation for environments where WASM doesn't load
+Both use `napi-build` for compilation and `@napi-rs/cli` for platform targeting. Prebuilds are included in the npm tarball. TypeScript packages provide graceful fallback when native addons are unavailable (JS parser for cant, AJV for lafs).
+
+> **Historical note**: The prior WASM approach (`wasm-pack build --target web`) has been fully replaced. The vestigial `build-wasm.sh` script is obsolete and should be removed.
 
 ### 10.4 contracts Zero-Dep Constraint
 
@@ -694,12 +729,12 @@ Currently `MessageMetadata` has flat fields (`mentions`, `directives`, `tags`, `
 | SignalDock: replace `extract_from_content` with `cant-core` dep | signaldock-core-agent | Parser swap |
 | SignalDock: align `ErrorCategory` to LAFS categories | signaldock-core-agent | Enum alignment |
 
-### Phase 2: WASM + TS Packages (parallel with Phase 1)
+### Phase 2: napi-rs + TS Packages (parallel with Phase 1)
 
 | Task | Owner | Scope |
 |---|---|---|
-| WASM build pipeline for three crates | cleo-core / forge-ts | Build infra |
-| Create `@cleocode/cant` package (WASM wrapper + interpretation) | cleo-core | New package |
+| napi-rs build pipeline for cant-napi + lafs-napi | cleo-core / forge-ts | Build infra |
+| Create `@cleocode/cant` package (napi-rs wrapper + interpretation) | cleo-core | New package |
 | Move `ParsedDirective` to `@cleocode/contracts` | cleo-core | Type move |
 | Expand `core/nexus/workspace.ts` to use `@cleocode/cant` | cleo-core | Integration |
 
@@ -717,76 +752,67 @@ Currently `MessageMetadata` has flat fields (`mentions`, `directives`, `tags`, `
 |---|---|---|
 | E2E: CANT directive → SignalDock → Conduit → NEXUS → task mutation | versionguard-opencode | Phase E test suite |
 | LAFS conformance: run `@cleocode/lafs` validators against SignalDock responses | versionguard-opencode | Conformance testing |
-| Benchmark: re-run CLI vs MCP with LAFS-aligned SignalDock | forge-ts-opus | Performance validation |
+| Benchmark: re-run CLI with LAFS-aligned SignalDock | forge-ts-opus | Performance validation |
 
 ---
 
 ## 12. Final Ecosystem Map
 
 ```
-┌─────────────────────────── cleocode/ (PUBLIC) ───────────────────────────┐
-│                                                                          │
-│  crates/ (Rust SSoT)              packages/ (TypeScript)                 │
-│  ┌────────────┐                   ┌──────────────────┐                   │
-│  │ lafs-core  │─── WASM ────────→ │ @cleocode/lafs   │                   │
-│  │            │                   │ (+ ajv, A2A)     │                   │
-│  └────────────┘                   └────────┬─────────┘                   │
-│  ┌────────────┐                            │                             │
-│  │ conduit-   │─── WASM/gen ───→ ┌────────▼─────────┐                   │
-│  │ core       │                  │ @cleocode/        │                   │
-│  └────────────┘                  │ contracts         │                   │
-│  ┌────────────┐                  │ (zero-dep types)  │                   │
-│  │ cant-core  │─── WASM ──────→  └────────┬─────────┘                   │
-│  │            │                           │                              │
-│  └────────────┘              ┌────────────┼────────────┐                 │
-│                              ▼            ▼            ▼                 │
-│                    ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│                    │ @cleocode│  │ @cleocode│  │ @cleocode│             │
-│                    │ /cant    │  │ /core    │  │ /caamp   │             │
-│                    │(interp.) │  │(kernel)  │  │(hooks)   │             │
-│                    └────┬─────┘  └────┬─────┘  └──────────┘             │
-│                         └──────┬──────┘                                  │
-│                                ▼                                         │
-│                    ┌───────────────────┐                                  │
-│                    │ @cleocode/cleo    │                                  │
-│                    │ (CLI + MCP)       │                                  │
-│                    └───────────────────┘                                  │
-│                                                                          │
-│  docs/concepts/CLEO-CANT.md ← canonical grammar spec                    │
-│  docs/specs/CLEOCODE-ECOSYSTEM-PLAN.md ← this document                  │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
-          │                               │
-          │ git dep (lafs-core,           │ optional peer dep
-          │ conduit-core, cant-core)      │ (@cleocode/lafs)
-          ▼                               ▼
-┌──────────────────────┐      ┌────────────────────────┐
-│ signaldock-core/     │      │ llmtxt/                │
-│ (PRIVATE)            │      │ (PUBLIC, @codluv)      │
-│                      │      │                        │
-│ crates/              │      │ crates/                │
-│  signaldock-protocol │      │  llmtxt-core (Rust)    │
-│  signaldock-storage  │      │ packages/              │
-│  signaldock-transport│      │  core (@codluv/llmtxt) │
-│  signaldock-sdk      │      │ apps/                  │
-│  signaldock-payments │      │  web (llmtxt.my)       │
-│ apps/                │      │                        │
-│  signaldock-api      │      │                        │
-│  signaldock-worker   │      │                        │
-│ bindings/            │      │                        │
-│  node/ (future)      │      │                        │
-│  python/ (future)    │      │                        │
-└──────────────────────┘      └────────────────────────┘
-          │                               │
-          └───────── both consume ────────┘
-                         │
-                    ┌────▼─────┐
-                    │ CleoOS/  │
-                    │(Electron)│
-                    │ imports: │
-                    │ @cleocode│
-                    │ @codluv  │
-                    └──────────┘
+┌─────────────────────────── cleocode/ (PUBLIC) ────────────────────────────┐
+│                                                                           │
+│  crates/ (Rust — 16 crates)          packages/ (TypeScript — 11 packages)│
+│                                                                           │
+│  CORE PROTOCOL (rlib)                 ┌──────────────────┐                │
+│  ┌────────────┐                       │ @cleocode/       │                │
+│  │ lafs-core  │                       │ contracts        │                │
+│  └─────┬──────┘                       │ (zero-dep types) │                │
+│  ┌─────▼──────┐                       └────────┬─────────┘                │
+│  │ conduit-   │                                │                          │
+│  │ core       │                   ┌────────────┼──────────────┐           │
+│  └─────┬──────┘                   ▼            ▼              ▼           │
+│  ┌─────▼──────┐         ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ cant-core  │         │ @cleocode│  │ @cleocode│  │ @cleocode│        │
+│  │ (nom parser)│        │ /cant    │  │ /core    │  │ /caamp   │        │
+│  └─────┬──────┘         │(interp.) │  │(kernel)  │  │(hooks)   │        │
+│        │                └────┬─────┘  └────┬─────┘  └──────────┘        │
+│  NAPI BINDINGS (cdylib)      │             │                             │
+│  ┌────────────┐  napi-rs     │             │                             │
+│  │ cant-napi  │──(.node)────→┘             │                             │
+│  └────────────┘                            │                             │
+│  ┌────────────┐  napi-rs   ┌──────────┐   │                             │
+│  │ lafs-napi  │──(.node)──→│ @cleocode│   │                             │
+│  └────────────┘            │ /lafs    │   │                             │
+│                            │(+ajv,A2A)│   │                             │
+│  CANT TOOLING              └──────────┘   │                             │
+│  ┌────────────┐                           │                             │
+│  │ cant-lsp   │  (LSP binary)             │                             │
+│  │ cant-runtime│ (pipeline exec)          │                             │
+│  │ cant-router│  (model router)           ▼                             │
+│  └────────────┘            ┌───────────────────┐                         │
+│                            │ @cleocode/cleo    │                         │
+│  SIGNALDOCK DOMAIN         │ (CLI product)     │                         │
+│  ┌────────────────┐        └────────┬──────────┘                         │
+│  │ signaldock-core│                 │                                    │
+│  │ -protocol      │        ┌────────▼──────────┐                         │
+│  │ -storage       │        │ @cleocode/cleo-os │                         │
+│  │ -transport     │        │ (Pi wrapper)       │                         │
+│  │ -sdk           │        └───────────────────┘                         │
+│  │ -runtime (CLI) │                                                      │
+│  │ -payments      │        Also: @cleocode/adapters, /agents,            │
+│  └────────────────┘               /skills, /runtime                      │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      │ optional peer dep (@cleocode/lafs)
+                                      ▼
+                            ┌────────────────────────┐
+                            │ llmtxt/                │
+                            │ (PUBLIC, @codluv)      │
+                            │ crates/llmtxt-core     │
+                            │ packages/@codluv/llmtxt│
+                            │ apps/web (llmtxt.my)   │
+                            └────────────────────────┘
 ```
 
 ---

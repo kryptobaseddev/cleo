@@ -124,7 +124,7 @@ interface BrainConfig {
 }
 ```
 
-**Vestigial field**: `packages/contracts/src/config.ts:203` currently still declares `captureMcp: boolean` (default `false`) from the pre-CLI-only era. It has no active capture path and is tracked for removal with the rest of the MCP code residue. The conceptual config surface above is the canonical shape going forward.
+**Note**: The vestigial `captureMcp` field has been removed from `packages/contracts/src/config.ts`. The conceptual config surface above is the canonical shape.
 
 **Defaults**: All features default to `false`/disabled except `autoCapture: true` and `memoryBridge.autoRefresh: true`. Existing behavior is preserved without config changes.
 
@@ -173,7 +173,7 @@ CAAMP 1.9.1 introduces a 16-event canonical hook taxonomy. The BRAIN automation 
 │   ├── audit_log          # Immutable audit trail (per ADR-019)
 │   └── task_*             # Dependencies, relations, work history
 ├── brain.db               # SQLite database (cognitive memory — per ADR-009)
-├── signaldock.db          # SQLite database (local agent messaging — T223)
+├── conduit.db             # SQLite database (project-tier agent messaging — ADR-037)
 ├── config.json            # Human-editable configuration (JSON — ADR-006 exception)
 
 .cleo/agent-outputs/

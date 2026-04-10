@@ -18,18 +18,18 @@ All operations are defined as `OperationDef` entries in the `OPERATIONS` array. 
 
 ## 2. Runtime Scope
 
-CLEO exposes exactly **2 MCP tools** following the CQRS (Command Query Responsibility Segregation) pattern:
+CLEO exposes exactly **2 dispatch gateways** following the CQRS (Command Query Responsibility Segregation) pattern:
 
-| Tool | Gateway | Purpose |
-|------|---------|---------|
-| `query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
-| `mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
+| Gateway | Purpose |
+|---------|---------|
+| `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
+| `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
 
-All operations are addressed as `{domain}.{operation}` within their gateway:
+All operations are addressed as `{domain}.{operation}` within their gateway. CLI commands route through the dispatch layer:
 
 ```
-query  { domain: "tasks", operation: "show", params: { id: "T123" } }
-mutate { domain: "memory", operation: "observe", params: { text: "..." } }
+cleo show T123              →  dispatch("query", "tasks", "show", { id: "T123" })
+cleo observe "discovered…"  →  dispatch("mutate", "memory", "observe", { text: "..." })
 ```
 
 ---
@@ -40,11 +40,11 @@ mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 
 CLEO separates two distinct concerns:
 
-- **`@cleocode/core`** (`packages/core/src/`) — business logic with a direct, typed function API. No string addressing. Usable standalone without any MCP or CLI layer.
-- **`packages/cleo/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates MCP/CLI requests into typed core function calls. NOT part of `@cleocode/core`.
+- **`@cleocode/core`** (`packages/core/src/`) — business logic with a direct, typed function API. No string addressing. Usable standalone without the CLI layer.
+- **`packages/cleo/src/dispatch/`** — string-addressed routing layer inside `@cleocode/cleo`. Translates CLI requests into typed core function calls. NOT part of `@cleocode/core`.
 
 ```
-MCP request: { domain: "tasks", operation: "add", params: {...} }
+CLI: cleo add "My task" --description "Details"
   → packages/cleo/src/dispatch/engines/task-engine.ts  (routing)
     → @cleocode/core tasks.add()         (business logic)
       → SQLite store                     (persistence)
@@ -57,18 +57,17 @@ MCP request: { domain: "tasks", operation: "add", params: {...} }
 const cleo = await Cleo.init('./project');
 await cleo.tasks.add({ title: 'foo', description: 'bar' });
 
-// Dispatch API — string-addressed (used internally by MCP and CLI gateways):
+// Dispatch API — string-addressed (used internally by the CLI gateway):
 dispatch('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
 ```
 
 ### Package Boundary
 
-`packages/cleo/src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer for string-based protocols (MCP, CLI). It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
+`packages/cleo/src/dispatch/` remains inside `@cleocode/cleo` because it is the adapter layer for CLI string-based routing. It is not published as part of `@cleocode/core`. Consumers who import `@cleocode/core` directly call typed functions; they do not go through dispatch.
 
 ```
-@cleocode/cleo (CLI + MCP product)
+@cleocode/cleo (CLI product)
   ├── packages/cleo/src/cli/       → citty commands → dispatch → core API
-  ├── packages/cleo/src/mcp/      → MCP protocol → dispatch → core API
   ├── packages/cleo/src/dispatch/ → string-addressed routing → core API  [stays in @cleocode/cleo]
   └── @cleocode/core → typed function API  [standalone kernel]
 ```
@@ -171,7 +170,7 @@ interface OperationDef {
 
 **Field semantics:**
 
-- **gateway**: Determines which MCP tool handles the operation. Query operations MUST NOT modify state.
+- **gateway**: Determines which dispatch gateway handles the operation. Query operations MUST NOT modify state.
 - **tier**: Controls progressive disclosure. Agents start at tier 0 and escalate. See Section 8.
 - **idempotent**: When `true`, the operation is safe to retry on failure without side effects.
 - **requiredParams**: The dispatcher validates these are present before routing to the domain handler. Missing params return `E_INVALID_INPUT`.
@@ -496,7 +495,7 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 | mutate | `job.cancel` | Cancel background job | 1 | -- | No |
 | mutate | `safestop` | Graceful shutdown with state preservation | 1 | -- | No |
 | mutate | `inject.generate` | Generate injection content | 1 | -- | No |
-| mutate | `install.global` | Refresh global CLEO setup (providers, MCP configs) | 2 | -- | Yes |
+| mutate | `install.global` | Refresh global CLEO setup (providers, CLI configs) | 2 | -- | Yes |
 | mutate | `adr.sync` | Sync ADR markdown files; `validate:true` also validates frontmatter | 2 | -- | Yes |
 | mutate | `import` | Import tasks; `scope:"snapshot"\|"package"` | 2 | `file` | No |
 | mutate | `token` | Token telemetry write; `action:"record"\|"delete"\|"clear"` | 2 | -- | No |
@@ -635,18 +634,18 @@ All other domains have 0 ops at tier 0. The gap between 24 and the ≤90 soft ta
 
 **Mandatory tier 0 ops (non-negotiable — appear in the mandatory efficiency sequence):**
 
-| Operation | Why mandatory |
-|-----------|---------------|
-| `query session status` | Step 1 of mandatory efficiency sequence |
-| `query admin dash` | Step 2 of mandatory efficiency sequence |
-| `query tasks current` | Step 3 of mandatory efficiency sequence |
-| `query tasks next` | Step 4 of mandatory efficiency sequence |
-| `query tasks show` | Step 5 of mandatory efficiency sequence |
-| `mutate session start` | Agent work loop begin |
-| `mutate tasks complete` | Agent work loop end |
-| `query memory find` | Memory protocol read (3-layer step 1) |
-| `mutate memory observe` | Memory protocol write |
-| `query admin help` | Escalation path entry point |
+| CLI Command | Operation | Why mandatory |
+|-------------|-----------|---------------|
+| `cleo session status` | `session.status` | Step 1 of mandatory efficiency sequence |
+| `cleo dash` | `admin.dash` | Step 2 of mandatory efficiency sequence |
+| `cleo current` | `tasks.current` | Step 3 of mandatory efficiency sequence |
+| `cleo next` | `tasks.next` | Step 4 of mandatory efficiency sequence |
+| `cleo show <id>` | `tasks.show` | Step 5 of mandatory efficiency sequence |
+| `cleo session start` | `session.start` | Agent work loop begin |
+| `cleo complete <id>` | `tasks.complete` | Agent work loop end |
+| `cleo memory find <q>` | `memory.find` | Memory protocol read (3-layer step 1) |
+| `cleo observe <text>` | `memory.observe` | Memory protocol write |
+| `cleo help` | `admin.help` | Escalation path entry point |
 
 ### Tier 1 -- Extended
 
@@ -662,12 +661,12 @@ Cross-project coordination, WarpChain operations, advanced tooling, and administ
 
 ### Tier Escalation
 
-An agent discovers tier 1+ operations via `admin.help`:
+An agent discovers tier 1+ operations via `cleo help`:
 
 ```
-query { domain: "admin", operation: "help" }                  -- tier 0 ops
-query { domain: "admin", operation: "help", params: { tier: 1 } }  -- + tier 1
-query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
+cleo help              -- tier 0 ops
+cleo help --tier 1     -- + tier 1
+cleo help --tier 2     -- all ops
 ```
 
 ---
@@ -677,15 +676,17 @@ query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
 Protocol injection is performed via `admin.context.inject` (mutate gateway):
 
 ```
-mutate {
-  domain: "admin",
-  operation: "context.inject",
-  params: {
-    protocolType: "research",    // required
-    taskId: "T123",              // optional
-    variant: "default"           // optional
-  }
-}
+cleo context inject --protocol research --task T123 --variant default
+```
+
+Dispatch equivalent:
+
+```typescript
+dispatch('mutate', 'admin', 'context.inject', {
+  protocolType: 'research',    // required
+  taskId: 'T123',              // optional
+  variant: 'default',          // optional
+});
 ```
 
 Valid `protocolType` values are defined by the CAAMP catalog and skill registry. Common types include `research`, `orchestrator`, `lifecycle`, and `validator`.
@@ -694,13 +695,13 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ---
 
-## 10. CLI/MCP Parity Rules
+## 10. CLI Dispatch Rules
 
-1. The same `{domain}.{operation}` semantics apply to both CLI and MCP.
-2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
+1. The CLI is the sole interface for CLEO operations. All operations are addressed as `{domain}.{operation}` within their gateway.
+2. CLI commands map 1:1 to dispatch operations: `cleo show T123` dispatches to `query tasks.show { id: "T123" }`.
 3. CLI MAY provide aliases for convenience (e.g., `cleo done` for `tasks.complete`).
-4. MCP operations are the canonical names; CLI aliases are cosmetic.
-5. Both interfaces route through the shared dispatch layer (`packages/cleo/src/dispatch/`) to `packages/core/src/`.
+4. Dispatch operation names (`{domain}.{operation}`) are canonical; CLI aliases are cosmetic.
+5. All CLI commands route through the shared dispatch layer (`packages/cleo/src/dispatch/`) to `packages/core/src/`.
 
 ---
 
@@ -743,7 +744,7 @@ No tier-2 gate may exist without an explicit escalation path surfaced at tier 0.
 
 ### Rationale
 
-When operations are hidden at tier 2 without visible escalation paths, agents silently fall back to direct filesystem reads (e.g., reading `~/.cleo/projects-registry.json` instead of using nexus MCP operations). This defeats the purpose of progressive disclosure and bypasses all validation and atomic operation guarantees that CLEO provides.
+When operations are hidden at tier 2 without visible escalation paths, agents silently fall back to direct filesystem reads (e.g., reading `~/.cleo/projects-registry.json` instead of using nexus CLI operations). This defeats the purpose of progressive disclosure and bypasses all validation and atomic operation guarantees that CLEO provides.
 
 ### Enforcement
 
@@ -955,8 +956,7 @@ Quick reference for agents and code calling removed operations.
 - `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT
 - `packages/cleo/src/dispatch/types.ts` -- Type definitions
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
-- `docs/specs/MCP-SERVER-SPECIFICATION.md` -- MCP server contract
-- `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` -- Progressive disclosure patterns
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` -- CLI operations reference
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` -- Visual architecture guide
 - `.cleo/adrs/ADR-030-operation-model-rationalization.md` -- Rationalization ADR (T5611)
 - `.cleo/agent-outputs/CLEO-OPERATIONS-CONSOLIDATION-DECISION.md` -- Full decision matrix (T5609)

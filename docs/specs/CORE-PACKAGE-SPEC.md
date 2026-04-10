@@ -12,12 +12,12 @@
 
 This specification defines the public contract for `@cleocode/core`, the standalone business logic package within the CLEO monorepo.
 
-`@cleocode/core` encapsulates all domain logic for task management, session lifecycle, memory persistence, multi-agent orchestration, lifecycle gate enforcement, release management, and related capabilities. It is designed to be consumed by adapter layers (CLI, MCP, custom integrations) without embedding any adapter-specific code itself.
+`@cleocode/core` encapsulates all domain logic for task management, session lifecycle, memory persistence, multi-agent orchestration, lifecycle gate enforcement, release management, and related capabilities. It is designed to be consumed by adapter layers (CLI, custom integrations) without embedding any adapter-specific code itself.
 
 ### Design Goals
 
 - **Standalone**: Importable without the `@cleocode/cleo` product package
-- **Adapter-neutral**: No imports from `packages/cleo/` (CLI, MCP, or dispatch)
+- **Adapter-neutral**: No imports from `packages/cleo/` (CLI or dispatch)
 - **Two-tier barrel**: Public API (`index.ts`) for external consumers, internal API (`internal.ts`) for `@cleocode/cleo`
 - **Bundled storage**: The default SQLite store ships inside `packages/core/src/store/`
 - **Dependency-injected storage**: Core modules accept a `DataAccessor` parameter for custom backends
@@ -155,7 +155,8 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `compliance` | `packages/core/src/compliance/` | Protocol compliance recording and value reporting | No |
 | `context` | `packages/core/src/context/` | Context window drift monitoring and alerts | No |
 | `coreHooks` | `packages/core/src/hooks/` | Lifecycle hook dispatch registry | No |
-| `coreMcp` | `packages/core/src/mcp/` | MCP resource and tool registration helpers | No |
+| `conduit` | `packages/core/src/conduit/` | Inter-agent messaging transport (replaces former signaldock module, T170 unification) | No |
+| `code` | `packages/core/src/code/` | Code analysis and generation utilities | No |
 | `inject` | `packages/core/src/inject/` | AGENTS.md / CLAUDE.md content injection | No |
 | `intelligence` | `packages/core/src/intelligence/` | Quality prediction, pattern extraction, impact prediction (`predictImpact`, `analyzeChangeImpact`, `calculateBlastRadius`), adaptive validation | Yes (uses brain.db + DataAccessor) |
 | `issue` | `packages/core/src/issue/` | Issue and bug tracking | Yes |
@@ -178,7 +179,6 @@ The public barrel (`packages/core/src/index.ts`) re-exports all public modules a
 | `security` | `packages/core/src/security/` | Permission checks and access audit | No |
 | `sequence` | `packages/core/src/sequence/` | Ordered operation sequencing | No |
 | `sessions` | `packages/core/src/sessions/` | Session lifecycle, handoff, debrief, decisions | Yes |
-| `signaldock` | `packages/core/src/signaldock/` | Inter-agent messaging transport (provider-neutral) | No |
 | `skills` | `packages/core/src/skills/` | Skill routing table, precedence integration | No |
 | `snapshot` | `packages/core/src/snapshot/` | Project state snapshot creation and restore | Yes |
 | `spawn` | `packages/core/src/spawn/` | Subagent spawn coordination, registry | No |
@@ -528,8 +528,8 @@ All symbols exported from `packages/core/src/index.ts` are public API. Consumers
 | Stability | Meaning | Examples |
 |-----------|---------|---------|
 | **Stable** | No breaking changes without major version bump | `tasks.*`, `sessions.*`, `memory.*`, `CleoError`, `formatSuccess`, `Cleo` facade |
-| **Beta** | May change between minor versions | `signaldock.*`, `orchestration.spawnWave`, `otel.*`, `spawn.*` |
-| **Internal** | Not for external consumers; may be removed | `coreMcp.*`, `routing.*`, `coreHooks.*` |
+| **Beta** | May change between minor versions | `conduit.*`, `orchestration.spawnWave`, `otel.*`, `spawn.*` |
+| **Internal** | Not for external consumers; may be removed | `routing.*`, `coreHooks.*` |
 
 ### 8.3 What Is NOT Public API
 
@@ -593,7 +593,6 @@ The following are internal implementation details, not part of the public contra
 | Prohibited path | Reason |
 |----------------|--------|
 | `packages/cleo/src/cli/` | CLI adapter code (citty, argument parsing) |
-| `packages/cleo/src/mcp/` | MCP adapter code (MCP SDK tool definitions) |
 | `packages/cleo/src/dispatch/` | Routing layer -- core should not know about dispatch |
 
 ### 10.1 Allowed Store Imports
@@ -659,30 +658,32 @@ CAAMP (Central AI Agent Managed Packages) handles provider-level orchestration. 
 | Capability check | `providerSupportsById(id, capability)` | `@cleocode/caamp` (re-exported) |
 | Hook event query | `getProvidersByHookEvent(event)` | `@cleocode/caamp` (re-exported) |
 | Skill paths | `getEffectiveSkillsPaths(provider)` | `@cleocode/caamp` (re-exported) |
-| MCP server config | `caampBuildServerConfig(options)` | `packages/core/src/caamp/` |
-| Dual-scope install | `dualScopeConfigure(config)` | `packages/core/src/caamp/` |
+| Injection generation | `caampGenerateInjectionContent(options)` | `packages/core/src/caamp/` |
+| Injection status check | `injectionCheck(options)` / `injectionCheckAll(options)` | `packages/core/src/caamp/` |
 | Batch install | `batchInstallWithRollback(options)` | `packages/core/src/caamp/` |
 
 ---
 
-## 13. SignalDock Role
+## 13. Conduit Role
 
-SignalDock is the inter-agent messaging transport within `@cleocode/core`. It provides a provider-neutral channel for agents in multi-wave orchestration to exchange messages without coupling to a specific AI platform API.
+Conduit is the inter-agent messaging transport within `@cleocode/core` (formerly `signaldock`, renamed in T170 unification). It provides a provider-neutral channel for agents in multi-wave orchestration to exchange messages without coupling to a specific AI platform API.
 
 | Component | Purpose |
 |-----------|---------|
-| `AgentTransport` (interface) | Transport contract: `register`, `send`, `onMessage` |
-| `ClaudeCodeTransport` | Transport implementation for Claude Code inter-agent protocol |
-| `SignalDockTransport` | Transport implementation via SignalDock relay service |
-| `createTransport(config)` | Factory: selects the appropriate transport for the current provider |
+| `ConduitClient` | High-level agent messaging client |
+| `HttpTransport` | HTTP polling transport to cloud relay service |
+| `LocalTransport` | Offline SQLite transport (conduit.db) |
+| `SseTransport` | Server-Sent Events transport for real-time streaming |
+| `createConduit(config)` | Factory: selects the appropriate transport for the current provider |
+| `resolveTransport(config)` | Transport resolution utility |
 
-SignalDock is used internally by the `spawn` and `orchestration` modules. External consumers typically interact with it only when implementing custom orchestration protocols.
+Conduit is used internally by the `spawn` and `orchestration` modules. External consumers typically interact with it only when implementing custom orchestration protocols.
 
 ---
 
 ## 14. LAFS Response Envelope
 
-All MCP-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs`.
+All CLI-facing and API-facing operations MUST return a LAFS-compliant envelope. LAFS (LLM-Agent-First Schema) is specified by `@cleocode/lafs`.
 
 ### 14.1 Envelope Variants
 
@@ -882,7 +883,7 @@ Sixteen GitHub issues (#63–#78) resolved across five point releases:
 | `ensureRequiredColumns()` | v2026.3.61 | PRAGMA table_info safety net after every migration |
 | `dryRun` threading | v2026.3.62 | Flag now passed through dispatch → engine → `addTask()` |
 | `listSystemBackups()` | v2026.3.62 | Read-only backup list (moved from mutate to query gateway) |
-| `session find` CLI | v2026.3.63 | CLI subcommand registered for existing MCP operation |
+| `session find` CLI | v2026.3.63 | CLI subcommand registered for existing dispatch operation |
 | `paginate()` null guard | v2026.3.64 | Handles undefined/null input arrays |
 | `detect-drift` user projects | v2026.3.65 | Distinguishes CLEO source repo from user projects |
 
