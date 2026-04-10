@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.19] — 2026-04-10 — CleoOS Agent Platform
+
+T250 epic: five workstreams shipping the content layer that makes CleoOS
+distinct from vanilla Pi.
+
+### Added — .cantz packaging + CANT 3-tier hierarchy (T438)
+
+- `docs/specs/CANT-HIERARCHY-SPEC.md`: 3-tier discovery (project > user > global)
+- `docs/specs/CANTZ-PACKAGE-STANDARD.md`: ZIP archive standard for agent packages
+- `cleo-cant-bridge.ts`: `discoverCantFilesMultiTier()` scans all 3 XDG tiers
+- `cleo agent install <path>.cantz [--global]`: extract and install agent packages
+- `cleo agent pack <dir>`: ZIP a directory into a `.cantz` archive
+
+### Added — Meta Agent Builder (T439)
+
+- `cleo agent create --name <n> --role <r> [--tier] [--domain] [--global] [--seed-brain]`
+- 4 role-based persona templates (orchestrator, lead, worker, docs-worker)
+- BRAIN seeding via `--seed-brain` flag
+- Best-effort signaldock.db registration
+
+### Added — Starter CANT bundle (T441)
+
+- `packages/cleo-os/starter-bundle/`: team.cant + 4 agent personas
+- Default team: cleo-orchestrator → dev-lead → [code-worker, docs-worker]
+- All agents have mental_model, context_sources, permissions, role-appropriate tools
+- Deployed via postinstall (global) and `cleo init` (project)
+- 57 e2e tests covering bridge discovery, compilation, deployment, TEAM-002
+
+### Added — TUI visual identity (T442)
+
+- `tui-theme.ts`: 15 design tokens mapped from design docs to ANSI 256-color
+- `PI-EXTENSION-MAPPING.md`: honest Pi extension API gap analysis
+- Session banner with forge aesthetic on session_start
+- `cleo-agent-monitor.ts`: agent activity widget + `/cleo:agents` + `/cleo:circle`
+- Circle of Ten: 7/10 zones wired to live CLI data, 3 marked "not wired"
+
+### Added — Subagent injection documentation (T440)
+
+- `docs/guides/SUBAGENT-INJECTION-PIPELINE.md`: 5-stage trace with line refs
+- `docs/guides/CREATING-CUSTOM-AGENTS.md`: practical 5-step guide
+- `docs/guides/LEAD-VS-WORKER-ROLES.md`: tool access, ACLs, delegation
+- `docs/guides/TOKEN-REPLACEMENT-CONTRACT.md`: 12 tokens, 4-phase lifecycle
+
+### Fixed — CLEOOS-VISION.md + ULTRAPLAN accuracy
+
+- Removed all MCP references per ADR-035 §D4
+- Updated architecture diagram to 5-DB topology (conduit.db + signaldock.db)
+- Updated version references to v2026.4.18
+- Added Pi pivot, CANT bridge, 3-tier hierarchy to "What Exists Now"
+- Fixed ULTRAPLAN §2.1 XDG path accuracy
+
+### Fixed — fanoutManifestStore memory leak
+
+- Capped at 64 entries with FIFO eviction in `orchestrate.ts`
+
 ## [2026.4.18] — CLI Help UX Overhaul
 
 ### Fixed
