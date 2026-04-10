@@ -100,6 +100,20 @@ packages/*/extensions/**/*.d.ts.map
 clawmsgr-agent.json
 clawmsgr-*.json
 
+# Tool / editor configs (personal, not project)
+.serena/
+.vscode/
+.cache/
+
+# Packaged skill artifacts (zip bundles, not source)
+*.skill
+
+# Test output artifacts
+vitest-results.json
+
+# Empty migration stubs
+migrations/
+
 # Rust build artifacts
 target/
 types.js
