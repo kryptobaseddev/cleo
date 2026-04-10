@@ -9,7 +9,7 @@
  * Behaviour:
  *   - Skips silently during workspace/dev installs (non-global).
  *   - All directory creation is idempotent (no-op if directory exists).
- *   - All file copies are idempotent (only copies if target is missing).
+ *   - Extensions and starter bundle files are always overwritten on upgrade.
  *   - Skill install is best-effort; failures are logged but not fatal.
  *   - Missing `@mariozechner/pi-coding-agent` is handled gracefully.
  *
@@ -125,8 +125,8 @@ function ensureDir(dir: string): void {
 /**
  * Copy a compiled extension to the XDG extensions directory.
  *
- * Only copies if the target does not already exist (idempotent). The
- * source is the compiled `.js` file in the package's `extensions/` folder.
+ * Always overwrites the target so that upgrades deploy the latest version.
+ * Extensions are managed files, not user-editable configs.
  *
  * @param extensionName - Filename without the `.js` extension.
  * @param pkgRoot - Absolute path to the installed package root.
@@ -141,13 +141,13 @@ function deployExtension(extensionName: string, pkgRoot: string, extensionsDir: 
     return;
   }
 
-  if (existsSync(dest)) {
-    // Already deployed — idempotent, skip.
-    return;
+  const updating = existsSync(dest);
+  cpSync(src, dest, { force: true });
+  if (updating) {
+    process.stdout.write(`CleoOS: updating extension: ${extensionName}.js\n`);
+  } else {
+    process.stdout.write(`CleoOS: deployed ${extensionName}.js to ${dest}\n`);
   }
-
-  cpSync(src, dest, { force: false });
-  process.stdout.write(`CleoOS: deployed ${extensionName}.js to ${dest}\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,9 +188,9 @@ function scaffoldDefaultCant(cantDir: string): void {
  * Deploy the starter CANT bundle to the global XDG CANT directory.
  *
  * Copies `starter-bundle/` contents (team.cant + agents/*.cant) to
- * `~/.local/share/cleo/cant/starter/`. Only copies files that do not
- * already exist (idempotent). This gives every new `cleoos` session a
- * working multi-agent team topology for the CANT bridge to compile.
+ * `~/.local/share/cleo/cant/starter/`. Always overwrites existing files
+ * so that upgrades deploy the latest bundle versions. These are managed
+ * files in the global tier, not user-editable project configs.
  *
  * @param pkgRoot - Absolute path to the installed package root.
  * @param cantDir - Absolute path to the XDG CANT directory.
@@ -209,15 +209,20 @@ function deployStarterBundle(pkgRoot: string, cantDir: string): void {
   ensureDir(starterDest);
   ensureDir(agentsDest);
 
-  // Copy team.cant
+  // Copy team.cant (always overwrite on upgrade)
   const teamSrc = join(bundleSrc, 'team.cant');
   const teamDest = join(starterDest, 'team.cant');
-  if (existsSync(teamSrc) && !existsSync(teamDest)) {
-    cpSync(teamSrc, teamDest);
-    process.stdout.write(`CleoOS: deployed starter team.cant to ${teamDest}\n`);
+  if (existsSync(teamSrc)) {
+    const updating = existsSync(teamDest);
+    cpSync(teamSrc, teamDest, { force: true });
+    process.stdout.write(
+      updating
+        ? `CleoOS: updating extension: starter team.cant\n`
+        : `CleoOS: deployed starter team.cant to ${teamDest}\n`,
+    );
   }
 
-  // Copy agent .cant files
+  // Copy agent .cant files (always overwrite on upgrade)
   const agentsSrcDir = join(bundleSrc, 'agents');
   if (existsSync(agentsSrcDir)) {
     try {
@@ -226,10 +231,13 @@ function deployStarterBundle(pkgRoot: string, cantDir: string): void {
         if (!entry.endsWith('.cant')) continue;
         const src = join(agentsSrcDir, entry);
         const dest = join(agentsDest, entry);
-        if (!existsSync(dest)) {
-          cpSync(src, dest);
-          process.stdout.write(`CleoOS: deployed starter ${entry} to ${dest}\n`);
-        }
+        const updating = existsSync(dest);
+        cpSync(src, dest, { force: true });
+        process.stdout.write(
+          updating
+            ? `CleoOS: updating extension: starter ${entry}\n`
+            : `CleoOS: deployed starter ${entry} to ${dest}\n`,
+        );
       }
     } catch {
       // Best-effort: non-fatal.
