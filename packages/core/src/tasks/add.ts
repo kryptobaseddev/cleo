@@ -502,9 +502,12 @@ export async function addTask(
     if (lifecycleMode === 'strict') {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
-        'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId> or set lifecycle.mode to "advisory".',
+        'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId>, --type epic for a root-level epic, or set lifecycle.mode to "advisory".',
         {
           fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
+          alternatives: [
+            'cleo add "Epic title" --type epic --priority high',
+          ],
         },
       );
     }
