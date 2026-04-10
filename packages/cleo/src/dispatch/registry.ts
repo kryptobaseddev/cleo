@@ -1037,6 +1037,31 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
+    operation: 'roadmap',
+    description:
+      'admin.roadmap (query) — project roadmap from task provenance, epics grouped by status with progress',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'includeHistory',
+        type: 'boolean',
+        required: false,
+        description: 'Include release history from CHANGELOG.md',
+      },
+      {
+        name: 'upcomingOnly',
+        type: 'boolean',
+        required: false,
+        description: 'Only show pending/upcoming epics (exclude completed)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
     operation: 'log',
     description: 'admin.log (query)',
     tier: 1,

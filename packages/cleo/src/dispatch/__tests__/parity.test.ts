@@ -130,9 +130,10 @@ describe('Group 1: Registry completeness', () => {
     // Phase 1 added admin.paths (query); Phase 1 added admin.scaffold-hub (mutate);
     // Phase 2 added pipeline.stage.guidance (query). +2 query / +1 mutate / +3 total.
     // W7a added 4 new dispatch ops (composer wiring, CANT integration).
-    expect(queryCount).toBe(132);
+    // FIX: wired admin.roadmap — was in system-engine but not registered.
+    expect(queryCount).toBe(133);
     expect(mutateCount).toBe(99);
-    expect(OPERATIONS.length).toBe(231);
+    expect(OPERATIONS.length).toBe(232);
   });
 
   it('all operations have valid gateway values', () => {

@@ -163,18 +163,25 @@ export function registerMemoryBrainCommand(program: Command): void {
   // -- observe (save observation to brain.db) --
   memory
     .command('observe <text>')
-    .description('Save an observation to brain.db')
-    .option('--title <title>', 'Short title for the observation')
-    // T417: tag observation with agent provenance for per-agent mental model retrieval
+    .description(
+      'Save an observation to brain.db — captures facts, decisions, and discoveries for cross-session memory',
+    )
     .option(
-      '--agent <name>',
-      'Tag this observation with the producing agent name (Wave 8 mental models)',
+      '--title <title>',
+      'Short title for the observation (defaults to first 120 chars of text)',
     )
     .option(
       '--type <type>',
-      'Observation type (discovery, decision, bugfix, refactor, feature, change, pattern, session_summary)',
+      'Category: discovery (found something new), decision (choice made), bugfix (bug found/fixed), refactor (code restructured), feature (feature added), change (general change), pattern (recurring pattern), session_summary (end-of-session recap)',
     )
-    .option('--source-type <sourceType>', 'Source type override (default: manual)')
+    .option(
+      '--agent <name>',
+      'Name of the agent producing this observation (enables per-agent memory retrieval)',
+    )
+    .option(
+      '--source-type <sourceType>',
+      'How this observation was captured: manual (typed by human/agent), auto (lifecycle hook), transcript (extracted from session)',
+    )
     .action(async (text: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',

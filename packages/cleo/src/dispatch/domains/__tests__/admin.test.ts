@@ -169,6 +169,7 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       // v2026.4.6 added 'paths' (admin.paths — CleoOS Phase 1)
+      // FIX: added 'roadmap' — wired admin.roadmap that existed in system-engine but was unregistered
       expect(ops.query).toEqual([
         'version',
         'health',
@@ -189,6 +190,7 @@ describe('AdminHandler', () => {
         'backup',
         'export',
         'map',
+        'roadmap',
         'smoke',
         'hooks.matrix',
       ]);

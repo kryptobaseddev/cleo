@@ -63,6 +63,7 @@ import {
   systemMigrate,
   systemPaths,
   systemRestore,
+  systemRoadmap,
   systemRuntime,
   systemSafestop,
   systemScaffoldHub,
@@ -538,6 +539,14 @@ export class AdminHandler implements DomainHandler {
           const result = await mapCodebase(projectRoot, {
             focus: params?.focus as string | undefined,
             storeToBrain: false,
+          });
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'roadmap': {
+          const result = await systemRoadmap(projectRoot, {
+            includeHistory: params?.includeHistory as boolean | undefined,
+            upcomingOnly: params?.upcomingOnly as boolean | undefined,
           });
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
@@ -1101,6 +1110,7 @@ export class AdminHandler implements DomainHandler {
         'backup',
         'export',
         'map',
+        'roadmap',
         'smoke',
         'hooks.matrix',
       ],
