@@ -15,7 +15,7 @@
  * @epic T4654
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { MinimalTaskRecord, Task, TaskRecord, TaskRecordRelation } from '@cleocode/contracts';
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import {
@@ -73,6 +73,11 @@ function taskToRecord(task: Task): TaskRecord {
   // Task union-typed fields (status, priority, origin, etc.) widen to string in TaskRecord.
   // Some fields have structural mismatches (blockedBy: string vs string[], etc.)
   // so we explicitly map each field rather than relying on spread.
+  const relates: TaskRecordRelation[] | undefined = task.relates?.map((r) => ({
+    taskId: r.taskId,
+    type: r.type,
+    ...(r.reason && { reason: r.reason }),
+  }));
   return {
     id: task.id,
     title: task.title,
@@ -89,7 +94,7 @@ function taskToRecord(task: Task): TaskRecord {
     position: task.position,
     positionVersion: task.positionVersion,
     depends: task.depends,
-    relates: task.relates,
+    relates,
     files: task.files,
     acceptance: task.acceptance,
     notes: task.notes,
@@ -115,112 +120,9 @@ function tasksToRecords(tasks: Task[]): TaskRecord[] {
   return tasks.map(taskToRecord);
 }
 
-/**
- * Task object as stored in task data.
- */
-export interface TaskRecord {
-  /** Unique task identifier (e.g. "T001"). */
-  id: string;
-  /** Short summary of the task. */
-  title: string;
-  /** Full task description. */
-  description: string;
-  /** Current status (pending, active, blocked, done, cancelled). */
-  status: string;
-  /** Priority level (critical, high, medium, low). */
-  priority: string;
-  /** Task type (task, epic, milestone, bug). */
-  type?: string;
-  /** Project phase this task belongs to. */
-  phase?: string;
-  /** ISO timestamp when the task was created. */
-  createdAt: string;
-  /** ISO timestamp of the last update, or null. */
-  updatedAt: string | null;
-  /** ISO timestamp when the task was completed, or null. */
-  completedAt?: string | null;
-  /** ISO timestamp when the task was cancelled, or null. */
-  cancelledAt?: string | null;
-  /** Parent task ID for hierarchical nesting, or null for root tasks. */
-  parentId?: string | null;
-  /** Ordering position among siblings. */
-  position?: number | null;
-  /** Optimistic concurrency version for position updates. */
-  positionVersion?: number;
-  /** Task IDs this task depends on (must complete first). */
-  depends?: string[];
-  /** Related tasks with relationship type and optional reason. */
-  relates?: Array<{
-    /** Related task ID. */
-    taskId: string;
-    /** Relationship type (e.g. "related-to", "blocks"). */
-    type: string;
-    /** Optional explanation for the relationship. */
-    reason?: string;
-  }>;
-  /** File paths associated with this task. */
-  files?: string[];
-  /** Acceptance criteria lines. */
-  acceptance?: string[];
-  /** Free-form notes. */
-  notes?: string[];
-  /** Classification labels. */
-  labels?: string[];
-  /** Complexity sizing (small, medium, large). */
-  size?: string | null;
-  /** Epic lifecycle state for epic-type tasks. */
-  epicLifecycle?: string | null;
-  /** When true, prevents auto-completion on child task completion. */
-  noAutoComplete?: boolean | null;
-  /** Verification gate state and round tracking. */
-  verification?: import('@cleocode/contracts').TaskVerification | null;
-  /** How the task was created (manual, decomposition, import). */
-  origin?: string | null;
-  /** Agent or user who created the task. */
-  createdBy?: string | null;
-  /** Agent or user who validated the task. */
-  validatedBy?: string | null;
-  /** Agent or user who tested the task. */
-  testedBy?: string | null;
-  /** Current lifecycle governance state. */
-  lifecycleState?: string | null;
-  /** History of lifecycle validation transitions. */
-  validationHistory?: Array<Record<string, unknown>>;
-  /** Task IDs that are blocking this task. */
-  blockedBy?: string[];
-  /** Reason provided when the task was cancelled. */
-  cancellationReason?: string;
-  /** RCASD-IVTR+C pipeline stage (T060). */
-  pipelineStage?: string | null;
-}
-
-// Local TaskFile interface removed — DataAccessor uses the canonical TaskFile from types/task.ts.
-
-/**
- * Minimal task representation for find results.
- *
- * @remarks
- * Used by `taskFind` to return lightweight task records that minimize
- * context consumption for agent discovery operations.
- */
-export interface MinimalTaskRecord {
-  /** Unique task identifier. */
-  id: string;
-  /** Short summary of the task. */
-  title: string;
-  /** Current status. */
-  status: string;
-  /** Priority level. */
-  priority: string;
-  /** Parent task ID, or null for root tasks. */
-  parentId?: string | null;
-  /** Dependency IDs — agents need this to determine task readiness without N+1 show calls. @task T091 */
-  depends?: string[];
-  /** Task type — epic (coordinate), task (execute), or subtask (detail). @task T091 */
-  type?: string;
-  /** Scope size estimate — helps agents decide if decomposition is needed. @task T091 */
-  size?: string;
-}
+// TaskRecord, MinimalTaskRecord imported from @cleocode/contracts (canonical source).
+// Re-export for consumers that import from the engine module.
+export type { MinimalTaskRecord, TaskRecord } from '@cleocode/contracts';
 
 // Re-export CompactTask from core for consumers
 export type { CompactTask } from '@cleocode/core/internal';
@@ -404,36 +306,16 @@ export async function taskFind(
       return { success: true, data: { results: fullResults, total: findResult.total } };
     }
 
-    // --fields: extend minimal records with requested extra fields
+    // --fields: return full task records (loading full data to include requested fields).
+    // Since loadSingleTask is required anyway, returning the complete TaskRecord avoids
+    // an unsafe Record<string, unknown> cast while giving agents the extra fields they need.
     if (options?.fields) {
-      const extraFields = options.fields.split(',').map((f) => f.trim());
-      const extendedResults: Record<string, unknown>[] = [];
+      const fullResults: TaskRecord[] = [];
       for (const r of findResult.results) {
-        const base: Record<string, unknown> = {
-          id: r.id,
-          title: r.title,
-          status: r.status,
-          priority: r.priority,
-          parentId: r.parentId,
-          depends: r.depends,
-          type: r.type,
-          size: r.size,
-        };
         const task = await accessor.loadSingleTask(r.id);
-        if (task) {
-          const record = taskToRecord(task);
-          for (const field of extraFields) {
-            if (field in record) {
-              base[field] = record[field as keyof TaskRecord];
-            }
-          }
-        }
-        extendedResults.push(base);
+        if (task) fullResults.push(taskToRecord(task));
       }
-      return {
-        success: true,
-        data: { results: extendedResults as MinimalTaskRecord[], total: findResult.total },
-      };
+      return { success: true, data: { results: fullResults, total: findResult.total } };
     }
 
     // Default: return minimal records with depends/type/size for agent readiness checks

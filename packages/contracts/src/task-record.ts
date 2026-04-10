@@ -59,13 +59,27 @@ export interface TaskRecord {
   validationHistory?: ValidationHistoryEntry[];
   blockedBy?: string[];
   cancellationReason?: string;
+  /** RCASD-IVTR+C pipeline stage. @task T060 */
+  pipelineStage?: string | null;
 }
 
-/** Minimal task representation for find results. */
+/**
+ * Minimal task representation for find results.
+ *
+ * Includes depends, type, and size by default so agents can determine
+ * task readiness without N+1 show calls.
+ * @task T091
+ */
 export interface MinimalTaskRecord {
   id: string;
   title: string;
   status: string;
   priority: string;
   parentId?: string | null;
+  /** Dependency IDs — agents need this to determine task readiness. @task T091 */
+  depends?: string[];
+  /** Task type — epic (coordinate), task (execute), or subtask (detail). @task T091 */
+  type?: string;
+  /** Scope size estimate — helps agents decide if decomposition is needed. @task T091 */
+  size?: string;
 }
