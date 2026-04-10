@@ -758,6 +758,9 @@ interface FanoutItemResult {
  * Populated when a fanout completes so that orchestrate.fanout.status
  * can categorise results across orchestrator turns.
  */
+/** Maximum number of fanout manifest entries retained in memory. */
+const FANOUT_MANIFEST_MAX_SIZE = 64;
+
 const fanoutManifestStore = new Map<
   string,
   {
@@ -765,6 +768,18 @@ const fanoutManifestStore = new Map<
     completedAt: string;
   }
 >();
+
+/**
+ * Evict oldest entries when the manifest store exceeds the size cap.
+ * Map iteration order is insertion order, so deleting the first key
+ * removes the oldest entry.
+ */
+function evictFanoutManifest(): void {
+  while (fanoutManifestStore.size > FANOUT_MANIFEST_MAX_SIZE) {
+    const oldest = fanoutManifestStore.keys().next().value;
+    if (oldest !== undefined) fanoutManifestStore.delete(oldest);
+  }
+}
 
 /**
  * T409 / T433 — Fan out N spawn requests via Promise.allSettled.
@@ -829,6 +844,7 @@ async function orchestrateFanout(
       results,
       completedAt: new Date().toISOString(),
     });
+    evictFanoutManifest();
 
     return {
       success: true,
