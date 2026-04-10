@@ -55,6 +55,7 @@ import {
   coreTaskUnarchive,
   updateTask as coreUpdateTask,
   getAccessor,
+  getActiveSession,
   type ImpactReport,
   predictImpact,
   toCompact,
@@ -213,6 +214,12 @@ export interface MinimalTaskRecord {
   priority: string;
   /** Parent task ID, or null for root tasks. */
   parentId?: string | null;
+  /** Dependency IDs — agents need this to determine task readiness without N+1 show calls. @task T091 */
+  depends?: string[];
+  /** Task type — epic (coordinate), task (execute), or subtask (detail). @task T091 */
+  type?: string;
+  /** Scope size estimate — helps agents decide if decomposition is needed. @task T091 */
+  size?: string;
 }
 
 // Re-export CompactTask from core for consumers
@@ -365,8 +372,12 @@ export async function taskFind(
     status?: string;
     includeArchive?: boolean;
     offset?: number;
+    /** Comma-separated extra fields to include (e.g. "labels,acceptance,notes"). @task T092 */
+    fields?: string;
+    /** Return all task fields (same as cleo list output). @task T092 */
+    verbose?: boolean;
   },
-): Promise<EngineResult<{ results: MinimalTaskRecord[]; total: number }>> {
+): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const findResult = await coreFindTasks(
@@ -383,15 +394,61 @@ export async function taskFind(
       accessor,
     );
 
+    // --verbose: return full task records for each result
+    if (options?.verbose) {
+      const fullResults: TaskRecord[] = [];
+      for (const r of findResult.results) {
+        const task = await accessor.loadSingleTask(r.id);
+        if (task) fullResults.push(taskToRecord(task));
+      }
+      return { success: true, data: { results: fullResults, total: findResult.total } };
+    }
+
+    // --fields: extend minimal records with requested extra fields
+    if (options?.fields) {
+      const extraFields = options.fields.split(',').map((f) => f.trim());
+      const extendedResults: Record<string, unknown>[] = [];
+      for (const r of findResult.results) {
+        const base: Record<string, unknown> = {
+          id: r.id,
+          title: r.title,
+          status: r.status,
+          priority: r.priority,
+          parentId: r.parentId,
+          depends: r.depends,
+          type: r.type,
+          size: r.size,
+        };
+        const task = await accessor.loadSingleTask(r.id);
+        if (task) {
+          const record = taskToRecord(task);
+          for (const field of extraFields) {
+            if (field in record) {
+              base[field] = record[field as keyof TaskRecord];
+            }
+          }
+        }
+        extendedResults.push(base);
+      }
+      return {
+        success: true,
+        data: { results: extendedResults as MinimalTaskRecord[], total: findResult.total },
+      };
+    }
+
+    // Default: return minimal records with depends/type/size for agent readiness checks
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
       id: r.id,
       title: r.title,
       status: r.status,
       priority: r.priority,
       parentId: r.parentId,
+      depends: r.depends,
+      type: r.type,
+      size: r.size,
     }));
 
-    return { success: true, data: { results, total: results.length } };
+    return { success: true, data: { results, total: findResult.total } };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
@@ -470,15 +527,56 @@ export async function taskCreate(
     notes?: string;
     files?: string[];
     dryRun?: boolean;
+    /** Resolve parent by title substring instead of exact ID. @task T090 */
+    parentSearch?: string;
   },
-): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean }>> {
+): Promise<
+  EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
+> {
   try {
     const accessor = await getAccessor(projectRoot);
+
+    // Resolve parent through 3 mechanisms in priority order (T090):
+    // 1. Explicit --parent flag
+    // 2. --parent-search fuzzy title match
+    // 3. Session-scoped epic inheritance (when session scope is epic:T###)
+    let resolvedParent = params.parent || null;
+
+    // --parent-search: resolve by title substring
+    if (!resolvedParent && params.parentSearch) {
+      const searchResult = await coreFindTasks(
+        { query: params.parentSearch, limit: 1 },
+        projectRoot,
+        accessor,
+      );
+      if (searchResult.results.length > 0) {
+        resolvedParent = searchResult.results[0].id;
+      } else {
+        return cleoErrorToEngineError(
+          new Error(`No task found matching --parent-search "${params.parentSearch}"`),
+          'E_NOT_FOUND',
+          `No task found matching "${params.parentSearch}"`,
+        );
+      }
+    }
+
+    // Session-scoped parent: auto-inherit from epic scope when no parent specified
+    if (!resolvedParent && params.type !== 'epic') {
+      try {
+        const session = await getActiveSession(projectRoot);
+        if (session?.scope?.type === 'epic' && session.scope.epicId) {
+          resolvedParent = session.scope.epicId;
+        }
+      } catch {
+        // Session lookup failure is non-fatal — proceed without parent
+      }
+    }
+
     const result = await coreAddTask(
       {
         title: params.title,
         description: params.description,
-        parentId: params.parent || null,
+        parentId: resolvedParent,
         depends: params.depends,
         priority: (params.priority as import('@cleocode/contracts').TaskPriority) || 'medium',
         labels: params.labels,
@@ -500,6 +598,7 @@ export async function taskCreate(
         task: taskToRecord(result.task),
         duplicate: result.duplicate ?? false,
         dryRun: params.dryRun,
+        ...(result.warnings?.length && { warnings: result.warnings }),
       },
     };
   } catch (err: unknown) {

@@ -20,6 +20,10 @@ export interface FindResult {
   priority: string;
   type?: string;
   parentId?: string | null;
+  /** Dependency IDs — essential for agents to determine task readiness. @task T091 */
+  depends?: string[];
+  /** Scope size estimate. @task T091 */
+  size?: string;
   score: number;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
@@ -99,7 +103,7 @@ export async function findTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
-  if (!options.query && !options.id) {
+  if (options.query == null && !options.id) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required', {
       fix: 'cleo find "<query>"',
       details: { field: 'query' },
@@ -146,6 +150,8 @@ export async function findTasks(
         priority: t.priority,
         type: t.type,
         parentId: t.parentId,
+        depends: t.depends ?? [],
+        size: t.size ?? undefined,
         score:
           t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
       }));
@@ -162,6 +168,8 @@ export async function findTasks(
         priority: t.priority,
         type: t.type,
         parentId: t.parentId,
+        depends: t.depends ?? [],
+        size: t.size ?? undefined,
         score: 100,
       }));
   } else {
@@ -183,6 +191,8 @@ export async function findTasks(
           priority: t.priority,
           type: t.type,
           parentId: t.parentId,
+          depends: t.depends ?? [],
+          size: t.size ?? undefined,
           score: Math.round(score),
         });
       }

@@ -40,6 +40,7 @@ const CLI_VERSION = getPackageVersion();
 const rootShim = new ShimCommand();
 
 import { registerAddCommand } from './commands/add.js';
+import { registerAddBatchCommand } from './commands/add-batch.js';
 import { registerAdminCommand } from './commands/admin.js';
 import { registerAdrCommand } from './commands/adr.js';
 // Import all command registration functions
@@ -139,6 +140,7 @@ import { registerWebCommand } from './commands/web.js';
 registerAgentCommand(rootShim);
 registerAgentsCommand(rootShim);
 registerAddCommand(rootShim);
+registerAddBatchCommand(rootShim);
 registerListCommand(rootShim);
 registerShowCommand(rootShim);
 registerFindCommand(rootShim);

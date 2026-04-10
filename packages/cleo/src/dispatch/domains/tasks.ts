@@ -105,6 +105,8 @@ export class TasksHandler implements DomainHandler {
               status: params?.status as string | undefined,
               includeArchive: params?.includeArchive as boolean | undefined,
               offset: params?.offset as number | undefined,
+              fields: params?.fields as string | undefined,
+              verbose: params?.verbose as boolean | undefined,
             },
           );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
@@ -276,6 +278,7 @@ export class TasksHandler implements DomainHandler {
             notes: params?.notes as string | undefined,
             files: params?.files as string[] | undefined,
             dryRun: params?.dryRun as boolean | undefined,
+            parentSearch: params?.parentSearch as string | undefined,
           });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

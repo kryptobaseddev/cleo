@@ -120,6 +120,13 @@ const ADD_PARAMS: readonly ParamDef[] = [
     description: 'Position within sibling group',
     cli: { flag: 'position', parse: parseInt as (val: string) => unknown },
   },
+  {
+    name: 'parentSearch',
+    type: 'string',
+    required: false,
+    description: 'Resolve parent by title substring instead of exact ID (T090)',
+    cli: { flag: 'parent-search' },
+  },
 ];
 
 /**
@@ -162,16 +169,35 @@ export function registerAddCommand(program: Command): void {
         params['labels'] = (opts['labels'] as string).split(',').map((s) => s.trim());
       if (opts['files'])
         params['files'] = (opts['files'] as string).split(',').map((s) => s.trim());
-      if (opts['acceptance'])
-        params['acceptance'] = (opts['acceptance'] as string)
-          .split('|')
-          .map((s) => s.trim())
-          .filter(Boolean);
+      if (opts['acceptance']) {
+        const raw = opts['acceptance'] as string;
+        // Support JSON array format: --acceptance '["c1","c2","c3"]' (T090)
+        if (raw.trimStart().startsWith('[')) {
+          try {
+            const parsed = JSON.parse(raw);
+            params['acceptance'] = Array.isArray(parsed)
+              ? parsed.map((s: unknown) => String(s).trim()).filter(Boolean)
+              : [raw];
+          } catch {
+            // Not valid JSON — fall through to pipe-delimited parsing
+            params['acceptance'] = raw
+              .split('|')
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        } else {
+          params['acceptance'] = raw
+            .split('|')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+      }
       if (opts['depends'])
         params['depends'] = (opts['depends'] as string).split(',').map((s) => s.trim());
       if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
       if (opts['position'] !== undefined) params['position'] = opts['position'];
       if (opts['dryRun'] !== undefined) params['dryRun'] = opts['dryRun'];
+      if (opts['parentSearch'] !== undefined) params['parentSearch'] = opts['parentSearch'];
 
       const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 
@@ -180,6 +206,15 @@ export function registerAddCommand(program: Command): void {
       }
 
       const data = response.data as Record<string, unknown>;
+
+      // Display advisory warnings (T089: orphan prevention, etc.)
+      const dataWarnings = data?.warnings as string[] | undefined;
+      if (dataWarnings?.length) {
+        for (const w of dataWarnings) {
+          process.stderr.write(`⚠ ${w}\n`);
+        }
+      }
+
       if (data?.duplicate) {
         cliOutput(data, {
           command: 'add',

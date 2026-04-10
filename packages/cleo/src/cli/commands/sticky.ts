@@ -21,7 +21,6 @@ import { cliOutput } from '../renderers/index.js';
 export function registerStickyCommand(program: Command): void {
   const sticky = program
     .command('sticky')
-    .alias('note')
     .description('Manage sticky notes - quick project-wide ephemeral captures');
 
   // ── sticky add ─────────────────────────────────────────────────────────
@@ -82,7 +81,7 @@ export function registerStickyCommand(program: Command): void {
 
         const data = response.data as { stickies: StickyNote[]; total: number } | null;
 
-        if (!data || !data.stickies || data.stickies.length === 0) {
+        if (!data?.stickies || data.stickies.length === 0) {
           cliOutput(
             { stickies: [], total: 0 },
             { command: 'sticky list', message: 'No sticky notes found', operation: 'sticky.list' },

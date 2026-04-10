@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.22] — 2026-04-10 — Agent UX patch: orphan prevention, find readiness, batch creation
+
+### Fixed — Orphaned tasks from validation retries (#89)
+
+`cleo add` now validates ALL fields in one pass and returns every issue
+together, so agents need only one retry instead of multiple. The error
+response includes the original submitted params (including `--parent`)
+so agents can see which flags they provided and preserve them on retry.
+In advisory mode, a warning is emitted when `type=task` is created
+without `--parent`.
+
+### Fixed — `cleo find ""` empty string error (#85)
+
+Empty string queries no longer throw `E_INVALID_INPUT`. The falsy check
+has been replaced with a strict null check so `""` is treated as a valid
+(albeit low-utility) search query.
+
+### Fixed — `cleo note` routing collision with sticky notes (#84)
+
+Removed `.alias('note')` from the sticky command. `cleo note T005 ...`
+no longer routes to the sticky subsystem. Use `cleo update T005 --notes`
+for task notes and `cleo sticky add` for sticky notes.
+
+### Added — `depends`, `type`, `size` in default find response (#91)
+
+`cleo find` now returns dependency IDs, task type, and size in every
+result by default. Agents can determine task readiness (blocked vs ready)
+from find output without N+1 `cleo show` follow-up calls.
+
+### Added — `--fields` and `--verbose` flags for find (#92)
+
+`cleo find --verbose` returns full task records (same as `cleo list`).
+`cleo find --fields labels,acceptance,notes` includes specific extra
+fields. Default slim output remains unchanged.
+
+### Added — All-errors-at-once validation for `cleo add` (#90 item 1)
+
+Validation errors for description, status, size, labels, acceptance
+criteria, and orphan checks are collected and returned together instead
+of failing on the first error.
+
+### Added — Session-scoped parent inheritance (#90 item 2)
+
+When a session has `--scope epic:T###`, `cleo add --type task` auto-
+inherits the scoped epic as `--parent`. Eliminates orphaned tasks during
+session-scoped epic decomposition.
+
+### Added — `cleo add-batch` command (#90 item 4)
+
+`cleo add-batch --file tasks.json` creates multiple tasks atomically
+from a JSON array. Supports `--parent` as a default parent for all tasks
+and `--dry-run` for preview. Input can also be piped from stdin.
+
+### Added — `CLEO_PROJECT_ROOT` env var (#90 item 5)
+
+`CLEO_PROJECT_ROOT` is now accepted as an alias for `CLEO_ROOT` to
+override cwd-based project detection. Useful when agents `cd` to
+subdirectories for code work.
+
+### Added — JSON acceptance criteria format (#90 item 6)
+
+`--acceptance '["criterion 1","criterion 2","criterion 3"]'` is now
+supported alongside the existing pipe-delimited format. JSON arrays
+avoid the issue of pipes inside criteria text causing incorrect splits.
+
+### Added — `--parent-search` flag for `cleo add` (#90 item 7)
+
+`cleo add "Task" --parent-search "OrchestratorService"` resolves the
+parent by fuzzy title match instead of requiring an exact task ID.
+Reduces lookup round-trips for agents.
+
 ## [2026.4.21] — 2026-04-10 — Extension deployment fixes + batteries-included install
 
 ### Fixed — Extensions not updating on upgrade

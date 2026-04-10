@@ -288,9 +288,11 @@ export function getProjectRoot(cwd?: string): string {
     return scope.worktreeRoot;
   }
 
-  // 1. Honour CLEO_ROOT env var — bypass walk entirely
-  if (process.env['CLEO_ROOT']) {
-    return process.env['CLEO_ROOT'];
+  // 1. Honour CLEO_ROOT / CLEO_PROJECT_ROOT env var — bypass walk entirely.
+  //    CLEO_PROJECT_ROOT is the agent-friendly alias (T090).
+  const envRoot = process.env['CLEO_ROOT'] ?? process.env['CLEO_PROJECT_ROOT'];
+  if (envRoot) {
+    return envRoot;
   }
 
   // 2. If CLEO_DIR is an absolute path, derive the project root from it.

@@ -78,6 +78,21 @@ const FIND_PARAMS: readonly ParamDef[] = [
     description: 'Skip first N results',
     cli: { flag: 'offset', parse: parseInt as (val: string) => unknown },
   },
+  {
+    name: 'fields',
+    type: 'string',
+    required: false,
+    description:
+      'Comma-separated additional fields to include (e.g. labels,acceptance,notes,description)',
+    cli: { flag: 'fields' },
+  },
+  {
+    name: 'verbose',
+    type: 'boolean',
+    required: false,
+    description: 'Include all task fields (same as cleo list output)',
+    cli: { flag: 'verbose', short: '-v' },
+  },
 ];
 
 /**
@@ -110,6 +125,8 @@ export function registerFindCommand(program: Command): void {
     if (opts['includeArchive'] !== undefined) params['includeArchive'] = opts['includeArchive'];
     if (limit !== undefined) params['limit'] = limit;
     if (offset !== undefined) params['offset'] = offset;
+    if (opts['fields'] !== undefined) params['fields'] = opts['fields'];
+    if (opts['verbose'] !== undefined) params['verbose'] = opts['verbose'];
 
     const response = await dispatchRaw('query', 'tasks', 'find', params);
 

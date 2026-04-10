@@ -63,6 +63,8 @@ export interface AddTaskResult {
   task: Task;
   duplicate?: boolean;
   dryRun?: boolean;
+  /** Non-blocking warnings emitted during validation. @task T089 */
+  warnings?: string[];
 }
 
 /**
@@ -276,6 +278,65 @@ export function validatePhaseFormat(phase: string): void {
 }
 
 /**
+ * Individual validation issue for all-at-once error reporting.
+ * Instead of throwing on the first validation failure, issues are collected
+ * and reported together so agents can fix all problems in a single retry.
+ * @task T089
+ */
+interface ValidationIssue {
+  /** The field that failed validation. */
+  field: string;
+  /** Human-readable error message. */
+  message: string;
+  /** Suggested fix command or instruction. */
+  fix?: string;
+}
+
+/**
+ * Throw a combined CleoError with all collected validation issues.
+ * Includes the original submitted params in the error details so agents
+ * can see which flags they provided and preserve them on retry.
+ * @task T089
+ */
+function throwCombinedValidationError(issues: ValidationIssue[], options: AddTaskOptions): never {
+  const summary =
+    issues.length === 1
+      ? issues[0].message
+      : `${issues.length} validation issues found:\n${issues.map((i, n) => `  ${n + 1}. ${i.message}`).join('\n')}`;
+
+  const fixes = issues.map((i) => i.fix).filter(Boolean) as string[];
+  const fixSummary =
+    fixes.length === 0
+      ? undefined
+      : fixes.length === 1
+        ? fixes[0]
+        : fixes.map((f, n) => `${n + 1}. ${f}`).join('\n');
+
+  // Include original params so agents can see what was submitted and preserve flags on retry.
+  // This prevents the common failure mode where agents drop --parent when retrying after AC errors.
+  const submittedParams: Record<string, unknown> = { title: options.title };
+  if (options.parentId) submittedParams.parent = options.parentId;
+  if (options.type) submittedParams.type = options.type;
+  if (options.priority) submittedParams.priority = options.priority;
+  if (options.size) submittedParams.size = options.size;
+  if (options.description) submittedParams.description = '(provided)';
+  if (options.acceptance?.length)
+    submittedParams.acceptance = `${options.acceptance.length} criteria`;
+  if (options.depends?.length) submittedParams.depends = options.depends;
+  if (options.phase) submittedParams.phase = options.phase;
+  if (options.labels?.length) submittedParams.labels = options.labels;
+
+  throw new CleoError(ExitCode.VALIDATION_ERROR, summary, {
+    fix: fixSummary,
+    details: {
+      field: issues.length === 1 ? issues[0].field : 'multiple',
+      issues,
+      submittedParams,
+    },
+  });
+}
+
+/**
  * Validate dependency IDs exist.
  * @task T4460
  */
@@ -470,27 +531,30 @@ export async function addTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<AddTaskResult> {
-  // Validate title
+  // Validate title (early-exit — can't proceed without a title)
   validateTitle(options.title);
+
+  // Skip session enforcement for dry-run — no data is written
+  if (!options.dryRun) {
+    await requireActiveSession('tasks.add', cwd);
+  }
+
+  // === Collect all validation issues before throwing (T089) ===
+  // This ensures agents see ALL problems in one response and only need one retry,
+  // preventing the common failure mode where agents drop flags like --parent.
+  const issues: ValidationIssue[] = [];
+  const warnings: string[] = [];
 
   // Anti-hallucination: title and description must be different (T5698)
   if (
     options.description &&
     options.title.trim().toLowerCase() === options.description.trim().toLowerCase()
   ) {
-    throw new CleoError(
-      ExitCode.VALIDATION_ERROR,
-      'Title and description must be different (anti-hallucination rule)',
-      {
-        fix: 'Provide --desc with a description different from the title',
-        details: { field: 'description' },
-      },
-    );
-  }
-
-  // Skip session enforcement for dry-run — no data is written
-  if (!options.dryRun) {
-    await requireActiveSession('tasks.add', cwd);
+    issues.push({
+      field: 'description',
+      message: 'Title and description must be different (anti-hallucination rule)',
+      fix: 'Provide --desc with a description different from the title',
+    });
   }
 
   // Orphan prevention (T101): non-epic tasks must have a parent in strict mode.
@@ -500,18 +564,16 @@ export async function addTask(
   if (!options.dryRun && !parentId && options.type !== 'epic') {
     const lifecycleMode = await getLifecycleMode(cwd);
     if (lifecycleMode === 'strict') {
-      throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId>, --type epic for a root-level epic, or set lifecycle.mode to "advisory".',
-        {
-          fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
-          alternatives: [
-            {
-              action: 'Create as epic',
-              command: 'cleo add "Epic title" --type epic --priority high',
-            },
-          ],
-        },
+      issues.push({
+        field: 'parentId',
+        message:
+          'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId>, --type epic for a root-level epic, or set lifecycle.mode to "advisory".',
+        fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
+      });
+    } else {
+      // Advisory mode: warn about parentless task creation (T089)
+      warnings.push(
+        'Task created without a parent. Use --parent <epicId> to assign to an epic hierarchy.',
       );
     }
   }
@@ -520,17 +582,44 @@ export async function addTask(
   const dataAccessor =
     accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
 
-  // Resolve defaults
+  // Resolve defaults — wrap normalizePriority to collect instead of throwing
   const status = options.status ?? 'pending';
-  const priority = normalizePriority(options.priority ?? 'medium');
+  let priority: TaskPriority;
+  try {
+    priority = normalizePriority(options.priority ?? 'medium');
+  } catch (err) {
+    if (err instanceof CleoError) {
+      issues.push({ field: 'priority', message: err.message, fix: err.fix });
+    }
+    priority = 'medium'; // fallback so subsequent AC checks use a valid priority
+  }
   const size = options.size ?? 'medium';
   let taskType = options.type;
 
-  // Validate inputs
-  validateStatus(status);
-  // priority is already normalized above
-  validateSize(size);
-  if (options.labels?.length) validateLabels(options.labels);
+  // Validate inputs — collect instead of throwing (T089)
+  try {
+    validateStatus(status);
+  } catch (err) {
+    if (err instanceof CleoError) {
+      issues.push({ field: 'status', message: err.message, fix: err.fix });
+    }
+  }
+  try {
+    validateSize(size);
+  } catch (err) {
+    if (err instanceof CleoError) {
+      issues.push({ field: 'size', message: err.message, fix: err.fix });
+    }
+  }
+  if (options.labels?.length) {
+    try {
+      validateLabels(options.labels);
+    } catch (err) {
+      if (err instanceof CleoError) {
+        issues.push({ field: 'labels', message: err.message, fix: err.fix });
+      }
+    }
+  }
 
   // Skip enforcement checks for dry-run — no data is written
   if (!options.dryRun) {
@@ -541,18 +630,31 @@ export async function addTask(
       priority: priority,
     });
     if (!acValidation.valid) {
-      throw new CleoError(acValidation.exitCode ?? ExitCode.VALIDATION_ERROR, acValidation.error!, {
+      issues.push({
+        field: 'acceptance',
+        message: acValidation.error!,
         fix: acValidation.fix,
       });
     }
 
     // Epic-specific creation enforcement (T062): min 5 AC + non-empty description.
     if (options.type === 'epic') {
-      await validateEpicCreation(
-        { acceptance: options.acceptance, description: options.description },
-        cwd,
-      );
+      try {
+        await validateEpicCreation(
+          { acceptance: options.acceptance, description: options.description },
+          cwd,
+        );
+      } catch (err) {
+        if (err instanceof CleoError) {
+          issues.push({ field: 'epic', message: err.message, fix: err.fix });
+        }
+      }
     }
+  }
+
+  // === Throw combined error if any pre-creation issues found (T089) ===
+  if (issues.length > 0) {
+    throwCombinedValidationError(issues, options);
   }
 
   // Validate dependency IDs exist using targeted queries
@@ -936,5 +1038,5 @@ export async function addTask(
     });
   });
 
-  return { task };
+  return { task, ...(warnings.length > 0 && { warnings }) };
 }
