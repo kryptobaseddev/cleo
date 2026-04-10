@@ -4,7 +4,7 @@ version: "2.1.0"
 status: "approved"
 created: "2026-02-03"
 updated: "2026-03-24"
-epic: "T2975"
+epic: "T158"
 task: "T169"
 authors: ["Claude Sonnet 4.5", "CLEO Development Team"]
 ---
