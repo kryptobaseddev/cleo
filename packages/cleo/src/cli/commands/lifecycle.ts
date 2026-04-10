@@ -120,4 +120,77 @@ export function registerLifecycleCommand(program: Command): void {
         { command: 'lifecycle' },
       );
     });
+
+  lifecycle
+    .command('history <taskId>')
+    .description('Show full lifecycle stage history for a task or epic')
+    .action(async (taskId: string) => {
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'stage.history',
+        { taskId },
+        { command: 'lifecycle' },
+      );
+    });
+
+  lifecycle
+    .command('reset <epicId> <stage>')
+    .description('Reset a lifecycle stage back to pending')
+    .requiredOption('--reason <reason>', 'Reason for resetting the stage')
+    .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'stage.reset',
+        {
+          taskId: epicId,
+          stage,
+          reason: opts['reason'],
+        },
+        { command: 'lifecycle' },
+      );
+    });
+
+  const gate = lifecycle
+    .command('gate-record')
+    .description('Record a gate pass or fail for a lifecycle stage');
+
+  gate
+    .command('pass <epicId> <gateName>')
+    .description('Record a gate as passed for a lifecycle stage')
+    .option('--agent <agent>', 'Agent that performed the gate check')
+    .option('--notes <notes>', 'Notes on gate outcome')
+    .action(async (epicId: string, gateName: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'stage.gate.pass',
+        {
+          taskId: epicId,
+          gateName,
+          agent: opts['agent'],
+          notes: opts['notes'],
+        },
+        { command: 'lifecycle' },
+      );
+    });
+
+  gate
+    .command('fail <epicId> <gateName>')
+    .description('Record a gate as failed for a lifecycle stage')
+    .option('--reason <reason>', 'Reason the gate failed')
+    .action(async (epicId: string, gateName: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'stage.gate.fail',
+        {
+          taskId: epicId,
+          gateName,
+          reason: opts['reason'],
+        },
+        { command: 'lifecycle' },
+      );
+    });
 }

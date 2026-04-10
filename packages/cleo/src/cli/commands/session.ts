@@ -208,6 +208,78 @@ export function registerSessionCommand(program: Command): void {
     });
 
   session
+    .command('show <sessionId>')
+    .description('Show full details for a session (absorbs debrief.show via --include debrief)')
+    .option('--include <include>', 'Include extra data (debrief)')
+    .action(async (sessionId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'session',
+        'show',
+        {
+          sessionId,
+          include: opts['include'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.show' },
+      );
+    });
+
+  session
+    .command('context-drift')
+    .description('Detect context drift in the current or specified session')
+    .option('--session-id <sessionId>', 'Session ID to check (defaults to active session)')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'session',
+        'context.drift',
+        {
+          sessionId: opts['sessionId'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.context.drift' },
+      );
+    });
+
+  session
+    .command('suspend <sessionId>')
+    .description('Suspend an active session (pause without ending)')
+    .option('--reason <reason>', 'Reason for suspension')
+    .action(async (sessionId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'suspend',
+        {
+          sessionId,
+          reason: opts['reason'] as string | undefined,
+        },
+        { command: 'session', operation: 'session.suspend' },
+      );
+    });
+
+  session
+    .command('record-assumption')
+    .description('Record an assumption made during the current session')
+    .requiredOption('--assumption <assumption>', 'Assumption text')
+    .requiredOption('--confidence <confidence>', 'Confidence level (high|medium|low)')
+    .option('--session-id <sessionId>', 'Session ID (defaults to active session)')
+    .option('--task-id <taskId>', 'Task ID the assumption relates to')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'session',
+        'record.assumption',
+        {
+          sessionId: opts['sessionId'] as string | undefined,
+          taskId: opts['taskId'] as string | undefined,
+          assumption: opts['assumption'] as string,
+          confidence: opts['confidence'] as string,
+        },
+        { command: 'session', operation: 'session.record.assumption' },
+      );
+    });
+
+  session
     .command('record-decision')
     .description('Record a decision made during the current session')
     .requiredOption('--session-id <sessionId>', 'Session ID')

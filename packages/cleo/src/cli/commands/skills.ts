@@ -184,6 +184,94 @@ export function registerSkillsCommand(program: Command): void {
       );
     });
 
+  // Subcommand: dispatch
+  skillsCmd
+    .command('dispatch <skill-name>')
+    .description('Resolve dispatch path for a skill')
+    .action(async (skillName: string) => {
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'skill.dispatch',
+        { name: skillName },
+        { command: 'skills', operation: 'tools.skill.dispatch' },
+      );
+    });
+
+  // Subcommand: catalog
+  skillsCmd
+    .command('catalog')
+    .description('Browse CAAMP skill catalog (protocols, profiles, resources, info)')
+    .option('--type <type>', 'Catalog type: protocols, profiles, resources, info (default: info)')
+    .option('--limit <n>', 'Maximum items to return')
+    .option('--offset <n>', 'Offset for pagination')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'skill.catalog',
+        {
+          type: opts['type'] ?? 'info',
+          limit: opts['limit'] ? Number(opts['limit']) : undefined,
+          offset: opts['offset'] ? Number(opts['offset']) : undefined,
+        },
+        { command: 'skills', operation: 'tools.skill.catalog' },
+      );
+    });
+
+  // Subcommand: precedence
+  skillsCmd
+    .command('precedence')
+    .description('Show or resolve skill provider precedence')
+    .option('--resolve <provider-id>', 'Resolve precedence for a specific provider')
+    .option('--scope <scope>', 'Scope: global or project (default: global)')
+    .action(async (opts: Record<string, unknown>) => {
+      const providerId = opts['resolve'] as string | undefined;
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'skill.precedence',
+        {
+          action: providerId ? 'resolve' : 'show',
+          providerId,
+          scope: opts['scope'] ?? 'global',
+        },
+        { command: 'skills', operation: 'tools.skill.precedence' },
+      );
+    });
+
+  // Subcommand: dependencies
+  skillsCmd
+    .command('deps <skill-name>')
+    .description('Show skill dependency tree')
+    .action(async (skillName: string) => {
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'skill.dependencies',
+        { name: skillName },
+        { command: 'skills', operation: 'tools.skill.dependencies' },
+      );
+    });
+
+  // Subcommand: spawn-providers
+  skillsCmd
+    .command('spawn-providers')
+    .description('List providers capable of spawning subagents')
+    .option(
+      '--capability <cap>',
+      'Filter by capability: supportsSubagents, supportsProgrammaticSpawn, supportsInterAgentComms, supportsParallelSpawn',
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'tools',
+        'skill.spawn.providers',
+        { capability: opts['capability'] },
+        { command: 'skills', operation: 'tools.skill.spawn.providers' },
+      );
+    });
+
   // Default action (no subcommand) - list
   skillsCmd.action(async () => {
     await dispatchFromCli(

@@ -225,4 +225,203 @@ export function registerMemoryBrainCommand(program: Command): void {
         { command: 'memory', operation: 'memory.fetch' },
       );
     });
+
+  // -- decision find --
+  memory
+    .command('decision find [query]')
+    .description('Search decisions stored in brain.db')
+    .option('--limit <n>', 'Maximum results', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (query: string | undefined, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'decision.find',
+        {
+          query: query ?? '',
+          limit: opts['limit'],
+        },
+        { command: 'memory', operation: 'memory.decision.find' },
+      );
+    });
+
+  // -- decision store --
+  memory
+    .command('decision store')
+    .description('Store a decision to brain.db')
+    .requiredOption('--decision <text>', 'The decision that was made')
+    .requiredOption('--rationale <text>', 'Rationale behind the decision')
+    .option('--alternatives <text>', 'Alternatives that were considered')
+    .option('--linked-task <id>', 'Task ID to associate with this decision')
+    .option('--json', 'Output as JSON')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'decision.store',
+        {
+          decision: opts['decision'],
+          rationale: opts['rationale'],
+          ...(opts['alternatives'] !== undefined && { alternatives: opts['alternatives'] }),
+          ...(opts['linkedTask'] !== undefined && { taskId: opts['linkedTask'] }),
+        },
+        { command: 'memory', operation: 'memory.decision.store' },
+      );
+    });
+
+  // -- link (link a brain entry to a task) --
+  memory
+    .command('link <taskId> <entryId>')
+    .description('Link a brain entry to a task')
+    .option('--json', 'Output as JSON')
+    .action(async (taskId: string, entryId: string, _opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'link',
+        { taskId, entryId },
+        { command: 'memory', operation: 'memory.link' },
+      );
+    });
+
+  // -- graph show --
+  memory
+    .command('graph show <nodeId>')
+    .description('Get a PageIndex graph node and its edges')
+    .option('--json', 'Output as JSON')
+    .action(async (nodeId: string, _opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.show',
+        { nodeId },
+        { command: 'memory', operation: 'memory.graph.show' },
+      );
+    });
+
+  // -- graph neighbors --
+  memory
+    .command('graph neighbors <nodeId>')
+    .description('Get neighbor nodes from the PageIndex graph')
+    .option('--depth <n>', 'Traversal depth', parseInt)
+    .option('--limit <n>', 'Maximum neighbors', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (nodeId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.neighbors',
+        {
+          nodeId,
+          ...(opts['depth'] !== undefined && { depth: opts['depth'] }),
+          ...(opts['limit'] !== undefined && { limit: opts['limit'] }),
+        },
+        { command: 'memory', operation: 'memory.graph.neighbors' },
+      );
+    });
+
+  // -- graph add --
+  memory
+    .command('graph add')
+    .description('Add a node or edge to the PageIndex graph')
+    .option('--node-id <id>', 'Node ID to add')
+    .option('--label <text>', 'Label for the node')
+    .option('--from <id>', 'Source node ID for an edge')
+    .option('--to <id>', 'Target node ID for an edge')
+    .option('--edge-type <type>', 'Edge relationship type')
+    .option('--json', 'Output as JSON')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'graph.add',
+        {
+          ...(opts['nodeId'] !== undefined && { nodeId: opts['nodeId'] }),
+          ...(opts['label'] !== undefined && { label: opts['label'] }),
+          ...(opts['from'] !== undefined && { from: opts['from'] }),
+          ...(opts['to'] !== undefined && { to: opts['to'] }),
+          ...(opts['edgeType'] !== undefined && { edgeType: opts['edgeType'] }),
+        },
+        { command: 'memory', operation: 'memory.graph.add' },
+      );
+    });
+
+  // -- graph remove --
+  memory
+    .command('graph remove')
+    .description('Remove a node or edge from the PageIndex graph')
+    .option('--node-id <id>', 'Node ID to remove')
+    .option('--from <id>', 'Source node ID of the edge to remove')
+    .option('--to <id>', 'Target node ID of the edge to remove')
+    .option('--json', 'Output as JSON')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'graph.remove',
+        {
+          ...(opts['nodeId'] !== undefined && { nodeId: opts['nodeId'] }),
+          ...(opts['from'] !== undefined && { from: opts['from'] }),
+          ...(opts['to'] !== undefined && { to: opts['to'] }),
+        },
+        { command: 'memory', operation: 'memory.graph.remove' },
+      );
+    });
+
+  // -- reason why (causal trace through task dependency chains) --
+  memory
+    .command('reason why <taskId>')
+    .description('Causal trace through task dependency chains')
+    .option('--depth <n>', 'Maximum trace depth', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (taskId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'reason.why',
+        {
+          taskId,
+          ...(opts['depth'] !== undefined && { depth: opts['depth'] }),
+        },
+        { command: 'memory', operation: 'memory.reason.why' },
+      );
+    });
+
+  // -- reason similar (find semantically similar brain entries) --
+  memory
+    .command('reason similar <entryId>')
+    .description('Find semantically similar brain entries')
+    .option('--limit <n>', 'Maximum results', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (entryId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'reason.similar',
+        {
+          entryId,
+          ...(opts['limit'] !== undefined && { limit: opts['limit'] }),
+        },
+        { command: 'memory', operation: 'memory.reason.similar' },
+      );
+    });
+
+  // -- search hybrid (hybrid search across FTS5, vector, and graph) --
+  memory
+    .command('search hybrid <query>')
+    .description('Hybrid search across FTS5, vector, and graph indexes')
+    .option('--limit <n>', 'Maximum results', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (query: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'search.hybrid',
+        {
+          query,
+          ...(opts['limit'] !== undefined && { limit: opts['limit'] }),
+        },
+        { command: 'memory', operation: 'memory.search.hybrid' },
+      );
+    });
 }

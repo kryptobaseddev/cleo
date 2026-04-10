@@ -101,4 +101,34 @@ export function registerReleaseCommand(program: Command): void {
         { command: 'release' },
       );
     });
+
+  release
+    .command('rollback <version>')
+    .description('Roll back a shipped release (marks it as rolled-back in CLEO records)')
+    .option('--reason <reason>', 'Reason for rollback')
+    .action(async (version: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'release.rollback',
+        {
+          version,
+          reason: opts['reason'],
+        },
+        { command: 'release' },
+      );
+    });
+
+  release
+    .command('channel')
+    .description('Show the current release channel based on git branch (latest/beta/alpha)')
+    .action(async () => {
+      await dispatchFromCli(
+        'query',
+        'pipeline',
+        'release.channel.show',
+        {},
+        { command: 'release' },
+      );
+    });
 }

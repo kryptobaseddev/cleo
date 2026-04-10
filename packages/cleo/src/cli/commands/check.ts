@@ -5,6 +5,8 @@
  * - `cleo check schema <type>` — schema validation
  * - `cleo check coherence` — coherence check across task data
  * - `cleo check task <taskId>` — generic task validation
+ * - `cleo check output <filePath>` — validate an agent output file
+ * - `cleo check chain-validate <file>` — validate a WarpChain definition
  * - `cleo check protocol <protocolType>` — RFC 2119 protocol validation for
  *   any of the 12 supported protocols (research, consensus,
  *   architecture-decision, specification, decomposition, implementation,
@@ -15,6 +17,7 @@
  *
  * @task T132
  * @task T260 — generic protocol subcommand exposing all 12 protocols
+ * @task T476 — output and chain-validate subcommands
  */
 
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -64,6 +67,45 @@ export function registerCheckCommand(program: Command): void {
     .description('Validate a specific task')
     .action(async (taskId: string) => {
       await dispatchFromCli('query', 'check', 'task', { taskId }, { command: 'check' });
+    });
+
+  check
+    .command('output <filePath>')
+    .description('Validate an agent output file against the manifest schema')
+    .option('--task-id <id>', 'Task ID the output file belongs to')
+    .action(async (filePath: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'check',
+        'output',
+        {
+          filePath,
+          taskId: opts['taskId'] as string | undefined,
+        },
+        { command: 'check', operation: 'check.output' },
+      );
+    });
+
+  check
+    .command('chain-validate <file>')
+    .description('Validate a WarpChain definition from a JSON file')
+    .action(async (file: string) => {
+      const { readFileSync } = await import('node:fs');
+      let chain: unknown;
+      try {
+        chain = JSON.parse(readFileSync(file, 'utf8'));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Failed to read or parse chain file: ${message}`);
+        process.exit(2);
+      }
+      await dispatchFromCli(
+        'query',
+        'check',
+        'chain.validate',
+        { chain },
+        { command: 'check', operation: 'check.chain.validate' },
+      );
     });
 
   check

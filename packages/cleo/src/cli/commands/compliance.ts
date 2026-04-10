@@ -1,6 +1,7 @@
 /**
  * CLI compliance command group.
  * @task T4535
+ * @task T476 — compliance record subcommand
  * @epic T4454
  */
 
@@ -131,6 +132,44 @@ export function registerComplianceCommand(program: Command): void {
           days: days ? Number(days) : 7,
         },
         { command: 'compliance' },
+      );
+    });
+
+  compliance
+    .command('record <taskId> <result>')
+    .description('Record a compliance check result for a task (pass|fail|warning)')
+    .option('--protocol <name>', 'Protocol name the check applies to (e.g. implementation)')
+    .option(
+      '--violation <spec>',
+      'Add a violation as "code:severity:message" (repeatable)',
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
+    .action(async (taskId: string, result: string, opts: Record<string, unknown>) => {
+      const rawViolations = opts['violation'] as string[];
+      const violations = rawViolations
+        .map((v) => {
+          const [code, severity, ...rest] = v.split(':');
+          return {
+            code: code ?? '',
+            severity: (severity === 'error' || severity === 'warning' ? severity : 'error') as
+              | 'error'
+              | 'warning',
+            message: rest.join(':'),
+          };
+        })
+        .filter((v) => v.code);
+      await dispatchFromCli(
+        'mutate',
+        'check',
+        'compliance.record',
+        {
+          taskId,
+          result,
+          protocol: opts['protocol'] as string | undefined,
+          violations: violations.length > 0 ? violations : undefined,
+        },
+        { command: 'compliance', operation: 'check.compliance.record' },
       );
     });
 }

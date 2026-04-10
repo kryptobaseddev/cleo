@@ -2,9 +2,12 @@
  * CLI admin command group — dispatches to the admin domain.
  *
  * Provides CLI access to admin.version, admin.health, admin.stats,
- * admin.runtime, admin.smoke via `cleo admin <subcommand>`.
+ * admin.runtime, admin.smoke, admin.paths, admin.scaffold-hub,
+ * admin.cleanup, admin.job, admin.job.cancel, admin.install.global,
+ * and admin.context.inject via `cleo admin <subcommand>`.
  *
  * @task T132
+ * @task T480 — add cleanup, job, job.cancel, install.global, context.inject subcommands.
  */
 
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -84,5 +87,131 @@ export function registerAdminCommand(program: Command): void {
     )
     .action(async () => {
       await dispatchFromCli('mutate', 'admin', 'scaffold-hub', {}, { command: 'admin' });
+    });
+
+  // ---------------------------------------------------------------------------
+  // cleanup — wraps mutate admin cleanup (T480)
+  // ---------------------------------------------------------------------------
+
+  admin
+    .command('cleanup')
+    .description('Purge stale CLEO data (backups, logs, archive entries)')
+    .requiredOption('--target <target>', 'What to clean: backups | logs | archive | sessions')
+    .option('--older-than <age>', 'Remove entries older than this duration (e.g. 30d, 6m, 1y)')
+    .option('--dry-run', 'Preview what would be removed without making changes')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'cleanup',
+        {
+          target: opts['target'] as string,
+          olderThan: opts['olderThan'] as string | undefined,
+          dryRun: opts['dryRun'] === true,
+        },
+        { command: 'admin cleanup', operation: 'admin.cleanup' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // job — wraps query admin job (list / status) (T480)
+  // ---------------------------------------------------------------------------
+
+  const job = admin
+    .command('job')
+    .description('Inspect background jobs managed by the job manager');
+
+  job
+    .command('list', { isDefault: true })
+    .description('List all background jobs (default)')
+    .option('--status <status>', 'Filter by job status (pending, running, done, failed, cancelled)')
+    .option('--limit <n>', 'Maximum jobs to return', '20')
+    .option('--offset <n>', 'Skip N jobs', '0')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'job',
+        {
+          action: 'list',
+          status: opts['status'] as string | undefined,
+          limit: opts['limit'] ? Number(opts['limit']) : 20,
+          offset: opts['offset'] ? Number(opts['offset']) : 0,
+        },
+        { command: 'admin job list', operation: 'admin.job' },
+      );
+    });
+
+  job
+    .command('status <jobId>')
+    .description('Show status of a specific background job')
+    .action(async (jobId: string) => {
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'job',
+        { action: 'status', jobId },
+        { command: 'admin job status', operation: 'admin.job' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // job cancel — wraps mutate admin job.cancel (T480)
+  // ---------------------------------------------------------------------------
+
+  job
+    .command('cancel <jobId>')
+    .description('Cancel a running background job')
+    .action(async (jobId: string) => {
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'job.cancel',
+        { jobId },
+        { command: 'admin job cancel', operation: 'admin.job.cancel' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // install-global — wraps mutate admin install.global (T480)
+  // ---------------------------------------------------------------------------
+
+  admin
+    .command('install-global')
+    .description('Refresh global CLEO setup (provider files, configs, ~/.agents/AGENTS.md)')
+    .action(async () => {
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'install.global',
+        {},
+        { command: 'admin install-global', operation: 'admin.install.global' },
+      );
+    });
+
+  // ---------------------------------------------------------------------------
+  // context-inject — wraps mutate admin context.inject (T480)
+  // Agent-facing but exposed via CLI for testing and manual use.
+  // ---------------------------------------------------------------------------
+
+  admin
+    .command('context-inject <protocolType>')
+    .description(
+      'Inject protocol content into session context (e.g. cleo-base, ct-orchestrator, ct-cleo)',
+    )
+    .option('--task <id>', 'Scope injection to a specific task ID')
+    .option('--variant <variant>', 'Select a named protocol variant')
+    .action(async (protocolType: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'admin',
+        'context.inject',
+        {
+          protocolType,
+          taskId: opts['task'] as string | undefined,
+          variant: opts['variant'] as string | undefined,
+        },
+        { command: 'admin context-inject', operation: 'admin.context.inject' },
+      );
     });
 }

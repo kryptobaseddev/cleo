@@ -2,10 +2,15 @@
  * CLI sequence command - task ID sequence management.
  * @task T4538
  * @epic T4454
+ * @task T480 — fix sequence repair: route to systemSequenceRepair instead of
+ *              misrouted config.set (admin.sequence mutate was removed in T5615
+ *              but no correct CLI path remained).
  */
 
+import { getProjectRoot } from '@cleocode/core/internal';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerSequenceCommand(program: Command): void {
   const sequence = program
@@ -42,12 +47,11 @@ export function registerSequenceCommand(program: Command): void {
     .command('repair')
     .description('Reset counter to max + 1 if behind')
     .action(async () => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'config.set',
-        { key: 'sequence', value: 'repair' },
-        { command: 'sequence' },
-      );
+      // admin.sequence (mutate) was removed in T5615 with no CLI path retained.
+      // Call the engine function directly, mirroring the detect command pattern.
+      const { systemSequenceRepair } = await import('../../dispatch/engines/system-engine.js');
+      const projectRoot = getProjectRoot();
+      const result = await systemSequenceRepair(projectRoot);
+      cliOutput(result, { command: 'sequence', operation: 'admin.sequence.repair' });
     });
 }

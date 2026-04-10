@@ -4,7 +4,7 @@
  * Thin CLI wrappers routing through the dispatch layer.
  * All business logic lives in src/dispatch/domains/nexus.ts.
  *
- * @task T4554, T5323, T5330
+ * @task T4554, T5323, T5330, T481
  * @epic T4545
  */
 
@@ -86,16 +86,33 @@ export function registerNexusCommand(program: Command): void {
   // ── nexus show ─────────────────────────────────────────────────────
 
   nexus
-    .command('show <taskId>')
+    .command('show <name>')
+    .description('Show details for a registered project by name')
+    .action(async (name: string) => {
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'show',
+        {
+          name,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  // ── nexus resolve ───────────────────────────────────────────────────
+
+  nexus
+    .command('resolve <taskRef>')
     .alias('query')
-    .description('Show a task across projects (project:T### or T###)')
-    .action(async (taskId: string) => {
+    .description('Resolve a task reference across projects (project:T### or T###)')
+    .action(async (taskRef: string) => {
       await dispatchFromCli(
         'query',
         'nexus',
         'resolve',
         {
-          query: taskId,
+          query: taskRef,
         },
         { command: 'nexus' },
       );
@@ -233,6 +250,135 @@ export function registerNexusCommand(program: Command): void {
         'reconcile',
         {
           projectRoot: opts['path'] as string | undefined,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  // ── nexus graph ───────────────────────────────────────────────────
+
+  nexus
+    .command('graph')
+    .description('Show full dependency graph across all registered projects')
+    .action(async () => {
+      await dispatchFromCli('query', 'nexus', 'graph', {}, { command: 'nexus' });
+    });
+
+  // ── nexus share-status ────────────────────────────────────────────
+
+  nexus
+    .command('share-status')
+    .description('Show multi-contributor sharing status for the current project')
+    .action(async () => {
+      await dispatchFromCli('query', 'nexus', 'share.status', {}, { command: 'nexus' });
+    });
+
+  // ── nexus transfer-preview ────────────────────────────────────────
+
+  nexus
+    .command('transfer-preview <taskIds...>')
+    .description('Preview a task transfer between projects (dry-run, no changes made)')
+    .requiredOption('--from <project>', 'Source project name')
+    .requiredOption('--to <project>', 'Target project name')
+    .option('--mode <mode>', 'Transfer mode: copy|move', 'copy')
+    .option('--scope <scope>', 'Transfer scope: single|subtree', 'subtree')
+    .action(async (taskIds: string[], opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'nexus',
+        'transfer.preview',
+        {
+          taskIds,
+          sourceProject: opts['from'] as string,
+          targetProject: opts['to'] as string,
+          mode: opts['mode'] as string,
+          scope: opts['scope'] as string,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  // ── nexus transfer ────────────────────────────────────────────────
+
+  nexus
+    .command('transfer <taskIds...>')
+    .description('Transfer tasks from one project to another')
+    .requiredOption('--from <project>', 'Source project name')
+    .requiredOption('--to <project>', 'Target project name')
+    .option('--mode <mode>', 'Transfer mode: copy|move', 'copy')
+    .option('--scope <scope>', 'Transfer scope: single|subtree', 'subtree')
+    .option('--on-conflict <strategy>', 'Conflict strategy: rename|skip|duplicate|fail', 'rename')
+    .option('--transfer-brain', 'Also transfer associated brain memory entries', false)
+    .action(async (taskIds: string[], opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'transfer',
+        {
+          taskIds,
+          sourceProject: opts['from'] as string,
+          targetProject: opts['to'] as string,
+          mode: opts['mode'] as string,
+          scope: opts['scope'] as string,
+          onConflict: opts['onConflict'] as string,
+          transferBrain: opts['transferBrain'] as boolean,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  // ── nexus permission ──────────────────────────────────────────────
+
+  const permission = nexus
+    .command('permission')
+    .description('Manage permissions for registered projects');
+
+  permission
+    .command('set <name> <level>')
+    .description('Set permission level for a registered project (read|write|execute)')
+    .action(async (name: string, level: string) => {
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'permission.set',
+        {
+          name,
+          level,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  // ── nexus share ───────────────────────────────────────────────────
+
+  const share = nexus.command('share').description('Multi-contributor sharing operations');
+
+  share
+    .command('export')
+    .description('Export a snapshot of current project state for sharing')
+    .option('--output <path>', 'Output file path (default: auto-generated in current directory)')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'share.snapshot.export',
+        {
+          outputPath: opts['output'] as string | undefined,
+        },
+        { command: 'nexus' },
+      );
+    });
+
+  share
+    .command('import <file>')
+    .description('Import a shared project snapshot')
+    .action(async (file: string) => {
+      await dispatchFromCli(
+        'mutate',
+        'nexus',
+        'share.snapshot.import',
+        {
+          inputPath: file,
         },
         { command: 'nexus' },
       );
