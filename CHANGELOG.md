@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.24] — 2026-04-10 — CLI system integrity: conduit fold, dispatch fixes, MCP purge
+
+### Changed — Conduit domain folded into orchestrate (ADR-042)
+
+Per ADR-042, the `conduit` domain (5 tier-2 operations) has been folded
+into the `orchestrate` domain as `orchestrate.conduit.*` sub-namespace.
+This restores the 10-domain constitutional invariant. Conduit is a relay
+path overlay, not a runtime domain boundary (per System Flow Atlas).
+
+- `conduit.status` → `orchestrate.conduit.status`
+- `conduit.peek` → `orchestrate.conduit.peek`
+- `conduit.start` → `orchestrate.conduit.start`
+- `conduit.stop` → `orchestrate.conduit.stop`
+- `conduit.send` → `orchestrate.conduit.send`
+- `CANONICAL_DOMAINS` restored to 10 entries
+- `ConduitHandler` routes through `OrchestrateHandler`
+
+### Fixed — 5 broken CLI routes (runtime failures)
+
+Five commands dispatched to operations removed in T5615 rationalization:
+
+- `cleo promote` → now dispatches `tasks.reparent` (was `tasks.promote`)
+- `cleo labels show` → now dispatches `tasks.label.list` (was `tasks.label.show`)
+- `cleo skills enable` → now dispatches `tools.skill.install` (was `tools.skill.enable`)
+- `cleo skills disable` → now dispatches `tools.skill.uninstall` (was `tools.skill.disable`)
+- `cleo skills configure` → removed (was `tools.skill.configure`, a stub)
+
+### Fixed — observe.ts dispatch bypass
+
+`cleo observe` called `observeBrain()` from core directly, bypassing the
+dispatch layer (middleware, rate limiting, audit logging). Now routes
+through `dispatchFromCli('mutate', 'memory', 'observe', ...)` consistent
+with `cleo memory observe`.
+
+### Changed — Documentation MCP purge (6 spec files)
+
+Removed all MCP references from canonical documentation. CLEO is CLI-only:
+
+- `CLEO-OPERATION-CONSTITUTION.md` — 14 edits: MCP tools→dispatch gateways
+- `CLEO-SYSTEM-FLOW-ATLAS.md` — Section 7-9 rewritten for CLI dispatch
+- `CORE-PACKAGE-SPEC.md` — coreMcp removed, signaldock→conduit, napi-rs
+- `CLEO-BRAIN-SPECIFICATION.md` — captureMcp vestigial field, conduit.db
+- `PORTABLE-BRAIN-SPEC.md` — MCP interface section→dispatch architecture
+- `CLEOCODE-ECOSYSTEM-PLAN.md` — WASM→napi-rs, 4→16 crates, 8→11 packages
+
+### Added — CLI System Audit artifacts
+
+- `ADR-042`: Conduit domain disposition + 22 undocumented ops classification
+- CLI coverage spec: 84 uncovered ops classified (34 needs-cli, 23 agent-only, 27 deferred)
+- Wave plan: 4-wave implementation roadmap for remaining integrity work
+
 ## [2026.4.23] — 2026-04-10 — Contracts type safety + docs cleanup
 
 ### Fixed — Inline type duplicates removed from dispatch engine
