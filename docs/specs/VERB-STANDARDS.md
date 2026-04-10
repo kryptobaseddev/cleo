@@ -1,6 +1,6 @@
 # CLEO Verb Standards
 
-**Version**: 2026.3.4
+**Version**: 2026.4.18
 **Status**: MANDATORY
 **Scope**: All CLEO CLI commands and registry-defined dispatch operations
 
@@ -63,6 +63,18 @@ Both are CLI subcommands — there is no second protocol surface. These are two 
 ### 1j. sticky domain restrictions
 Sticky notes do NOT support `update`, `delete`, or `restore`. Use `convert` to promote to task or memory. Use `archive` for soft removal.
 
+### 1k. attach/detach vs. link/unlink
+- `link` / `unlink` — generic relationship association between entities of the same kind (task-to-task dependencies, memory links). Remains canonical for generic association.
+- `attach` / `detach` — domain-specific binding of an agent to a project via `conduit.db:project_agent_refs` (ADR-037 §3). Semantically distinct: "attach an agent to this project" is a scoped binding operation, not a generic entity association. Chosen by owner decision in T310 consensus Q6.
+- RULE: use `link`/`unlink` for generic entity relationships. Use `attach`/`detach` ONLY for agent-to-project binding in the `admin` domain.
+
+### 1l. export/import vs. backup/restore
+- `backup` / `restore` — local snapshot and recovery of individual databases via VACUUM INTO (v2026.4.10+). Operates on raw `.db` files at project or global tier.
+- `export` / `import` — portable cross-machine bundle creation and restoration via `.cleobundle.tar.gz` (v2026.4.13+, T311). Includes manifest, checksums, A/B regenerate-and-compare for JSON files.
+- `inspect` — read-only examination of a bundle's manifest without extracting or modifying anything.
+- `finalize` — apply pending manual resolutions from a prior `import` operation's conflict report (`.cleo/restore-conflicts.md`).
+- RULE: use `backup`/`restore` for local snapshots. Use `export`/`import`/`inspect`/`finalize` for the portable bundle lifecycle.
+
 ---
 
 ## 2. Canonical Verb Matrix
@@ -113,7 +125,12 @@ Sticky notes do NOT support `update`, `delete`, or `restore`. Use `convert` to p
 | `cancel` | `abort`, `kill` | Cancel task (soft terminal state — reversible via restore) | Enforced |
 | `repair` | `fix`, `heal`, `correct` | Data integrity repair | Reserved |
 | `resolve` | `settle`, `merge` (conflicts) | Resolve conflicts | Reserved |
-| `inspect` | `diagnose`, `debug`, `examine` | Examine internal state | Reserved |
+| `inspect` | `diagnose`, `debug`, `examine` | Examine internal state without modification | Enforced |
+| `export` | `dump`, `extract` | Package data for portable transfer | Enforced |
+| `import` | `ingest`, `load` (for backup restore) | Restore packaged data from portable bundle | Enforced |
+| `finalize` | `commit`, `apply` (for deferred resolutions) | Apply pending resolutions from a prior operation | Enforced |
+| `attach` | — | Bind an agent to a project (domain-specific; see §5) | Enforced |
+| `detach` | — | Unbind an agent from a project (domain-specific; see §5) | Enforced |
 
 **Deprecated — MUST NOT appear in new operation names**: `create`, `get`, `search`, `query` (as verb), `configure` (standalone)
 
@@ -153,7 +170,7 @@ All commits referencing a new operation must use the canonical verb in the task 
 | `cancel` | `tasks` | `tasks.cancel` not in registry; `admin.job.cancel` is a different concept |
 | `repair` | `admin` | Awaiting `admin.repair` implementation |
 | `resolve` | `tools.issue` | Awaiting `tools.issue.resolve` implementation |
-| `inspect` | `admin` | Not in Constitution domain tables |
+| `inspect` | `admin` | Promoted to Enforced in v2026.4.13 for `cleo backup inspect` |
 
 ### Deferred (Pending Design Decision)
 | Verb | Context | Status |
@@ -176,7 +193,7 @@ All commits referencing a new operation must use the canonical verb in the task 
 | `resolve` | Not in registry or Constitution §4. Moved to Reserved. | 2026.3.3 |
 | `schedule` | Not in registry or Constitution §4. Moved to Reserved. | 2026.3.3 |
 | `cancel` | Promoted to Enforced — `tasks.cancel` now wired. `admin.job.cancel` remains a distinct concept. | 2026.3.4 |
-| `inspect` | Not in Constitution domain tables. Moved to Reserved. | 2026.3.3 |
+| `inspect` | Promoted to Enforced for `cleo backup inspect` (T311, v2026.4.13). | 2026.4.13 |
 
 ---
 
@@ -189,6 +206,12 @@ These are live operations in the registry that use non-canonical verbs for legac
 | `nexus.query` | `query` (deprecated as verb) | Legacy operation distinct from `nexus.show` — resolves cross-project `project:taskId` queries | Legacy exception; both `nexus.show` and `nexus.query` exist as separate operations |
 | `admin.fix` | `fix` (replaced by `repair`) | Auto-fix for doctor checks; `admin.repair` not yet implemented | Pending rename when `repair` is promoted from Reserved |
 | `orchestrate.bootstrap` | `bootstrap` (replaced by `init`) | Orchestration bootstrap info query; `orchestrate.init` conflicts semantically | Pending rename decision |
+| `cleo agent attach` | `attach` (canonical is `link`) | Domain-specific: binds a global agent to a project via `conduit.db:project_agent_refs` (ADR-037 §3). `link` is too generic — "attach an agent to this project" is a scoped binding, not a relationship. Owner decision in T310 consensus Q6. | Permanent exception (v2026.4.12+) |
+| `cleo agent detach` | `detach` (canonical is `unlink`) | Inverse of `attach`. Sets `enabled=0` on `project_agent_refs` without deleting the row (audit trail preserved per ADR-037 §6). | Permanent exception (v2026.4.12+) |
+| `cleo backup export` | `export` (new verb) | Portable cross-machine bundle creation via `.cleobundle.tar.gz` (T311). Distinct from `backup` which creates local VACUUM INTO snapshots. | New verb (v2026.4.13+) |
+| `cleo backup import` | `import` (new verb) | Portable bundle restoration with A/B regenerate-and-compare for JSON files (T311). Distinct from `restore` which recovers individual local snapshots. | New verb (v2026.4.13+) |
+| `cleo backup inspect` | `inspect` (promoted from Reserved) | Read-only manifest examination of a `.cleobundle` without extraction or modification (T311). | Promoted (v2026.4.13+) |
+| `cleo restore finalize` | `finalize` (new verb) | Applies pending manual resolutions from `.cleo/restore-conflicts.md` after a prior `import` (T311). No existing verb covers "commit deferred decisions." | New verb (v2026.4.13+) |
 
 ---
 

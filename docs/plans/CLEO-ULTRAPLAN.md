@@ -53,8 +53,8 @@ until its proof gate is green.
 
 <!-- VERBATIM — captured by orchestrator during T377 session -->
 
-| ID | Decision |
-|----|----------|
+| # | Decision | Rationale |
+|---|----------|-----------|
 | L1 | **Wrap Pi, do not fork** | Pi exports a full SDK (`AgentSession`, `ExtensionAPI`, events). `cleoos` is an ~80-line launcher importing from `@mariozechner/pi-coding-agent`. Zero fork burden. |
 | L2 | **Package: `@cleocode/cleo-os`, brand: CleoOS** | Sibling to `@cleocode/cleo` in the monorepo at `packages/cleo-os/`. |
 | L3 | **Model tiers: `low/mid/high`** | Every tier reference in every `.cant`, doc, and code path MUST use `low/mid/high`. Drafts that used `simple/mid/hard` are corrected. |
@@ -1149,6 +1149,128 @@ git diff --stat HEAD
 
 No wave is complete until all four quality gates and its empirical gate
 are green. This is non-negotiable (L8).
+
+---
+
+## 19. CLEOOS-VISION.md Migration (Incremental, Per L7)
+
+<!-- RECONSTRUCTED from session context — sections 19.1-19.4 were read
+     verbatim during the T310/T311 orchestration session on 2026-04-08 -->
+
+### 19.1 Strategy
+
+CLEOOS-VISION.md is rewritten **section by section** via agent-driven PRs.
+Worker agents perform rewrites. validation-lead gates each PR on:
+
+- **Compliance check**: does the rewrite reflect the canonical plan in this ultraplan?
+- **Continuity check**: does it preserve the still-valid content from the original doc? (See audit in §19.3.)
+
+### 19.2 Ownership
+
+- **validation-lead** owns the PR train
+- **technical-writer** (worker) drafts section rewrites
+- **qa-engineer** (worker) runs doc-validator
+- **cleo-prime** has final approval for cross-section consistency
+
+### 19.3 Section audit
+
+| Section | State | Action | Sub-wave |
+|---------|-------|--------|----------|
+| §1 What CleoOS Is | Still valid | Minor update: add Pi wrapper framing | 10a |
+| §2 Kernel Relationship | Still valid | Keep diagram, update kernel version | 10a |
+| §3 Why CleoOS | Still valid | No change needed | — |
+| §4.1 Autonomous Runtime | Speculative | Rewrite to match shipped waves | 10b |
+| §4.2 Conduit Protocol | **Stale** | Rewrite: remove Rust broker, add 4-shell model | 10b |
+| §4.3 Provider Ecosystem | **Stale** | Remove MCP, add Pi extension model | 10b |
+| §4.4 Project Lifecycle | Still valid | Minor update | 10a |
+| §4.5 Brain Intelligence | Mostly valid | Update shipped items list | 10a |
+| §4.6 Nexus Network | Still valid (deferred) | Keep Phase 3 deferral note | — |
+| §5 Architecture Layers | **Stale** | Add conduit.db, signaldock.db to store layer diagram | 10c |
+| §6 Vision Timeline | **Stale** | Rewrite to match shipped waves + current version | 10c |
+| §7 Design Principles | Still valid | No change needed | — |
+| §8 What CleoOS Is Not | Mostly valid | Add "not a fork of Pi" | 10a |
+| §9 Operating Metaphor | Still valid | No change needed | — |
+
+### 19.4 Immediate partial update (this turn)
+
+The following corrections are safe to apply NOW without a full rewrite wave:
+
+1. §4.3 Provider Ecosystem: remove "any tool that can speak MCP" — per
+   ADR-035 §D4, MCP is not first-class in CleoOS. Replace with "any tool
+   that implements the Pi ExtensionAPI or the CLEOProviderAdapter interface."
+2. §5 Architecture Layers diagram: add `conduit.db` and `signaldock.db`
+   to the SQLite store layer (currently shows only 3 DBs; canon is 5 per
+   ADR-036).
+3. §6 Vision Timeline: update `@cleocode/core` version from v2026.3.72 to
+   current shipped version. Add brain automation, conduit/signaldock split,
+   and backup portability to the "What Exists Now" section.
+
+These corrections do NOT require the full agent-driven PR train from L7.
+They are factual updates to stale data, not narrative rewrites.
+
+---
+
+## 20. Handoff Protocol
+
+<!-- RECONSTRUCTED from session context — sections 20.1-20.4 were read
+     verbatim during the T310/T311 orchestration session on 2026-04-08 -->
+
+### 20.1 Current state
+
+- CleoOS v2 is a 10-wave build plan governed by this ULTRAPLAN
+- Waves 0-3 ship the minimum viable deliverable: a working `cleoos` binary
+- Waves 4-10 extend the autonomous execution capabilities
+- Each wave follows RCASD-IVTR+C with empirical gates (L8)
+- The bridge (`cleo-cant-bridge.ts`) is the single integration point
+
+### 20.2 Handoff artifacts produced this turn
+
+| Artifact | Path | Status |
+|----------|------|--------|
+| ULTRAPLAN | `docs/plans/CLEO-ULTRAPLAN.md` | This document |
+| Execution log | `docs/plans/cleoos-v2-execution-log.md` | Per-session ship log |
+| ADR-035 | `.cleo/adrs/ADR-035-pi-v2-v3-harness.md` | Accepted |
+| ADR-041 | `.cleo/adrs/ADR-041-worktree-handle-spawn-contract.md` | Accepted |
+| teams.cant | `.cleo/teams.cant` | Canonical team definition |
+| 12 protocol .cant files | `packages/core/src/validation/protocols/cant/` | Canonical |
+
+### 20.3 Engineering-lead instructions (Wave 0)
+
+1. Read this ULTRAPLAN end-to-end. Do not skim.
+2. Run `cant validate` on all `.cant` files in the project. Fix any failures.
+3. Start Wave 0 by extending the CANT grammar per §8.
+4. Every commit references the task ID and wave number in the message.
+5. Every wave ends with a green empirical gate (§18).
+6. If a design question arises that this plan does not answer, escalate to
+   cleo-prime via `report_to_orchestrator`. Do NOT guess.
+
+### 20.4 Validation-lead instructions (every wave)
+
+1. After each wave PR, run the full quality gate sequence:
+   `pnpm biome check --write .` → `pnpm run build` → `pnpm run test` →
+   `cargo test -p cant-core` → `git diff --stat HEAD`
+2. Verify the empirical gate for the wave (§18) is green.
+3. Verify no pre-existing test was broken.
+4. If the wave touches CLEOOS-VISION.md, run the compliance check (§19.1).
+5. Approve the PR only if ALL of the above pass.
+
+---
+
+## 21. References
+
+| Document | Path | Purpose |
+|----------|------|---------|
+| CLEOOS-VISION.md | `docs/concepts/CLEOOS-VISION.md` | Narrative vision (defer to this plan on conflict) |
+| CLEO-WORLD-MAP.md | `docs/concepts/CLEO-WORLD-MAP.md` | Founding myth and system vocabulary |
+| CLEO-SYSTEM-FLOW-ATLAS.md | `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` | System flow diagrams and domain mapping |
+| ADR-035 | `.cleo/adrs/ADR-035-pi-v2-v3-harness.md` | Pi harness decisions (D1-D7) |
+| ADR-036 | `.cleo/adrs/ADR-036-cleoos-database-topology.md` | 4-DB × 2-tier topology |
+| ADR-037 | `.cleo/adrs/ADR-037-conduit-signaldock-separation.md` | Conduit/signaldock split |
+| ADR-041 | `.cleo/adrs/ADR-041-worktree-handle-spawn-contract.md` | Worktree handle contract |
+| Execution log | `docs/plans/cleoos-v2-execution-log.md` | Per-session ship history |
+| CLEO-CONDUIT-PROTOCOL-SPEC.md | `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` | Shell 4 spec (NOT built) |
+| CLEO-AUTONOMOUS-RUNTIME-SPEC.md | `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md` | Autonomous runtime spec (NOT built) |
+| packages/cleo-os/ | `packages/cleo-os/` | CleoOS package source |
 
 ---
 
