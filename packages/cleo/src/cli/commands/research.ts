@@ -45,7 +45,7 @@ export function registerResearchCommand(program: Command): void {
         {
           entry: {
             id: generateResearchId(),
-            file: '',
+            file: `research/${topic.replace(/\s+/g, '-').toLowerCase()}.md`,
             title: topic,
             date: new Date().toISOString().slice(0, 10),
             status: 'partial',
@@ -118,7 +118,7 @@ export function registerResearchCommand(program: Command): void {
         {
           entry: {
             id: researchId,
-            file: '',
+            file: `research/link-${researchId}.md`,
             title: `Link: ${researchId} -> ${taskId}`,
             date: new Date().toISOString().slice(0, 10),
             status: 'partial',
@@ -155,7 +155,7 @@ export function registerResearchCommand(program: Command): void {
         {
           entry: {
             id,
-            file: '',
+            file: `research/${id}.md`,
             title: topic,
             date: new Date().toISOString().slice(0, 10),
             status,
