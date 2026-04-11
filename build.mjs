@@ -45,6 +45,19 @@ const sharedExternals = [
   // onnxruntime-node (.node bindings) and sharp — both must stay external
   // so esbuild doesn't try to inline the native addons.
   '@huggingface/transformers',
+  // tree-sitter native Node addon + grammar packages — must stay external
+  // because .node binaries cannot be inlined by esbuild. Resolved at runtime
+  // from node_modules via createRequire() in packages/nexus/src/code/parser.ts.
+  'tree-sitter',
+  'tree-sitter-javascript',
+  'tree-sitter-typescript',
+  'tree-sitter-python',
+  'tree-sitter-go',
+  'tree-sitter-rust',
+  'tree-sitter-java',
+  'tree-sitter-c',
+  'tree-sitter-cpp',
+  'tree-sitter-ruby',
 ];
 
 // ---------------------------------------------------------------------------
@@ -120,6 +133,8 @@ const cleoBuildOptions = {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
       '@cleocode/core': resolve(__dirname, 'packages/core/src/index.ts'),
       '@cleocode/core/internal': resolve(__dirname, 'packages/core/src/internal.ts'),
+      '@cleocode/nexus': resolve(__dirname, 'packages/nexus/src/index.ts'),
+      '@cleocode/nexus/internal': resolve(__dirname, 'packages/nexus/src/internal.ts'),
       '@cleocode/adapters': resolve(__dirname, 'packages/adapters/src/index.ts'),
     }),
   ],
