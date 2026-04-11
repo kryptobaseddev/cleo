@@ -10,6 +10,11 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { catalog, registerSkillLibraryFromPath } from '@cleocode/caamp';
 import { autoRecordDispatchTokenUsage, getProjectRoot, hooks } from '@cleocode/core/internal';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
@@ -49,6 +54,54 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_NO_HANDLER: 1,
   E_INTERNAL: 1,
 };
+
+// ---------------------------------------------------------------------------
+// CAAMP skill library auto-registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Best-effort registration of the CAAMP skill library.
+ *
+ * Resolves the `@cleocode/skills` package via Node module resolution,
+ * falling back to workspace monorepo path. Non-fatal: if the library
+ * cannot be found, catalog-dependent operations (skills validate/dispatch/deps)
+ * will return a helpful error instead of crashing.
+ */
+function ensureCaampLibrary(): void {
+  // Already registered (e.g. via `cleo init` or env var) — nothing to do
+  if (catalog.isCatalogAvailable()) return;
+
+  try {
+    // Strategy 1: resolve @cleocode/skills via Node module resolution
+    let skillsRoot: string | null = null;
+    try {
+      const req = createRequire(import.meta.url);
+      const skillsPkgJson = req.resolve('@cleocode/skills/package.json');
+      const candidate = dirname(skillsPkgJson);
+      if (existsSync(join(candidate, 'skills.json'))) {
+        skillsRoot = candidate;
+      }
+    } catch {
+      // Not resolvable — try fallback
+    }
+
+    // Strategy 2: workspace monorepo path (packages/skills/)
+    if (!skillsRoot) {
+      const thisFile = fileURLToPath(import.meta.url);
+      const packageRoot = join(dirname(thisFile), '..', '..', '..', '..', '..');
+      const candidate = join(packageRoot, 'packages', 'skills');
+      if (existsSync(join(candidate, 'skills.json'))) {
+        skillsRoot = candidate;
+      }
+    }
+
+    if (skillsRoot) {
+      registerSkillLibraryFromPath(skillsRoot);
+    }
+  } catch {
+    // Non-fatal — catalog operations will degrade gracefully
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Lazy singleton dispatcher
@@ -93,6 +146,9 @@ async function lookupCliSession(): Promise<string | null> {
  * @epic T4959 — added session-resolver + audit to CLI pipeline
  */
 export function createCliDispatcher(): Dispatcher {
+  // Ensure the CAAMP skill catalog is available for tools domain operations
+  ensureCaampLibrary();
+
   const handlers = createDomainHandlers();
   return new Dispatcher({
     handlers,

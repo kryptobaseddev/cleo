@@ -37,6 +37,24 @@ import { type EngineResult, engineError, engineSuccess } from './_error.js';
 export type { EngineResult };
 
 // ---------------------------------------------------------------------------
+// Catalog availability constants
+// ---------------------------------------------------------------------------
+
+/** Human-readable message when the skill catalog is not registered. */
+const CATALOG_UNAVAILABLE_MSG =
+  'Skill catalog not available. The CAAMP skill library could not be loaded. ' +
+  'Run `cleo init` to set up the skill library, or set CAAMP_SKILL_LIBRARY env var.';
+
+/** Error options for catalog-unavailable responses (fix hint + alternatives). */
+const CATALOG_UNAVAILABLE_OPTS = {
+  fix: 'cleo init',
+  alternatives: [
+    { action: 'Set env var', command: 'export CAAMP_SKILL_LIBRARY=/path/to/skills' },
+    { action: 'Use filesystem-based commands', command: 'cleo skills list' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Issue operations
 // ---------------------------------------------------------------------------
 
@@ -142,6 +160,9 @@ export function toolsSkillDispatch(name: string): EngineResult<{
   };
 }> {
   try {
+    if (!catalog.isCatalogAvailable()) {
+      return engineError('E_CONFIG_ERROR', CATALOG_UNAVAILABLE_MSG, CATALOG_UNAVAILABLE_OPTS);
+    }
     const matrix = catalog.getDispatchMatrix();
     const entry = {
       byTaskType: Object.entries(matrix.by_task_type)
@@ -172,6 +193,9 @@ export async function toolsSkillVerify(name: string): Promise<
   }>
 > {
   try {
+    if (!catalog.isCatalogAvailable()) {
+      return engineError('E_CONFIG_ERROR', CATALOG_UNAVAILABLE_MSG, CATALOG_UNAVAILABLE_OPTS);
+    }
     const installed = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
     const catalogEntry = catalog.getSkill(name);
     return engineSuccess({
@@ -194,6 +218,9 @@ export function toolsSkillDependencies(name: string): EngineResult<{
   tree: ReturnType<typeof catalog.resolveDependencyTree>;
 }> {
   try {
+    if (!catalog.isCatalogAvailable()) {
+      return engineError('E_CONFIG_ERROR', CATALOG_UNAVAILABLE_MSG, CATALOG_UNAVAILABLE_OPTS);
+    }
     const direct = catalog.getSkillDependencies(name);
     const tree = catalog.resolveDependencyTree([name]);
     return engineSuccess({ skill: name, direct, tree });
