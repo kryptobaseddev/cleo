@@ -56,9 +56,9 @@ export function registerDepsCommand(program: Command): void {
     });
 
   deps
-    .command('waves [epicId]')
+    .command('waves <epicId>')
     .description('Group tasks into parallelizable execution waves')
-    .action(async (epicId?: string) => {
+    .action(async (epicId: string) => {
       await dispatchFromCli(
         'query',
         'orchestrate',

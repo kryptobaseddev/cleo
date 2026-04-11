@@ -17,6 +17,7 @@
  * @epic T443
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
@@ -37,14 +38,19 @@ export function registerSyncCommand(program: Command): void {
     .option('--provider <providerId>', 'Filter links by provider (e.g. linear, jira, github)')
     .option('--task <taskId>', 'Filter links by CLEO task ID')
     .action(async (opts: Record<string, unknown>) => {
+      const providerId = opts['provider'] as string | undefined;
+      const taskId = opts['task'] as string | undefined;
+      if (!providerId && !taskId) {
+        console.error(
+          'Error: at least one of --provider or --task is required for sync links list',
+        );
+        process.exit(ExitCode.INVALID_INPUT);
+      }
       await dispatchFromCli(
         'query',
         'tasks',
         'sync.links',
-        {
-          providerId: opts['provider'] as string | undefined,
-          taskId: opts['task'] as string | undefined,
-        },
+        { providerId, taskId },
         { command: 'sync', operation: 'tasks.sync.links' },
       );
     });

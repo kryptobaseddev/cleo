@@ -52,7 +52,6 @@ export function taskListItemNext(taskId: string): NextDirectives {
 export function sessionListItemNext(sessionId: string): NextDirectives {
   return {
     show: `cleo session show ${sessionId}`,
-    serialize: `cleo session serialize ${sessionId}`,
   };
 }
 

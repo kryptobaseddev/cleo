@@ -11,7 +11,11 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerHistoryCommand(program: Command): void {
   const history = program
     .command('history')
-    .description('Completion timeline and productivity analytics')
+    .description('Completion timeline and productivity analytics');
+
+  history
+    .command('log')
+    .description('Show operation audit log')
     .option('--days <n>', 'Show last N days', '30')
     .option('--since <date>', 'Show completions since date (YYYY-MM-DD)')
     .option('--until <date>', 'Show completions until date (YYYY-MM-DD)')
