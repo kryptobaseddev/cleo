@@ -6,6 +6,7 @@
  * Grammar loading is handled internally by parser.ts via native Node bindings.
  *
  * @task T509
+ * @module code/tree-sitter-languages
  */
 
 /** Supported tree-sitter language identifiers. */

@@ -155,9 +155,10 @@ async function build() {
   //
   //   lafs       (no internal deps)
   //   contracts  (no internal deps — type-only)
+  //   nexus      (deps: contracts — tree-sitter code analysis)
   //   cant       (deps: contracts, lafs)
   //   caamp      (deps: cant, lafs)
-  //   core       (deps: contracts, lafs, others — built via esbuild + tsc emit)
+  //   core       (deps: contracts, lafs, nexus, others — built via esbuild + tsc emit)
   //   runtime    (deps: contracts, core)
   //   adapters   (deps: contracts — built via esbuild + tsc emit)
   //   cleo       (deps: all of the above — built via esbuild)
@@ -185,6 +186,16 @@ async function build() {
     cwd: __dirname,
   });
   console.log('  -> packages/contracts/dist/');
+
+  // NEXUS depends on @cleocode/contracts — must build before core because
+  // core's type declaration emit (tsc --emitDeclarationOnly) needs nexus's
+  // .d.ts files available.
+  console.log('Building @cleocode/nexus...');
+  execFileSync('pnpm', ['--filter', '@cleocode/nexus', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/nexus/dist/');
 
   // CANT depends on @cleocode/contracts and @cleocode/lafs — both built above.
   // CANT must build BEFORE caamp because caamp imports validateDocument /

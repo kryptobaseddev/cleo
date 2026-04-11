@@ -39,7 +39,17 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "@biomejs/biome"
+      "@biomejs/biome",
+      "tree-sitter",
+      "tree-sitter-c",
+      "tree-sitter-cpp",
+      "tree-sitter-go",
+      "tree-sitter-java",
+      "tree-sitter-javascript",
+      "tree-sitter-python",
+      "tree-sitter-ruby",
+      "tree-sitter-rust",
+      "tree-sitter-typescript"
     ],
     "overrides": {
       "path-to-regexp": ">=8.4.2",
