@@ -116,6 +116,14 @@ export function registerBackfillCommand(program: Command): void {
               .filter(Boolean)
           : undefined;
 
+        // Safety: require --dry-run or explicit confirmation for destructive backfill
+        if (!dryRun && !rollback && !process.env['CLEO_NONINTERACTIVE']) {
+          console.log(
+            '⚠ Backfill will modify tasks in-place. Run with --dry-run first to preview changes.',
+          );
+          console.log('  Set CLEO_NONINTERACTIVE=1 or pass --dry-run to suppress this warning.\n');
+        }
+
         if (dryRun) {
           console.log('[dry run] No changes will be made.\n');
         }

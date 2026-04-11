@@ -671,13 +671,17 @@ export async function taskArchive(
   projectRoot: string,
   taskId?: string,
   before?: string,
+  opts?: { taskIds?: string[]; includeCancelled?: boolean; dryRun?: boolean },
 ): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
   try {
     const accessor = await getAccessor(projectRoot);
+    const taskIds = opts?.taskIds ?? (taskId ? [taskId] : undefined);
     const result = await coreArchiveTasks(
       {
-        taskIds: taskId ? [taskId] : undefined,
+        taskIds,
         before,
+        includeCancelled: opts?.includeCancelled,
+        dryRun: opts?.dryRun,
       },
       projectRoot,
       accessor,

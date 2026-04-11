@@ -653,7 +653,11 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('archive', {});
 
       expect(result.success).toBe(true);
-      expect(taskArchive).toHaveBeenCalledWith('/mock/project', undefined, undefined);
+      expect(taskArchive).toHaveBeenCalledWith('/mock/project', undefined, undefined, {
+        taskIds: undefined,
+        includeCancelled: undefined,
+        dryRun: undefined,
+      });
     });
 
     it('restore - delegates to taskRestore', async () => {

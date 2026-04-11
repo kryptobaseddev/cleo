@@ -18,11 +18,11 @@ export function registerExportTasksCommand(program: Command): void {
     .option('--filter <filters...>', 'Filter tasks by criteria (key=value, repeatable)')
     .option('--include-deps', 'Auto-include task dependencies')
     .option('--dry-run', 'Preview selection without creating export file')
-    .action(async (taskIds: string[], opts: Record<string, unknown>) => {
+    .action(async (taskIds: string[] | undefined, opts: Record<string, unknown>) => {
       const hasOutput = !!opts['output'];
 
       const params = {
-        taskIds: taskIds.length > 0 ? taskIds : undefined,
+        taskIds: taskIds && taskIds.length > 0 ? taskIds : undefined,
         output: opts['output'],
         subtree: opts['subtree'],
         filter: opts['filter'],

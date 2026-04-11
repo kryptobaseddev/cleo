@@ -1525,13 +1525,19 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: true,
-    requiredParams: ['id'],
+    requiredParams: ['taskId', 'agentId'],
     params: [
       {
-        name: 'id',
+        name: 'taskId',
         type: 'string',
         required: true,
         description: 'Task ID to claim',
+      },
+      {
+        name: 'agentId',
+        type: 'string',
+        required: true,
+        description: 'Agent ID to assign the task to',
       },
     ],
   },
@@ -1543,10 +1549,10 @@ export const OPERATIONS: OperationDef[] = [
     tier: 0,
     idempotent: false,
     sessionRequired: true,
-    requiredParams: ['id'],
+    requiredParams: ['taskId'],
     params: [
       {
-        name: 'id',
+        name: 'taskId',
         type: 'string',
         required: true,
         description: 'Task ID to unclaim',

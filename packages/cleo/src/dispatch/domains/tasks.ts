@@ -327,6 +327,11 @@ export class TasksHandler implements DomainHandler {
             projectRoot,
             params?.taskId as string | undefined,
             params?.before as string | undefined,
+            {
+              taskIds: params?.taskIds as string[] | undefined,
+              includeCancelled: params?.includeCancelled as boolean | undefined,
+              dryRun: params?.dryRun as boolean | undefined,
+            },
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

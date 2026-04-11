@@ -1394,7 +1394,7 @@ export function systemSync(
  * Safe stop: signal clean shutdown for agents.
  * @task T4631
  */
-export function systemSafestop(
+export async function systemSafestop(
   projectRoot: string,
   params?: {
     reason?: string;
@@ -1403,9 +1403,9 @@ export function systemSafestop(
     noSessionEnd?: boolean;
     dryRun?: boolean;
   },
-): EngineResult<import('@cleocode/core/internal').SafestopResult> {
+): Promise<EngineResult<import('@cleocode/core/internal').SafestopResult>> {
   try {
-    const result = safestop(projectRoot, params);
+    const result = await safestop(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_GENERAL', 'Sync failed');

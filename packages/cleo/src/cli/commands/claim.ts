@@ -20,14 +20,14 @@ export function registerClaimCommand(program: Command): void {
   program
     .command('claim <taskId>')
     .description('Claim a task by assigning it to an agent')
-    .option('--agent <agentId>', 'Agent ID to assign the task to (required)')
+    .requiredOption('--agent <agentId>', 'Agent ID to assign the task to')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
         'tasks',
         'claim',
         {
-          id: taskId,
+          taskId,
           agentId: opts['agent'] as string | undefined,
         },
         { command: 'claim', operation: 'tasks.claim' },
@@ -53,7 +53,7 @@ export function registerUnclaimCommand(program: Command): void {
         'mutate',
         'tasks',
         'unclaim',
-        { id: taskId },
+        { taskId },
         { command: 'unclaim', operation: 'tasks.unclaim' },
       );
     });

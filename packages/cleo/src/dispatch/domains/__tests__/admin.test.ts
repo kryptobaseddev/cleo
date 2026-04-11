@@ -584,7 +584,7 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemSafestop for safestop', async () => {
-      vi.mocked(systemSafestop).mockReturnValue({
+      vi.mocked(systemSafestop).mockResolvedValue({
         success: true,
         data: { stopped: true, reason: 'test', sessionEnded: false, dryRun: true },
       });

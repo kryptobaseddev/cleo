@@ -99,7 +99,7 @@ vi.mock('../../lib/engine.js', () => {
     backupRestore: mockFn(),
     systemMigrate: mockFn(),
     systemCleanup: mockFn(),
-    systemSafestop: mockSync(),
+    systemSafestop: mockFn(),
     systemSync: mockSync(),
     systemArchiveStats: mockFn(),
     // Config engine

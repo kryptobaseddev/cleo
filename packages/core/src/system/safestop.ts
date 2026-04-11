@@ -3,7 +3,7 @@
  * @task T4783
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode, type Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -27,7 +27,7 @@ export interface UncancelResult {
 }
 
 /** Safe stop: signal clean shutdown for agents. */
-export function safestop(
+export async function safestop(
   projectRoot: string,
   opts?: {
     reason?: string;
@@ -36,33 +36,23 @@ export function safestop(
     noSessionEnd?: boolean;
     dryRun?: boolean;
   },
-): SafestopResult {
+): Promise<SafestopResult> {
   const dryRun = opts?.dryRun ?? false;
   const reason = opts?.reason ?? 'Manual safestop';
   let sessionEnded = false;
 
   if (!dryRun && !opts?.noSessionEnd) {
-    const sessPath = join(projectRoot, '.cleo', 'sessions.json');
-    if (existsSync(sessPath)) {
-      try {
-        const data = JSON.parse(readFileSync(sessPath, 'utf-8'));
-        const sessions = data.sessions ?? [];
-        let changed = false;
-        for (const s of sessions) {
-          if (s.status === 'active') {
-            s.status = 'ended';
-            s.endedAt = new Date().toISOString();
-            s.endNote = `Safestop: ${reason}`;
-            changed = true;
-            sessionEnded = true;
-          }
-        }
-        if (changed) {
-          writeFileSync(sessPath, JSON.stringify(data, null, 2), 'utf-8');
-        }
-      } catch {
-        // non-fatal
+    try {
+      const accessor = await getAccessor(projectRoot);
+      const activeSession = await accessor.getActiveSession();
+      if (activeSession && activeSession.id !== 'default') {
+        activeSession.status = 'ended';
+        activeSession.endedAt = new Date().toISOString();
+        await accessor.upsertSingleSession(activeSession);
+        sessionEnded = true;
       }
+    } catch {
+      // non-fatal — session end is best-effort during safestop
     }
   }
 

@@ -764,7 +764,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'safestop': {
-          const result = systemSafestop(
+          const result = await systemSafestop(
             projectRoot,
             params as
               | {
