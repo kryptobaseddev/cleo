@@ -150,10 +150,9 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 |  +------------------------------------------------------+  |
 |                                                           |
 |  +------------------------------------------------------+  |
-|  |  Bundled Store Layer  (SQLite via Drizzle ORM)       |  |
-|  |  packages/core/src/store/                             |  |
-|  |  tasks.db   brain.db   nexus.db                       |  |
-|  +------------------------------------------------------+  |
+|  |           SQLite (node:sqlite via Drizzle ORM)       |  |
+|  |  tasks.db  brain.db  conduit.db  nexus.db  signaldock.db |  |
+|  +---------------------------------------------------------+  |
 +-----------------------------------------------------------+
 ```
 

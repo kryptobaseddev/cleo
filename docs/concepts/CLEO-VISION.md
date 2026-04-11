@@ -156,12 +156,13 @@ This metaphor isn't decorative -- it reflects the architectural design where tas
 
 ### Database Architecture
 
-| Database | Contents | Scope |
-|----------|----------|-------|
-| **`.cleo/tasks.db`** | Tasks, sessions, lifecycle pipelines, ADRs, audit log, status registry, pipelineManifest | Project work -- the structured RCASD-IVTR+C pipeline |
-| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, sticky notes, page nodes/edges, schema meta, FTS5 indexes, vector embeddings | Memory and cognition -- 9 core tables + virtual tables for FTS5 and vec0. 3-layer retrieval shipped. |
-| **`.cleo/signaldock.db`** | Agent registry, message relay, heartbeat state | Local agent messaging infrastructure (per-project) |
-| **`~/.local/share/cleo/nexus.db`** | Project registry, cross-project graph edges, permissions, global pattern library | Global NEXUS network (XDG path via getCleoHome()) |
+| Database | Tier | Location | ORM | Purpose |
+|----------|------|----------|-----|---------|
+| **tasks.db** | Project | `.cleo/tasks.db` | Drizzle ORM | Tasks, sessions, lifecycle, audit log |
+| **brain.db** | Project | `.cleo/brain.db` | Drizzle ORM (FTS5) | Observations, patterns, learnings, decisions |
+| **conduit.db** | Project | `.cleo/conduit.db` | node:sqlite | Agent messaging, project_agent_refs (ADR-037) |
+| **nexus.db** | Global | `$XDG_DATA_HOME/cleo/nexus.db` | Drizzle ORM | Cross-project registry |
+| **signaldock.db** | Global | `$XDG_DATA_HOME/cleo/signaldock.db` | node:sqlite (local) / Diesel (server) | Canonical agent identity (ADR-037) |
 
 Three JSON configuration files complement the databases (exempt from SQLite-only storage per ADR-006, ADR-011):
 

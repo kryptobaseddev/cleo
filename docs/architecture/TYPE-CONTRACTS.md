@@ -314,7 +314,7 @@ All exported from the public barrel as flat re-exports. Each wraps the correspon
 |--------|--------|
 | `tokenUsageMethodSchema` | `otel`, `provider_api`, `tokenizer`, `heuristic` |
 | `tokenUsageConfidenceSchema` | `real`, `high`, `estimated`, `coarse` |
-| `tokenUsageTransportSchema` | `cli`, `mcp`, `api`, `agent`, `unknown` |
+| `tokenUsageTransportSchema` | `cli`, `api`, `agent`, `unknown` |
 
 **Relation/link enums (3):**
 
@@ -529,7 +529,7 @@ All 43 namespaces exported from `@cleocode/core`:
 | 11 | `intelligence` | `intelligence/index.js` |
 | 12 | `issue` | `issue/index.js` |
 | 13 | `lifecycle` | `lifecycle/index.js` |
-| 14 | `coreMcp` | `mcp/index.js` |
+| 14 | ~~`coreMcp`~~ | ~~`mcp/index.js`~~ — **removed v2026.4.4** (ADR-035 §D4) |
 | 15 | `memory` | `memory/index.js` |
 | 16 | `metrics` | `metrics/index.js` |
 | 17 | `migration` | `migration/index.js` |

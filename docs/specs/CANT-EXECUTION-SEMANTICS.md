@@ -5,7 +5,7 @@
 **Author**: @cleo-historian (Canon), @cleo-core (Implementation)
 **Date**: 2026-03-27
 **Canonical Location**: `docs/specs/CANT-EXECUTION-SEMANTICS.md`
-**Implementation**: `packages/core/src/cant/workflow-executor.ts`
+**Implementation**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (ADR-035 addendum — single execution engine; `packages/core/src/cant/workflow-executor.ts` replaced)
 
 ---
 
@@ -33,8 +33,9 @@
 ## 1. Purpose and Scope
 
 This document specifies formal execution semantics for the CANT workflow executor
-(`packages/core/src/cant/workflow-executor.ts`) and defines the Generic Domain Event Protocol
-that extends CAAMP's canonical event taxonomy from provider-only events to domain-sourced events.
+(`packages/cleo-os/extensions/cleo-cant-bridge.ts` — ADR-035 addendum collapsed dual engines to
+this single path) and defines the Generic Domain Event Protocol that extends CAAMP's canonical
+event taxonomy from provider-only events to domain-sourced events.
 
 ### 1.1 Relationship to Existing Specifications
 
@@ -1172,7 +1173,7 @@ Complete cross-reference from CLEO CQRS operations to domain events to CANT synt
 | `packages/caamp/src/core/hooks/normalizer.ts` | Handle domain-sourced events in normalization logic |
 | `crates/cant-core/src/ast.rs` | Extend `CanonicalEvent` enum with domain events |
 | `crates/cant-core/src/validate.rs` | Update S06/H01 validation to accept domain events |
-| `packages/core/src/cant/workflow-executor.ts` | Implement formal execution semantics (Sections 3-8) |
+| `packages/cleo-os/extensions/cleo-cant-bridge.ts` | Single CANT execution engine (replaced `packages/core/src/cant/workflow-executor.ts` per ADR-035 addendum) |
 | `packages/core/src/cant/types.ts` | Add `WorkflowOutput`, `ManifestEntry`, suspended state types |
 | `packages/core/src/cant/parallel-runner.ts` | Add cancellation protocol, arm dependency resolution |
 
@@ -1334,7 +1335,7 @@ Per T199 analysis:
 - `docs/concepts/NEXUS-CORE-ASPECTS.md` — Workshop language (Thread, Loom, Cascade, etc.)
 - `docs/concepts/CLEO-CANT.md` — CANT conversation + response protocol
 - `packages/caamp/providers/hook-mappings.json` — Canonical event taxonomy SSoT
-- `packages/core/src/cant/workflow-executor.ts` — Workflow executor implementation
+- `packages/cleo-os/extensions/cleo-cant-bridge.ts` — CANT execution engine (single path per ADR-035 addendum)
 - `packages/core/src/cant/parallel-runner.ts` — Parallel execution implementation
 - `packages/core/src/cant/approval.ts` — Approval token manager
 - `.cleo/agent-outputs/T192-subagent-prompt-audit.md` — Subagent pipeline audit
