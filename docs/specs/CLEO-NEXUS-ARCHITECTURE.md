@@ -387,3 +387,40 @@ Projects SHOULD call `nexus.reconcile` after moving to a new path to update the 
 - Task T5366 -- Core registry operations (registry.ts)
 - Task T5368 -- Reconciliation protocol (nexusReconcile)
 - Task T4529 -- Graph-RAG discovery algorithms (packages/core/src/tasks/graph-rag.ts)
+
+---
+
+## Appendix: Operation Reference (merged from CLEO-NEXUS-API.md)
+
+Complete operation matrix for all 28 NEXUS operations. Gateway column indicates whether the operation is a read (`query`) or write (`mutate`).
+
+| Operation | Gateway | Params | Returns |
+|-----------|---------|--------|---------|
+| `nexus.init` | mutate | `{}` | `{ message, registryPath, created }` |
+| `nexus.status` | query | `{}` | `{ initialized, projectCount, lastUpdated }` |
+| `nexus.register` | mutate | `{ path, name?, permission? }` | `{ hash, message }` |
+| `nexus.unregister` | mutate | `{ name }` | `{ message }` |
+| `nexus.list` | query | `{}` | `{ projects[], count }` |
+| `nexus.show` | query | `{ name }` | `NexusProject` |
+| `nexus.sync` | mutate | `{ name }` | `{ message, taskCount, labels[] }` |
+| `nexus.sync.all` | mutate | `{}` | `{ synced, failed, results[] }` |
+| `nexus.permission.set` | mutate | `{ name, level }` | `{ message, previousLevel, newLevel }` |
+| `nexus.reconcile` | mutate | `{ projectRoot? }` | `{ action, project }` |
+| `nexus.query` | query | `{ query, currentProject? }` | `CrossProjectTask \| CrossProjectTask[]` |
+| `nexus.search` | query | `{ pattern, project?, limit? }` | `{ pattern, results[], resultCount }` |
+| `nexus.discover` | query | `{ query, method?, limit? }` | `{ query, method, results[], total }` |
+| `nexus.deps` | query | `{ query, direction? }` | `{ query, direction, dependencies[], blockedBy[], blocks[] }` |
+| `nexus.graph` | query | `{}` | `NexusGraph` |
+| `nexus.path.show` | query | `{}` | `{ path[], length, bottleneck }` |
+| `nexus.blockers.show` | query | `{ query }` | `{ query, blocking[], totalBlocked, impactScore }` |
+| `nexus.orphans.list` | query | `{}` | `{ orphans[], count }` |
+| `nexus.share.status` | query | `{}` | `{ shared, remoteCount, remotes[], lastPush?, lastPull? }` |
+| `nexus.share.remotes` | query | `{}` | `{ remotes[] }` |
+| `nexus.share.sync.status` | query | `{ remote? }` | `{ remote, ahead, behind, synced, lastSync? }` |
+| `nexus.share.snapshot.export` | mutate | `{ outputPath? }` | `{ path, taskCount, checksum }` |
+| `nexus.share.snapshot.import` | mutate | `{ inputPath }` | `{ imported, merged, conflicts, message }` |
+| `nexus.share.sync.gitignore` | mutate | `{}` | `{ updated, entriesAdded[], message }` |
+| `nexus.share.remote.add` | mutate | `{ url, name? }` | `{ name, url }` |
+| `nexus.share.remote.remove` | mutate | `{ name? }` | `{ name, removed }` |
+| `nexus.share.push` | mutate | `{ remote?, force?, setUpstream? }` | `{ remote, pushed, commits, branch }` |
+| `nexus.share.pull` | mutate | `{ remote? }` | `{ remote, pulled, commits, merged }` |

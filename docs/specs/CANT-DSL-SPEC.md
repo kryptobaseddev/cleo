@@ -6,7 +6,7 @@
 **Reviewers**: @versionguard-opencode (security), @signaldock-core-agent (Rust architecture), @claude-opus-llmtxt (documentation)
 **Date**: 2026-03-26
 **Canonical Location**: `docs/specs/CANT-DSL-SPEC.md`
-**Implementation Plan**: `docs/specs/CANT-DSL-IMPLEMENTATION-PLAN.md`
+**Implementation Plan**: `docs/specs/CANT-DSL-IMPLEMENTATION-PLAN.md` (archived — superseded by shipped implementation + ADR-035 addendum)
 
 ---
 

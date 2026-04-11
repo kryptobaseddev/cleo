@@ -775,6 +775,6 @@ output name = expression
 |----------|---------|
 | [`CANT-DSL-SPEC.md`](../specs/CANT-DSL-SPEC.md) | Formal specification (EBNF, AST types, 45 validation rules) |
 | [`CANT-EXECUTION-SEMANTICS.md`](../specs/CANT-EXECUTION-SEMANTICS.md) | Workflow executor semantics, domain event protocol |
-| [`CANT-DSL-IMPLEMENTATION-PLAN.md`](../specs/CANT-DSL-IMPLEMENTATION-PLAN.md) | 7-phase implementation plan with security amendments |
+| `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
 | [`CANT-TYPESCRIPT-INTEGRATION.md`](../specs/CANT-TYPESCRIPT-INTEGRATION.md) | TypeScript/WASM integration guide |
 | [`CLEO-CANT.md`](../concepts/CLEO-CANT.md) | Protocol-level spec (directive mapping, Conduit integration) |

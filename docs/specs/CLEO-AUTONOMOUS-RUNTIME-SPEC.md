@@ -227,5 +227,5 @@ The autonomous runtime does not:
 - `docs/concepts/NEXUS-CORE-ASPECTS.md`
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - `docs/specs/CAAMP-INTEGRATION-SPEC.md`
-- `docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`
+- `docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md` (archived — no unique content beyond this spec)
 - `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`

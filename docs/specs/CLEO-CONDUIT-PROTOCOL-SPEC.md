@@ -426,6 +426,6 @@ This specification does not:
 ## 16. References
 
 - `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`
-- `docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`
+- `docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md` (archived — superseded by CLEO-AUTONOMOUS-RUNTIME-SPEC.md)
 - `docs/specs/STICKY-NOTES-SPEC.md`
 - `docs/concepts/NEXUS-CORE-ASPECTS.md`

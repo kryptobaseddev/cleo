@@ -227,4 +227,4 @@ Verbs:      add show list find update delete archive restore complete start stop
 - `docs/concepts/NEXUS-CORE-ASPECTS.md` — Workshop vocabulary and Circle of Ten
 - `docs/concepts/CLEO-CANT.md` — Agent communication grammar
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` — Technical flow diagrams
-- `docs/specs/CLEO-ORCH-PLAN.md` — Agent lifecycle and orchestration
+- `CLEO-ULTRAPLAN.md` — Agent lifecycle and orchestration (supersedes `docs/specs/CLEO-ORCH-PLAN.md`, archived)
