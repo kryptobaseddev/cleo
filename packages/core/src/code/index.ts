@@ -1,10 +1,26 @@
 /**
  * Code analysis via tree-sitter AST parsing.
  *
+ * @deprecated Import directly from `@cleocode/nexus` instead.
+ *
+ * This barrel is retained for backward compatibility. The canonical
+ * implementation lives in `@cleocode/nexus/src/code/`. Consumers in the
+ * `@cleocode/core` dispatch layer that need these symbols should import
+ * from `@cleocode/nexus` directly.
+ *
  * @module code
  */
 
-export { type OutlineNode, type SmartOutlineResult, smartOutline } from './outline.js';
-export { batchParse, parseFile } from './parser.js';
-export { type SmartSearchOptions, type SmartSearchResult, smartSearch } from './search.js';
-export { type SmartUnfoldResult, smartUnfold } from './unfold.js';
+export {
+  batchParse,
+  isTreeSitterAvailable,
+  type OutlineNode,
+  parseFile,
+  type SmartOutlineResult,
+  type SmartSearchOptions,
+  type SmartSearchResult,
+  type SmartUnfoldResult,
+  smartOutline,
+  smartSearch,
+  smartUnfold,
+} from '@cleocode/nexus';

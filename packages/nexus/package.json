@@ -1,0 +1,68 @@
+{
+  "name": "@cleocode/nexus",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "CLEO project registry and code intelligence — unified nexus package",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "import": "./dist/src/internal.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/nexus"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "cleo",
+    "nexus",
+    "code-intelligence",
+    "tree-sitter",
+    "project-registry"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
+  "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+    "tree-sitter": "^0.22.1",
+    "tree-sitter-c": "^0.23.2",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.23.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-python": "^0.23.4",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.23.1",
+    "tree-sitter-typescript": "^0.23.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

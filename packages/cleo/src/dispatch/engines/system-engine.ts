@@ -1645,6 +1645,9 @@ export interface SmokeResult {
 /**
  * Smoke-test definitions: one lightweight read-only query per domain.
  * Each probe exercises the full dispatch pipeline (middleware, handler, engine, core).
+ *
+ * T511: includes an `adapter` probe so adapter health is covered by smoke tests,
+ * consistent with its inclusion in the doctor report via `checkAdapterHealth()`.
  */
 const SMOKE_PROBES: Array<{ domain: string; operation: string; params?: Record<string, unknown> }> =
   [
@@ -1658,6 +1661,7 @@ const SMOKE_PROBES: Array<{ domain: string; operation: string; params?: Record<s
     { domain: 'sticky', operation: 'list', params: { limit: 1 } },
     { domain: 'nexus', operation: 'status' },
     { domain: 'orchestrate', operation: 'status' },
+    { domain: 'adapter', operation: 'list' },
   ];
 
 /**

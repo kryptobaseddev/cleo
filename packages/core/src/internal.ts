@@ -22,6 +22,16 @@ export * from './index.js';
 // Extended flat exports (required by @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
+// Code analysis (Smart Explore) — canonical source: @cleocode/nexus
+export {
+  batchParse,
+  isTreeSitterAvailable,
+  parseFile,
+  type SmartSearchOptions,
+  smartOutline,
+  smartSearch,
+  smartUnfold,
+} from '@cleocode/nexus';
 export { exportTasks } from './admin/export.js';
 export { exportTasksPackage } from './admin/export-tasks.js';
 // Admin
@@ -36,17 +46,17 @@ export type { AuditEntry } from './audit.js';
 // Backfill
 export type { BackfillOptions, BackfillResult, BackfillTaskChange } from './backfill/index.js';
 export { backfillTasks, generateAcFromDescription } from './backfill/index.js';
-export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
+export type {
+  BootstrapContext,
+  BootstrapOptions,
+  BootstrapVerificationResult,
+} from './bootstrap.js';
 // Bootstrap (global setup)
 export {
   bootstrapGlobalCleo,
   installSkillsGlobally,
+  verifyBootstrapComplete,
 } from './bootstrap.js';
-export { smartOutline } from './code/outline.js';
-// Code analysis (Smart Explore)
-export { batchParse, isTreeSitterAvailable, parseFile } from './code/parser.js';
-export { type SmartSearchOptions, smartSearch } from './code/search.js';
-export { smartUnfold } from './code/unfold.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
 // Compliance
 export { ProtocolEnforcer, protocolEnforcer } from './compliance/protocol-enforcement.js';
@@ -63,7 +73,6 @@ export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks
 export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
-
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
 export {
@@ -491,6 +500,12 @@ export type { BackupEntry, BackupResult, RestoreResult } from './system/backup.j
 export { listSystemBackups, restoreBackup } from './system/backup.js';
 export type { CleanupResult } from './system/cleanup.js';
 export { cleanupSystem } from './system/cleanup.js';
+// System — dependency registry
+export {
+  checkAllDependencies,
+  checkDependency,
+  getDependencySpecs,
+} from './system/dependencies.js';
 export type { DiagnosticsResult, HealthResult } from './system/health.js';
 export { getSystemDiagnostics, getSystemHealth, startupHealthCheck } from './system/health.js';
 export type {

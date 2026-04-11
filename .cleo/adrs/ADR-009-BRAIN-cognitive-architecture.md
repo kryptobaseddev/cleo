@@ -38,8 +38,8 @@ CLEO operates under **two complementary frameworks** at different abstraction le
 
 | Framework | Authority | Abstraction | Defines | Mutability |
 |-----------|-----------|-------------|---------|------------|
-| **5 Canonical Pillars** | CLEO-VISION.mdx, PORTABLE-BRAIN-SPEC.md | Product contract | WHAT CLEO promises to users and agents | Immutable (constitutional) |
-| **5 BRAIN Dimensions** | CLEO-BRAIN-SPECIFICATION.md | Capability model | HOW CLEO delivers on those promises | Evolves with implementation |
+| **5 Canonical Pillars** | CLEO-VISION.md, CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md (Part I) | Product contract | WHAT CLEO promises to users and agents | Immutable (constitutional) |
+| **5 BRAIN Dimensions** | CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md (Part II) | Capability model | HOW CLEO delivers on those promises | Evolves with implementation |
 
 **The Pillars define identity. The BRAIN dimensions define capability.**
 
@@ -441,14 +441,13 @@ CHECK(stage_name IN ('research', 'consensus', 'architecture_decision',
 ## 7. Document Authority Hierarchy
 
 ```
-1. docs/concepts/CLEO-VISION.mdx                    (Constitutional identity — IMMUTABLE)
-2. docs/specs/PORTABLE-BRAIN-SPEC.md           (Product contract — 5 Pillars)
+1. docs/concepts/CLEO-VISION.md                      (Constitutional identity — IMMUTABLE)
+2. docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md  (Portable Project BRAIN — product contract + capability model)
 3. .cleo/adrs/ADR-006-canonical-sqlite-storage.md  (Storage architecture — ACCEPTED)
 4. .cleo/adrs/ADR-007-domain-consolidation.md  (Domain model — 9 domains)
 5. .cleo/adrs/ADR-008-CLEO-CANONICAL-ARCHITECTURE.md (Code architecture)
 6. .cleo/adrs/ADR-009-BRAIN-cognitive-architecture.md (THIS DOCUMENT — BRAIN bridge)
-7. docs/specs/CLEO-BRAIN-SPECIFICATION.md       (Capability detail — 5 dimensions)
-8. docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md    (Phased implementation)
+7. docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md    (Phased implementation)
 9. docs/concepts/cognitive-architecture.mdx      (Vectorless RAG concepts)
 10. src/core/nexus/ARCHITECTURE.md               (Nexus implementation detail)
 ```
@@ -566,7 +565,7 @@ The second BRAIN implementation phase delivers the **pattern memory** and **lear
 | **BRAIN SQLite tables** | Migrate brain_decisions/patterns/learnings from JSONL to SQLite | P2 | **Done (T5149)** |
 | **Reasoning R&C** | Research how LLM agents would use reasoning operations; consensus on domain placement | P2 | Pending |
 | **Pipeline stage fix** | Verify ADR-006 lifecycle_stages CHECK constraint matches 9-stage RCASD model | P1 | **Done (T4863)** |
-| **BRAIN Spec update** | Align CLEO-BRAIN-SPECIFICATION.md storage references with ADR-006/ADR-009 hybrid model | P2 | Pending |
+| **BRAIN Spec update** | Align CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md storage references with ADR-006/ADR-009 hybrid model | P2 | Pending |
 | **cognitive-architecture.mdx update** | Add note about future vector augmentation alongside vectorless RAG | P3 | Pending |
 
 ---
@@ -581,7 +580,7 @@ This decision is compliant when:
 4. ADR-007 Section 4.2 updated with comprehensive BRAIN dimension coverage (per Section 5 of this ADR)
 5. Reasoning domain placement R&C task created and tracked
 6. No document in the codebase contradicts the authority hierarchy in Section 7
-7. BRAIN Spec (CLEO-BRAIN-SPECIFICATION.md) updated to reference SQLite tables instead of JSONL files for runtime storage
+7. BRAIN Spec (CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md) updated to reference SQLite tables instead of JSONL files for runtime storage
 8. cognitive-architecture.mdx updated to clarify vectorless RAG as primary with future vector augmentation
 
 ---

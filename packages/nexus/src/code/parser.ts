@@ -6,6 +6,7 @@
  * spawning a subprocess or writing temp files.
  *
  * @task T509
+ * @module code/parser
  */
 
 import { readFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import type {
   CodeSymbolKind,
   ParseResult,
 } from '@cleocode/contracts';
-import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-languages.js';
+import { detectLanguage, type TreeSitterLanguage } from './tree-sitter-languages.js';
 
 // ---------------------------------------------------------------------------
 // Native module loading (CommonJS interop via createRequire)
@@ -44,7 +45,6 @@ function tryRequire(id: string): unknown {
 // ---------------------------------------------------------------------------
 
 /** The Parser constructor from the tree-sitter native module. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ParserConstructor = new () => NativeParser;
 
 /** Minimal shape of the native tree-sitter Parser instance. */

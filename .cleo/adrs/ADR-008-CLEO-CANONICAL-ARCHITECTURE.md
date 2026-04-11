@@ -1653,7 +1653,7 @@ The architecture is complete when:
 - T4813: Unified CQRS Dispatch Epic
 - ADR-007: Domain Architecture — 9-Domain Shared-Core Model
 - VERB-STANDARDS.md: Canonical verb definitions
-- CLEO-BRAIN-SPECIFICATION.md: BRAIN 5 dimensions
+- CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md: Portable Project BRAIN (product contract + 5 dimensions)
 
 ---
 

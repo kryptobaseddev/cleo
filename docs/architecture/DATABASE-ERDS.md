@@ -1052,7 +1052,7 @@ The status_registry table (tasks.db) stores all valid status values. The canonic
 ## Related Documents
 
 - `docs/specs/SCHEMA-AUTHORITY.md` — canonical source rules and migration authority
-- `docs/specs/CLEO-BRAIN-SPECIFICATION.md` — brain.db capability model
+- `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md` — Portable Project BRAIN (brain.db capability model)
 - `docs/specs/CLEO-NEXUS-ARCHITECTURE.md` — nexus.db architecture
 - `docs/specs/CLEO-DATA-INTEGRITY-SPEC.md` — data integrity rules
 - `.cleo/agent-outputs/T030-soft-fk-audit.md` — soft FK audit and remediation plan

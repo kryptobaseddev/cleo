@@ -46,6 +46,73 @@ function getPackageRoot() {
   return resolve(__dirname, '..');
 }
 
+/**
+ * Verify runtime dependencies after bootstrap and print a structured report.
+ *
+ * Imports checkAllDependencies from @cleocode/core using the same two-path
+ * strategy (internal subpath first, public barrel as fallback) used by
+ * bootstrapGlobalCleo above.
+ *
+ * This function is intentionally non-throwing — all errors are caught and
+ * logged. It will never cause npm install to exit with a non-zero code.
+ */
+async function verifyDependencies() {
+  console.log('CLEO: Verifying dependencies...');
+
+  try {
+    let checkAllDependencies;
+    try {
+      ({ checkAllDependencies } = await import('@cleocode/core/internal'));
+    } catch {
+      ({ checkAllDependencies } = await import('@cleocode/core'));
+    }
+
+    const report = await checkAllDependencies();
+
+    // Report required dependencies — always shown
+    for (const result of report.results) {
+      if (result.category === 'required') {
+        if (result.healthy) {
+          const ver = result.version ? ` ${result.version}` : '';
+          console.log(`CLEO: \u2713 ${result.name}${ver}`);
+        } else {
+          const reason = result.installed ? 'unhealthy' : 'not found';
+          console.log(`CLEO: \u2717 ${result.name} — REQUIRED but ${reason}`);
+          if (result.suggestedFix) {
+            console.log(`CLEO:   Fix: ${result.suggestedFix}`);
+          }
+        }
+      }
+    }
+
+    // Report missing optional/feature dependencies as a summary
+    const optionalMissing = report.results.filter(
+      (r) => r.category !== 'required' && !r.installed,
+    );
+    if (optionalMissing.length > 0) {
+      console.log(
+        `CLEO: ${optionalMissing.length} optional ${optionalMissing.length === 1 ? 'dependency' : 'dependencies'} not installed (install for full functionality)`,
+      );
+      for (const r of optionalMissing) {
+        const hint = r.suggestedFix ?? 'optional';
+        console.log(`CLEO:   - ${r.name}: ${hint}`);
+      }
+    }
+
+    if (!report.allRequiredMet) {
+      console.log(
+        'CLEO: Warning: Some required dependencies are missing. CLEO will work but some features may fail.',
+      );
+      console.log('CLEO: Run "cleo doctor" for full diagnostics.');
+    }
+  } catch (err) {
+    console.log('CLEO: Dependency check deferred (will complete on first "cleo doctor")');
+    if (process.env.CLEO_DEBUG) {
+      console.error('CLEO: Dependency check detail:', err);
+    }
+  }
+}
+
 async function runPostinstall() {
   if (!isGlobalInstall()) {
     console.log('CLEO: Skipping global bootstrap (not global install)');
@@ -78,6 +145,9 @@ async function runPostinstall() {
 
     console.log('CLEO: Global bootstrap complete!');
     console.log('CLEO: Run "cleo init" in any project to set up local CLEO.');
+
+    // Dependency verification — non-blocking, never fails the install
+    await verifyDependencies();
   } catch (err) {
     console.log('CLEO: Bootstrap deferred (will complete on first "cleo install-global")');
     if (process.env.CLEO_DEBUG) {

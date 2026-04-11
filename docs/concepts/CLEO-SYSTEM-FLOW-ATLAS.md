@@ -690,7 +690,7 @@ These rules MUST always hold true in a correct CLEO installation:
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` -- Normative operation reference
 - `docs/specs/CORE-PACKAGE-SPEC.md` -- @cleocode/core standalone package contract
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
-- `docs/specs/CLEO-BRAIN-SPECIFICATION.md` -- BRAIN capability specification
+- `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md` -- Portable Project BRAIN specification
 - `docs/specs/CLEO-OPERATIONS-REFERENCE.md` -- CLI operations reference
 - `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT for operations
 - `packages/cleo/src/dispatch/types.ts` -- Canonical type definitions

@@ -380,7 +380,131 @@ async function installProviderAdapters(
 // ── Step 7: Post-bootstrap health verification ───────────────────────
 
 /**
+ * Combined bootstrap health + dependency verification result.
+ *
+ * Produced by {@link verifyBootstrapComplete} and intended for consumers
+ * such as `postinstall.js` and `cleo install-global` that need a single
+ * aggregated view of system readiness after bootstrap completes.
+ */
+export interface BootstrapVerificationResult {
+  /** `true` when both bootstrap injection-chain health and all required dependencies are healthy. */
+  complete: boolean;
+  /** `true` when the injection-chain health checks (template files, AGENTS.md) all pass. */
+  bootstrapHealthy: boolean;
+  /** `true` when every `required` dependency is healthy (see {@link DependencyReport.allRequiredMet}). */
+  dependenciesHealthy: boolean;
+  /** Human-readable failure descriptions from both the injection-chain and dependency checks. */
+  failures: string[];
+  /** Non-fatal advisory messages (optional deps missing, template version skew, etc.). */
+  warnings: string[];
+}
+
+/**
+ * Run both injection-chain health verification and full dependency checks after bootstrap.
+ *
+ * Combines:
+ *   1. Injection-chain health (XDG template, legacy template version sync, AGENTS.md reference,
+ *      orphaned content detection) — delegated to the internal {@link verifyBootstrapHealth}.
+ *   2. All registered runtime dependencies — delegated to {@link checkAllDependencies} from
+ *      `./system/dependencies.js`.
+ *
+ * This function is intentionally non-throwing. Every error is captured and surfaced through
+ * the returned {@link BootstrapVerificationResult} so callers (postinstall, CLI commands) can
+ * decide how to present failures without crashing the install process.
+ *
+ * @returns A {@link BootstrapVerificationResult} aggregating both checks.
+ */
+export async function verifyBootstrapComplete(): Promise<BootstrapVerificationResult> {
+  const failures: string[] = [];
+  const warnings: string[] = [];
+
+  // ── Part 1: Injection-chain health ──────────────────────────────────────────
+  let bootstrapHealthy = true;
+
+  try {
+    const healthCtx: BootstrapContext = {
+      created: [],
+      warnings: [],
+      isDryRun: false,
+    };
+
+    await verifyBootstrapHealth(healthCtx);
+
+    // verifyBootstrapHealth appends to ctx.warnings on issues — treat all as warnings.
+    // There is no way to distinguish bootstrap-fatal from advisory in the current impl,
+    // so we surface them all as warnings (consistent with the existing non-blocking design).
+    for (const w of healthCtx.warnings) {
+      warnings.push(w);
+    }
+
+    // If any warnings were produced by the health check, mark bootstrap as degraded
+    // but not outright failed (health check is advisory-only by design).
+    if (healthCtx.warnings.length > 0) {
+      bootstrapHealthy = false;
+    }
+  } catch (err) {
+    bootstrapHealthy = false;
+    failures.push(
+      `Bootstrap health check failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ── Part 2: Dependency checks ────────────────────────────────────────────────
+  let dependenciesHealthy = false;
+
+  try {
+    const { checkAllDependencies } = await import('./system/dependencies.js');
+    const depReport = await checkAllDependencies();
+
+    dependenciesHealthy = depReport.allRequiredMet;
+
+    for (const result of depReport.results) {
+      if (result.category === 'required' && !result.healthy) {
+        const msg = result.error
+          ? `Required dependency '${result.name}' unhealthy: ${result.error}`
+          : `Required dependency '${result.name}' is not healthy`;
+        failures.push(msg);
+      }
+    }
+
+    // Surface dependency warnings (optional / feature deps missing)
+    for (const w of depReport.warnings) {
+      warnings.push(w);
+    }
+  } catch (err) {
+    // Dependency check failure is non-fatal — mark as unknown (default false)
+    warnings.push(`Dependency check deferred: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return {
+    complete: bootstrapHealthy && dependenciesHealthy,
+    bootstrapHealthy,
+    dependenciesHealthy,
+    failures,
+    warnings,
+  };
+}
+
+/**
  * Verify the injection chain is intact after bootstrap.
+ *
+ * This function serves a DIFFERENT purpose than `startupHealthCheck()` in
+ * `packages/core/src/system/health.ts` (T511 — documented separation):
+ *
+ * - `verifyBootstrapHealth()` — checks global CAAMP injection-chain state:
+ *   XDG template existence + version, AGENTS.md reference correctness, and
+ *   orphaned CAAMP block fragments. Called ONLY after `bootstrapGlobalCleo()`
+ *   completes (post-install, self-update). NOT called on every startup.
+ *
+ * - `startupHealthCheck()` — checks project and global *scaffold* health:
+ *   .cleo/ directory structure, tasks.db, config.json, global ~/.cleo/ dirs.
+ *   Called on every CLI startup to detect drift.
+ *
+ * These are complementary, not duplicates. Neither delegates to the other
+ * because their scopes and lifecycles differ:
+ *   - Bootstrap health only makes sense after bootstrap completes.
+ *   - Startup health must be ultra-fast (no CAAMP parsing) and runs unconditionally.
+ *
  * Checks:
  *   1. XDG template exists and has a version header
  *   2. Legacy template (if present) matches XDG version

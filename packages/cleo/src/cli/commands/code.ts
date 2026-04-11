@@ -15,11 +15,11 @@ async function requireTreeSitter(): Promise<void> {
   const { isTreeSitterAvailable } = await import('@cleocode/core/internal');
   if (!isTreeSitterAvailable()) {
     console.error(
-      'Error: tree-sitter is not installed. Code analysis features require tree-sitter grammar packages.\n\n' +
-        'Install with:\n' +
-        '  npm install -g tree-sitter-cli\n' +
-        '  # Or in the project: pnpm add tree-sitter-cli tree-sitter-typescript tree-sitter-javascript\n\n' +
-        'All other CLEO features work without tree-sitter. Only `cleo code` commands require it.',
+      'Error: tree-sitter native module not available.\n\n' +
+        'This usually means the native addon failed to build during install.\n' +
+        'Fix: pnpm install (or npm install -g @cleocode/cleo)\n\n' +
+        'tree-sitter and grammar packages are bundled dependencies that should\n' +
+        'install automatically. If this persists, run: cleo doctor',
     );
     process.exit(7); // exit code 7 = service unavailable
   }
