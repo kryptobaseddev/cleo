@@ -1,8 +1,9 @@
 # Changelog
 
-## [2026.4.29] (2026-04-11)
+## [2026.4.30] (2026-04-11)
 
 Full CLI remediation — 3rd audit cycle, 23 agents, ~280 commands tested, all issues resolved.
+Includes research add/link/update file path fix missed in v2026.4.29.
 
 ### P0 Critical Fixes (10)
 - **compliance record**: Fixed TypeError crash when `--violation` not passed (undefined `.map()`)
