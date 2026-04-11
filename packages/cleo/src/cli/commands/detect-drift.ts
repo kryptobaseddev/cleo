@@ -365,7 +365,7 @@ export function registerDetectDriftCommand(program: Command): void {
       // Check 6: Canonical identity
       try {
         const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
-        const specPath = join(projectRoot, 'docs', 'specs', 'PORTABLE-BRAIN-SPEC.md');
+        const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md');
 
         const issues: DriftIssue[] = [];
 
@@ -385,7 +385,7 @@ export function registerDetectDriftCommand(program: Command): void {
             category: 'spec',
             message: 'Portable Brain spec missing',
             file: specPath,
-            recommendation: 'Create docs/specs/PORTABLE-BRAIN-SPEC.md with canonical pillars',
+            recommendation: 'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
           });
         }
 
@@ -414,7 +414,7 @@ export function registerDetectDriftCommand(program: Command): void {
                   category: 'vision',
                   message: `Missing pillars: ${missingPillars.join(', ')}`,
                   file: specPath,
-                  recommendation: 'Add all five canonical pillars to PORTABLE-BRAIN-SPEC.md',
+                  recommendation: 'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
                 },
               ],
             );

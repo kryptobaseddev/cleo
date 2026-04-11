@@ -379,7 +379,7 @@ Projects SHOULD call `nexus.reconcile` after moving to a new path to update the 
 
 - [CLEO-OPERATION-CONSTITUTION.md](CLEO-OPERATION-CONSTITUTION.md) -- Full operation listing across all domains
 - [VERB-STANDARDS.md](VERB-STANDARDS.md) -- Canonical verb definitions
-- [CLEO-BRAIN-SPECIFICATION.md](CLEO-BRAIN-SPECIFICATION.md) -- Related storage pattern (brain.db)
+- [CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md](CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md) -- Portable Project BRAIN (brain.db storage pattern)
 - [CLEO-SYSTEM-FLOW-ATLAS.md](../concepts/CLEO-SYSTEM-FLOW-ATLAS.md) -- Workshop vocabulary and system architecture
 - [CLEO-VISION.md](../concepts/CLEO-VISION.md) -- Workshop language documentation
 - Task T5372 -- Implementation task for this specification
