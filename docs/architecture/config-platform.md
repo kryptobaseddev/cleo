@@ -34,7 +34,7 @@ This document designs a configuration management platform for CLEO, inspired by 
 Configs are grouped into "tenants" organized by theme. Each tenant has owners, custom tests, and dedicated CD pipelines.
 
 ### What Exists in CLEO Today
-- 10 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`, `conduit`
+- 10 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`
 - `CleoConfig` interface in `packages/contracts/src/config.ts` already groups config by theme: `output`, `backup`, `hierarchy`, `session`, `enforcement`, `verification`, `lifecycle`, `logging`, `sharing`, `signaldock`, `brain`
 - Config engine in `packages/core/src/config.ts` with cascade resolution
 
@@ -240,13 +240,13 @@ A **Config Control Plane** that sits between the CLI command and the config stor
 Scalable storage + efficient distribution. Source of truth for config values and versions.
 
 ### What Exists in CLEO Today
-- 3 SQLite DBs: `tasks.db`, `brain.db`, `nexus.db` (all via Drizzle ORM)
+- 5 SQLite databases: `tasks.db` (project-tier), `brain.db` (project-tier), `nexus.db` (project-tier), `conduit.db` (project-tier), `signaldock.db` (global-tier, `$XDG_DATA_HOME/cleo/signaldock.db`)
 - Config stored as JSON files: `.cleo/config.json` (project), global config
 - No config versioning, no change history, no rollback
 
 ### What Needs to Be Built
 
-**A new `config.db` SQLite database** -- the 4th CLEO database (tasks=tasks, signaldock=agents, brain=memory, **config=configuration**).
+**A new `config.db` SQLite database** -- the 6th CLEO database (tasks=tasks, signaldock=agents, brain=memory, conduit=messaging, nexus=cross-project, **config=configuration**).
 
 ```
 TABLE: config_entries
@@ -764,7 +764,7 @@ packages/runtime/src/
 
 | Decision | Alternative | Rationale |
 |----------|------------|-----------|
-| New config.db (4th SQLite DB) | Extend tasks.db | Separation of concerns -- config lifecycle differs from tasks |
+| New config.db (6th SQLite DB) | Extend tasks.db | Separation of concerns -- config lifecycle differs from tasks |
 | Append-only log in config_entries | Mutable rows + history table | Simpler rollback, immutable audit trail |
 | config.json as materialized view | Abandon config.json | Backward compat, git-committable, human-readable |
 | Flag resolver as middleware | Flag checking in domain handlers | Consistent availability, single cache point |

@@ -10,14 +10,24 @@
 
 ## Overview
 
-CLEO uses four SQLite databases, each serving a distinct domain. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
+CLEO uses five SQLite databases across two tiers. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
 
-| Database | Schema File(s) | Purpose |
-|----------|---------------|---------|
-| `tasks.db` | `tasks-schema.ts`, `chain-schema.ts`, `agent-schema.ts` | Core work management, sessions, lifecycle, audit, agents |
-| `brain.db` | `brain-schema.ts` | Cognitive memory: decisions, patterns, learnings, observations, graph |
-| `signaldock.db` | Diesel ORM migrations (Rust) | Agent identity SSoT, messaging, conversations, auth (local SQLite / cloud PostgreSQL) |
-| `nexus.db` | `nexus-schema.ts` | Cross-project registry and audit |
+### Tier Summary
+
+| Tier | Databases | Location Pattern |
+|------|-----------|-----------------|
+| Project-tier | `tasks.db`, `brain.db`, `nexus.db`, `conduit.db` | `.cleo/<db>` (per-project) |
+| Global-tier | `signaldock.db` | `$XDG_DATA_HOME/cleo/signaldock.db` |
+
+### Database Inventory
+
+| Database | Tier | Schema File(s) | Purpose |
+|----------|------|---------------|---------|
+| `tasks.db` | project | `tasks-schema.ts`, `chain-schema.ts`, `agent-schema.ts` | Core work management, sessions, lifecycle, audit, agents |
+| `brain.db` | project | `brain-schema.ts` | Cognitive memory: decisions, patterns, learnings, observations, graph |
+| `nexus.db` | project | `nexus-schema.ts` | Cross-project registry and audit |
+| `conduit.db` | project | `conduit-sqlite.ts` (node:sqlite) | Project-tier agent messaging: conversations, messages, attachments |
+| `signaldock.db` | global | Diesel ORM migrations (Rust) + `signaldock-sqlite.ts` (node:sqlite, local) | Agent identity SSoT, messaging, conversations, auth (local SQLite / cloud PostgreSQL) |
 
 ---
 
@@ -297,7 +307,7 @@ erDiagram
         text request_id "MCP request correlation ID (nullable)"
         integer duration_ms "Operation duration in milliseconds (nullable)"
         integer success "1 for success, 0 for failure (nullable)"
-        text source "Operation source: cli|mcp|agent (nullable)"
+        text source "Operation source: cli|agent (nullable) — mcp removed (MCP fully removed v2026.4.4)"
         text gateway "Gateway type: query|mutate (nullable)"
         text error_message "Error description on failure (nullable)"
         text project_hash "SHA-256 prefix for multi-project correlation (nullable)"
@@ -308,7 +318,7 @@ erDiagram
         text created_at "ISO 8601 timestamp (NOT NULL, default: now)"
         text provider "AI provider name (NOT NULL, default: unknown)"
         text model "Model name/version (nullable)"
-        text transport "cli|mcp|api|agent|unknown (NOT NULL, default: unknown)"
+        text transport "cli|api|agent|unknown (NOT NULL, default: unknown) — mcp removed v2026.4.4"
         text gateway "Gateway type: query|mutate (nullable)"
         text domain "MCP domain (nullable)"
         text operation "MCP operation (nullable)"
@@ -856,39 +866,132 @@ nexus.db has **no hard foreign keys**. The `project_hash` and `project_id` colum
 
 ---
 
+## 4. signaldock.db — Global-Tier Agent Identity and Messaging
+
+The global-tier agent identity store. Shared across all projects on the machine. Prior to v2026.4.12 this was a per-project database; it was promoted to global-tier by ADR-037.
+
+**Location**: `$XDG_DATA_HOME/cleo/signaldock.db` (global, one instance per machine)
+**Server-side ORM**: Diesel ORM migrations (Rust) via `crates/signaldock-storage`
+**Local-access ORM**: `node:sqlite` `DatabaseSync` via `packages/core/src/store/signaldock-sqlite.ts`
+**ADR**: ADR-036, ADR-037
+
+> **Migration note**: Prior to v2026.4.12, signaldock.db was located at `.cleo/signaldock.db` (per-project). Existing installations are migrated to `$XDG_DATA_HOME/cleo/signaldock.db` on first access after upgrade.
+
+### 4.1 Table Summary
+
+signaldock.db schema is authoritative in Diesel ORM migrations (`crates/signaldock-storage/migrations/`). The TypeScript client (`signaldock-sqlite.ts`) reads via `node:sqlite` `DatabaseSync` without modifying the schema.
+
+| Table Group | Purpose |
+|-------------|---------|
+| `agents` | Agent identity SSoT — canonical registry of all registered agents |
+| `agent_capabilities` | Per-agent capability declarations |
+| `agent_heartbeats` | Liveness tracking (heartbeat timestamps) |
+| `conversations` | Agent-to-agent conversation threads |
+| `messages` | Individual messages within conversations |
+| `delivery_jobs` | Outbound delivery queue (at-least-once semantics) |
+| `dead_letters` | Failed delivery archive |
+| `auth_tokens` | Agent authentication tokens |
+| `webhooks` | SSE/webhook subscription registry |
+| `webhook_deliveries` | Webhook delivery attempt log |
+| (+ 7 more Diesel-managed tables) | See `crates/signaldock-storage/migrations/` |
+
+### 4.2 Foreign Key Notes
+
+All foreign keys in signaldock.db are managed by Diesel ORM. The TypeScript `signaldock-sqlite.ts` client operates read-only against the local copy; mutations go through the Diesel layer or `api.signaldock.io`.
+
+### 4.3 Cross-Tier Reference
+
+`conduit.db:project_agent_refs.agent_id` holds a soft FK to `signaldock.db:agents.id`. This cross-tier reference is enforced at the application layer only — see `conduit-sqlite.ts`.
+
+---
+
+## 5. conduit.db — Project-Tier Agent Messaging
+
+The project-tier messaging database. Each project has its own `conduit.db` alongside `tasks.db`. Introduced in ADR-037 to separate project-scoped agent messaging from global agent identity.
+
+**Location**: `.cleo/conduit.db` (per-project)
+**ORM**: `node:sqlite` `DatabaseSync` via `packages/core/src/store/conduit-sqlite.ts`
+**ADR**: ADR-037
+
+### 5.1 Table Summary
+
+| Table | Purpose |
+|-------|---------|
+| `conversations` | Project-scoped conversation threads between agents |
+| `messages` | Individual messages within conversations |
+| `messages_fts` | FTS5 full-text search index over messages |
+| `delivery_jobs` | Project-local outbound delivery queue |
+| `dead_letters` | Failed delivery archive (project-scoped) |
+| `message_pins` | Pinned messages for quick retrieval |
+| `attachments` | File and data attachments to messages |
+| `attachment_versions` | Version history for mutable attachments |
+| `attachment_approvals` | Approval workflow records for attachments |
+| `attachment_contributors` | Attribution tracking for attachment authorship |
+| `project_agent_refs` | Soft-FK reference table: project-local agent aliases → global signaldock.db:agents |
+
+### 5.2 Foreign Key Legend
+
+conduit.db uses `node:sqlite` enforced hard FKs within the database. The cross-database reference to signaldock.db is a soft FK enforced at the application layer.
+
+| FK | From | To | Type |
+|----|------|----|------|
+| `messages.conversation_id` | `messages` | `conversations.id` | Hard (CASCADE) |
+| `delivery_jobs.message_id` | `delivery_jobs` | `messages.id` | Hard (CASCADE) |
+| `dead_letters.message_id` | `dead_letters` | `messages.id` | Hard (SET NULL) |
+| `message_pins.message_id` | `message_pins` | `messages.id` | Hard (CASCADE) |
+| `attachments.message_id` | `attachments` | `messages.id` | Hard (CASCADE) |
+| `attachment_versions.attachment_id` | `attachment_versions` | `attachments.id` | Hard (CASCADE) |
+| `attachment_approvals.attachment_id` | `attachment_approvals` | `attachments.id` | Hard (CASCADE) |
+| `attachment_contributors.attachment_id` | `attachment_contributors` | `attachments.id` | Hard (CASCADE) |
+| `project_agent_refs.agent_id` | `project_agent_refs` | `signaldock.db:agents.id` | Soft (cross-DB, cross-tier) |
+
+### 5.3 Cross-Tier Notes
+
+`project_agent_refs` provides a project-local view of agents registered in the global `signaldock.db`. When an agent is referenced in a conduit conversation, its canonical identity record is in `signaldock.db:agents`. The `project_agent_refs` table caches the mapping for offline access and fast local queries.
+
+---
+
 ## Aggregate Statistics
 
-Post T033 indexes and T060 pipeline stage binding.
+Post T033 indexes, T060 pipeline stage binding, ADR-036/037 5-DB topology.
 
-| Database | Tables | Hard FKs | Intentional Soft FKs | Indexes | Unique Constraints |
-|----------|--------|----------|----------------------|---------|-------------------|
-| tasks.db | 25 | 30 | 11 | 79 | 2 |
-| brain.db | 9 | 0 | 7 | 26 | 0 |
-| signaldock.db | 17+ | Diesel-managed | 0 | Diesel-managed | Diesel-managed |
-| nexus.db | 3 | 0 | 2 | 8 | 2 |
-| **Total (TS DBs)** | **37** | **30** | **20** | **113** | **4** |
+| Database | Tier | Tables | Hard FKs | Intentional Soft FKs | Indexes | Unique Constraints |
+|----------|------|--------|----------|----------------------|---------|-------------------|
+| tasks.db | project | 25 | 30 | 11 | 79 | 2 |
+| brain.db | project | 9 | 0 | 7 | 26 | 0 |
+| nexus.db | project | 3 | 0 | 2 | 8 | 2 |
+| conduit.db | project | 11 | node:sqlite | 1 (project_agent_refs → signaldock.db) | varies | varies |
+| signaldock.db | global | 17+ | Diesel-managed | 0 | Diesel-managed | Diesel-managed |
+| **Total (TS project DBs)** | | **37+** | **30+** | **21+** | **113+** | **4+** |
 
-> **Note**: signaldock.db statistics are managed by Diesel ORM (Rust) and are not tracked in Drizzle ORM schema files. See `docs/specs/DATABASE-ARCHITECTURE.md` for signaldock.db table inventory.
+> **Note**: signaldock.db statistics are managed by Diesel ORM (Rust) server-side and `node:sqlite` client-side; they are not tracked in Drizzle ORM schema files. See `docs/specs/DATABASE-ARCHITECTURE.md` for signaldock.db table inventory. conduit.db uses `node:sqlite` `DatabaseSync` via `packages/core/src/store/conduit-sqlite.ts` (ADR-037).
 
 ## Cross-Database Reference Map
 
-CLEO uses three separate SQLite databases. Cross-database references are enforced at the application layer only (SQLite cannot enforce FKs across connections).
+CLEO uses five separate SQLite databases across two tiers. Cross-database references are enforced at the application layer only (SQLite cannot enforce FKs across connections).
 
 ```
-tasks.db                    brain.db                    nexus.db                    signaldock.db
-────────────────────        ────────────────────        ────────────────────        ────────────────────
-tasks.id ◄──────────────── brain_decisions.context_task_id
-tasks.id ◄──────────────── brain_decisions.context_epic_id
-sessions.id ◄────────────── brain_observations.source_session_id
-tasks.id ◄──────────────── brain_memory_links.task_id
-tasks.id ◄──────────────── brain_page_nodes.id (task:T* prefix)
-brain_observations.id ◄──── pipeline_manifest.brain_obs_id
-                                                        project_registry (no cross-DB refs)
-                                                        nexus_audit_log.project_id (informational only)
-agent_credentials ◄──────────────────────────────────────────────────────────────── agents (SSoT, soft ref)
+PROJECT TIER                                                        GLOBAL TIER
+──────────────────────────────────────────────────────────          ──────────────────────
+tasks.db            brain.db            nexus.db    conduit.db      signaldock.db
+────────────────    ────────────────    ────────    ──────────      ────────────────────
+tasks.id ◄───────── brain_decisions.context_task_id
+tasks.id ◄───────── brain_decisions.context_epic_id
+sessions.id ◄──────── brain_observations.source_session_id
+tasks.id ◄───────── brain_memory_links.task_id
+tasks.id ◄───────── brain_page_nodes.id (task:T* prefix)
+brain_observations.id ◄─ pipeline_manifest.brain_obs_id
+                                        project_registry (no cross-DB refs)
+                                        nexus_audit_log.project_id (informational only)
+agent_credentials ◄───────────────────────────────────────────────── agents (SSoT, soft ref)
+                                                    project_agent_refs.agent_id ──────────► agents.id (soft FK, cross-tier)
 
-Note: signaldock.db `agents` table is the SSoT for agent identity.
+Note: signaldock.db (global tier, $XDG_DATA_HOME/cleo/signaldock.db) `agents` table is the
+SSoT for agent identity. Prior to v2026.4.12, signaldock.db was per-project. See ADR-037.
+
 tasks.db `agent_credentials` is a LOCAL CACHE of encrypted credentials.
+conduit.db `project_agent_refs` is a soft-FK reference to global signaldock.db:agents —
+enforced at the application layer in conduit-sqlite.ts.
 ```
 
 See T030 audit for full soft FK remediation plan and cross-DB application guard requirements.
@@ -918,7 +1021,7 @@ The status_registry table (tasks.db) stores all valid status values. The canonic
 | `task_relations.relation_type` | related, blocks, duplicates, absorbs, fixes, extends, supersedes | Default: related |
 | `lifecycle_stages.stage_name` | (same as pipeline_stage above) | Canonical RCASD-IVTR+C stages |
 | `lifecycle_stages.validation_status` | pending, in_review, approved, rejected, needs_revision | RCASD provenance |
-| `token_usage.transport` | cli, mcp, api, agent, unknown | Default: unknown |
+| `token_usage.transport` | cli, api, agent, unknown | Default: unknown — mcp removed (v2026.4.4) |
 | `token_usage.method` | otel, provider_api, tokenizer, heuristic | Default: heuristic |
 | `token_usage.confidence` | real, high, estimated, coarse | Default: coarse |
 | `external_task_links.link_type` | created, matched, manual, transferred | |
