@@ -14,11 +14,10 @@ PRIMARY_SOURCE: docs/concepts/CLEO-VISION.md
 IDENTITY_LOCK: TRUE
 
 READ_ORDER:
-1) docs/concepts/CLEO-VISION.md                     (this document -- canonical identity)
-2) docs/specs/PORTABLE-BRAIN-SPEC.md            (normative product contract)
-3) README.md                                    (public-facing product statement)
-4) docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md    (phase/gate execution plan)
-5) docs/specs/CLEO-BRAIN-SPECIFICATION.md       (BRAIN capability model)
+1) docs/concepts/CLEO-VISION.md                          (this document -- canonical identity)
+2) docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md   (Portable Project BRAIN — product contract + capability model)
+3) README.md                                         (public-facing product statement)
+4) docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md         (phase/gate execution plan)
 
 NON_NEGOTIABLES:
 - Do not redefine CLEO identity
@@ -636,7 +635,7 @@ cleo session end --note "Completed auth flow, tests passing"
 
 - This document defines what CLEO **is**, not just what it builds next.
 - Any change that alters canonical identity requires explicit vision amendment.
-- Changes MUST be synchronized to `README.md` and `docs/specs/PORTABLE-BRAIN-SPEC.md`.
+- Changes MUST be synchronized to `README.md` and `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md`.
 - Strategic documents MUST align to this vision; they cannot redefine it.
 - The four systems (BRAIN, LOOM, NEXUS, LAFS) are canonical and immutable.
 - Individual system specifications may evolve, but the roles described here are fixed.
@@ -646,10 +645,9 @@ cleo session end --note "Completed auth flow, tests passing"
 | Priority | Document | Purpose |
 |----------|----------|---------|
 | 1 | `docs/concepts/CLEO-VISION.md` | Immutable vision identity (this document) |
-| 2 | `docs/specs/PORTABLE-BRAIN-SPEC.md` | Normative product contract |
+| 2 | `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md` | Portable Project BRAIN — product contract + capability model |
 | 3 | `README.md` | Public-facing product statement |
 | 4 | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase/gate execution plan |
-| 5 | `docs/specs/CLEO-BRAIN-SPECIFICATION.md` | BRAIN capability model |
 
 If conflicts occur, higher priority prevails.
 

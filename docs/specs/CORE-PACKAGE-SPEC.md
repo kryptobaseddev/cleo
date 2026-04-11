@@ -947,9 +947,9 @@ Observations written during a focused-task session are automatically linked to t
 
 `CLEO-INJECTION.md` templates updated with a Memory Automation section documenting `brain.embedding`, `brain.memoryBridge`, and `brain.summarization` config keys for agent awareness.
 
-#### T146 — CLEO-BRAIN-SPECIFICATION.md v2.0.0
+#### T146 — BRAIN Specification v2.0.0 (now consolidated into CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md v3.0.0)
 
-Updated brain specification to v2.0.0 reflecting the full automation layer: embedding pipeline, lifecycle hooks, summarization protocol, and maintenance command.
+Updated brain specification to v2.0.0 reflecting the full automation layer: embedding pipeline, lifecycle hooks, summarization protocol, and maintenance command. This content is now part of `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md`.
 
 #### New Runtime Dependency
 

@@ -4,11 +4,11 @@
  * @task T4795
  */
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
+import type { DependencyReport } from '@cleocode/contracts';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkInjection } from '../injection.js';
 import { getAgentsHome, isProjectInitialized } from '../paths.js';
@@ -37,9 +37,15 @@ import {
   checkNodeVersion,
   checkVitalFilesTracked,
 } from '../validation/doctor/checks.js';
+import { checkAllDependencies } from './dependencies.js';
 import { checkStorageMigration } from './storage-preflight.js';
 
-const execAsync = promisify(execFile);
+// NOTE on storage-migration preflight consolidation (T511):
+// `checkStorageMigration` lives in ./storage-preflight.ts and is the single
+// source of truth. Both `self-update.ts` and `upgrade.ts` import it from
+// `@cleocode/core/internal`.  No duplication exists — this comment documents
+// that the consolidation is already in place.
+
 const _require = createRequire(import.meta.url);
 
 type SqliteModule = typeof import('node:sqlite');
@@ -449,15 +455,8 @@ export interface DoctorReport {
   errors: number;
   warnings: number;
   checks: DoctorCheck[];
-}
-
-async function commandExists(cmd: string): Promise<string | null> {
-  try {
-    const { stdout } = await execAsync('which', [cmd]);
-    return stdout.trim();
-  } catch {
-    return null;
-  }
+  /** Dependency registry report — populated by `checkAllDependencies()`. */
+  dependencies?: DependencyReport;
 }
 
 async function fileSize(path: string): Promise<number> {
@@ -602,6 +601,63 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
 }
 
 /**
+ * Run adapter health checks for all discovered adapters and return doctor
+ * check entries. Returns an empty array when no adapters are initialized
+ * (adapters are optional — their absence is not an error).
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns Array of DoctorCheck entries, one per adapter (plus a summary if none found)
+ */
+async function checkAdapterHealth(projectRoot: string): Promise<DoctorCheck[]> {
+  const results: DoctorCheck[] = [];
+  try {
+    const { AdapterManager } = await import('../adapters/index.js');
+    const { getPackageRoot } = await import('../scaffold.js');
+    // Prefer the caller-supplied projectRoot; fall back to the package root for
+    // adapter manifest discovery when projectRoot is not a package root itself.
+    const pkgRoot = projectRoot || getPackageRoot();
+    const manager = AdapterManager.getInstance(pkgRoot);
+
+    // Discover manifests (idempotent if already discovered)
+    manager.discover();
+
+    // Run health checks on any already-initialized adapters
+    const healthMap = await manager.healthCheckAll();
+
+    if (healthMap.size === 0) {
+      // No adapters initialized — adapters are optional, report as info
+      results.push({
+        check: 'adapter_health',
+        status: 'ok',
+        message: 'No adapters initialized (adapters are optional)',
+      });
+    } else {
+      for (const [adapterId, status] of healthMap) {
+        results.push({
+          check: `adapter_${adapterId.replace(/-/g, '_')}`,
+          status: status.healthy ? 'ok' : 'warning',
+          message: status.healthy
+            ? `Adapter ${adapterId} (${status.provider}) healthy`
+            : `Adapter ${adapterId} (${status.provider}) unhealthy`,
+          ...(status.details && Object.keys(status.details).length > 0
+            ? { details: status.details as Record<string, unknown> }
+            : {}),
+          ...(!status.healthy ? { fix: `cleo adapter health ${adapterId}` } : {}),
+        });
+      }
+    }
+  } catch {
+    // Adapter system is non-critical — never let it block the doctor report
+    results.push({
+      check: 'adapter_health',
+      status: 'warning',
+      message: 'Adapter health check unavailable (adapter system not reachable)',
+    });
+  }
+  return results;
+}
+
+/**
  * Run comprehensive doctor diagnostics combining dependency checks,
  * directory checks, data file checks, gitignore checks, and environment info.
  * @task T4795
@@ -609,15 +665,31 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
 export async function coreDoctorReport(projectRoot: string): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
 
-  // 1. Check dependencies (jq removed — no longer needed since SQLite migration, ADR-006)
-  const gitPath = await commandExists('git');
-  checks.push({
-    check: 'git_installed',
-    status: gitPath ? 'ok' : 'warning',
-    message: gitPath
-      ? `git found: ${gitPath}`
-      : 'git not found (optional, needed for version control features)',
-  });
+  // 1. Dependency registry — single source of truth for all external deps (T507)
+  const depReport = await checkAllDependencies();
+  // Wire individual dependency results into the doctor check list so existing
+  // consumers (CLI renderers, tests) see familiar DoctorCheck entries.
+  for (const dep of depReport.results) {
+    const isRequired = dep.category === 'required';
+    const status: 'ok' | 'warning' | 'error' = dep.healthy
+      ? dep.installed
+        ? 'ok'
+        : 'warning' // optional/feature not installed — warn, not error
+      : isRequired
+        ? 'error'
+        : 'warning';
+
+    const message = dep.installed
+      ? `${dep.name}${dep.version ? ` ${dep.version}` : ''}${dep.location ? ` (${dep.location})` : ''}`
+      : (dep.error ?? `${dep.name} not found`);
+
+    checks.push({
+      check: `dep_${dep.name.replace(/-/g, '_')}`,
+      status,
+      message,
+      ...(dep.suggestedFix ? { fix: dep.suggestedFix } : {}),
+    });
+  }
 
   // 2. Check CLEO directories
   const cleoDir = join(projectRoot, '.cleo');
@@ -798,6 +870,38 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     ...(existsSync(agentDefPath) ? {} : { fix: 'cleo init' }),
   });
 
+  // 5e. brain.db and memory-bridge checks (T511 — consolidate startup checks into doctor)
+  // These are checked in startupHealthCheck() as warnings. The doctor report is the
+  // comprehensive view so it must include them too, making startupHealthCheck() a subset.
+  const brainDbCheckResult = checkBrainDb(projectRoot);
+  checks.push({
+    check: 'brain_db',
+    status:
+      brainDbCheckResult.status === 'passed'
+        ? 'ok'
+        : brainDbCheckResult.status === 'warning'
+          ? 'warning'
+          : 'error',
+    message: brainDbCheckResult.message,
+    ...(brainDbCheckResult.fix ? { fix: brainDbCheckResult.fix } : {}),
+  });
+
+  const memBridgeCheckResult = checkMemoryBridge(projectRoot);
+  checks.push({
+    check: 'memory_bridge',
+    status: memBridgeCheckResult.status === 'passed' ? 'ok' : 'warning',
+    message: memBridgeCheckResult.message,
+    ...(memBridgeCheckResult.fix ? { fix: memBridgeCheckResult.fix } : {}),
+  });
+
+  // 5f. Adapter health checks (T511 — wire adapter health into doctor)
+  // `cleo adapter health` was previously isolated from the doctor report.
+  // The doctor is the comprehensive diagnostic view so adapter health belongs here.
+  const adapterChecks = await checkAdapterHealth(projectRoot);
+  for (const ac of adapterChecks) {
+    checks.push(ac);
+  }
+
   // 6a. GitHub templates presence (informational only — non-critical)
   const gitDir = join(projectRoot, '.git');
   const gitHubTemplatesDir = join(projectRoot, '.github', 'ISSUE_TEMPLATE');
@@ -838,7 +942,7 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   const warningCount = checks.filter((c) => c.status === 'warning').length;
   const healthy = errorCount === 0;
 
-  return { healthy, errors: errorCount, warnings: warningCount, checks };
+  return { healthy, errors: errorCount, warnings: warningCount, checks, dependencies: depReport };
 }
 
 // ============================================================================

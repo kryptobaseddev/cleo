@@ -108,6 +108,13 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
+// === Dependency Registry Contracts ===
+export type {
+  DependencyCategory,
+  DependencyCheckResult,
+  DependencyReport,
+  DependencySpec,
+} from './dependency.js';
 export type { AdapterManifest, DetectionPattern } from './discovery.js';
 // === Error Utilities ===
 export {
@@ -164,6 +171,14 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
+// === Graph Intelligence Types (T512) ===
+export type {
+  GraphNode,
+  GraphNodeKind,
+  GraphRelation,
+  GraphRelationType,
+  ImpactResult,
+} from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
 export type {
