@@ -804,10 +804,19 @@ export class AdminHandler implements DomainHandler {
             };
           }
           const result = await syncAdrsToDb(projectRoot);
+          const hasErrors = result.errors.length > 0;
           return {
             meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: true,
+            success: !hasErrors,
             data: result,
+            ...(hasErrors
+              ? {
+                  error: {
+                    code: 'E_ADR_SYNC',
+                    message: `${result.errors.length} ADR sync error(s) occurred`,
+                  },
+                }
+              : {}),
           };
         }
 

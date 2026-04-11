@@ -3,7 +3,7 @@
 **Date**: 2026-02-21
 **Status**: accepted
 **Accepted**: 2026-02-21
-**Supersedes**: ADR-001, ADR-002
+<!-- Supersedes legacy ADR-001 and ADR-002 (pre-CLEO, not tracked as files) -->
 **Amended By**: ADR-010, ADR-011, ADR-017, ADR-020
 **Summary**: Establishes SQLite as the canonical runtime store for all CLEO operational data, replacing scattered JSON files. Defines the schema for tasks, sessions, lifecycle pipelines, and ADR tracking. All MCP and CLI operations must read/write through SQLite.
 **Keywords**: sqlite, storage, schema, canonical, json, tasks, sessions, lifecycle, architecture_decisions

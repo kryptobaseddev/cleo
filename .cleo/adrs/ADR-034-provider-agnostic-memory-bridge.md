@@ -1,4 +1,4 @@
-# ADR-002: Provider-Agnostic Memory Bridge
+# ADR-034: Provider-Agnostic Memory Bridge
 
 **Status**: Accepted
 **Date**: 2026-03-16

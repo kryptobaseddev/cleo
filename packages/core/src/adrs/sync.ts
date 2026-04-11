@@ -14,7 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { adrTaskLinks, architectureDecisions } from '../store/tasks-schema.js';
+import { adrTaskLinks, architectureDecisions, tasks } from '../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrSyncResult } from './types.js';
 
@@ -68,7 +68,7 @@ function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> 
  */
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
-  const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [] };
+  const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
 
   if (!existsSync(adrsDir)) {
     return result;
@@ -93,9 +93,50 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
       const dbRelPath = `.cleo/adrs/${relPath}`;
       const content = readFileSync(filePath, 'utf-8');
 
-      const supersedesId = fm.Supersedes ? extractAdrIdFromRef(fm.Supersedes) : null;
-      const supersededById = fm['Superseded By'] ? extractAdrIdFromRef(fm['Superseded By']) : null;
-      const amendsId = fm.Amends ? extractAdrIdFromRef(fm.Amends) : null;
+      let supersedesId = fm.Supersedes ? extractAdrIdFromRef(fm.Supersedes) : null;
+      let supersededById = fm['Superseded By'] ? extractAdrIdFromRef(fm['Superseded By']) : null;
+      let amendsId = fm.Amends ? extractAdrIdFromRef(fm.Amends) : null;
+
+      // Validate FK references exist before insert/update to avoid constraint violations
+      if (supersedesId) {
+        const exists = await db
+          .select({ id: architectureDecisions.id })
+          .from(architectureDecisions)
+          .where(eq(architectureDecisions.id, supersedesId))
+          .all();
+        if (exists.length === 0) {
+          result.warnings.push(
+            `${record.id}: supersedes target ${supersedesId} not found in DB, setting to null`,
+          );
+          supersedesId = null;
+        }
+      }
+      if (supersededById) {
+        const exists = await db
+          .select({ id: architectureDecisions.id })
+          .from(architectureDecisions)
+          .where(eq(architectureDecisions.id, supersededById))
+          .all();
+        if (exists.length === 0) {
+          result.warnings.push(
+            `${record.id}: supersededBy target ${supersededById} not found in DB, setting to null`,
+          );
+          supersededById = null;
+        }
+      }
+      if (amendsId) {
+        const exists = await db
+          .select({ id: architectureDecisions.id })
+          .from(architectureDecisions)
+          .where(eq(architectureDecisions.id, amendsId))
+          .all();
+        if (exists.length === 0) {
+          result.warnings.push(
+            `${record.id}: amends target ${amendsId} not found in DB, setting to null`,
+          );
+          amendsId = null;
+        }
+      }
 
       const rowBase = {
         id: record.id,
@@ -136,6 +177,18 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
       await db.delete(adrTaskLinks).where(eq(adrTaskLinks.adrId, record.id));
       if (fm['Related Tasks']) {
         for (const taskId of parseTaskIds(fm['Related Tasks'])) {
+          // Validate task exists before inserting link to avoid FK constraint violation
+          const taskExists = await db
+            .select({ id: tasks.id })
+            .from(tasks)
+            .where(eq(tasks.id, taskId))
+            .all();
+          if (taskExists.length === 0) {
+            result.warnings.push(
+              `${record.id}: related task ${taskId} not found in DB, skipping link`,
+            );
+            continue;
+          }
           await db.insert(adrTaskLinks).values({ adrId: record.id, taskId, linkType: 'related' });
         }
       }

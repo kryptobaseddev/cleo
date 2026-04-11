@@ -37,6 +37,7 @@ export interface AdrSyncResult {
   updated: number;
   skipped: number;
   errors: Array<{ file: string; error: string }>;
+  warnings: string[];
 }
 
 export interface AdrListResult {
