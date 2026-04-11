@@ -10,7 +10,7 @@
  * while CAAMP handles provider-specific differences.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveRegistryTemplatePath } from '../paths/standard.js';
@@ -41,7 +41,22 @@ function findMappingsPath(): string {
 
 function loadMappings(): HookMappingsFile {
   if (_mappings) return _mappings;
-  const raw = readFileSync(findMappingsPath(), 'utf-8');
+  const mappingsPath = findMappingsPath();
+  if (!existsSync(mappingsPath)) {
+    // Return an empty but structurally valid mappings object when the file is missing.
+    // This avoids ENOENT crashes in installed environments where the providers/
+    // directory may not be bundled (e.g. global npm installs with hoisted deps).
+    const empty: HookMappingsFile = {
+      version: '0.0.0',
+      lastUpdated: new Date().toISOString(),
+      description: 'Empty fallback — hook-mappings.json not found',
+      canonicalEvents: {} as HookMappingsFile['canonicalEvents'],
+      providerMappings: {},
+    };
+    _mappings = empty;
+    return empty;
+  }
+  const raw = readFileSync(mappingsPath, 'utf-8');
   _mappings = JSON.parse(raw) as HookMappingsFile;
   return _mappings;
 }

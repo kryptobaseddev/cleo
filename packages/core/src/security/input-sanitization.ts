@@ -379,8 +379,14 @@ export function sanitizeParams(
     }
 
     if (typeof value === 'string' && (key === 'path' || key === 'file') && projectRoot) {
-      sanitized[key] = sanitizePath(value, projectRoot);
-      continue;
+      // Skip path sanitization for operations that intentionally accept external paths
+      const allowExternalPath =
+        context?.domain === 'nexus' &&
+        (context?.operation === 'register' || context?.operation === 'reconcile');
+      if (!allowExternalPath) {
+        sanitized[key] = sanitizePath(value, projectRoot);
+        continue;
+      }
     }
 
     if (

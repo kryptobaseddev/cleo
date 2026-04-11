@@ -47,7 +47,7 @@ import {
   validateSyntax,
   writeSnapshot,
 } from '@cleocode/core/internal';
-import { type EngineResult, engineError, engineSuccess } from './_error.js';
+import { cleoErrorToEngineError, type EngineResult, engineError, engineSuccess } from './_error.js';
 
 // Re-export EngineResult for consumers
 export type { EngineResult };
@@ -365,7 +365,7 @@ export async function nexusUnregisterProject(
     await nexusUnregister(name);
     return engineSuccess({ message: `Project unregistered: ${name}` });
   } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+    return cleoErrorToEngineError(error, 'E_INTERNAL', `Failed to unregister project: ${name}`);
   }
 }
 
