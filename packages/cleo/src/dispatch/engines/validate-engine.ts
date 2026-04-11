@@ -33,10 +33,14 @@ import { type EngineResult, engineError } from './_error.js';
  * validate.schema - JSON Schema validation
  * @task T4477
  */
-export function validateSchemaOp(type: string, data?: unknown, projectRoot?: string): EngineResult {
+export async function validateSchemaOp(
+  type: string,
+  data?: unknown,
+  projectRoot?: string,
+): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
-    const result = coreValidateSchema(type, data, root);
+    const result = await coreValidateSchema(type, data, root);
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

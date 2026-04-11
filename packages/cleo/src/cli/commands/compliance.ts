@@ -69,17 +69,17 @@ export function registerComplianceCommand(program: Command): void {
     });
 
   compliance
-    .command('audit <epicId>')
-    .description('Check compliance for specific epic tasks')
+    .command('audit <taskId>')
+    .description('Check compliance for a specific task and its subtasks')
     .option('--since <date>', 'Filter from date')
-    .action(async (epicId: string, opts: Record<string, unknown>) => {
+    .action(async (taskId: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'query',
         'check',
         'compliance.summary',
         {
           type: 'audit',
-          epicId,
+          taskId,
           since: opts['since'],
         },
         { command: 'compliance' },

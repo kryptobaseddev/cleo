@@ -164,7 +164,7 @@ export class AdminHandler implements DomainHandler {
                     'admin',
                     operation,
                     'E_NOT_AVAILABLE',
-                    'Job manager not initialized',
+                    'Job manager not available. Background jobs require a running CLEO daemon or long-lived process. Start one with `cleo daemon start` or use `cleo admin health` to check system status.',
                     startTime,
                   );
                 }
@@ -207,7 +207,7 @@ export class AdminHandler implements DomainHandler {
                     'admin',
                     operation,
                     'E_NOT_AVAILABLE',
-                    'Job manager not initialized',
+                    'Job manager not available. Background jobs require a running CLEO daemon or long-lived process. Start one with `cleo daemon start` or use `cleo admin health` to check system status.',
                     startTime,
                   );
                 }
@@ -728,7 +728,7 @@ export class AdminHandler implements DomainHandler {
               'admin',
               operation,
               'E_NOT_AVAILABLE',
-              'Job manager not initialized',
+              'Job manager not available. Background jobs require a running CLEO daemon or long-lived process. Start one with `cleo daemon start` or use `cleo admin health` to check system status.',
               startTime,
             );
           }

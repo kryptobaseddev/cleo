@@ -79,7 +79,7 @@ export class CheckHandler implements DomainHandler {
               startTime,
             );
           }
-          const result = validateSchemaOp(type, params?.data, projectRoot);
+          const result = await validateSchemaOp(type, params?.data, projectRoot);
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
@@ -127,6 +127,7 @@ export class CheckHandler implements DomainHandler {
         case 'compliance.summary': {
           const detail = params?.detail as boolean | undefined;
           const limit = params?.limit as number | undefined;
+          const summaryType = (params?.type as string) ?? 'summary';
 
           if (detail) {
             const result = validateComplianceViolations(limit, projectRoot);
@@ -134,7 +135,23 @@ export class CheckHandler implements DomainHandler {
           }
 
           const result = validateComplianceSummary(projectRoot);
-          return wrapResult(result, 'query', 'check', operation, startTime);
+          if (!result.success || !result.data) {
+            return wrapResult(result, 'query', 'check', operation, startTime);
+          }
+
+          // Include the requested view type so callers can differentiate
+          // trend/skills/value/audit/summary responses
+          const enrichedResult = {
+            ...result,
+            data: {
+              ...(result.data as Record<string, unknown>),
+              view: summaryType,
+              ...(params?.taskId ? { taskId: params.taskId } : {}),
+              ...(params?.days ? { days: params.days } : {}),
+              ...(params?.global ? { global: params.global } : {}),
+            },
+          };
+          return wrapResult(enrichedResult, 'query', 'check', operation, startTime);
         }
 
         case 'test': {
@@ -341,6 +358,11 @@ export class CheckHandler implements DomainHandler {
         case 'archive.stats': {
           const result = await systemArchiveStats(projectRoot, {
             period: params?.period as number | undefined,
+            report: params?.report as
+              | import('@cleocode/core/internal').ArchiveReportType
+              | undefined,
+            since: params?.since as string | undefined,
+            until: params?.until as string | undefined,
           });
           return wrapResult(result, 'query', 'check', operation, startTime);
         }

@@ -16,6 +16,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
+  type ArchiveReportType,
+  analyzeArchive,
   auditData,
   cleanupSystem,
   systemCreateBackup as createBackup,
@@ -503,13 +505,29 @@ export async function systemLabels(
 
 /**
  * Archive metrics: total archived, by reason, average cycle time, archive rate.
+ * When a report type is specified, delegates to analyzeArchive for detailed analytics.
  */
 export async function systemArchiveStats(
   projectRoot: string,
-  params?: { period?: number },
-): Promise<EngineResult<import('@cleocode/core/internal').ArchiveStatsResult>> {
+  params?: { period?: number; report?: ArchiveReportType; since?: string; until?: string },
+): Promise<EngineResult> {
   try {
     const accessor = await getAccessor(projectRoot);
+
+    // If a non-default report type is requested, use the full analytics engine
+    if (params?.report && params.report !== 'summary') {
+      const result = await analyzeArchive(
+        {
+          report: params.report,
+          since: params.since,
+          until: params.until,
+          cwd: projectRoot,
+        },
+        accessor,
+      );
+      return { success: true, data: result };
+    }
+
     const result = await getArchiveStats({ period: params?.period, cwd: projectRoot }, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {

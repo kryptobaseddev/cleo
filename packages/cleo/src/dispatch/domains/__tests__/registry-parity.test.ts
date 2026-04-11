@@ -122,7 +122,7 @@ vi.mock('../../lib/engine.js', () => {
     lifecycleGatePass: mockFn(),
     lifecycleGateFail: mockFn(),
     // Validate engine
-    validateSchemaOp: mockSync(),
+    validateSchemaOp: mockFn(),
     validateTaskOp: mockFn(),
     validateProtocol: mockFn(),
     validateManifestOp: mockSync(),
