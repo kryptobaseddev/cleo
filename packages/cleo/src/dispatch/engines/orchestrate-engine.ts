@@ -42,7 +42,7 @@ import {
   startParallelExecution,
   validateSpawnReadiness,
 } from '@cleocode/core/internal';
-import { type EngineResult, engineError } from './_error.js';
+import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
 
 type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
@@ -782,8 +782,7 @@ export async function orchestrateParallelStart(
     const result = await startParallelExecution(epicId, wave, root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to start parallel execution');
   }
 }
 
@@ -818,8 +817,7 @@ export async function orchestrateParallelEnd(
 
     return { success: true, data: result };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? 'E_GENERAL';
-    return engineError(code, (err as Error).message);
+    return cleoErrorToEngineError(err, 'E_GENERAL', 'Failed to end parallel execution');
   }
 }
 

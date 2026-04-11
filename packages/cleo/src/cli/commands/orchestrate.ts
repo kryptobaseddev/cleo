@@ -194,12 +194,19 @@ export function registerOrchestrateCommand(program: Command): void {
   tessera
     .command('instantiate <templateId> <epicId>')
     .description('Instantiate a tessera template for an epic')
-    .option('--var <pairs...>', 'Key=value variable overrides')
+    .option('--var <pairs>', 'Comma-separated key=value variable overrides (e.g. foo=bar,baz=qux)')
     .action(async (templateId: string, epicId: string, opts: Record<string, unknown>) => {
       const variables: Record<string, string> = {};
-      const pairs = opts['var'] as string[] | undefined;
-      if (Array.isArray(pairs)) {
-        for (const pair of pairs) {
+      const raw = opts['var'];
+      if (typeof raw === 'string') {
+        for (const pair of raw.split(',')) {
+          const eqIdx = pair.indexOf('=');
+          if (eqIdx > 0) {
+            variables[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
+          }
+        }
+      } else if (Array.isArray(raw)) {
+        for (const pair of raw as string[]) {
           const eqIdx = pair.indexOf('=');
           if (eqIdx > 0) {
             variables[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
@@ -273,14 +280,14 @@ export function registerOrchestrateCommand(program: Command): void {
 
   orch
     .command('fanout-status')
-    .description('Get fanout status for an epic')
-    .option('--epic <epicId>', 'Epic ID to scope fanout status to')
+    .description('Get fanout status by manifest entry ID')
+    .requiredOption('--manifest-entry-id <id>', 'Manifest entry ID returned by orchestrate.fanout')
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'query',
         'orchestrate',
         'fanout.status',
-        { epicId: opts['epic'] },
+        { manifestEntryId: opts['manifestEntryId'] },
         { command: 'orchestrate' },
       );
     });
@@ -333,11 +340,12 @@ export function registerOrchestrateCommand(program: Command): void {
         typeof opts['tasks'] === 'string'
           ? (opts['tasks'] as string).split(',').map((s) => s.trim())
           : undefined;
+      const items = taskIds ? taskIds.map((taskId) => ({ taskId, team: 'default' })) : undefined;
       await dispatchFromCli(
         'mutate',
         'orchestrate',
         'fanout',
-        { epicId, taskIds },
+        { epicId, items },
         { command: 'orchestrate' },
       );
     });
@@ -382,7 +390,7 @@ export function registerOrchestrateCommand(program: Command): void {
         'mutate',
         'orchestrate',
         'conduit.start',
-        { pollInterval: opts['pollInterval'] },
+        { pollIntervalMs: opts['pollInterval'] },
         { command: 'orchestrate' },
       );
     });
@@ -412,7 +420,7 @@ export function registerOrchestrateCommand(program: Command): void {
         'conduit.send',
         {
           content,
-          agentId: opts['to'],
+          to: opts['to'],
           conversationId: opts['conversation'],
         },
         { command: 'orchestrate' },
