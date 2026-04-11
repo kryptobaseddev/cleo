@@ -14,9 +14,12 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerValidateCommand(program: Command): void {
   program
     .command('validate')
-    .description('Validate task data against schema and business rules')
+    .description(
+      'DEPRECATED: Use `cleo check schema todo` instead. Validate task data against schema and business rules',
+    )
     .option('--strict', 'Treat warnings as errors')
     .action(async (opts: Record<string, unknown>) => {
+      console.error('[DEPRECATED] cleo validate is deprecated. Use: cleo check schema todo');
       await dispatchFromCli(
         'query',
         'check',

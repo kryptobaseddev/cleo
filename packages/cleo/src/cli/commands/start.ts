@@ -15,7 +15,7 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerStartCommand(program: Command): void {
   program
     .command('start <taskId>')
-    .description('Start working on a task')
+    .description('Start working on a task (sets it as the current task in the active session)')
     .action(async (taskId: string) => {
       await dispatchFromCli('mutate', 'tasks', 'start', { taskId }, { command: 'start' });
     });

@@ -25,7 +25,7 @@ export function registerBriefingCommand(program: Command): void {
   program
     .command('briefing')
     .description(
-      'Show composite session-start context (handoff, focus, next tasks, bugs, blockers, epics)',
+      'Session resume context: last handoff, current task, next tasks, bugs, blockers, epics, and memory. Use at session start to restore context.',
     )
     .option('-s, --scope <scope>', 'Scope filter (global or epic:T###)')
     .option('--max-next <n>', 'Maximum next tasks to show', '5')

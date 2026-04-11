@@ -33,7 +33,9 @@ export function registerRelatesCommand(program: Command): void {
 
   relates
     .command('add <from> <to> <type> <reason>')
-    .description('Add a relates entry to a task')
+    .description(
+      'Add a relates entry to a task. Valid types: blocks|related|duplicates|absorbs|fixes|extends|supersedes',
+    )
     .action(async (from: string, to: string, type: string, reason: string) => {
       await dispatchFromCli(
         'mutate',

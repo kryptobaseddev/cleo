@@ -31,7 +31,7 @@ const VALID_SEVERITIES = Object.keys(SEVERITY_MAP);
 export function registerBugCommand(program: Command): void {
   program
     .command('bug <title>')
-    .description('Create a bug report task with severity mapping')
+    .description('Create a bug report task with severity mapping (requires active session)')
     .option('-s, --severity <level>', 'Severity level (P0, P1, P2, P3) - required', 'P2')
     .option('-e, --epic <id>', 'Epic ID to link as parent (optional)')
     .option('-d, --description <desc>', 'Bug description')

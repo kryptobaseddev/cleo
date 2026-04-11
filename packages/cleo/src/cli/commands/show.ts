@@ -33,7 +33,13 @@ const SHOW_PARAMS: readonly ParamDef[] = [
 export function registerShowCommand(program: Command): void {
   const cmd = program
     .command('show')
-    .description(buildOperationHelp('tasks.show', 'Show full task details by ID', SHOW_PARAMS));
+    .description(
+      buildOperationHelp(
+        'tasks.show',
+        'Show full task details by ID (returns complete task record with metadata, verification, lifecycle)',
+        SHOW_PARAMS,
+      ),
+    );
 
   // Auto-generate the <taskId> positional arg from the ParamDef registry.
   // Replaces the previous hard-coded 'show <taskId>' in the command name string

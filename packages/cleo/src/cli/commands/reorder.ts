@@ -10,11 +10,7 @@ export function registerReorderCommand(program: Command): void {
   program
     .command('reorder <task-id>')
     .description('Change task position within sibling group')
-    .option('--position <n>', 'Move to specific position', parseInt)
-    .option('--before <id>', 'Move before specified task')
-    .option('--after <id>', 'Move after specified task')
-    .option('--top', 'Move to first position')
-    .option('--bottom', 'Move to last position')
+    .option('--position <n>', 'Move to specific zero-based position among siblings', parseInt)
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       const position = opts['position'] as number | undefined;
       await dispatchFromCli(

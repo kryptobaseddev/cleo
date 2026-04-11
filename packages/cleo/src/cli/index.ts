@@ -46,7 +46,6 @@ import { registerAdminCommand } from './commands/admin.js';
 import { registerAdrCommand } from './commands/adr.js';
 // Import all command registration functions
 import { registerAgentCommand } from './commands/agent.js';
-import { registerAgentsCommand } from './commands/agents.js';
 import { registerAnalyzeCommand } from './commands/analyze.js';
 import { registerArchiveCommand } from './commands/archive.js';
 import { registerArchiveStatsCommand } from './commands/archive-stats.js';
@@ -144,7 +143,6 @@ import { registerWebCommand } from './commands/web.js';
 
 // Register all commands against the shim
 registerAgentCommand(rootShim);
-registerAgentsCommand(rootShim);
 registerAddCommand(rootShim);
 registerAddBatchCommand(rootShim);
 registerListCommand(rootShim);

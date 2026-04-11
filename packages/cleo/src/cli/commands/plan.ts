@@ -11,7 +11,7 @@ export function registerPlanCommand(program: Command): void {
   program
     .command('plan')
     .description(
-      'Composite planning view: in-progress epics, ready tasks, blocked tasks, open bugs',
+      'Task prioritization view: in-progress epics, ready tasks, blocked tasks, open bugs with scoring. Use when deciding what to work on next.',
     )
     .action(async () => {
       await dispatchFromCli(

@@ -58,7 +58,9 @@ export function registerBackupCommand(program: Command): void {
   backup
     .command('add')
     .alias('create')
-    .description('Add a new backup of all CLEO data files')
+    .description(
+      'Add a new backup of all CLEO data files (backup create is an alias for backup add)',
+    )
     .option('--destination <dir>', 'Backup destination directory')
     .option('--global', 'Also snapshot global-tier databases (nexus.db)')
     .action(async (opts: Record<string, unknown>) => {

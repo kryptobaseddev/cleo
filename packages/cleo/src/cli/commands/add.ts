@@ -136,7 +136,9 @@ const ADD_PARAMS: readonly ParamDef[] = [
 export function registerAddCommand(program: Command): void {
   const cmd = program
     .command('add')
-    .description(buildOperationHelp('tasks.add', 'Create a new task', ADD_PARAMS));
+    .description(
+      buildOperationHelp('tasks.add', 'Create a new task (requires active session)', ADD_PARAMS),
+    );
 
   // Auto-generate options and the <title> positional arg from the ParamDef
   // registry.  This replaces the previous hand-written .option() chain and

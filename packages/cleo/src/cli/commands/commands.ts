@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerCommandsCommand(program: Command): void {
   program
     .command('commands [command]')
-    .description('List and query available CLEO commands (delegates to admin help)')
+    .description(
+      'DEPRECATED: Use `cleo ops` instead. List and query available CLEO commands (delegates to admin help)',
+    )
     .option('-c, --category <category>', 'Filter by category')
     .option('-r, --relevance <level>', 'Filter by agent relevance')
     .option('--tier <n>', 'Help tier level (0=basic, 1=extended, 2=full)', parseInt)

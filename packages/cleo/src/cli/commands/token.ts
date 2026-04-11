@@ -26,7 +26,9 @@ function readPayload(
 export function registerTokenCommand(program: Command): void {
   const token = program
     .command('token')
-    .description('Provider-aware token telemetry and estimation');
+    .description(
+      'Provider-aware token telemetry from tasks.db (historical, per-operation tracking)',
+    );
 
   token
     .command('summary')

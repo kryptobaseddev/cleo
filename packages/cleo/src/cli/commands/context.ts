@@ -31,7 +31,7 @@ export function registerContextCommand(program: Command): void {
 
   context
     .command('check')
-    .description('Check threshold, return exit code for scripting')
+    .description('Show context window state (same as status)')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli(
@@ -48,7 +48,7 @@ export function registerContextCommand(program: Command): void {
 
   context
     .command('list')
-    .description('List all context state files (multi-session)')
+    .description('Show context window state including all sessions')
     .action(async () => {
       await dispatchFromCli(
         'query',

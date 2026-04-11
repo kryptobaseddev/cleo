@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerSpecificationCommand(program: Command): void {
   const specification = program
     .command('specification')
-    .description('Validate specification protocol compliance');
+    .description(
+      'Validate specification protocol compliance (alias for `cleo check protocol specification`)',
+    );
 
   specification
     .command('validate <taskId>')

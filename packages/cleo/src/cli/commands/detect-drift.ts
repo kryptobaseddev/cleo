@@ -71,11 +71,14 @@ export function registerDetectDriftCommand(program: Command): void {
       const projectRoot = findProjectRoot();
 
       // Detect if we're running inside the CLEO source repo vs a user project.
-      // The source-level checks (src/cli/commands, src/dispatch/domains, etc.) only
-      // apply to the CLEO monorepo itself — skip them in user projects (#78).
-      const isCleoRepo =
-        existsSync(join(projectRoot, 'src', 'cli', 'commands')) ||
-        existsSync(join(projectRoot, 'packages', 'cleo', 'src'));
+      // The source-level checks only apply to the CLEO monorepo itself — skip
+      // them in user projects (#78).
+      const isCleoRepo = existsSync(join(projectRoot, 'packages', 'cleo', 'src'));
+
+      // In the CLEO monorepo, source lives under packages/cleo/src/ not src/.
+      const cleoSrcRoot = isCleoRepo
+        ? join(projectRoot, 'packages', 'cleo', 'src')
+        : join(projectRoot, 'src');
 
       const safeRead = (filePath: string): string => {
         try {
@@ -160,19 +163,19 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 1: Gateway-to-spec sync
       try {
-        const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATIONS-REFERENCE.md');
-        const registryPath = join(projectRoot, 'src', 'dispatch', 'registry.ts');
-        const dispatchDomainsDir = join(projectRoot, 'src', 'dispatch', 'domains');
+        const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATION-CONSTITUTION.md');
+        const registryPath = join(cleoSrcRoot, 'dispatch', 'registry.ts');
+        const dispatchDomainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
 
         if (!existsSync(specPath)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATIONS-REFERENCE.md missing', [
+          addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATION-CONSTITUTION.md missing', [
             {
               severity: 'error',
               category: 'spec',
               message: 'Operations reference specification not found',
               file: specPath,
               recommendation:
-                'Create docs/specs/CLEO-OPERATIONS-REFERENCE.md with canonical operation definitions',
+                'Create docs/specs/CLEO-OPERATION-CONSTITUTION.md with canonical operation definitions',
             },
           ]);
         } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
@@ -182,7 +185,8 @@ export function registerDetectDriftCommand(program: Command): void {
               category: 'implementation',
               message: 'Dispatch registry or domains directory not found',
               file: registryPath,
-              recommendation: 'Verify src/dispatch/registry.ts and src/dispatch/domains/ exist',
+              recommendation:
+                'Verify packages/cleo/src/dispatch/registry.ts and packages/cleo/src/dispatch/domains/ exist',
             },
           ]);
         } else {
@@ -249,15 +253,17 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 2: CLI-to-core sync
       try {
-        const cliDir = join(projectRoot, 'src', 'cli', 'commands');
-        const coreDir = join(projectRoot, 'src', 'core');
+        const cliDir = join(cleoSrcRoot, 'cli', 'commands');
+        const coreDir = isCleoRepo
+          ? join(projectRoot, 'packages', 'core', 'src')
+          : join(projectRoot, 'src', 'core');
 
         if (!existsSync(cliDir)) {
           addCheck('CLI-to-core sync', 'fail', 'CLI commands directory missing', [
             {
               severity: 'error',
               category: 'structure',
-              message: 'src/cli/commands/ directory not found',
+              message: `${cliDir} directory not found`,
               recommendation: 'Verify TypeScript source structure is intact',
             },
           ]);
@@ -266,7 +272,7 @@ export function registerDetectDriftCommand(program: Command): void {
             {
               severity: 'error',
               category: 'structure',
-              message: 'src/core/ directory not found',
+              message: `${coreDir} directory not found`,
               recommendation: 'Verify TypeScript source structure is intact',
             },
           ]);
@@ -282,13 +288,13 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 3: Domain handler coverage
       try {
-        const domainsDir = join(projectRoot, 'src', 'dispatch', 'domains');
+        const domainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
         if (!existsSync(domainsDir)) {
           addCheck('Domain handler coverage', 'fail', 'Dispatch domains directory missing', [
             {
               severity: 'error',
               category: 'structure',
-              message: 'src/dispatch/domains/ not found',
+              message: `${domainsDir} not found`,
               recommendation: 'Verify dispatch domain handlers are in place',
             },
           ]);
@@ -302,13 +308,13 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 4: Capability matrix
       try {
-        const matrixPath = join(projectRoot, 'src', 'dispatch', 'lib', 'capability-matrix.ts');
+        const matrixPath = join(cleoSrcRoot, 'dispatch', 'lib', 'capability-matrix.ts');
         if (!existsSync(matrixPath)) {
           addCheck('Capability matrix', 'fail', 'Capability matrix missing', [
             {
               severity: 'error',
               category: 'configuration',
-              message: 'src/dispatch/lib/capability-matrix.ts not found',
+              message: `${matrixPath} not found`,
               recommendation: 'Create capability matrix to document supported operations',
             },
           ]);
@@ -454,14 +460,14 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 8: Exit codes
       try {
-        const exitCodesPath = join(projectRoot, 'src', 'types', 'exit-codes.ts');
+        const exitCodesPath = join(cleoSrcRoot, 'dispatch', 'lib', 'exit-codes.ts');
         if (!existsSync(exitCodesPath)) {
           addCheck('Exit codes', 'fail', 'Exit codes definition missing', [
             {
               severity: 'error',
               category: 'protocol',
-              message: 'src/types/exit-codes.ts not found',
-              recommendation: 'Create exit codes enum for CLI protocol compliance',
+              message: `${exitCodesPath} not found`,
+              recommendation: 'Create exit codes definition for CLI protocol compliance',
             },
           ]);
         } else {
@@ -476,7 +482,6 @@ export function registerDetectDriftCommand(program: Command): void {
       // Generate top-level recommendations based on findings
       if (result.summary.errors > 0) {
         result.recommendations.push('Address all ERROR-level issues before proceeding');
-        result.recommendations.push('Run cleo detect-drift --json for structured output');
       }
       if (result.summary.warnings > 0) {
         result.recommendations.push('Review WARNING-level issues for documentation improvements');

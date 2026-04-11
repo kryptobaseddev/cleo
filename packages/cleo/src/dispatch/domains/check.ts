@@ -339,7 +339,9 @@ export class CheckHandler implements DomainHandler {
         }
 
         case 'archive.stats': {
-          const result = await systemArchiveStats(projectRoot);
+          const result = await systemArchiveStats(projectRoot, {
+            period: params?.period as number | undefined,
+          });
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 

@@ -25,7 +25,9 @@ import { cliOutput } from '../renderers/index.js';
 export function registerOtelCommand(program: Command): void {
   const otel = program
     .command('otel')
-    .description('Token metrics tracking - view status, summary, and manage tracking data');
+    .description(
+      'Lightweight token metrics from .cleo/metrics/TOKEN_USAGE.jsonl (session-level, spawn-level events)',
+    );
 
   otel
     .command('status')

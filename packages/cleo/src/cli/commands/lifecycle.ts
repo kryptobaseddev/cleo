@@ -27,7 +27,9 @@ export function registerLifecycleCommand(program: Command): void {
 
   lifecycle
     .command('start <epicId> <stage>')
-    .description('Start a lifecycle stage')
+    .description(
+      'Start a lifecycle stage. Valid stages: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution',
+    )
     .action(async (epicId: string, stage: string) => {
       await dispatchFromCli(
         'mutate',
@@ -44,7 +46,9 @@ export function registerLifecycleCommand(program: Command): void {
 
   lifecycle
     .command('complete <epicId> <stage>')
-    .description('Complete a lifecycle stage')
+    .description(
+      'Complete a lifecycle stage. Valid stages: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution',
+    )
     .option('--artifacts <artifacts>', 'Comma-separated artifact paths')
     .option('--notes <notes>', 'Completion notes')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
@@ -64,7 +68,9 @@ export function registerLifecycleCommand(program: Command): void {
 
   lifecycle
     .command('skip <epicId> <stage>')
-    .description('Skip a lifecycle stage')
+    .description(
+      'Skip a lifecycle stage. Valid stages: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution',
+    )
     .requiredOption('--reason <reason>', 'Reason for skipping')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
@@ -136,7 +142,9 @@ export function registerLifecycleCommand(program: Command): void {
 
   lifecycle
     .command('reset <epicId> <stage>')
-    .description('Reset a lifecycle stage back to pending')
+    .description(
+      'Reset a lifecycle stage back to pending. Valid stages: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution',
+    )
     .requiredOption('--reason <reason>', 'Reason for resetting the stage')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(

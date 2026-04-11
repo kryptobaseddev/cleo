@@ -62,7 +62,13 @@ export function registerCompleteCommand(program: Command): void {
   const cmd = program
     .command('complete')
     .alias('done')
-    .description(buildOperationHelp('tasks.complete', 'Mark a task as completed', COMPLETE_PARAMS));
+    .description(
+      buildOperationHelp(
+        'tasks.complete',
+        'Mark a task as completed (requires active session)',
+        COMPLETE_PARAMS,
+      ),
+    );
 
   // Auto-generate <taskId> positional arg and flag options from the ParamDef
   // registry.  Replaces hand-written .option('--notes', ...) etc. and surfaces

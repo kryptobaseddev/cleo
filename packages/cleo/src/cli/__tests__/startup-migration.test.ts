@@ -134,7 +134,6 @@ vi.mock('../commands/add.js', () => ({ registerAddCommand: vi.fn() }));
 vi.mock('../commands/admin.js', () => ({ registerAdminCommand: vi.fn() }));
 vi.mock('../commands/adr.js', () => ({ registerAdrCommand: vi.fn() }));
 vi.mock('../commands/agent.js', () => ({ registerAgentCommand: vi.fn() }));
-vi.mock('../commands/agents.js', () => ({ registerAgentsCommand: vi.fn() }));
 vi.mock('../commands/analyze.js', () => ({ registerAnalyzeCommand: vi.fn() }));
 vi.mock('../commands/archive.js', () => ({ registerArchiveCommand: vi.fn() }));
 vi.mock('../commands/archive-stats.js', () => ({ registerArchiveStatsCommand: vi.fn() }));

@@ -16,7 +16,7 @@ import {
   removeRemote,
 } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Register the remote command with add/remove/list/push/pull subcommands.
@@ -169,15 +169,15 @@ export function registerRemoteCommand(program: Command): void {
         const result = await pull(remoteName);
 
         if (!result.success) {
-          const output: Record<string, unknown> = {
+          const details: Record<string, unknown> = {
             pulled: false,
             branch: result.branch,
             remote: result.remote,
           };
           if (result.hasConflicts) {
-            output['conflicts'] = result.conflictFiles;
+            details['conflicts'] = result.conflictFiles;
           }
-          cliOutput(output, { command: 'pull', message: result.message });
+          cliError(result.message, ExitCode.GENERAL_ERROR, { details });
           process.exit(ExitCode.GENERAL_ERROR);
         }
 

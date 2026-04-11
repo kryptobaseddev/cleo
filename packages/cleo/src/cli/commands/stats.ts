@@ -23,7 +23,7 @@ export function registerStatsCommand(program: Command): void {
         'admin',
         'stats',
         {
-          period: opts['period'] ? Number(opts['period']) : 30,
+          period: opts['period'] ?? 30,
         },
         { command: 'stats', operation: 'admin.stats' },
       );

@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerConsensusCommand(program: Command): void {
   const consensus = program
     .command('consensus')
-    .description('Validate consensus protocol compliance for multi-agent decision tasks');
+    .description(
+      'Validate consensus protocol compliance (alias for `cleo check protocol consensus`)',
+    );
 
   consensus
     .command('validate <taskId>')

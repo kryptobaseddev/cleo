@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerDecompositionCommand(program: Command): void {
   const decomposition = program
     .command('decomposition')
-    .description('Validate decomposition protocol compliance for epic breakdown tasks');
+    .description(
+      'Validate decomposition protocol compliance (alias for `cleo check protocol decomposition`)',
+    );
 
   decomposition
     .command('validate <taskId>')

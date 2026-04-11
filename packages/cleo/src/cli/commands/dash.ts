@@ -14,13 +14,17 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerDashCommand(program: Command): void {
   program
     .command('dash')
-    .description('Project dashboard with status summary, phase progress, recent activity')
-    .option('-c, --compact', 'Condensed single-line view')
-    .option('--period <days>', 'Stats period in days', '7')
-    .option('--no-chart', 'Disable ASCII charts/progress bars')
-    .option('--sections <list>', 'Comma-separated list of sections to show')
-    .option('-v, --verbose', 'Show full task details')
-    .action(async () => {
-      await dispatchFromCli('query', 'admin', 'dash', {}, { command: 'dash' });
+    .description(
+      'Project health dashboard: status summary, phase progress, recent activity, high priority tasks. Use for overall project status.',
+    )
+    .option('--blocked-limit <n>', 'Max blocked tasks to show', parseInt)
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'dash',
+        { blockedTasksLimit: opts['blockedLimit'] as number | undefined },
+        { command: 'dash' },
+      );
     });
 }

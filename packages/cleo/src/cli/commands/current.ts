@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerCurrentCommand(program: Command): void {
   program
     .command('current')
-    .description('Show the current task being worked on')
+    .description(
+      'Show the current task being worked on. Returns: {currentTask: string|null, currentPhase: string|null}',
+    )
     .action(async () => {
       await dispatchFromCli('query', 'tasks', 'current', {}, { command: 'current' });
     });

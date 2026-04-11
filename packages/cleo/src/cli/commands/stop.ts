@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerStopCommand(program: Command): void {
   program
     .command('stop')
-    .description('Stop working on the current task')
+    .description(
+      'Stop working on the current task (clears the active task, returns {cleared: boolean, previousTask: string|null})',
+    )
     .action(async () => {
       await dispatchFromCli('mutate', 'tasks', 'stop', {}, { command: 'stop' });
     });

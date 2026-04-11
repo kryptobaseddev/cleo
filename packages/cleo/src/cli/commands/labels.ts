@@ -32,7 +32,7 @@ export function registerLabelsCommand(program: Command): void {
     .command('show <label>')
     .description('Show tasks with specific label')
     .action(async (label: string) => {
-      await dispatchFromCli('query', 'tasks', 'label.list', { label }, { command: 'labels' });
+      await dispatchFromCli('query', 'tasks', 'list', { label }, { command: 'labels' });
     });
 
   labels

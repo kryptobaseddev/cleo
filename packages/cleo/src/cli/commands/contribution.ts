@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerContributionCommand(program: Command): void {
   const contribution = program
     .command('contribution')
-    .description('Validate contribution protocol compliance for shared codebase work');
+    .description(
+      'Validate contribution protocol compliance (alias for `cleo check protocol contribution`)',
+    );
 
   contribution
     .command('validate <taskId>')

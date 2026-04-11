@@ -15,7 +15,9 @@ import type { ShimCommand as Command } from '../commander-shim.js';
 export function registerImplementationCommand(program: Command): void {
   const implementation = program
     .command('implementation')
-    .description('Validate implementation protocol compliance for code tasks');
+    .description(
+      'Validate implementation protocol compliance (alias for `cleo check protocol implementation`)',
+    );
 
   implementation
     .command('validate <taskId>')

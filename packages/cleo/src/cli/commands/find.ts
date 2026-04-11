@@ -25,7 +25,7 @@ const FIND_PARAMS: readonly ParamDef[] = [
     name: 'query',
     type: 'string',
     required: false,
-    description: 'Fuzzy search query (title/description)',
+    description: 'Search text (required unless --id is provided)',
     cli: { positional: true },
   },
   {
@@ -54,7 +54,7 @@ const FIND_PARAMS: readonly ParamDef[] = [
     name: 'field',
     type: 'string',
     required: false,
-    description: 'Field to search in (title, description, etc.)',
+    description: 'Field to search in (title|description|notes|id)',
     cli: { flag: 'in' },
   },
   {
