@@ -164,7 +164,6 @@ export function registerCantCommand(program: Command): void {
     .option('--dry-run', 'Preview conversion without writing files (default behavior)')
     .option('--output-dir <dir>', 'Output directory for .cant files (default: .cleo/agents/)')
     .option('--verbose', 'Show detailed conversion log')
-    .option('--json', 'Output results as JSON')
     .action(
       async (
         file: string,
@@ -173,25 +172,15 @@ export function registerCantCommand(program: Command): void {
           dryRun?: boolean;
           outputDir?: string;
           verbose?: boolean;
-          json?: boolean;
         },
       ) => {
-        const isJson = !!opts.json;
         const isWrite = !!opts.write && !opts.dryRun;
         const isVerbose = !!opts.verbose;
 
         // Resolve file path
         const filePath = isAbsolute(file) ? file : resolve(process.cwd(), file);
 
-        if (!existsSync(filePath)) {
-          const errMsg = `File not found: ${filePath}`;
-          if (isJson) {
-            console.log(JSON.stringify({ error: errMsg }));
-          } else {
-            console.error(errMsg);
-          }
-          process.exit(1);
-        }
+        if (!ensureExists(filePath, 'cant.migrate')) return;
 
         try {
           // Dynamic import to avoid pulling cant into the main bundle
@@ -204,11 +193,6 @@ export function registerCantCommand(program: Command): void {
             verbose: isVerbose,
             outputDir: opts.outputDir,
           });
-
-          if (isJson) {
-            console.log(JSON.stringify(result, null, 2));
-            return;
-          }
 
           if (isWrite) {
             // Write .cant files to disk
@@ -223,35 +207,37 @@ export function registerCantCommand(program: Command): void {
               mkdirSync(dirname(outputPath), { recursive: true });
               writeFileSync(outputPath, outputFile.content, 'utf-8');
               written++;
-
-              if (isVerbose) {
-                console.log(`  Created: ${outputFile.path} (${outputFile.kind})`);
-              }
             }
 
-            console.log(`Wrote ${written} .cant file(s).`);
-            console.log(result.summary);
-
-            if (result.unconverted.length > 0) {
-              console.log('');
-              console.log(`${result.unconverted.length} section(s) need manual conversion.`);
-              for (const section of result.unconverted) {
-                console.log(`  Lines ${section.lineStart}-${section.lineEnd}: ${section.reason}`);
-              }
-            }
+            cliOutput(
+              {
+                inputFile: result.inputFile,
+                filesWritten: written,
+                outputFiles: result.outputFiles.map((f) => ({ path: f.path, kind: f.kind })),
+                unconverted: result.unconverted,
+                summary: result.summary,
+              },
+              { command: 'cant-migrate', operation: 'cant.migrate' },
+            );
           } else {
-            // Dry-run: show diff preview
-            const diffOutput = mod.showDiff(result, process.stdout.isTTY ?? false);
-            console.log(diffOutput);
+            // Dry-run: emit structured result for agent consumption
+            cliOutput(
+              {
+                inputFile: result.inputFile,
+                dryRun: true,
+                outputFiles: result.outputFiles.map((f) => ({
+                  path: f.path,
+                  kind: f.kind,
+                })),
+                unconverted: result.unconverted,
+                summary: result.summary,
+              },
+              { command: 'cant-migrate', operation: 'cant.migrate' },
+            );
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          if (isJson) {
-            console.log(JSON.stringify({ error: message }));
-          } else {
-            console.error(`Migration failed: ${message}`);
-          }
-          process.exit(1);
+          emitFailure('cant.migrate', 'E_MIGRATION_FAILED', err);
+          process.exitCode = 1;
         }
       },
     );

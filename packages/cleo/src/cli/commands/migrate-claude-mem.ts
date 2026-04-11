@@ -15,6 +15,7 @@
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Register the `migrate` parent command with its subcommands.
@@ -67,27 +68,27 @@ export function registerMigrateClaudeMemCommand(program: Command): void {
           batchSize: (opts['batchSize'] as number) || undefined,
         });
 
-        if (result.dryRun) {
-          console.log('[dry run] No changes made.');
-        }
-
-        console.log(
-          `Imported ${result.observationsImported} observations, ` +
-            `${result.learningsImported} learnings, ` +
-            `${result.decisionsImported} decisions ` +
-            `(${result.observationsSkipped} skipped)`,
+        cliOutput(
+          {
+            dryRun: result.dryRun,
+            observationsImported: result.observationsImported,
+            learningsImported: result.learningsImported,
+            decisionsImported: result.decisionsImported,
+            observationsSkipped: result.observationsSkipped,
+            errors: result.errors,
+          },
+          { command: 'migrate-claude-mem', operation: 'migrate.claude-mem' },
         );
 
         if (result.errors.length > 0) {
-          console.error(`\n${result.errors.length} error(s):`);
-          for (const err of result.errors) {
-            console.error(`  - ${err}`);
-          }
-          process.exit(1);
+          process.exitCode = 1;
         }
       } catch (err: unknown) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        const message = err instanceof Error ? err.message : String(err);
+        cliError(message, 'E_MIGRATION_FAILED', undefined, {
+          operation: 'migrate.claude-mem',
+        });
+        process.exitCode = 1;
       }
     });
 }

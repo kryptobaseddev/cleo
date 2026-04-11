@@ -7,6 +7,16 @@
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
+/**
+ * Build a unique research manifest entry ID.
+ *
+ * Uses a `res_` prefix and the current timestamp to avoid collisions
+ * with task or other entity IDs.
+ */
+function generateResearchId(): string {
+  return `res_${Date.now()}`;
+}
+
 export function registerResearchCommand(program: Command): void {
   const research = program
     .command('research')
@@ -19,24 +29,35 @@ export function registerResearchCommand(program: Command): void {
     .requiredOption('--topic <topic>', 'Research topic')
     .option('--findings <findings>', 'Comma-separated findings')
     .option('--sources <sources>', 'Comma-separated sources')
+    .option('--agent-type <agentType>', 'Agent type that produced this entry', 'researcher')
     .action(async (opts: Record<string, unknown>) => {
+      const topic = opts['topic'] as string;
+      const findings = opts['findings']
+        ? (opts['findings'] as string).split(',').map((s) => s.trim())
+        : [];
+      const taskId = opts['task'] as string;
+      const agentType = (opts['agentType'] as string | undefined) ?? 'researcher';
+
       await dispatchFromCli(
         'mutate',
         'pipeline',
         'manifest.append',
         {
           entry: {
-            taskId: opts['task'],
-            topic: opts['topic'],
-            findings: opts['findings']
-              ? (opts['findings'] as string).split(',').map((s) => s.trim())
-              : undefined,
-            sources: opts['sources']
-              ? (opts['sources'] as string).split(',').map((s) => s.trim())
-              : undefined,
+            id: generateResearchId(),
+            file: '',
+            title: topic,
+            date: new Date().toISOString().slice(0, 10),
+            status: 'partial',
+            agent_type: agentType,
+            topics: [topic],
+            key_findings: findings,
+            actionable: findings.length > 0,
+            needs_followup: [],
+            linked_tasks: [taskId],
           },
         },
-        { command: 'research' },
+        { command: 'research', operation: 'pipeline.manifest.append' },
       );
     });
 
@@ -96,12 +117,20 @@ export function registerResearchCommand(program: Command): void {
         'manifest.append',
         {
           entry: {
-            type: 'link',
-            entryId: researchId,
-            taskId,
+            id: researchId,
+            file: '',
+            title: `Link: ${researchId} -> ${taskId}`,
+            date: new Date().toISOString().slice(0, 10),
+            status: 'partial',
+            agent_type: 'researcher',
+            topics: [],
+            key_findings: [],
+            actionable: false,
+            needs_followup: [],
+            linked_tasks: [taskId],
           },
         },
-        { command: 'research' },
+        { command: 'research', operation: 'pipeline.manifest.append' },
       );
     });
 
@@ -110,26 +139,35 @@ export function registerResearchCommand(program: Command): void {
     .description('Update research findings')
     .option('--findings <findings>', 'Comma-separated findings')
     .option('--sources <sources>', 'Comma-separated sources')
-    .option('-s, --status <status>', 'Set status')
+    .option('-s, --status <status>', 'Set status (completed, partial, blocked)')
+    .option('--topic <topic>', 'Research topic (used as title)')
     .action(async (id: string, opts: Record<string, unknown>) => {
+      const findings = opts['findings']
+        ? (opts['findings'] as string).split(',').map((s) => s.trim())
+        : [];
+      const status = (opts['status'] as string | undefined) ?? 'partial';
+      const topic = (opts['topic'] as string | undefined) ?? `Updated research: ${id}`;
+
       await dispatchFromCli(
         'mutate',
         'pipeline',
         'manifest.append',
         {
           entry: {
-            type: 'update',
-            entryId: id,
-            findings: opts['findings']
-              ? (opts['findings'] as string).split(',').map((s) => s.trim())
-              : undefined,
-            sources: opts['sources']
-              ? (opts['sources'] as string).split(',').map((s) => s.trim())
-              : undefined,
-            status: opts['status'],
+            id,
+            file: '',
+            title: topic,
+            date: new Date().toISOString().slice(0, 10),
+            status,
+            agent_type: 'researcher',
+            topics: topic !== `Updated research: ${id}` ? [topic] : [],
+            key_findings: findings,
+            actionable: findings.length > 0,
+            needs_followup: [],
+            linked_tasks: [],
           },
         },
-        { command: 'research' },
+        { command: 'research', operation: 'pipeline.manifest.append' },
       );
     });
 
