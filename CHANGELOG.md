@@ -1,5 +1,58 @@
 # Changelog
 
+## [2026.4.29] (2026-04-11)
+
+Full CLI remediation — 3rd audit cycle, 23 agents, ~280 commands tested, all issues resolved.
+
+### P0 Critical Fixes (10)
+- **compliance record**: Fixed TypeError crash when `--violation` not passed (undefined `.map()`)
+- **add-batch**: Replaced raw `process.exit(2)` + stack trace with proper LAFS error envelope
+- **backfill**: Replaced plain `console.log` output with LAFS `cliOutput()` envelopes
+- **restore backup**: Fixed param wiring (`action: 'restore'` → `'restore.file'` for `--file`)
+- **orchestrate fanout**: Fixed CLI sending `taskIds` when handler requires `items`
+- **orchestrate fanout-status**: Fixed CLI sending `epicId` when handler requires `manifestEntryId`
+- **memory graph-add**: Added missing `--node-type` option; fixed `from`/`to` → `fromId`/`toId`
+- **research add/link/update**: Built complete manifest entries (previously always E_VALIDATION_FAILED)
+- **session start**: Added duplicate-session guard (`E_SESSION_CONFLICT`)
+- **doctor --hooks**: Fixed ENOENT crash for missing `hook-mappings.json`
+
+### P1 Param Mismatches & Error Codes (12)
+- **cancel/tree/adapter activate**: Fixed wrong error codes (E_INTERNAL → E_NOT_FOUND)
+- **orchestrate conduit-send**: Fixed `agentId` → `to` param mismatch
+- **orchestrate conduit-start**: Fixed `pollInterval` → `pollIntervalMs` param mismatch
+- **orchestrate tessera --var**: Worked around shim variadic bug with comma-split
+- **orchestrate parallel**: Fixed integer `codeName` in error envelope
+- **memory graph-remove**: Fixed `from`/`to` → `fromId`/`toId` for edge removal
+- **nexus register**: Fixed path sanitizer blocking all external paths (its primary use case)
+- **nexus unregister**: Fixed E_INTERNAL → E_NOT_FOUND for missing projects
+- **reorder**: Wired `--top` (position 0) and `--bottom` (position 999999) convenience flags
+- **check schema**: Fixed raw stack trace for invalid types → proper E_VALIDATION envelope
+- **compliance audit**: Fixed param from `epicId` to `taskId` matching engine validation
+- **sticky --tag**: Fixed broken Commander collect() accumulator with comma-split
+
+### Cleanup & Deduplication
+- **Removed 8 deprecated commands**: `commands`, `phases`, `validate`, `consensus`, `contribution`, `decomposition`, `implementation`, `specification`
+- **Removed 3 duplicate aliases**: `observe` (use `memory observe`), `reason why/similar` (use `memory reason-why/similar`)
+- **Envelope standardization**: `cant migrate`, `migrate claude-mem` now emit LAFS envelopes
+- **archive-stats**: Wired `--byPhase`/`--byLabel`/`--since`/`--until` flags to engine
+- **compliance trend/skills/value**: Differentiated response views via `view` field
+- **admin job**: Improved error message with daemon guidance
+
+### Session & Context Fixes
+- **session end**: Fixed help text identifying as "session stop"
+- **session record-decision**: Now defaults to active session (matches record-assumption)
+- **session serialize**: Removed phantom `_next` hint for nonexistent command
+- **context check**: Now returns non-zero exit codes when thresholds exceeded
+- **context list**: Removed (identical to `context status`)
+- **history** (bare): Shows help instead of silently dispatching to admin.log
+- **deps waves**: Changed `[epicId]` to required `<epicId>`
+- **sync links list**: Added validation requiring `--provider` or `--task`
+
+### Deferred Issue Resolution
+- **nexus transfer**: Auto-creates `external_task_links` table on older DBs via `CREATE TABLE IF NOT EXISTS`
+- **ADR sync**: Fixed ADR-006 invalid FK refs, ADR-033/034 wrong headings; added FK validation in sync code; returns `success: false` on errors
+- **CAAMP skills**: Auto-registers skill library on CLI startup; `validate/dispatch/deps` return `E_CONFIG_ERROR` instead of crashing
+
 ## [2026.4.28] (2026-04-10)
 
 Complete CLI audit remediation — all P1/P2/P3 findings resolved.
