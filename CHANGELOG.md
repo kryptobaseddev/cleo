@@ -1,5 +1,35 @@
 # Changelog
 
+## [2026.4.28] (2026-04-10)
+
+Complete CLI audit remediation — all P1/P2/P3 findings resolved.
+
+### P1 Fixes (Broken Options & Commands)
+- **stats --period**: Named aliases (week/month/today) now work — removed premature Number() conversion
+- **archive-stats**: Report flags now forwarded to engine (--by-phase, --since, --until, etc.)
+- **reorder**: Removed 4 non-functional options (--before/--after/--top/--bottom); kept only --position
+- **context check/list**: Updated misleading help text to match actual behavior
+- **detect-drift**: Fixed hardcoded src/ paths for monorepo layout (5/8 checks now pass, was 2/8)
+- **dash**: Removed 5 non-functional display options; wired --blocked-limit
+- **labels show \<label\>**: Now correctly routes to tasks.list with label filter
+- **release changelog**: Removed vestigial subcommand that always failed with E_MISSING_PARAMS
+- **pull**: Returns success:false when fetch fails (was misleadingly success:true)
+
+### P2 Consolidation
+- Deprecated `phases` (use `phase`), `commands` (use `ops`), `validate` (use `check schema todo`)
+- 5 protocol wrapper commands marked as aliases in help text
+- Documented token vs otel data source distinction
+- Documented backup create as alias for backup add
+- Removed agents.ts no-op stub registration
+
+### P3 Help Text
+- Added enum values to update, find --in, relates add --type, lifecycle stage names
+- Documented session requirements on add, bug, complete
+- Clarified find query is required unless --id used
+- Added output schema hints to current, start, stop, show
+- Differentiated briefing vs plan vs dash use cases in help text
+---
+
 ## [2026.4.27] (2026-04-10)
 
 Full CLI audit across 106 commands (12 parallel agents), P0 critical bug fixes.
