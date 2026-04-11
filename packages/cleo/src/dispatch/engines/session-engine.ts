@@ -335,7 +335,7 @@ export async function sessionStart(
   },
 ): Promise<EngineResult<Session>> {
   try {
-    let accessor = await getAccessor(projectRoot);
+    const accessor = await getAccessor(projectRoot);
 
     // Validate scope BEFORE auto-ending active session (prevents data loss on invalid input)
     let scope: ReturnType<typeof parseScope>;
@@ -353,12 +353,17 @@ export async function sessionStart(
       }
     }
 
-    // Auto-end any active session before starting a new one
+    // Guard: reject if an active session already exists (no silent auto-end)
     const existingActive = await accessor.getActiveSession();
     if (existingActive) {
-      await sessionEnd(projectRoot);
-      // Reload after auto-end
-      accessor = await getAccessor(projectRoot);
+      return engineError(
+        'E_SESSION_CONFLICT',
+        `An active session already exists (${existingActive.id}). End it first with 'cleo session end'.`,
+        {
+          fix: "Run 'cleo session end' before starting a new session.",
+          details: { activeSessionId: existingActive.id },
+        },
+      );
     }
 
     const now = new Date().toISOString();
@@ -804,12 +809,16 @@ export async function sessionCleanup(
 
 /**
  * Record a decision to the audit trail.
+ *
+ * When `sessionId` is omitted, resolves to the active session (same
+ * behaviour as `sessionRecordAssumption`).
+ *
  * @task T4782
  */
 export async function sessionRecordDecision(
   projectRoot: string,
   params: {
-    sessionId: string;
+    sessionId?: string;
     taskId: string;
     decision: string;
     rationale: string;
@@ -817,7 +826,16 @@ export async function sessionRecordDecision(
   },
 ): Promise<EngineResult<DecisionRecord>> {
   try {
-    const result = await recordDecision(projectRoot, params);
+    let resolvedSessionId = params.sessionId;
+    if (!resolvedSessionId) {
+      const accessor = await getAccessor(projectRoot);
+      const activeSession = await accessor.getActiveSession();
+      resolvedSessionId = activeSession?.id ?? 'default';
+    }
+    const result = await recordDecision(projectRoot, {
+      ...params,
+      sessionId: resolvedSessionId,
+    });
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_INVALID_INPUT', 'Failed to record decision');

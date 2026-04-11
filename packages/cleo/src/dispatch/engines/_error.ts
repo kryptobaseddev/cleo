@@ -73,6 +73,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
 
   // Session Errors (30-39)
   E_SESSION_EXISTS: 30,
+  E_SESSION_CONFLICT: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,
   E_SCOPE_INVALID: 33,

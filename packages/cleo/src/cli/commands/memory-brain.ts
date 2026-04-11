@@ -133,10 +133,11 @@ export function registerMemoryBrainCommand(program: Command): void {
     });
 
   // -- stats (delegates to pattern.find + learning.find with empty query) --
+  // Output format is controlled by the global --json/--human flags (format-context),
+  // not by a per-command --json option (the global flag is resolved pre-dispatch).
   memory
     .command('stats')
     .description('Show BRAIN memory statistics')
-    .option('--json', 'Output as JSON')
     .action(async () => {
       // Fetch both pattern and learning summaries via find with empty query
       const pResponse = await dispatchRaw('query', 'memory', 'pattern.find', {
@@ -153,11 +154,11 @@ export function registerMemoryBrainCommand(program: Command): void {
       if (lResponse.success) result['learnings'] = lResponse.data;
 
       if (!pResponse.success && !lResponse.success) {
-        handleRawError(pResponse, { command: 'memory', operation: 'memory.stats' });
+        handleRawError(pResponse, { command: 'memory-stats', operation: 'memory.stats' });
         return;
       }
 
-      cliOutput(result, { command: 'memory', operation: 'memory.stats' });
+      cliOutput(result, { command: 'memory-stats', operation: 'memory.stats' });
     });
 
   // -- observe (save observation to brain.db) --
@@ -199,12 +200,12 @@ export function registerMemoryBrainCommand(program: Command): void {
     });
 
   // -- timeline (chronological context around an anchor observation ID) --
+  // Output format is controlled by the global --json/--human flags (format-context).
   memory
     .command('timeline <anchor>')
     .description('Show chronological context around an anchor observation ID')
     .option('--before <n>', 'Number of entries before anchor', parseInt)
     .option('--after <n>', 'Number of entries after anchor', parseInt)
-    .option('--json', 'Output as JSON')
     .action(async (anchor: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'query',
@@ -215,18 +216,18 @@ export function registerMemoryBrainCommand(program: Command): void {
           depthBefore: opts['before'],
           depthAfter: opts['after'],
         },
-        { command: 'memory', operation: 'memory.timeline' },
+        { command: 'memory-timeline', operation: 'memory.timeline' },
       );
     });
 
   // -- fetch (retrieve full details for specific observation IDs) --
   // Note: citty doesn't support variadic positional args, so we accept a single
   // positional and split on commas/spaces to support: `cleo memory fetch ID1,ID2`
+  // Output format is controlled by the global --json/--human flags (format-context).
   memory
     .command('fetch <ids>')
     .description('Fetch full details for specific observation IDs')
-    .option('--json', 'Output as JSON')
-    .action(async (idsRaw: string, _opts: Record<string, unknown>) => {
+    .action(async (idsRaw: string) => {
       const ids = idsRaw
         .split(/[,\s]+/)
         .map((s) => s.trim())
@@ -236,7 +237,7 @@ export function registerMemoryBrainCommand(program: Command): void {
         'memory',
         'fetch',
         { ids },
-        { command: 'memory', operation: 'memory.fetch' },
+        { command: 'memory-fetch', operation: 'memory.fetch' },
       );
     });
 
@@ -339,6 +340,7 @@ export function registerMemoryBrainCommand(program: Command): void {
     .command('graph-add')
     .description('Add a node or edge to the PageIndex graph')
     .option('--node-id <id>', 'Node ID to add')
+    .option('--node-type <type>', 'Node type (e.g. concept, task, file)')
     .option('--label <text>', 'Label for the node')
     .option('--from <id>', 'Source node ID for an edge')
     .option('--to <id>', 'Target node ID for an edge')
@@ -351,9 +353,10 @@ export function registerMemoryBrainCommand(program: Command): void {
         'graph.add',
         {
           ...(opts['nodeId'] !== undefined && { nodeId: opts['nodeId'] }),
+          ...(opts['nodeType'] !== undefined && { nodeType: opts['nodeType'] }),
           ...(opts['label'] !== undefined && { label: opts['label'] }),
-          ...(opts['from'] !== undefined && { from: opts['from'] }),
-          ...(opts['to'] !== undefined && { to: opts['to'] }),
+          ...(opts['from'] !== undefined && { fromId: opts['from'] }),
+          ...(opts['to'] !== undefined && { toId: opts['to'] }),
           ...(opts['edgeType'] !== undefined && { edgeType: opts['edgeType'] }),
         },
         { command: 'memory', operation: 'memory.graph.add' },
@@ -375,8 +378,8 @@ export function registerMemoryBrainCommand(program: Command): void {
         'graph.remove',
         {
           ...(opts['nodeId'] !== undefined && { nodeId: opts['nodeId'] }),
-          ...(opts['from'] !== undefined && { from: opts['from'] }),
-          ...(opts['to'] !== undefined && { to: opts['to'] }),
+          ...(opts['from'] !== undefined && { fromId: opts['from'] }),
+          ...(opts['to'] !== undefined && { toId: opts['to'] }),
         },
         { command: 'memory', operation: 'memory.graph.remove' },
       );

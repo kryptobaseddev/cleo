@@ -823,7 +823,7 @@ export async function taskTree(projectRoot: string, taskId?: string): Promise<En
     const result = await coreTaskTree(projectRoot, taskId);
     return { success: true, data: result };
   } catch (err: unknown) {
-    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+    return cleoErrorToEngineError(err, 'E_NOT_FOUND', 'Task not found');
   }
 }
 
@@ -1267,7 +1267,7 @@ export async function taskCancel(
     const result = await coreTaskCancel(projectRoot, taskId, { reason });
     return { success: true, data: result };
   } catch (err: unknown) {
-    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to cancel task');
+    return cleoErrorToEngineError(err, 'E_NOT_FOUND', 'Failed to cancel task');
   }
 }
 

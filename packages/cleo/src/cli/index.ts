@@ -61,17 +61,17 @@ import { registerChainCommand } from './commands/chain.js';
 import { registerCheckCommand } from './commands/check.js';
 import { registerCheckpointCommand } from './commands/checkpoint.js';
 import { registerClaimCommand, registerUnclaimCommand } from './commands/claim.js';
-import { registerCommandsCommand } from './commands/commands.js';
+// DEPRECATED: registerCommandsCommand removed — use `cleo ops` instead
 import { registerCompleteCommand } from './commands/complete.js';
 import { registerComplexityCommand } from './commands/complexity.js';
 import { registerComplianceCommand } from './commands/compliance.js';
 import { registerConfigCommand } from './commands/config.js';
-import { registerConsensusCommand } from './commands/consensus.js';
+// DEPRECATED: registerConsensusCommand removed — use `cleo check protocol consensus`
 import { registerContextCommand } from './commands/context.js';
-import { registerContributionCommand } from './commands/contribution.js';
+// DEPRECATED: registerContributionCommand removed — use `cleo check protocol contribution`
 import { registerCurrentCommand } from './commands/current.js';
 import { registerDashCommand } from './commands/dash.js';
-import { registerDecompositionCommand } from './commands/decomposition.js';
+// DEPRECATED: registerDecompositionCommand removed — use `cleo check protocol decomposition`
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
 import { registerDetectCommand } from './commands/detect.js';
@@ -85,7 +85,7 @@ import { registerFindCommand } from './commands/find.js';
 import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
 import { registerGradeCommand } from './commands/grade.js';
 import { registerHistoryCommand } from './commands/history.js';
-import { registerImplementationCommand } from './commands/implementation.js';
+// DEPRECATED: registerImplementationCommand removed — use `cleo check protocol implementation`
 import { registerImportCommand } from './commands/import.js';
 import { registerImportTasksCommand } from './commands/import-tasks.js';
 import { registerInitCommand } from './commands/init.js';
@@ -100,12 +100,12 @@ import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 import { registerNextCommand } from './commands/next.js';
 import { registerNexusCommand } from './commands/nexus.js';
-import { registerObserveCommand } from './commands/observe.js';
+// DEPRECATED: registerObserveCommand removed — use `cleo memory observe` instead
 import { registerOpsCommand } from './commands/ops.js';
 import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerOtelCommand } from './commands/otel.js';
 import { registerPhaseCommand } from './commands/phase.js';
-import { registerPhasesCommand } from './commands/phases.js';
+// DEPRECATED: registerPhasesCommand removed — use `cleo phase` instead
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPromoteCommand } from './commands/promote.js';
 import { registerProviderCommand } from './commands/provider.js';
@@ -127,7 +127,7 @@ import { registerSessionCommand } from './commands/session.js';
 import { registerShowCommand } from './commands/show.js';
 import { registerSkillsCommand } from './commands/skills.js';
 import { registerSnapshotCommand } from './commands/snapshot.js';
-import { registerSpecificationCommand } from './commands/specification.js';
+// DEPRECATED: registerSpecificationCommand removed — use `cleo check protocol specification`
 import { registerStartCommand } from './commands/start.js';
 import { registerStatsCommand } from './commands/stats.js';
 import { registerStickyCommand } from './commands/sticky.js';
@@ -137,7 +137,7 @@ import { registerTestingCommand } from './commands/testing.js';
 import { registerTokenCommand } from './commands/token.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
-import { registerValidateCommand } from './commands/validate.js';
+// DEPRECATED: registerValidateCommand removed — use `cleo check schema todo`
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerWebCommand } from './commands/web.js';
 
@@ -166,7 +166,7 @@ registerChainCommand(rootShim);
 registerLifecycleCommand(rootShim);
 registerReleaseCommand(rootShim);
 registerCheckpointCommand(rootShim);
-registerCommandsCommand(rootShim);
+// DEPRECATED: registerCommandsCommand(rootShim) — removed, use `cleo ops`
 registerDocsCommand(rootShim);
 registerExportTasksCommand(rootShim);
 registerImportTasksCommand(rootShim);
@@ -194,15 +194,15 @@ registerBlockersCommand(rootShim);
 registerCheckCommand(rootShim);
 registerComplianceCommand(rootShim);
 registerConfigCommand(rootShim);
-registerConsensusCommand(rootShim);
+// DEPRECATED: registerConsensusCommand(rootShim) — removed
 registerContextCommand(rootShim);
-registerContributionCommand(rootShim);
+// DEPRECATED: registerContributionCommand(rootShim) — removed
 registerDashCommand(rootShim);
-registerDecompositionCommand(rootShim);
+// DEPRECATED: registerDecompositionCommand(rootShim) — removed
 registerDoctorCommand(rootShim);
 registerExportCommand(rootShim);
 registerHistoryCommand(rootShim);
-registerImplementationCommand(rootShim);
+// DEPRECATED: registerImplementationCommand(rootShim) — removed
 registerImportCommand(rootShim);
 registerInitCommand(rootShim);
 registerInjectCommand(rootShim);
@@ -212,7 +212,7 @@ registerNextCommand(rootShim);
 registerPlanCommand(rootShim);
 registerOtelCommand(rootShim);
 registerTokenCommand(rootShim);
-registerPhasesCommand(rootShim);
+// DEPRECATED: registerPhasesCommand(rootShim) — removed, use `cleo phase`
 registerPromoteCommand(rootShim);
 registerRelatesCommand(rootShim);
 registerReorderCommand(rootShim);
@@ -221,10 +221,10 @@ registerRestoreCommand(rootShim);
 registerRoadmapCommand(rootShim);
 registerSelfUpdateCommand(rootShim);
 registerSequenceCommand(rootShim);
-registerSpecificationCommand(rootShim);
+// DEPRECATED: registerSpecificationCommand(rootShim) — removed
 registerStatsCommand(rootShim);
 registerUpgradeCommand(rootShim);
-registerValidateCommand(rootShim);
+// DEPRECATED: registerValidateCommand(rootShim) — removed, use `cleo check schema todo`
 registerVerifyCommand(rootShim);
 registerDetectCommand(rootShim);
 registerDetectDriftCommand(rootShim);
@@ -242,7 +242,6 @@ registerMigrateClaudeMemCommand(rootShim);
 registerStickyCommand(rootShim);
 registerReasonCommand(rootShim);
 registerRefreshMemoryCommand(rootShim);
-registerObserveCommand(rootShim);
 registerSchemaCommand(rootShim);
 
 function shimToCitty(shim: ShimCommand): CommandDef {

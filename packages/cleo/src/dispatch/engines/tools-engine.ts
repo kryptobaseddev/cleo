@@ -814,6 +814,10 @@ export async function toolsAdapterActivate(
     if (!manager.getManifest(id)) {
       manager.discover();
     }
+    // Return E_NOT_FOUND when the adapter manifest does not exist after discovery
+    if (!manager.getManifest(id)) {
+      return engineError('E_NOT_FOUND', `Adapter not found: ${id}`);
+    }
     const adapter = await manager.activate(id);
     return engineSuccess({
       id,
