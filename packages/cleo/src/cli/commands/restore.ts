@@ -340,7 +340,7 @@ export function registerRestoreCommand(program: Command): void {
         const scope = (opts['scope'] as string) || 'project';
 
         const response = await dispatchRaw('mutate', 'admin', 'backup', {
-          action: 'restore',
+          action: 'restore.file',
           file: fileName,
           dryRun: opts['dryRun'] as boolean | undefined,
           scope,

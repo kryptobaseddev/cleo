@@ -21,6 +21,7 @@
 
 import { backfillTasks, getProjectRoot, populateEmbeddings } from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Register the `cleo backfill` CLI command.
@@ -89,18 +90,37 @@ export function registerBackfillCommand(program: Command): void {
             }
 
             if (result.processed === 0 && result.skipped === 0 && result.errors === 0) {
-              console.log(
-                'No observations to embed (provider unavailable or nothing to backfill).',
+              cliOutput(
+                {
+                  processed: 0,
+                  skipped: 0,
+                  errors: 0,
+                  message:
+                    'No observations to embed (provider unavailable or nothing to backfill).',
+                },
+                { command: 'backfill', operation: 'admin.backfill', message: 'Nothing to embed' },
               );
               return;
             }
 
-            console.log(
-              `Processed ${result.processed}, skipped ${result.skipped}, errors ${result.errors}`,
+            cliOutput(
+              { processed: result.processed, skipped: result.skipped, errors: result.errors },
+              {
+                command: 'backfill',
+                operation: 'admin.backfill',
+                message: `Processed ${result.processed}, skipped ${result.skipped}, errors ${result.errors}`,
+              },
             );
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            console.error(`Embedding backfill failed: ${message}`);
+            cliError(
+              `Embedding backfill failed: ${message}`,
+              'E_INTERNAL',
+              {
+                name: 'E_INTERNAL',
+              },
+              { operation: 'admin.backfill' },
+            );
             process.exit(1);
           }
           return;
@@ -118,64 +138,50 @@ export function registerBackfillCommand(program: Command): void {
 
         // Safety: require --dry-run or explicit confirmation for destructive backfill
         if (!dryRun && !rollback && !process.env['CLEO_NONINTERACTIVE']) {
-          console.log(
-            '⚠ Backfill will modify tasks in-place. Run with --dry-run first to preview changes.',
+          // Informational warning still goes to stderr for TTY users
+          process.stderr.write(
+            'Warning: Backfill will modify tasks in-place. Run with --dry-run first to preview changes.\n' +
+              '  Set CLEO_NONINTERACTIVE=1 or pass --dry-run to suppress this warning.\n\n',
           );
-          console.log('  Set CLEO_NONINTERACTIVE=1 or pass --dry-run to suppress this warning.\n');
-        }
-
-        if (dryRun) {
-          console.log('[dry run] No changes will be made.\n');
-        }
-        if (rollback) {
-          console.log('[rollback] Reverting previously backfilled tasks.\n');
         }
 
         try {
           const result = await backfillTasks(root, { dryRun, rollback, taskIds });
 
-          console.log(`Scanned: ${result.tasksScanned} task(s)`);
-          console.log(`Changed: ${result.tasksChanged} task(s)`);
+          const output: Record<string, unknown> = {
+            dryRun,
+            rollback,
+            tasksScanned: result.tasksScanned,
+            tasksChanged: result.tasksChanged,
+            changes: result.changes,
+          };
 
           if (!rollback) {
-            console.log(`  AC added:           ${result.acAdded}`);
-            console.log(`  Verification added: ${result.verificationAdded}`);
+            output['acAdded'] = result.acAdded;
+            output['verificationAdded'] = result.verificationAdded;
           }
 
-          if (result.changes.length === 0) {
-            console.log('\nNothing to do — all tasks already have AC and verification metadata.');
-            return;
-          }
+          const messagePrefix = dryRun ? '[dry run] ' : rollback ? '[rollback] ' : '';
+          const messageSuffix =
+            result.changes.length === 0
+              ? 'Nothing to do — all tasks already have AC and verification metadata.'
+              : `Scanned ${result.tasksScanned}, changed ${result.tasksChanged} task(s).`;
 
-          console.log('\nDetails:');
-          for (const change of result.changes) {
-            const parts: string[] = [];
-            if (change.addedAc) parts.push('AC');
-            if (change.addedVerification) parts.push('verification');
-            if (change.addedNote) parts.push('note');
-            if (change.rolledBack && change.rolledBack.length > 0) {
-              parts.push(`rolled back [${change.rolledBack.join(', ')}]`);
-            }
-
-            console.log(`  ${change.taskId}: ${change.title}`);
-            console.log(`    Actions: ${parts.join(', ')}`);
-
-            if (change.addedAc && change.generatedAc.length > 0) {
-              console.log('    Generated AC:');
-              for (const ac of change.generatedAc) {
-                console.log(`      - ${ac}`);
-              }
-            }
-          }
-
-          if (dryRun) {
-            console.log('\n[dry run] Run without --dry-run to apply these changes.');
-          } else {
-            console.log('\nBackfill complete.');
-          }
+          cliOutput(output, {
+            command: 'backfill',
+            operation: 'admin.backfill',
+            message: `${messagePrefix}${messageSuffix}`,
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`Backfill failed: ${message}`);
+          cliError(
+            `Backfill failed: ${message}`,
+            'E_INTERNAL',
+            {
+              name: 'E_INTERNAL',
+            },
+            { operation: 'admin.backfill' },
+          );
           process.exit(1);
         }
       },

@@ -8,10 +8,10 @@
  * @task T090
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Schema for a single task in the batch input. */
 interface BatchTaskInput {
@@ -54,7 +54,33 @@ export function registerAddBatchCommand(program: Command): void {
           chunks.push(chunk as Buffer);
         }
         raw = Buffer.concat(chunks).toString('utf-8');
+        if (!raw.trim()) {
+          cliError(
+            'No input provided. Pass --file <path> or pipe JSON to stdin.',
+            'E_VALIDATION',
+            {
+              name: 'E_VALIDATION',
+              fix: 'cleo add-batch --file tasks.json',
+            },
+            { operation: 'tasks.add-batch' },
+          );
+          process.exit(2);
+          return;
+        }
       } else {
+        if (!existsSync(filePath)) {
+          cliError(
+            `File not found: ${filePath}`,
+            'E_NOT_FOUND',
+            {
+              name: 'E_NOT_FOUND',
+              fix: `Verify the file path exists: ${filePath}`,
+            },
+            { operation: 'tasks.add-batch' },
+          );
+          process.exit(2);
+          return;
+        }
         raw = readFileSync(filePath, 'utf-8');
       }
 
@@ -63,13 +89,29 @@ export function registerAddBatchCommand(program: Command): void {
         const parsed = JSON.parse(raw);
         tasks = Array.isArray(parsed) ? parsed : [parsed];
       } catch {
-        process.stderr.write('Error: Invalid JSON input. Expected an array of task objects.\n');
+        cliError(
+          'Invalid JSON input. Expected an array of task objects.',
+          'E_VALIDATION',
+          {
+            name: 'E_VALIDATION',
+            fix: 'Ensure the input is a valid JSON array of task objects',
+          },
+          { operation: 'tasks.add-batch' },
+        );
         process.exit(2);
         return;
       }
 
       if (tasks.length === 0) {
-        process.stderr.write('Error: No tasks in input.\n');
+        cliError(
+          'No tasks in input.',
+          'E_VALIDATION',
+          {
+            name: 'E_VALIDATION',
+            fix: 'Provide at least one task object in the JSON array',
+          },
+          { operation: 'tasks.add-batch' },
+        );
         process.exit(2);
         return;
       }

@@ -146,7 +146,7 @@ export function registerComplianceCommand(program: Command): void {
       [] as string[],
     )
     .action(async (taskId: string, result: string, opts: Record<string, unknown>) => {
-      const rawViolations = opts['violation'] as string[];
+      const rawViolations = (opts['violation'] ?? []) as string[];
       const violations = rawViolations
         .map((v) => {
           const [code, severity, ...rest] = v.split(':');
