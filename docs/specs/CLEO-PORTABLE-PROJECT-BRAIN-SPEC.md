@@ -1,6 +1,6 @@
 ---
 title: "CLEO Portable Project BRAIN Specification"
-version: "3.0.0"
+version: "3.1.0"
 status: "approved"
 authority: 2
 created: "2026-02-03"
@@ -14,7 +14,7 @@ epic: "T158"
 
 # CLEO Portable Project BRAIN Specification
 
-**Version**: 3.0.0
+**Version**: 3.1.0
 **Status**: APPROVED
 **Authority Level**: 2 (immediately below `docs/concepts/CLEO-VISION.md`)
 **Canonical Path**: `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md`
@@ -27,6 +27,7 @@ epic: "T158"
 
 | Version | Date | Summary |
 |---------|------|---------|
+| 3.1.0 | 2026-04-11 | T506: Added Section 8.2 (Code Intelligence Layer via `@cleocode/nexus`), updated Section 13.5 (Network dimension now includes code intelligence shipped capabilities and remaining pipeline gaps), added Code Intelligence Layer to Section 14 Data Flow Architecture. |
 | 3.0.0 | 2026-04-11 | Consolidated `PORTABLE-BRAIN-SPEC.md` (v1.3.0, AL2) and `CLEO-BRAIN-SPECIFICATION.md` (v2.1.0, AL5) into single AL2 authority document. All content preserved. No behavioral or contractual changes. |
 | 2.1.0 | 2026-03-24 | T158: CAAMP 1.9.1 hook taxonomy integration; 6 adapters; SubagentStart/Stop/PreCompact brain handlers; `cleo doctor --hooks` |
 | 2.0.0 | 2026-03-23 | T134: Brain memory automation; BrainConfig; local embeddings; hook-driven bridge refresh; session summarization; transcript extraction; brain maintenance CLI |
@@ -283,9 +284,11 @@ Provider/tool adapters MAY optimize UX but MUST NOT fork core memory semantics.
 
 ---
 
-## Section 8: NEXUS Synchronization
+## Section 8: NEXUS — Code Intelligence & Cross-Project Coordination
 
-The Portable Brain integrates with the **CLEO-NEXUS** system for cross-project intelligence:
+The Portable Brain integrates with the **CLEO-NEXUS** system (`@cleocode/nexus` package) for both **code intelligence** and **cross-project coordination**.
+
+### 8.1 Project Registry (SHIPPED)
 
 - Project registered in global `~/.local/share/cleo/nexus.db` via `nexus.reconcile`
 - Enables cross-project task references (`project:taskId`)
@@ -297,6 +300,33 @@ The Portable Brain integrates with the **CLEO-NEXUS** system for cross-project i
 | Task completed | Archive to NEXUS |
 | Session start | Register active project |
 | Memory injection | Sync to brain.db |
+
+### 8.2 Code Intelligence Layer (T506 — SHIPPED foundations, pipeline PENDING)
+
+`@cleocode/nexus` provides native code intelligence via tree-sitter AST analysis, absorbing patterns from the GitNexus project. Architecture derived from GitNexus's 14-phase ingestion pipeline adapted for CLEO's Drizzle/SQLite storage model.
+
+**Shipped (T506)**:
+- **Native tree-sitter bindings** — grammar packages are bundled npm dependencies (not CLI subprocess); `cleo code outline/search/unfold` work immediately after `npm install -g` with zero extra setup
+- **LanguageProvider strategy pattern** — per-language extractors with `extractDefinitions()`, `extractImports()`, `extractCalls()` methods
+- **TypeScript/JavaScript provider** — definitions, imports, and call extraction from AST
+- **Graph type contracts** — `GraphNode`, `GraphRelation`, `ImpactResult` types in `@cleocode/contracts`
+- **Impact analysis** — BFS traversal with depth-based risk grouping (d=1 WILL BREAK, d=2 LIKELY AFFECTED, d=3 MAY NEED TESTING)
+- **Persistent symbol index** — `code_index` Drizzle schema for SQLite-backed symbol storage
+- **Dependency registry SSoT** — central dependency verification wired into `cleo doctor` and postinstall
+
+**Pending (follow-up epic)**:
+- Full codebase indexing pipeline (`cleo nexus analyze`) — scan, parse, extract, resolve, index
+- Import resolution — map import paths to actual symbols across files
+- Call graph construction — trace function/method calls through the codebase
+- Heritage processing — class inheritance, interface implementation chains
+- Community detection (Leiden algorithm) — auto-group symbols into functional areas
+- Process/execution flow detection — trace entry points to terminals
+- Worker pool parallel parsing — concurrent multi-file analysis
+- Additional language providers (Python, Go, Rust, Java, C/C++, Ruby)
+
+**Package**: `@cleocode/nexus` (`packages/nexus/`)
+**Contracts**: `packages/contracts/src/graph.ts`, `packages/contracts/src/dependency.ts`
+**Reference architecture**: GitNexus (`/mnt/projects/gitnexus`) — 14-phase pipeline, LadybugDB graph, 28 node tables, strategy-pattern language providers
 
 ---
 
@@ -944,22 +974,32 @@ cleo intelligence predict --description "Refactor sessions.sh"
 
 ---
 
-### 13.5 Network (Cross-Project Coordination Layer) — CONTINGENT
+### 13.5 Network (Cross-Project Coordination + Code Intelligence Layer) — PARTIAL
 
-**Purpose**: Multi-project knowledge sharing and federated agent coordination.
+**Purpose**: Multi-project knowledge sharing, federated agent coordination, and native code intelligence.
 
 #### 13.5.1 Shipped Capabilities
 
-- Nexus registry (cross-project references)
-- Global project registration (`~/.cleo/projects/`)
+- Nexus project registry (cross-project references via `nexus.reconcile`)
+- Global project registration (`~/.local/share/cleo/nexus.db`)
 - Project-level isolation
+- **`@cleocode/nexus` package** (T506) — unified code analysis + project registry:
+  - Native tree-sitter AST parsing (10 languages, bundled dependencies)
+  - `cleo code outline/search/unfold` — zero-setup code navigation
+  - LanguageProvider strategy pattern with TypeScript/JavaScript provider
+  - Graph type contracts (`GraphNode`, `GraphRelation`, `ImpactResult`)
+  - Impact analysis with BFS depth-based risk grouping
+  - `code_index` Drizzle schema for persistent symbol storage
+  - Central dependency registry SSoT (8 deps, wired into `cleo doctor`)
 
 **Limitations**:
-- **Unvalidated**: Nexus shipped 8 days ago, zero real-world usage data
-- No cross-project intelligence: cannot find related work across projects
-- No knowledge transfer: patterns discovered in Project A don't inform Project B
-- No federated agents: agents are project-scoped only
-- **Validation risk**: may be archived if Phase 1 validation fails
+- No codebase-wide indexing pipeline (no `cleo nexus analyze` equivalent)
+- No import resolution or call graph construction from real code
+- No heritage processing (class inheritance chains)
+- No community detection or execution flow tracing
+- Cross-project intelligence unvalidated (zero real-world usage data)
+- No knowledge transfer across projects
+- No federated agents
 
 #### 13.5.2 Nexus Validation Gate (Phase 1) — CRITICAL
 
@@ -1135,6 +1175,20 @@ cleo network similarity --project backend-api
 │ - conduit.db (project-tier agent messaging, ADR-037)         │
 │ - signaldock.db (global-tier agent identity, ADR-037)        │
 │ - JSONL export/import for portability (ADR-009)              │
+└────────────────┬────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│ CODE INTELLIGENCE LAYER (@cleocode/nexus) — T506             │
+│ - Native tree-sitter AST parsing (10 languages) [SHIPPED]    │
+│ - LanguageProvider strategy pattern [SHIPPED]                 │
+│ - GraphNode/GraphRelation type contracts [SHIPPED]            │
+│ - Impact analysis (BFS depth-based risk) [SHIPPED]            │
+│ - code_index persistent symbol store [SHIPPED]                │
+│ - Codebase indexing pipeline [PENDING]                        │
+│ - Import resolution + call graphs [PENDING]                   │
+│ - Community detection (Leiden) [PENDING]                      │
+│ - Process/flow detection [PENDING]                            │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
