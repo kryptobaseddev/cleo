@@ -1,6 +1,6 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.3.next
+**Version**: 2026.4.24
 **Status**: VISION
 **Date**: 2026-03-24
 

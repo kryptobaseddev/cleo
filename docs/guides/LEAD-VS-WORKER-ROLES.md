@@ -153,7 +153,7 @@ Paths are normalized to forward slashes with leading slashes stripped for relati
 
 Workers spawned via the domain-enforcer extension receive these environment variables:
 
-**File**: `temp/extensions/domain-enforcer.ts` (line 29-46)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 29-46)
 
 | Variable | Type | Description |
 |----------|------|-------------|
@@ -200,7 +200,7 @@ Expertise entries take precedence over domain rules for exact file matches. This
 
 Leads spawned via the lead-delegate extension receive these environment variables:
 
-**File**: `temp/extensions/lead-delegate.ts` (line 15-16, 47-51)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 15-16, 47-51)
 
 | Variable | Type | Description |
 |----------|------|-------------|
@@ -230,7 +230,7 @@ The `LEAD_MEMBERS_JSON` variable is explicitly deleted from the environment befo
 
 ## The `delegate()` Tool (Lead-Only)
 
-**File**: `temp/extensions/lead-delegate.ts` (line 54-186)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 54-186)
 
 The `delegate` tool is registered by the lead-delegate Pi extension. It is only activated when `LEAD_MEMBERS_JSON` is set in the environment, which means only lead subprocesses get it.
 
@@ -261,7 +261,7 @@ The `delegate` tool is registered by the lead-delegate Pi extension. It is only 
 
 ## Domain Enforcer Extension (Worker)
 
-**File**: `temp/extensions/domain-enforcer.ts` (line 28-190)
+**File**: `packages/cleo-os/extensions/cleo-cant-bridge.ts` (line 28-190)
 
 The domain enforcer is a Pi extension loaded by worker subprocesses that structurally enforces domain restrictions. It reads `AGENT_DOMAIN_RULES` and `AGENT_EXPERTISE` from the environment and intercepts tool calls.
 
@@ -369,7 +369,7 @@ agent my-worker:
 | File | Purpose |
 |------|---------|
 | `packages/cleo-os/extensions/cleo-cant-bridge.ts` | Lead blocking + worker path ACL enforcement |
-| `temp/extensions/domain-enforcer.ts` | Domain rule enforcement for workers |
-| `temp/extensions/lead-delegate.ts` | `delegate` tool registration for leads |
 | `packages/cant/src/composer.ts` | `PathPermissions` interface definition |
 | `packages/agents/cleo-subagent/AGENT.md` | Base subagent protocol (shared by both roles) |
+
+> **Note**: Lead tool blocking and worker path ACL enforcement are consolidated in the CANT bridge extension (`packages/cleo-os/extensions/cleo-cant-bridge.ts`).

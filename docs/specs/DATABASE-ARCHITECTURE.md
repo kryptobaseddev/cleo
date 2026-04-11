@@ -102,6 +102,11 @@ Tables (canonical identity + cloud-sync): `agents`, `capabilities`, `skills`, `a
 | `cleo agent remove <id>` | Removes project ref only; does NOT touch global identity |
 | `cleo agent remove --global <id>` | Deletes global identity row (warns if cross-project refs exist) |
 
+> **Dual ORM note**: The server-side SignalDock platform (`crates/signaldock-storage/`) uses Diesel ORM
+> with SQLite + PostgreSQL backends. The local CLEO-managed `signaldock.db` at
+> `$XDG_DATA_HOME/cleo/signaldock.db` uses `node:sqlite` DatabaseSync via
+> `packages/core/src/store/signaldock-sqlite.ts`.
+
 #### API Key KDF (ADR-037 §5)
 
 As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`. The `global-salt` file lives at `$XDG_DATA_HOME/cleo/global-salt` (32 bytes, 0o600). Loss of this file invalidates all stored API keys — agents must re-authenticate. See `packages/core/src/store/global-salt.ts` (T348) and `api-key-kdf.ts` (T349).
@@ -132,7 +137,7 @@ As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`.
 ## Database Relationships
 
 ```
-                    signaldock.db (Diesel ORM) — AGENT SSoT
+                    signaldock.db (node:sqlite, server: Diesel ORM) — AGENT SSoT
                     ┌──────────────────────────┐
                     │ agents (identity SSoT)    │
                     │ agent_connections         │

@@ -70,8 +70,6 @@ agent backend-dev:
 
   tools:
     core: [Read, Write, Edit, Bash, Glob, Grep]
-    docs: [mcp__context7__resolve-library-id, mcp__context7__query-docs]
-    search: [mcp__tavily__tavily-search, mcp__tavily__tavily-extract]
 
   domains:
     tasks: "Task hierarchy, CRUD, work tracking"

@@ -51,7 +51,7 @@ Format: `UPPER-KEBAB-CASE.md`
 
 Suffix conventions:
 - `-SPEC.md` for formal specifications (e.g., `CLEO-DATA-INTEGRITY-SPEC.md`)
-- `-SPECIFICATION.md` for full-length server/protocol specs (e.g., `MCP-SERVER-SPECIFICATION.md`)
+- `-SPECIFICATION.md` for full-length server/protocol specs
 - No suffix for reference documents (e.g., `VERB-STANDARDS.md`, `SCHEMA-AUTHORITY.md`)
 
 ### Guides (`docs/guides/`)
@@ -319,6 +319,6 @@ Guides prioritize practical examples and step-by-step instructions over formal s
 ## References
 
 - [VERB-STANDARDS.md](specs/VERB-STANDARDS.md) — Canonical verb standards
-- [MCP-SERVER-SPECIFICATION.md](specs/MCP-SERVER-SPECIFICATION.md) — MCP server contract
+- MCP-SERVER-SPECIFICATION.md — (removed — MCP fully removed per ADR-035 §D4, 2026-04-04)
 - [AGENTS.md](/AGENTS.md) — Repository guidelines (references this SOP)
 - RFC 2119 — Key words for use in RFCs to indicate requirement levels

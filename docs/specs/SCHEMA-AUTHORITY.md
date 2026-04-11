@@ -10,6 +10,8 @@ This document defines how to interpret CLEO schema state and migration history.
    - `packages/core/src/store/chain-schema.ts` — WarpChain tables (re-exported from tasks-schema.ts)
    - `packages/core/src/agents/agent-schema.ts` — agent_instances, agent_error_log tables (re-exported from tasks-schema.ts)
    - `packages/core/src/store/nexus-schema.ts` — nexus.db (project_registry, nexus_audit_log)
+   - `packages/core/src/store/conduit-sqlite.ts` — conduit.db DDL (project-tier messaging, project_agent_refs)
+   - `packages/core/src/store/signaldock-sqlite.ts` — signaldock.db DDL (global-tier agent identity)
    - `packages/contracts/src/status-registry.ts` — canonical status enum constants (SSoT per ADR-018)
 2. The latest effective migration state under `packages/core/migrations/` is the runtime DDL history:
    - `drizzle-tasks/` — tasks.db migrations

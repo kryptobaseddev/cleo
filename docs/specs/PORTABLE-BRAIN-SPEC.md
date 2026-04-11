@@ -66,6 +66,8 @@ The `.cleo/` directory is CLEO's **portable brain** - a complete, self-contained
 └── adrs/                 # Architecture Decision Records
 ```
 
+> (see also: global `$XDG_DATA_HOME/cleo/signaldock.db` per ADR-037 — the canonical cross-project agent identity registry, stored outside the project `.cleo/` directory)
+
 ### 3.3 Cross-Provider Agnostic Design
 
 The `.cleo/` brain is **completely provider-agnostic**:

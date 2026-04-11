@@ -2,7 +2,7 @@
 
 **A compact visual guide to the founding myth, system layers, and the moving parts of the realm**
 
-**Version**: 2026.3.4
+**Version**: 2026.4.24
 
 ---
 

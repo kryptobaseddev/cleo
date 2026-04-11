@@ -33,9 +33,16 @@ The function `cleoGitCommand(args, cleoDir)` MUST pass the environment from `mak
 
 ## 2. SQLite State Files in Git
 
-`tasks.db`, `tasks.db-shm`, and `tasks.db-wal` MUST NOT appear in the `STATE_FILES` array in `packages/core/src/store/git-checkpoint.ts`.
+SQLite state files MUST NOT appear in the `STATE_FILES` array in `packages/core/src/store/git-checkpoint.ts`.
 
 These files MUST be listed in `.cleo/.gitignore` to prevent accidental tracking in the isolated `.cleo/.git` repository.
+
+SQLite state files (MUST NOT be tracked in git per ADR-013 §9):
+- `tasks.db`, `tasks.db-shm`, `tasks.db-wal`
+- `brain.db`, `brain.db-shm`, `brain.db-wal`
+- `conduit.db`, `conduit.db-shm`, `conduit.db-wal`
+- `signaldock.db` (global tier — not in project `.cleo/` but at `$XDG_DATA_HOME/cleo/`)
+- `nexus.db` (global tier — at `$XDG_DATA_HOME/cleo/`)
 
 The `.cleo/.gitignore` MUST contain at minimum:
 
@@ -43,8 +50,16 @@ The `.cleo/.gitignore` MUST contain at minimum:
 tasks.db
 tasks.db-shm
 tasks.db-wal
+brain.db
+brain.db-shm
+brain.db-wal
+conduit.db
+conduit.db-shm
+conduit.db-wal
 .git/
 ```
+
+> **Note**: `signaldock.db` and `nexus.db` are global-tier databases stored outside the project `.cleo/` directory (`$XDG_DATA_HOME/cleo/`). They are not subject to the project `.cleo/.gitignore` but MUST NOT be committed to any git repository.
 
 ### Acceptance Criteria
 

@@ -235,7 +235,7 @@ The workshop vocabulary maps to concrete module paths inside `@cleocode/core`. T
 | **The Sweep / Refinery** | `packages/core/src/validation/`, `packages/core/src/lifecycle/` | Compliance checking and gate convergence |
 | **Nexus (cross-project)** | `packages/core/src/nexus/` | Cross-project registry, permissions, dependency graph |
 | **Sticky Notes (Catchers)** | `packages/core/src/sticky/` | Ephemeral capture before formal classification |
-| **Conduit** | `packages/core/src/signaldock/` | Agent transport protocol (LAFS envelopes, A2A delegation) |
+| **Conduit** | `packages/core/src/conduit/` (LocalTransport, factory) + `packages/core/src/store/conduit-sqlite.ts` (project-tier) + `packages/core/src/store/signaldock-sqlite.ts` (global-tier) | Agent transport protocol (LAFS envelopes, A2A delegation) |
 | **Watchers** | `packages/core/src/orchestration/`, `packages/core/src/system/health.ts` | Long-running health patrol and gate monitoring |
 | **Release (Cascade exit)** | `packages/core/src/release/` | Version bumps, changelog, artifact publishing |
 | **Admin (Keepers)** | `packages/core/src/system/`, `packages/core/src/config.ts` | Backups, migration, cleanup, configuration |

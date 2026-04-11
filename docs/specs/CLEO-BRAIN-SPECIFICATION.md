@@ -1713,7 +1713,7 @@ All 5 dimensions MUST meet certification criteria:
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
 - **docs/specs/CLEO-OPERATION-CONSTITUTION.md**: Canonical runtime dispatch contract (CLI + internal CQRS)
-- **docs/specs/CLEO-NEXUS-SPECIFICATION.md**: Network dimension architecture
+- **docs/specs/CLEO-NEXUS-ARCHITECTURE.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 - **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
 
@@ -1786,6 +1786,8 @@ All 5 dimensions MUST meet certification criteria:
 │ - Pattern memory (.cleo/brain.db — brain_patterns table)     │
 │ - Learning memory (.cleo/brain.db — brain_learnings table)   │
 │ - Pipeline manifest (pipelineManifest table in tasks.db)     │
+│ - conduit.db (project-tier agent messaging, ADR-037)         │
+│ - signaldock.db (global-tier agent identity, ADR-037)        │
 │ - JSONL export/import for portability (ADR-009)              │
 └────────────────┬────────────────────────────────────────────┘
                  │
