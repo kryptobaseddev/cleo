@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.4.27] (2026-04-10)
+
+Full CLI audit across 106 commands (12 parallel agents), P0 critical bug fixes.
+
+### Fixes
+- **archive --dry-run**: Wire dryRun/taskIds/includeCancelled through engine — previously silently performed real archive (data loss risk)
+- **claim/unclaim**: Fix param name mismatch (CLI sent `id`, domain read `taskId`) — both commands always failed
+- **export-tasks**: Guard taskIds against undefined to prevent TypeError crash with no positional args
+- **safestop**: Replace legacy sessions.json file read with proper DB accessor — session-end was silently failing
+- **backfill**: Add destructive operation warning when run without --dry-run
+- **registry**: Align claim/unclaim param names and declare agentId as required for claim
+- **stale dist**: Rebuild fixes ~15 broken commands (orchestrate subcommands, memory routing, roadmap dispatch, observe options)
+
+### Audit Findings (tracked for future waves)
+- 23 broken commands identified, 6 P0 fixed in this release
+- 24 duplicate/redundant commands mapped for consolidation
+- 38 commands with poor/misleading help text catalogued
+- 15 commands with silently ignored options documented
+---
+
 ## [2026.4.26] (2026-04-10)
 
 Auto-prepared by release.ship (T443)

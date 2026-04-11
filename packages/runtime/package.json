@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/runtime",
-  "version": "2026.4.23",
+  "version": "2026.4.27",
   "description": "Long-running process layer for CLEO \u2014 agent polling, SSE connections, heartbeat, key rotation",
   "type": "module",
   "main": "dist/index.js",
