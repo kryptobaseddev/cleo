@@ -1,15 +1,15 @@
 /**
  * CLI reason command group — reasoning and intelligence operations.
  *
- * Surfaces BRAIN memory reasoning and task dependency intelligence as
- * first-class CLI commands, providing parity with dispatch-only operations.
+ * Surfaces task dependency intelligence as first-class CLI commands.
  *
  * Commands:
- *   cleo reason why <taskId>            — causal trace through dependency chains
- *   cleo reason similar <taskId>        — find semantically similar BRAIN entries
  *   cleo reason impact --change <text>  — predict impact of a free-text change (T043)
  *   cleo reason impact <taskId>         — downstream dependency impact for a known task
  *   cleo reason timeline <taskId>       — task history and audit trail
+ *
+ * DEPRECATED (removed): `reason why` and `reason similar` were duplicates of
+ * `memory reason-why` and `memory reason-similar`. Use the `memory` subcommands.
  *
  * @task T043
  * @task T044
@@ -23,55 +23,22 @@ import type { ShimCommand as Command } from '../commander-shim.js';
  * Register the `cleo reason` command group and its subcommands.
  *
  * @remarks
- * Adds `why`, `similar`, `impact`, and `timeline` subcommands that
- * dispatch to the intelligence and tasks domains.
+ * Adds `impact` and `timeline` subcommands that dispatch to the tasks domain.
+ * `why` and `similar` were removed as duplicates of `cleo memory reason-why`
+ * and `cleo memory reason-similar`.
  *
  * @param program - Root CLI program instance (commander shim).
  *
  * @example
  * ```ts
  * registerReasonCommand(rootCommand);
- * // Adds: cleo reason why|similar|impact|timeline
+ * // Adds: cleo reason impact|timeline
  * ```
  */
 export function registerReasonCommand(program: Command): void {
   const reason = program
     .command('reason')
-    .description('Reasoning and intelligence operations (why, similar, impact, timeline)');
-
-  // -- why --
-  reason
-    .command('why <taskId>')
-    .description('Explain why a task exists via causal trace through dependency chains')
-    .option('--json', 'Output raw JSON envelope')
-    .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'query',
-        'memory',
-        'reason.why',
-        { taskId },
-        { command: 'reason', operation: 'memory.reason.why' },
-      );
-    });
-
-  // -- similar --
-  reason
-    .command('similar <taskId>')
-    .description('Find BRAIN entries semantically similar to a task or observation ID')
-    .option('--limit <n>', 'Maximum number of results to return', parseInt)
-    .option('--json', 'Output raw JSON envelope')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'memory',
-        'reason.similar',
-        {
-          entryId: taskId,
-          limit: opts['limit'] as number | undefined,
-        },
-        { command: 'reason', operation: 'memory.reason.similar' },
-      );
-    });
+    .description('Reasoning and intelligence operations (impact, timeline)');
 
   // -- impact --
   // Two modes:

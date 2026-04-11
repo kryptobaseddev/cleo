@@ -313,7 +313,7 @@ export class SessionHandler implements DomainHandler {
 
         case 'record.decision': {
           const result = await sessionRecordDecision(projectRoot, {
-            sessionId: params?.sessionId as string,
+            sessionId: params?.sessionId as string | undefined,
             taskId: params?.taskId as string,
             decision: params?.decision as string,
             rationale: params?.rationale as string,

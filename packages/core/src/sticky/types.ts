@@ -78,6 +78,8 @@ export interface ListStickiesParams {
   status?: StickyNoteStatus;
   color?: StickyNoteColor;
   priority?: StickyNotePriority;
+  /** Filter to notes containing ALL of the specified tags. */
+  tags?: string[];
   limit?: number;
 }
 

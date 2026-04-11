@@ -43,9 +43,9 @@ export function registerSessionCommand(program: Command): void {
     });
 
   session
-    .command('stop')
-    .alias('end')
-    .description('Stop the current session')
+    .command('end')
+    .alias('stop')
+    .description('End the current session')
     .option('--session <id>', 'Specific session ID to stop')
     .option('--note <note>', 'Stop note')
     .option('--next-action <action>', 'Suggested next action')
@@ -79,7 +79,7 @@ export function registerSessionCommand(program: Command): void {
 
       const data = response.data as { sessionId: string; handoff: Record<string, unknown> } | null;
 
-      if (!data || !data.handoff) {
+      if (!data?.handoff) {
         cliOutput(
           { handoff: null },
           {
@@ -282,7 +282,7 @@ export function registerSessionCommand(program: Command): void {
   session
     .command('record-decision')
     .description('Record a decision made during the current session')
-    .requiredOption('--session-id <sessionId>', 'Session ID')
+    .option('--session-id <sessionId>', 'Session ID (defaults to active session)')
     .requiredOption('--task-id <taskId>', 'Task ID the decision relates to')
     .requiredOption('--decision <decision>', 'Decision text')
     .requiredOption('--rationale <rationale>', 'Rationale for the decision')
@@ -293,7 +293,7 @@ export function registerSessionCommand(program: Command): void {
         'session',
         'record.decision',
         {
-          sessionId: opts['sessionId'] as string,
+          sessionId: opts['sessionId'] as string | undefined,
           taskId: opts['taskId'] as string,
           decision: opts['decision'] as string,
           rationale: opts['rationale'] as string,

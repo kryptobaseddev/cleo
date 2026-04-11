@@ -105,7 +105,7 @@ const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     name: 'Memory & Notes',
-    commands: ['memory', 'brain', 'observe', 'refresh-memory', 'sticky', 'reason'],
+    commands: ['memory', 'brain', 'refresh-memory', 'sticky', 'reason'],
   },
   {
     name: 'Analysis & Stats',

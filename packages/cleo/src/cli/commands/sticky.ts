@@ -29,18 +29,25 @@ export function registerStickyCommand(program: Command): void {
     .command('add <content>')
     .alias('jot')
     .description('Create a new sticky note')
-    .option('--tag <tag>', 'Add a tag (can be used multiple times)', collect, [])
+    .option('--tag <tags>', 'Comma-separated tags (e.g. "bug,urgent")')
     .option('--color <color>', 'Sticky color: yellow|blue|green|red|purple', 'yellow')
     .option('--priority <priority>', 'Priority: low|medium|high', 'medium')
     .action(async (content: string, opts: Record<string, unknown>) => {
       try {
+        const rawTag = opts['tag'] as string | undefined;
+        const tags = rawTag
+          ? rawTag
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : [];
         await dispatchFromCli(
           'mutate',
           'sticky',
           'add',
           {
             content,
-            tags: opts['tag'] as string[],
+            tags,
             color: opts['color'] as string,
             priority: opts['priority'] as string,
           },
@@ -61,14 +68,21 @@ export function registerStickyCommand(program: Command): void {
     .command('list')
     .alias('ls')
     .description('List active sticky notes')
-    .option('--tag <tag>', 'Filter by tag')
+    .option('--tag <tags>', 'Filter by tags (comma-separated, e.g. "bug,urgent")')
     .option('--color <color>', 'Filter by color')
     .option('--status <status>', 'Filter by status: active|converted|archived', 'active')
     .option('--limit <n>', 'Max results', parseInt, 50)
     .action(async (opts: Record<string, unknown>) => {
       try {
+        const rawTag = opts['tag'] as string | undefined;
+        const tags = rawTag
+          ? rawTag
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : undefined;
         const response = await dispatchRaw('query', 'sticky', 'list', {
-          tag: opts['tag'] as string | undefined,
+          tags,
           color: opts['color'] as string | undefined,
           status: opts['status'] as string,
           limit: opts['limit'] as number,
@@ -250,13 +264,6 @@ export function registerStickyCommand(program: Command): void {
         throw err;
       }
     });
-}
-
-/**
- * Helper to collect multiple --tag options into an array
- */
-function collect(value: string, previous: string[]): string[] {
-  return previous.concat([value]);
 }
 
 /**
