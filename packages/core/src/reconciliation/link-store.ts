@@ -7,9 +7,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type { ExternalTaskLink } from '@cleocode/contracts';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { getLogger } from '../logger.js';
 import { getDb } from '../store/sqlite.js';
 import { externalTaskLinks } from '../store/tasks-schema.js';
+
+const log = getLogger('link-store');
 
 // ---------------------------------------------------------------------------
 // Read operations
@@ -64,11 +67,67 @@ export async function getLinksByTaskId(taskId: string, cwd?: string): Promise<Ex
 }
 
 // ---------------------------------------------------------------------------
+// Table safety
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the external_task_links table exists in the given database.
+ *
+ * Older project databases (created before the wave0-schema-hardening migration)
+ * may lack this table. Rather than aborting operations like nexus transfer,
+ * we create the table on demand using CREATE TABLE IF NOT EXISTS.
+ *
+ * This is idempotent — safe to call on every write operation.
+ */
+async function ensureExternalTaskLinksTable(cwd?: string): Promise<void> {
+  const db = await getDb(cwd);
+  try {
+    db.run(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS external_task_links (
+          id text PRIMARY KEY NOT NULL,
+          task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          provider_id text NOT NULL,
+          external_id text NOT NULL,
+          external_url text,
+          external_title text,
+          link_type text NOT NULL,
+          sync_direction text NOT NULL DEFAULT 'inbound',
+          metadata_json text DEFAULT '{}',
+          linked_at text NOT NULL DEFAULT (datetime('now')),
+          last_sync_at text
+        )
+      `),
+    );
+    db.run(
+      sql.raw(
+        `CREATE UNIQUE INDEX IF NOT EXISTS uq_ext_links_task_provider_external ON external_task_links(task_id, provider_id, external_id)`,
+      ),
+    );
+    db.run(
+      sql.raw(`CREATE INDEX IF NOT EXISTS idx_ext_links_task_id ON external_task_links(task_id)`),
+    );
+    db.run(
+      sql.raw(
+        `CREATE INDEX IF NOT EXISTS idx_ext_links_provider_id ON external_task_links(provider_id)`,
+      ),
+    );
+  } catch (err) {
+    log.warn({ err }, 'Failed to ensure external_task_links table exists');
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Write operations
 // ---------------------------------------------------------------------------
 
 /**
  * Create a new external task link.
+ *
+ * Ensures the external_task_links table exists before inserting, providing
+ * graceful degradation for older project databases that predate the
+ * wave0-schema-hardening migration.
  */
 export async function createLink(
   params: {
@@ -83,6 +142,7 @@ export async function createLink(
   },
   cwd?: string,
 ): Promise<ExternalTaskLink> {
+  await ensureExternalTaskLinksTable(cwd);
   const db = await getDb(cwd);
   const now = new Date().toISOString();
   const id = randomUUID();

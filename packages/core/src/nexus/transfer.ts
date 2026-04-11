@@ -169,54 +169,64 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
   }
 
   // Step 6: Create bidirectional external_task_links
-  // Only create links for tasks that were actually imported (verify they exist in target)
+  // Only create links for tasks that were actually imported (verify they exist in target).
+  // Wrapped in try-catch: link creation is non-critical — the transfer itself has already
+  // succeeded by this point. If the target DB predates the wave0-schema-hardening migration
+  // and table creation fails, we log a warning and continue rather than aborting the transfer.
   let linksCreated = 0;
-  const targetAccessor = await getAccessor(targetProject.path);
-  const { tasks: targetTasks } = await targetAccessor.queryTasks({});
-  const targetTaskIds = new Set(targetTasks.map((t) => t.id));
+  try {
+    const targetAccessor = await getAccessor(targetProject.path);
+    const { tasks: targetTasks } = await targetAccessor.queryTasks({});
+    const targetTaskIds = new Set(targetTasks.map((t) => t.id));
 
-  for (const entry of entries) {
-    if (importResult.idRemap[entry.sourceId] && targetTaskIds.has(entry.targetId)) {
-      // Link in target: points back to source
-      await createLink(
-        {
-          taskId: entry.targetId,
-          providerId: `nexus:${sourceProject.name}`,
-          externalId: entry.sourceId,
-          externalTitle: entry.title,
-          linkType: 'transferred',
-          syncDirection: 'inbound',
-          metadata: {
-            transferMode: mode,
-            transferScope: scope,
-            sourceProject: sourceProject.name,
-            transferredAt: new Date().toISOString(),
+    for (const entry of entries) {
+      if (importResult.idRemap[entry.sourceId] && targetTaskIds.has(entry.targetId)) {
+        // Link in target: points back to source
+        await createLink(
+          {
+            taskId: entry.targetId,
+            providerId: `nexus:${sourceProject.name}`,
+            externalId: entry.sourceId,
+            externalTitle: entry.title,
+            linkType: 'transferred',
+            syncDirection: 'inbound',
+            metadata: {
+              transferMode: mode,
+              transferScope: scope,
+              sourceProject: sourceProject.name,
+              transferredAt: new Date().toISOString(),
+            },
           },
-        },
-        targetProject.path,
-      );
-      linksCreated++;
+          targetProject.path,
+        );
+        linksCreated++;
 
-      // Link in source: points to target
-      await createLink(
-        {
-          taskId: entry.sourceId,
-          providerId: `nexus:${targetProject.name}`,
-          externalId: entry.targetId,
-          externalTitle: entry.title,
-          linkType: 'transferred',
-          syncDirection: 'outbound',
-          metadata: {
-            transferMode: mode,
-            transferScope: scope,
-            targetProject: targetProject.name,
-            transferredAt: new Date().toISOString(),
+        // Link in source: points to target
+        await createLink(
+          {
+            taskId: entry.sourceId,
+            providerId: `nexus:${targetProject.name}`,
+            externalId: entry.targetId,
+            externalTitle: entry.title,
+            linkType: 'transferred',
+            syncDirection: 'outbound',
+            metadata: {
+              transferMode: mode,
+              transferScope: scope,
+              targetProject: targetProject.name,
+              transferredAt: new Date().toISOString(),
+            },
           },
-        },
-        sourceProject.path,
-      );
-      linksCreated++;
+          sourceProject.path,
+        );
+        linksCreated++;
+      }
     }
+  } catch (err) {
+    log.warn(
+      { err, linksCreated },
+      'Failed to create external_task_links during transfer — tasks were transferred successfully but provenance links could not be written',
+    );
   }
   result.linksCreated = linksCreated;
 
