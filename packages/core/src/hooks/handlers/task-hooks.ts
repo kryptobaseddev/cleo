@@ -5,6 +5,7 @@
  * Auto-registers on module load.
  *
  * T138: Triggers memory bridge refresh after task completion.
+ * T554: Triggers LLM observer after task completion when observation count ≥ threshold.
  */
 
 import { hooks } from '../registry.js';
@@ -37,6 +38,7 @@ export async function handleToolStart(
  * Handle PostToolUse (maps to task.complete in CLEO, canonical: was onToolComplete)
  *
  * T138: Refresh memory bridge after task completion.
+ * T554: Fire-and-forget LLM observer when observation count ≥ threshold.
  */
 export async function handleToolComplete(
   projectRoot: string,
@@ -54,6 +56,18 @@ export async function handleToolComplete(
   } catch (err) {
     if (!isMissingBrainSchemaError(err)) throw err;
   }
+
+  // T554: Fire-and-forget observer — runs after observation is stored so the
+  // new observation is included in the count. setImmediate ensures the task
+  // complete response reaches the caller before the LLM call begins.
+  setImmediate(async () => {
+    try {
+      const { runObserver } = await import('../../memory/observer-reflector.js');
+      await runObserver(projectRoot);
+    } catch {
+      // Observer errors must never surface to the task complete flow
+    }
+  });
 
   // T138: Refresh memory bridge after task completes (best-effort)
   await maybeRefreshMemoryBridge(projectRoot);

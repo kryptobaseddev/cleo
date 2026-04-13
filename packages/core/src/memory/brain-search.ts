@@ -17,7 +17,6 @@ import type {
   BrainPatternRow,
 } from '../store/brain-schema.js';
 import { typedAll } from '../store/typed-query.js';
-import type { BrainSearchHit } from './brain-row-types.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
 import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
@@ -598,44 +597,174 @@ export function resetFts5Cache(): void {
 }
 
 // ============================================================================
-// Hybrid Search (FTS5 + Vector + Graph)
+// Reciprocal Rank Fusion (RRF) — Hybrid Retrieval
+// ============================================================================
+
+/**
+ * The RRF smoothing constant (research-proven at 60).
+ *
+ * Balances noise vs. signal: small values amplify top-rank differences;
+ * large values compress ranks toward a flat distribution. 60 is the
+ * standard value from Cormack, Clarke & Buettcher (SIGIR 2009).
+ */
+export const RRF_K = 60;
+
+/** A single ranked hit from one retrieval source before fusion. */
+export interface RrfHit {
+  id: string;
+  type: string;
+  title: string;
+  text: string;
+}
+
+/** Fused result produced by reciprocalRankFusion. */
+export interface RrfResult {
+  id: string;
+  /** Combined RRF score: sum of 1/(rank+RRF_K) across all source lists. */
+  rrfScore: number;
+  type: string;
+  title: string;
+  text: string;
+  /** Which retrieval sources contributed to this result. */
+  sources: Array<'fts' | 'vec' | 'graph'>;
+  /** BM25-derived FTS rank (0-based) — undefined if not in FTS results. */
+  ftsRank?: number;
+  /** Vector distance rank (0-based) — undefined if not in vector results. */
+  vecRank?: number;
+}
+
+/**
+ * Fuse ranked lists from multiple retrieval sources using Reciprocal Rank Fusion.
+ *
+ * Implements the RRF algorithm from Cormack, Clarke & Buettcher (SIGIR 2009):
+ *
+ *   score(d) = Σ 1 / (k + rank(d, list))  for each list containing d
+ *
+ * where k=60 is the research-proven smoothing constant.
+ *
+ * Properties:
+ * - Rank-based: actual scores from each source are ignored (only rank matters).
+ * - Additive: items appearing in multiple lists accumulate higher scores.
+ * - Robust: the +60 constant prevents rank-1 items from dominating.
+ *
+ * @param sources - Named arrays of ranked hits (order = rank, index 0 = best)
+ * @param k - RRF smoothing constant (default: RRF_K = 60)
+ * @returns Array of fused results sorted by rrfScore descending
+ *
+ * @example
+ * ```ts
+ * const fused = reciprocalRankFusion([
+ *   { source: 'fts', hits: ftsHits },
+ *   { source: 'vec', hits: vecHits },
+ * ]);
+ * ```
+ */
+export function reciprocalRankFusion(
+  sources: Array<{
+    source: 'fts' | 'vec' | 'graph';
+    hits: RrfHit[];
+  }>,
+  k: number = RRF_K,
+): RrfResult[] {
+  // Accumulator: id -> mutable result record
+  const accum = new Map<
+    string,
+    {
+      rrfScore: number;
+      type: string;
+      title: string;
+      text: string;
+      sources: Set<'fts' | 'vec' | 'graph'>;
+      ftsRank?: number;
+      vecRank?: number;
+    }
+  >();
+
+  for (const { source, hits } of sources) {
+    for (let rank = 0; rank < hits.length; rank++) {
+      const hit = hits[rank]!;
+      const contribution = 1 / (k + rank);
+
+      const existing = accum.get(hit.id);
+      if (existing) {
+        existing.rrfScore += contribution;
+        existing.sources.add(source);
+        if (source === 'fts') existing.ftsRank = rank;
+        if (source === 'vec') existing.vecRank = rank;
+      } else {
+        accum.set(hit.id, {
+          rrfScore: contribution,
+          type: hit.type,
+          title: hit.title,
+          text: hit.text,
+          sources: new Set([source]),
+          ftsRank: source === 'fts' ? rank : undefined,
+          vecRank: source === 'vec' ? rank : undefined,
+        });
+      }
+    }
+  }
+
+  return [...accum.entries()]
+    .map(([id, data]) => ({
+      id,
+      rrfScore: data.rrfScore,
+      type: data.type,
+      title: data.title,
+      text: data.text,
+      sources: [...data.sources] as Array<'fts' | 'vec' | 'graph'>,
+      ftsRank: data.ftsRank,
+      vecRank: data.vecRank,
+    }))
+    .sort((a, b) => b.rrfScore - a.rrfScore);
+}
+
+// ============================================================================
+// Hybrid Search (FTS5 + Vector + Graph) — RRF-powered
 // ============================================================================
 
 /** Result from hybridSearch combining multiple search signals. */
 export interface HybridResult {
   id: string;
+  /** RRF-fused score: sum of 1/(rank+60) across all source lists. */
   score: number;
   type: string;
   title: string;
   text: string;
   sources: Array<'fts' | 'vec' | 'graph'>;
+  /** Raw FTS rank (0-based) for transparency — undefined if FTS did not return this item. */
+  ftsRank?: number;
+  /** Raw vector rank (0-based) for transparency — undefined if vector did not return this item. */
+  vecRank?: number;
 }
 
-/** Options for hybridSearch weighting and limits. */
+/** Options for hybridSearch. */
 export interface HybridSearchOptions {
-  ftsWeight?: number;
-  vecWeight?: number;
-  graphWeight?: number;
   limit?: number;
+  /**
+   * RRF smoothing constant k. Default: 60 (research-proven).
+   * Larger k flattens rank differences; smaller k amplifies top-rank advantage.
+   */
+  rrfK?: number;
 }
 
 /**
- * Hybrid search across FTS5, vector similarity, and graph neighbors.
+ * Hybrid search across FTS5, vector similarity, and graph neighbors using
+ * Reciprocal Rank Fusion (RRF) for result combination.
  *
- * 1. Runs FTS5 search via existing searchBrain.
- * 2. Runs vector similarity via searchSimilar (if available).
- * 3. Runs graph neighbor expansion via getNeighbors (if query matches a node).
- * 4. Normalizes scores to 0-1 using min-max normalization.
- * 5. Combines with configurable weights.
- * 6. Deduplicates by ID, keeping highest combined score.
- * 7. Returns top-N sorted by score descending.
+ * Algorithm:
+ * 1. Run FTS5 search and vector similarity search in parallel.
+ * 2. Optionally expand via graph neighbors (best-effort).
+ * 3. Fuse all ranked lists with RRF: score = Σ 1/(rank+60).
+ * 4. Return top-N sorted by fused RRF score.
  *
- * Graceful fallback: if vec unavailable, redistributes weight to FTS5.
+ * Graceful degradation: vector and graph sources are silently skipped when
+ * unavailable — RRF naturally handles partial source lists.
  *
  * @param query - Search query text
  * @param projectRoot - Project root directory
- * @param options - Weight and limit configuration
- * @returns Array of hybrid results ranked by combined score
+ * @param options - Limit and RRF tuning
+ * @returns Array of hybrid results ranked by RRF score descending
  */
 export async function hybridSearch(
   query: string,
@@ -645,52 +774,21 @@ export async function hybridSearch(
   if (!query?.trim()) return [];
 
   const maxResults = options?.limit ?? 10;
-  let ftsWeight = options?.ftsWeight ?? 0.5;
-  let vecWeight = options?.vecWeight ?? 0.4;
-  const graphWeight = options?.graphWeight ?? 0.1;
+  const rrfK = options?.rrfK ?? RRF_K;
 
-  // Score accumulators: id -> { score, sources, type, title, text }
-  const scoreMap = new Map<
-    string,
-    {
-      score: number;
-      type: string;
-      title: string;
-      text: string;
-      sources: Set<'fts' | 'vec' | 'graph'>;
-    }
-  >();
+  // --- 1. Run FTS5 and vector in parallel ---
+  const [ftsResults, vecResults] = await Promise.all([
+    searchBrain(projectRoot, query, { limit: maxResults * 3 }).catch(() => ({
+      decisions: [],
+      patterns: [],
+      learnings: [],
+      observations: [],
+    })),
+    searchSimilar(query, projectRoot, maxResults * 3).catch(() => [] as SimilarityResult[]),
+  ]);
 
-  const addScore = (
-    id: string,
-    normalizedScore: number,
-    weight: number,
-    source: 'fts' | 'vec' | 'graph',
-    type: string,
-    title: string,
-    text: string,
-  ) => {
-    const existing = scoreMap.get(id);
-    if (existing) {
-      existing.score += normalizedScore * weight;
-      existing.sources.add(source);
-    } else {
-      scoreMap.set(id, {
-        score: normalizedScore * weight,
-        type,
-        title,
-        text,
-        sources: new Set([source]),
-      });
-    }
-  };
-
-  // --- 1. FTS5 search ---
-  const ftsResults = await searchBrain(projectRoot, query, { limit: maxResults * 2 });
-
-  // Collect all FTS hits into a flat list with position-based scores
-  const ftsHits: BrainSearchHit[] = [];
-
+  // --- 2. Project FTS results into ranked RrfHit list ---
+  const ftsHits: RrfHit[] = [];
   for (const d of ftsResults.decisions) {
     ftsHits.push({
       id: d.id,
@@ -719,88 +817,58 @@ export async function hybridSearch(
     ftsHits.push({ id: o.id, type: 'observation', title: o.title, text: o.narrative ?? o.title });
   }
 
-  // Normalize FTS: position-based (first result = 1.0, last = near 0)
-  for (let i = 0; i < ftsHits.length; i++) {
-    const hit = ftsHits[i]!;
-    const normalizedScore = ftsHits.length > 1 ? 1.0 - i / (ftsHits.length - 1) : 1.0;
-    addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
-  }
+  // --- 3. Project vector results into ranked RrfHit list (ascending distance = descending quality) ---
+  const vecHits: RrfHit[] = vecResults.map((r) => ({
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    text: r.text,
+  }));
 
-  // --- 2. Vector similarity search ---
-  let vecResults: SimilarityResult[] = [];
-  try {
-    vecResults = await searchSimilar(query, projectRoot, maxResults * 2);
-  } catch {
-    // Vector search unavailable
-  }
+  // --- 4. Build source list for RRF ---
+  const rrfSources: Array<{ source: 'fts' | 'vec' | 'graph'; hits: RrfHit[] }> = [];
+  if (ftsHits.length > 0) rrfSources.push({ source: 'fts', hits: ftsHits });
+  if (vecHits.length > 0) rrfSources.push({ source: 'vec', hits: vecHits });
 
-  if (vecResults.length > 0) {
-    // Normalize vector: distance-based (smaller distance = higher score)
-    const maxDist = Math.max(...vecResults.map((r) => r.distance), 0.001);
-    for (const r of vecResults) {
-      const normalizedScore = 1.0 - r.distance / maxDist;
-      addScore(r.id, normalizedScore, vecWeight, 'vec', r.type, r.title, r.text);
-    }
-  } else {
-    // Redistribute vec weight to FTS if vector unavailable
-    ftsWeight += vecWeight;
-    vecWeight = 0;
-
-    // Re-score FTS hits with updated weight
-    scoreMap.clear();
-    for (let i = 0; i < ftsHits.length; i++) {
-      const hit = ftsHits[i]!;
-      const normalizedScore = ftsHits.length > 1 ? 1.0 - i / (ftsHits.length - 1) : 1.0;
-      addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
-    }
-  }
-
-  // --- 3. Graph neighbor expansion ---
+  // --- 5. Graph neighbor expansion (best-effort) ---
   try {
     const accessor = await getBrainAccessor(projectRoot);
-
-    // Check if query matches a known graph node ID pattern
     const possibleNodeIds = [
       `concept:${query.toLowerCase().replace(/\s+/g, '-')}`,
       `task:${query}`,
       `doc:${query}`,
     ];
 
+    const graphHits: RrfHit[] = [];
     for (const nodeId of possibleNodeIds) {
       const node = await accessor.getPageNode(nodeId);
       if (!node) continue;
-
       const neighbors = await accessor.getNeighbors(nodeId);
-      for (let i = 0; i < neighbors.length; i++) {
-        const neighbor = neighbors[i]!;
-        const normalizedScore = neighbors.length > 1 ? 1.0 - i / (neighbors.length - 1) : 1.0;
-        addScore(
-          neighbor.id,
-          normalizedScore,
-          graphWeight,
-          'graph',
-          neighbor.nodeType,
-          neighbor.label,
-          neighbor.label,
-        );
+      for (const neighbor of neighbors) {
+        graphHits.push({
+          id: neighbor.id,
+          type: neighbor.nodeType,
+          title: neighbor.label,
+          text: neighbor.label,
+        });
       }
     }
+    if (graphHits.length > 0) rrfSources.push({ source: 'graph', hits: graphHits });
   } catch {
-    // Graph search unavailable — no redistribution needed (small weight)
+    // Graph unavailable — RRF handles gracefully with remaining sources
   }
 
-  // --- 4. Sort and return top-N ---
-  const sorted = [...scoreMap.entries()]
-    .map(([id, data]) => ({
-      id,
-      score: data.score,
-      type: data.type,
-      title: data.title,
-      text: data.text,
-      sources: [...data.sources] as Array<'fts' | 'vec' | 'graph'>,
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults);
+  // --- 6. Fuse with RRF and return top-N ---
+  const fused = reciprocalRankFusion(rrfSources, rrfK);
 
-  return sorted;
+  return fused.slice(0, maxResults).map((r) => ({
+    id: r.id,
+    score: r.rrfScore,
+    type: r.type,
+    title: r.title,
+    text: r.text,
+    sources: r.sources,
+    ftsRank: r.ftsRank,
+    vecRank: r.vecRank,
+  }));
 }

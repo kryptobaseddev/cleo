@@ -460,53 +460,24 @@ describe('ingestStructuredSummary', () => {
 });
 
 // ============================================================================
-// 4. extractFromTranscript (auto-extract.ts)
+// 4. extractFromTranscript (auto-extract.ts → llm-extraction.ts)
 // ============================================================================
 
-describe('extractFromTranscript', () => {
+describe('extractFromTranscript (wrapper)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Prevent real network calls during these tests by unsetting the API key.
+    delete process.env.ANTHROPIC_API_KEY;
   });
 
-  it('extracts action-word lines from transcript', async () => {
+  it('returns without calling stores when transcript is empty', async () => {
     const { extractFromTranscript } = await import('../auto-extract.js');
     const { storeLearning } = await import('../learnings.js');
 
-    const transcript = [
-      'user: Can you implement the auth module?',
-      'assistant: I will implement the auth module now.',
-      'assistant: I have fixed the login bug in auth.ts.',
-      'assistant: This is a short line.',
-      'user: Great, what about the tests?',
-      'assistant: I will add tests for the auth module.',
-    ].join('\n');
+    await extractFromTranscript('/mock/root', 'S-001', '');
+    await extractFromTranscript('/mock/root', 'S-001', '   \n  ');
 
-    await extractFromTranscript('/mock/root', 'S-001', transcript);
-
-    expect(storeLearning).toHaveBeenCalled();
-    const calls = (storeLearning as ReturnType<typeof vi.fn>).mock.calls;
-    // All stored learnings should come from action-word lines
-    for (const [, learning] of calls) {
-      expect(learning.source).toBe('transcript:S-001');
-      expect(learning.confidence).toBe(0.6);
-    }
-  });
-
-  it('limits to 5 learnings max', async () => {
-    const { extractFromTranscript } = await import('../auto-extract.js');
-    const { storeLearning } = await import('../learnings.js');
-
-    // Build a transcript with 10 action lines (all > 20 chars)
-    const lines = Array.from(
-      { length: 10 },
-      (_, i) => `assistant: I implemented feature number ${i + 1} successfully.`,
-    );
-    const transcript = lines.join('\n');
-
-    await extractFromTranscript('/mock/root', 'S-002', transcript);
-
-    const calls = (storeLearning as ReturnType<typeof vi.fn>).mock.calls;
-    expect(calls.length).toBeLessThanOrEqual(5);
+    expect(storeLearning).not.toHaveBeenCalled();
   });
 
   it('never throws on malformed input', async () => {
@@ -531,13 +502,19 @@ describe('extractFromTranscript', () => {
     expect(result).toBeUndefined();
   });
 
-  it('does nothing when no action lines present', async () => {
+  it('skips storage when ANTHROPIC_API_KEY is absent', async () => {
     const { extractFromTranscript } = await import('../auto-extract.js');
     const { storeLearning } = await import('../learnings.js');
 
-    const transcript = ['user: Hello', 'assistant: Hi there', 'user: How are you?'].join('\n');
+    // No API key set — the LLM gate must gracefully skip.
+    const transcript = [
+      'user: Can you implement the auth module?',
+      'assistant: I will implement the auth module now.',
+      'assistant: I have fixed the login bug in auth.ts.',
+    ].join('\n');
 
     await extractFromTranscript('/mock/root', 'S-005', transcript);
+
     expect(storeLearning).not.toHaveBeenCalled();
   });
 });

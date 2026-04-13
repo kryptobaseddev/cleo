@@ -885,6 +885,14 @@ export type {
   BrainSearchHit,
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
+// Memory — LLM extraction gate (additional)
+export type {
+  ExtractedMemory,
+  ExtractFromTranscriptOptions,
+  ExtractionReport,
+  ExtractionType,
+} from './memory/llm-extraction.js';
+export { extractFromTranscript as llmExtractFromTranscript } from './memory/llm-extraction.js';
 // Memory (additional)
 export {
   generateContextAwareContent,
