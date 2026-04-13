@@ -95,6 +95,7 @@ export function getNextTask(tasks: Task[]): Task | null {
   const ready = tasks
     .filter((t) => {
       if (t.status === 'done' || t.status === 'cancelled') return false;
+      if (t.cancelledAt) return false; // Exclude soft-cancelled tasks regardless of status
       if (t.status === 'active') return true; // Already active = highest priority
       if (!t.depends?.length) return true;
       return t.depends.every((d) => completedIds.has(d));

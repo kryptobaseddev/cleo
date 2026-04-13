@@ -7,6 +7,7 @@
 import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { getProjectInfoSync } from '../project-info.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
@@ -296,8 +297,14 @@ export async function getDashboard(
   }
 
   const meta = await acc.getMetaValue<import('@cleocode/contracts').ProjectMeta>('project_meta');
-  const project = meta?.name ?? 'Unknown Project';
-  const currentPhase = meta?.currentPhase ?? null;
+  // Fall back to the legacy 'project' key, then to the directory name from project-info.json
+  const legacyMeta = meta
+    ? null
+    : await acc.getMetaValue<{ name?: string; currentPhase?: string }>('project');
+  const resolvedName =
+    meta?.name ?? legacyMeta?.name ?? getProjectInfoSync(opts.cwd)?.projectName ?? null;
+  const project = resolvedName ?? 'Unknown Project';
+  const currentPhase = meta?.currentPhase ?? legacyMeta?.currentPhase ?? null;
 
   const focus = await acc.getMetaValue<import('@cleocode/contracts').TaskWorkState>('focus_state');
   const focusId = focus?.currentTask ?? null;
@@ -311,7 +318,8 @@ export async function getDashboard(
       (t) =>
         (t.priority === 'critical' || t.priority === 'high') &&
         t.status !== 'done' &&
-        t.status !== 'cancelled',
+        t.status !== 'cancelled' &&
+        !t.cancelledAt,
     )
     .sort((a, b) => {
       const pDiff =
