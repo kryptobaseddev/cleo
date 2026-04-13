@@ -17,6 +17,75 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
+ * Priority score for nexus node kinds when ranking symbol search results.
+ *
+ * Callable symbols (function, method) rank highest so that `nexus context`
+ * and `nexus impact` return meaningful callers/callees instead of
+ * file/folder structural nodes which have zero `calls` relations.
+ *
+ * Lower score = higher priority (sort ascending).
+ */
+const NODE_KIND_PRIORITY: Record<string, number> = {
+  function: 0,
+  method: 1,
+  constructor: 2,
+  class: 3,
+  interface: 4,
+  type_alias: 5,
+  enum: 6,
+  constant: 7,
+  property: 8,
+  variable: 9,
+  static: 10,
+  struct: 11,
+  trait: 12,
+  impl: 13,
+  macro: 14,
+  // Structural/module nodes come last — they have no `calls` relations
+  module: 20,
+  namespace: 21,
+  record: 22,
+  delegate: 23,
+  union: 24,
+  typedef: 25,
+  annotation: 26,
+  template: 27,
+  route: 28,
+  tool: 29,
+  section: 30,
+  import: 31,
+  export: 32,
+  type: 33,
+  file: 40,
+  folder: 41,
+};
+
+/**
+ * Sort symbol search results so that callable nodes (function, method, class)
+ * appear before structural nodes (file, folder). Within the same kind, prefer
+ * exact name matches over partial matches.
+ */
+function sortMatchingNodes(
+  nodes: Array<Record<string, unknown>>,
+  symbolName: string,
+): Array<Record<string, unknown>> {
+  const lowerSymbol = symbolName.toLowerCase();
+  return [...nodes].sort((a, b) => {
+    const kindA = String(a['kind'] ?? '');
+    const kindB = String(b['kind'] ?? '');
+    const prioA = NODE_KIND_PRIORITY[kindA] ?? 15;
+    const prioB = NODE_KIND_PRIORITY[kindB] ?? 15;
+    if (prioA !== prioB) return prioA - prioB;
+    // Within same kind: exact name matches before partial matches
+    const nameA = String(a['name'] ?? '').toLowerCase();
+    const nameB = String(b['name'] ?? '').toLowerCase();
+    const exactA = nameA === lowerSymbol ? 0 : 1;
+    const exactB = nameB === lowerSymbol ? 0 : 1;
+    return exactA - exactB;
+  });
+}
+
+/**
  * Register the nexus command group.
  * @task T4554
  */
@@ -750,7 +819,7 @@ export function registerNexusCommand(program: Command): void {
         }
 
         const lowerSymbol = symbolName.toLowerCase();
-        const matchingNodes = allNodes.filter(
+        const rawMatchingNodes = allNodes.filter(
           (n) =>
             n['projectId'] === projectId &&
             n['name'] != null &&
@@ -759,6 +828,10 @@ export function registerNexusCommand(program: Command): void {
             n['kind'] !== 'community' &&
             n['kind'] !== 'process',
         );
+        // Sort so callable symbols (function, method, class) rank before
+        // structural nodes (file, folder) — structural nodes have no `calls`
+        // relations and would produce empty callers/callees lists.
+        const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
 
         if (matchingNodes.length === 0) {
           const durationMs = Date.now() - startTime;
@@ -1015,7 +1088,7 @@ export function registerNexusCommand(program: Command): void {
         }
 
         const lowerSymbol = symbolName.toLowerCase();
-        const matchingNodes = allNodes.filter(
+        const rawMatchingNodes = allNodes.filter(
           (n) =>
             n['projectId'] === projectId &&
             n['name'] != null &&
@@ -1023,6 +1096,10 @@ export function registerNexusCommand(program: Command): void {
             n['kind'] !== 'community' &&
             n['kind'] !== 'process',
         );
+        // Sort so callable symbols (function, method, class) rank before
+        // structural nodes (file, folder) — structural nodes have no `calls`
+        // relations and would produce zero impact.
+        const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
 
         if (matchingNodes.length === 0) {
           const durationMs = Date.now() - startTime;
