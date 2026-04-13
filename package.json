@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/monorepo",
-  "version": "2026.4.35",
+  "version": "2026.4.36",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.0",
