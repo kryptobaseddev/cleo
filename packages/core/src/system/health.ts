@@ -21,6 +21,7 @@ import {
   checkGlobalTemplates,
   checkLogDir,
   checkMemoryBridge,
+  checkNexusBridge,
   checkProjectContext,
   checkProjectInfo,
   checkSqliteDb,
@@ -894,6 +895,14 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     ...(memBridgeCheckResult.fix ? { fix: memBridgeCheckResult.fix } : {}),
   });
 
+  const nexusBridgeCheckResult = checkNexusBridge(projectRoot);
+  checks.push({
+    check: 'nexus_bridge',
+    status: nexusBridgeCheckResult.status === 'passed' ? 'ok' : 'warning',
+    message: nexusBridgeCheckResult.message,
+    ...(nexusBridgeCheckResult.fix ? { fix: nexusBridgeCheckResult.fix } : {}),
+  });
+
   // 5f. Adapter health checks (T511 — wire adapter health into doctor)
   // `cleo adapter health` was previously isolated from the doctor report.
   // The doctor is the comprehensive diagnostic view so adapter health belongs here.
@@ -1382,6 +1391,14 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
     check: 'memory_bridge',
     status: memBridgeCheck.status === 'passed' ? 'pass' : 'warn',
     message: memBridgeCheck.message,
+  });
+
+  // Nexus bridge: info-level check (T552)
+  const nexusBridgeCheck = checkNexusBridge(root);
+  checks.push({
+    check: 'nexus_bridge',
+    status: nexusBridgeCheck.status === 'passed' ? 'pass' : 'warn',
+    message: nexusBridgeCheck.message,
   });
 
   // NEXUS auto-registration (best-effort, never blocks startup)

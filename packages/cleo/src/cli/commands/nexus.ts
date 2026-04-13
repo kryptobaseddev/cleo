@@ -800,6 +800,19 @@ export function registerNexusCommand(program: Command): void {
 
         const durationMs = Date.now() - startTime;
 
+        // Write nexus-bridge.md after a successful pipeline run (best-effort)
+        try {
+          const { refreshNexusBridge } = await import('@cleocode/core/internal' as string);
+          await refreshNexusBridge(repoPath, projectId);
+          if (!jsonOutput) {
+            process.stderr.write(
+              `[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md\n`,
+            );
+          }
+        } catch {
+          // Non-fatal — bridge refresh failure should not fail the analyze command
+        }
+
         if (jsonOutput) {
           const envelope = {
             success: true,
@@ -846,6 +859,74 @@ export function registerNexusCommand(program: Command): void {
           process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
         } else {
           process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus refresh-bridge ──────────────────────────────────────────────────
+
+  nexus
+    .command('refresh-bridge [path]')
+    .description(
+      'Regenerate .cleo/nexus-bridge.md from the existing nexus.db index (does not re-index)',
+    )
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from path)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+      try {
+        const { writeNexusBridge } = await import('@cleocode/core/internal' as string);
+        const result = await writeNexusBridge(repoPath, projectId);
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: { path: result.path, written: result.written, projectId, repoPath },
+                meta: {
+                  operation: 'nexus.refresh-bridge',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else if (result.written) {
+          process.stdout.write(`[nexus] nexus-bridge.md refreshed at ${result.path}\n`);
+        } else {
+          process.stdout.write(`[nexus] nexus-bridge.md unchanged at ${result.path}\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_BRIDGE_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.refresh-bridge',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error refreshing bridge: ${msg}\n`);
         }
         process.exitCode = 1;
       }

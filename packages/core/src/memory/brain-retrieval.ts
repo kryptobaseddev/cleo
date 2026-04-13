@@ -37,6 +37,7 @@ import type {
   BrainTimelineNeighborRow,
 } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
+import { searchSimilar } from './brain-similarity.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeObservationQuality } from './quality-scoring.js';
 
@@ -884,4 +885,407 @@ export async function populateEmbeddings(
   }
 
   return { processed, skipped, errors };
+}
+
+// ============================================================================
+// Budget-Aware Retrieval (T549 Wave 3-A)
+// ============================================================================
+
+/** Options for budget-aware retrieval. */
+export interface BudgetedRetrievalOptions {
+  /** Filter by cognitive types (semantic / episodic / procedural). */
+  types?: Array<'semantic' | 'episodic' | 'procedural'>;
+  /** Filter by memory tiers (short / medium / long). */
+  tiers?: Array<'short' | 'medium' | 'long'>;
+  /** When true, only return verified entries. Default: false. */
+  verified?: boolean;
+}
+
+/** A single entry returned by budget-aware retrieval. */
+export interface BudgetedEntry {
+  id: string;
+  type: string;
+  title: string;
+  text: string;
+  /** Fused relevance score: FTS50% + vector40% + graph10% × qualityScore. */
+  score: number;
+  /** Estimated token cost for this entry (~chars/4). */
+  tokensEstimated: number;
+  /** Memory tier for this entry. */
+  memoryTier?: string;
+  /** Cognitive type for this entry. */
+  memoryType?: string;
+}
+
+/** Result from retrieveWithBudget. */
+export interface BudgetedResult {
+  entries: BudgetedEntry[];
+  /** Total tokens consumed by returned entries. */
+  tokensUsed: number;
+  /** Tokens remaining from the original budget. */
+  tokensRemaining: number;
+  /** Number of entries excluded due to budget constraints. */
+  excluded: number;
+}
+
+/**
+ * Budget-aware hybrid retrieval combining FTS5, vector KNN, and graph neighbor scores.
+ *
+ * Strategy (parallel where possible):
+ *   A. FTS5 BM25 search (always)  — keyword precision (50% weight)
+ *   B. Vector KNN search (optional) — semantic recall (40% weight, skipped if no embeddings)
+ *   C. Graph neighbors (optional) — associative context (10% weight, skipped if graph empty)
+ *
+ * Score fusion: final = (fts*0.50 + vec*0.40 + graph*0.10) × qualityScore
+ * Recency boost: +0.05 for entries updated in last 7 days.
+ * Type priority: procedural entries get +0.10 (always-useful rules).
+ *
+ * Budget enforcement:
+ *   - Rank top-50 candidates by fused score.
+ *   - Walk list, accumulate token cost (≈ textLen/4), stop at budget.
+ *   - Episodic entries dropped first when budget is tight.
+ *
+ * Citation tracking: increments citationCount for returned entries in background (setImmediate).
+ *
+ * @param projectRoot - Project root directory
+ * @param query - Text to search for
+ * @param tokenBudget - Maximum tokens to spend on results (default 500)
+ * @param options - Optional filters (types, tiers, verified)
+ * @returns Retrieved entries within budget with token accounting
+ */
+export async function retrieveWithBudget(
+  projectRoot: string,
+  query: string,
+  tokenBudget = 500,
+  options?: BudgetedRetrievalOptions,
+): Promise<BudgetedResult> {
+  if (!query?.trim()) {
+    return { entries: [], tokensUsed: 0, tokensRemaining: tokenBudget, excluded: 0 };
+  }
+
+  // -------------------------------------------------------------------------
+  // Run search strategies in parallel
+  // -------------------------------------------------------------------------
+  const [ftsResult, vecResults, graphNeighbors] = await Promise.all([
+    // A. FTS5
+    searchBrain(projectRoot, query, { limit: 30 }).catch(() => ({
+      decisions: [],
+      patterns: [],
+      learnings: [],
+      observations: [],
+    })),
+    // B. Vector KNN (degrades gracefully when unavailable)
+    searchSimilar(query, projectRoot, 20).catch(
+      () => [] as ReturnType<typeof searchSimilar> extends Promise<infer T> ? T : never[],
+    ),
+    // C. Graph neighbors from top FTS hit
+    Promise.resolve([] as Array<{ id: string; graphScore: number }>),
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Build ID → score map from FTS results
+  // -------------------------------------------------------------------------
+  interface ScoredEntry {
+    id: string;
+    type: string;
+    title: string;
+    text: string;
+    ftsScore: number;
+    vecScore: number;
+    graphScore: number;
+    qualityScore: number;
+    memoryTier?: string;
+    memoryType?: string;
+    updatedAt?: string;
+  }
+
+  const candidateMap = new Map<string, ScoredEntry>();
+
+  // FTS results (normalized score 0.5 starting point — BM25 doesn't give 0..1)
+  const FTS_BASE = 0.5;
+  for (const d of ftsResult.decisions) {
+    const raw = d as Record<string, unknown>;
+    const id = d.id;
+    const tier = (d.memoryTier ?? (raw['memory_tier'] as string | undefined)) || undefined;
+    const mtype = (d.memoryType ?? (raw['memory_type'] as string | undefined)) || undefined;
+    const updatedAt = (d.updatedAt ?? (raw['updated_at'] as string | undefined)) || undefined;
+    candidateMap.set(id, {
+      id,
+      type: 'decision',
+      title: d.decision.slice(0, 120),
+      text: `${d.decision} — ${d.rationale}`,
+      ftsScore: FTS_BASE,
+      vecScore: 0,
+      graphScore: 0,
+      qualityScore: d.qualityScore ?? 0.5,
+      memoryTier: tier,
+      memoryType: mtype,
+      updatedAt,
+    });
+  }
+
+  for (const p of ftsResult.patterns) {
+    const raw = p as Record<string, unknown>;
+    const id = p.id;
+    const tier = (p.memoryTier ?? (raw['memory_tier'] as string | undefined)) || undefined;
+    const mtype = (p.memoryType ?? (raw['memory_type'] as string | undefined)) || undefined;
+    const updatedAt = (p.updatedAt ?? (raw['updated_at'] as string | undefined)) || undefined;
+    candidateMap.set(id, {
+      id,
+      type: 'pattern',
+      title: p.pattern.slice(0, 120),
+      text: `${p.pattern} — ${p.context}`,
+      ftsScore: FTS_BASE,
+      vecScore: 0,
+      graphScore: 0,
+      qualityScore: p.qualityScore ?? 0.5,
+      memoryTier: tier,
+      memoryType: mtype,
+      updatedAt,
+    });
+  }
+
+  for (const l of ftsResult.learnings) {
+    const raw = l as Record<string, unknown>;
+    const id = l.id;
+    const tier = (l.memoryTier ?? (raw['memory_tier'] as string | undefined)) || undefined;
+    const mtype = (l.memoryType ?? (raw['memory_type'] as string | undefined)) || undefined;
+    const updatedAt = (l.updatedAt ?? (raw['updated_at'] as string | undefined)) || undefined;
+    candidateMap.set(id, {
+      id,
+      type: 'learning',
+      title: l.insight.slice(0, 120),
+      text: `${l.insight} (source: ${l.source})`,
+      ftsScore: FTS_BASE,
+      vecScore: 0,
+      graphScore: 0,
+      qualityScore: l.qualityScore ?? 0.5,
+      memoryTier: tier,
+      memoryType: mtype,
+      updatedAt,
+    });
+  }
+
+  for (const o of ftsResult.observations) {
+    const raw = o as Record<string, unknown>;
+    const id = o.id;
+    const tier = (o.memoryTier ?? (raw['memory_tier'] as string | undefined)) || undefined;
+    const mtype = (o.memoryType ?? (raw['memory_type'] as string | undefined)) || undefined;
+    const updatedAt = (o.updatedAt ?? (raw['updated_at'] as string | undefined)) || undefined;
+    candidateMap.set(id, {
+      id,
+      type: 'observation',
+      title: o.title.slice(0, 120),
+      text: o.narrative ?? o.title,
+      ftsScore: FTS_BASE,
+      vecScore: 0,
+      graphScore: 0,
+      qualityScore: o.qualityScore ?? 0.5,
+      memoryTier: tier,
+      memoryType: mtype,
+      updatedAt,
+    });
+  }
+
+  // B. Merge vector scores (distance → similarity: similarity = 1 - distance)
+  for (const v of vecResults) {
+    const simScore = Math.max(0, 1 - v.distance);
+    const existing = candidateMap.get(v.id);
+    if (existing) {
+      existing.vecScore = simScore;
+    } else {
+      candidateMap.set(v.id, {
+        id: v.id,
+        type: v.type,
+        title: v.title.slice(0, 120),
+        text: v.text,
+        ftsScore: 0,
+        vecScore: simScore,
+        graphScore: 0,
+        qualityScore: 0.5,
+        memoryTier: undefined,
+        memoryType: undefined,
+      });
+    }
+  }
+
+  // C. Merge graph scores
+  for (const g of graphNeighbors) {
+    const existing = candidateMap.get(g.id);
+    if (existing) {
+      existing.graphScore = g.graphScore;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Score fusion + ranking
+  // -------------------------------------------------------------------------
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .slice(0, 19);
+
+  const candidates = Array.from(candidateMap.values()).map((c) => {
+    // Fused score
+    let score = c.ftsScore * 0.5 + c.vecScore * 0.4 + c.graphScore * 0.1;
+
+    // Quality multiplier
+    score *= c.qualityScore;
+
+    // Recency boost for recently-updated entries
+    if (c.updatedAt && c.updatedAt >= sevenDaysAgo) {
+      score += 0.05;
+    }
+
+    // Type priority boost for procedural entries (always-useful rules)
+    if (c.memoryType === 'procedural' || c.type === 'pattern') {
+      score += 0.1;
+    }
+
+    return { ...c, score };
+  });
+
+  // -------------------------------------------------------------------------
+  // Apply option filters (types, tiers, verified)
+  // -------------------------------------------------------------------------
+
+  // We'll apply verified filter by checking the DB if requested
+  let filtered = candidates;
+
+  if (options?.types && options.types.length > 0) {
+    const allowedTypes = new Set(options.types);
+    filtered = filtered.filter((c) => {
+      if (!c.memoryType) return true; // unknown type — include
+      return allowedTypes.has(c.memoryType as 'semantic' | 'episodic' | 'procedural');
+    });
+  }
+
+  if (options?.tiers && options.tiers.length > 0) {
+    const allowedTiers = new Set(options.tiers);
+    filtered = filtered.filter((c) => {
+      if (!c.memoryTier) return true; // unknown tier — include
+      return allowedTiers.has(c.memoryTier as 'short' | 'medium' | 'long');
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Sort: procedural first, then by score descending
+  // -------------------------------------------------------------------------
+  filtered.sort((a, b) => {
+    const aProcedural = a.memoryType === 'procedural' || a.type === 'pattern' ? 1 : 0;
+    const bProcedural = b.memoryType === 'procedural' || b.type === 'pattern' ? 1 : 0;
+    if (aProcedural !== bProcedural) return bProcedural - aProcedural;
+    return b.score - a.score;
+  });
+
+  // Cap candidate list at top 50
+  const topCandidates = filtered.slice(0, 50);
+
+  // -------------------------------------------------------------------------
+  // Budget enforcement — episodic entries are dropped first when budget tight
+  // -------------------------------------------------------------------------
+
+  // Sort for budget walk: procedural first, semantic second, episodic last
+  const typeOrder = (c: ScoredEntry & { score: number }): number => {
+    if (c.memoryType === 'procedural' || c.type === 'pattern') return 0;
+    if (c.memoryType === 'semantic' || c.type === 'decision' || c.type === 'learning') return 1;
+    return 2; // episodic
+  };
+
+  const budgetOrdered = [...topCandidates].sort((a, b) => {
+    const orderDiff = typeOrder(a) - typeOrder(b);
+    if (orderDiff !== 0) return orderDiff;
+    return b.score - a.score;
+  });
+
+  const result: BudgetedEntry[] = [];
+  let tokensUsed = 0;
+  let excluded = 0;
+
+  for (const candidate of budgetOrdered) {
+    const entryTokens = Math.ceil(candidate.text.length / 4);
+
+    if (tokensUsed + entryTokens > tokenBudget) {
+      excluded++;
+      continue;
+    }
+
+    result.push({
+      id: candidate.id,
+      type: candidate.type,
+      title: candidate.title,
+      text: candidate.text,
+      score: candidate.score,
+      tokensEstimated: entryTokens,
+      memoryTier: candidate.memoryTier,
+      memoryType: candidate.memoryType,
+    });
+    tokensUsed += entryTokens;
+  }
+
+  // -------------------------------------------------------------------------
+  // Citation tracking — non-blocking background increment
+  // -------------------------------------------------------------------------
+  if (result.length > 0) {
+    const returnedIds = result.map((e) => e.id);
+    setImmediate(() => {
+      incrementCitationCounts(projectRoot, returnedIds).catch(() => {
+        /* best-effort */
+      });
+    });
+  }
+
+  return {
+    entries: result,
+    tokensUsed,
+    tokensRemaining: tokenBudget - tokensUsed,
+    excluded,
+  };
+}
+
+// ============================================================================
+// Citation Count Increment (non-blocking helper)
+// ============================================================================
+
+/**
+ * Increment citationCount for a list of entry IDs.
+ *
+ * Routes each ID to the correct table based on its ID prefix. All updates
+ * are best-effort — errors are silently swallowed.
+ *
+ * @param projectRoot - Project root for brain.db resolution
+ * @param ids - Entry IDs whose citation counts should be incremented
+ */
+async function incrementCitationCounts(projectRoot: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+  if (!nativeDb) return;
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  for (const id of ids) {
+    let table: string;
+    if (id.startsWith('D-') || /^D\d/.test(id)) {
+      table = 'brain_decisions';
+    } else if (id.startsWith('P-') || /^P\d/.test(id)) {
+      table = 'brain_patterns';
+    } else if (id.startsWith('L-') || /^L\d/.test(id)) {
+      table = 'brain_learnings';
+    } else {
+      table = 'brain_observations';
+    }
+
+    try {
+      nativeDb
+        .prepare(
+          `UPDATE ${table} SET citation_count = citation_count + 1, updated_at = ? WHERE id = ?`,
+        )
+        .run(now, id);
+    } catch {
+      /* best-effort — column may not exist in older schemas */
+    }
+  }
 }

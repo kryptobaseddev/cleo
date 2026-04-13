@@ -901,6 +901,12 @@ export {
   discoverRelated as nexusDiscoverRelated,
   searchAcrossProjects as nexusSearchAcrossProjects,
 } from './nexus/discover.js';
+// Nexus — bridge (code intelligence summary for agents)
+export {
+  generateNexusBridgeContent,
+  refreshNexusBridge,
+  writeNexusBridge,
+} from './nexus/nexus-bridge.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
 // Nexus — transfer

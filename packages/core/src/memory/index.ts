@@ -1490,11 +1490,13 @@ export async function validateManifestEntries(
   };
 }
 
-// === BRAIN Lifecycle (temporal decay) ===
+// === T549 Wave 3: Consolidator (contradiction detection) ===
+export * from './brain-consolidator.js';
+// === BRAIN Lifecycle (temporal decay, consolidation, tier promotion) ===
 export * from './brain-lifecycle.js';
 export * from './brain-links.js';
 export * from './brain-migration.js';
-// === BRAIN Retrieval functions (3-layer pattern) ===
+// === BRAIN Retrieval functions (3-layer pattern + budget-aware) ===
 export * from './brain-retrieval.js';
 export * from './brain-search.js';
 // === BRAIN Memory modules (brain.db backed) ===

@@ -13,6 +13,8 @@
  * T527: Removed duplicate session observeBrain writes — session data already
  *       lives in the sessions table; writing it again to brain_observations
  *       was pure noise.
+ * T549 Wave 3-E: Fire-and-forget sleep-time consolidation on session end.
+ *       Runs after backup (priority 5) so brain.db snapshot is captured first.
  */
 
 import { hooks } from '../registry.js';
@@ -109,6 +111,36 @@ export async function handleSessionEndBackup(
   }
 }
 
+/**
+ * Handle SessionEnd — fire-and-forget sleep-time memory consolidation.
+ *
+ * T549 Wave 3-E: Runs the full consolidation pipeline (dedup, quality recompute,
+ * tier promotion, contradiction detection, soft eviction, graph strengthening,
+ * summary generation) in the background after the session backup has completed.
+ *
+ * Uses setImmediate to yield control so the session end flow completes before
+ * consolidation begins. Consolidation errors are caught and logged to console.warn
+ * — they MUST NOT block session end or throw to callers.
+ *
+ * Priority 5 ensures this runs last (after backup at priority 10).
+ */
+export async function handleSessionEndConsolidation(
+  projectRoot: string,
+  _payload: SessionEndPayload,
+): Promise<void> {
+  // Schedule consolidation to run after the current event loop turn.
+  // This ensures the session end response reaches the caller before
+  // consolidation begins, matching the "sleep-time compute" pattern.
+  setImmediate(async () => {
+    try {
+      const { runConsolidation } = await import('../../memory/brain-lifecycle.js');
+      await runConsolidation(projectRoot);
+    } catch (err) {
+      console.warn('[consolidation] Session-end consolidation failed:', err);
+    }
+  });
+}
+
 // Register handlers on module load
 hooks.register({
   id: 'brain-session-start',
@@ -132,4 +164,13 @@ hooks.register({
   event: 'SessionEnd',
   handler: handleSessionEndBackup,
   priority: 10,
+});
+
+// Priority 5 runs AFTER backup (priority 10) — consolidation is purely
+// additive and should not delay the backup point-in-time snapshot.
+hooks.register({
+  id: 'consolidation-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndConsolidation,
+  priority: 5,
 });
