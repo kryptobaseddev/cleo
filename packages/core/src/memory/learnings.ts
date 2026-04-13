@@ -107,7 +107,7 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
   //   - otherwise → 'semantic' (declarative factual learning)
   // Owner-stated learnings are ground truth (auto-verified).
   // Transcript-extracted and agent-inferred start unverified — consolidator promotes.
-  const isManual = params.source.includes('manual');
+  const isManual = params.source.includes('manual') || params.source.includes('owner');
   const isTranscript = params.source.includes('transcript:ses_');
   const sourceConfidence = isManual
     ? ('owner' as const)
