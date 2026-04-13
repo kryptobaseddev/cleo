@@ -1,7 +1,8 @@
 [package]
 name = "signaldock-transport"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
+rust-version = "1.88"
 description = "Transport traits and delivery adapters (SSE, Webhook, WebSocket, HTTP/2) for SignalDock"
 publish = false
 

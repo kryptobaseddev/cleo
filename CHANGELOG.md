@@ -1,5 +1,9 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
 ## [2026.4.34] (2026-04-13)
 
 JIT Agent Integration + Pi First-Class Support. Fresh agent test score: 9/10.
