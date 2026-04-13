@@ -1,6 +1,13 @@
 /**
- * CLI context command group - context window monitoring.
+ * CLI context command group - context window monitoring and JIT task context pull.
+ *
+ * Sub-commands:
+ *   cleo context status   — context window state (default)
+ *   cleo context check    — scripting exit-code variant
+ *   cleo context pull <id> — JIT bundle: task + brain memories + last handoff (T549 Wave 5-A)
+ *
  * @task T4535
+ * @task T549
  * @epic T4454
  */
 
@@ -70,5 +77,16 @@ export function registerContextCommand(program: Command): void {
       if (exitCode !== ExitCode.SUCCESS) {
         process.exit(exitCode);
       }
+    });
+
+  // -- pull (T549 Wave 5-A) --
+  context
+    .command('pull <taskId>')
+    .description(
+      'JIT context bundle: task details + top-3 relevant brain memories + last handoff note (~400 tokens)',
+    )
+    .option('--json', 'Output as JSON')
+    .action(async (taskId: string, _opts: Record<string, unknown>) => {
+      await dispatchFromCli('query', 'admin', 'context.pull', { taskId }, { command: 'context' });
     });
 }

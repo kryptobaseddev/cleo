@@ -136,6 +136,85 @@ export class AdminHandler implements DomainHandler {
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
+        // T549 Wave 5-A: JIT task context pull — bundles task details + relevant
+        // brain entries + last handoff into a compact (~400-token) snapshot.
+        case 'context.pull': {
+          const taskId = params?.taskId as string | undefined;
+          if (!taskId) {
+            return errorResult(
+              'query',
+              'admin',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+
+          try {
+            const { getAccessor, getLastHandoff, retrieveWithBudget } = await import(
+              '@cleocode/core/internal'
+            );
+
+            const accessor = await getAccessor(projectRoot);
+            const task = await accessor.loadSingleTask(taskId);
+
+            if (!task) {
+              return errorResult(
+                'query',
+                'admin',
+                operation,
+                'E_NOT_FOUND',
+                `Task ${taskId} not found`,
+                startTime,
+              );
+            }
+
+            // Retrieve top-3 relevant brain entries within a 400-token budget
+            const query = [task.title, task.description].filter(Boolean).join(' ');
+            const [memoriesResult, lastHandoffResult] = await Promise.all([
+              retrieveWithBudget(projectRoot, query, 400).catch(() => ({
+                entries: [] as import('@cleocode/core/internal').BudgetedEntry[],
+                tokensUsed: 0,
+                tokensRemaining: 400,
+                excluded: 0,
+              })),
+              getLastHandoff(projectRoot).catch(() => null),
+            ]);
+
+            const topMemories = memoriesResult.entries.slice(0, 3);
+
+            const pullResult = {
+              task: {
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                acceptance: task.acceptance ?? [],
+              },
+              relevantMemory: topMemories.map((e) => ({
+                id: e.id,
+                type: e.memoryType ?? 'unknown',
+                summary: e.label,
+              })),
+              lastHandoff: lastHandoffResult?.handoff?.note?.substring(0, 200) ?? null,
+              meta: {
+                memoryTokensUsed: memoriesResult.tokensUsed,
+                memoryEntriesExcluded: memoriesResult.excluded,
+              },
+            };
+
+            return wrapResult(
+              { success: true, data: pullResult },
+              'query',
+              'admin',
+              operation,
+              startTime,
+            );
+          } catch (err: unknown) {
+            return handleErrorResult('query', 'admin', operation, err, startTime);
+          }
+        }
+
         case 'runtime': {
           const result = await systemRuntime(
             projectRoot,
@@ -1106,6 +1185,7 @@ export class AdminHandler implements DomainHandler {
         'config.presets',
         'stats',
         'context',
+        'context.pull',
         'runtime',
         'paths',
         'job',

@@ -1011,6 +1011,18 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
   {
+    // T549 Wave 5-A: JIT task context pull — bundles task + brain memories + handoff
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'context.pull',
+    description:
+      'admin.context.pull (query) — JIT bundle: task details + brain memories + last handoff',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+  },
+  {
     gateway: 'query',
     domain: 'admin',
     operation: 'runtime',

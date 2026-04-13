@@ -18,11 +18,15 @@ import './work-capture-hooks.js';
 import './agent-hooks.js';
 import './context-hooks.js';
 import './watchdog-hooks.js';
+// T549 Wave 5-D/E: Intelligence hooks (best-effort risk detection on task start)
+import './intelligence-hooks.js';
 
 export { handleSubagentStart, handleSubagentStop } from './agent-hooks.js';
 export { handlePostCompact, handlePreCompact } from './context-hooks.js';
 export { handleError } from './error-hooks.js';
 export { handleFileChange } from './file-hooks.js';
+// T549 Wave 5-D/E: Intelligence hook exports
+export { handleTaskStartIntelligence } from './intelligence-hooks.js';
 export { handleSystemNotification } from './notification-hooks.js';
 // Re-export handler functions for explicit use
 export { handleSessionEnd, handleSessionStart } from './session-hooks.js';
