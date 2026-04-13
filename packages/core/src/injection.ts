@@ -16,7 +16,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { getAgentsHome, getCleoHome, getCleoTemplatesTildePath } from './paths.js';
@@ -68,6 +68,32 @@ async function removeStaleAgentInjection(projectRoot: string): Promise<boolean> 
   return true;
 }
 
+/**
+ * Strip hardcoded `<!-- gitnexus:start -->...<!-- gitnexus:end -->` blocks
+ * from AGENTS.md. These blocks are replaced by the `@.cleo/nexus-bridge.md`
+ * reference which contains auto-generated code intelligence content (T552).
+ *
+ * Also strips any other known vendor marker blocks using the same pattern
+ * (e.g. `<!-- gitnexus:start -->...<!-- gitnexus:end -->`).
+ *
+ * @param filePath - Absolute path to the file to strip
+ * @returns True if the file was modified, false otherwise
+ */
+export async function stripGitNexusBlocks(filePath: string): Promise<boolean> {
+  if (!existsSync(filePath)) return false;
+  const content = await readFile(filePath, 'utf8');
+  // Strip <!-- gitnexus:start --> ... <!-- gitnexus:end --> blocks (case-insensitive markers)
+  const stripped = content.replace(
+    /\n?<!--\s*gitnexus:start\s*-->[\s\S]*?<!--\s*gitnexus:end\s*-->\n?/gi,
+    '',
+  );
+  if (stripped !== content) {
+    await writeFile(filePath, stripped, 'utf8');
+    return true;
+  }
+  return false;
+}
+
 // ── Ensure injection ─────────────────────────────────────────────────
 
 /**
@@ -78,7 +104,7 @@ async function removeStaleAgentInjection(projectRoot: string): Promise<boolean> 
  *
  * Target architecture:
  *   CLAUDE.md/GEMINI.md -> @AGENTS.md (via injectAll)
- *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md
+ *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md + @.cleo/nexus-bridge.md
  *
  * @task T4682
  */
@@ -114,6 +140,13 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
       actions.push('removed deprecated AGENT-INJECTION.md');
     }
 
+    // Step 0b: Strip hardcoded gitnexus blocks from AGENTS.md (T552)
+    // These are replaced by the @.cleo/nexus-bridge.md reference.
+    const removedGitNexus = await stripGitNexusBlocks(join(projectRoot, 'AGENTS.md'));
+    if (removedGitNexus) {
+      actions.push('removed hardcoded gitnexus block from AGENTS.md');
+    }
+
     // Step 1: Inject @AGENTS.md into all provider instruction files
     const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
     const results = await injectAll(providers, projectRoot, 'project', injectionContent);
@@ -138,6 +171,12 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
   const memoryBridgePath = join(projectRoot, '.cleo', 'memory-bridge.md');
   if (existsSync(memoryBridgePath)) {
     agentsMdLines.push('@.cleo/memory-bridge.md');
+  }
+
+  // Nexus bridge: auto-generated code intelligence summary (T552)
+  const nexusBridgePath = join(projectRoot, '.cleo', 'nexus-bridge.md');
+  if (existsSync(nexusBridgePath)) {
+    agentsMdLines.push('@.cleo/nexus-bridge.md');
   }
 
   // Contributor project warning (ADR-029): inject dev-channel guidance when

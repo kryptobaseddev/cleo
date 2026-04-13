@@ -1348,6 +1348,48 @@ export function checkMemoryBridge(projectRoot: string): CheckResult {
   };
 }
 
+/**
+ * Verify .cleo/nexus-bridge.md exists.
+ * Warning level if missing (not failure) — it is auto-generated after `cleo nexus analyze`.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Check result indicating presence of the nexus bridge file
+ *
+ * @remarks
+ * Read-only diagnostic. The nexus bridge is auto-generated from nexus.db
+ * content after `cleo nexus analyze` runs, so its absence is only a warning.
+ *
+ * @example
+ * ```typescript
+ * const check = checkNexusBridge('/my/project');
+ * if (check.status === 'warning') console.log('Run: cleo nexus analyze');
+ * ```
+ */
+export function checkNexusBridge(projectRoot: string): CheckResult {
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const bridgePath = join(cleoDir, 'nexus-bridge.md');
+
+  if (!existsSync(bridgePath)) {
+    return {
+      id: 'nexus_bridge',
+      category: 'scaffold',
+      status: 'warning',
+      message: 'nexus-bridge.md not found',
+      details: { path: bridgePath, exists: false },
+      fix: 'cleo nexus analyze',
+    };
+  }
+
+  return {
+    id: 'nexus_bridge',
+    category: 'scaffold',
+    status: 'passed',
+    message: 'nexus-bridge.md exists',
+    details: { path: bridgePath, exists: true },
+    fix: null,
+  };
+}
+
 // ── Global (~/.cleo) scaffold functions ──────────────────────────────
 
 /**

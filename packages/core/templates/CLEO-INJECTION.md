@@ -66,6 +66,21 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 - Token budget: avoid `cleo list` without `--parent`, avoid `cleo help --tier 2` before tier 0
 - Do not read full task details for tasks you won't work on
 
+## Memory Protocol (JIT)
+
+Pull context on demand — don't pre-load everything:
+
+| Need | Command |
+|------|---------|
+| Prior decisions | `cleo memory find "<topic>" --type decision` |
+| Known patterns | `cleo memory find "<domain>" --type pattern` |
+| Timeline context | `cleo memory timeline <id>` |
+| Full details | `cleo memory fetch <id>` |
+| Code context | `cleo nexus context <symbol>` |
+| Impact analysis | `cleo nexus impact <symbol>` |
+
+Budget: 3 JIT calls per task phase. More = task is underspecified.
+
 ## Escalation
 
 - Load **ct-cleo** skill for full protocol details
