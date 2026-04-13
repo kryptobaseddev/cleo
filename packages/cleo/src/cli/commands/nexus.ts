@@ -713,6 +713,518 @@ export function registerNexusCommand(program: Command): void {
       }
     });
 
+  // ── nexus context ─────────────────────────────────────────────────────────
+
+  nexus
+    .command('context <symbol>')
+    .description(
+      'Show callers, callees, community membership, and process participation for a code symbol',
+    )
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from cwd)')
+    .option('--limit <n>', 'Max callers/callees to show per side', parseInt, 20)
+    .action(async (symbolName: string, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = process.cwd();
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+      const limit = (opts['limit'] as number) ?? 20;
+
+      try {
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        // Find nodes matching the symbol name (case-insensitive partial match).
+        // NodeSQLiteDatabase uses sync Drizzle — .all() returns a plain array.
+        let allNodes: Array<Record<string, unknown>> = [];
+        try {
+          allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<
+            Record<string, unknown>
+          >;
+        } catch {
+          allNodes = [];
+        }
+
+        const lowerSymbol = symbolName.toLowerCase();
+        const matchingNodes = allNodes.filter(
+          (n) =>
+            n['projectId'] === projectId &&
+            n['name'] != null &&
+            String(n['name']).toLowerCase().includes(lowerSymbol) &&
+            // Exclude synthetic graph-level nodes from symbol search
+            n['kind'] !== 'community' &&
+            n['kind'] !== 'process',
+        );
+
+        if (matchingNodes.length === 0) {
+          const durationMs = Date.now() - startTime;
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  success: false,
+                  error: {
+                    code: 'E_NOT_FOUND',
+                    message: `No symbol found matching '${symbolName}' in project ${projectId}`,
+                  },
+                  meta: {
+                    operation: 'nexus.context',
+                    duration_ms: durationMs,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          } else {
+            process.stdout.write(
+              `[nexus] No symbol found matching '${symbolName}'.\n` +
+                `  Run 'cleo nexus analyze' first, or check the symbol name.\n`,
+            );
+          }
+          process.exitCode = 4;
+          return;
+        }
+
+        // Load all relations once — cheaper than N queries per node.
+        let allRelations: Array<Record<string, unknown>> = [];
+        try {
+          allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+            Record<string, unknown>
+          >;
+        } catch {
+          allRelations = [];
+        }
+
+        // Build a node-by-id index for fast lookups.
+        const nodeById = new Map<string, Record<string, unknown>>();
+        for (const n of allNodes) {
+          nodeById.set(String(n['id']), n);
+        }
+
+        // Build context for each matching node.
+        const results = matchingNodes.slice(0, 5).map((node) => {
+          const nodeId = String(node['id']);
+
+          // Incoming: who calls/imports/references THIS node (target = nodeId)
+          const incoming = allRelations
+            .filter(
+              (r) =>
+                r['targetId'] === nodeId &&
+                r['projectId'] === projectId &&
+                (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
+            )
+            .slice(0, limit)
+            .map((r) => {
+              const src = nodeById.get(String(r['sourceId']));
+              return {
+                relationType: r['type'],
+                nodeId: r['sourceId'],
+                name: src?.['name'] ?? r['sourceId'],
+                kind: src?.['kind'] ?? 'unknown',
+                filePath: src?.['filePath'] ?? null,
+              };
+            });
+
+          // Outgoing: what THIS node calls/imports/accesses (source = nodeId)
+          const outgoing = allRelations
+            .filter(
+              (r) =>
+                r['sourceId'] === nodeId &&
+                r['projectId'] === projectId &&
+                (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
+            )
+            .slice(0, limit)
+            .map((r) => {
+              const tgt = nodeById.get(String(r['targetId']));
+              return {
+                relationType: r['type'],
+                nodeId: r['targetId'],
+                name: tgt?.['name'] ?? r['targetId'],
+                kind: tgt?.['kind'] ?? 'unknown',
+                filePath: tgt?.['filePath'] ?? null,
+              };
+            });
+
+          // Community membership
+          const communityId = node['communityId'] as string | null;
+          const community = communityId ? nodeById.get(communityId) : null;
+
+          // Process participation (step_in_process or entry_point_of relations)
+          const processRelations = allRelations.filter(
+            (r) =>
+              r['sourceId'] === nodeId &&
+              r['projectId'] === projectId &&
+              (r['type'] === 'step_in_process' || r['type'] === 'entry_point_of'),
+          );
+          const processes = processRelations
+            .map((r) => {
+              const proc = nodeById.get(String(r['targetId']));
+              return {
+                processId: r['targetId'],
+                label: proc?.['label'] ?? r['targetId'],
+                role: r['type'] === 'entry_point_of' ? 'entry_point' : 'step',
+                step: r['step'] ?? null,
+              };
+            })
+            .filter((p) => p.label !== p.processId); // filter unresolved
+
+          return {
+            nodeId,
+            name: node['name'],
+            kind: node['kind'],
+            filePath: node['filePath'],
+            startLine: node['startLine'],
+            endLine: node['endLine'],
+            isExported: node['isExported'],
+            docSummary: node['docSummary'],
+            community: community
+              ? { id: communityId, label: community['label'] }
+              : communityId
+                ? { id: communityId, label: null }
+                : null,
+            callers: incoming,
+            callees: outgoing,
+            processes,
+          };
+        });
+
+        const durationMs = Date.now() - startTime;
+        const primary = results[0];
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  query: symbolName,
+                  projectId,
+                  matchCount: matchingNodes.length,
+                  results,
+                },
+                meta: {
+                  operation: 'nexus.context',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Context for symbol '${symbolName}' (${matchingNodes.length} match${matchingNodes.length !== 1 ? 'es' : ''}):\n`,
+          );
+          for (const r of results) {
+            process.stdout.write(
+              `\n  Symbol:   ${String(r.name)}  (${String(r.kind)})\n` +
+                `  File:     ${r.filePath ? String(r.filePath) : 'n/a'}` +
+                (r.startLine ? `:${String(r.startLine)}` : '') +
+                '\n' +
+                (r.docSummary ? `  Doc:      ${String(r.docSummary)}\n` : '') +
+                (r.community
+                  ? `  Community: ${String(r.community.label ?? r.community.id)}\n`
+                  : '') +
+                `  Callers (${r.callers.length}): ${
+                  r.callers.length === 0
+                    ? 'none'
+                    : r.callers.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')
+                }\n` +
+                `  Callees (${r.callees.length}): ${
+                  r.callees.length === 0
+                    ? 'none'
+                    : r.callees.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')
+                }\n` +
+                (r.processes.length > 0
+                  ? `  Processes: ${r.processes.map((p) => `${String(p.label)}(${String(p.role)})`).join(', ')}\n`
+                  : ''),
+            );
+          }
+          if (matchingNodes.length > 5) {
+            process.stdout.write(
+              `\n  (Showing 5 of ${matchingNodes.length} matches — use --json for full list)\n`,
+            );
+          }
+        }
+        void primary; // referenced to satisfy lint
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_CONTEXT_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.context',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus impact ──────────────────────────────────────────────────────────
+
+  nexus
+    .command('impact <symbol>')
+    .description(
+      'Show blast radius for a code symbol — direct callers (d=1), indirect callers (d=2), transitive (d=3)',
+    )
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from cwd)')
+    .option('--depth <n>', 'Maximum traversal depth (default: 3)', parseInt, 3)
+    .action(async (symbolName: string, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = process.cwd();
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+      const maxDepth = Math.min((opts['depth'] as number) ?? 3, 5);
+
+      try {
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        // Load all nodes and relations for this project once.
+        let allNodes: Array<Record<string, unknown>> = [];
+        try {
+          allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<
+            Record<string, unknown>
+          >;
+        } catch {
+          allNodes = [];
+        }
+
+        const lowerSymbol = symbolName.toLowerCase();
+        const matchingNodes = allNodes.filter(
+          (n) =>
+            n['projectId'] === projectId &&
+            n['name'] != null &&
+            String(n['name']).toLowerCase().includes(lowerSymbol) &&
+            n['kind'] !== 'community' &&
+            n['kind'] !== 'process',
+        );
+
+        if (matchingNodes.length === 0) {
+          const durationMs = Date.now() - startTime;
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  success: false,
+                  error: {
+                    code: 'E_NOT_FOUND',
+                    message: `No symbol found matching '${symbolName}' in project ${projectId}`,
+                  },
+                  meta: {
+                    operation: 'nexus.impact',
+                    duration_ms: durationMs,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          } else {
+            process.stdout.write(
+              `[nexus] No symbol found matching '${symbolName}'.\n` +
+                `  Run 'cleo nexus analyze' first, or check the symbol name.\n`,
+            );
+          }
+          process.exitCode = 4;
+          return;
+        }
+
+        let allRelations: Array<Record<string, unknown>> = [];
+        try {
+          allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+            Record<string, unknown>
+          >;
+        } catch {
+          allRelations = [];
+        }
+
+        // Build a node-by-id index for fast lookups.
+        const nodeById = new Map<string, Record<string, unknown>>();
+        for (const n of allNodes) {
+          nodeById.set(String(n['id']), n);
+        }
+
+        // BFS upstream: find all nodes that (transitively) call/import the target.
+        const targetNode = matchingNodes[0];
+        const targetId = String(targetNode['id']);
+
+        // Build reverse adjacency: targetId → [sourceIds that call it]
+        const reverseAdj = new Map<string, string[]>();
+        for (const r of allRelations) {
+          if (
+            r['projectId'] === projectId &&
+            (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses')
+          ) {
+            const tid = String(r['targetId']);
+            const sid = String(r['sourceId']);
+            if (!reverseAdj.has(tid)) reverseAdj.set(tid, []);
+            reverseAdj.get(tid)!.push(sid);
+          }
+        }
+
+        // BFS traversal up to maxDepth levels.
+        const visited = new Set<string>([targetId]);
+        const depthMap = new Map<string, number>(); // nodeId → depth
+        const queue: Array<{ id: string; depth: number }> = [{ id: targetId, depth: 0 }];
+        const impactByDepth: Array<
+          Array<{ nodeId: string; name: string; kind: string; filePath: string | null }>
+        > = [];
+
+        while (queue.length > 0) {
+          const item = queue.shift()!;
+          if (item.depth >= maxDepth) continue;
+
+          const callers = reverseAdj.get(item.id) ?? [];
+          for (const callerId of callers) {
+            if (visited.has(callerId)) continue;
+            visited.add(callerId);
+            const depth = item.depth + 1;
+            depthMap.set(callerId, depth);
+            const callerNode = nodeById.get(callerId);
+            if (!impactByDepth[depth - 1]) impactByDepth[depth - 1] = [];
+            impactByDepth[depth - 1].push({
+              nodeId: callerId,
+              name: String(callerNode?.['name'] ?? callerId),
+              kind: String(callerNode?.['kind'] ?? 'unknown'),
+              filePath: callerNode?.['filePath'] ? String(callerNode['filePath']) : null,
+            });
+            queue.push({ id: callerId, depth });
+          }
+        }
+
+        const totalImpact = visited.size - 1; // exclude the target itself
+        const riskLevel =
+          totalImpact === 0
+            ? 'NONE'
+            : totalImpact <= 3
+              ? 'LOW'
+              : totalImpact <= 10
+                ? 'MEDIUM'
+                : totalImpact <= 25
+                  ? 'HIGH'
+                  : 'CRITICAL';
+
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  query: symbolName,
+                  projectId,
+                  targetNodeId: targetId,
+                  targetName: targetNode['name'],
+                  targetKind: targetNode['kind'],
+                  targetFilePath: targetNode['filePath'],
+                  riskLevel,
+                  totalImpactedNodes: totalImpact,
+                  maxDepth,
+                  impactByDepth: impactByDepth.map((layer, i) => ({
+                    depth: i + 1,
+                    label:
+                      i === 0
+                        ? 'WILL BREAK (direct callers)'
+                        : i === 1
+                          ? 'LIKELY AFFECTED'
+                          : 'MAY NEED TESTING',
+                    nodes: layer,
+                  })),
+                },
+                meta: {
+                  operation: 'nexus.impact',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Impact analysis for '${symbolName}'\n` +
+              `  Target:  ${String(targetNode['name'])}  (${String(targetNode['kind'])})\n` +
+              `  File:    ${targetNode['filePath'] ? String(targetNode['filePath']) : 'n/a'}\n` +
+              `  Risk:    ${riskLevel}  (${totalImpact} impacted node${totalImpact !== 1 ? 's' : ''})\n`,
+          );
+          if (totalImpact === 0) {
+            process.stdout.write('  No callers found — safe to modify.\n');
+          } else {
+            for (let i = 0; i < impactByDepth.length; i++) {
+              const layer = impactByDepth[i];
+              if (!layer || layer.length === 0) continue;
+              const label =
+                i === 0 ? 'WILL BREAK' : i === 1 ? 'LIKELY AFFECTED' : 'MAY NEED TESTING';
+              process.stdout.write(`\n  d=${i + 1} ${label} (${layer.length}):\n`);
+              for (const node of layer.slice(0, 15)) {
+                process.stdout.write(
+                  `    ${String(node.name).padEnd(36)}  ${String(node.kind).padEnd(12)}  ${node.filePath ?? ''}\n`,
+                );
+              }
+              if (layer.length > 15) {
+                process.stdout.write(`    ... and ${layer.length - 15} more\n`);
+              }
+            }
+          }
+          if (matchingNodes.length > 1) {
+            process.stdout.write(
+              `\n  (Showing analysis for first match — ${matchingNodes.length} total matches for '${symbolName}')\n`,
+            );
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_IMPACT_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.impact',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
   // ── nexus analyze ─────────────────────────────────────────────────────────
 
   nexus

@@ -68,9 +68,40 @@ export function createSafetyBackup(dbPath: string): void {
 }
 
 /**
+ * Insert a journal entry including `name` so Drizzle v1 beta (which checks by name,
+ * not hash) correctly identifies the migration as already applied.
+ *
+ * Emits INSERT OR IGNORE to avoid duplicate-row errors when called defensively.
+ */
+function insertJournalEntry(
+  nativeDb: DatabaseSync,
+  hash: string,
+  createdAt: number,
+  name: string,
+): void {
+  // Ensure the name and applied_at columns exist (Drizzle v1 beta schema).
+  // These are added by upgradeSyncIfNeeded, but reconcileJournal may run before
+  // the first migrate() call that triggers the upgrade.
+  const columns = nativeDb.prepare('PRAGMA table_info("__drizzle_migrations")').all() as Array<{
+    name: string;
+  }>;
+  const colNames = new Set(columns.map((c) => c.name));
+  if (!colNames.has('name')) {
+    nativeDb.exec('ALTER TABLE "__drizzle_migrations" ADD COLUMN "name" text');
+  }
+  if (!colNames.has('applied_at')) {
+    nativeDb.exec('ALTER TABLE "__drizzle_migrations" ADD COLUMN "applied_at" TEXT');
+  }
+
+  nativeDb.exec(
+    `INSERT OR IGNORE INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${hash}', ${createdAt}, '${name}')`,
+  );
+}
+
+/**
  * Bootstrap and reconcile the Drizzle migration journal.
  *
- * Handles three scenarios:
+ * Handles four scenarios:
  * 1. Tables exist but no __drizzle_migrations — bootstrap baseline as applied
  * 2. Journal has orphaned hashes (from older CLEO version) — clear and re-mark all as applied
  * 3. Journal exists but is missing entries for migrations whose DDL has already been applied
@@ -78,6 +109,10 @@ export function createSafetyBackup(dbPath: string): void {
  *    migrations are cherry-picked from worktrees or the process crashes mid-migration).
  *    Auto-inserts the missing journal entry so Drizzle skips the migration instead of
  *    re-running ALTER TABLE and crashing on "duplicate column name".
+ * 4. Journal entries exist but have null `name` — Drizzle v1 beta identifies applied
+ *    migrations by name, so entries without a name are invisible to it, causing already-
+ *    applied migrations to be re-run and fail with "duplicate column name". Backfills
+ *    the name from the local migration file matched by hash.
  *
  * @param nativeDb - Native SQLite database handle
  * @param migrationsFolder - Path to the drizzle migrations folder
@@ -97,14 +132,14 @@ export function reconcileJournal(
     if (baseline) {
       nativeDb.exec(`
         CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-          id SERIAL PRIMARY KEY,
+          id INTEGER PRIMARY KEY,
           hash text NOT NULL,
-          created_at numeric
+          created_at numeric,
+          name text,
+          applied_at TEXT
         )
       `);
-      nativeDb.exec(
-        `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
-      );
+      insertJournalEntry(nativeDb, baseline.hash, baseline.folderMillis, baseline.name ?? '');
     }
   }
 
@@ -125,9 +160,7 @@ export function reconcileJournal(
       );
       nativeDb.exec('DELETE FROM "__drizzle_migrations"');
       for (const m of localMigrations) {
-        nativeDb.exec(
-          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${m.hash}', ${m.folderMillis})`,
-        );
+        insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
       }
     }
   }
@@ -177,10 +210,48 @@ export function reconcileJournal(
           { migration: migration.name, columns: alterMatches },
           `Detected partially-applied migration ${migration.name} — columns exist but journal entry missing. Auto-reconciling.`,
         );
-        nativeDb.exec(
-          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${migration.hash}', ${migration.folderMillis})`,
-        );
+        insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
       }
+    }
+  }
+
+  // Scenario 4: Journal entries exist but have null `name`.
+  //
+  // Drizzle v1 beta changed getMigrationsToRun to filter by `name` (not hash).
+  // Journal entries inserted by older CLEO code (INSERT without "name") have
+  // name = null, which Drizzle filters out — making it treat those migrations as
+  // unapplied and re-run them. This causes "duplicate column name" failures for
+  // migrations whose DDL has already been applied.
+  //
+  // Fix: backfill `name` for any journal entries that have name = null but whose
+  // hash matches a known local migration file.
+  if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
+    // Check if the name column exists before querying it
+    const migCols = nativeDb.prepare('PRAGMA table_info("__drizzle_migrations")').all() as Array<{
+      name: string;
+    }>;
+    const hasMigNameCol = migCols.some((c) => c.name === 'name');
+    if (!hasMigNameCol) return; // name column absent — upgradeSyncIfNeeded will handle it
+
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const hashToName = new Map(localMigrations.map((m) => [m.hash, m.name ?? '']));
+
+    const unnamedEntries = nativeDb
+      .prepare('SELECT id, hash FROM "__drizzle_migrations" WHERE name IS NULL')
+      .all() as Array<{ id: number; hash: string }>;
+
+    for (const entry of unnamedEntries) {
+      const migrationName = hashToName.get(entry.hash);
+      if (!migrationName) continue; // orphaned entry — leave for Scenario 2
+
+      const log = getLogger(logSubsystem);
+      log.warn(
+        { id: entry.id, hash: entry.hash, name: migrationName },
+        `Backfilling missing name on journal entry id=${entry.id} — Drizzle v1 beta requires name for applied-migration detection.`,
+      );
+      nativeDb.exec(
+        `UPDATE "__drizzle_migrations" SET "name" = '${migrationName}' WHERE id = ${entry.id}`,
+      );
     }
   }
 }

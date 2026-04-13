@@ -545,13 +545,47 @@ function likeSearchObservations(
 
 /**
  * Escape special FTS5 characters in query string.
- * Wraps each token in quotes to prevent syntax errors from special chars.
+ *
+ * Wraps each meaningful token in double quotes and joins with OR so that
+ * partial matches are returned even when some tokens are not indexable
+ * (e.g. task prefixes like "EPIC:", em-dashes "—", or short stop-words).
+ *
+ * Strategy:
+ *   1. Split on whitespace.
+ *   2. Keep only tokens that contain at least one word character (\w), which
+ *      ensures punctuation-only tokens (em dashes, colons standalone, etc.)
+ *      are dropped before they zero-out the entire result set.
+ *   3. Deduplicate case-insensitively.
+ *   4. Join with OR so the query broadens rather than requiring ALL tokens.
+ *
+ * Using AND (implicit FTS5 join) caused empty results whenever a task title
+ * contained non-word tokens such as em dashes ("—") or trailing colons
+ * ("EPIC:"), because FTS5's default tokenizer cannot index them and the
+ * AND semantics then guaranteed zero matches for the whole query. (T553 bug fix)
  */
 function escapeFts5Query(query: string): string {
-  // Split on whitespace, wrap each token in double quotes
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const rawTokens = query.trim().split(/\s+/).filter(Boolean);
+  if (rawTokens.length === 0) return '""';
+
+  // Keep tokens that have at least one alphanumeric character and are not
+  // pure stop-words (length ≥ 2 after stripping leading/trailing punctuation).
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+  for (const t of rawTokens) {
+    // Strip leading/trailing non-word characters (e.g. "EPIC:" → "EPIC", "—" → "")
+    const stripped = t.replace(/^\W+|\W+$/g, '');
+    if (stripped.length < 2) continue; // skip very short or empty tokens
+    if (!/\w/.test(stripped)) continue; // skip tokens with no word chars
+    const lower = stripped.toLowerCase();
+    if (seen.has(lower)) continue; // deduplicate
+    seen.add(lower);
+    tokens.push(`"${stripped.replace(/"/g, '""')}"`);
+  }
+
   if (tokens.length === 0) return '""';
-  return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
+
+  // OR semantics: any matching token returns the row, ranked by BM25 relevance.
+  return tokens.join(' OR ');
 }
 
 /**
