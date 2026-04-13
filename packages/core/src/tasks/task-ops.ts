@@ -219,7 +219,7 @@ export async function coreTaskNext(
   const currentPhase = projectMeta?.currentPhase ?? null;
 
   const candidates = allTasks.filter(
-    (t) => t.status === 'pending' && depsReady(t.depends, taskMap),
+    (t) => t.status === 'pending' && !t.cancelledAt && depsReady(t.depends, taskMap),
   );
 
   if (candidates.length === 0) {
