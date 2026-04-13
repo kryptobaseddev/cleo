@@ -27,6 +27,13 @@ function collectExtensionPaths(): string[] {
   const paths = resolveCleoOsPaths();
   const extensions: string[] = [];
 
+  // cleo-startup: branded session banner + memory bridge display (load first
+  // so the welcome panel appears before CANT bridge status bar entries)
+  const startupPath = join(paths.extensions, 'cleo-startup.js');
+  if (existsSync(startupPath)) {
+    extensions.push(startupPath);
+  }
+
   const bridgePath = join(paths.extensions, 'cleo-cant-bridge.js');
   if (existsSync(bridgePath)) {
     extensions.push(bridgePath);
