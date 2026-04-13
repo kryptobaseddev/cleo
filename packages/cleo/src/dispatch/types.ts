@@ -122,6 +122,7 @@ export const CANONICAL_DOMAINS = [
   'admin',
   'nexus',
   'sticky',
+  'intelligence',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

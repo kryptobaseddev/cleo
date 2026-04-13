@@ -133,9 +133,10 @@ describe('Group 1: Registry completeness', () => {
     // FIX: wired admin.roadmap — was in system-engine but not registered.
     // T535: added 4 new memory graph traversal query ops (trace, related, context, stats).
     // T549 Wave 5-A: added admin.context.pull (query). +1 query / +1 total.
-    expect(queryCount).toBe(138);
+    // Intelligence domain: 5 query-only ops (predict, suggest, learn-errors, confidence, match).
+    expect(queryCount).toBe(143);
     expect(mutateCount).toBe(99);
-    expect(OPERATIONS.length).toBe(237);
+    expect(OPERATIONS.length).toBe(242);
   });
 
   it('all operations have valid gateway values', () => {

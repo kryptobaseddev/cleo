@@ -249,6 +249,15 @@ export async function searchBrainCompact(
     hit._next = memoryFindHitNext(hit.id);
   }
 
+  // Citation tracking + retrieval logging (non-blocking)
+  if (results.length > 0) {
+    const returnedIds = results.map((r) => r.id);
+    setImmediate(() => {
+      incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
+      logRetrieval(projectRoot, query, returnedIds, 'find', results.length * 50).catch(() => {});
+    });
+  }
+
   return {
     results,
     total: results.length,
@@ -499,6 +508,15 @@ export async function fetchBrainEntries(
     }
   }
 
+  // Citation tracking + retrieval logging (non-blocking)
+  if (results.length > 0) {
+    const fetchedIds = results.map((r) => r.id);
+    setImmediate(() => {
+      incrementCitationCounts(projectRoot, fetchedIds).catch(() => {});
+      logRetrieval(projectRoot, fetchedIds.join(','), fetchedIds, 'fetch', results.length * 500).catch(() => {});
+    });
+  }
+
   return {
     results,
     notFound,
@@ -579,7 +597,12 @@ export async function observeBrain(
   //   - sourceType 'manual' → 'owner' (owner-stated facts skip short-term in consolidator)
   //   - sourceType 'session-debrief' → 'task-outcome' (synthesized summaries)
   //   - otherwise → 'agent' (default for all hook/agent writes)
-  // verified is always false at write time — consolidator sets true via corroboration gate.
+  // Source confidence routing (spec §4.1 Decision Tree):
+  //   - sourceType 'manual' → 'owner' (owner-stated facts are ground truth)
+  //   - sourceType 'session-debrief' → 'task-outcome' (verified by completion)
+  //   - otherwise → 'agent' (default for all hook/agent writes)
+  // Owner and task-outcome sources are auto-verified as ground truth.
+  // Agent-inferred entries start unverified — consolidator promotes via corroboration.
   const resolvedSourceConfidence: BrainSourceConfidence =
     sourceConfidenceParam ??
     (sourceType === 'manual'
@@ -589,7 +612,7 @@ export async function observeBrain(
         : 'agent');
   const memoryTier: BrainMemoryTier = 'short';
   const memoryType = 'episodic' as const;
-  const verified = false;
+  const verified = resolvedSourceConfidence === 'owner' || resolvedSourceConfidence === 'task-outcome';
 
   // Content-hash dedup: SHA-256 prefix of title+text
   const contentHash = createHash('sha256')
@@ -1287,5 +1310,53 @@ async function incrementCitationCounts(projectRoot: string, ids: string[]): Prom
     } catch {
       /* best-effort — column may not exist in older schemas */
     }
+  }
+}
+
+/**
+ * Log a retrieval event to brain_retrieval_log for co-retrieval analysis.
+ *
+ * Creates the table on first use if it doesn't exist (self-healing).
+ * Best-effort: errors are silently swallowed.
+ */
+async function logRetrieval(
+  projectRoot: string,
+  query: string,
+  entryIds: string[],
+  source: string,
+  tokensUsed?: number,
+): Promise<void> {
+  if (entryIds.length === 0) return;
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+  if (!nativeDb) return;
+
+  // Self-healing: create table if not exists
+  const createSql =
+    'CREATE TABLE IF NOT EXISTS brain_retrieval_log (' +
+    'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+    'query TEXT NOT NULL,' +
+    'entry_ids TEXT NOT NULL,' +
+    'entry_count INTEGER NOT NULL,' +
+    'source TEXT NOT NULL,' +
+    'tokens_used INTEGER,' +
+    "created_at TEXT NOT NULL DEFAULT (datetime('now'))" +
+    ')';
+  try {
+    nativeDb.prepare(createSql).run();
+  } catch {
+    return;
+  }
+
+  try {
+    nativeDb
+      .prepare(
+        'INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source, tokens_used) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(query, entryIds.join(','), entryIds.length, source, tokensUsed ?? null);
+  } catch {
+    /* best-effort */
   }
 }
