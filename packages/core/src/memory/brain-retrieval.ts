@@ -35,6 +35,8 @@ import type {
   BrainTimelineNeighborRow,
 } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
+import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
+import { computeObservationQuality } from './quality-scoring.js';
 
 // ============================================================================
 // Types
@@ -155,7 +157,7 @@ export async function searchBrainCompact(
 ): Promise<SearchBrainCompactResult> {
   const { query, limit, tables, dateStart, dateEnd, agent } = params;
 
-  if (!query || !query.trim()) {
+  if (!query?.trim()) {
     return { results: [], total: 0, tokensEstimated: 0 };
   }
 
@@ -551,7 +553,7 @@ export async function observeBrain(
     agent,
   } = params;
 
-  if (!text || !text.trim()) {
+  if (!text?.trim()) {
     throw new Error('Observation text is required');
   }
 
@@ -601,6 +603,9 @@ export async function observeBrain(
     }
   }
 
+  // Compute quality score from text richness and title length.
+  const qualityScore = computeObservationQuality({ text, title });
+
   const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
 
@@ -614,6 +619,7 @@ export async function observeBrain(
     sourceSessionId: validSessionId,
     sourceType: sourceType ?? 'agent',
     agent: agent ?? null,
+    qualityScore,
     createdAt: now,
   });
 
@@ -653,6 +659,41 @@ export async function observeBrain(
     autoLinkObservationToTask(projectRoot, row.id, accessor).catch(() => {
       /* Auto-linking is best-effort */
     });
+  }
+
+  // Auto-populate graph node + edges for this observation (best-effort, T537).
+  try {
+    await upsertGraphNode(
+      projectRoot,
+      `observation:${row.id}`,
+      'observation',
+      row.title.substring(0, 200),
+      row.qualityScore ?? 0.5,
+      row.narrative ?? row.title,
+      { sourceType: row.sourceType, agent: row.agent ?? undefined },
+    );
+
+    // Link observation → session when the observation has a session context.
+    if (validSessionId) {
+      await upsertGraphNode(
+        projectRoot,
+        `session:${validSessionId}`,
+        'session',
+        validSessionId,
+        0.8,
+        '',
+      );
+      await addGraphEdge(
+        projectRoot,
+        `observation:${row.id}`,
+        `session:${validSessionId}`,
+        'produced_by',
+        1.0,
+        'auto:observe',
+      );
+    }
+  } catch {
+    /* Graph population is best-effort — never block the primary return */
   }
 
   return {

@@ -439,18 +439,25 @@ export class BrainDataAccessor {
   }
 
   async findPageNodes(
-    params: { nodeType?: (typeof brainSchema.BRAIN_NODE_TYPES)[number]; limit?: number } = {},
+    params: {
+      nodeType?: (typeof brainSchema.BRAIN_NODE_TYPES)[number];
+      minQualityScore?: number;
+      limit?: number;
+    } = {},
   ): Promise<BrainPageNodeRow[]> {
     const conditions: SQL[] = [];
 
     if (params.nodeType) {
       conditions.push(eq(brainSchema.brainPageNodes.nodeType, params.nodeType));
     }
+    if (params.minQualityScore !== undefined) {
+      conditions.push(gte(brainSchema.brainPageNodes.qualityScore, params.minQualityScore));
+    }
 
     let query = this.db
       .select()
       .from(brainSchema.brainPageNodes)
-      .orderBy(desc(brainSchema.brainPageNodes.createdAt));
+      .orderBy(desc(brainSchema.brainPageNodes.lastActivityAt));
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as typeof query;
@@ -461,6 +468,13 @@ export class BrainDataAccessor {
     }
 
     return query;
+  }
+
+  async updatePageNode(id: string, updates: Partial<NewBrainPageNodeRow>): Promise<void> {
+    await this.db
+      .update(brainSchema.brainPageNodes)
+      .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
+      .where(eq(brainSchema.brainPageNodes.id, id));
   }
 
   async removePageNode(id: string): Promise<void> {
@@ -491,6 +505,38 @@ export class BrainDataAccessor {
         ),
       );
     return result[0]!;
+  }
+
+  async findPageEdges(
+    params: {
+      edgeType?: (typeof brainSchema.BRAIN_EDGE_TYPES)[number];
+      provenance?: string;
+      limit?: number;
+    } = {},
+  ): Promise<BrainPageEdgeRow[]> {
+    const conditions: SQL[] = [];
+
+    if (params.edgeType) {
+      conditions.push(eq(brainSchema.brainPageEdges.edgeType, params.edgeType));
+    }
+    if (params.provenance) {
+      conditions.push(eq(brainSchema.brainPageEdges.provenance, params.provenance));
+    }
+
+    let query = this.db
+      .select()
+      .from(brainSchema.brainPageEdges)
+      .orderBy(desc(brainSchema.brainPageEdges.createdAt));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+
+    if (params.limit) {
+      query = query.limit(params.limit) as typeof query;
+    }
+
+    return query;
   }
 
   async getPageEdges(

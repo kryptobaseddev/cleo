@@ -1,14 +1,17 @@
 /**
  * Drizzle ORM schema for CLEO nexus.db (SQLite via node:sqlite + sqlite-proxy).
  *
- * Tables: project_registry, nexus_audit_log, nexus_schema_meta
- * Stores cross-project registry and audit infrastructure for the Nexus domain.
+ * Tables: project_registry, nexus_audit_log, nexus_schema_meta,
+ *         nexus_nodes, nexus_relations
+ * Stores cross-project registry and audit infrastructure for the Nexus domain,
+ * plus the code intelligence graph layer (nodes + directed edges).
  *
  * @task T5365
+ * @task T529
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 // === PROJECT_REGISTRY TABLE ===
 
@@ -75,6 +78,253 @@ export const nexusSchemaMeta = sqliteTable('nexus_schema_meta', {
   value: text('value').notNull(),
 });
 
+// === NEXUS_NODES TABLE ===
+
+/**
+ * All node kind values — matches GraphNodeKind in @cleocode/contracts.
+ *
+ * Kept as a const tuple for use in Drizzle enum column definitions.
+ * The ordering is intentional: structural → module → callable → type →
+ * value-level → language-specific → graph-level → legacy.
+ */
+export const NEXUS_NODE_KINDS = [
+  // Structural
+  'file',
+  'folder',
+  // Module-level
+  'module',
+  'namespace',
+  // Callable
+  'function',
+  'method',
+  'constructor',
+  // Type hierarchy
+  'class',
+  'interface',
+  'struct',
+  'trait',
+  'impl',
+  'type_alias',
+  'enum',
+  // Value-level
+  'property',
+  'constant',
+  'variable',
+  'static',
+  'record',
+  'delegate',
+  // Language-specific constructs
+  'macro',
+  'union',
+  'typedef',
+  'annotation',
+  'template',
+  // Graph-level (synthetic nodes from analysis phases)
+  'community',
+  'process',
+  'route',
+  // External references
+  'tool',
+  'section',
+  // Legacy (kept for T506 compatibility)
+  'import',
+  'export',
+  'type',
+] as const;
+
+/** TypeScript type derived from NEXUS_NODE_KINDS. */
+export type NexusNodeKind = (typeof NEXUS_NODE_KINDS)[number];
+
+/**
+ * Graph nodes table — one row per symbol or structural element.
+ *
+ * Stores all code intelligence graph nodes indexed per project.
+ * Synthetic nodes (community, process) share this table with
+ * source-derived nodes (function, class, file).
+ *
+ * Both this table and `code_index` are populated from the same parse pass.
+ * They serve complementary roles — do NOT merge them.
+ *
+ * @task T529
+ */
+export const nexusNodes = sqliteTable(
+  'nexus_nodes',
+  {
+    /** Stable node ID. Format: `<filePath>::<name>` for symbols,
+     *  `<filePath>` for file nodes, `community:<n>` for community nodes,
+     *  `process:<slug>` for execution flow nodes. */
+    id: text('id').primaryKey(),
+
+    /** Foreign key to project_registry.project_id. Scopes the node. */
+    projectId: text('project_id').notNull(),
+
+    /** Node kind from GraphNodeKind union. */
+    kind: text('kind', { enum: NEXUS_NODE_KINDS }).notNull(),
+
+    /** Human-readable label for display. For symbols, same as name.
+     *  For communities, the inferred folder label. For processes, the
+     *  entry point function name. */
+    label: text('label').notNull(),
+
+    /** Symbol name as it appears in source code. Null for file/folder nodes. */
+    name: text('name'),
+
+    /** File path relative to project root. Null for community/process nodes. */
+    filePath: text('file_path'),
+
+    /** Start line in source file (1-based). Null for structural nodes. */
+    startLine: integer('start_line'),
+
+    /** End line in source file (1-based). Null for structural nodes. */
+    endLine: integer('end_line'),
+
+    /** Source language (typescript, python, go, rust, etc.). */
+    language: text('language'),
+
+    /** Whether the symbol is publicly exported from its module. */
+    isExported: integer('is_exported', { mode: 'boolean' }).notNull().default(false),
+
+    /** Parent node ID for nested symbols (e.g., method inside class).
+     *  References nexus_nodes.id in the same project. Soft FK. */
+    parentId: text('parent_id'),
+
+    /** JSON array of parameter name strings for functions/methods.
+     *  Stored as `["param1","param2"]`. Null if not applicable. */
+    parametersJson: text('parameters_json'),
+
+    /** Return type annotation text (e.g., "Promise<void>"). */
+    returnType: text('return_type'),
+
+    /** First line of the TSDoc/JSDoc comment for this symbol. */
+    docSummary: text('doc_summary'),
+
+    /** Community membership ID — references the community node's id.
+     *  Set during Phase 4.5 community detection. Null until then. */
+    communityId: text('community_id'),
+
+    /** JSON blob for kind-specific metadata.
+     *  For `process` nodes: `{"stepCount": 7, "entryScore": 0.92}`.
+     *  For `community` nodes: `{"memberCount": 14, "topFolders": ["src/core"]}`.
+     *  For `route` nodes: `{"method": "GET", "path": "/api/v1/tasks"}`.
+     *  For all others: null. */
+    metaJson: text('meta_json'),
+
+    /** ISO 8601 timestamp when this node was last indexed. */
+    indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_nexus_nodes_project').on(table.projectId),
+    index('idx_nexus_nodes_kind').on(table.kind),
+    index('idx_nexus_nodes_file').on(table.filePath),
+    index('idx_nexus_nodes_name').on(table.name),
+    index('idx_nexus_nodes_project_kind').on(table.projectId, table.kind),
+    index('idx_nexus_nodes_project_file').on(table.projectId, table.filePath),
+    index('idx_nexus_nodes_community').on(table.communityId),
+    index('idx_nexus_nodes_parent').on(table.parentId),
+    index('idx_nexus_nodes_exported').on(table.isExported),
+  ],
+);
+
+// === NEXUS_RELATIONS TABLE ===
+
+/**
+ * All relation type values — matches GraphRelationType in @cleocode/contracts.
+ *
+ * Kept as a const tuple for use in Drizzle enum column definitions.
+ */
+export const NEXUS_RELATION_TYPES = [
+  // Structural
+  'contains',
+  // Definition / usage
+  'defines',
+  'imports',
+  'accesses',
+  // Callable
+  'calls',
+  // Type hierarchy
+  'extends',
+  'implements',
+  'method_overrides',
+  'method_implements',
+  // Class structure
+  'has_method',
+  'has_property',
+  // Graph-level (synthetic, from analysis phases)
+  'member_of', // symbol → community
+  'step_in_process', // symbol → process
+  // Web / API
+  'handles_route', // function → route node
+  'fetches', // function → external API
+  // Tool / agent
+  'handles_tool',
+  'entry_point_of', // function → process
+  // Wrapping / delegation
+  'wraps',
+  // Data access
+  'queries',
+  // Cross-graph (brain link)
+  'documents', // brain_page_node → nexus_nodes
+  'applies_to', // brain_page_node → nexus_nodes
+] as const;
+
+/** TypeScript type derived from NEXUS_RELATION_TYPES. */
+export type NexusRelationType = (typeof NEXUS_RELATION_TYPES)[number];
+
+/**
+ * Graph relations table — one row per directed edge.
+ *
+ * All graph traversal (impact, context, process detection) reads from
+ * this table after ingestion completes.
+ *
+ * Source and target reference nexus_nodes.id. They are soft FKs —
+ * unresolved targets (e.g., external packages) are stored as raw specifiers.
+ *
+ * @task T529
+ */
+export const nexusRelations = sqliteTable(
+  'nexus_relations',
+  {
+    /** UUID v4 row identifier. */
+    id: text('id').primaryKey(),
+
+    /** Foreign key to project_registry.project_id. */
+    projectId: text('project_id').notNull(),
+
+    /** Source node ID (nexus_nodes.id). */
+    sourceId: text('source_id').notNull(),
+
+    /** Target node ID (nexus_nodes.id) or raw module specifier for
+     *  unresolved imports. Example: `@cleocode/contracts` or
+     *  `src/core/parser.ts::parseFile`. */
+    targetId: text('target_id').notNull(),
+
+    /** Semantic relation type. */
+    type: text('type', { enum: NEXUS_RELATION_TYPES }).notNull(),
+
+    /** Extractor confidence (0.0 to 1.0). */
+    confidence: real('confidence').notNull(),
+
+    /** Human-readable note explaining why this relation was emitted. */
+    reason: text('reason'),
+
+    /** Step index within an execution flow (for step_in_process relations). */
+    step: integer('step'),
+
+    /** ISO 8601 timestamp when this relation was last indexed. */
+    indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_nexus_relations_project').on(table.projectId),
+    index('idx_nexus_relations_source').on(table.sourceId),
+    index('idx_nexus_relations_target').on(table.targetId),
+    index('idx_nexus_relations_type').on(table.type),
+    index('idx_nexus_relations_project_type').on(table.projectId, table.type),
+    index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
+    index('idx_nexus_relations_target_type').on(table.targetId, table.type),
+    index('idx_nexus_relations_confidence').on(table.confidence),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type ProjectRegistryRow = typeof projectRegistry.$inferSelect;
@@ -83,3 +333,7 @@ export type NexusAuditLogRow = typeof nexusAuditLog.$inferSelect;
 export type NewNexusAuditLogRow = typeof nexusAuditLog.$inferInsert;
 export type NexusSchemaMetaRow = typeof nexusSchemaMeta.$inferSelect;
 export type NewNexusSchemaMetaRow = typeof nexusSchemaMeta.$inferInsert;
+export type NexusNodeRow = typeof nexusNodes.$inferSelect;
+export type NewNexusNodeRow = typeof nexusNodes.$inferInsert;
+export type NexusRelationRow = typeof nexusRelations.$inferSelect;
+export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;

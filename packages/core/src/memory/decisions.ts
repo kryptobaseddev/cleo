@@ -13,6 +13,8 @@ import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/brain-schema.js';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getDb } from '../store/sqlite.js';
+import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
+import { computeDecisionQuality } from './quality-scoring.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -79,10 +81,10 @@ export async function storeDecision(
   projectRoot: string,
   params: StoreDecisionParams,
 ): Promise<BrainDecisionRow> {
-  if (!params.decision || !params.decision.trim()) {
+  if (!params.decision?.trim()) {
     throw new Error('Decision text is required');
   }
-  if (!params.rationale || !params.rationale.trim()) {
+  if (!params.rationale?.trim()) {
     throw new Error('Rationale is required');
   }
 
@@ -107,6 +109,25 @@ export async function storeDecision(
       updatedAt: now,
     });
     const updated = await accessor.getDecision(duplicate.id);
+
+    // Refresh the graph node for the updated decision (best-effort).
+    const updatedQuality = computeDecisionQuality({
+      confidence: params.confidence,
+      rationale: params.rationale.trim(),
+      contextTaskId: params.contextTaskId ?? null,
+    });
+    upsertGraphNode(
+      projectRoot,
+      `decision:${duplicate.id}`,
+      'decision',
+      params.decision.trim().substring(0, 200),
+      updatedQuality,
+      params.decision.trim() + params.rationale.trim(),
+      { type: params.type, confidence: params.confidence },
+    ).catch(() => {
+      /* best-effort */
+    });
+
     return updated!;
   }
 
@@ -126,6 +147,13 @@ export async function storeDecision(
     }
   }
 
+  // Compute quality score from confidence level, rationale richness, and task linkage.
+  const qualityScore = computeDecisionQuality({
+    confidence: params.confidence,
+    rationale: params.rationale.trim(),
+    contextTaskId: validTaskId ?? null,
+  });
+
   const row: NewBrainDecisionRow = {
     id,
     type: params.type,
@@ -137,9 +165,54 @@ export async function storeDecision(
     contextEpicId: validEpicId,
     contextTaskId: validTaskId,
     contextPhase: params.contextPhase,
+    qualityScore,
   };
 
-  return accessor.addDecision(row);
+  const saved = await accessor.addDecision(row);
+
+  // Auto-populate graph node + edges for the new decision (best-effort, T537).
+  // All graph writes run fire-and-forget so they never block the return.
+  try {
+    await upsertGraphNode(
+      projectRoot,
+      `decision:${saved.id}`,
+      'decision',
+      saved.decision.substring(0, 200),
+      qualityScore,
+      saved.decision + saved.rationale,
+      { type: saved.type, confidence: saved.confidence },
+    );
+
+    // Link decision → task when a task context is present.
+    if (validTaskId) {
+      await upsertGraphNode(projectRoot, `task:${validTaskId}`, 'task', validTaskId, 1.0, '');
+      await addGraphEdge(
+        projectRoot,
+        `decision:${saved.id}`,
+        `task:${validTaskId}`,
+        'applies_to',
+        1.0,
+        'auto:store-decision',
+      );
+    }
+
+    // Link decision → epic when an epic context is present.
+    if (validEpicId) {
+      await upsertGraphNode(projectRoot, `epic:${validEpicId}`, 'epic', validEpicId, 1.0, '');
+      await addGraphEdge(
+        projectRoot,
+        `decision:${saved.id}`,
+        `epic:${validEpicId}`,
+        'applies_to',
+        1.0,
+        'auto:store-decision',
+      );
+    }
+  } catch {
+    /* Graph population is best-effort — never block the primary return */
+  }
+
+  return saved;
 }
 
 /**

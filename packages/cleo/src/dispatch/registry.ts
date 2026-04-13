@@ -556,6 +556,50 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['nodeId'],
   },
+  // memory — Graph traversal (T535)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'graph.trace',
+    description:
+      'memory.graph.trace (query) — BFS traversal from a seed node via recursive CTE (T535)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['nodeId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'graph.related',
+    description:
+      'memory.graph.related (query) — 1-hop typed neighbours of a brain graph node (T535)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['nodeId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'graph.context',
+    description:
+      'memory.graph.context (query) — 360-degree context view: node + all edges + neighbours (T535)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['nodeId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'graph.stats',
+    description: 'memory.graph.stats (query) — aggregate node and edge counts by type (T535)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   // memory — Reasoning & hybrid search (T5388-T5393)
   {
     gateway: 'query',

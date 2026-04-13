@@ -1603,6 +1603,174 @@ export async function memorySearchHybrid(
   }
 }
 
+// ============================================================================
+// Brain Graph Traversal Operations (T535)
+// ============================================================================
+
+/**
+ * BFS traversal of the brain knowledge graph from a seed node.
+ *
+ * @param params - Traversal parameters: nodeId and optional maxDepth (default 3)
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with traversal nodes annotated with depth
+ *
+ * @remarks
+ * Uses a recursive CTE against brain_page_nodes / brain_page_edges.
+ * Follows edges bidirectionally. Returns the seed node at depth 0.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphTrace({ nodeId: 'decision:D-abc123', maxDepth: 2 }, '/project');
+ * ```
+ */
+export async function memoryGraphTrace(
+  params: { nodeId: string; maxDepth?: number },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.nodeId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'nodeId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { traceBrainGraph } = await import('./graph-queries.js');
+    const nodes = await traceBrainGraph(root, params.nodeId, params.maxDepth ?? 3);
+
+    if (nodes.length === 0) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Node '${params.nodeId}' not found in brain graph` },
+      };
+    }
+
+    return { success: true, data: { nodes, total: nodes.length, seed: params.nodeId } };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_TRACE',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * Return the immediate (1-hop) neighbours of a brain graph node.
+ *
+ * @param params - Parameters: nodeId, optional edgeType filter
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with neighbour nodes and edge metadata
+ *
+ * @remarks
+ * Follows edges in both directions. Results include direction ('in'/'out'),
+ * edge type, and weight.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphRelated({ nodeId: 'decision:D-abc123', edgeType: 'applies_to' }, '/project');
+ * ```
+ */
+export async function memoryGraphRelated(
+  params: { nodeId: string; edgeType?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.nodeId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'nodeId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { relatedBrainNodes } = await import('./graph-queries.js');
+    const related = await relatedBrainNodes(root, params.nodeId, params.edgeType);
+    return { success: true, data: { related, total: related.length, seed: params.nodeId } };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_RELATED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * Return a 360-degree context view of a single brain graph node.
+ *
+ * @param params - Parameters: nodeId
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with the node, all edges, and neighbouring nodes
+ *
+ * @remarks
+ * Includes the node itself, in-edges, out-edges, and all immediately
+ * reachable neighbour nodes with their edge relationships.
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphContext({ nodeId: 'decision:D-abc123' }, '/project');
+ * ```
+ */
+export async function memoryGraphContext(
+  params: { nodeId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.nodeId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'nodeId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { contextBrainNode } = await import('./graph-queries.js');
+    const context = await contextBrainNode(root, params.nodeId);
+
+    if (!context) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Node '${params.nodeId}' not found in brain graph` },
+      };
+    }
+
+    return { success: true, data: context };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_CONTEXT',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * Return aggregate statistics for the brain knowledge graph.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult with node counts by type, edge counts by type, and totals
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryGraphStatsFull('/project');
+ * ```
+ */
+export async function memoryGraphStatsFull(projectRoot?: string): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const { graphStats } = await import('./graph-queries.js');
+    const stats = await graphStats(root);
+    return { success: true, data: stats };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_GRAPH_STATS',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 /**
  * Remove a node or edge from the PageIndex graph.
  *

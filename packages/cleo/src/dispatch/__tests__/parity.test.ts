@@ -131,9 +131,10 @@ describe('Group 1: Registry completeness', () => {
     // Phase 2 added pipeline.stage.guidance (query). +2 query / +1 mutate / +3 total.
     // W7a added 4 new dispatch ops (composer wiring, CANT integration).
     // FIX: wired admin.roadmap — was in system-engine but not registered.
-    expect(queryCount).toBe(133);
+    // T535: added 4 new memory graph traversal query ops (trace, related, context, stats).
+    expect(queryCount).toBe(137);
     expect(mutateCount).toBe(99);
-    expect(OPERATIONS.length).toBe(232);
+    expect(OPERATIONS.length).toBe(236);
   });
 
   it('all operations have valid gateway values', () => {

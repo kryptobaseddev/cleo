@@ -155,6 +155,8 @@ export {
 } from './lifecycle/index.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
+export type { BrainBackfillResult } from './memory/brain-backfill.js';
+export { backfillBrainGraph } from './memory/brain-backfill.js';
 // Memory — brain lifecycle (temporal decay + consolidation)
 export type { ConsolidationResult, DecayResult } from './memory/brain-lifecycle.js';
 export { applyTemporalDecay, consolidateMemories } from './memory/brain-lifecycle.js';
@@ -168,6 +170,8 @@ export type {
   BrainMaintenanceResult,
 } from './memory/brain-maintenance.js';
 export { runBrainMaintenance } from './memory/brain-maintenance.js';
+export type { PurgeResult } from './memory/brain-purge.js';
+export { purgeBrainNoise } from './memory/brain-purge.js';
 export type {
   PopulateEmbeddingsOptions,
   PopulateEmbeddingsResult,
@@ -183,9 +187,13 @@ export {
   memoryFetch,
   memoryFind,
   memoryGraphAdd,
+  memoryGraphContext,
   memoryGraphNeighbors,
+  memoryGraphRelated,
   memoryGraphRemove,
   memoryGraphShow,
+  memoryGraphStatsFull,
+  memoryGraphTrace,
   memoryLearningFind,
   memoryLearningStats,
   memoryLearningStore,
@@ -202,6 +210,13 @@ export {
   memoryTimeline,
   memoryUnlink,
 } from './memory/engine-compat.js';
+// Memory — graph traversal query functions (T535)
+export type {
+  GraphStats,
+  NodeContext,
+  RelatedNode,
+  TraceNode,
+} from './memory/graph-queries.js';
 // Memory — pipeline manifests
 export {
   pipelineManifestAppend,

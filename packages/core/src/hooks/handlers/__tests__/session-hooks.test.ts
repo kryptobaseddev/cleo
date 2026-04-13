@@ -1,77 +1,65 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const observeBrainMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  maybeRefreshMemoryBridge: vi.fn(),
+  gradeSession: vi.fn(),
+  loadConfig: vi.fn(),
+}));
 
-vi.mock('../../../memory/brain-retrieval.js', () => ({
-  observeBrain: observeBrainMock,
+vi.mock('../memory-bridge-refresh.js', () => ({
+  maybeRefreshMemoryBridge: mocks.maybeRefreshMemoryBridge,
+}));
+
+vi.mock('../../../sessions/session-grade.js', () => ({
+  gradeSession: mocks.gradeSession,
+}));
+
+vi.mock('../../../config.js', () => ({
+  loadConfig: mocks.loadConfig,
 }));
 
 import { handleSessionEnd, handleSessionStart } from '../session-hooks.js';
 
 describe('session hook handlers', () => {
   beforeEach(() => {
-    observeBrainMock.mockReset();
+    mocks.maybeRefreshMemoryBridge.mockReset();
+    mocks.maybeRefreshMemoryBridge.mockResolvedValue(undefined);
+    mocks.gradeSession.mockResolvedValue(undefined);
+    mocks.loadConfig.mockResolvedValue({ brain: { autoCapture: false } });
   });
 
-  it('swallows missing brain schema errors on session start', async () => {
-    observeBrainMock.mockRejectedValue(
-      new Error('SQLITE_ERROR: no such table: brain_observations'),
-    );
+  it('handleSessionStart refreshes the memory bridge', async () => {
+    await handleSessionStart('/tmp/project', {
+      sessionId: 'ses-1',
+      timestamp: '2026-03-04T00:00:00.000Z',
+      name: 'Test Session',
+      scope: 'T5306',
+    });
 
-    await expect(
-      handleSessionStart('/tmp/project', {
-        sessionId: 'ses-1',
-        timestamp: '2026-03-04T00:00:00.000Z',
-        name: 'Test Session',
-        scope: 'T5306',
-      }),
-    ).resolves.toBeUndefined();
+    expect(mocks.maybeRefreshMemoryBridge).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeRefreshMemoryBridge).toHaveBeenCalledWith('/tmp/project');
   });
 
-  it('swallows missing brain schema errors on session end', async () => {
-    observeBrainMock.mockRejectedValue(new Error('no such table: brain_decisions'));
-
-    await expect(
-      handleSessionEnd('/tmp/project', {
-        sessionId: 'ses-1',
-        timestamp: '2026-03-04T00:30:00.000Z',
-        duration: 1800,
-        tasksCompleted: [],
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('rethrows non-schema errors', async () => {
-    observeBrainMock.mockRejectedValue(new Error('database is locked'));
-
-    await expect(
-      handleSessionStart('/tmp/project', {
-        sessionId: 'ses-1',
-        timestamp: '2026-03-04T00:00:00.000Z',
-        name: 'Test Session',
-        scope: 'T5306',
-      }),
-    ).rejects.toThrow('database is locked');
-  });
-
-  it('records session context when observe succeeds', async () => {
-    observeBrainMock.mockResolvedValue(undefined);
-
+  it('handleSessionEnd refreshes the memory bridge', async () => {
     await handleSessionEnd('/tmp/project', {
       sessionId: 'ses-2',
-      timestamp: '2026-03-04T00:45:00.000Z',
-      duration: 2700,
+      timestamp: '2026-03-04T00:30:00.000Z',
+      duration: 1800,
       tasksCompleted: ['T5306', 'T5307'],
     });
 
-    expect(observeBrainMock).toHaveBeenCalledTimes(1);
-    expect(observeBrainMock).toHaveBeenCalledWith(
-      '/tmp/project',
-      expect.objectContaining({
-        title: 'Session end: ses-2',
-        type: 'change',
-        sourceSessionId: 'ses-2',
+    expect(mocks.maybeRefreshMemoryBridge).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeRefreshMemoryBridge).toHaveBeenCalledWith('/tmp/project');
+  });
+
+  it('handleSessionEnd resolves normally with no tasks', async () => {
+    await expect(
+      handleSessionEnd('/tmp/project', {
+        sessionId: 'ses-3',
+        timestamp: '2026-03-04T00:30:00.000Z',
+        duration: 900,
+        tasksCompleted: [],
       }),
-    );
+    ).resolves.toBeUndefined();
   });
 });

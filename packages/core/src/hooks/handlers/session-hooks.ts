@@ -1,7 +1,7 @@
 /**
  * Session Hook Handlers - Phase 2D of T5237
  *
- * Handlers that capture session lifecycle events to BRAIN via memory.observe.
+ * Handlers that capture session lifecycle events.
  * Auto-registers on module load.
  *
  * T138: Triggers memory bridge refresh on session start and end.
@@ -10,65 +10,43 @@
  * T5158: Auto-snapshots SQLite databases (tasks.db + brain.db) via
  *        VACUUM INTO on SessionEnd to preserve a recovery point now that
  *        the databases are no longer tracked in project git (ADR-013).
+ * T527: Removed duplicate session observeBrain writes — session data already
+ *       lives in the sessions table; writing it again to brain_observations
+ *       was pure noise.
  */
 
 import { hooks } from '../registry.js';
 import type { SessionEndPayload, SessionStartPayload } from '../types.js';
-import { isMissingBrainSchemaError } from './handler-helpers.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 /**
- * Handle SessionStart - capture initial session context
+ * Handle SessionStart - refresh memory bridge on session start.
  *
  * T138: Refresh memory bridge on session start.
  * T139: Regenerate bridge with session scope context.
+ * T527: Removed duplicate observeBrain write — session data is already
+ *       persisted in the sessions table.
  */
 export async function handleSessionStart(
   projectRoot: string,
-  payload: SessionStartPayload,
+  _payload: SessionStartPayload,
 ): Promise<void> {
-  const { observeBrain } = await import('../../memory/brain-retrieval.js');
-
-  try {
-    await observeBrain(projectRoot, {
-      text: `Session started: ${payload.name}\nScope: ${JSON.stringify(payload.scope)}\nAgent: ${payload.agent || 'unknown'}`,
-      title: `Session start: ${payload.name}`,
-      type: 'discovery',
-      sourceSessionId: payload.sessionId,
-      sourceType: 'agent',
-    });
-  } catch (err) {
-    if (!isMissingBrainSchemaError(err)) throw err;
-  }
-
   // T138/T139: Refresh memory bridge after session starts (best-effort)
   await maybeRefreshMemoryBridge(projectRoot);
 }
 
 /**
- * Handle SessionEnd - capture session summary
+ * Handle SessionEnd - run post-session tasks and refresh memory bridge.
  *
  * T138: Refresh memory bridge after session ends.
  * T144: Extract transcript observations via cross-provider adapter.
+ * T527: Removed duplicate observeBrain write — session data is already
+ *       persisted in the sessions table.
  */
 export async function handleSessionEnd(
   projectRoot: string,
   payload: SessionEndPayload,
 ): Promise<void> {
-  const { observeBrain } = await import('../../memory/brain-retrieval.js');
-
-  try {
-    await observeBrain(projectRoot, {
-      text: `Session ended: ${payload.sessionId}\nDuration: ${payload.duration}s\nTasks completed: ${payload.tasksCompleted.join(', ') || 'none'}`,
-      title: `Session end: ${payload.sessionId}`,
-      type: 'change',
-      sourceSessionId: payload.sessionId,
-      sourceType: 'agent',
-    });
-  } catch (err) {
-    if (!isMissingBrainSchemaError(err)) throw err;
-  }
-
   // Auto-grade session and feed insights to brain.db (best-effort)
   try {
     const { gradeSession } = await import('../../sessions/session-grade.js');

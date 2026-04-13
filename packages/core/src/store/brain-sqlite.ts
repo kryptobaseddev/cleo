@@ -143,6 +143,30 @@ export function isBrainVecLoaded(): boolean {
 }
 
 /**
+ * Initialize the default embedding provider when brain.embedding.enabled is true.
+ *
+ * Called asynchronously after getBrainDb() completes its synchronous setup.
+ * Uses dynamic import to avoid circular dependencies and keep the heavy
+ * @huggingface/transformers bundle out of the critical startup path.
+ *
+ * Best-effort: errors are swallowed by the caller so DB access is never blocked.
+ *
+ * @task T539
+ */
+async function initEmbeddingProvider(cwd?: string): Promise<void> {
+  try {
+    const { loadConfig } = await import('../config.js');
+    const config = await loadConfig(cwd);
+    if (config.brain?.embedding?.enabled) {
+      const { initDefaultProvider } = await import('../memory/brain-embedding.js');
+      await initDefaultProvider();
+    }
+  } catch {
+    // Config load or provider init failed — non-fatal, embedding stays unavailable
+  }
+}
+
+/**
  * Initialize the brain.db SQLite database (lazy, singleton).
  * Creates the database file and tables if they don't exist.
  * Returns the drizzle ORM instance (async via sqlite-proxy).
@@ -200,6 +224,17 @@ export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeo
 
     // Set singleton only after migrations complete
     _db = db;
+
+    // Wire the default embedding provider when vec is loaded and embedding is enabled.
+    // Best-effort, async, never blocks DB access. (T539)
+    if (_vecLoaded) {
+      setImmediate(() => {
+        initEmbeddingProvider(cwd).catch(() => {
+          // Non-fatal — embedding will be unavailable until next startup
+        });
+      });
+    }
+
     return db;
   })();
 

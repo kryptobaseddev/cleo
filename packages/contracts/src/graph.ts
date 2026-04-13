@@ -18,27 +18,53 @@
  *
  * Covers file/folder structural nodes plus every symbol-level construct
  * that tree-sitter can identify across TypeScript, JavaScript, and future
- * language providers.
+ * language providers. Includes synthetic graph-level nodes produced by
+ * analysis phases (community detection, process detection, route extraction).
+ *
+ * @since T529 — expanded from T512 baseline with 17 new kinds
  */
 export type GraphNodeKind =
+  // Structural
   | 'file'
   | 'folder'
+  // Module-level
   | 'module'
+  | 'namespace'
+  // Callable
   | 'function'
   | 'method'
   | 'constructor'
+  // Type hierarchy
   | 'class'
   | 'interface'
-  | 'enum'
   | 'struct'
   | 'trait'
-  | 'type'
+  | 'impl'
+  | 'type_alias'
+  | 'enum'
+  // Value-level
   | 'property'
   | 'constant'
   | 'variable'
-  | 'namespace'
+  | 'static'
+  | 'record'
+  | 'delegate'
+  // Language-specific constructs
+  | 'macro'
+  | 'union'
+  | 'typedef'
+  | 'annotation'
+  | 'template'
+  // Graph-level (synthetic, from analysis phases)
+  | 'community'
+  | 'process'
+  | 'route'
+  | 'tool'
+  | 'section'
+  // Legacy (kept for T506 compatibility)
   | 'import'
-  | 'export';
+  | 'export'
+  | 'type';
 
 // ---------------------------------------------------------------------------
 // Relationship types
@@ -49,19 +75,42 @@ export type GraphNodeKind =
  *
  * Types are intentionally lowercase to match CLEO convention.
  * Each type carries semantic meaning about the nature of the dependency.
+ *
+ * @since T529 — expanded from T512 baseline with 10 new relation types
  */
 export type GraphRelationType =
+  // Structural
   | 'contains'
+  // Definition / usage
   | 'defines'
   | 'imports'
+  | 'accesses'
+  // Callable
   | 'calls'
+  // Type hierarchy
   | 'extends'
   | 'implements'
+  | 'method_overrides'
+  | 'method_implements'
+  // Class structure
   | 'has_method'
   | 'has_property'
-  | 'accesses'
-  | 'method_overrides'
-  | 'method_implements';
+  // Graph-level (synthetic, from analysis phases)
+  | 'member_of' // symbol → community node
+  | 'step_in_process' // symbol → process node
+  // Web / API
+  | 'handles_route' // function → route node
+  | 'fetches' // function → external URL
+  // Tool / agent
+  | 'handles_tool'
+  | 'entry_point_of' // function → process node
+  // Wrapping / delegation
+  | 'wraps'
+  // Data access
+  | 'queries'
+  // Cross-graph (brain integration)
+  | 'documents' // brain node → nexus node
+  | 'applies_to'; // brain decision/learning → nexus node
 
 // ---------------------------------------------------------------------------
 // Node interface
@@ -99,6 +148,12 @@ export interface GraphNode {
   returnType?: string;
   /** First line of the TSDoc/JSDoc comment for this symbol, if present. */
   docSummary?: string;
+  /** Community ID this node belongs to (set after Phase 5 community detection). */
+  communityId?: string;
+  /** Execution flow process IDs this node participates in (set after Phase 6). */
+  processIds?: string[];
+  /** Kind-specific metadata blob (matches nexus_nodes.meta_json). */
+  meta?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,4 +230,68 @@ export interface ImpactResult {
   };
   /** Total number of affected nodes across all depths. */
   totalAffected: number;
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline interfaces (T529)
+// ---------------------------------------------------------------------------
+
+/**
+ * An in-memory symbol table entry tracking all files where a name appears.
+ * Used during ingestion to resolve cross-file call targets.
+ */
+export interface SymbolIndex {
+  /** Symbol name as it appears in source (e.g., "parseFile"). */
+  name: string;
+  /** All node IDs that define this name across the project. */
+  nodeIds: string[];
+  /** All file paths that export this name. */
+  exportingFiles: string[];
+}
+
+/**
+ * The in-memory KnowledgeGraph assembled during a single ingestion run.
+ * Flushed to nexus_nodes + nexus_relations after all phases complete.
+ */
+export interface KnowledgeGraph {
+  /** Primary node store: nodeId → GraphNode. */
+  nodes: Map<string, GraphNode>;
+  /** All directed edges (appended during ingestion, deduplicated at flush). */
+  relations: GraphRelation[];
+  /** Indexes for fast lookup during resolution phases. */
+  symbolTable: SymbolIndex[];
+  /** Files that changed since last index (incremental mode only). */
+  changedFiles?: Set<string>;
+}
+
+/**
+ * A community (module cluster) identified by Louvain community detection
+ * during Phase 5. Represents a group of cohesive symbols within the graph.
+ */
+export interface CommunityNode {
+  /** Node ID format: `community:<n>` */
+  id: string;
+  /** Inferred label from the top folder name. */
+  label: string;
+  /** Number of member symbols in this community. */
+  memberCount: number;
+  /** Top-level folders contributing most members. */
+  topFolders: string[];
+}
+
+/**
+ * A detected execution flow (process) from BFS entry point analysis
+ * during Phase 6. Represents a named sequence of function calls.
+ */
+export interface ProcessNode {
+  /** Node ID format: `process:<slug>` */
+  id: string;
+  /** Entry point function name used as the process label. */
+  label: string;
+  /** Node ID of the entry point function. */
+  entryPointId: string;
+  /** Ordered node IDs representing each step in the flow. */
+  stepIds: string[];
+  /** Total number of steps in this execution flow. */
+  stepCount: number;
 }

@@ -20,9 +20,13 @@ import {
   memoryFind,
   // PageIndex graph operations (T5385)
   memoryGraphAdd,
+  memoryGraphContext,
   memoryGraphNeighbors,
+  memoryGraphRelated,
   memoryGraphRemove,
   memoryGraphShow,
+  memoryGraphStatsFull,
+  memoryGraphTrace,
   // Learning operations
   memoryLearningFind,
   memoryLearningStore,
@@ -196,6 +200,65 @@ export class MemoryHandler implements DomainHandler {
             { nodeId, edgeType: params?.edgeType as string | undefined },
             projectRoot,
           );
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'graph.trace': {
+          const nodeId = params?.nodeId as string;
+          if (!nodeId) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'nodeId is required',
+              startTime,
+            );
+          }
+          const result = await memoryGraphTrace(
+            { nodeId, maxDepth: params?.maxDepth as number | undefined },
+            projectRoot,
+          );
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'graph.related': {
+          const nodeId = params?.nodeId as string;
+          if (!nodeId) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'nodeId is required',
+              startTime,
+            );
+          }
+          const result = await memoryGraphRelated(
+            { nodeId, edgeType: params?.edgeType as string | undefined },
+            projectRoot,
+          );
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'graph.context': {
+          const nodeId = params?.nodeId as string;
+          if (!nodeId) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'nodeId is required',
+              startTime,
+            );
+          }
+          const result = await memoryGraphContext({ nodeId }, projectRoot);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'graph.stats': {
+          const result = await memoryGraphStatsFull(projectRoot);
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -468,6 +531,10 @@ export class MemoryHandler implements DomainHandler {
         'learning.find',
         'graph.show',
         'graph.neighbors',
+        'graph.trace',
+        'graph.related',
+        'graph.context',
+        'graph.stats',
         'reason.why',
         'reason.similar',
         'search.hybrid',
