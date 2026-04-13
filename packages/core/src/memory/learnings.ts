@@ -12,6 +12,8 @@
 
 import { randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
+import { upsertGraphNode } from './graph-auto-populate.js';
+import { computeLearningQuality } from './quality-scoring.js';
 
 /** Parameters for storing a new learning. */
 export interface StoreLearningParams {
@@ -44,10 +46,10 @@ function generateLearningId(): string {
  * @task T4769, T5241
  */
 export async function storeLearning(projectRoot: string, params: StoreLearningParams) {
-  if (!params.insight || !params.insight.trim()) {
+  if (!params.insight?.trim()) {
     throw new Error('Insight text is required');
   }
-  if (!params.source || !params.source.trim()) {
+  if (!params.source?.trim()) {
     throw new Error('Source is required');
   }
   if (params.confidence < 0 || params.confidence > 1) {
@@ -55,17 +57,49 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
   }
 
   const accessor = await getBrainAccessor(projectRoot);
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-  // Check for duplicate insight
+  // Check for duplicate insight by normalized text
   const existingLearnings = await accessor.findLearnings();
+  const normalizedInput = params.insight.trim().toLowerCase();
   const duplicate = existingLearnings.find(
-    (e) => e.insight.toLowerCase() === params.insight.toLowerCase(),
+    (e) => e.insight.trim().toLowerCase() === normalizedInput,
   );
 
   if (duplicate) {
-    // We would ideally increment confidence here or update. Let's assume we don't have update method on accessor yet.
+    // Take the higher confidence value and update the timestamp
+    const maxConfidence = Math.max(duplicate.confidence, params.confidence);
+    await accessor.updateLearning(duplicate.id, {
+      confidence: maxConfidence,
+    });
+
+    const updated = await accessor.getLearning(duplicate.id);
+
+    // Refresh graph node for the updated learning (best-effort, T537).
+    upsertGraphNode(
+      projectRoot,
+      `learning:${duplicate.id}`,
+      'learning',
+      duplicate.insight.substring(0, 200),
+      duplicate.qualityScore ?? 0.5,
+      duplicate.insight + (duplicate.application ?? ''),
+      { source: duplicate.source, confidence: maxConfidence, actionable: duplicate.actionable },
+    ).catch(() => {
+      /* best-effort */
+    });
+
+    return {
+      ...updated!,
+      applicableTypes: JSON.parse(updated!.applicableTypesJson || '[]'),
+    };
   }
+
+  // Compute quality score from confidence, actionability, and content richness.
+  const qualityScore = computeLearningQuality({
+    confidence: params.confidence,
+    actionable: params.actionable ?? false,
+    insight: params.insight.trim(),
+    application: params.application ?? null,
+  });
 
   // Create new entry
   const entry = {
@@ -76,10 +110,24 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     actionable: params.actionable ?? false,
     application: params.application ?? null,
     applicableTypesJson: params.applicableTypes ? JSON.stringify(params.applicableTypes) : '[]',
-    extractedAt: now,
+    qualityScore,
   };
 
   const saved = await accessor.addLearning(entry);
+
+  // Auto-populate graph node for the new learning (best-effort, T537).
+  upsertGraphNode(
+    projectRoot,
+    `learning:${saved.id}`,
+    'learning',
+    saved.insight.substring(0, 200),
+    qualityScore,
+    saved.insight + (saved.application ?? ''),
+    { source: saved.source, confidence: saved.confidence, actionable: saved.actionable },
+  ).catch(() => {
+    /* best-effort */
+  });
+
   return {
     ...saved,
     applicableTypes: JSON.parse(saved.applicableTypesJson || '[]'),

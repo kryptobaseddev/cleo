@@ -299,6 +299,74 @@ export function registerMemoryBrainCommand(program: Command): void {
       );
     });
 
+  // -- trace (BFS traversal from a seed node via recursive CTE) --
+  memory
+    .command('trace <nodeId>')
+    .description('BFS traversal of the brain knowledge graph from a seed node')
+    .option('--depth <n>', 'Maximum traversal depth (default: 3)', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (nodeId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.trace',
+        {
+          nodeId,
+          ...(opts['depth'] !== undefined && { maxDepth: opts['depth'] }),
+        },
+        { command: 'memory-trace', operation: 'memory.graph.trace' },
+      );
+    });
+
+  // -- related (1-hop neighbours with edge metadata) --
+  memory
+    .command('related <nodeId>')
+    .description('Return immediate (1-hop) neighbours of a brain graph node')
+    .option('--type <edgeType>', 'Filter by edge type (e.g. applies_to, supports, derived_from)')
+    .option('--json', 'Output as JSON')
+    .action(async (nodeId: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.related',
+        {
+          nodeId,
+          ...(opts['type'] !== undefined && { edgeType: opts['type'] }),
+        },
+        { command: 'memory-related', operation: 'memory.graph.related' },
+      );
+    });
+
+  // -- context (360-degree view of a single node) --
+  memory
+    .command('context <nodeId>')
+    .description('360-degree context view of a brain graph node: node + all edges + neighbours')
+    .option('--json', 'Output as JSON')
+    .action(async (nodeId: string, _opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.context',
+        { nodeId },
+        { command: 'memory-context', operation: 'memory.graph.context' },
+      );
+    });
+
+  // -- graph-stats (aggregate counts by type) --
+  memory
+    .command('graph-stats')
+    .description('Show brain knowledge graph statistics: node and edge counts by type')
+    .option('--json', 'Output as JSON')
+    .action(async (_opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'graph.stats',
+        {},
+        { command: 'memory-graph-stats', operation: 'memory.graph.stats' },
+      );
+    });
+
   // -- graph-show --
   memory
     .command('graph-show <nodeId>')

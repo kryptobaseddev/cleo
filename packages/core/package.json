@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/core",
   "version": "2026.4.30",
-  "description": "CLEO core business logic kernel \u2014 tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -45,6 +45,7 @@
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
+    "sqlite-vec": "^0.1.9",
     "tar": "^7.4.3",
     "tree-sitter": "^0.22.1",
     "tree-sitter-c": "^0.23.2",

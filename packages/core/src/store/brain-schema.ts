@@ -94,6 +94,12 @@ export const brainDecisions = sqliteTable(
     contextEpicId: text('context_epic_id'), // soft FK to tasks.id in tasks.db
     contextTaskId: text('context_task_id'), // soft FK to tasks.id in tasks.db
     contextPhase: text('context_phase'),
+    /**
+     * Quality score: 0.0 (noise) – 1.0 (canonical). Null for legacy entries.
+     * Computed at insert time from confidence, content richness, and context.
+     * Entries below 0.3 are excluded from search results (T531).
+     */
+    qualityScore: real('quality_score'),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
   },
@@ -103,6 +109,7 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_outcome').on(table.outcome),
     index('idx_brain_decisions_context_epic').on(table.contextEpicId),
     index('idx_brain_decisions_context_task').on(table.contextTaskId),
+    index('idx_brain_decisions_quality').on(table.qualityScore),
   ],
 );
 
@@ -123,11 +130,18 @@ export const brainPatterns = sqliteTable(
     examplesJson: text('examples_json').default('[]'),
     extractedAt: text('extracted_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
+    /**
+     * Quality score: 0.0 (noise) – 1.0 (canonical). Null for legacy entries.
+     * Computed at insert time from type, content richness, and examples.
+     * Entries below 0.3 are excluded from search results (T531).
+     */
+    qualityScore: real('quality_score'),
   },
   (table) => [
     index('idx_brain_patterns_type').on(table.type),
     index('idx_brain_patterns_impact').on(table.impact),
     index('idx_brain_patterns_frequency').on(table.frequency),
+    index('idx_brain_patterns_quality').on(table.qualityScore),
   ],
 );
 
@@ -145,10 +159,17 @@ export const brainLearnings = sqliteTable(
     applicableTypesJson: text('applicable_types_json'),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
+    /**
+     * Quality score: 0.0 (noise) – 1.0 (canonical). Null for legacy entries.
+     * Computed at insert time from confidence, actionability, and content richness.
+     * Entries below 0.3 are excluded from search results (T531).
+     */
+    qualityScore: real('quality_score'),
   },
   (table) => [
     index('idx_brain_learnings_confidence').on(table.confidence),
     index('idx_brain_learnings_actionable').on(table.actionable),
+    index('idx_brain_learnings_quality').on(table.qualityScore),
   ],
 );
 
@@ -176,6 +197,12 @@ export const brainObservations = sqliteTable(
     agent: text('agent'), // nullable — null for legacy observations
     contentHash: text('content_hash'), // SHA-256 prefix for dedup
     discoveryTokens: integer('discovery_tokens'), // cost to produce this observation
+    /**
+     * Quality score: 0.0 (noise) – 1.0 (canonical). Null for legacy entries.
+     * Computed at insert time from content richness and title length.
+     * Entries below 0.3 are excluded from search results (T531).
+     */
+    qualityScore: real('quality_score'),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
   },
@@ -191,6 +218,8 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_type_project').on(table.type, table.project),
     // T417: agent provenance index for memory.find --agent filter
     index('idx_brain_observations_agent').on(table.agent),
+    // T531: quality score filter index
+    index('idx_brain_observations_quality').on(table.qualityScore),
   ],
 );
 
@@ -244,41 +273,163 @@ export const brainSchemaMeta = sqliteTable('brain_schema_meta', {
   value: text('value').notNull(),
 });
 
-// === PAGEINDEX GRAPH TABLES (T5160) ===
+// === PAGEINDEX GRAPH TABLES (T5160, expanded T528) ===
 
-/** Node types for PageIndex graph. */
-export const BRAIN_NODE_TYPES = ['task', 'doc', 'file', 'concept'] as const;
+/**
+ * Node types for the graph-native memory model.
+ * Mirrors typed tables (decision, pattern, learning, observation, sticky),
+ * adds task provenance (task, session, epic), codebase bridging (file, symbol),
+ * and abstract/synthesized types (concept, summary).
+ */
+export const BRAIN_NODE_TYPES = [
+  // Memory entity types (mirror typed tables)
+  'decision',
+  'pattern',
+  'learning',
+  'observation',
+  'sticky',
+  // Task provenance (soft FK into tasks.db)
+  'task',
+  'session',
+  'epic',
+  // Codebase integration (bridge to nexus.db code_index)
+  'file',
+  'symbol',
+  // Abstract / synthesized
+  'concept',
+  'summary',
+] as const;
 
-/** Edge types for PageIndex graph. */
-export const BRAIN_EDGE_TYPES = ['depends_on', 'relates_to', 'implements', 'documents'] as const;
+/** Discriminated union of all supported brain graph node types. */
+export type BrainNodeType = (typeof BRAIN_NODE_TYPES)[number];
 
-/** Documents/concepts as graph nodes for cross-document linking. */
+/**
+ * Edge types for the graph-native memory model.
+ * Covers provenance/derivation, semantic relationships, structural links,
+ * and graph bridging between memory entities and codebase nodes.
+ */
+export const BRAIN_EDGE_TYPES = [
+  // Provenance / derivation
+  'derived_from', // learning ← derived_from ← observation
+  'produced_by', // observation ← produced_by ← session
+  'informed_by', // decision ← informed_by ← pattern
+  // Semantic relationship
+  'supports', // observation → supports → decision
+  'contradicts', // observation → contradicts → decision
+  'supersedes', // decision → supersedes → decision (older)
+  'applies_to', // decision/pattern → applies_to → task/file/symbol
+  // Structural
+  'documents', // observation → documents → symbol/file
+  'summarizes', // summary → summarizes → observation (consolidation)
+  'part_of', // task → part_of → epic
+  // Graph bridging (memory ↔ code)
+  'references', // observation → references → symbol
+  'modified_by', // file → modified_by → session
+] as const;
+
+/** Discriminated union of all supported brain graph edge types. */
+export type BrainEdgeType = (typeof BRAIN_EDGE_TYPES)[number];
+
+/**
+ * Graph nodes table — the traversable knowledge graph layer.
+ *
+ * Every entity row in a typed table (decisions, patterns, learnings,
+ * observations) gets a corresponding node here. The typed table row is
+ * the source of truth; the graph node is the index entry for traversal
+ * and cross-entity reasoning.
+ *
+ * Node ID convention: '<type>:<source-id>'
+ * Examples: 'decision:D-abc123', 'observation:O-mntphoj6-0',
+ *           'task:T523', 'symbol:src/store/brain-schema.ts::brainPageNodes'
+ */
 export const brainPageNodes = sqliteTable(
   'brain_page_nodes',
   {
-    id: text('id').primaryKey(), // 'task:T5241', 'doc:BRAIN-SPEC', 'file:src/store/brain-schema.ts'
+    /** Stable composite ID: '<type>:<source-id>' */
+    id: text('id').primaryKey(),
+
+    /** Discriminated type from BRAIN_NODE_TYPES. */
     nodeType: text('node_type', { enum: BRAIN_NODE_TYPES }).notNull(),
+
+    /** Human-readable label (title, name, or generated summary). */
     label: text('label').notNull(),
-    metadataJson: text('metadata_json'), // JSON blob for extensible metadata
+
+    /**
+     * Quality score: 0.0 (noise) – 1.0 (canonical).
+     * Derived from: source confidence, edge density, age decay, agent provenance.
+     * Default 0.5 for unknown provenance; 0.0 triggers exclusion from traversal.
+     */
+    qualityScore: real('quality_score').notNull().default(0.5),
+
+    /**
+     * SHA-256 prefix (first 16 hex chars) of the canonical content.
+     * Computed at insert time; duplicate hashes are rejected.
+     * Null for external references (task, session, symbol nodes).
+     */
+    contentHash: text('content_hash'),
+
+    /**
+     * ISO 8601 timestamp of last activity on this node.
+     * Updated when new edges are added, quality changes, or content is revised.
+     */
+    lastActivityAt: text('last_activity_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Extensible JSON metadata blob — type-specific payload.
+     * decision: { type, confidence, outcome }
+     * observation: { sourceType, agent, sessionId }
+     * symbol: { filePath, kind, startLine, endLine, language }
+     * task: { status, priority, epicId }
+     */
+    metadataJson: text('metadata_json'),
+
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at'),
   },
-  (table) => [index('idx_brain_nodes_type').on(table.nodeType)],
+  (table) => [
+    index('idx_brain_nodes_type').on(table.nodeType),
+    index('idx_brain_nodes_quality').on(table.qualityScore),
+    index('idx_brain_nodes_content_hash').on(table.contentHash),
+    index('idx_brain_nodes_last_activity').on(table.lastActivityAt),
+  ],
 );
 
-/** Directed links between graph nodes. */
+/**
+ * Graph edges table — directed, typed, weighted, provenance-aware links
+ * between brain_page_nodes entries (or external nexus node IDs).
+ *
+ * The composite primary key (fromId, toId, edgeType) prevents duplicate
+ * edges of the same type between the same pair of nodes.
+ */
 export const brainPageEdges = sqliteTable(
   'brain_page_edges',
   {
-    fromId: text('from_id').notNull(),
-    toId: text('to_id').notNull(),
+    fromId: text('from_id').notNull(), // brain_page_nodes.id
+    toId: text('to_id').notNull(), // brain_page_nodes.id or nexus node id
     edgeType: text('edge_type', { enum: BRAIN_EDGE_TYPES }).notNull(),
-    weight: real('weight').default(1.0),
+
+    /**
+     * Edge weight / confidence: 0.0 – 1.0.
+     * Semantic edges use extractor confidence (similarity score).
+     * Structural edges use 1.0 (deterministic).
+     * Contradiction edges store the overlap score that triggered detection.
+     */
+    weight: real('weight').notNull().default(1.0),
+
+    /**
+     * Human-readable note on why this edge was emitted.
+     * Examples: 'auto:task-complete' | 'auto:session-end' |
+     *           'auto:contradiction-detected' | 'auto:consolidation' | 'manual'
+     */
+    provenance: text('provenance'),
+
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
     primaryKey({ columns: [table.fromId, table.toId, table.edgeType] }),
     index('idx_brain_edges_from').on(table.fromId),
     index('idx_brain_edges_to').on(table.toId),
+    index('idx_brain_edges_type').on(table.edgeType),
   ],
 );
 
@@ -300,3 +451,4 @@ export type BrainPageEdgeRow = typeof brainPageEdges.$inferSelect;
 export type NewBrainPageEdgeRow = typeof brainPageEdges.$inferInsert;
 export type BrainStickyNoteRow = typeof brainStickyNotes.$inferSelect;
 export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;
+// BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.

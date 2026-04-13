@@ -171,13 +171,17 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
-// === Graph Intelligence Types (T512) ===
+// === Graph Intelligence Types (T512, T529) ===
 export type {
+  CommunityNode,
   GraphNode,
   GraphNodeKind,
   GraphRelation,
   GraphRelationType,
   ImpactResult,
+  KnowledgeGraph,
+  ProcessNode,
+  SymbolIndex,
 } from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';

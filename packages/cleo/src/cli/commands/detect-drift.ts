@@ -385,7 +385,8 @@ export function registerDetectDriftCommand(program: Command): void {
             category: 'spec',
             message: 'Portable Brain spec missing',
             file: specPath,
-            recommendation: 'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
+            recommendation:
+              'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
           });
         }
 
@@ -414,7 +415,8 @@ export function registerDetectDriftCommand(program: Command): void {
                   category: 'vision',
                   message: `Missing pillars: ${missingPillars.join(', ')}`,
                   file: specPath,
-                  recommendation: 'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
+                  recommendation:
+                    'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
                 },
               ],
             );

@@ -299,6 +299,20 @@ export {
   timelineBrain,
 } from './memory/brain-retrieval.js';
 export { searchBrain } from './memory/brain-search.js';
+export type {
+  DecisionQualityInput,
+  LearningQualityInput,
+  ObservationQualityInput,
+  PatternQualityInput,
+} from './memory/quality-scoring.js';
+// Quality scoring (T531) — exported for backfill (T530) and future hooks
+export {
+  computeDecisionQuality,
+  computeLearningQuality,
+  computeObservationQuality,
+  computePatternQuality,
+  QUALITY_SCORE_THRESHOLD,
+} from './memory/quality-scoring.js';
 // Migration (flat re-exports for backward compatibility)
 export {
   compareSemver,

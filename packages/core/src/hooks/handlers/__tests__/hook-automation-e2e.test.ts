@@ -30,6 +30,11 @@ vi.mock('../memory-bridge-refresh.js', () => ({
   maybeRefreshMemoryBridge: vi.fn(),
 }));
 
+// T527: Mock session-grade to prevent real DB access in handleSessionEnd
+vi.mock('../../../sessions/session-grade.js', () => ({
+  gradeSession: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ---------------------------------------------------------------------------
 // Handler imports — after mock setup
 // ---------------------------------------------------------------------------
@@ -99,10 +104,10 @@ describe('hook automation E2E', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 1. SessionStart dispatches and brain handler fires (bridge refresh)
+  // 1. SessionStart — refreshes memory bridge (no observeBrain write per T527)
   // -------------------------------------------------------------------------
   describe('SessionStart', () => {
-    it('fires brain observation on session start', async () => {
+    it('does not write a brain observation on session start (T527)', async () => {
       await handleSessionStart(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         sessionId: 'ses-e2e-1',
@@ -111,16 +116,8 @@ describe('hook automation E2E', () => {
         agent: 'claude-sonnet',
       });
 
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
-      expect(observeBrainMock).toHaveBeenCalledWith(
-        PROJECT_ROOT,
-        expect.objectContaining({
-          title: 'Session start: E2E Session',
-          type: 'discovery',
-          sourceSessionId: 'ses-e2e-1',
-          sourceType: 'agent',
-        }),
-      );
+      // T527: session start no longer writes a duplicate brain observation
+      expect(observeBrainMock).not.toHaveBeenCalled();
     });
 
     it('triggers memory bridge refresh after session start', async () => {
@@ -136,10 +133,10 @@ describe('hook automation E2E', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. SessionEnd dispatches and brain handler fires (summarization + bridge)
+  // 2. SessionEnd — refreshes memory bridge (no observeBrain write per T527)
   // -------------------------------------------------------------------------
   describe('SessionEnd', () => {
-    it('fires brain observation on session end', async () => {
+    it('does not write a brain observation on session end (T527)', async () => {
       await handleSessionEnd(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         sessionId: 'ses-e2e-2',
@@ -147,29 +144,8 @@ describe('hook automation E2E', () => {
         tasksCompleted: ['T166', 'T168'],
       });
 
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
-      expect(observeBrainMock).toHaveBeenCalledWith(
-        PROJECT_ROOT,
-        expect.objectContaining({
-          title: 'Session end: ses-e2e-2',
-          type: 'change',
-          sourceSessionId: 'ses-e2e-2',
-          sourceType: 'agent',
-        }),
-      );
-    });
-
-    it('includes task list in session end observation text', async () => {
-      await handleSessionEnd(PROJECT_ROOT, {
-        timestamp: TIMESTAMP,
-        sessionId: 'ses-e2e-tasks',
-        duration: 600,
-        tasksCompleted: ['T100', 'T101'],
-      });
-
-      const callText = observeBrainMock.mock.calls[0][1].text as string;
-      expect(callText).toContain('T100');
-      expect(callText).toContain('T101');
+      // T527: session end no longer writes a duplicate brain observation
+      expect(observeBrainMock).not.toHaveBeenCalled();
     });
 
     it('triggers memory bridge refresh after session end', async () => {
@@ -536,8 +512,8 @@ describe('hook automation E2E', () => {
   // 11. Dedup: PostToolUse doesn't double-capture what session-hooks handles
   // -------------------------------------------------------------------------
   describe('dedup (no double-capture)', () => {
-    it('PostToolUse and SessionEnd are separate calls — no overlap', async () => {
-      // Simulate a session ending after a task completes
+    it('PostToolUse fires brain observation; SessionEnd does not (T527)', async () => {
+      // Simulate a task completing then a session ending
       await handleToolComplete(PROJECT_ROOT, {
         timestamp: TIMESTAMP,
         taskId: 'T168',
@@ -545,6 +521,8 @@ describe('hook automation E2E', () => {
         status: 'done',
       });
 
+      // PostToolUse (handleToolComplete) should have fired once
+      expect(observeBrainMock).toHaveBeenCalledTimes(1);
       observeBrainMock.mockClear();
 
       await handleSessionEnd(PROJECT_ROOT, {
@@ -554,12 +532,8 @@ describe('hook automation E2E', () => {
         tasksCompleted: ['T168'],
       });
 
-      // Each handler fires exactly once — no double-capture for the same event
-      expect(observeBrainMock).toHaveBeenCalledTimes(1);
-      expect(observeBrainMock).toHaveBeenCalledWith(
-        PROJECT_ROOT,
-        expect.objectContaining({ title: 'Session end: ses-dedup' }),
-      );
+      // T527: session end no longer writes a duplicate brain observation
+      expect(observeBrainMock).not.toHaveBeenCalled();
     });
 
     it('work-capture does not fire when captureWork is disabled (default)', async () => {

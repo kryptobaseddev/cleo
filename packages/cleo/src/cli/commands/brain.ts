@@ -10,7 +10,12 @@
  * @what Parent command group with maintenance subcommand and progress reporting
  */
 
-import { getProjectRoot, runBrainMaintenance } from '@cleocode/core/internal';
+import {
+  backfillBrainGraph,
+  getProjectRoot,
+  purgeBrainNoise,
+  runBrainMaintenance,
+} from '@cleocode/core/internal';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
@@ -127,4 +132,116 @@ export function registerBrainCommand(program: Command): void {
         }
       },
     );
+
+  brain
+    .command('backfill')
+    .description(
+      'Back-fill brain_page_nodes and brain_page_edges from all surviving typed table rows (decisions, patterns, learnings, observations, sticky notes). Safe to re-run — duplicates are silently skipped.',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Running brain graph back-fill...');
+      }
+
+      try {
+        const result = await backfillBrainGraph(root);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: result,
+                meta: { operation: 'brain.backfill', timestamp: new Date().toISOString() },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        console.log('\nBack-fill complete.');
+        console.log(`  Before: ${result.before.nodes} nodes, ${result.before.edges} edges`);
+        console.log(
+          `  Source: ${result.before.decisions} decisions, ${result.before.patterns} patterns, ${result.before.learnings} learnings, ${result.before.observations} observations, ${result.before.stickyNotes} stickies`,
+        );
+        console.log(
+          `  Nodes inserted: ${result.nodesInserted} (including ${result.stubsCreated} stub nodes)`,
+        );
+        console.log(`  Edges inserted: ${result.edgesInserted}`);
+        console.log(`  After:  ${result.after.nodes} nodes, ${result.after.edges} edges`);
+        console.log('\n  By type:');
+        for (const [type, count] of Object.entries(result.byType)) {
+          console.log(`    ${type}: ${count}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Brain backfill failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  brain
+    .command('purge')
+    .description(
+      'Purge noise entries from brain.db — removes duplicate patterns, all learnings, test decisions, and task-lifecycle observations. TAKE A BACKUP FIRST.',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Running brain noise purge...');
+        console.log('Safety check: verifying D-mntpeeer exists before any deletes...');
+      }
+
+      try {
+        const result = await purgeBrainNoise(root);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: result,
+                meta: { operation: 'brain.purge', timestamp: new Date().toISOString() },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        console.log('\nPurge complete.');
+        console.log(`  Patterns deleted:     ${result.patternsDeleted}`);
+        console.log(`  Learnings deleted:    ${result.learningsDeleted}`);
+        console.log(`  Decisions deleted:    ${result.decisionsDeleted}`);
+        console.log(`  Observations deleted: ${result.observationsDeleted}`);
+        console.log('\nPost-purge counts:');
+        console.log(`  Patterns:     ${result.after.patterns}`);
+        console.log(`  Learnings:    ${result.after.learnings}`);
+        console.log(`  Decisions:    ${result.after.decisions}`);
+        console.log(`  Observations: ${result.after.observations}`);
+        console.log(`  FTS5 rebuilt: ${result.fts5Rebuilt}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Brain purge failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
 }

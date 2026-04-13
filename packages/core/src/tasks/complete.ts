@@ -297,6 +297,46 @@ export async function completeTask(
       /* Memory extraction is best-effort */
     });
 
+  // Auto-populate brain graph nodes for the completed task (best-effort, T537).
+  // Runs SEPARATE from the gutted extractTaskCompletionMemory — this only writes
+  // graph topology, not memory table rows.
+  import('../memory/graph-auto-populate.js')
+    .then(({ upsertGraphNode, addGraphEdge }) =>
+      (async () => {
+        const projectRoot = cwd ?? process.cwd();
+        await upsertGraphNode(
+          projectRoot,
+          `task:${task.id}`,
+          'task',
+          `${task.id}: ${task.title}`.substring(0, 200),
+          1.0,
+          task.title,
+          { status: 'done', priority: task.priority },
+        );
+        if (task.parentId) {
+          await upsertGraphNode(
+            projectRoot,
+            `epic:${task.parentId}`,
+            'epic',
+            task.parentId,
+            1.0,
+            '',
+          );
+          await addGraphEdge(
+            projectRoot,
+            `task:${task.id}`,
+            `epic:${task.parentId}`,
+            'part_of',
+            1.0,
+            'auto:task-complete',
+          );
+        }
+      })(),
+    )
+    .catch(() => {
+      /* Graph population is best-effort */
+    });
+
   return {
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),

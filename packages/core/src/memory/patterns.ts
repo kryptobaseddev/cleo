@@ -12,6 +12,8 @@
 
 import { randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
+import { upsertGraphNode } from './graph-auto-populate.js';
+import { computePatternQuality } from './quality-scoring.js';
 
 /** Pattern types from ADR-009. */
 export type PatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
@@ -53,33 +55,69 @@ function generatePatternId(): string {
  * @task T4768, T5241
  */
 export async function storePattern(projectRoot: string, params: StorePatternParams) {
-  if (!params.pattern || !params.pattern.trim()) {
+  if (!params.pattern?.trim()) {
     throw new Error('Pattern description is required');
   }
-  if (!params.context || !params.context.trim()) {
+  if (!params.context?.trim()) {
     throw new Error('Pattern context is required');
   }
 
   const accessor = await getBrainAccessor(projectRoot);
 
-  // First search for duplicate pattern
-  // Currently we just match on type and exact text
+  // Search for duplicate pattern by normalized text within same type
   const existingPatterns = await accessor.findPatterns({ type: params.type });
+  const normalizedInput = params.pattern.trim().toLowerCase();
   const duplicate = existingPatterns.find(
-    (e) => e.pattern.toLowerCase() === params.pattern.toLowerCase(),
+    (e) => e.pattern.trim().toLowerCase() === normalizedInput,
   );
 
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   if (duplicate) {
-    // We would ideally increment frequency here
-    // However, accessor.addPattern handles inserts. Let's just insert it again or
-    // we would need an update method on accessor.
-    // For now, since accessor.updatePattern might not exist, we just insert.
-    // Let's assume brain accessor should support updating, or we'll just add it.
-    // Wait, let's look if accessor has updatePattern. If not, we just insert anew? No, we should update.
-    // Actually, brain.db is meant to store new records or update them. Let's check accessor again.
+    // Merge examples arrays (union of task IDs)
+    const existingExamples: string[] = JSON.parse(duplicate.examplesJson || '[]');
+    const newExamples: string[] = params.examples ?? [];
+    const mergedExamples = Array.from(new Set([...existingExamples, ...newExamples]));
+
+    await accessor.updatePattern(duplicate.id, {
+      frequency: duplicate.frequency + 1,
+      extractedAt: now,
+      examplesJson: JSON.stringify(mergedExamples),
+    });
+
+    const updated = await accessor.getPattern(duplicate.id);
+
+    // Refresh graph node for the updated (incremented) pattern (best-effort, T537).
+    upsertGraphNode(
+      projectRoot,
+      `pattern:${duplicate.id}`,
+      'pattern',
+      duplicate.pattern.substring(0, 200),
+      duplicate.qualityScore ?? 0.5,
+      duplicate.pattern + duplicate.context,
+      {
+        type: duplicate.type,
+        impact: duplicate.impact ?? undefined,
+        frequency: duplicate.frequency + 1,
+      },
+    ).catch(() => {
+      /* best-effort */
+    });
+
+    return {
+      ...updated!,
+      examples: mergedExamples,
+    };
   }
+
+  // Compute quality score based on type, content richness, and examples.
+  const examplesJson = params.examples ? JSON.stringify(params.examples) : '[]';
+  const qualityScore = computePatternQuality({
+    type: params.type,
+    pattern: params.pattern.trim(),
+    context: params.context.trim(),
+    examples_json: examplesJson,
+  });
 
   // Create new entry
   const entry = {
@@ -92,11 +130,26 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     impact: params.impact ?? null,
     antiPattern: params.antiPattern ?? null,
     mitigation: params.mitigation ?? null,
-    examplesJson: params.examples ? JSON.stringify(params.examples) : '[]',
+    examplesJson,
     extractedAt: now,
+    qualityScore,
   };
 
   const saved = await accessor.addPattern(entry);
+
+  // Auto-populate graph node for the new pattern (best-effort, T537).
+  upsertGraphNode(
+    projectRoot,
+    `pattern:${saved.id}`,
+    'pattern',
+    saved.pattern.substring(0, 200),
+    qualityScore,
+    saved.pattern + saved.context,
+    { type: saved.type, impact: saved.impact ?? undefined },
+  ).catch(() => {
+    /* best-effort */
+  });
+
   return {
     ...saved,
     examples: JSON.parse(saved.examplesJson || '[]'),

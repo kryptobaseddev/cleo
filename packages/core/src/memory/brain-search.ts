@@ -20,6 +20,7 @@ import { typedAll } from '../store/typed-query.js';
 import type { BrainSearchHit } from './brain-row-types.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
+import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
 
 /** Search result with BM25 rank. */
 export interface BrainSearchResult {
@@ -281,7 +282,7 @@ export async function searchBrain(
   query: string,
   options?: BrainSearchOptions,
 ): Promise<BrainSearchResult> {
-  if (!query || !query.trim()) {
+  if (!query?.trim()) {
     return { decisions: [], patterns: [], learnings: [], observations: [] };
   }
 
@@ -339,10 +340,12 @@ function searchWithFts5(
         FROM brain_decisions_fts fts
         JOIN brain_decisions d ON d.rowid = fts.rowid
         WHERE brain_decisions_fts MATCH ?
+          AND (d.quality_score IS NULL OR d.quality_score >= ?)
         ORDER BY bm25(brain_decisions_fts)
         LIMIT ?
       `),
         safeQuery,
+        QUALITY_SCORE_THRESHOLD,
         limit,
       );
       result.decisions = rows;
@@ -360,10 +363,12 @@ function searchWithFts5(
         FROM brain_patterns_fts fts
         JOIN brain_patterns p ON p.rowid = fts.rowid
         WHERE brain_patterns_fts MATCH ?
+          AND (p.quality_score IS NULL OR p.quality_score >= ?)
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
       `),
         safeQuery,
+        QUALITY_SCORE_THRESHOLD,
         limit,
       );
       result.patterns = rows;
@@ -380,10 +385,12 @@ function searchWithFts5(
         FROM brain_learnings_fts fts
         JOIN brain_learnings l ON l.rowid = fts.rowid
         WHERE brain_learnings_fts MATCH ?
+          AND (l.quality_score IS NULL OR l.quality_score >= ?)
         ORDER BY bm25(brain_learnings_fts)
         LIMIT ?
       `),
         safeQuery,
+        QUALITY_SCORE_THRESHOLD,
         limit,
       );
       result.learnings = rows;
@@ -400,10 +407,12 @@ function searchWithFts5(
         FROM brain_observations_fts fts
         JOIN brain_observations o ON o.rowid = fts.rowid
         WHERE brain_observations_fts MATCH ?
+          AND (o.quality_score IS NULL OR o.quality_score >= ?)
         ORDER BY bm25(brain_observations_fts)
         LIMIT ?
       `),
         safeQuery,
+        QUALITY_SCORE_THRESHOLD,
         limit,
       );
       result.observations = rows;
@@ -459,12 +468,14 @@ function likeSearchDecisions(
   return typedAll<BrainDecisionRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_decisions
-    WHERE decision LIKE ? OR rationale LIKE ?
+    WHERE (decision LIKE ? OR rationale LIKE ?)
+      AND (quality_score IS NULL OR quality_score >= ?)
     ORDER BY created_at DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
+    QUALITY_SCORE_THRESHOLD,
     limit,
   );
 }
@@ -478,12 +489,14 @@ function likeSearchPatterns(
   return typedAll<BrainPatternRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_patterns
-    WHERE pattern LIKE ? OR context LIKE ?
+    WHERE (pattern LIKE ? OR context LIKE ?)
+      AND (quality_score IS NULL OR quality_score >= ?)
     ORDER BY frequency DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
+    QUALITY_SCORE_THRESHOLD,
     limit,
   );
 }
@@ -497,12 +510,14 @@ function likeSearchLearnings(
   return typedAll<BrainLearningRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_learnings
-    WHERE insight LIKE ? OR source LIKE ?
+    WHERE (insight LIKE ? OR source LIKE ?)
+      AND (quality_score IS NULL OR quality_score >= ?)
     ORDER BY confidence DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
+    QUALITY_SCORE_THRESHOLD,
     limit,
   );
 }
@@ -516,12 +531,14 @@ function likeSearchObservations(
   return typedAll<BrainObservationRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_observations
-    WHERE title LIKE ? OR narrative LIKE ?
+    WHERE (title LIKE ? OR narrative LIKE ?)
+      AND (quality_score IS NULL OR quality_score >= ?)
     ORDER BY created_at DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
+    QUALITY_SCORE_THRESHOLD,
     limit,
   );
 }
@@ -591,7 +608,7 @@ export async function hybridSearch(
   projectRoot: string,
   options?: HybridSearchOptions,
 ): Promise<HybridResult[]> {
-  if (!query || !query.trim()) return [];
+  if (!query?.trim()) return [];
 
   const maxResults = options?.limit ?? 10;
   let ftsWeight = options?.ftsWeight ?? 0.5;

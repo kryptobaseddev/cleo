@@ -4,10 +4,15 @@
  * Thin CLI wrappers routing through the dispatch layer.
  * All business logic lives in src/dispatch/domains/nexus.ts.
  *
- * @task T4554, T5323, T5330, T481
+ * `nexus analyze` is implemented directly here because it requires
+ * `@cleocode/nexus` pipeline access and `@cleocode/core` DB access together,
+ * and routing through the dispatch layer would create awkward coupling.
+ *
+ * @task T4554, T5323, T5330, T481, T534
  * @epic T4545
  */
 
+import path from 'node:path';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 
@@ -75,12 +80,98 @@ export function registerNexusCommand(program: Command): void {
     });
 
   // ── nexus status ────────────────────────────────────────────────────
+  // Shows both NEXUS registry status AND code intelligence index freshness.
+  // When invoked with a path, shows index freshness for that project.
 
   nexus
-    .command('status')
-    .description('Show NEXUS registry status')
-    .action(async () => {
-      await dispatchFromCli('query', 'nexus', 'status', {}, { command: 'nexus' });
+    .command('status [path]')
+    .description(
+      'Show code intelligence index freshness: file count, node/relation counts, last indexed time, stale files. Falls back to NEXUS registry status if code-intelligence index is unavailable.',
+    )
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from path)')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+      const startTime = Date.now();
+
+      try {
+        const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
+          import('@cleocode/core/store/nexus-sqlite' as string),
+          import('@cleocode/nexus/pipeline' as string),
+        ]);
+
+        const projectId =
+          projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+        const db = await getNexusDb();
+        const tables = {
+          nexusNodes: nexusSchema.nexusNodes,
+          nexusRelations: nexusSchema.nexusRelations,
+        };
+
+        const stats = await getIndexStats(projectId, repoPath, db, tables);
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          const envelope = {
+            success: true,
+            data: { projectId, repoPath, ...stats },
+            meta: {
+              operation: 'nexus.status',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          };
+          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else if (!stats.indexed) {
+          process.stdout.write(
+            `[nexus] Index status for: ${repoPath}\n` +
+              `  Status:     NOT INDEXED\n` +
+              `  Run 'cleo nexus analyze' to build the index.\n`,
+          );
+        } else {
+          const staleLabel =
+            stats.staleFileCount < 0
+              ? 'unknown'
+              : stats.staleFileCount === 0
+                ? 'up to date'
+                : `${stats.staleFileCount} stale`;
+          process.stdout.write(
+            `[nexus] Index status for: ${repoPath}\n` +
+              `  Project ID:   ${projectId}\n` +
+              `  Nodes:        ${stats.nodeCount}\n` +
+              `  Relations:    ${stats.relationCount}\n` +
+              `  Files:        ${stats.fileCount}\n` +
+              `  Last indexed: ${stats.lastIndexedAt ?? 'never'}\n` +
+              `  Staleness:    ${staleLabel}\n`,
+          );
+        }
+      } catch (err) {
+        // Fall back to NEXUS registry status on error
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_STATUS_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.status',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+          await dispatchFromCli('query', 'nexus', 'status', {}, { command: 'nexus' });
+        }
+        process.exitCode = 1;
+      }
     });
 
   // ── nexus show ─────────────────────────────────────────────────────
@@ -382,5 +473,375 @@ export function registerNexusCommand(program: Command): void {
         },
         { command: 'nexus' },
       );
+    });
+
+  // ── nexus clusters ────────────────────────────────────────────────────────
+
+  nexus
+    .command('clusters [path]')
+    .description('List all detected communities (Louvain clusters) from the last analysis')
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from path)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+      try {
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        // Query all nodes for this project, filter to community kind in-memory
+        // (avoids complex Drizzle where clause on an enum column)
+        const rows: Array<Record<string, unknown>> = await db
+          .select()
+          .from(nexusSchema.nexusNodes)
+          .all()
+          .catch(() => []);
+
+        const communities = rows.filter(
+          (r) => r['kind'] === 'community' && r['projectId'] === projectId,
+        );
+
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  projectId,
+                  repoPath,
+                  count: communities.length,
+                  communities: communities.map((c) => {
+                    const meta =
+                      typeof c['metaJson'] === 'string'
+                        ? (JSON.parse(c['metaJson'] as string) as Record<string, unknown>)
+                        : {};
+                    return {
+                      id: c['id'],
+                      label: c['label'],
+                      symbolCount: meta['symbolCount'] ?? 0,
+                      cohesion: meta['cohesion'] ?? 0,
+                    };
+                  }),
+                },
+                meta: {
+                  operation: 'nexus.clusters',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          if (communities.length === 0) {
+            process.stdout.write(
+              `[nexus] No communities found for project ${projectId}.\n` +
+                `  Run 'cleo nexus analyze' first.\n`,
+            );
+          } else {
+            process.stdout.write(
+              `[nexus] Communities for project ${projectId} (${communities.length} total):\n`,
+            );
+            for (const c of communities) {
+              const meta =
+                typeof c['metaJson'] === 'string'
+                  ? (JSON.parse(c['metaJson'] as string) as Record<string, unknown>)
+                  : {};
+              const symbolCount = meta['symbolCount'] ?? 0;
+              const cohesion =
+                typeof meta['cohesion'] === 'number'
+                  ? (meta['cohesion'] as number).toFixed(3)
+                  : '0.000';
+              process.stdout.write(
+                `  ${String(c['id']).padEnd(16)}  label=${String(c['label']).padEnd(24)}  symbols=${String(symbolCount).padStart(5)}  cohesion=${cohesion}\n`,
+              );
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_CLUSTERS_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.clusters',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus flows ───────────────────────────────────────────────────────────
+
+  nexus
+    .command('flows [path]')
+    .description('List all detected execution flows (processes) from the last analysis')
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from path)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+      try {
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        const rows: Array<Record<string, unknown>> = await db
+          .select()
+          .from(nexusSchema.nexusNodes)
+          .all()
+          .catch(() => []);
+
+        const processes = rows.filter(
+          (r) => r['kind'] === 'process' && r['projectId'] === projectId,
+        );
+
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  projectId,
+                  repoPath,
+                  count: processes.length,
+                  flows: processes.map((p) => {
+                    const meta =
+                      typeof p['metaJson'] === 'string'
+                        ? (JSON.parse(p['metaJson'] as string) as Record<string, unknown>)
+                        : {};
+                    return {
+                      id: p['id'],
+                      label: p['label'],
+                      stepCount: meta['stepCount'] ?? 0,
+                      processType: meta['processType'] ?? 'intra_community',
+                      entryPointId: meta['entryPointId'] ?? null,
+                    };
+                  }),
+                },
+                meta: {
+                  operation: 'nexus.flows',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          if (processes.length === 0) {
+            process.stdout.write(
+              `[nexus] No execution flows found for project ${projectId}.\n` +
+                `  Run 'cleo nexus analyze' first.\n`,
+            );
+          } else {
+            process.stdout.write(
+              `[nexus] Execution flows for project ${projectId} (${processes.length} total):\n`,
+            );
+            for (const p of processes) {
+              const meta =
+                typeof p['metaJson'] === 'string'
+                  ? (JSON.parse(p['metaJson'] as string) as Record<string, unknown>)
+                  : {};
+              const stepCount = meta['stepCount'] ?? 0;
+              const processType = String(meta['processType'] ?? 'intra').replace('_community', '');
+              process.stdout.write(
+                `  ${String(p['id']).padEnd(30)}  steps=${String(stepCount).padStart(3)}  type=${processType.padEnd(12)}  ${String(p['label'])}\n`,
+              );
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_FLOWS_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.flows',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus analyze ─────────────────────────────────────────────────────────
+
+  nexus
+    .command('analyze [path]')
+    .description('Run code intelligence pipeline on a repository directory')
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected)')
+    .option('--incremental', 'Only re-index files that have changed since the last run (faster)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const isIncremental = !!opts['incremental'];
+
+      // Resolve target path
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+
+      if (!jsonOutput) {
+        process.stderr.write(
+          `[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}\n`,
+        );
+      }
+
+      try {
+        // Lazy imports to avoid loading heavy dependencies until needed
+        const [{ getNexusDb, nexusSchema }, { runPipeline }, { getProjectRoot }] =
+          await Promise.all([
+            import('@cleocode/core/store/nexus-sqlite' as string),
+            import('@cleocode/nexus/pipeline' as string),
+            import('@cleocode/core/internal' as string),
+          ]);
+
+        // Determine project ID — use override or derive from path
+        const projectId =
+          projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+        // Get DB and table references
+        const db = await getNexusDb();
+        const tables = {
+          nexusNodes: nexusSchema.nexusNodes,
+          nexusRelations: nexusSchema.nexusRelations,
+        };
+
+        // For full (non-incremental) runs: delete existing index first
+        if (!isIncremental) {
+          if (!jsonOutput) {
+            process.stderr.write('[nexus] Clearing existing index for project...\n');
+          }
+          await db
+            .delete(nexusSchema.nexusNodes)
+            .where((t: { projectId: { equals: (id: string) => unknown } }) =>
+              t.projectId.equals(projectId),
+            )
+            .catch(() => {
+              // Table may not have rows — ignore
+            });
+          await db
+            .delete(nexusSchema.nexusRelations)
+            .where((t: { projectId: { equals: (id: string) => unknown } }) =>
+              t.projectId.equals(projectId),
+            )
+            .catch(() => {
+              // Table may not have rows — ignore
+            });
+        }
+
+        // Run the pipeline (full or incremental)
+        const result = await runPipeline(
+          repoPath,
+          projectId,
+          db,
+          tables,
+          jsonOutput
+            ? undefined
+            : (current: number, total: number, filePath: string) => {
+                if (current % 50 === 0 || current === total) {
+                  const pct = total > 0 ? Math.round((current / total) * 100) : 100;
+                  process.stderr.write(
+                    `[nexus] Progress: ${current}/${total} files (${pct}%) — ${filePath}\n`,
+                  );
+                }
+              },
+          { incremental: isIncremental },
+        );
+
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          const envelope = {
+            success: true,
+            data: {
+              projectId,
+              repoPath,
+              incremental: isIncremental,
+              nodeCount: result.nodeCount,
+              relationCount: result.relationCount,
+              fileCount: result.fileCount,
+              durationMs,
+            },
+            meta: {
+              operation: 'nexus.analyze',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          };
+          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else {
+          process.stdout.write(
+            `[nexus] Analysis complete${isIncremental ? ' (incremental)' : ''}:\n` +
+              `  Project ID: ${projectId}\n` +
+              `  Files:      ${result.fileCount}\n` +
+              `  Nodes:      ${result.nodeCount}\n` +
+              `  Relations:  ${result.relationCount}\n` +
+              `  Duration:   ${durationMs}ms\n`,
+          );
+        }
+
+        void getProjectRoot; // referenced to satisfy import
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          const envelope = {
+            success: false,
+            error: { code: 'E_PIPELINE_FAILED', message: msg },
+            meta: {
+              operation: 'nexus.analyze',
+              duration_ms: Date.now() - startTime,
+              timestamp: new Date().toISOString(),
+            },
+          };
+          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
     });
 }

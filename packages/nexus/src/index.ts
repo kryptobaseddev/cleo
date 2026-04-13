@@ -52,5 +52,19 @@ export {
   type SyntaxTree,
   typescriptProvider,
 } from './intelligence/index.js';
+// Pipeline — filesystem walker, structure processor, knowledge graph
+export {
+  createKnowledgeGraph,
+  detectLanguageFromPath,
+  isIndexableFile,
+  type KnowledgeGraph,
+  type NexusDbInsert,
+  type NexusTables,
+  type PipelineResult,
+  processStructure,
+  runPipeline,
+  type ScannedFile,
+  walkRepositoryPaths,
+} from './pipeline/index.js';
 // Schema — Drizzle SQLite table definitions
 export { type CodeIndexRow, codeIndex, type NewCodeIndexRow } from './schema/code-index.js';
