@@ -170,19 +170,25 @@ export class AdminHandler implements DomainHandler {
               );
             }
 
-            // Retrieve top-3 relevant brain entries within a 400-token budget
-            const query = [task.title, task.description].filter(Boolean).join(' ');
+            // Build a rich search query from all available task text fields so
+            // FTS5 has the best chance of matching relevant brain entries. Budget
+            // raised to 800 tokens (from 400) to accommodate richer result sets.
+            const queryParts = [task.title, task.description].filter(
+              (v): v is string => typeof v === 'string' && v.trim().length > 0,
+            );
+            const query = queryParts.join(' ');
+            const TOKEN_BUDGET = 800;
             const [memoriesResult, lastHandoffResult] = await Promise.all([
-              retrieveWithBudget(projectRoot, query, 400).catch(() => ({
+              retrieveWithBudget(projectRoot, query, TOKEN_BUDGET).catch(() => ({
                 entries: [] as import('@cleocode/core/internal').BudgetedEntry[],
                 tokensUsed: 0,
-                tokensRemaining: 400,
+                tokensRemaining: TOKEN_BUDGET,
                 excluded: 0,
               })),
               getLastHandoff(projectRoot).catch(() => null),
             ]);
 
-            const topMemories = memoriesResult.entries.slice(0, 3);
+            const topMemories = memoriesResult.entries.slice(0, 5);
 
             const pullResult = {
               task: {
@@ -194,7 +200,7 @@ export class AdminHandler implements DomainHandler {
               relevantMemory: topMemories.map((e) => ({
                 id: e.id,
                 type: e.memoryType ?? 'unknown',
-                summary: e.label,
+                summary: e.title,
               })),
               lastHandoff: lastHandoffResult?.handoff?.note?.substring(0, 200) ?? null,
               meta: {

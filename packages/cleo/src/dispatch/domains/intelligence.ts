@@ -176,7 +176,11 @@ export class IntelligenceHandler implements DomainHandler {
 
           const verification = task.verification ?? {
             passed: false,
+            round: 1,
             gates: {},
+            lastAgent: null,
+            lastUpdated: null,
+            failureLog: [],
             checkedAt: new Date().toISOString(),
           };
 
