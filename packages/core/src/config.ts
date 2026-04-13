@@ -95,6 +95,13 @@ const DEFAULTS: CleoConfig = {
     summarization: {
       enabled: true,
     },
+    llmExtraction: {
+      enabled: true,
+      model: 'claude-haiku-4-5-20251001',
+      minImportance: 0.6,
+      maxExtractions: 7,
+      maxTranscriptChars: 60000,
+    },
   },
 };
 

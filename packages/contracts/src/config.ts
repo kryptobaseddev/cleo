@@ -225,6 +225,28 @@ export interface BrainTieringConfig {
 }
 
 /**
+ * Brain LLM-driven extraction gate configuration.
+ *
+ * Controls the LLM-based extraction pipeline that replaces the legacy keyword
+ * regex in `memory/auto-extract.ts`. When enabled and ANTHROPIC_API_KEY is
+ * present, session transcripts are processed by an LLM to extract typed,
+ * structured memories (decisions, patterns, learnings, constraints,
+ * corrections) instead of noise-laden keyword matches.
+ */
+export interface BrainLlmExtractionConfig {
+  /** Enable LLM-driven extraction gate (default: true). */
+  enabled: boolean;
+  /** Anthropic model to use for extraction (default: 'claude-haiku-4-5-20251001'). */
+  model: string;
+  /** Minimum importance score (0.0–1.0) below which extractions are dropped (default: 0.6). */
+  minImportance: number;
+  /** Maximum number of memories to extract per transcript (default: 7). */
+  maxExtractions: number;
+  /** Maximum transcript characters sent to the model per call (default: 60000). */
+  maxTranscriptChars: number;
+}
+
+/**
  * Brain (BRAIN memory system) configuration.
  * Controls automated memory capture, embedding generation, memory bridge
  * refresh behavior, and session summarization.
@@ -253,6 +275,16 @@ export interface BrainConfig {
    * @defaultValue { enabled: false, autoPromote: false, shortTermTtlHours: 48, mediumTermTtlDays: 30, promotionThreshold: 5 }
    */
   tiering?: BrainTieringConfig;
+  /**
+   * LLM-driven extraction gate settings.
+   * When enabled and ANTHROPIC_API_KEY is present, session transcripts are
+   * processed by an LLM to extract typed structured memories instead of the
+   * legacy keyword regex. Defaults are enabled: true and model is the cheap
+   * Haiku class so extraction cost stays bounded.
+   *
+   * @defaultValue { enabled: true, model: 'claude-haiku-4-5-20251001', minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
+   */
+  llmExtraction?: BrainLlmExtractionConfig;
 }
 
 /**

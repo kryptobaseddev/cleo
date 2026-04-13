@@ -15,6 +15,8 @@
  *       was pure noise.
  * T549 Wave 3-E: Fire-and-forget sleep-time consolidation on session end.
  *       Runs after backup (priority 5) so brain.db snapshot is captured first.
+ * T554: Fire-and-forget LLM reflector on session end. Runs at priority 4
+ *       (after consolidation at priority 5) to synthesize final session knowledge.
  */
 
 import { hooks } from '../registry.js';
@@ -141,6 +143,31 @@ export async function handleSessionEndConsolidation(
   });
 }
 
+/**
+ * Handle SessionEnd — fire-and-forget LLM reflector synthesis.
+ *
+ * T554: Runs the Reflector after the consolidation pass (priority 5) to
+ * synthesize session observations into durable patterns and learnings.
+ *
+ * Uses setImmediate to yield control before the LLM call. Errors are caught
+ * and logged — they MUST NOT block session end or throw to callers.
+ *
+ * Priority 4 ensures this runs after consolidation (priority 5).
+ */
+export async function handleSessionEndReflector(
+  projectRoot: string,
+  payload: SessionEndPayload,
+): Promise<void> {
+  setImmediate(async () => {
+    try {
+      const { runReflector } = await import('../../memory/observer-reflector.js');
+      await runReflector(projectRoot, payload.sessionId);
+    } catch (err) {
+      console.warn('[reflector] Session-end reflector failed:', err);
+    }
+  });
+}
+
 // Register handlers on module load
 hooks.register({
   id: 'brain-session-start',
@@ -173,4 +200,14 @@ hooks.register({
   event: 'SessionEnd',
   handler: handleSessionEndConsolidation,
   priority: 5,
+});
+
+// Priority 4 runs AFTER consolidation (priority 5) — reflector synthesizes
+// the final session knowledge using observations that consolidation may have
+// updated (tier promotions, dedup).
+hooks.register({
+  id: 'reflector-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndReflector,
+  priority: 4,
 });

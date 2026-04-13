@@ -78,6 +78,7 @@ export type {
   BackupConfig,
   BrainConfig,
   BrainEmbeddingConfig,
+  BrainLlmExtractionConfig,
   BrainMemoryBridgeConfig,
   BrainSummarizationConfig,
   BrainTieringConfig,
