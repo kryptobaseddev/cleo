@@ -19,12 +19,12 @@ BRAIN Integrity + Code Intelligence Pipeline — mega-epic spanning T523 + T513.
 - **Embeddings activated**: Installed `sqlite-vec`, wired `initDefaultProvider()` into `getBrainDb()` startup — the entire vector embedding pipeline (previously dead code) is now active
 - **New CLI commands**: `cleo brain purge`, `cleo brain backfill`
 
-### Code Intelligence Pipeline (T513) — Full GitNexus Absorption
+### Code Intelligence Pipeline (T513) — Native Codebase Mapping
 
 - **Drizzle schema**: Created `nexus_nodes` + `nexus_relations` tables with full column set and 9 indexes each
 - **Contracts expansion**: `GraphNodeKind` expanded by 17 values (community, process, route, trait, impl, type_alias, etc.), `GraphRelationType` expanded by 9 values (member_of, step_in_process, handles_route, etc.)
-- **Filesystem walker**: Phase 1-2 ported from GitNexus — directory scanning with .gitignore awareness, language detection, File/Folder/CONTAINS node creation
-- **SymbolTable**: 5 in-memory indexes (fileIndex, callableByName, fieldByOwner, methodByOwner, classByName) ported from GitNexus
+- **Filesystem walker**: Directory scanning with .gitignore awareness, language detection, File/Folder/CONTAINS node creation
+- **SymbolTable**: 5 in-memory indexes (fileIndex, callableByName, fieldByOwner, methodByOwner, classByName)
 - **Import resolution**: TypeScript resolver with relative paths, barrel exports, tsconfig aliases, node_modules resolution. Suffix index trie for O(1) path lookup
 - **Parse loop**: Sequential chunked parsing (20MB byte-budget) with tree-sitter extraction — definitions, imports, heritage, calls
 - **Call resolution**: Tier 1 (same-file, confidence 0.95) + Tier 2a (named-import, confidence 0.90) with deferred execution after all chunks parsed
