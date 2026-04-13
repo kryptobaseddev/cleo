@@ -402,6 +402,47 @@
       },
       "providerOnlyEvents": []
     },
+    "pi": {
+      "hookSystem": "extension",
+      "hookConfigPath": "$PI_CODING_AGENT_DIR/extensions/",
+      "hookFormat": "typescript",
+      "handlerTypes": ["extension"],
+      "experimental": false,
+      "notes": "Pi is CAAMP's first-class primary harness (ADR-035). Events use snake_case. Extensions live at ~/.pi/agent/extensions/ (global) or <projectDir>/.pi/extensions/ (project).",
+      "nativeEventCatalog": "pi",
+      "mappings": {
+        "SessionStart":        { "nativeName": "session_start",            "supported": true },
+        "SessionEnd":          { "nativeName": "session_shutdown",         "supported": true },
+        "PromptSubmit":        { "nativeName": "input",                    "supported": true },
+        "ResponseComplete":    { "nativeName": null,                       "supported": false },
+        "PreToolUse":          { "nativeName": "tool_call",                "supported": true },
+        "PostToolUse":         { "nativeName": "tool_result",              "supported": true },
+        "PostToolUseFailure":  { "nativeName": null,                       "supported": false },
+        "PermissionRequest":   { "nativeName": null,                       "supported": false },
+        "SubagentStart":       { "nativeName": "before_agent_start",       "supported": true },
+        "SubagentStop":        { "nativeName": "agent_end",                "supported": true },
+        "PreModel":            { "nativeName": "before_provider_request",  "supported": true },
+        "PostModel":           { "nativeName": null,                       "supported": false },
+        "PreCompact":          { "nativeName": "context",                  "supported": true, "notes": "Pi's context assembly event is the closest proxy for pre-compaction" },
+        "PostCompact":         { "nativeName": null,                       "supported": false },
+        "Notification":        { "nativeName": "turn_end",                 "supported": true, "notes": "Pi emits turn_end when the assistant turn completes, which is the best proxy for a notification event" },
+        "ConfigChange":        { "nativeName": null,                       "supported": false }
+      },
+      "providerOnlyEvents": [
+        "session_switch",
+        "session_fork",
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_update",
+        "message_end",
+        "tool_execution_start",
+        "tool_execution_end",
+        "user_bash",
+        "model_select",
+        "resources_discover"
+      ]
+    },
     "antigravity": {
       "hookSystem": "none",
       "hookConfigPath": null,

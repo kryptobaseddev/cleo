@@ -1,0 +1,40 @@
+{
+  "id": "pi",
+  "name": "Pi Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for Pi coding agent — CAAMP's first-class primary harness",
+  "provider": "pi",
+  "entryPoint": "src/index.ts",
+  "capabilities": {
+    "supportsHooks": true,
+    "supportedHookEvents": [
+      "SessionStart",
+      "SessionEnd",
+      "PromptSubmit",
+      "Notification",
+      "PreToolUse",
+      "PostToolUse",
+      "SubagentStart",
+      "SubagentStop",
+      "PreModel",
+      "PreCompact"
+    ],
+    "supportsSpawn": true,
+    "supportsInstall": true,
+    "supportsMcp": false,
+    "supportsInstructionFiles": true,
+    "instructionFilePattern": "AGENTS.md",
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": true,
+    "supportsTransport": false,
+    "supportsTaskSync": false
+  },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "PI_CLI_PATH", "description": "Custom Pi CLI path" },
+    { "type": "env", "pattern": "PI_CODING_AGENT_DIR", "description": "Pi global state root directory" },
+    { "type": "env", "pattern": "PI_HOME", "description": "Pi home directory" },
+    { "type": "file", "pattern": ".pi/settings.json", "description": "Pi project config directory" },
+    { "type": "cli", "pattern": "pi", "description": "Pi CLI available in PATH" }
+  ]
+}

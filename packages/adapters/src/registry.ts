@@ -47,7 +47,7 @@ export interface AdapterManifest {
 }
 
 /** Known provider IDs bundled with @cleocode/adapters. */
-const PROVIDER_IDS = ['claude-code', 'opencode', 'cursor'] as const;
+const PROVIDER_IDS = ['claude-code', 'opencode', 'cursor', 'pi'] as const;
 
 /**
  * Get the manifests for all bundled provider adapters.
@@ -125,6 +125,11 @@ export async function discoverProviders(): Promise<Map<string, () => Promise<unk
   providers.set('cursor', async () => {
     const { CursorAdapter } = await import('./providers/cursor/index.js');
     return new CursorAdapter();
+  });
+
+  providers.set('pi', async () => {
+    const { PiAdapter } = await import('./providers/pi/index.js');
+    return new PiAdapter();
   });
 
   return providers;

@@ -46,9 +46,13 @@
  * @packageDocumentation
  */
 
+import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -805,10 +809,28 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // session_shutdown: clear cached state
+  // session_shutdown: clear cached state + trigger CLEO memory refresh and backup
+  //
+  // Per T553: Pi's session_shutdown is CAAMP SessionEnd. On shutdown we:
+  //   1. Clear local module cache (existing behaviour)
+  //   2. Trigger `cleo refresh-memory` to regenerate .cleo/memory-bridge.md
+  //   3. Trigger `cleo backup add` to snapshot tasks.db and brain.db
+  //
+  // All CLI calls are best-effort: a failure MUST NOT crash Pi or block shutdown.
   pi.on("session_shutdown", async () => {
+    // 1. Clear cached state
     bundlePrompt = null;
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
+
+    // 2. Trigger memory bridge refresh (best-effort, non-blocking)
+    execFileAsync("cleo", ["refresh-memory"], { timeout: 10_000 }).catch(() => {
+      // Intentionally swallowed — best-effort only
+    });
+
+    // 3. Trigger backup snapshot (best-effort, non-blocking)
+    execFileAsync("cleo", ["backup", "add"], { timeout: 15_000 }).catch(() => {
+      // Intentionally swallowed — best-effort only
+    });
   });
 }
