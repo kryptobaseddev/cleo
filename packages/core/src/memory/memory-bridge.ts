@@ -163,7 +163,7 @@ export async function generateMemoryBridgeContent(
     lines.push('');
     for (const d of decisions) {
       const date = (d.created_at ?? '').slice(0, 10);
-      lines.push(`- [${d.id}] ${d.decision.slice(0, 120)} (${date})`);
+      lines.push(`- [${d.id}] ${d.decision.slice(0, 300)} (${date})`);
     }
     lines.push('');
   }
@@ -174,30 +174,30 @@ export async function generateMemoryBridgeContent(
     lines.push('## Key Learnings');
     lines.push('');
     for (const l of learnings) {
-      lines.push(`- [${l.id}] ${l.insight.slice(0, 150)} (confidence: ${l.confidence})`);
+      lines.push(`- [${l.id}] ${l.insight.slice(0, 400)} (confidence: ${l.confidence})`);
     }
     lines.push('');
   }
 
-  // --- Patterns (follow) ---
-  const followPatterns = queryPatterns(nativeDb, 'success', cfg.maxPatterns);
+  // --- Patterns to Follow (success, workflow, optimization) ---
+  const followPatterns = queryUsefulPatterns(nativeDb, 'follow', cfg.maxPatterns);
   if (followPatterns.length > 0) {
     lines.push('## Patterns to Follow');
     lines.push('');
     for (const p of followPatterns) {
-      lines.push(`- [${p.id}] ${p.pattern.slice(0, 150)} (${p.type})`);
+      lines.push(`- [${p.id}] ${p.pattern.slice(0, 300)} (${p.type})`);
     }
     lines.push('');
   }
 
-  // --- Anti-patterns (avoid) ---
+  // --- Anti-Patterns to Avoid (failure, blocker) ---
   if (cfg.includeAntiPatterns) {
-    const avoidPatterns = queryPatterns(nativeDb, 'failure', cfg.maxPatterns);
+    const avoidPatterns = queryUsefulPatterns(nativeDb, 'avoid', cfg.maxPatterns);
     if (avoidPatterns.length > 0) {
       lines.push('## Anti-Patterns to Avoid');
       lines.push('');
       for (const p of avoidPatterns) {
-        lines.push(`- [${p.id}] AVOID: ${p.pattern.slice(0, 150)}`);
+        lines.push(`- [${p.id}] AVOID: ${p.pattern.slice(0, 300)}`);
       }
       lines.push('');
     }
@@ -210,7 +210,7 @@ export async function generateMemoryBridgeContent(
     lines.push('');
     for (const o of observations) {
       const date = (o.created_at ?? '').slice(0, 10);
-      lines.push(`- [${o.id}] ${date}: ${o.title.slice(0, 120)}`);
+      lines.push(`- [${o.id}] ${date}: ${o.title.slice(0, 200)}`);
     }
     lines.push('');
   }
@@ -405,6 +405,7 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
       db,
       `SELECT id, insight, confidence, created_at, updated_at FROM brain_learnings
          WHERE CAST(confidence AS REAL) >= 0.3
+           AND insight NOT LIKE 'Completed:%'
          ORDER BY confidence DESC, created_at DESC
          LIMIT ?`,
       limit * 3,
@@ -437,12 +438,28 @@ function queryHighConfidenceLearnings(db: DatabaseSync, limit: number): Learning
   }
 }
 
-function queryPatterns(db: DatabaseSync, type: string, limit: number): PatternRow[] {
+function queryUsefulPatterns(
+  db: DatabaseSync,
+  mode: 'follow' | 'avoid',
+  limit: number,
+): PatternRow[] {
   try {
+    const typeFilter =
+      mode === 'follow'
+        ? "type IN ('success', 'workflow', 'optimization')"
+        : "type IN ('failure', 'blocker')";
+
     return typedAll<PatternRow>(
       db,
-      'SELECT id, pattern, type, impact, extracted_at FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC LIMIT ?',
-      type,
+      `SELECT id, pattern, type, impact, extracted_at FROM brain_patterns
+         WHERE ${typeFilter}
+           AND pattern NOT LIKE 'Recurring label%'
+           AND pattern NOT LIKE 'Test pattern%'
+           AND pattern NOT LIKE 'test'
+           AND pattern NOT LIKE 'Audit probe:%'
+           AND LENGTH(pattern) > 20
+         ORDER BY extracted_at DESC
+         LIMIT ?`,
       limit,
     );
   } catch {

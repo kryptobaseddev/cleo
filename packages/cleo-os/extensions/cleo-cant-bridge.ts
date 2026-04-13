@@ -560,6 +560,15 @@ export default function (pi: ExtensionAPI): void {
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
 
+    // Auto-start CLEO session on Pi session start (best-effort, never crash Pi)
+    execFileAsync(
+      "cleo",
+      ["session", "start", "--scope", "global", "--name", "pi-auto-session"],
+      { timeout: 10_000, cwd: ctx.cwd },
+    ).catch(() => {
+      // Swallowed: session may already exist, or cleo not initialized
+    });
+
     try {
       const { files, stats } = discoverCantFilesMultiTier(ctx.cwd);
       if (files.length === 0) return;
@@ -823,12 +832,21 @@ export default function (pi: ExtensionAPI): void {
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
 
-    // 2. Trigger memory bridge refresh (best-effort, non-blocking)
+    // 2. End CLEO session (best-effort) — triggers grading, extraction, consolidation
+    execFileAsync(
+      "cleo",
+      ["session", "end", "--note", "Pi session ended automatically via CleoOS extension"],
+      { timeout: 15_000 },
+    ).catch(() => {
+      // Swallowed: no active session, or cleo not initialized
+    });
+
+    // 3. Trigger memory bridge refresh (best-effort, non-blocking)
     execFileAsync("cleo", ["refresh-memory"], { timeout: 10_000 }).catch(() => {
       // Intentionally swallowed — best-effort only
     });
 
-    // 3. Trigger backup snapshot (best-effort, non-blocking)
+    // 4. Trigger backup snapshot (best-effort, non-blocking)
     execFileAsync("cleo", ["backup", "add"], { timeout: 15_000 }).catch(() => {
       // Intentionally swallowed — best-effort only
     });

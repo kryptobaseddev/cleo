@@ -125,13 +125,18 @@ describe('deriveGatewayMatrix', () => {
 describe('getGatewayDomains', () => {
   it('returns canonical domains for query', () => {
     const domains = getGatewayDomains('query');
-    expect(domains).toHaveLength(10);
+    expect(domains).toHaveLength(CANONICAL_DOMAINS.length);
     expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
   });
 
-  it('returns canonical domains for mutate', () => {
+  it('returns canonical domains for mutate (excluding query-only domains)', () => {
     const domains = getGatewayDomains('mutate');
-    expect(domains).toHaveLength(10);
-    expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
+    // intelligence is query-only — it has no mutate operations
+    const queryOnlyDomains = ['intelligence'];
+    const expectedMutateDomains = CANONICAL_DOMAINS.filter((d) => !queryOnlyDomains.includes(d));
+    expect(domains).toHaveLength(expectedMutateDomains.length);
+    for (const d of expectedMutateDomains) {
+      expect(domains).toContain(d);
+    }
   });
 });

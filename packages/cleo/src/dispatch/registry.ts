@@ -3329,6 +3329,97 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+
+  // ===========================================================================
+  // intelligence — Predictive Quality Intelligence (query-only)
+  // ===========================================================================
+
+  {
+    gateway: 'query',
+    domain: 'intelligence',
+    operation: 'predict',
+    description: 'Calculate risk score for a task, or predict validation outcome for a stage',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      { name: 'taskId', type: 'string' as const, required: true, description: 'Task ID to assess' },
+      {
+        name: 'stage',
+        type: 'string' as const,
+        required: false,
+        description: 'Lifecycle stage for validation outcome prediction',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'intelligence',
+    operation: 'suggest',
+    description: 'Suggest verification gate focus for a task',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: true,
+        description: 'Task ID to analyze',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'intelligence',
+    operation: 'learn-errors',
+    description: 'Extract recurring failure patterns from task and brain history',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum number of patterns to return',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'intelligence',
+    operation: 'confidence',
+    description: 'Score verification confidence for a task based on current gate state',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      { name: 'taskId', type: 'string' as const, required: true, description: 'Task ID to score' },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'intelligence',
+    operation: 'match',
+    description: 'Match known brain patterns against a task',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: true,
+        description: 'Task ID to match patterns against',
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

@@ -671,8 +671,52 @@ export const brainPageEdges = sqliteTable(
   ],
 );
 
+// ============================================================================
+// RETRIEVAL LOG — tracks which entries are retrieved together (T549 §6)
+// ============================================================================
+
+/**
+ * Retrieval log tracks which brain entries are returned together in search
+ * results. This data drives:
+ *   - Co-retrieval edge strengthening (consolidation step 6)
+ *   - Memory quality instrumentation (retrieval frequency tracking)
+ *   - Citation count validation (corroboration for tier promotion)
+ *
+ * Each row records one retrieval event: the query, which entries were returned,
+ * and the retrieval source (find/fetch/hybrid).
+ */
+export const brainRetrievalLog = sqliteTable(
+  'brain_retrieval_log',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The search query or fetch IDs that triggered this retrieval. */
+    query: text('query').notNull(),
+
+    /** Comma-separated list of entry IDs returned in this retrieval. */
+    entryIds: text('entry_ids').notNull(),
+
+    /** Number of entries returned. */
+    entryCount: integer('entry_count').notNull(),
+
+    /** Retrieval source: 'find' | 'fetch' | 'hybrid' | 'timeline' | 'budget' */
+    source: text('source').notNull(),
+
+    /** Estimated tokens consumed by this retrieval. */
+    tokensUsed: integer('tokens_used'),
+
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_retrieval_log_created').on(table.createdAt),
+    index('idx_retrieval_log_source').on(table.source),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
+export type BrainRetrievalLogRow = typeof brainRetrievalLog.$inferSelect;
+export type NewBrainRetrievalLogRow = typeof brainRetrievalLog.$inferInsert;
 export type BrainDecisionRow = typeof brainDecisions.$inferSelect;
 export type NewBrainDecisionRow = typeof brainDecisions.$inferInsert;
 export type BrainPatternRow = typeof brainPatterns.$inferSelect;
