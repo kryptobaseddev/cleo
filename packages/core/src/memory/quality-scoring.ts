@@ -7,14 +7,78 @@
  * Score formula per CA1 spec Section 3: source reliability * content richness * recency signals.
  * Each helper clamps the result to [0.0, 1.0].
  *
+ * T549 Wave 1-B: source confidence multipliers and memory tier bonuses are applied
+ * on top of the existing base formulas. The base formulas are unchanged; the
+ * multiplier and tier bonus are additive final transforms.
+ *
  * Exported for use in backfill (T530) and future scoring hooks.
  *
- * @task T531
+ * @task T531 T549
  * @epic T523
  */
 
+import type { BrainMemoryTier, BrainSourceConfidence } from '../store/brain-schema.js';
+
 /** Minimum quality score for inclusion in search results. */
 export const QUALITY_SCORE_THRESHOLD = 0.3;
+
+// ============================================================================
+// T549: Source Confidence Multipliers
+// ============================================================================
+
+/**
+ * Quality multiplier per source confidence level (T549 §3.1.5 and §5.3).
+ *
+ * Applied as a final multiplicative transform on top of the existing base score.
+ * Separate from content richness — captures trustworthiness of the source.
+ *
+ * | Level         | Meaning                                 | Multiplier |
+ * |---------------|-----------------------------------------|------------|
+ * | owner         | Owner explicitly stated this fact       | 1.0        |
+ * | task-outcome  | Verified by completed task with result  | 0.90       |
+ * | agent         | Agent-inferred during work (default)    | 0.70       |
+ * | speculative   | Agent hypothesis, not yet corroborated  | 0.40       |
+ */
+const SOURCE_MULTIPLIERS: Record<BrainSourceConfidence, number> = {
+  owner: 1.0,
+  'task-outcome': 0.9,
+  agent: 0.7,
+  speculative: 0.4,
+};
+
+/**
+ * Tier bonus applied after the source multiplier (T549 Wave 1-B).
+ *
+ * Short-term entries get no bonus (they are new and unproven).
+ * Medium-term entries get a small bonus (survived session consolidation).
+ * Long-term entries get a larger bonus (architecturally proven).
+ */
+const TIER_BONUS: Record<BrainMemoryTier, number> = {
+  short: 0.0,
+  medium: 0.05,
+  long: 0.1,
+};
+
+/**
+ * Apply the source confidence multiplier and optional memory tier bonus.
+ *
+ * This is the final transform in every compute function. It multiplies the
+ * raw content-richness score by the source multiplier, then adds the tier
+ * bonus, then clamps to [0.0, 1.0].
+ *
+ * @param rawScore - Score from the base content-richness formula
+ * @param sourceConfidence - Source reliability level (defaults to 'agent')
+ * @param memoryTier - Memory retention tier (defaults to 'short' = no bonus)
+ */
+export function applySourceMultiplier(
+  rawScore: number,
+  sourceConfidence: BrainSourceConfidence = 'agent',
+  memoryTier: BrainMemoryTier = 'short',
+): number {
+  const multiplied = rawScore * SOURCE_MULTIPLIERS[sourceConfidence];
+  const withTierBonus = multiplied + TIER_BONUS[memoryTier];
+  return clamp(withTierBonus);
+}
 
 // ============================================================================
 // Pattern quality
@@ -26,6 +90,10 @@ export interface PatternQualityInput {
   pattern: string;
   context?: string | null;
   examples_json?: string | null;
+  /** T549: source reliability level — applies multiplier on top of base score. */
+  sourceConfidence?: BrainSourceConfidence;
+  /** T549: memory retention tier — applies tier bonus on top of multiplied score. */
+  memoryTier?: BrainMemoryTier;
 }
 
 /**
@@ -39,7 +107,8 @@ export interface PatternQualityInput {
  *   +0.10 if context exceeds 50 chars (contextual detail present)
  *   +0.10 if examples_json contains more than 3 items (empirically validated)
  *
- * Result clamped to [0.0, 1.0].
+ * T549 Wave 1-B: raw score is then multiplied by the source confidence multiplier
+ * and the memory tier bonus is added. Result clamped to [0.0, 1.0].
  */
 export function computePatternQuality(params: PatternQualityInput): number {
   let score = 0.4;
@@ -59,7 +128,7 @@ export function computePatternQuality(params: PatternQualityInput): number {
     }
   }
 
-  return clamp(score);
+  return applySourceMultiplier(score, params.sourceConfidence, params.memoryTier);
 }
 
 // ============================================================================
@@ -72,6 +141,10 @@ export interface LearningQualityInput {
   actionable?: boolean | null;
   insight: string;
   application?: string | null;
+  /** T549: source reliability level — applies multiplier on top of base score. */
+  sourceConfidence?: BrainSourceConfidence;
+  /** T549: memory retention tier — applies tier bonus on top of multiplied score. */
+  memoryTier?: BrainMemoryTier;
 }
 
 /**
@@ -83,7 +156,8 @@ export interface LearningQualityInput {
  *   +0.10 if insight text exceeds 100 chars (detailed insight)
  *   +0.10 if application exceeds 20 chars (concrete application context)
  *
- * Result clamped to [0.0, 1.0].
+ * T549 Wave 1-B: raw score is then multiplied by the source confidence multiplier
+ * and the memory tier bonus is added. Result clamped to [0.0, 1.0].
  */
 export function computeLearningQuality(params: LearningQualityInput): number {
   let score = params.confidence ?? 0.5;
@@ -92,7 +166,7 @@ export function computeLearningQuality(params: LearningQualityInput): number {
   if (params.insight.length > 100) score += 0.1;
   if (params.application && params.application.length > 20) score += 0.1;
 
-  return clamp(score);
+  return applySourceMultiplier(score, params.sourceConfidence, params.memoryTier);
 }
 
 // ============================================================================
@@ -104,6 +178,10 @@ export interface DecisionQualityInput {
   confidence: 'low' | 'medium' | 'high';
   rationale?: string | null;
   contextTaskId?: string | null;
+  /** T549: source reliability level — applies multiplier on top of base score. */
+  sourceConfidence?: BrainSourceConfidence;
+  /** T549: memory retention tier — applies tier bonus on top of multiplied score. */
+  memoryTier?: BrainMemoryTier;
 }
 
 /** Numeric value map from confidence level. */
@@ -121,7 +199,8 @@ const CONFIDENCE_SCORE_MAP: Record<'low' | 'medium' | 'high', number> = {
  *   +0.10 if rationale exceeds 50 chars (substantiated reasoning)
  *   +0.05 if linked to a specific task (anchored in real work)
  *
- * Result clamped to [0.0, 1.0].
+ * T549 Wave 1-B: raw score is then multiplied by the source confidence multiplier
+ * and the memory tier bonus is added. Result clamped to [0.0, 1.0].
  */
 export function computeDecisionQuality(params: DecisionQualityInput): number {
   let score = CONFIDENCE_SCORE_MAP[params.confidence] ?? 0.5;
@@ -129,7 +208,7 @@ export function computeDecisionQuality(params: DecisionQualityInput): number {
   if (params.rationale && params.rationale.length > 50) score += 0.1;
   if (params.contextTaskId) score += 0.05;
 
-  return clamp(score);
+  return applySourceMultiplier(score, params.sourceConfidence, params.memoryTier);
 }
 
 // ============================================================================
@@ -140,6 +219,10 @@ export function computeDecisionQuality(params: DecisionQualityInput): number {
 export interface ObservationQualityInput {
   text: string;
   title?: string | null;
+  /** T549: source reliability level — applies multiplier on top of base score. */
+  sourceConfidence?: BrainSourceConfidence;
+  /** T549: memory retention tier — applies tier bonus on top of multiplied score. */
+  memoryTier?: BrainMemoryTier;
 }
 
 /**
@@ -150,7 +233,8 @@ export interface ObservationQualityInput {
  *   +0.10 if text exceeds 200 chars (rich narrative)
  *   +0.05 if title exceeds 10 chars (meaningful label)
  *
- * Result clamped to [0.0, 1.0].
+ * T549 Wave 1-B: raw score is then multiplied by the source confidence multiplier
+ * and the memory tier bonus is added. Result clamped to [0.0, 1.0].
  */
 export function computeObservationQuality(params: ObservationQualityInput): number {
   let score = 0.6;
@@ -158,7 +242,7 @@ export function computeObservationQuality(params: ObservationQualityInput): numb
   if (params.text && params.text.length > 200) score += 0.1;
   if (params.title && params.title.length > 10) score += 0.05;
 
-  return clamp(score);
+  return applySourceMultiplier(score, params.sourceConfidence, params.memoryTier);
 }
 
 // ============================================================================

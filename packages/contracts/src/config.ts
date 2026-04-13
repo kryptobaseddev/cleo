@@ -187,6 +187,44 @@ export interface BrainSummarizationConfig {
 }
 
 /**
+ * Brain tiered + typed memory configuration (T549).
+ *
+ * Controls the tiered cognitive memory model: tier promotion, eviction TTLs,
+ * and the sleep-time consolidator. All fields default to disabled/conservative
+ * values — the system requires explicit opt-in.
+ *
+ * @epic T549
+ */
+export interface BrainTieringConfig {
+  /**
+   * Enable write-time tier/type/source_confidence assignment and updated quality scoring.
+   * When false (default), new entries receive column defaults without routing logic overhead.
+   */
+  enabled: boolean;
+  /**
+   * Enable the sleep-time consolidator: runs tier promotion, eviction, and contradiction
+   * detection at session end (after VACUUM INTO backup). Fires as setImmediate — non-blocking.
+   * Requires `enabled: true` to take effect.
+   */
+  autoPromote: boolean;
+  /**
+   * Hours before unverified short-term entries are soft-evicted (default: 48).
+   * Set invalidAt on entries older than this threshold that were not promoted.
+   */
+  shortTermTtlHours: number;
+  /**
+   * Days before unverified medium-term entries are soft-evicted (default: 30).
+   * Medium-term entries with quality_score below the medium decay threshold are evicted.
+   */
+  mediumTermTtlDays: number;
+  /**
+   * Minimum citations for medium→long promotion via citation gate (default: 5).
+   * An entry at medium tier with citationCount >= promotionThreshold qualifies for long-term.
+   */
+  promotionThreshold: number;
+}
+
+/**
  * Brain (BRAIN memory system) configuration.
  * Controls automated memory capture, embedding generation, memory bridge
  * refresh behavior, and session summarization.
@@ -207,6 +245,14 @@ export interface BrainConfig {
   memoryBridge: BrainMemoryBridgeConfig;
   /** Session summarization settings. */
   summarization: BrainSummarizationConfig;
+  /**
+   * Tiered + typed memory settings (T549).
+   * Controls tier routing, sleep-time consolidation, and TTL-based eviction.
+   * All fields default to disabled. Opt-in required.
+   *
+   * @defaultValue { enabled: false, autoPromote: false, shortTermTtlHours: 48, mediumTermTtlDays: 30, promotionThreshold: 5 }
+   */
+  tiering?: BrainTieringConfig;
 }
 
 /**

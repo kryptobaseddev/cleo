@@ -1499,6 +1499,8 @@ export * from './brain-retrieval.js';
 export * from './brain-search.js';
 // === BRAIN Memory modules (brain.db backed) ===
 export * from './decisions.js';
+// === T549 Wave 2: Extraction Gate ===
+export * from './extraction-gate.js';
 export * from './learnings.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';

@@ -14,6 +14,57 @@ import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm
 
 // === ENUM CONSTANTS ===
 
+/**
+ * Memory retention tiers for the tiered cognitive memory model (T549).
+ *
+ * - `short`  — Session-scoped working context. Volatile; auto-evicted after 48h if not promoted.
+ * - `medium` — Project-scoped verified facts. Retained for weeks; decays if unverified.
+ * - `long`   — Architectural bedrock. Permanent; supersession-only eviction.
+ *
+ * NULL semantics for legacy rows: treat NULL as 'medium' at query time.
+ * (Legacy rows survived the T523 purge, so medium is a safe tier assumption.)
+ */
+export const BRAIN_MEMORY_TIERS = ['short', 'medium', 'long'] as const;
+
+/** Discriminated union of all memory retention tiers. */
+export type BrainMemoryTier = (typeof BRAIN_MEMORY_TIERS)[number];
+
+/**
+ * Cognitive type taxonomy for the tiered memory model (T549).
+ *
+ * Uses `BRAIN_COGNITIVE_TYPES` (not `BRAIN_MEMORY_TYPES`) to avoid collision
+ * with the link table enum `BRAIN_MEMORY_TYPES` (which stores entity type names).
+ *
+ * - `semantic`   — Declarative facts: "what is true about this project"
+ *                  → brain_decisions (always), brain_learnings (default)
+ * - `episodic`   — Event records: "what happened and when"
+ *                  → brain_observations (always), brain_learnings (transcript-derived)
+ * - `procedural` — Process knowledge: "how to do things"
+ *                  → brain_patterns (always)
+ */
+export const BRAIN_COGNITIVE_TYPES = ['semantic', 'episodic', 'procedural'] as const;
+
+/** Discriminated union of all cognitive memory types. */
+export type BrainCognitiveType = (typeof BRAIN_COGNITIVE_TYPES)[number];
+
+/**
+ * Source reliability levels for the tiered memory model (T549).
+ *
+ * Separate dimension from content `quality_score` — captures source trustworthiness.
+ * Each level drives a quality multiplier applied at scoring time.
+ *
+ * | Level         | Meaning                                 | Quality multiplier |
+ * |---------------|-----------------------------------------|--------------------|
+ * | `owner`       | Owner explicitly stated this fact       | 1.0                |
+ * | `task-outcome`| Verified by completed task with result  | 0.90               |
+ * | `agent`       | Agent-inferred during work (default)    | 0.70               |
+ * | `speculative` | Agent hypothesis, not yet corroborated  | 0.40               |
+ */
+export const BRAIN_SOURCE_CONFIDENCE = ['owner', 'task-outcome', 'agent', 'speculative'] as const;
+
+/** Discriminated union of all source confidence levels. */
+export type BrainSourceConfidence = (typeof BRAIN_SOURCE_CONFIDENCE)[number];
+
 /** Decision types from ADR-009. */
 export const BRAIN_DECISION_TYPES = [
   'architecture',
@@ -102,6 +153,46 @@ export const brainDecisions = sqliteTable(
     qualityScore: real('quality_score'),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
+
+    // T549: Tiered + Typed Memory columns
+
+    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+
+    /** Cognitive type. Decisions are always 'semantic' (declarative architectural facts). */
+    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('semantic'),
+
+    /**
+     * Ground-truth verification flag.
+     * false = agent-inferred, pending verification.
+     * true = confirmed via owner statement, task outcome, corroboration, or manual `cleo memory verify`.
+     */
+    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+
+    /**
+     * Bitemporal: when this decision became valid (ISO 8601 text).
+     * Defaults to creation time. Can be backdated for historical facts.
+     */
+    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Bitemporal: when this decision stopped being valid.
+     * NULL = currently valid. Prefer `supersedes` graph edges for decision supersession
+     * (ADR-009); this column is a convenience gate for bulk eviction queries.
+     */
+    invalidAt: text('invalid_at'),
+
+    /**
+     * Source reliability level — separate from content quality_score (T549 §3.1.5).
+     * Drives quality multiplier at scoring time.
+     */
+    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
+
+    /**
+     * Number of times this decision has been cited/retrieved (T549 CONFLICT-03).
+     * Used by the consolidator for citation-based medium→long promotion.
+     */
+    citationCount: integer('citation_count').notNull().default(0),
   },
   (table) => [
     index('idx_brain_decisions_type').on(table.type),
@@ -110,6 +201,12 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_context_epic').on(table.contextEpicId),
     index('idx_brain_decisions_context_task').on(table.contextTaskId),
     index('idx_brain_decisions_quality').on(table.qualityScore),
+    // T549 indexes
+    index('idx_brain_decisions_tier').on(table.memoryTier),
+    index('idx_brain_decisions_mem_type').on(table.memoryType),
+    index('idx_brain_decisions_verified').on(table.verified),
+    index('idx_brain_decisions_valid_at').on(table.validAt),
+    index('idx_brain_decisions_source_conf').on(table.sourceConfidence),
   ],
 );
 
@@ -136,12 +233,57 @@ export const brainPatterns = sqliteTable(
      * Entries below 0.3 are excluded from search results (T531).
      */
     qualityScore: real('quality_score'),
+
+    // T549: Tiered + Typed Memory columns
+
+    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+
+    /** Cognitive type. Patterns are always 'procedural' (process/workflow knowledge). */
+    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('procedural'),
+
+    /**
+     * Ground-truth verification flag.
+     * For patterns, this is complementary to frequency+successRate verification.
+     * false = agent-inferred. true = confirmed via owner statement or task outcome.
+     */
+    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+
+    /**
+     * Bitemporal: when this pattern became valid (ISO 8601 text).
+     * Defaults to extraction time.
+     */
+    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Bitemporal: when this pattern stopped being valid.
+     * NULL = currently valid. Set by consolidator when frequency+successRate drops below threshold.
+     */
+    invalidAt: text('invalid_at'),
+
+    /**
+     * Source reliability level — separate from content quality_score (T549 §3.1.5).
+     * Drives quality multiplier at scoring time.
+     */
+    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
+
+    /**
+     * Number of times this pattern has been cited/retrieved (T549 CONFLICT-03).
+     * Used by the consolidator for citation-based medium→long promotion.
+     */
+    citationCount: integer('citation_count').notNull().default(0),
   },
   (table) => [
     index('idx_brain_patterns_type').on(table.type),
     index('idx_brain_patterns_impact').on(table.impact),
     index('idx_brain_patterns_frequency').on(table.frequency),
     index('idx_brain_patterns_quality').on(table.qualityScore),
+    // T549 indexes
+    index('idx_brain_patterns_tier').on(table.memoryTier),
+    index('idx_brain_patterns_mem_type').on(table.memoryType),
+    index('idx_brain_patterns_verified').on(table.verified),
+    index('idx_brain_patterns_valid_at').on(table.validAt),
+    index('idx_brain_patterns_source_conf').on(table.sourceConfidence),
   ],
 );
 
@@ -165,11 +307,60 @@ export const brainLearnings = sqliteTable(
      * Entries below 0.3 are excluded from search results (T531).
      */
     qualityScore: real('quality_score'),
+
+    // T549: Tiered + Typed Memory columns
+
+    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+
+    /**
+     * Cognitive type. Learnings are 'semantic' by default (declarative facts).
+     * Transcript-derived learnings with source containing 'transcript:ses_' are 'episodic'.
+     */
+    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('semantic'),
+
+    /**
+     * Ground-truth verification flag.
+     * false = agent-inferred, pending verification.
+     * true = confirmed via owner statement, task outcome, corroboration, or manual verify.
+     */
+    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+
+    /**
+     * Bitemporal: when this learning became valid (ISO 8601 text).
+     * Defaults to creation time. Facts can change — use invalidAt to retire stale ones.
+     */
+    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Bitemporal: when this learning stopped being valid.
+     * NULL = currently valid. Set by consolidator on contradiction detection or TTL decay.
+     */
+    invalidAt: text('invalid_at'),
+
+    /**
+     * Source reliability level — separate from content quality_score (T549 §3.1.5).
+     * Drives quality multiplier at scoring time.
+     */
+    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
+
+    /**
+     * Number of times this learning has been cited/retrieved (T549 CONFLICT-03).
+     * Used by the consolidator for citation-based medium→long promotion.
+     */
+    citationCount: integer('citation_count').notNull().default(0),
   },
   (table) => [
     index('idx_brain_learnings_confidence').on(table.confidence),
     index('idx_brain_learnings_actionable').on(table.actionable),
     index('idx_brain_learnings_quality').on(table.qualityScore),
+    // T549 indexes
+    index('idx_brain_learnings_tier').on(table.memoryTier),
+    index('idx_brain_learnings_mem_type').on(table.memoryType),
+    index('idx_brain_learnings_verified').on(table.verified),
+    index('idx_brain_learnings_valid_at').on(table.validAt),
+    index('idx_brain_learnings_invalid').on(table.invalidAt),
+    index('idx_brain_learnings_source_conf').on(table.sourceConfidence),
   ],
 );
 
@@ -205,6 +396,46 @@ export const brainObservations = sqliteTable(
     qualityScore: real('quality_score'),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     updatedAt: text('updated_at'),
+
+    // T549: Tiered + Typed Memory columns
+
+    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+
+    /** Cognitive type. Observations are always 'episodic' (time-anchored event records). */
+    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('episodic'),
+
+    /**
+     * Ground-truth verification flag.
+     * false = agent-inferred, pending verification.
+     * true = confirmed via owner statement, task outcome, corroboration, or manual verify.
+     */
+    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+
+    /**
+     * Bitemporal: when this observation became valid (ISO 8601 text).
+     * Defaults to creation time. Can be backdated for historical facts.
+     */
+    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Bitemporal: when this observation stopped being valid.
+     * NULL = currently valid. Set by consolidator on contradiction detection.
+     * Temporal query pattern: WHERE valid_at <= :t AND (invalid_at IS NULL OR invalid_at > :t)
+     */
+    invalidAt: text('invalid_at'),
+
+    /**
+     * Source reliability level — separate from content quality_score (T549 §3.1.5).
+     * Drives quality multiplier at scoring time.
+     */
+    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
+
+    /**
+     * Number of times this observation has been cited/retrieved (T549 CONFLICT-03).
+     * Used by the consolidator for citation-based medium→long promotion.
+     */
+    citationCount: integer('citation_count').notNull().default(0),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -220,6 +451,13 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_agent').on(table.agent),
     // T531: quality score filter index
     index('idx_brain_observations_quality').on(table.qualityScore),
+    // T549 indexes
+    index('idx_brain_observations_tier').on(table.memoryTier),
+    index('idx_brain_observations_mem_type').on(table.memoryType),
+    index('idx_brain_observations_verified').on(table.verified),
+    index('idx_brain_observations_valid_at').on(table.validAt),
+    index('idx_brain_observations_invalid').on(table.invalidAt),
+    index('idx_brain_observations_source_conf').on(table.sourceConfidence),
   ],
 );
 

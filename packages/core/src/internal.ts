@@ -75,6 +75,19 @@ export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
+export type {
+  AdaptiveValidationSuggestion,
+  GateFocusRecommendation,
+  StorePredictionOptions,
+  VerificationConfidenceScore,
+} from './intelligence/adaptive-validation.js';
+// Intelligence — adaptive validation (suggestGateFocus, scoreVerificationConfidence)
+export {
+  predictAndStore,
+  scoreVerificationConfidence,
+  storePrediction,
+  suggestGateFocus,
+} from './intelligence/adaptive-validation.js';
 export {
   analyzeChangeImpact,
   analyzeTaskImpact,
@@ -437,6 +450,9 @@ export { createBackup, listBackups, restoreFromBackup } from './store/backup.js'
 // Backup portability — bundle packer (T311 / T347)
 export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
+export type { BrainDataAccessor } from './store/brain-accessor.js';
+// Brain accessor — for intelligence domain handler construction
+export { getBrainAccessor } from './store/brain-accessor.js';
 export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {

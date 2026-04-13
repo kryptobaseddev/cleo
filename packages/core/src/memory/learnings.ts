@@ -93,12 +93,39 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     };
   }
 
-  // Compute quality score from confidence, actionability, and content richness.
+  // T549 Wave 1-A: Tier routing for learnings.
+  // Learnings are short-term semantic entries — they start unverified and must earn promotion.
+  // sourceConfidence routing (spec §4.1 Decision Tree):
+  //   - source contains 'manual' → 'owner' (manually entered learnings are owner-stated)
+  //   - source contains 'transcript:ses_' → 'speculative' (transcript-extracted, low confidence)
+  //   - otherwise → 'agent' (agent-generated during session grading, hooks, etc.)
+  // memoryTier routing:
+  //   - source contains 'manual' → 'medium' (owner-stated facts skip short-term)
+  //   - otherwise → 'short' (auto/agent learnings start short-term, consolidator promotes)
+  // memoryType routing (spec §4.1 Decision Tree for memoryType):
+  //   - source contains 'transcript:ses_' → 'episodic' (event-specific insight)
+  //   - otherwise → 'semantic' (declarative factual learning)
+  // verified = false (learnings need corroboration or manual verify gate)
+  const isManual = params.source.includes('manual');
+  const isTranscript = params.source.includes('transcript:ses_');
+  const sourceConfidence = isManual
+    ? ('owner' as const)
+    : isTranscript
+      ? ('speculative' as const)
+      : ('agent' as const);
+  const memoryTier = isManual ? ('medium' as const) : ('short' as const);
+  const memoryType = isTranscript ? ('episodic' as const) : ('semantic' as const);
+  const verified = false;
+
+  // Compute quality score from confidence, actionability, content richness,
+  // and T549 source multiplier.
   const qualityScore = computeLearningQuality({
     confidence: params.confidence,
     actionable: params.actionable ?? false,
     insight: params.insight.trim(),
     application: params.application ?? null,
+    sourceConfidence,
+    memoryTier,
   });
 
   // Create new entry
@@ -111,6 +138,11 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     application: params.application ?? null,
     applicableTypesJson: params.applicableTypes ? JSON.stringify(params.applicableTypes) : '[]',
     qualityScore,
+    // T549 Wave 1-A: tier/type/confidence assigned at write time
+    memoryTier,
+    memoryType,
+    sourceConfidence,
+    verified,
   };
 
   const saved = await accessor.addLearning(entry);

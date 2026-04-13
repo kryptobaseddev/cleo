@@ -147,11 +147,26 @@ export async function storeDecision(
     }
   }
 
-  // Compute quality score from confidence level, rationale richness, and task linkage.
+  // T549 Wave 1-A: Tier routing for decisions.
+  // Decisions are always medium-term semantic entries — they are intentional acts,
+  // always manually entered via cleo memory decision-store or the CLI.
+  // sourceConfidence = 'owner' (decisions are owner-stated facts by definition)
+  // verified = true (the act of deciding IS verification)
+  // memoryTier = 'medium' (decisions skip short-term; may promote to long after 7d+outcome:success)
+  // memoryType = 'semantic' (decisions are declarative architectural facts)
+  const memoryTier = 'medium' as const;
+  const memoryType = 'semantic' as const;
+  const sourceConfidence = 'owner' as const;
+  const verified = true;
+
+  // Compute quality score from confidence level, rationale richness, task linkage,
+  // and T549 source multiplier (owner = 1.0, medium tier = +0.05).
   const qualityScore = computeDecisionQuality({
     confidence: params.confidence,
     rationale: params.rationale.trim(),
     contextTaskId: validTaskId ?? null,
+    sourceConfidence,
+    memoryTier,
   });
 
   const row: NewBrainDecisionRow = {
@@ -166,6 +181,11 @@ export async function storeDecision(
     contextTaskId: validTaskId,
     contextPhase: params.contextPhase,
     qualityScore,
+    // T549 Wave 1-A: tier/type/confidence assigned at write time
+    memoryTier,
+    memoryType,
+    sourceConfidence,
+    verified,
   };
 
   const saved = await accessor.addDecision(row);
