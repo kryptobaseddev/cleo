@@ -1,5 +1,61 @@
 # Changelog
 
+## [2026.4.34] (2026-04-13)
+
+JIT Agent Integration + Pi First-Class Support. Fresh agent test score: 9/10.
+
+### Agent Experience
+- **Project identity**: `cleo dash` shows real project name via 3-level fallback (was "Unknown Project")
+- **Task recommendations**: `cleo next` excludes soft-cancelled tasks (was recommending cancelled T234)
+- **Nexus context**: `cleo nexus context <symbol>` queries code intelligence graph (was broken — expected task IDs)
+- **Context pull**: `cleo context pull <taskId>` returns relevant brain entries (FTS5 OR semantics fix)
+- **Brain migrations**: `ensureColumns()` safety net applies all T528/T531/T549 columns on DB open
+
+### Pi First-Class Support
+- Pi adapter created with 11/16 CAAMP hook coverage
+- session_shutdown wired to fire `cleo refresh-memory` + `cleo backup add`
+- Pi added to `PROVIDER_IDS` and `discoverProviders()`
+
+## [2026.4.33] (2026-04-13)
+
+Memory Architecture v2 — tiered cognitive memory system.
+
+### Tiered Memory
+- Three tiers (short/medium/long) with deterministic routing at write-time
+- Typed memory (semantic/episodic/procedural) via `BRAIN_COGNITIVE_TYPES` enum
+- Source confidence tracking, bitemporal validity (validAt/invalidAt)
+- Citation counting for tier promotion
+
+### Extraction Pipeline
+- Verification gate before storage (content-hash + cosine similarity dedup)
+- Heuristic contradiction detection
+- Budget-aware retrieval (FTS5 50% + vector 40% + graph 10%)
+
+### Sleep-Time Consolidation
+- 7-step consolidation on session end
+- Tier promotion, contradiction detection, soft eviction
+
+### Agent Self-Healing + Intelligence
+- Watchdog scheduler (60s) for crashed agent recovery
+- Intelligence CLI: predict, suggest, learn-errors, confidence, match
+- Capacity-aware routing in orchestrate.spawn
+
+### JIT Context
+- `cleo context pull <taskId>` compact bundle
+- nexus-bridge.md auto-generated code intelligence context
+- CAAMP injection wiring for nexus-bridge.md + JIT protocol
+
+## [2026.4.32] (2026-04-12)
+
+Validation remediation — fixes all gaps from system validation report.
+
+### Fixes
+- Auto-population: `memoryDecisionStore` routes through `storeDecision()` for quality + graph hooks
+- Memory bridge: `refreshMemoryBridge()` wired into CLI session end dispatch
+- Injection chain: CLAUDE.md simplified to `@AGENTS.md` only
+- Nexus CLI: analyze, status, clusters, flows wired and tested
+- Pattern bug: root cause was globally installed binary running pre-fix code
+
 ## [2026.4.31] (2026-04-12)
 
 BRAIN Integrity + Code Intelligence Pipeline — mega-epic spanning T523 + T513.
