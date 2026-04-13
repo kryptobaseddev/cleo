@@ -19,8 +19,6 @@ import { getProjectRoot } from '../paths.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
-// T545: Decision store with quality scoring and graph auto-population
-import { storeDecision } from './decisions.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
 import {
@@ -30,6 +28,8 @@ import {
   searchBrainCompact,
   timelineBrain,
 } from './brain-retrieval.js';
+// T545: Decision store with quality scoring and graph auto-population
+import { storeDecision } from './decisions.js';
 import {
   learningStats,
   type SearchLearningParams,
