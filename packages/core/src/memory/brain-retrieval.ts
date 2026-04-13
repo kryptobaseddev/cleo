@@ -23,6 +23,8 @@ import { getBrainAccessor } from '../store/brain-accessor.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
+  BrainMemoryTier,
+  BrainSourceConfidence,
 } from '../store/brain-schema.js';
 import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getDb } from '../store/sqlite.js';
@@ -127,6 +129,14 @@ export interface ObserveBrainParams {
   sourceType?: BrainObservationSourceType;
   /** T417: agent provenance — the name of the spawned agent producing this observation. */
   agent?: string;
+  /**
+   * T549 Wave 1-A: source reliability level.
+   * Overrides the default routing. If omitted, routing is determined automatically:
+   * - sourceType 'manual' → 'owner'
+   * - sourceType 'session-debrief' → 'task-outcome'
+   * - otherwise → 'agent'
+   */
+  sourceConfidence?: BrainSourceConfidence;
 }
 
 /** Result from observeBrain. */
@@ -551,6 +561,7 @@ export async function observeBrain(
     sourceSessionId,
     sourceType,
     agent,
+    sourceConfidence: sourceConfidenceParam,
   } = params;
 
   if (!text?.trim()) {
@@ -560,6 +571,24 @@ export async function observeBrain(
   const type = typeParam ?? classifyObservationType(text);
   const title = titleParam ?? text.slice(0, 120);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // T549 Wave 1-A: Tier routing for observations.
+  // Observations always start as short-term episodic entries.
+  // sourceConfidence routing (spec §4.1 Decision Tree):
+  //   - sourceType 'manual' → 'owner' (owner-stated facts skip short-term in consolidator)
+  //   - sourceType 'session-debrief' → 'task-outcome' (synthesized summaries)
+  //   - otherwise → 'agent' (default for all hook/agent writes)
+  // verified is always false at write time — consolidator sets true via corroboration gate.
+  const resolvedSourceConfidence: BrainSourceConfidence =
+    sourceConfidenceParam ??
+    (sourceType === 'manual'
+      ? 'owner'
+      : sourceType === 'session-debrief'
+        ? 'task-outcome'
+        : 'agent');
+  const memoryTier: BrainMemoryTier = 'short';
+  const memoryType = 'episodic' as const;
+  const verified = false;
 
   // Content-hash dedup: SHA-256 prefix of title+text
   const contentHash = createHash('sha256')
@@ -603,8 +632,13 @@ export async function observeBrain(
     }
   }
 
-  // Compute quality score from text richness and title length.
-  const qualityScore = computeObservationQuality({ text, title });
+  // Compute quality score from text richness, title length, and T549 source multiplier.
+  const qualityScore = computeObservationQuality({
+    text,
+    title,
+    sourceConfidence: resolvedSourceConfidence,
+    memoryTier,
+  });
 
   const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
@@ -621,6 +655,11 @@ export async function observeBrain(
     agent: agent ?? null,
     qualityScore,
     createdAt: now,
+    // T549 Wave 1-A: tier/type/confidence assigned at write time
+    memoryTier,
+    memoryType,
+    sourceConfidence: resolvedSourceConfidence,
+    verified,
   });
 
   // Populate embedding if provider is available (T5387).

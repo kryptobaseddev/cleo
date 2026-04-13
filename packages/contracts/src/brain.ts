@@ -7,6 +7,46 @@
  * @task T5800
  */
 
+// ============================================================
+// T549: Tiered + Typed Memory Architecture types
+// ============================================================
+
+/**
+ * Memory retention tier values for the tiered cognitive memory model (T549).
+ *
+ * - `short`  — Session-scoped working context. Auto-evicted after TTL if not promoted.
+ * - `medium` — Project-scoped verified facts. Retained for weeks.
+ * - `long`   — Architectural bedrock. Permanent; supersession-only eviction.
+ */
+export type BrainMemoryTier = 'short' | 'medium' | 'long';
+
+/**
+ * Cognitive type taxonomy for brain entries (T549).
+ *
+ * NOTE: Named `BrainCognitiveType` (not `BrainMemoryType`) to avoid collision
+ * with the brain_memory_links entity type enum.
+ *
+ * - `semantic`   — Declarative facts: brain_decisions, brain_learnings (default)
+ * - `episodic`   — Event records: brain_observations, brain_learnings (transcript-derived)
+ * - `procedural` — Process knowledge: brain_patterns
+ */
+export type BrainCognitiveType = 'semantic' | 'episodic' | 'procedural';
+
+/**
+ * Source reliability levels for brain entries (T549 §3.1.5).
+ *
+ * Separate dimension from content `quality_score`. Each level drives a quality
+ * multiplier applied at scoring time:
+ *
+ * | Level         | Quality multiplier |
+ * |---------------|--------------------|
+ * | `owner`       | 1.0                |
+ * | `task-outcome`| 0.90               |
+ * | `agent`       | 0.70               |
+ * | `speculative` | 0.40               |
+ */
+export type BrainSourceConfidence = 'owner' | 'task-outcome' | 'agent' | 'speculative';
+
 /** Compact brain entry reference used in contradiction analysis. */
 export interface BrainEntryRef {
   /** Brain.db entry identifier. */

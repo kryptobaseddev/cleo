@@ -46,8 +46,11 @@ export type {
 } from './backup-manifest.js';
 // === Brain/Memory Types ===
 export type {
+  BrainCognitiveType,
   BrainEntryRef,
   BrainEntrySummary,
+  BrainMemoryTier,
+  BrainSourceConfidence,
   ContradictionDetail,
   SupersededEntry,
 } from './brain.js';
@@ -77,6 +80,7 @@ export type {
   BrainEmbeddingConfig,
   BrainMemoryBridgeConfig,
   BrainSummarizationConfig,
+  BrainTieringConfig,
   CleoConfig,
   ConfigSource,
   DateFormat,

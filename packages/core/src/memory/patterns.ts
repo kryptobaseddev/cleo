@@ -31,6 +31,12 @@ export interface StorePatternParams {
   mitigation?: string;
   examples?: string[];
   successRate?: number;
+  /**
+   * T549 Wave 1-A: origin of this pattern.
+   * Used to route sourceConfidence at write time.
+   * Values starting with 'auto' map to 'speculative'; otherwise 'agent'.
+   */
+  source?: string;
 }
 
 /** Parameters for searching patterns. */
@@ -110,13 +116,31 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     };
   }
 
-  // Compute quality score based on type, content richness, and examples.
+  // T549 Wave 1-A: Tier routing for patterns.
+  // Patterns are medium-term procedural entries — they describe how things work.
+  // sourceConfidence routing (spec §4.1 Decision Tree):
+  //   - source starts with 'auto' → 'speculative' (auto-extracted, unconfirmed)
+  //   - otherwise → 'agent' (agent-observed during work)
+  // memoryTier = 'medium' (patterns have more than one observation and are project-scoped)
+  // memoryType = 'procedural' (patterns are always process knowledge)
+  // verified = false (patterns need validation through repetition, not boolean gate)
+  const memoryTier = 'medium' as const;
+  const memoryType = 'procedural' as const;
+  const sourceConfidence = params.source?.startsWith('auto')
+    ? ('speculative' as const)
+    : ('agent' as const);
+  const verified = false;
+
+  // Compute quality score based on type, content richness, examples,
+  // and T549 source multiplier.
   const examplesJson = params.examples ? JSON.stringify(params.examples) : '[]';
   const qualityScore = computePatternQuality({
     type: params.type,
     pattern: params.pattern.trim(),
     context: params.context.trim(),
     examples_json: examplesJson,
+    sourceConfidence,
+    memoryTier,
   });
 
   // Create new entry
@@ -133,6 +157,11 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
     examplesJson,
     extractedAt: now,
     qualityScore,
+    // T549 Wave 1-A: tier/type/confidence assigned at write time
+    memoryTier,
+    memoryType,
+    sourceConfidence,
+    verified,
   };
 
   const saved = await accessor.addPattern(entry);
