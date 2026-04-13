@@ -177,6 +177,7 @@ describe('AdminHandler', () => {
         'config.presets',
         'stats',
         'context',
+        'context.pull',
         'runtime',
         'paths',
         'job',

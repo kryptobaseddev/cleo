@@ -186,10 +186,13 @@ export { runBrainMaintenance } from './memory/brain-maintenance.js';
 export type { PurgeResult } from './memory/brain-purge.js';
 export { purgeBrainNoise } from './memory/brain-purge.js';
 export type {
+  BudgetedEntry,
+  BudgetedResult,
+  BudgetedRetrievalOptions,
   PopulateEmbeddingsOptions,
   PopulateEmbeddingsResult,
 } from './memory/brain-retrieval.js';
-export { populateEmbeddings } from './memory/brain-retrieval.js';
+export { populateEmbeddings, retrieveWithBudget } from './memory/brain-retrieval.js';
 export { migrateClaudeMem } from './memory/claude-mem-migration.js';
 // Memory — engine-compat
 export {

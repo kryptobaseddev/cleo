@@ -567,6 +567,23 @@ export async function orchestrateSpawnExecute(
       },
     };
 
+    // Wave 6-C/D: Capacity-aware routing — find the least-loaded agent and
+    // attach it as a preferred routing hint on the spawn options.
+    // Best-effort: if no agents are registered or the check throws, fall
+    // through to default spawn behavior without blocking.
+    try {
+      const { findLeastLoadedAgent } = await import('@cleocode/core/internal');
+      const leastLoaded = await findLeastLoadedAgent(undefined, cwd);
+      if (leastLoaded) {
+        cleoSpawnContext.options = {
+          ...cleoSpawnContext.options,
+          preferredAgent: leastLoaded.id,
+        };
+      }
+    } catch {
+      // Capacity check is best-effort — never block spawn
+    }
+
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
 
