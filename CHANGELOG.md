@@ -1,5 +1,46 @@
 # Changelog
 
+## [2026.4.31] (2026-04-12)
+
+BRAIN Integrity + Code Intelligence Pipeline — mega-epic spanning T523 + T513.
+29 agents orchestrated through full RCASD→IVTR lifecycle. 7,129 tests pass.
+
+### BRAIN Integrity (T523) — Memory System Overhaul
+
+- **brain.db purge**: Removed 2,930 noise entries (95.8% reduction). SNR improved from 0.95% to ~100%
+- **Dedup engine**: Fixed empty `if(duplicate)` blocks in patterns.ts and learnings.ts — upsert with frequency increment (patterns) and confidence max-merge (learnings)
+- **Hook fixes**: Gutted `extractTaskCompletionMemory()` and `extractSessionEndMemory()` (noise generators). Severed 3 duplicate session observation write paths
+- **Graph schema**: Expanded `brain_page_nodes` to 12 node types (decision, pattern, learning, observation, sticky, task, session, epic, file, symbol, concept, summary) with quality scoring, content hashing, metadata JSON
+- **Graph edges**: Expanded `brain_page_edges` to 12 edge types (derived_from, produced_by, informed_by, supports, contradicts, supersedes, applies_to, documents, summarizes, part_of, references, modified_by) with weight and provenance
+- **Graph back-fill**: Populated 281 nodes and 228 edges from surviving entries with quality scores and cross-type relationships
+- **Quality scoring**: Added `quality_score` computation to all store functions (patterns, learnings, decisions, observations). Entries below 0.3 threshold excluded from search results
+- **Auto-population hooks**: Graph nodes/edges auto-created when decisions stored, observations recorded, tasks completed — all gated on `BrainConfig.autoCapture`, all best-effort
+- **Graph traversal**: New query functions for BFS trace (recursive CTE), typed neighbor lookup, 360-degree context view, graph statistics
+- **Embeddings activated**: Installed `sqlite-vec`, wired `initDefaultProvider()` into `getBrainDb()` startup — the entire vector embedding pipeline (previously dead code) is now active
+- **New CLI commands**: `cleo brain purge`, `cleo brain backfill`
+
+### Code Intelligence Pipeline (T513) — Full GitNexus Absorption
+
+- **Drizzle schema**: Created `nexus_nodes` + `nexus_relations` tables with full column set and 9 indexes each
+- **Contracts expansion**: `GraphNodeKind` expanded by 17 values (community, process, route, trait, impl, type_alias, etc.), `GraphRelationType` expanded by 9 values (member_of, step_in_process, handles_route, etc.)
+- **Filesystem walker**: Phase 1-2 ported from GitNexus — directory scanning with .gitignore awareness, language detection, File/Folder/CONTAINS node creation
+- **SymbolTable**: 5 in-memory indexes (fileIndex, callableByName, fieldByOwner, methodByOwner, classByName) ported from GitNexus
+- **Import resolution**: TypeScript resolver with relative paths, barrel exports, tsconfig aliases, node_modules resolution. Suffix index trie for O(1) path lookup
+- **Parse loop**: Sequential chunked parsing (20MB byte-budget) with tree-sitter extraction — definitions, imports, heritage, calls
+- **Call resolution**: Tier 1 (same-file, confidence 0.95) + Tier 2a (named-import, confidence 0.90) with deferred execution after all chunks parsed
+- **Heritage processing**: EXTENDS/IMPLEMENTS edge creation with HeritageMap builder (directParents + implementorFiles indexes)
+- **Community detection**: Louvain algorithm via `graphology-communities-louvain` — auto-clusters symbols into functional areas with heuristic labels and cohesion scores
+- **Process detection**: BFS execution flow tracing from entry points through CALLS edges (max depth 10, min steps 3) with subset deduplication
+- **Worker pool**: Parallel multi-file parsing with Node.js Worker threads (spawns at ≥15 files or ≥512KB total). Configurable concurrency (CPU cores - 1)
+- **Incremental re-indexing**: Detects changed files via mtime, deletes stale nodes, re-parses only changed files
+- **Language providers**: Python (namespace imports, decorators), Go (wildcard imports, receiver methods), Rust (use/mod imports, trait impls) — all via tree-sitter
+- **New CLI commands**: `cleo nexus analyze`, `cleo nexus status`, `cleo nexus clusters`, `cleo nexus flows`
+
+### Infrastructure
+
+- **Biome formatting**: Fixed detect-drift.ts long line wrap
+- **Migration**: Added `20260411000001_t528-graph-schema-expansion` and `20260412000001_t531-quality-score-typed-tables` Drizzle migrations
+
 ## [2026.4.30] (2026-04-11)
 
 Full CLI remediation — 3rd audit cycle, 23 agents, ~280 commands tested, all issues resolved.
