@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.4.30",
+  "version": "2026.4.35",
   "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -38,6 +38,9 @@
     "tree-sitter-ruby": "^0.23.1",
     "tree-sitter-rust": "^0.23.1",
     "tree-sitter-typescript": "^0.23.2"
+  },
+  "overrides": {
+    "tree-sitter": "^0.22.1"
   },
   "engines": {
     "node": ">=24.0.0"

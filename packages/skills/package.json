@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/skills",
-  "version": "2026.4.30",
+  "version": "2026.4.35",
   "description": "CLEO skill definitions - bundled with CLEO monorepo",
   "main": "index.js",
   "types": "index.d.ts",
