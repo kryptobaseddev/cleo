@@ -1569,10 +1569,25 @@ export async function memoryReasonSimilar(
 export async function memorySearchHybrid(
   params: {
     query: string;
-    ftsWeight?: number;
-    vecWeight?: number;
-    graphWeight?: number;
     limit?: number;
+    /**
+     * @deprecated Weight parameters are unused — hybrid search now uses
+     * Reciprocal Rank Fusion (RRF) which is rank-based and does not require
+     * per-source weights. This field is accepted but silently ignored.
+     */
+    ftsWeight?: number;
+    /**
+     * @deprecated Weight parameters are unused — hybrid search now uses
+     * Reciprocal Rank Fusion (RRF) which is rank-based and does not require
+     * per-source weights. This field is accepted but silently ignored.
+     */
+    vecWeight?: number;
+    /**
+     * @deprecated Weight parameters are unused — hybrid search now uses
+     * Reciprocal Rank Fusion (RRF) which is rank-based and does not require
+     * per-source weights. This field is accepted but silently ignored.
+     */
+    graphWeight?: number;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -1584,9 +1599,6 @@ export async function memorySearchHybrid(
     const root = resolveRoot(projectRoot);
     const { hybridSearch } = await import('./brain-search.js');
     const results = await hybridSearch(params.query, root, {
-      ftsWeight: params.ftsWeight,
-      vecWeight: params.vecWeight,
-      graphWeight: params.graphWeight,
       limit: params.limit,
     });
     return { success: true, data: { results, total: results.length } };

@@ -288,18 +288,15 @@ export async function completeTask(
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.
 
-  // Auto-extract memory from task completion (best-effort, T-audit)
-  import('../memory/auto-extract.js')
-    .then(({ extractTaskCompletionMemory }) =>
-      extractTaskCompletionMemory(cwd ?? process.cwd(), task),
-    )
-    .catch(() => {
-      /* Memory extraction is best-effort */
-    });
+  // Task-completion memory is intentionally NOT written here.
+  // The legacy extractTaskCompletionMemory function was removed (produced
+  // O(tasks x labels) noise — see T523 CA1 spec). Durable knowledge is now
+  // extracted from session transcripts at session end via the LLM extraction
+  // gate in memory/llm-extraction.ts.
 
   // Auto-populate brain graph nodes for the completed task (best-effort, T537).
-  // Runs SEPARATE from the gutted extractTaskCompletionMemory — this only writes
-  // graph topology, not memory table rows.
+  // Graph topology is still written here — only the noise-producing memory
+  // row writes were removed.
   import('../memory/graph-auto-populate.js')
     .then(({ upsertGraphNode, addGraphEdge }) =>
       (async () => {

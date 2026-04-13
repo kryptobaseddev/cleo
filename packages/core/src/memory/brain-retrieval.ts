@@ -36,7 +36,7 @@ import type {
   BrainNarrativeRow,
   BrainTimelineNeighborRow,
 } from './brain-row-types.js';
-import { searchBrain } from './brain-search.js';
+import { hybridSearch, searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeObservationQuality } from './quality-scoring.js';
@@ -65,6 +65,12 @@ export interface SearchBrainCompactParams {
   dateEnd?: string;
   /** T418: filter results to observations produced by a specific agent (Wave 8 mental models). */
   agent?: string;
+  /**
+   * When true (default), use Reciprocal Rank Fusion to combine FTS5 and
+   * vector search results for higher recall and better ranking.
+   * When false, fall back to FTS5-only search (faster, no embeddings needed).
+   */
+  useRRF?: boolean;
 }
 
 /** Result from searchBrainCompact. */
@@ -166,20 +172,109 @@ export async function searchBrainCompact(
   projectRoot: string,
   params: SearchBrainCompactParams,
 ): Promise<SearchBrainCompactResult> {
-  const { query, limit, tables, dateStart, dateEnd, agent } = params;
+  const { query, limit, tables, dateStart, dateEnd, agent, useRRF = true } = params;
 
   if (!query?.trim()) {
     return { results: [], total: 0, tokensEstimated: 0 };
   }
 
-  // T418: when agent filter is set, restrict search to observations table only
-  const effectiveTables =
-    agent !== undefined && agent !== null
-      ? (['observations'] as Array<'decisions' | 'patterns' | 'learnings' | 'observations'>)
-      : tables;
+  const effectiveLimit = limit ?? 10;
+
+  // T418: agent filter always forces FTS-only on observations table
+  const agentFilter = agent !== undefined && agent !== null;
+
+  // ----- RRF path (default) -----
+  if (useRRF && !agentFilter) {
+    // Run FTS (for dates + table-level data) and RRF fusion in parallel.
+    // FTS gives us row-level dates; RRF gives us the fused ranking order.
+    const [ftsResult, rrfResults] = await Promise.all([
+      searchBrain(projectRoot, query, { limit: effectiveLimit * 3, tables }).catch(() => ({
+        decisions: [],
+        patterns: [],
+        learnings: [],
+        observations: [],
+      })),
+      hybridSearch(query, projectRoot, { limit: effectiveLimit * 2 }),
+    ]);
+
+    // Build a date map from FTS rows (id -> date string)
+    const dateMap = new Map<string, string>();
+    for (const d of ftsResult.decisions) {
+      const raw = d as Record<string, unknown>;
+      dateMap.set(d.id, (d.createdAt ?? (raw['created_at'] as string)) || '');
+    }
+    for (const p of ftsResult.patterns) {
+      const raw = p as Record<string, unknown>;
+      dateMap.set(p.id, (p.extractedAt ?? (raw['extracted_at'] as string)) || '');
+    }
+    for (const l of ftsResult.learnings) {
+      const raw = l as Record<string, unknown>;
+      dateMap.set(l.id, (l.createdAt ?? (raw['created_at'] as string)) || '');
+    }
+    for (const o of ftsResult.observations) {
+      const raw = o as Record<string, unknown>;
+      dateMap.set(o.id, (o.createdAt ?? (raw['created_at'] as string)) || '');
+    }
+
+    // Apply table filter when specified (map singular type names to plural table names)
+    const singularToTable: Record<string, string> = {
+      decision: 'decisions',
+      pattern: 'patterns',
+      learning: 'learnings',
+      observation: 'observations',
+    };
+
+    let results: BrainCompactHit[] = rrfResults
+      .map((r) => ({
+        id: r.id,
+        type: r.type as 'decision' | 'pattern' | 'learning' | 'observation',
+        title: r.title.slice(0, 80),
+        date: dateMap.get(r.id) ?? '',
+        relevance: r.score,
+      }))
+      .filter((r) => {
+        // Only include items that the FTS scan returned (ensures quality gating is respected)
+        return dateMap.has(r.id);
+      });
+
+    if (tables && tables.length > 0) {
+      results = results.filter((r) =>
+        tables.includes(
+          singularToTable[r.type] as 'decisions' | 'patterns' | 'learnings' | 'observations',
+        ),
+      );
+    }
+
+    // Apply date filters client-side
+    if (dateStart) results = results.filter((r) => !r.date || r.date >= dateStart);
+    if (dateEnd) results = results.filter((r) => !r.date || r.date <= dateEnd);
+
+    results = results.slice(0, effectiveLimit);
+
+    for (const hit of results) {
+      hit._next = memoryFindHitNext(hit.id);
+    }
+
+    if (results.length > 0) {
+      const returnedIds = results.map((r) => r.id);
+      setImmediate(() => {
+        incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
+        logRetrieval(projectRoot, query, returnedIds, 'find-rrf', results.length * 50).catch(
+          () => {},
+        );
+      });
+    }
+
+    return { results, total: results.length, tokensEstimated: results.length * 50 };
+  }
+
+  // ----- FTS-only path (useRRF=false or agent filter) -----
+  const effectiveTables = agentFilter
+    ? (['observations'] as Array<'decisions' | 'patterns' | 'learnings' | 'observations'>)
+    : tables;
 
   const searchResult = await searchBrain(projectRoot, query, {
-    limit: limit ?? 10,
+    limit: effectiveLimit,
     tables: effectiveTables,
   });
 
@@ -189,7 +284,7 @@ export async function searchBrainCompact(
   // We handle both naming conventions for robustness.
   let results: BrainCompactHit[] = [];
 
-  if (!agent) {
+  if (!agentFilter) {
     for (const d of searchResult.decisions) {
       const raw = d as Record<string, unknown>;
       results.push({
@@ -224,7 +319,7 @@ export async function searchBrainCompact(
   for (const o of searchResult.observations) {
     const raw = o as Record<string, unknown>;
     // T418: apply agent post-filter when specified
-    if (agent) {
+    if (agentFilter) {
       const rowAgent = o.agent ?? (raw['agent'] as string | null) ?? null;
       if (rowAgent !== agent) continue;
     }
@@ -237,12 +332,8 @@ export async function searchBrainCompact(
   }
 
   // Apply date filters client-side if provided
-  if (dateStart) {
-    results = results.filter((r) => r.date >= dateStart);
-  }
-  if (dateEnd) {
-    results = results.filter((r) => r.date <= dateEnd);
-  }
+  if (dateStart) results = results.filter((r) => r.date >= dateStart);
+  if (dateEnd) results = results.filter((r) => r.date <= dateEnd);
 
   // Enrich each hit with _next progressive disclosure directives
   for (const hit of results) {
@@ -513,7 +604,13 @@ export async function fetchBrainEntries(
     const fetchedIds = results.map((r) => r.id);
     setImmediate(() => {
       incrementCitationCounts(projectRoot, fetchedIds).catch(() => {});
-      logRetrieval(projectRoot, fetchedIds.join(','), fetchedIds, 'fetch', results.length * 500).catch(() => {});
+      logRetrieval(
+        projectRoot,
+        fetchedIds.join(','),
+        fetchedIds,
+        'fetch',
+        results.length * 500,
+      ).catch(() => {});
     });
   }
 
@@ -612,7 +709,8 @@ export async function observeBrain(
         : 'agent');
   const memoryTier: BrainMemoryTier = 'short';
   const memoryType = 'episodic' as const;
-  const verified = resolvedSourceConfidence === 'owner' || resolvedSourceConfidence === 'task-outcome';
+  const verified =
+    resolvedSourceConfidence === 'owner' || resolvedSourceConfidence === 'task-outcome';
 
   // Content-hash dedup: SHA-256 prefix of title+text
   const contentHash = createHash('sha256')
