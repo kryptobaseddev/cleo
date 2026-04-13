@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo-os",
-  "version": "2026.4.34",
+  "version": "2026.4.35",
   "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
   "type": "module",
   "main": "./dist/cli.js",
@@ -27,6 +27,9 @@
   "devDependencies": {
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "tree-sitter": "^0.22.1"
   },
   "engines": {
     "node": ">=24.0.0"
