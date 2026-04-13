@@ -253,6 +253,13 @@ fn prop_value_preview(value: &cant_core::dsl::ast::Value) -> String {
             };
             format!("{}{unit}", d.amount)
         }
+        cant_core::dsl::ast::Value::ProseBlock(p) => {
+            // Join the first line of the prose block as a preview.
+            p.lines
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "|...".to_string())
+        }
         cant_core::dsl::ast::Value::_Span(_) => "...".to_string(),
     }
 }
