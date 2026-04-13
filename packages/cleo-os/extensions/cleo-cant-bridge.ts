@@ -47,7 +47,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -353,6 +353,53 @@ export function buildSessionBanner(
 // Internal state
 // ============================================================================
 
+// ============================================================================
+// Memory bridge injection helpers
+// ============================================================================
+
+/** Cached memory-bridge.md content injected once per session. */
+let memoryBridgeContent: string | null = null;
+
+/**
+ * Read `.cleo/memory-bridge.md` from the project directory.
+ *
+ * Returns null when the file does not exist or cannot be read.
+ * The result is cached in `memoryBridgeContent` for the session
+ * lifetime so the file is only read once.
+ *
+ * @param projectDir - The project root directory.
+ * @returns The raw memory-bridge.md content, or null.
+ */
+function readMemoryBridge(projectDir: string): string | null {
+  try {
+    const bridgePath = join(projectDir, ".cleo", "memory-bridge.md");
+    if (!existsSync(bridgePath)) return null;
+    const content = readFileSync(bridgePath, "utf-8");
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the memory-bridge system-prompt block appended to every agent.
+ *
+ * Wraps the raw memory-bridge.md content in a clearly labeled section
+ * so the agent knows this is the CLEO project memory context.
+ *
+ * @param content - The raw memory-bridge.md content.
+ * @returns The formatted memory-bridge block for system prompt injection.
+ */
+export function buildMemoryBridgeInjection(content: string): string {
+  return (
+    "\n\n===== CLEO MEMORY BRIDGE =====\n" +
+    "This is your project memory context from .cleo/memory-bridge.md.\n" +
+    "Use it to understand recent decisions, handoff notes, and key patterns.\n\n" +
+    content.trim() +
+    "\n===== END MEMORY BRIDGE ====="
+  );
+}
+
 /** Cached system prompt addendum from the last session_start compilation. */
 let bundlePrompt: string | null = null;
 
@@ -559,6 +606,10 @@ export default function (pi: ExtensionAPI): void {
     bundlePrompt = null;
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
+    memoryBridgeContent = null;
+
+    // Cache memory-bridge.md for this session (best-effort)
+    memoryBridgeContent = readMemoryBridge(ctx.cwd);
 
     // Auto-start CLEO session on Pi session start (best-effort, never crash Pi)
     execFileAsync(
@@ -679,6 +730,15 @@ export default function (pi: ExtensionAPI): void {
       // APPEND CANT bundle prompt
       if (bundlePrompt) {
         appendix += "\n\n" + bundlePrompt;
+      }
+
+      // APPEND memory-bridge.md context so every agent gets project memory
+      // without needing manual `@` references. Read from session cache or
+      // fall back to a live read using the project root.
+      const projectRoot = event.projectRoot ?? ctx?.cwd ?? "";
+      const bridge = memoryBridgeContent ?? (projectRoot ? readMemoryBridge(projectRoot) : null);
+      if (bridge) {
+        appendix += buildMemoryBridgeInjection(bridge);
       }
 
       // T420: validate-on-load mental-model injection.
@@ -831,6 +891,7 @@ export default function (pi: ExtensionAPI): void {
     bundlePrompt = null;
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
+    memoryBridgeContent = null;
 
     // 2. End CLEO session (best-effort) — triggers grading, extraction, consolidation
     execFileAsync(

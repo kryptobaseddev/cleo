@@ -45,6 +45,49 @@ import {
 import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
 
+// ---------------------------------------------------------------------------
+// Conduit event helper — best-effort, never throws, never blocks orchestration
+// ---------------------------------------------------------------------------
+
+/** Structured payload for a conduit orchestration event message. */
+interface ConduitOrchestrationEvent {
+  event: 'agent.spawned' | 'orchestrate.handoff';
+  taskId: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Send a structured orchestration event to conduit.db via the active agent
+ * credential. Failures are silently swallowed — conduit events MUST NOT block
+ * or alter orchestration outcomes.
+ *
+ * @param cwd   - Project root used to locate conduit.db and the agent registry.
+ * @param to    - Recipient agent ID (e.g. 'cleo-core').
+ * @param event - Structured event payload (LAFS-shaped JSON).
+ */
+async function sendConduitEvent(
+  cwd: string,
+  to: string,
+  event: ConduitOrchestrationEvent,
+): Promise<void> {
+  try {
+    const { AgentRegistryAccessor, getDb, createConduit } = await import('@cleocode/core/internal');
+    await getDb();
+    const registry = new AgentRegistryAccessor(cwd);
+    const active = await registry.getActive();
+    if (!active) return; // No registered agent — skip silently
+
+    const conduit = await createConduit(registry);
+    try {
+      await conduit.send(to, JSON.stringify(event));
+    } finally {
+      await conduit.disconnect();
+    }
+  } catch {
+    // Best-effort: conduit failures must never surface to callers
+  }
+}
+
 type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
 
 interface HandoffStepState {
@@ -587,6 +630,20 @@ export async function orchestrateSpawnExecute(
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
 
+    // Best-effort: record spawn event in conduit.db so agents can observe
+    // orchestration activity. Never awaited in a blocking way — fires and
+    // the main return path continues regardless of conduit outcome.
+    void sendConduitEvent(cwd, 'cleo-core', {
+      event: 'agent.spawned',
+      taskId,
+      instanceId: result.instanceId,
+      status: result.status,
+      providerId: adapter.providerId,
+      adapterId: adapter.id,
+      tier: tier ?? null,
+      spawnedAt: new Date().toISOString(),
+    });
+
     return {
       success: true,
       data: {
@@ -1053,6 +1110,19 @@ export async function orchestrateHandoff(
 
   steps.spawn.status = 'completed';
   steps.spawn.message = `Spawn prepared for ${params.taskId}`;
+
+  // Best-effort: record handoff event in conduit.db so orchestrators and
+  // observers can track session transitions. Never blocks the return.
+  void sendConduitEvent(root, 'cleo-core', {
+    event: 'orchestrate.handoff',
+    taskId: params.taskId,
+    protocolType: params.protocolType,
+    predecessorSessionId: activeSessionId,
+    endedSessionId,
+    note: params.note ?? null,
+    nextAction: params.nextAction ?? null,
+    handoffAt: new Date().toISOString(),
+  });
 
   return {
     success: true,
