@@ -20,8 +20,15 @@ import './context-hooks.js';
 import './watchdog-hooks.js';
 // T549 Wave 5-D/E: Intelligence hooks (best-effort risk detection on task start)
 import './intelligence-hooks.js';
+// Conduit messaging hooks — write orchestration events to conduit.db
+import './conduit-hooks.js';
 
 export { handleSubagentStart, handleSubagentStop } from './agent-hooks.js';
+export {
+  handleConduitSessionEnd,
+  handleConduitSubagentStart,
+  handleConduitSubagentStop,
+} from './conduit-hooks.js';
 export { handlePostCompact, handlePreCompact } from './context-hooks.js';
 export { handleError } from './error-hooks.js';
 export { handleFileChange } from './file-hooks.js';
