@@ -105,7 +105,8 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
   // memoryType routing (spec §4.1 Decision Tree for memoryType):
   //   - source contains 'transcript:ses_' → 'episodic' (event-specific insight)
   //   - otherwise → 'semantic' (declarative factual learning)
-  // verified = false (learnings need corroboration or manual verify gate)
+  // Owner-stated learnings are ground truth (auto-verified).
+  // Transcript-extracted and agent-inferred start unverified — consolidator promotes.
   const isManual = params.source.includes('manual');
   const isTranscript = params.source.includes('transcript:ses_');
   const sourceConfidence = isManual
@@ -115,7 +116,7 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
       : ('agent' as const);
   const memoryTier = isManual ? ('medium' as const) : ('short' as const);
   const memoryType = isTranscript ? ('episodic' as const) : ('semantic' as const);
-  const verified = false;
+  const verified = isManual;
 
   // Compute quality score from confidence, actionability, content richness,
   // and T549 source multiplier.
