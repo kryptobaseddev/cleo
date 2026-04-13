@@ -268,7 +268,18 @@ function shimToCitty(shim: ShimCommand): CommandDef {
       (argDef as Record<string, unknown>).alias = opt.shortName;
     }
     if (opt.defaultValue !== undefined) {
-      (argDef as Record<string, unknown>).default = opt.defaultValue;
+      // Citty requires that string-type arg defaults are actual strings.
+      // When a shim option has `parseFn=parseInt` and a numeric `defaultValue`
+      // (e.g. `--limit <n>` with default 20), the stored default is a number.
+      // Passing a number default for a `type:'string'` arg causes citty's arg
+      // parser to malfunction and lump all remaining args (including boolean
+      // flags like `--json`) into `_` instead of parsing them individually.
+      // Convert numeric defaults to strings to keep citty's parser happy.
+      const defaultVal =
+        opt.takesValue && typeof opt.defaultValue === 'number'
+          ? String(opt.defaultValue)
+          : opt.defaultValue;
+      (argDef as Record<string, unknown>).default = defaultVal;
     }
 
     cittyArgs[opt.longName] = argDef;
