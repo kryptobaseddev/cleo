@@ -215,6 +215,15 @@ importers:
       citty:
         specifier: ^0.2.1
         version: 0.2.1
+      graphology:
+        specifier: ^0.26.0
+        version: 0.26.0(graphology-types@0.24.8)
+      graphology-communities-louvain:
+        specifier: ^2.0.2
+        version: 2.0.2(graphology-types@0.24.8)
+      graphology-types:
+        specifier: ^0.24.8
+        version: 0.24.8
       tree-sitter:
         specifier: ^0.22.1
         version: 0.22.4
