@@ -97,7 +97,7 @@ signaldock-payments = { path = "crates/signaldock-payments" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
-unsafe_code = "forbid"
+unsafe_code = "deny"  # deny (not forbid) so FFI crates can #![allow(unsafe_code)]
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"

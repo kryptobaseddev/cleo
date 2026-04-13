@@ -17,5 +17,5 @@ serde_json = { workspace = true }
 [build-dependencies]
 napi-build = "1"
 
-[lints.rustdoc]
-broken_intra_doc_links = "warn"
+[lints]
+workspace = true

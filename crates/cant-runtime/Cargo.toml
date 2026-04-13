@@ -19,5 +19,5 @@ tracing = { workspace = true }
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 
-[lints.rustdoc]
-broken_intra_doc_links = "warn"
+[lints]
+workspace = true
