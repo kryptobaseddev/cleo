@@ -867,7 +867,11 @@ export type {
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
 // Memory (additional)
-export { generateContextAwareContent, writeMemoryBridge } from './memory/memory-bridge.js';
+export {
+  generateContextAwareContent,
+  refreshMemoryBridge,
+  writeMemoryBridge,
+} from './memory/memory-bridge.js';
 export type { SessionMemoryContext } from './memory/session-memory.js';
 export {
   buildSummarizationPrompt,

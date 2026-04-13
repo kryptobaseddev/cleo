@@ -497,12 +497,15 @@ export function registerNexusCommand(program: Command): void {
         const db = await getNexusDb();
 
         // Query all nodes for this project, filter to community kind in-memory
-        // (avoids complex Drizzle where clause on an enum column)
-        const rows: Array<Record<string, unknown>> = await db
-          .select()
-          .from(nexusSchema.nexusNodes)
-          .all()
-          .catch(() => []);
+        // (avoids complex Drizzle where clause on an enum column).
+        // NodeSQLiteDatabase uses sync Drizzle — .all() returns a plain array,
+        // not a Promise, so wrap in try-catch rather than using .catch().
+        let rows: Array<Record<string, unknown>> = [];
+        try {
+          rows = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
+        } catch {
+          rows = [];
+        }
 
         const communities = rows.filter(
           (r) => r['kind'] === 'community' && r['projectId'] === projectId,
@@ -614,11 +617,14 @@ export function registerNexusCommand(program: Command): void {
         );
         const db = await getNexusDb();
 
-        const rows: Array<Record<string, unknown>> = await db
-          .select()
-          .from(nexusSchema.nexusNodes)
-          .all()
-          .catch(() => []);
+        // NodeSQLiteDatabase uses sync Drizzle — .all() returns a plain array,
+        // not a Promise, so wrap in try-catch rather than using .catch().
+        let rows: Array<Record<string, unknown>> = [];
+        try {
+          rows = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
+        } catch {
+          rows = [];
+        }
 
         const processes = rows.filter(
           (r) => r['kind'] === 'process' && r['projectId'] === projectId,
@@ -732,11 +738,12 @@ export function registerNexusCommand(program: Command): void {
 
       try {
         // Lazy imports to avoid loading heavy dependencies until needed
-        const [{ getNexusDb, nexusSchema }, { runPipeline }, { getProjectRoot }] =
+        const [{ getNexusDb, nexusSchema }, { runPipeline }, { getProjectRoot }, { eq }] =
           await Promise.all([
             import('@cleocode/core/store/nexus-sqlite' as string),
             import('@cleocode/nexus/pipeline' as string),
             import('@cleocode/core/internal' as string),
+            import('drizzle-orm' as string),
           ]);
 
         // Determine project ID — use override or derive from path
@@ -750,27 +757,26 @@ export function registerNexusCommand(program: Command): void {
           nexusRelations: nexusSchema.nexusRelations,
         };
 
-        // For full (non-incremental) runs: delete existing index first
+        // For full (non-incremental) runs: delete existing index first.
+        // NodeSQLiteDatabase uses sync Drizzle — no await, wrap in try-catch.
         if (!isIncremental) {
           if (!jsonOutput) {
             process.stderr.write('[nexus] Clearing existing index for project...\n');
           }
-          await db
-            .delete(nexusSchema.nexusNodes)
-            .where((t: { projectId: { equals: (id: string) => unknown } }) =>
-              t.projectId.equals(projectId),
-            )
-            .catch(() => {
-              // Table may not have rows — ignore
-            });
-          await db
-            .delete(nexusSchema.nexusRelations)
-            .where((t: { projectId: { equals: (id: string) => unknown } }) =>
-              t.projectId.equals(projectId),
-            )
-            .catch(() => {
-              // Table may not have rows — ignore
-            });
+          try {
+            db.delete(nexusSchema.nexusNodes)
+              .where(eq(nexusSchema.nexusNodes.projectId, projectId))
+              .run();
+          } catch {
+            // Table may not have rows — ignore
+          }
+          try {
+            db.delete(nexusSchema.nexusRelations)
+              .where(eq(nexusSchema.nexusRelations.projectId, projectId))
+              .run();
+          } catch {
+            // Table may not have rows — ignore
+          }
         }
 
         // Run the pipeline (full or incremental)

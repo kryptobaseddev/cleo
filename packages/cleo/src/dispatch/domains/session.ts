@@ -267,6 +267,16 @@ export class SessionHandler implements DomainHandler {
             unbindSession();
           }
 
+          // Refresh memory bridge AFTER all session end work completes (T546).
+          // The engine path (session-engine.ts) does not go through core/sessions/index.ts
+          // which has the direct refreshMemoryBridge call, so we must trigger it here.
+          try {
+            const { refreshMemoryBridge } = await import('@cleocode/core/internal');
+            await refreshMemoryBridge(projectRoot);
+          } catch {
+            // Best-effort: never block session end on bridge refresh failure
+          }
+
           return wrapResult(endResult, 'mutate', 'session', operation, startTime);
         }
 

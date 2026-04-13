@@ -19,6 +19,8 @@ import { getProjectRoot } from '../paths.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+// T545: Decision store with quality scoring and graph auto-population
+import { storeDecision } from './decisions.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
 import {
@@ -349,22 +351,18 @@ export async function memoryDecisionStore(
 
   try {
     const root = resolveRoot(projectRoot);
-    const accessor = await getBrainAccessor(root);
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const id = `D-${Date.now().toString(36)}`;
-
-    const row = await accessor.addDecision({
-      id,
+    // Route through storeDecision() so quality scoring and graph auto-population
+    // (upsertGraphNode) run on every insert — fixes T545 regression where
+    // engine-compat bypassed decisions.ts and wrote directly to the accessor,
+    // leaving quality_score NULL and no graph node created.
+    const row = await storeDecision(root, {
       type: 'technical',
       decision: params.decision,
       rationale: params.rationale,
       confidence: 'medium',
       outcome: 'pending',
-      alternativesJson: params.alternatives ? JSON.stringify(params.alternatives) : null,
-      contextTaskId: params.taskId ?? null,
-      contextEpicId: null,
-      contextPhase: null,
-      createdAt: now,
+      alternatives: params.alternatives,
+      contextTaskId: params.taskId,
     });
 
     return {

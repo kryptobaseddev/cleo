@@ -134,6 +134,7 @@ export type { WorkerPool } from './workers/worker-pool.js';
 export { createWorkerPool } from './workers/worker-pool.js';
 
 import fs from 'node:fs/promises';
+import { and, type Column, eq } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
 import type { ScannedFile } from './filesystem-walker.js';
@@ -290,15 +291,21 @@ export async function getIndexStats(
 ): Promise<IndexStats> {
   type NodeRow = { filePath: string | null; indexedAt: string };
 
+  // Column accessors — tables are typed as unknown to decouple from @cleocode/core;
+  // cast to column-like objects for use with Drizzle's eq() helper.
+  type DrizzleCol = { name: string; table: unknown };
+  const nodesTable = tables.nexusNodes as Record<string, DrizzleCol>;
+  const relationsTable = tables.nexusRelations as Record<string, DrizzleCol>;
+
   let rows: NodeRow[] = [];
   try {
     const raw = await db
       .select({
-        filePath: (tables.nexusNodes as Record<string, unknown>)['filePath'],
-        indexedAt: (tables.nexusNodes as Record<string, unknown>)['indexedAt'],
+        filePath: nodesTable['filePath'],
+        indexedAt: nodesTable['indexedAt'],
       })
       .from(tables.nexusNodes)
-      .where({ projectId } as unknown as Record<string, unknown>);
+      .where(eq(nodesTable['projectId'] as unknown as Column, projectId));
     rows = raw as NodeRow[];
   } catch {
     // Table may not exist yet
@@ -339,9 +346,9 @@ export async function getIndexStats(
   let relationCount = 0;
   try {
     const relRows = await db
-      .select({ id: (tables.nexusRelations as Record<string, unknown>)['id'] })
+      .select({ id: relationsTable['id'] })
       .from(tables.nexusRelations)
-      .where({ projectId } as unknown as Record<string, unknown>);
+      .where(eq(relationsTable['projectId'] as unknown as Column, projectId));
     relationCount = (relRows as unknown[]).length;
   } catch {
     // ignore
@@ -387,14 +394,16 @@ async function getIndexedFileMtimes(
   tables: NexusTables,
 ): Promise<Map<string, string>> {
   type Row = { filePath: string | null; indexedAt: string };
+  type DrizzleCol = { name: string; table: unknown };
+  const nodesTable = tables.nexusNodes as Record<string, DrizzleCol>;
   try {
     const rows = await db
       .select({
-        filePath: (tables.nexusNodes as Record<string, unknown>)['filePath'],
-        indexedAt: (tables.nexusNodes as Record<string, unknown>)['indexedAt'],
+        filePath: nodesTable['filePath'],
+        indexedAt: nodesTable['indexedAt'],
       })
       .from(tables.nexusNodes)
-      .where({ projectId } as unknown as Record<string, unknown>);
+      .where(eq(nodesTable['projectId'] as unknown as Column, projectId));
     const map = new Map<string, string>();
     for (const row of rows as Row[]) {
       if (row.filePath) map.set(row.filePath, row.indexedAt);
@@ -417,24 +426,44 @@ async function deleteStaleEntries(
 ): Promise<void> {
   if (stalePaths.length === 0) return;
 
+  type DrizzleCol = { name: string; table: unknown };
+  const nodesTable = tables.nexusNodes as Record<string, DrizzleCol>;
+  const relationsTable = tables.nexusRelations as Record<string, DrizzleCol>;
+
   // Delete in chunks to avoid SQLite parameter limits (999 per statement)
   const CHUNK = 200;
   for (let i = 0; i < stalePaths.length; i += CHUNK) {
     const chunk = stalePaths.slice(i, i + CHUNK);
     // Delete nodes for these file paths
     for (const filePath of chunk) {
-      await (db as NexusDbReadInsert)
-        .delete(tables.nexusNodes)
-        .where({ projectId, filePath } as unknown as Record<string, unknown>)
-        .catch(() => undefined);
+      try {
+        await (db as NexusDbReadInsert)
+          .delete(tables.nexusNodes)
+          .where(
+            and(
+              eq(nodesTable['projectId'] as unknown as Column, projectId),
+              eq(nodesTable['filePath'] as unknown as Column, filePath),
+            ),
+          );
+      } catch {
+        // ignore — node may not exist for this file
+      }
     }
     // Relations are soft-referenced — orphaned relations are pruned on next full index.
     // For incremental, we only delete relations where sourceId starts with a stale path.
     for (const filePath of chunk) {
-      await (db as NexusDbReadInsert)
-        .delete(tables.nexusRelations)
-        .where({ projectId, sourceId: filePath } as unknown as Record<string, unknown>)
-        .catch(() => undefined);
+      try {
+        await (db as NexusDbReadInsert)
+          .delete(tables.nexusRelations)
+          .where(
+            and(
+              eq(relationsTable['projectId'] as unknown as Column, projectId),
+              eq(relationsTable['sourceId'] as unknown as Column, filePath),
+            ),
+          );
+      } catch {
+        // ignore
+      }
     }
   }
 }
@@ -543,15 +572,18 @@ export async function runPipeline(
         let existingNodeCount = 0;
         let existingRelationCount = 0;
         try {
+          type DrizzleCol = { name: string; table: unknown };
+          const nodesT = tables.nexusNodes as Record<string, DrizzleCol>;
+          const relationsT = tables.nexusRelations as Record<string, DrizzleCol>;
           const nr = await readableDb
             .select()
             .from(tables.nexusNodes)
-            .where({ projectId } as unknown as Record<string, unknown>);
+            .where(eq(nodesT['projectId'] as unknown as Column, projectId));
           existingNodeCount = (nr as unknown[]).length;
           const rr = await readableDb
             .select()
             .from(tables.nexusRelations)
-            .where({ projectId } as unknown as Record<string, unknown>);
+            .where(eq(relationsT['projectId'] as unknown as Column, projectId));
           existingRelationCount = (rr as unknown[]).length;
         } catch {
           /* ignore */
