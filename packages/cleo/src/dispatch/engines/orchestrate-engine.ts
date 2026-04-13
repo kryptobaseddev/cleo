@@ -71,11 +71,8 @@ async function sendConduitEvent(
   event: ConduitOrchestrationEvent,
 ): Promise<void> {
   try {
-    const { AgentRegistryAccessor, getDb, createConduit } = await import('@cleocode/core/internal');
-    await getDb();
+    const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/internal');
     const registry = new AgentRegistryAccessor(cwd);
-    const active = await registry.getActive();
-    if (!active) return; // No registered agent — skip silently
 
     const conduit = await createConduit(registry);
     try {

@@ -353,6 +353,9 @@ export function buildSessionBanner(
 // Internal state
 // ============================================================================
 
+/** Captured project root from session_start ctx — used by session_shutdown. */
+let sessionProjectRoot: string | null = null;
+
 // ============================================================================
 // Memory bridge injection helpers
 // ============================================================================
@@ -607,6 +610,7 @@ export default function (pi: ExtensionAPI): void {
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
     memoryBridgeContent = null;
+    sessionProjectRoot = ctx.cwd;
 
     // Cache memory-bridge.md for this session (best-effort)
     memoryBridgeContent = readMemoryBridge(ctx.cwd);
@@ -888,27 +892,29 @@ export default function (pi: ExtensionAPI): void {
   // All CLI calls are best-effort: a failure MUST NOT crash Pi or block shutdown.
   pi.on("session_shutdown", async () => {
     // 1. Clear cached state
+    const cwd = sessionProjectRoot ?? undefined;
     bundlePrompt = null;
     lastDiagnosticSummary = null;
     lastBundleCounts = null;
     memoryBridgeContent = null;
+    sessionProjectRoot = null;
 
     // 2. End CLEO session (best-effort) — triggers grading, extraction, consolidation
     execFileAsync(
       "cleo",
       ["session", "end", "--note", "Pi session ended automatically via CleoOS extension"],
-      { timeout: 15_000 },
+      { timeout: 15_000, ...(cwd ? { cwd } : {}) },
     ).catch(() => {
       // Swallowed: no active session, or cleo not initialized
     });
 
     // 3. Trigger memory bridge refresh (best-effort, non-blocking)
-    execFileAsync("cleo", ["refresh-memory"], { timeout: 10_000 }).catch(() => {
+    execFileAsync("cleo", ["refresh-memory"], { timeout: 10_000, ...(cwd ? { cwd } : {}) }).catch(() => {
       // Intentionally swallowed — best-effort only
     });
 
     // 4. Trigger backup snapshot (best-effort, non-blocking)
-    execFileAsync("cleo", ["backup", "add"], { timeout: 15_000 }).catch(() => {
+    execFileAsync("cleo", ["backup", "add"], { timeout: 15_000, ...(cwd ? { cwd } : {}) }).catch(() => {
       // Intentionally swallowed — best-effort only
     });
   });
