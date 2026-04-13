@@ -106,6 +106,30 @@ pub fn document_symbols(doc: &CantDocument) -> Vec<DocumentSymbol> {
             Section::Comment(_) => {
                 // Comments are not included in the symbol outline.
             }
+            Section::Team(team) => {
+                symbols.push(DocumentSymbol {
+                    name: team.name.value.clone(),
+                    detail: Some("team".to_string()),
+                    kind: SymbolKind::NAMESPACE,
+                    tags: None,
+                    deprecated: None,
+                    range: span_to_range(&team.span),
+                    selection_range: span_to_range(&team.name.span),
+                    children: None,
+                });
+            }
+            Section::Tool(tool) => {
+                symbols.push(DocumentSymbol {
+                    name: tool.name.value.clone(),
+                    detail: Some("tool".to_string()),
+                    kind: SymbolKind::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    range: span_to_range(&tool.span),
+                    selection_range: span_to_range(&tool.name.span),
+                    children: None,
+                });
+            }
         }
     }
 

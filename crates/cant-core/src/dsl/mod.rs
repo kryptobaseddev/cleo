@@ -21,6 +21,7 @@
 pub mod agent;
 pub mod approval;
 pub mod ast;
+pub mod ast_expressions;
 pub mod ast_orchestration;
 pub mod binding;
 pub mod conditional;
@@ -48,7 +49,7 @@ pub mod workflow;
 
 use ast::{CantDocument, Comment, DocumentKind, Section};
 use error::ParseError;
-use indent::split_lines;
+use indent::{IndentedLine, split_lines};
 use span::Span;
 
 /// Parses a complete `.cant` document into a [`CantDocument`] AST.
@@ -112,6 +113,28 @@ pub fn parse_document(content: &str) -> Result<CantDocument, Vec<ParseError>> {
     let kind = fm.as_ref().and_then(|f| f.kind);
 
     // Parse sections
+    let (sections, errors) = parse_sections(&lines, start_idx);
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    let doc_span = Span::new(0, content.len(), 1, 1);
+
+    Ok(CantDocument {
+        kind,
+        frontmatter: fm,
+        sections,
+        span: doc_span,
+    })
+}
+
+/// Parses top-level sections from `lines` starting at `start_idx`.
+///
+/// Returns a tuple of `(sections, errors)`. If errors is non-empty, the caller
+/// should propagate them; sections collected before the first error are still
+/// returned but the caller is expected to discard them.
+fn parse_sections(lines: &[IndentedLine<'_>], start_idx: usize) -> (Vec<Section>, Vec<ParseError>) {
     let mut sections = Vec::new();
     let mut errors = Vec::new();
     let mut idx = start_idx;
@@ -127,186 +150,165 @@ pub fn parse_document(content: &str) -> Result<CantDocument, Vec<ParseError>> {
 
         // Comments at top level
         if line.is_comment() {
-            let base_offset = line.byte_offset + line.indent;
-            sections.push(Section::Comment(Comment {
-                text: line.content[1..].trim().to_string(),
-                span: Span::new(
-                    base_offset,
-                    base_offset + line.content.len(),
-                    line.line_number,
-                    (line.indent as u32) + 1,
-                ),
-            }));
+            parse_comment_line(line, &mut sections);
             idx += 1;
             continue;
         }
 
         let content_str = line.content;
 
-        // Agent block
-        if content_str.starts_with("agent ") {
-            match agent::parse_agent_block(&lines, idx) {
-                Ok((agent_def, consumed)) => {
-                    sections.push(Section::Agent(agent_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
+        // Attempt to dispatch to the appropriate block parser.
+        // Returns `None` when the line does not match any known construct.
+        match parse_block(lines, idx, content_str, line, &mut sections, &mut errors) {
+            BlockResult::Consumed(n) => idx += n,
+            BlockResult::SingleLine => idx += 1,
+            BlockResult::Unknown => {
+                let base_offset = line.byte_offset + line.indent;
+                errors.push(ParseError::error(
+                    format!(
+                        "unexpected top-level construct: `{content_str}`; expected agent, skill, on, workflow, pipeline, team, tool, @import, let, const, or #comment"
+                    ),
+                    Span::new(
+                        base_offset,
+                        base_offset + content_str.len(),
+                        line.line_number,
+                        (line.indent as u32) + 1,
+                    ),
+                ));
+                idx += 1;
             }
-            continue;
         }
-
-        // Skill block
-        if content_str.starts_with("skill ") {
-            match skill::parse_skill_block(&lines, idx) {
-                Ok((skill_def, consumed)) => {
-                    sections.push(Section::Skill(skill_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Hook block
-        if content_str.starts_with("on ") && content_str.ends_with(':') {
-            match hook::parse_hook_block(&lines, idx) {
-                Ok((hook_def, consumed)) => {
-                    sections.push(Section::Hook(hook_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Import statement
-        if content_str.starts_with("@import ") {
-            match import::parse_import(line) {
-                Ok(imp) => {
-                    sections.push(Section::Import(imp));
-                }
-                Err(e) => {
-                    errors.push(e);
-                }
-            }
-            idx += 1;
-            continue;
-        }
-
-        // Let/const binding
-        if content_str.starts_with("let ") || content_str.starts_with("const ") {
-            match binding::parse_binding(line) {
-                Ok(bind) => {
-                    sections.push(Section::Binding(bind));
-                }
-                Err(e) => {
-                    errors.push(e);
-                }
-            }
-            idx += 1;
-            continue;
-        }
-
-        // Workflow block
-        if content_str.starts_with("workflow ") && content_str.ends_with(':') {
-            match workflow::parse_workflow_block(&lines, idx) {
-                Ok((wf_def, consumed)) => {
-                    sections.push(Section::Workflow(wf_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Pipeline block
-        if content_str.starts_with("pipeline ") && content_str.ends_with(':') {
-            match pipeline::parse_pipeline_block(&lines, idx) {
-                Ok((pipe_def, consumed)) => {
-                    sections.push(Section::Pipeline(pipe_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Team block (CleoOS v2)
-        if content_str.starts_with("team ") && content_str.ends_with(':') {
-            match team::parse_team_block(&lines, idx) {
-                Ok((team_def, consumed)) => {
-                    sections.push(Section::Team(team_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Tool block (CleoOS v2)
-        //
-        // The `"tool "` prefix (with trailing space) prevents collisions with
-        // hypothetical identifiers like `toolkit`.
-        if content_str.starts_with("tool ") && content_str.ends_with(':') {
-            match tool::parse_tool_block(&lines, idx) {
-                Ok((tool_def, consumed)) => {
-                    sections.push(Section::Tool(tool_def));
-                    idx += consumed;
-                }
-                Err(e) => {
-                    errors.push(e);
-                    idx += 1;
-                }
-            }
-            continue;
-        }
-
-        // Unknown top-level construct
-        let base_offset = line.byte_offset + line.indent;
-        errors.push(ParseError::error(
-            format!(
-                "unexpected top-level construct: `{content_str}`; expected agent, skill, on, workflow, pipeline, team, tool, @import, let, const, or #comment"
-            ),
-            Span::new(
-                base_offset,
-                base_offset + content_str.len(),
-                line.line_number,
-                (line.indent as u32) + 1,
-            ),
-        ));
-        idx += 1;
     }
 
-    if !errors.is_empty() {
-        return Err(errors);
+    (sections, errors)
+}
+
+/// Outcome of attempting to parse a single top-level line/block.
+enum BlockResult {
+    /// The block consumed `n` lines (already counted from the current index).
+    Consumed(usize),
+    /// A single-line construct was handled; advance by 1.
+    SingleLine,
+    /// No known construct matched; the caller emits an error.
+    Unknown,
+}
+
+/// Appends a top-level comment [`Section`] for `line`.
+fn parse_comment_line(line: &IndentedLine<'_>, sections: &mut Vec<Section>) {
+    let base_offset = line.byte_offset + line.indent;
+    sections.push(Section::Comment(Comment {
+        text: line.content[1..].trim().to_string(),
+        span: Span::new(
+            base_offset,
+            base_offset + line.content.len(),
+            line.line_number,
+            (line.indent as u32) + 1,
+        ),
+    }));
+}
+
+/// Dispatches `lines[idx]` to the appropriate block/statement parser.
+///
+/// Pushes parsed sections into `sections` and parse errors into `errors`.
+/// Returns a [`BlockResult`] indicating how many lines were consumed.
+fn parse_block(
+    lines: &[IndentedLine<'_>],
+    idx: usize,
+    content_str: &str,
+    line: &IndentedLine<'_>,
+    sections: &mut Vec<Section>,
+    errors: &mut Vec<ParseError>,
+) -> BlockResult {
+    // Multi-line block constructs
+    if content_str.starts_with("agent ") {
+        return parse_block_result(
+            agent::parse_agent_block(lines, idx),
+            sections,
+            errors,
+            |s| Section::Agent(s),
+        );
+    }
+    if content_str.starts_with("skill ") {
+        return parse_block_result(
+            skill::parse_skill_block(lines, idx),
+            sections,
+            errors,
+            |s| Section::Skill(s),
+        );
+    }
+    if content_str.starts_with("on ") && content_str.ends_with(':') {
+        return parse_block_result(hook::parse_hook_block(lines, idx), sections, errors, |s| {
+            Section::Hook(s)
+        });
+    }
+    if content_str.starts_with("workflow ") && content_str.ends_with(':') {
+        return parse_block_result(
+            workflow::parse_workflow_block(lines, idx),
+            sections,
+            errors,
+            |s| Section::Workflow(s),
+        );
+    }
+    if content_str.starts_with("pipeline ") && content_str.ends_with(':') {
+        return parse_block_result(
+            pipeline::parse_pipeline_block(lines, idx),
+            sections,
+            errors,
+            |s| Section::Pipeline(s),
+        );
+    }
+    if content_str.starts_with("team ") && content_str.ends_with(':') {
+        return parse_block_result(team::parse_team_block(lines, idx), sections, errors, |s| {
+            Section::Team(s)
+        });
+    }
+    // The `"tool "` prefix (with trailing space) prevents collisions with
+    // hypothetical identifiers like `toolkit`.
+    if content_str.starts_with("tool ") && content_str.ends_with(':') {
+        return parse_block_result(tool::parse_tool_block(lines, idx), sections, errors, |s| {
+            Section::Tool(s)
+        });
     }
 
-    let doc_span = Span::new(0, content.len(), 1, 1);
+    // Single-line constructs
+    if content_str.starts_with("@import ") {
+        match import::parse_import(line) {
+            Ok(imp) => sections.push(Section::Import(imp)),
+            Err(e) => errors.push(e),
+        }
+        return BlockResult::SingleLine;
+    }
+    if content_str.starts_with("let ") || content_str.starts_with("const ") {
+        match binding::parse_binding(line) {
+            Ok(bind) => sections.push(Section::Binding(bind)),
+            Err(e) => errors.push(e),
+        }
+        return BlockResult::SingleLine;
+    }
 
-    Ok(CantDocument {
-        kind,
-        frontmatter: fm,
-        sections,
-        span: doc_span,
-    })
+    BlockResult::Unknown
+}
+
+/// Converts a multi-line block parse result into a [`BlockResult`].
+///
+/// On success, wraps the node with `wrap` and pushes it onto `sections`.
+/// On error, pushes the error and returns `Consumed(1)` to skip the bad line.
+fn parse_block_result<T>(
+    result: Result<(T, usize), ParseError>,
+    sections: &mut Vec<Section>,
+    errors: &mut Vec<ParseError>,
+    wrap: impl FnOnce(T) -> Section,
+) -> BlockResult {
+    match result {
+        Ok((node, consumed)) => {
+            sections.push(wrap(node));
+            BlockResult::Consumed(consumed)
+        }
+        Err(e) => {
+            errors.push(e);
+            BlockResult::Consumed(1)
+        }
+    }
 }
 
 #[cfg(test)]
