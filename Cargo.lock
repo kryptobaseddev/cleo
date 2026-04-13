@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-payments"
-version = "0.1.0"
+version = "2026.4.13"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2698,7 +2698,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-protocol"
-version = "0.1.0"
+version = "2026.4.13"
 dependencies = [
  "cant-core",
  "chrono",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-runtime"
-version = "0.7.0"
+version = "2026.4.13"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2730,7 +2730,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-sdk"
-version = "0.1.0"
+version = "2026.4.13"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-storage"
-version = "0.1.0"
+version = "2026.4.13"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-transport"
-version = "0.1.0"
+version = "2026.4.13"
 dependencies = [
  "anyhow",
  "async-trait",

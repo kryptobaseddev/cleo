@@ -1,7 +1,8 @@
 [package]
 name = "signaldock-storage"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
+rust-version = "1.88"
 description = "Storage traits and Diesel database adapters (SQLite + PostgreSQL) for SignalDock"
 publish = false
 

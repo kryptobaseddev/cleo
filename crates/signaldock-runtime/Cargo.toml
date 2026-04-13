@@ -1,7 +1,8 @@
 [package]
 name = "signaldock-runtime"
-version = "0.7.0"
+version.workspace = true
 edition = "2024"
+rust-version = "1.88"
 description = "Universal agent connector for SignalDock — 2-step install for any agent on any platform"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/CleoAgent/signaldock-runtime"
@@ -25,7 +26,5 @@ thiserror = "2"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 
-[lints.rustdoc]
-broken_intra_doc_links = "warn"
-private_intra_doc_links = "warn"
-bare_urls = "warn"
+[lints]
+workspace = true

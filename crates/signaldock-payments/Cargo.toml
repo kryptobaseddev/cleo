@@ -1,7 +1,8 @@
 [package]
 name = "signaldock-payments"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
+rust-version = "1.88"
 description = "x402 payment protocol for SignalDock agent services"
 publish = false
 

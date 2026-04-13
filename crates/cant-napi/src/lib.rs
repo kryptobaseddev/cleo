@@ -1,4 +1,4 @@
-#![deny(unsafe_code)] // napi-rs macros generate unsafe internally — forbid would conflict
+#![allow(unsafe_code)] // napi-rs FFI macros generate unsafe blocks internally
 //! napi-rs bindings for the cant-core CANT parser.
 //!
 //! This crate provides Node.js native addon bindings for the CANT parser,
