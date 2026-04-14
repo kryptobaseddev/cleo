@@ -900,7 +900,30 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // (Step skipped — CLI dispatch only)
+    // Deploy starter CANT bundle (team + agents) to .cleo/cant/ if missing.
+    // Ensures existing projects get agent definitions on upgrade, not just init. (T555)
+    try {
+      const { deployStarterBundle } = await import('./init.js');
+      const cantCreated: string[] = [];
+      const cantWarnings: string[] = [];
+      await deployStarterBundle(cleoDir, cantCreated, cantWarnings);
+      if (cantCreated.length > 0) {
+        actions.push({
+          action: 'cant_starter_bundle',
+          status: 'applied',
+          details: cantCreated.join(', '),
+        });
+      }
+      for (const w of cantWarnings) {
+        actions.push({
+          action: 'cant_starter_bundle',
+          status: 'skipped',
+          details: w,
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
 
     // Install core skills
     try {
