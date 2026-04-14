@@ -198,7 +198,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
             cycleTimeDays: taskAny.cycleTimeDays ?? null,
           };
 
-          await upsertTask(db, row, archiveFields);
+          // allowOrphanParent=true: bulk archive writes tolerate missing parents (T5034)
+          await upsertTask(db, row, archiveFields, true);
           depBatch.push({ taskId: task.id, deps: task.depends ?? [] });
         }
 

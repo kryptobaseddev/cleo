@@ -235,10 +235,13 @@ export async function completeTask(
     const parent = await acc.loadSingleTask(task.parentId);
     if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
       const siblings = await acc.getChildren(parent.id);
-      // The current task is not yet 'done' in DB, so check by ID
-      const allDone = siblings.every(
-        (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
-      );
+      // Guard: only auto-complete if the epic has at least one registered child.
+      // An empty siblings list means no children are recorded in the DB, which
+      // would vacuously satisfy .every() and incorrectly auto-complete the epic.
+      // The current task is not yet 'done' in DB, so match it by ID.
+      const allDone =
+        siblings.length > 0 &&
+        siblings.every((c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled');
       if (allDone) {
         parent.status = 'done';
         parent.completedAt = now;

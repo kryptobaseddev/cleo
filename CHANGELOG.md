@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.46] (2026-04-14)
+
+Epic auto-complete bug fix + orphaned parent defense.
+
+### Fix 1: Epic premature auto-completion (T585)
+`packages/core/src/tasks/complete.ts` — the epic auto-complete check used
+`Array.every()` without guarding against empty arrays. In JavaScript,
+`[].every(...)` returns `true` (vacuous truth), so when a parent epic had
+no visible children it was erroneously auto-completed.
+
+**Fix**: Added `siblings.length > 0` guard before the `.every()` check.
+
+### Fix 2: Orphaned parentId race (T585 defense in depth)
+`packages/core/src/store/db-helpers.ts` — concurrent `upsertTask` writes
+from parallel agents could silently clear the `parentId` field. This
+caused the T569 incident where an epic auto-completed because
+`getChildren()` returned only the in-flight task (siblings orphaned).
+
+**Fix**: Added `allowOrphanParent: boolean = false` option. Normal writes
+now log a warning when the parentId would be cleared. Bulk/archive flows
+pass `allowOrphanParent: true` for the documented T5034 scenario.
+
+**Tests**: 6 new tests in `epic-auto-complete.test.ts` covering the empty
+siblings case, partial completion, full completion, and concurrent writes.
+
+### Carries Forward
+All v2026.4.45 changes.
+
 ## [2026.4.45] (2026-04-14)
 
 Critical fix — `@cleocode/core/conduit` subpath export.
