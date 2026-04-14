@@ -14,13 +14,13 @@ agent code-worker:
   consult-when: "Writing code, fixing bugs, running tests, formatting, or any file modification task"
 
   context_sources:
-    - source: patterns
+    on_overflow: escalate_tier
+    patterns:
       query: "coding conventions and testing patterns"
       max_entries: 5
-    - source: learnings
+    learnings:
       query: "past implementation mistakes and fixes"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
@@ -34,10 +34,7 @@ agent code-worker:
       read: ["**/*"]
       delete: ["src/**", "packages/**", "lib/**", "test/**", "tests/**"]
 
-  skills:
-    - ct-cleo
-    - ct-dev-workflow
-    - ct-task-executor
+  skills: [ct-cleo, ct-dev-workflow, ct-task-executor]
 
   tools:
     core: [Read, Edit, Write, Bash, Glob, Grep]

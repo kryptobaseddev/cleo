@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.47] (2026-04-14)
+
+Fix `@cleocode/core` exports map so deep subpath imports resolve on fresh install.
+
+### Fix: Missing `./store/*` and `./conduit/*` exports (T616)
+
+`packages/core/package.json` — the wildcard export `"./*"` maps to
+`"./dist/*.js"`, but the `*` in Node.js exports maps does NOT match path
+separators. This meant `@cleocode/core/store/nexus-sqlite` could not be
+resolved because `store/nexus-sqlite` contains a `/`.
+
+All `cleo nexus context/impact/clusters/flows` commands failed with
+`E_CONTEXT_FAILED: Cannot find module '@cleocode/core/store/nexus-sqlite'`
+on any fresh install where the local workspace symlinks are absent.
+
+**Fix**: Added explicit `"./store/*"` and `"./conduit/*"` entries to the
+exports map before the catch-all `"./*"`. These entries correctly map
+`./dist/store/*.js` and `./dist/conduit/*.js` so per-file modules in
+subdirectories are resolvable by Node.js module resolution.
+
 ## [2026.4.46] (2026-04-14)
 
 Epic auto-complete bug fix + orphaned parent defense.

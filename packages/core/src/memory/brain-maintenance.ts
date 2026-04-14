@@ -20,7 +20,7 @@
  */
 
 import { reconcileOrphanedRefs } from '../store/cross-db-cleanup.js';
-import { applyTemporalDecay, consolidateMemories } from './brain-lifecycle.js';
+import { applyTemporalDecay, consolidateMemories, runTierPromotion } from './brain-lifecycle.js';
 import { populateEmbeddings } from './brain-retrieval.js';
 
 // ============================================================================
@@ -61,6 +61,14 @@ export interface BrainMaintenanceEmbeddingsResult {
   errors: number;
 }
 
+/** Tier promotion step result. */
+export interface BrainMaintenanceTierPromotionResult {
+  /** Number of entries promoted (short→medium or medium→long). */
+  promoted: number;
+  /** Number of stale short-tier entries soft-evicted. */
+  evicted: number;
+}
+
 /**
  * Aggregated result from a full brain maintenance run.
  *
@@ -74,6 +82,8 @@ export interface BrainMaintenanceResult {
   consolidation: BrainMaintenanceConsolidationResult;
   /** Results from the cross-DB orphaned reference reconciliation step. */
   reconciliation: BrainMaintenanceReconciliationResult;
+  /** Results from the tier promotion step. */
+  tierPromotion: BrainMaintenanceTierPromotionResult;
   /** Results from the embedding backfill step. */
   embeddings: BrainMaintenanceEmbeddingsResult;
   /** Total wall-clock duration of the maintenance run in milliseconds. */
@@ -93,6 +103,8 @@ export interface BrainMaintenanceOptions {
   skipConsolidation?: boolean;
   /** Skip the cross-DB orphaned reference reconciliation step. Default: false. */
   skipReconciliation?: boolean;
+  /** Skip the tier promotion step (short→medium, medium→long). Default: false. */
+  skipTierPromotion?: boolean;
   /** Skip the embedding backfill step. Default: false. */
   skipEmbeddings?: boolean;
   /**
@@ -146,6 +158,7 @@ export async function runBrainMaintenance(
     skipDecay = false,
     skipConsolidation = false,
     skipReconciliation = false,
+    skipTierPromotion = false,
     skipEmbeddings = false,
     onProgress,
   } = options ?? {};
@@ -160,6 +173,7 @@ export async function runBrainMaintenance(
     observationsFixed: 0,
     linksRemoved: 0,
   };
+  const tierPromotionResult: BrainMaintenanceTierPromotionResult = { promoted: 0, evicted: 0 };
   const embeddingsResult: BrainMaintenanceEmbeddingsResult = {
     processed: 0,
     skipped: 0,
@@ -193,7 +207,17 @@ export async function runBrainMaintenance(
     onProgress?.('reconciliation', 1, 1);
   }
 
-  // Step 4: Embedding backfill (with per-item progress relay)
+  // Step 4: Tier promotion — promote short→medium and medium→long based on
+  // age, quality score, citation count, and verification status (T614).
+  if (!skipTierPromotion) {
+    onProgress?.('tier-promotion', 0, 1);
+    const raw = await runTierPromotion(projectRoot);
+    tierPromotionResult.promoted = raw.promoted.length;
+    tierPromotionResult.evicted = raw.evicted.length;
+    onProgress?.('tier-promotion', 1, 1);
+  }
+
+  // Step 5: Embedding backfill (with per-item progress relay)
   if (!skipEmbeddings) {
     const raw = await populateEmbeddings(projectRoot, {
       onProgress: (current, total) => {
@@ -209,6 +233,7 @@ export async function runBrainMaintenance(
     decay: decayResult,
     consolidation: consolidationResult,
     reconciliation: reconciliationResult,
+    tierPromotion: tierPromotionResult,
     embeddings: embeddingsResult,
     duration: Date.now() - startTime,
   };

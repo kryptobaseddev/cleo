@@ -47,6 +47,10 @@ export function registerBrainCommand(program: Command): void {
     .option('--skip-consolidation', 'Skip the memory consolidation step (merging old observations)')
     .option('--skip-reconciliation', 'Skip the cross-DB orphaned reference reconciliation step')
     .option(
+      '--skip-tier-promotion',
+      'Skip the tier promotion step (short→medium, medium→long promotion)',
+    )
+    .option(
       '--skip-embeddings',
       'Skip the embedding backfill step (vector generation for observations)',
     )
@@ -56,6 +60,7 @@ export function registerBrainCommand(program: Command): void {
         skipDecay?: boolean;
         skipConsolidation?: boolean;
         skipReconciliation?: boolean;
+        skipTierPromotion?: boolean;
         skipEmbeddings?: boolean;
         json?: boolean;
       }) => {
@@ -71,6 +76,7 @@ export function registerBrainCommand(program: Command): void {
             skipDecay: !!opts.skipDecay,
             skipConsolidation: !!opts.skipConsolidation,
             skipReconciliation: !!opts.skipReconciliation,
+            skipTierPromotion: !!opts.skipTierPromotion,
             skipEmbeddings: !!opts.skipEmbeddings,
             onProgress: isJson
               ? undefined
@@ -110,6 +116,11 @@ export function registerBrainCommand(program: Command): void {
           if (!opts.skipConsolidation) {
             console.log(
               `  Consolidation: ${result.consolidation.merged} merged, ${result.consolidation.removed} archived`,
+            );
+          }
+          if (!opts.skipTierPromotion) {
+            console.log(
+              `  Tier promotion: ${result.tierPromotion.promoted} promoted, ${result.tierPromotion.evicted} evicted`,
             );
           }
           if (!opts.skipReconciliation) {

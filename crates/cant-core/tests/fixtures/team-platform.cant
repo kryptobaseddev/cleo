@@ -6,6 +6,8 @@ version: 1
 team platform:
   description: "End-to-end product team"
   orchestrator: cleo-prime
+  consult-when: "task complexity exceeds single-sprint scope or requires cross-team coordination"
+  stages: [discover, plan, execute, review]
 
   leads:
     planning: planning-lead
