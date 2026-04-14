@@ -17,32 +17,35 @@ import { SseTransport } from './sse-transport.js';
 /**
  * Resolve the best available transport for a credential.
  *
- * Cloud-backed agents (apiBaseUrl is a remote URL) use HttpTransport
- * so they can receive messages from the SignalDock cloud relay.
- * LocalTransport is only used when the agent is explicitly local-only
- * (apiBaseUrl is 'local' or absent), since local signaldock.db doesn't
- * sync with the cloud.
+ * Priority (highest to lowest):
+ *   1. LocalTransport — when conduit.db exists in the project's .cleo/ dir.
+ *      Local delivery is always preferred for inter-agent messaging within
+ *      the same project, even when the agent also has cloud credentials.
+ *   2. SseTransport — when the credential includes an SSE endpoint URL.
+ *   3. HttpTransport — fallback for cloud-only or no conduit.db.
+ *
+ * Note: LocalTransport and cloud credentials are not mutually exclusive.
+ * Agents registered with a remote apiBaseUrl still use LocalTransport when
+ * conduit.db is available, since local delivery does not require a network.
  */
 export function resolveTransport(credential: AgentCredential): Transport {
+  // Prefer LocalTransport when conduit.db exists — works offline and for
+  // same-project agent-to-agent messaging without any cloud round-trip.
+  if (LocalTransport.isAvailable()) {
+    return new LocalTransport();
+  }
+
   const isCloudBacked =
     credential.apiBaseUrl &&
     credential.apiBaseUrl !== 'local' &&
     credential.apiBaseUrl.startsWith('http');
 
-  // Cloud-backed agents must use network transports to receive cloud messages
-  if (isCloudBacked) {
-    if (credential.transportConfig.sseEndpoint) {
-      return new SseTransport();
-    }
-    return new HttpTransport();
+  // Cloud-backed agents without local conduit.db: prefer SSE over HTTP polling
+  if (isCloudBacked && credential.transportConfig.sseEndpoint) {
+    return new SseTransport();
   }
 
-  // Local-only agents use LocalTransport when signaldock.db is available
-  if (LocalTransport.isAvailable()) {
-    return new LocalTransport();
-  }
-
-  // Fallback to HTTP
+  // Fallback to HTTP (cloud polling or no other option)
   return new HttpTransport();
 }
 

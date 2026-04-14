@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsc -b --force",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -26,6 +27,9 @@
     "dist",
     "src"
   ],
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
