@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -135,6 +135,7 @@ jobs:
             "packages/caamp/dist/index.js"
             "packages/lafs/dist/src/index.js"
             "packages/cant/dist/index.js"
+            "packages/nexus/dist/src/index.js"
             "packages/runtime/dist/index.js"
             "packages/core/dist/index.js"
             "packages/cleo/dist/cli/index.js"
@@ -379,6 +380,7 @@ jobs:
           publish_pkg core
           publish_pkg caamp
           publish_pkg cant
+          publish_pkg nexus
           publish_pkg runtime
           publish_pkg adapters
           publish_pkg agents

@@ -157,12 +157,7 @@ function runBrainMigrations(
   // that is skipped on fresh databases when the migration journal reconciler marks
   // all migrations as applied without actually running them (Scenario 2 race).
   // ensureColumns is idempotent — no-op if the column already exists.
-  ensureColumns(
-    nativeDb,
-    'brain_observations',
-    [{ name: 'agent', ddl: 'text' }],
-    'brain',
-  );
+  ensureColumns(nativeDb, 'brain_observations', [{ name: 'agent', ddl: 'text' }], 'brain');
 }
 
 /**

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.44] (2026-04-14)
+
+Release hygiene — fixes v2026.4.43 publish gap.
+
+### Release CI Fixes
+- **Added `@cleocode/nexus` to publish list**: v2026.4.43 shipped 11 of 12 packages; nexus was missing from release.yml `publish_pkg` calls
+- **Added nexus to version sync loop**: `Sync package versions from tag` step now covers all 12 packages
+- **Added nexus to artifact validation**: `required_artifacts` includes `packages/nexus/dist/src/index.js`
+- **Biome format fix**: `packages/core/src/store/brain-sqlite.ts` ensureColumns call formatted to single line
+
+### Carries Forward from v2026.4.43
+All changes from v2026.4.43 (see below).
+
 ## [2026.4.43] (2026-04-14)
 
 System-Wide Architecture Audit — 23-agent parallel pipeline across 4 waves.
