@@ -330,8 +330,14 @@ export class MemoryHandler implements DomainHandler {
 
         case 'code.links': {
           const { listCodeLinks } = await import('@cleocode/core/internal');
-          const result = await listCodeLinks(projectRoot);
-          return wrapResult(result, 'query', 'memory', operation, startTime);
+          const links = await listCodeLinks(projectRoot);
+          return wrapResult(
+            { success: true, data: links },
+            'query',
+            'memory',
+            operation,
+            startTime,
+          );
         }
 
         case 'code.memories-for-code': {
