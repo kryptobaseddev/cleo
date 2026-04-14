@@ -80,18 +80,23 @@ export function buildOpenCodeAgentMarkdown(description: string, instructions: st
  * @param workingDirectory - Project root directory
  * @returns The agent name to use for spawning
  */
-async function ensureSubagentDefinition(workingDirectory: string): Promise<string> {
+async function ensureSubagentDefinition(
+  workingDirectory: string,
+  enrichedInstructions?: string,
+): Promise<string> {
   const agentDir = join(workingDirectory, '.opencode', 'agent');
   const agentPath = join(agentDir, `${OPENCODE_SUBAGENT_NAME}.md`);
-  const description = 'CLEO task executor with protocol compliance.';
-  const instructions = [
-    '# CLEO Subagent',
-    '',
-    'You are a CLEO subagent executing a delegated task.',
-    'Follow the CLEO protocol and complete the assigned work.',
-    '',
-    '@~/.cleo/templates/CLEO-INJECTION.md',
-  ].join('\n');
+  const description = 'CLEO task executor with protocol compliance and CANT context.';
+  const instructions =
+    enrichedInstructions ??
+    [
+      '# CLEO Subagent',
+      '',
+      'You are a CLEO subagent executing a delegated task.',
+      'Follow the CLEO protocol and complete the assigned work.',
+      '',
+      '@~/.cleo/templates/CLEO-INJECTION.md',
+    ].join('\n');
 
   const content = buildOpenCodeAgentMarkdown(description, instructions);
 
@@ -160,9 +165,23 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
     const workingDirectory = context.workingDirectory ?? process.cwd();
 
     try {
+      // Enrich prompt with CANT bundle, memory bridge, and mental model (T555).
+      // Best-effort: if CANT context is unavailable, the raw prompt is used.
+      let enrichedInstructions: string | undefined;
+      try {
+        const { buildCantEnrichedPrompt } = await import('../../cant-context.js');
+        enrichedInstructions = await buildCantEnrichedPrompt({
+          projectDir: workingDirectory,
+          basePrompt: context.prompt,
+          agentName: (context.options?.agentName as string) ?? undefined,
+        });
+      } catch {
+        // CANT enrichment unavailable — use raw prompt
+      }
+
       let agentName: string;
       try {
-        agentName = await ensureSubagentDefinition(workingDirectory);
+        agentName = await ensureSubagentDefinition(workingDirectory, enrichedInstructions);
       } catch {
         agentName = OPENCODE_FALLBACK_AGENT;
       }
