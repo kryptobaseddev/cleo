@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computeLearningQuality } from './quality-scoring.js';
+import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Parameters for storing a new learning. */
 export interface StoreLearningParams {
@@ -160,6 +161,29 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
   ).catch(() => {
     /* best-effort */
   });
+
+  // Detect supersession: check if this new learning supersedes any existing ones.
+  // Fire-and-forget — never block the primary return.
+  detectSupersession(projectRoot, {
+    id: saved.id,
+    text: saved.insight,
+    createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+  })
+    .then((candidates) => {
+      for (const candidate of candidates) {
+        supersedeMemory(
+          projectRoot,
+          candidate.existingId,
+          saved.id,
+          'auto:learning-supersedes — high overlap detected at store time',
+        ).catch(() => {
+          /* best-effort */
+        });
+      }
+    })
+    .catch(() => {
+      /* best-effort */
+    });
 
   return {
     ...saved,

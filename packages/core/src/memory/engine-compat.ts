@@ -1851,3 +1851,40 @@ export async function memoryGraphRemove(
     };
   }
 }
+
+// ============================================================================
+// Quality Feedback Report (T555)
+// ============================================================================
+
+/**
+ * Return the BRAIN memory quality dashboard report.
+ *
+ * Aggregates retrieval log, usage log, and all four typed tables to produce
+ * a MemoryQualityReport with tier distribution, top/never-retrieved entries,
+ * quality score distribution, and noise ratio.
+ *
+ * @param projectRoot - Optional project root path; defaults to resolved root
+ * @returns EngineResult containing a MemoryQualityReport object
+ *
+ * @example
+ * ```typescript
+ * const result = await memoryQualityReport('/project');
+ * if (result.success) console.log(result.data.noiseRatio);
+ * ```
+ */
+export async function memoryQualityReport(projectRoot?: string): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const { getMemoryQualityReport } = await import('./quality-feedback.js');
+    const report = await getMemoryQualityReport(root);
+    return { success: true, data: report };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_QUALITY_REPORT',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}

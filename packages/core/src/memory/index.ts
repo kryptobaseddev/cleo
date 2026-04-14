@@ -1506,3 +1506,5 @@ export * from './extraction-gate.js';
 export * from './learnings.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';
+// === BRAIN Quality Feedback Loop (T555) ===
+export * from './quality-feedback.js';
