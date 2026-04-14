@@ -10,8 +10,11 @@
 import type { Session, Task } from '@cleocode/contracts';
 import { eq, inArray } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { getLogger } from '../logger.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
+
+const log = getLogger('db-helpers');
 
 /** Drizzle database instance type. */
 type DrizzleDb = NodeSQLiteDatabase<typeof schema>;
@@ -27,15 +30,24 @@ export interface ArchiveFields {
  * Upsert a single task row into the tasks table.
  * Handles both active task upsert and archived task upsert via optional archiveFields.
  *
- * Defensively nulls out parentId if it references a non-existent task,
- * preventing orphaned FK violations from blocking bulk operations (T5034).
+ * When `allowOrphanParent` is true (bulk/migration mode, T5034): silently nulls out
+ * parentId if the referenced parent does not exist, preventing FK violations.
+ * When false (normal single-task writes, default): logs a warning but still proceeds
+ * so that FK enforcement at the DB level provides the final safety net.
+ *
+ * Callers that perform bulk imports or archive restoration should pass
+ * `allowOrphanParent: true` to enable the lenient behavior.
  */
 export async function upsertTask(
   db: DrizzleDb,
   row: NewTaskRow,
   archiveFields?: ArchiveFields,
+  allowOrphanParent = false,
 ): Promise<void> {
-  // Defensive: null out parentId if it references a non-existent task (T5034)
+  // Validate parentId exists before writing (T5034, T585).
+  // In bulk/archive mode (allowOrphanParent=true) we silently null it out to
+  // avoid FK violations during migrations. In normal mode we log a warning so
+  // the data integrity issue surfaces without breaking the write.
   if (row.parentId) {
     const parent = await db
       .select({ id: schema.tasks.id })
@@ -44,7 +56,16 @@ export async function upsertTask(
       .limit(1)
       .all();
     if (parent.length === 0) {
-      row = { ...row, parentId: null };
+      if (allowOrphanParent) {
+        row = { ...row, parentId: null };
+      } else {
+        // Log a warning — the FK constraint will reject the write if enabled,
+        // or the task will be stored without a parent if FKs are off (test mode).
+        log.warn(
+          { taskId: row.id, parentId: row.parentId },
+          'upsertTask: parentId references a non-existent task — parent relationship may be lost',
+        );
+      }
     }
   }
 

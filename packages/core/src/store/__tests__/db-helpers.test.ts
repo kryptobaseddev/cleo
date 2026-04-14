@@ -1,7 +1,8 @@
 /**
- * Tests for db-helpers.ts — defensive orphan parent handling (T5034).
+ * Tests for db-helpers.ts — defensive orphan parent handling (T5034, T585).
  *
  * @task T5034
+ * @task T585
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -30,13 +31,47 @@ describe('upsertTask — orphan parent handling', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('nulls out parentId when parent task does not exist', async () => {
+  it('nulls out parentId when allowOrphanParent=true and parent does not exist', async () => {
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
     const schema = await import('../tasks-schema.js');
     const db = await getDb();
 
-    // Insert a child task with a non-existent parent
+    // Insert a child task with a non-existent parent using allowOrphanParent=true (bulk mode)
+    await upsertTask(
+      db,
+      {
+        id: 'T100',
+        title: 'Child task',
+        description: 'Has orphan parent ref',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T999', // does NOT exist in DB
+        createdAt: new Date().toISOString(),
+      },
+      undefined,
+      true, // allowOrphanParent: silently null out for bulk/archive operations (T5034)
+    );
+
+    // Verify the task was inserted with parentId = null
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T100')).all();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.parentId).toBeNull();
+  });
+
+  it('preserves parentId (with warning) when allowOrphanParent=false and parent does not exist', async () => {
+    // In normal single-task write mode (default), upsertTask logs a warning but does NOT
+    // silently null out the parentId. This prevents data corruption for normal task creation
+    // while still surfacing the integrity issue. The FK constraint (disabled in tests) would
+    // reject the write in production if the parent truly does not exist.
+    const { getDb } = await import('../sqlite.js');
+    const { upsertTask } = await import('../db-helpers.js');
+    const schema = await import('../tasks-schema.js');
+    const db = await getDb();
+
+    // Insert a child task with a non-existent parent using default allowOrphanParent=false
+    // In VITEST, FK enforcement is OFF, so this will succeed without null-out.
     await upsertTask(db, {
       id: 'T100',
       title: 'Child task',
@@ -47,11 +82,13 @@ describe('upsertTask — orphan parent handling', () => {
       createdAt: new Date().toISOString(),
     });
 
-    // Verify the task was inserted with parentId = null
+    // With allowOrphanParent=false, the parentId is NOT nulled out — warning is logged.
+    // In test env FK is off, so T100 gets stored with parentId='T999' (not null).
     const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T100')).all();
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.parentId).toBeNull();
+    // parentId is preserved (not silently nulled), indicating the warning-only behavior
+    expect(rows[0]!.parentId).toBe('T999');
   });
 
   it('preserves parentId when parent task exists', async () => {
@@ -88,7 +125,9 @@ describe('upsertTask — orphan parent handling', () => {
     expect(rows[0]!.parentId).toBe('T001');
   });
 
-  it('handles archived task with orphan parent (T5034 regression)', async () => {
+  it('handles archived task with orphan parent using allowOrphanParent=true (T5034 regression)', async () => {
+    // Bulk archive operations pass allowOrphanParent=true to tolerate missing parents.
+    // This prevents FK violations when archiving tasks whose parents were deleted.
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
     const schema = await import('../tasks-schema.js');
@@ -110,6 +149,7 @@ describe('upsertTask — orphan parent handling', () => {
         archivedAt: '2025-06-01T00:00:00Z',
         archiveReason: 'completed',
       },
+      true, // allowOrphanParent: bulk/archive mode silently nulls (T5034)
     );
 
     // Should succeed (not throw) and null out the parentId
