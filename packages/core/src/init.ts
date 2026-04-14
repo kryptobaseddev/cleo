@@ -1104,5 +1104,19 @@ export async function deployStarterBundle(
     await copyFile(identitySrc, identityDst);
   }
 
+  // Also deploy CLEOOS-IDENTITY.md to the global XDG data directory so it is
+  // available system-wide (e.g. ~/.local/share/cleo/CLEOOS-IDENTITY.md).
+  // This mirrors the project-level copy above and follows the same
+  // idempotent pattern: never overwrite an existing file.
+  try {
+    const { getCleoHome } = await import('./paths.js');
+    const globalIdentityDst = join(getCleoHome(), 'CLEOOS-IDENTITY.md');
+    if (existsSync(identitySrc) && !existsSync(globalIdentityDst)) {
+      await copyFile(identitySrc, globalIdentityDst);
+    }
+  } catch {
+    // Non-fatal — global deploy is best-effort
+  }
+
   created.push('starter-bundle: team + agent .cant files + identity deployed to .cleo/');
 }

@@ -554,50 +554,27 @@ export async function orchestrateSpawnExecute(
       };
     }
 
-    // T432 (Wave 7a): JIT context assembly via composeSpawnPayload.
-    //
-    // Attempt to load the agent definition from the CANT bundle for this task.
-    // If the task has a compiled .cant agent definition available, we compose
-    // a token-budgeted system prompt that includes BRAIN context sources and
-    // the agent's mental model. The composed prompt replaces the raw prepareSpawn
-    // prompt. If no CANT definition is available or the composer throws, we fall
-    // back to the raw prompt (graceful degradation — never blocks spawning).
-    let composedPrompt = spawnContext.prompt;
-    try {
-      const { composeSpawnPayload } = await import('@cleocode/cant');
-      const { brainContextProvider } = await import('@cleocode/cant');
-      const { createHash } = await import('node:crypto');
+    // The raw prompt from prepareSpawn is passed to the adapter unchanged.
+    // CANT bundle compilation, mental model injection, and identity bootstrap
+    // are all handled inside buildCantEnrichedPrompt() at the adapter layer
+    // (packages/adapters/src/cant-context.ts), which receives the agentDef
+    // via cleoSpawnContext.options. This eliminates the previous double-compile
+    // that occurred when composeSpawnPayload ran here AND buildCantEnrichedPrompt
+    // ran in the provider (T506 spawn injection unification).
+    const rawPrompt = spawnContext.prompt;
 
-      // Derive a project hash for scoped mental model lookup.
-      const projectHash = createHash('sha256').update(cwd).digest('hex').slice(0, 12);
-
-      // Look for a compiled agent definition attached to the spawn context.
-      // The spawn context may carry an `agentDef` field if the task was
-      // created via `cleo orchestrate spawn` with a compiled CANT bundle.
-      // For tasks without an agentDef we use a minimal stub so that the
-      // composer still assembles any available BRAIN context.
-      const agentDef = spawnContext.agentDef as
-        | import('@cleocode/cant').AgentDefinition
-        | undefined;
-
-      if (agentDef) {
-        const provider = brainContextProvider(cwd);
-        const payload = await composeSpawnPayload(agentDef, provider, projectHash);
-        composedPrompt = payload.systemPrompt;
-      }
-      // If no agentDef, composedPrompt remains the raw prepareSpawn prompt.
-    } catch {
-      // Graceful degradation: composer failure must never block spawning.
-      // The raw prompt from prepareSpawn is used unchanged.
-    }
+    // Extract agentDef from spawn context to thread through to the adapter.
+    // The adapter's buildCantEnrichedPrompt uses it for mental model injection.
+    const agentDef = spawnContext.agentDef as Record<string, unknown> | undefined;
 
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: spawnContext.taskId,
       protocol: protocolType || spawnContext.protocol,
-      prompt: composedPrompt,
+      prompt: rawPrompt,
       provider: provider.id,
       options: {
-        prompt: composedPrompt,
+        prompt: rawPrompt,
+        ...(agentDef ? { agentDef } : {}),
       },
       workingDirectory: cwd,
       tokenResolution: {
