@@ -2,10 +2,13 @@
  * Fixture validation tests for canonical CLEO `.cant` agent files.
  *
  * These tests do not exercise any TypeScript runtime code path — they
- * only verify that the on-disk `.cleo/agents/*.cant` files conform to
- * the canonical CANT grammar (PascalCase event names, two-space
- * indentation, discretion `**...**` delimiters, no tabs, etc.) so the
- * Rust parser can ingest them via napi-rs without surprises.
+ * only verify that the canonical `.cant` files in `packages/agents/seed-agents/`
+ * conform to the CANT grammar (PascalCase event names, two-space indentation,
+ * discretion `**...**` delimiters, no tabs, etc.) so the Rust parser can
+ * ingest them via napi-rs without surprises.
+ *
+ * The SSoT for agent definitions is `packages/agents/seed-agents/`.
+ * Tests MUST reference that directory — never a local copy inside this package.
  *
  * Originally lived under `packages/core/src/cant/__tests__/` alongside
  * the now-deleted parallel core cant namespace. Moved here when the
@@ -13,33 +16,37 @@
  * running and continue to guard the canonical agent files.
  *
  * @see docs/specs/CANT-DSL-SPEC.md Section 2 (Grammar)
- * @see ../../../.cleo/agents/cleo-historian.cant
+ * @see ../../agents/seed-agents/cleo-historian.cant
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+const THIS_DIR = dirname(fileURLToPath(import.meta.url));
+
 describe('CLEO canonical .cant agent fixtures', () => {
-  const AGENTS_DIR = join(process.cwd(), '.cleo', 'agents');
+  /** Resolves to `packages/agents/seed-agents/` — the SSoT for agent definitions. */
+  const AGENTS_DIR = resolve(THIS_DIR, '..', '..', 'agents', 'seed-agents');
 
   // BLOCKED: cant-napi does not yet export parse_document (only Layer 1
   // cant_parse). Once cant-napi extends parse_document, remove the .skip
   // from these tests so the napi pipeline gets coverage.
   it.skip('parses cleo-historian.cant through napi bridge', () => {
-    const content = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
+    const content = readFileSync(resolve(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
     expect(content.length).toBeGreaterThan(0);
     // Awaiting cantParseDocument export from cant-napi.
   });
 
   it.skip('parses cleo-rust-lead.cant through napi bridge', () => {
-    const content = readFileSync(join(AGENTS_DIR, 'cleo-rust-lead.cant'), 'utf-8');
+    const content = readFileSync(resolve(AGENTS_DIR, 'cleo-rust-lead.cant'), 'utf-8');
     expect(content.length).toBeGreaterThan(0);
     // Awaiting cantParseDocument export from cant-napi.
   });
 
   it('cleo-historian.cant exists on disk and declares the expected hooks', () => {
-    const historianContent = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
+    const historianContent = readFileSync(resolve(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
     expect(historianContent).toContain('kind: agent');
     expect(historianContent).toContain('agent cleo-historian:');
     expect(historianContent).toContain('model: opus');
@@ -51,7 +58,7 @@ describe('CLEO canonical .cant agent fixtures', () => {
   });
 
   it('cleo-historian.cant uses canonical CANT grammar elements', () => {
-    const content = readFileSync(join(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
+    const content = readFileSync(resolve(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
 
     // Frontmatter
     expect(content).toMatch(/^---\nkind: agent\nversion: 1\n---/);

@@ -64,11 +64,10 @@ describe('gitCheckpoint commit args', () => {
     // Structural test: verify the commit call in git-checkpoint.ts
     // includes '--' followed by file paths, not just bare 'git commit -m ...'
     const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const src = readFileSync(
-      join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'),
-      'utf-8',
-    );
+    const { resolve, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(resolve(__dirname, '../git-checkpoint.ts'), 'utf-8');
     // Verify the commit args include '--' path restriction
     expect(src).toMatch(/commitArgs\.push\(['"]--['"]/);
   });
@@ -152,11 +151,10 @@ describe('state file merging', () => {
   it('core STATE_FILES are always present in the source', async () => {
     // Structural: verify the hardcoded array includes the expected core files
     const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const src = readFileSync(
-      join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'),
-      'utf-8',
-    );
+    const { resolve, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(resolve(__dirname, '../git-checkpoint.ts'), 'utf-8');
     expect(src).toContain("'config.json'");
     expect(src).toContain("'project-info.json'");
     expect(src).toContain("'project-context.json'");
@@ -167,11 +165,10 @@ describe('state file merging', () => {
   it('getAllStateFiles merges core and config allowlist', async () => {
     // Structural: verify getAllStateFiles spreads both STATE_FILES and custom
     const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const src = readFileSync(
-      join(process.cwd(), 'packages/core/src/store/git-checkpoint.ts'),
-      'utf-8',
-    );
+    const { resolve, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(resolve(__dirname, '../git-checkpoint.ts'), 'utf-8');
     expect(src).toMatch(/\[\.\.\.STATE_FILES,\s*\.\.\.custom\]/);
   });
 });

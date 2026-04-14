@@ -19,9 +19,13 @@
  * @task T555
  */
 
+import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +56,17 @@ export interface BuildCantEnrichedPromptOptions {
   basePrompt: string;
   /** Agent name for mental model injection. Omit to skip mental model fetch. */
   agentName?: string;
+  /**
+   * When true, prepend the CleoOS identity bootstrap from CLEOOS-IDENTITY.md.
+   * Intended for the main session agent only — sub-agents get identity via CANT bundle.
+   */
+  isMainAgent?: boolean;
+  /**
+   * Pre-compiled CANT bundle string (from a session-level cache).
+   * When provided, steps 1–3 (discovery + compile + render) are skipped.
+   * Use this to avoid double-compilation when the Pi bridge already compiled the bundle.
+   */
+  compiledBundle?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +308,161 @@ async function fetchMentalModelInjection(agentName: string, projectRoot: string)
 }
 
 // ---------------------------------------------------------------------------
+// Identity bootstrap (ported from cleo-cant-bridge.ts lines 858-964)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read CLEOOS-IDENTITY.md from the project or global XDG location.
+ *
+ * Search order:
+ * 1. `<projectDir>/.cleo/CLEOOS-IDENTITY.md` (project-level, deployed by init)
+ * 2. `$XDG_DATA_HOME/cleo/CLEOOS-IDENTITY.md` (global XDG default)
+ *
+ * @param projectDir - The project root directory.
+ * @returns The identity file content, or null if not found.
+ */
+export function readIdentityFile(projectDir: string): string | null {
+  const projectPath = join(projectDir, '.cleo', 'CLEOOS-IDENTITY.md');
+  if (existsSync(projectPath)) {
+    try {
+      const content = readFileSync(projectPath, 'utf-8');
+      return content.length > 0 ? content : null;
+    } catch {
+      // Fall through to global path
+    }
+  }
+
+  const home = homedir();
+  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+  const globalPath = join(xdgData, 'cleo', 'CLEOOS-IDENTITY.md');
+  if (existsSync(globalPath)) {
+    try {
+      const content = readFileSync(globalPath, 'utf-8');
+      return content.length > 0 ? content : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build the CleoOS identity bootstrap block for the main session agent.
+ *
+ * Reads CLEOOS-IDENTITY.md from disk and appends live operational context
+ * (current session briefing, next tasks, recent brain decisions) gathered
+ * via best-effort CLI calls with an 8-second timeout each.
+ *
+ * Returns an empty string on any failure — never throws.
+ *
+ * @param projectDir - The project root directory (used for CWD and file lookup).
+ * @returns The fully assembled identity block, or "" if unavailable.
+ */
+export async function buildIdentityBootstrap(projectDir: string): Promise<string> {
+  const identityContent = readIdentityFile(projectDir);
+  if (!identityContent) return '';
+
+  // Gather live operational context in parallel (best-effort, 8s timeout each)
+  const [briefingResult, nextResult, memoryResult] = await Promise.allSettled([
+    execFileAsync('cleo', ['session', 'briefing', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+    execFileAsync('cleo', ['next', '--json', '--limit', '3'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+    execFileAsync('cleo', ['memory', 'find', 'decision', '--json', '--limit', '5'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+  ]);
+
+  const dynamicLines: string[] = [];
+
+  // Append briefing data if available
+  if (briefingResult.status === 'fulfilled') {
+    try {
+      const briefing = JSON.parse(briefingResult.value.stdout) as {
+        data?: {
+          currentTask?: { id: string; title: string; status: string };
+          handoff?: { note: string };
+        };
+      };
+      const data = briefing?.data ?? (briefing as (typeof briefing)['data']);
+      if (data?.currentTask) {
+        dynamicLines.push('## Current Task');
+        dynamicLines.push(
+          `- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`,
+        );
+        dynamicLines.push('');
+      }
+      if (data?.handoff?.note) {
+        dynamicLines.push('## Last Session Handoff');
+        dynamicLines.push(data.handoff.note);
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip briefing data */
+    }
+  }
+
+  // Append next tasks
+  if (nextResult.status === 'fulfilled') {
+    try {
+      const next = JSON.parse(nextResult.value.stdout) as {
+        data?: { tasks?: Array<{ id: string; title: string; priority?: string }> };
+      };
+      const tasks = next?.data?.tasks ?? [];
+      if (Array.isArray(tasks) && tasks.length > 0) {
+        dynamicLines.push('## Next Tasks');
+        for (const t of tasks.slice(0, 3)) {
+          dynamicLines.push(`- **${t.id}**: ${t.title} (${t.priority ?? 'medium'})`);
+        }
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip */
+    }
+  }
+
+  // Append recent brain decisions
+  if (memoryResult.status === 'fulfilled') {
+    try {
+      const mem = JSON.parse(memoryResult.value.stdout) as {
+        data?: { results?: Array<{ id: string; title: string; date?: string }> };
+      };
+      const results = mem?.data?.results ?? [];
+      if (Array.isArray(results) && results.length > 0) {
+        dynamicLines.push('## Recent Brain Context');
+        for (const r of results.slice(0, 5)) {
+          dynamicLines.push(`- [${r.id}] ${r.title} (${r.date ?? ''})`);
+        }
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip */
+    }
+  }
+
+  const sections: string[] = [
+    '',
+    '===== CLEOOS IDENTITY BOOTSTRAP =====',
+    '',
+    identityContent.trim(),
+  ];
+
+  if (dynamicLines.length > 0) {
+    sections.push('');
+    sections.push(...dynamicLines);
+  }
+
+  sections.push('===== END IDENTITY BOOTSTRAP =====');
+  return sections.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -320,30 +490,50 @@ async function fetchMentalModelInjection(agentName: string, projectRoot: string)
 export async function buildCantEnrichedPrompt(
   options: BuildCantEnrichedPromptOptions,
 ): Promise<string> {
-  const { projectDir, basePrompt, agentName } = options;
+  const { projectDir, basePrompt, agentName, isMainAgent, compiledBundle } = options;
   let appendix = '';
 
-  // Step 1-3: Discover and compile CANT bundle
+  // Step 0: Identity bootstrap for the main session agent.
+  // Sub-agents receive identity via the CANT bundle + mental model below.
+  if (isMainAgent) {
+    try {
+      const identityBlock = await buildIdentityBootstrap(projectDir);
+      if (identityBlock) {
+        appendix += identityBlock;
+      }
+    } catch {
+      // Identity bootstrap failure — non-fatal, continue enrichment
+    }
+  }
+
+  // Step 1-3: Discover and compile CANT bundle (or use pre-compiled bundle).
+  // When `compiledBundle` is provided (e.g. Pi session cache), skip
+  // discovery + compilation to avoid redundant work.
   try {
-    const { files } = discoverCantFilesMultiTier(projectDir);
+    if (compiledBundle) {
+      // Use pre-compiled bundle directly
+      appendix += `\n\n${compiledBundle}`;
+    } else {
+      const { files } = discoverCantFilesMultiTier(projectDir);
 
-    if (files.length > 0) {
-      // Dynamic import — @cleocode/cant is NOT a compile-time dependency of adapters.
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const cantModule = (await import(/* webpackIgnore: true */ '@cleocode/cant' as string)) as {
-        compileBundle?: (paths: string[]) => Promise<{
-          renderSystemPrompt: () => string;
-          valid: boolean;
-          diagnostics: unknown[];
-        }>;
-      };
+      if (files.length > 0) {
+        // Dynamic import — @cleocode/cant is NOT a compile-time dependency of adapters.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const cantModule = (await import(/* webpackIgnore: true */ '@cleocode/cant' as string)) as {
+          compileBundle?: (paths: string[]) => Promise<{
+            renderSystemPrompt: () => string;
+            valid: boolean;
+            diagnostics: unknown[];
+          }>;
+        };
 
-      if (typeof cantModule.compileBundle === 'function') {
-        const bundle = await cantModule.compileBundle(files);
-        if (bundle.valid) {
-          const rendered = bundle.renderSystemPrompt();
-          if (rendered) {
-            appendix += `\n\n${rendered}`;
+        if (typeof cantModule.compileBundle === 'function') {
+          const bundle = await cantModule.compileBundle(files);
+          if (bundle.valid) {
+            const rendered = bundle.renderSystemPrompt();
+            if (rendered) {
+              appendix += `\n\n${rendered}`;
+            }
           }
         }
       }
