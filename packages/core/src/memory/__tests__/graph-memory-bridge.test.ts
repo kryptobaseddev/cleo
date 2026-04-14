@@ -21,6 +21,9 @@ describe('graph-memory-bridge', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-gmb-'));
     await mkdir(join(tempDir, '.cleo'), { recursive: true });
     process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+    // nexus.db is global (ADR-036) — point CLEO_HOME to temp dir so
+    // getNexusDb() creates it here instead of ~/.cleo/ on CI.
+    process.env['CLEO_HOME'] = join(tempDir, '.cleo');
   });
 
   afterEach(async () => {
@@ -29,6 +32,7 @@ describe('graph-memory-bridge', () => {
     closeBrainDb();
     resetNexusDbState();
     delete process.env['CLEO_DIR'];
+    delete process.env['CLEO_HOME'];
     await rm(tempDir, { recursive: true, force: true });
   });
 
