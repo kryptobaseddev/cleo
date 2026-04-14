@@ -154,3 +154,74 @@ fn jit_backend_dev_fixture_parses() {
         errors
     );
 }
+
+// ── T615: Starter bundle parse + validate check (temporary diagnostic) ───────
+
+#[test]
+fn t615_starter_bundle_parse_errors_diagnostic() {
+    let base = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop();
+        p.pop(); // up from crates/cant-core to repo root
+        p
+    };
+
+    let files = vec![
+        "packages/cleo-os/starter-bundle/team.cant",
+        "packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant",
+        "packages/cleo-os/starter-bundle/agents/dev-lead.cant",
+        "packages/cleo-os/starter-bundle/agents/code-worker.cant",
+        "packages/cleo-os/starter-bundle/agents/docs-worker.cant",
+    ];
+
+    let mut report = String::new();
+    let mut total_parse = 0usize;
+    let mut total_val = 0usize;
+
+    for rel in &files {
+        let path = base.join(rel);
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        match parse_document(&content) {
+            Ok(doc) => {
+                let diags = validate(&doc);
+                let errs: Vec<_> = diags
+                    .iter()
+                    .filter(|d| {
+                        matches!(d.severity, cant_core::validate::diagnostic::Severity::Error)
+                    })
+                    .collect();
+                if errs.is_empty() {
+                    report.push_str(&format!("OK: {rel}\n"));
+                } else {
+                    report.push_str(&format!("VAL_ERR {rel}: {} errors\n", errs.len()));
+                    for e in &errs {
+                        report.push_str(&format!("  [{}] {}\n", e.rule_id, e.message));
+                    }
+                    total_val += errs.len();
+                }
+            }
+            Err(errs) => {
+                report.push_str(&format!("PARSE_ERR {rel}: {} errors\n", errs.len()));
+                for e in errs.iter().take(20) {
+                    report.push_str(&format!("  line {}: {}\n", e.span.line, e.message));
+                }
+                if errs.len() > 20 {
+                    report.push_str(&format!("  ...{} more\n", errs.len() - 20));
+                }
+                total_parse += errs.len();
+            }
+        }
+    }
+
+    report.push_str(&format!(
+        "\nTotal parse errors: {total_parse}, validation errors: {total_val}\n"
+    ));
+    // Print for visibility, then assert
+    eprintln!("{report}");
+    assert_eq!(
+        total_parse + total_val,
+        0,
+        "Starter bundle errors:\n{report}"
+    );
+}

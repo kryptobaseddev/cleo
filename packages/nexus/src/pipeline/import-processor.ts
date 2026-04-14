@@ -142,6 +142,74 @@ export interface NamedImportEntry {
   exportedName: string;
 }
 
+// ---------------------------------------------------------------------------
+// Barrel export map types (T617)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single entry in the barrel export map.
+ *
+ * Describes where a symbol exported by a barrel file actually originates.
+ * For `export { findTasks } from './tasks/find.js'` in `index.ts`:
+ *   - `canonicalFile` = `"packages/core/src/tasks/find.ts"`
+ *   - `canonicalName` = `"findTasks"`
+ */
+export interface BarrelExportEntry {
+  /** Resolved canonical source file that defines the symbol. */
+  canonicalFile: string;
+  /** Name of the symbol as defined in the canonical source file. */
+  canonicalName: string;
+}
+
+/**
+ * Map of barrel file path → (exported name → canonical definition).
+ *
+ * Built by `buildBarrelExportMap` during the parse/import phase.
+ *
+ * Wildcard re-exports (`export * from '...'`) are stored under the sentinel
+ * key `"*"` as a list of wildcard source files — the resolver will scan all
+ * of them when a named lookup misses.
+ *
+ * Example:
+ * ```
+ * packages/core/src/index.ts exports { findTasks } from './tasks/find.ts'
+ * → barrelMap.get('packages/core/src/index.ts')?.get('findTasks')
+ *   === { canonicalFile: 'packages/core/src/tasks/find.ts', canonicalName: 'findTasks' }
+ * ```
+ */
+export type BarrelExportMap = Map<string, Map<string, BarrelExportEntry>>;
+
+/**
+ * Sentinel key used in a barrel's inner map to record wildcard re-export sources.
+ *
+ * The value for this key is a `BarrelExportEntry` with `canonicalFile` set to
+ * the resolved source file path and `canonicalName` set to `"*"`.
+ * Multiple wildcard sources are stored as sequential keys:
+ * `"*0"`, `"*1"`, etc.
+ */
+export const WILDCARD_EXPORT_KEY_PREFIX = '*';
+
+/**
+ * A pre-extracted re-export record from the AST parse phase (T617).
+ *
+ * Mirrors `ExtractedReExport` from the TypeScript extractor, defined here
+ * to avoid a circular dependency between import-processor ← extractor.
+ */
+export interface ExtractedReExportRecord {
+  /** Barrel file path (relative to repo root). */
+  filePath: string;
+  /** Raw source path from the re-export (e.g. `"./tasks/find.js"`). */
+  rawSourcePath: string;
+  /**
+   * Exported name as seen by callers. `null` for wildcard `export *` records.
+   */
+  exportedName: string | null;
+  /**
+   * Name in the source module. `null` for wildcard records.
+   */
+  localName: string | null;
+}
+
 /**
  * Map of importing file path → (local name → source file + exported name).
  *
@@ -513,4 +581,149 @@ export function isFileInPackageDir(filePath: string, dirSuffix: string): boolean
   if (!normalized.includes(dirSuffix)) return false;
   const afterDir = normalized.substring(normalized.indexOf(dirSuffix) + dirSuffix.length);
   return !afterDir.includes('/');
+}
+
+// ---------------------------------------------------------------------------
+// Barrel export map construction (T617)
+// ---------------------------------------------------------------------------
+
+/** Maximum chain depth when resolving barrel re-exports transitively. */
+const MAX_BARREL_CHAIN_DEPTH = 10;
+
+/**
+ * Build a BarrelExportMap from pre-extracted re-export records.
+ *
+ * For each re-export record:
+ * 1. Resolves the raw source path to a concrete file path (using the same
+ *    import resolution logic as `resolveTypescriptImport`).
+ * 2. Records the mapping in the barrel map.
+ *
+ * Wildcard re-exports (`export * from '...'`) are stored under sequential
+ * keys `"*0"`, `"*1"`, etc. within the barrel's entry map. Named lookups
+ * that miss the barrel map will fall through to scan wildcard sources.
+ *
+ * @param reExports - Pre-extracted re-export records from the parse phase
+ * @param importCtx - Import resolution context (for path resolution)
+ * @param tsconfigPaths - Parsed tsconfig path aliases, if available
+ * @returns A populated BarrelExportMap
+ */
+export function buildBarrelExportMap(
+  reExports: ExtractedReExportRecord[],
+  importCtx: ImportResolutionContext,
+  tsconfigPaths: TsconfigPaths | null,
+): BarrelExportMap {
+  const { allFilePaths, allFileList, normalizedFileList, index, resolveCache } = importCtx;
+  const barrelMap: BarrelExportMap = new Map();
+
+  for (const re of reExports) {
+    const resolved = resolveTypescriptImport(
+      re.filePath,
+      re.rawSourcePath,
+      allFilePaths,
+      allFileList,
+      normalizedFileList,
+      resolveCache,
+      tsconfigPaths,
+      index,
+    );
+    if (!resolved) continue;
+
+    let barrelEntry = barrelMap.get(re.filePath);
+    if (!barrelEntry) {
+      barrelEntry = new Map();
+      barrelMap.set(re.filePath, barrelEntry);
+    }
+
+    if (re.exportedName === null) {
+      // Wildcard re-export — store with sequential key *0, *1, ...
+      let wildcardIndex = 0;
+      while (barrelEntry.has(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)) {
+        wildcardIndex++;
+      }
+      barrelEntry.set(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`, {
+        canonicalFile: resolved,
+        canonicalName: WILDCARD_EXPORT_KEY_PREFIX,
+      });
+    } else {
+      // Named re-export — map exported name → canonical location
+      // The localName in the source is what the canonical file defines.
+      const canonicalName = re.localName ?? re.exportedName;
+      barrelEntry.set(re.exportedName, {
+        canonicalFile: resolved,
+        canonicalName,
+      });
+    }
+  }
+
+  return barrelMap;
+}
+
+/**
+ * Resolve a named import binding through barrel re-export chains.
+ *
+ * Given that a caller imports `name` from `barrelFile` but the symbol is not
+ * directly defined there, walk the barrel map to find the canonical source file
+ * and symbol name.
+ *
+ * Supports transitive chains (barrel re-exporting from another barrel) up to
+ * `MAX_BARREL_CHAIN_DEPTH` hops to prevent infinite loops on circular re-exports.
+ *
+ * @param barrelFile - The barrel file that was imported from
+ * @param exportedName - The name being resolved
+ * @param barrelMap - The pre-built barrel export map
+ * @returns Canonical `{ canonicalFile, canonicalName }`, or null if not found
+ */
+export function resolveBarrelBinding(
+  barrelFile: string,
+  exportedName: string,
+  barrelMap: BarrelExportMap,
+): BarrelExportEntry | null {
+  let currentFile = barrelFile;
+  let currentName = exportedName;
+
+  for (let depth = 0; depth < MAX_BARREL_CHAIN_DEPTH; depth++) {
+    const barrelEntry = barrelMap.get(currentFile);
+    if (!barrelEntry) return null;
+
+    // Check exact named match first
+    const namedMatch = barrelEntry.get(currentName);
+    if (namedMatch) {
+      // If the canonical file is itself a barrel, keep following the chain
+      if (barrelMap.has(namedMatch.canonicalFile)) {
+        currentFile = namedMatch.canonicalFile;
+        currentName = namedMatch.canonicalName;
+        continue;
+      }
+      return namedMatch;
+    }
+
+    // No named match — check wildcard re-exports
+    // Collect all wildcard source files from this barrel
+    let wildcardIndex = 0;
+    while (barrelEntry.has(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)) {
+      const wildcardEntry = barrelEntry.get(
+        `${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`,
+      )!;
+      wildcardIndex++;
+
+      const wildcardSourceFile = wildcardEntry.canonicalFile;
+
+      // If the wildcard source is itself a barrel, check it recursively (via loop)
+      if (barrelMap.has(wildcardSourceFile)) {
+        const nested = resolveBarrelBinding(wildcardSourceFile, currentName, barrelMap);
+        if (nested) return nested;
+        continue;
+      }
+
+      // Wildcard from a non-barrel file: we can't know what it exports without
+      // running the symbol table lookup. Return a candidate pointing to this file.
+      // The caller (resolveSingleCall) will verify against the symbol table.
+      return { canonicalFile: wildcardSourceFile, canonicalName: currentName };
+    }
+
+    // No match in this barrel at all
+    return null;
+  }
+
+  return null;
 }

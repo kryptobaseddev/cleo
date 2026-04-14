@@ -45,6 +45,7 @@ import {
 } from './extractors/typescript-extractor.js';
 import type { ScannedFile } from './filesystem-walker.js';
 import type {
+  BarrelExportMap,
   ExtractedImport,
   ImportResolutionContext,
   NamedImportMap,
@@ -281,6 +282,11 @@ export interface ParseLoopResult {
   allHeritage: ExtractedHeritage[];
   /** All call expression records accumulated during the parse loop (for Phase 3e). */
   allCalls: ExtractedCall[];
+  /**
+   * Barrel export map built from re-export statements (T617).
+   * Used by the call resolution phase to trace imports through barrel index files.
+   */
+  barrelMap: BarrelExportMap;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +463,9 @@ async function runParallelParseLoop(
     });
   }
 
-  return { allHeritage, allCalls };
+  // Parallel path: re-export collection is a future Wave I extension.
+  // Build an empty barrel map for now — sequential path handles re-exports.
+  return { allHeritage, allCalls, barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths) };
 }
 
 // ---------------------------------------------------------------------------
@@ -512,7 +520,12 @@ export async function runParseLoop(
   });
 
   const total = parseableFiles.length;
-  if (total === 0) return { allHeritage: [], allCalls: [] };
+  if (total === 0)
+    return {
+      allHeritage: [],
+      allCalls: [],
+      barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
+    };
 
   // Wave H: Check thresholds for parallel dispatch
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
@@ -544,6 +557,7 @@ export async function runParseLoop(
   }
 
   const allExtractedImports: ExtractedImport[] = [];
+  const allReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
 
@@ -552,7 +566,11 @@ export async function runParseLoop(
     process.stderr.write(
       '[nexus] WARNING: tree-sitter native module not available — parse loop skipped.\n',
     );
-    return { allHeritage: [], allCalls: [] };
+    return {
+      allHeritage: [],
+      allCalls: [],
+      barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
+    };
   }
 
   let filesProcessed = 0;
@@ -605,12 +623,13 @@ export async function runParseLoop(
       continue;
     }
 
-    // Extract definitions, imports, heritage, and calls — dispatch by language
+    // Extract definitions, imports, heritage, calls, and re-exports — dispatch by language
     let extracted: {
       definitions: GraphNode[];
       imports: ExtractedImport[];
       heritage: ExtractedHeritage[];
       calls: ExtractedCall[];
+      reExports?: ExtractedReExport[];
     };
     try {
       extracted = runExtractor(lang, rootNode, file.path);
@@ -631,6 +650,13 @@ export async function runParseLoop(
     // Collect imports for batch resolution
     for (const imp of extracted.imports) {
       allExtractedImports.push(imp);
+    }
+
+    // Collect re-exports for barrel map construction (T617)
+    if (extracted.reExports) {
+      for (const re of extracted.reExports) {
+        allReExports.push(re);
+      }
     }
 
     // Collect heritage for deferred Phase 3c processing
@@ -665,6 +691,13 @@ export async function runParseLoop(
     });
   }
 
-  // Return accumulated heritage and calls — callers run heritage + call phases
-  return { allHeritage, allCalls };
+  // Build barrel export map from collected re-export records (T617)
+  // Runs AFTER processExtractedImports so the resolve cache is warmed up.
+  const barrelMap = buildBarrelExportMap(allReExports, importCtx, tsconfigPaths);
+  process.stderr.write(
+    `[nexus] Barrel map: ${barrelMap.size} barrel files with re-export chains\n`,
+  );
+
+  // Return accumulated heritage, calls, and barrel map
+  return { allHeritage, allCalls, barrelMap };
 }

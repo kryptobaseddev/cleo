@@ -381,14 +381,21 @@ export interface PromotionResult {
 /**
  * Run tier promotion for all memory tables.
  *
- * Promotion rules (per spec §1.1–§1.3):
- * - short → medium: citationCount >= 3 AND age > 24h AND verified = true
- *   OR qualityScore >= 0.7 AND verified = true (fast-track)
- * - medium → long:  citationCount >= 5 AND age > 7 days AND verified = true
+ * Promotion rules (per spec §1.1–§1.3, relaxed in T614):
+ * - short → medium:
+ *     A. (citationCount >= 3 AND age > 24h) — citation-based track
+ *     B. (qualityScore >= 0.7 AND age > 24h) — quality fast-track
+ *     C. (verified = true AND age > 24h) — owner-verified track
+ *   Note: `verified` is no longer a hard gate for routes A and B.
+ *   Requiring verified=true on all paths caused all 235 short-tier observations
+ *   to be permanently stuck (T614 bug).
+ * - medium → long:
+ *     (citationCount >= 5 AND age > 7 days) OR (verified = true AND age > 7 days)
+ *   Verified entries accelerate to long-tier without citation threshold.
  *
  * Eviction rules:
- * - short-term entries older than shortTermEvictionDays (default 7) with no
- *   promotion eligibility are soft-evicted (invalidAt = now).
+ * - short-term entries older than 7 days with no promotion eligibility are
+ *   soft-evicted (invalidAt = now).
  * - long-term entries are NEVER auto-evicted.
  *
  * @param projectRoot - Project root directory for brain.db resolution
@@ -431,25 +438,30 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
 
   for (const { table, dateCol } of tables) {
     // --- short → medium promotion ---
-    // Two criteria (union):
-    //   A. citationCount >= 3 AND age > 24h AND verified = 1
-    //   B. quality_score >= 0.7 AND verified = 1 AND age > 24h (fast-track)
+    // Three criteria (union — verified is no longer a hard gate for A/B paths):
+    //   A. citationCount >= 3 AND age > 24h  (citation track — no verified requirement)
+    //   B. quality_score >= 0.7 AND age > 24h (quality fast-track — no verified requirement)
+    //   C. verified = 1 AND age > 24h         (owner-verified track)
     interface TierRow {
       id: string;
       citation_count: number;
       quality_score: number | null;
+      verified: number;
     }
     let shortToMedium: TierRow[] = [];
     try {
       shortToMedium = typedAll<TierRow>(
         nativeDb.prepare(`
-          SELECT id, citation_count, quality_score
+          SELECT id, citation_count, quality_score, verified
           FROM ${table}
           WHERE memory_tier = 'short'
             AND invalid_at IS NULL
             AND ${dateCol} < ?
-            AND verified = 1
-            AND (citation_count >= 3 OR quality_score >= 0.7)
+            AND (
+              citation_count >= 3
+              OR quality_score >= 0.7
+              OR verified = 1
+            )
         `),
         age24h,
       );
@@ -463,33 +475,34 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
         nativeDb
           .prepare(`UPDATE ${table} SET memory_tier = 'medium', updated_at = ? WHERE id = ?`)
           .run(now, row.id);
-        promoted.push({
-          id: row.id,
-          table,
-          fromTier: 'short',
-          toTier: 'medium',
-          reason:
-            row.citation_count >= 3
-              ? `citationCount=${row.citation_count} >= 3, verified, age > 24h`
-              : `qualityScore=${row.quality_score?.toFixed(2)} >= 0.70, verified, age > 24h`,
-        });
+        let reason: string;
+        if (row.citation_count >= 3) {
+          reason = `citationCount=${row.citation_count} >= 3, age > 24h`;
+        } else if ((row.quality_score ?? 0) >= 0.7) {
+          reason = `qualityScore=${row.quality_score?.toFixed(2)} >= 0.70, age > 24h`;
+        } else {
+          reason = `verified=true, age > 24h`;
+        }
+        promoted.push({ id: row.id, table, fromTier: 'short', toTier: 'medium', reason });
       } catch {
         /* best-effort */
       }
     }
 
     // --- medium → long promotion ---
+    // Two criteria (union — verified accelerates to long without citation threshold):
+    //   A. citationCount >= 5 AND age > 7d
+    //   B. verified = 1 AND age > 7d (owner-verified accelerated track)
     let mediumToLong: TierRow[] = [];
     try {
       mediumToLong = typedAll<TierRow>(
         nativeDb.prepare(`
-          SELECT id, citation_count, quality_score
+          SELECT id, citation_count, quality_score, verified
           FROM ${table}
           WHERE memory_tier = 'medium'
             AND invalid_at IS NULL
             AND ${dateCol} < ?
-            AND verified = 1
-            AND citation_count >= 5
+            AND (citation_count >= 5 OR verified = 1)
         `),
         age7d,
       );
@@ -502,13 +515,11 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
         nativeDb
           .prepare(`UPDATE ${table} SET memory_tier = 'long', updated_at = ? WHERE id = ?`)
           .run(now, row.id);
-        promoted.push({
-          id: row.id,
-          table,
-          fromTier: 'medium',
-          toTier: 'long',
-          reason: `citationCount=${row.citation_count} >= 5, verified, age > 7d`,
-        });
+        const reason =
+          row.citation_count >= 5
+            ? `citationCount=${row.citation_count} >= 5, age > 7d`
+            : `verified=true, age > 7d`;
+        promoted.push({ id: row.id, table, fromTier: 'medium', toTier: 'long', reason });
       } catch {
         /* best-effort */
       }
