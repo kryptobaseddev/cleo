@@ -7,9 +7,9 @@
  * with justification, importance score, and referenced entities.
  *
  * Design:
- *   - Runs only when `brain.llmExtraction.enabled` is true AND
- *     `ANTHROPIC_API_KEY` is present in the environment. Otherwise the
- *     function returns an empty array.
+ *   - Runs only when `brain.llmExtraction.enabled` is true AND an Anthropic
+ *     API key is available (from ANTHROPIC_API_KEY env var OR Claude Code
+ *     credentials at ~/.claude/.credentials.json). Otherwise returns empty.
  *   - Uses structured output (JSON schema) for reliable parsing — no regex
  *     post-processing.
  *   - Never throws — all errors are caught and logged. The pipeline must
@@ -27,6 +27,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { resolveAnthropicApiKey } from './anthropic-key-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -281,13 +282,14 @@ function mapImportanceToConfidence(importance: number): 'low' | 'medium' | 'high
 /**
  * Lazily import and instantiate the Anthropic SDK.
  *
- * Returns null when ANTHROPIC_API_KEY is absent so callers can gracefully
- * degrade to no-op. The SDK is imported via dynamic import so projects that
- * do not use the LLM extraction gate don't pay the load cost at startup.
+ * Resolves the API key from env or Claude Code credentials. Returns null
+ * when no key is available so callers can gracefully degrade to no-op.
+ * The SDK is imported via dynamic import so projects that do not use the
+ * LLM extraction gate don't pay the load cost at startup.
  */
 async function buildAnthropicClient(): Promise<Pick<Anthropic, 'messages'> | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey?.trim()) {
+  const apiKey = resolveAnthropicApiKey();
+  if (!apiKey) {
     return null;
   }
   try {
@@ -389,7 +391,9 @@ export async function extractFromTranscript(
   // -------------------------------------------------------------------------
   const client = options.client ?? (await buildAnthropicClient());
   if (!client) {
-    report.warnings.push('ANTHROPIC_API_KEY not set — extraction skipped');
+    report.warnings.push(
+      'No Anthropic API key found (checked ANTHROPIC_API_KEY env and ~/.claude/.credentials.json) — extraction skipped',
+    );
     return report;
   }
 
