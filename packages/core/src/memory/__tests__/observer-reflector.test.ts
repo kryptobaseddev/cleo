@@ -26,12 +26,14 @@ const {
   mockStoreLearning,
   mockStorePattern,
   mockLoadConfig,
+  mockResolveKey,
 } = vi.hoisted(() => ({
   mockGetBrainDb: vi.fn().mockResolvedValue({}),
   mockGetBrainNativeDb: vi.fn(),
   mockStoreLearning: vi.fn().mockResolvedValue({ id: 'L-test-001' }),
   mockStorePattern: vi.fn().mockResolvedValue({ id: 'P-test-001' }),
   mockLoadConfig: vi.fn(),
+  mockResolveKey: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../../store/brain-sqlite.js', () => ({
@@ -56,6 +58,13 @@ vi.mock('../../config.js', () => ({
   loadConfig: mockLoadConfig,
 }));
 
+// Mock the key resolver so tests don't depend on filesystem state
+// (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
+vi.mock('../anthropic-key-resolver.js', () => ({
+  resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
+  clearAnthropicKeyCache: vi.fn(),
+}));
+
 // ============================================================================
 // Import module under test (after all mocks)
 // ============================================================================
@@ -69,11 +78,7 @@ import { runObserver, runReflector } from '../observer-reflector.js';
 const FAKE_API_KEY = 'sk-ant-test-key';
 
 function setApiKey(key: string | undefined): void {
-  if (key === undefined) {
-    delete process.env['ANTHROPIC_API_KEY'];
-  } else {
-    process.env['ANTHROPIC_API_KEY'] = key;
-  }
+  mockResolveKey.mockReturnValue(key ?? null);
 }
 
 type RawObs = {
