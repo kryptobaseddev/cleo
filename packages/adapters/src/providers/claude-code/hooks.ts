@@ -150,17 +150,18 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
       const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
 
       // Check if CLEO hooks already registered (look for our marker comment in commands)
-      const alreadyRegistered = Object.values(hooks).some((entries) =>
-        Array.isArray(entries) &&
-        entries.some(
-          (e) =>
-            typeof e === 'object' &&
-            e !== null &&
-            Array.isArray((e as Record<string, unknown>).hooks) &&
-            ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
-              (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
-            ),
-        ),
+      const alreadyRegistered = Object.values(hooks).some(
+        (entries) =>
+          Array.isArray(entries) &&
+          entries.some(
+            (e) =>
+              typeof e === 'object' &&
+              e !== null &&
+              Array.isArray((e as Record<string, unknown>).hooks) &&
+              ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
+                (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
+              ),
+          ),
       );
 
       if (alreadyRegistered) {
