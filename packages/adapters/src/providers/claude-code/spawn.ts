@@ -91,10 +91,19 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       tmpFile = `/tmp/claude-spawn-${instanceId}.txt`;
       await writeFile(tmpFile, enrichedPrompt, 'utf-8');
 
-      const args = ['--allow-insecure', '--no-upgrade-check', tmpFile];
+      // --print: non-interactive batch mode (process prompt, output response, exit)
+      // --dangerously-skip-permissions: allow all tool calls without human approval
+      // --output-format json: structured output for parsing
+      const args = [
+        '--print',
+        '--dangerously-skip-permissions',
+        '--output-format',
+        'json',
+        tmpFile,
+      ];
       const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'pipe', 'pipe'],
       };
 
       if (context.workingDirectory) {

@@ -403,6 +403,46 @@ async function runPostUpdateDiagnostics(opts?: {
       );
     }
   } else {
+    // No storage migration needed, but still run structural upgrade to ensure
+    // all databases (brain.db, signaldock.db, conduit.db), adapters, schemas,
+    // memory-bridge.md, and other scaffold items are up to date.
+    if (!opts?.skipUpgrade) {
+      const result = await runUpgrade({ autoMigrate: false });
+
+      if (result.applied > 0 || result.errors.length > 0) {
+        // Show structured output of each action taken
+        if (result.actions.length > 0) {
+          process.stderr.write('Post-update maintenance:\n');
+          for (const action of result.actions) {
+            if (action.status === 'skipped') continue;
+            const icon =
+              action.status === 'applied' ? '  ✓' : action.status === 'error' ? '  ✗' : '  -';
+            process.stderr.write(`${icon} ${action.action}: ${action.details}\n`);
+          }
+          process.stderr.write('\n');
+        }
+
+        cliOutput(
+          {
+            postUpdate: true,
+            upgrade: {
+              success: result.success,
+              applied: result.applied,
+              actions: result.actions,
+              errors: result.errors.length > 0 ? result.errors : undefined,
+            },
+          },
+          {
+            command: 'self-update',
+            message: result.success
+              ? `Post-update maintenance complete (${result.applied} action(s) applied).`
+              : 'Post-update maintenance had errors.',
+          },
+        );
+        return;
+      }
+    }
+
     cliOutput(
       {
         postUpdate: true,

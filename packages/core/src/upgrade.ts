@@ -855,6 +855,21 @@ export async function runUpgrade(
       /* best-effort — signaldock.db will be created on first agent operation */
     }
 
+    // Initialize conduit.db for project-tier agent messaging (T310)
+    try {
+      const { ensureConduitDb } = await import('./store/conduit-sqlite.js');
+      const cdResult = ensureConduitDb(projectRootForMaint);
+      if (cdResult.action === 'created') {
+        actions.push({
+          action: 'ensure_conduit_db',
+          status: 'applied',
+          details: 'conduit.db created with full schema',
+        });
+      }
+    } catch {
+      /* best-effort — conduit.db will be created on first agent operation */
+    }
+
     // Regenerate memory-bridge.md
     try {
       const { writeMemoryBridge } = await import('./memory/memory-bridge.js');
@@ -1011,6 +1026,51 @@ export async function runUpgrade(
             details: `Installed ${ghCreated.length} GitHub template(s): ${ghCreated.join(', ')}`,
           });
         }
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    // Adapter discovery, activation, and install (T5240)
+    // Ensures Claude Code settings.json hooks and other adapter configs stay current.
+    try {
+      const { AdapterManager } = await import('./adapters/index.js');
+      const mgr = AdapterManager.getInstance(projectRootForMaint);
+      const manifests = mgr.discover();
+      if (manifests.length > 0) {
+        const detected = mgr.detectActive();
+        for (const adapterId of detected) {
+          try {
+            const adapter = await mgr.activate(adapterId);
+            const installResult = await adapter.install.install({
+              projectDir: projectRootForMaint,
+            });
+            if (installResult.success) {
+              actions.push({
+                action: 'adapter_install',
+                status: 'applied',
+                details: `Adapter ${adapterId}: installed/updated`,
+              });
+            }
+          } catch {
+            /* best-effort — adapter may not support install */
+          }
+        }
+      }
+    } catch {
+      /* best-effort — adapters are optional */
+    }
+
+    // Ensure the global CleoOS Hub exists (idempotent)
+    try {
+      const { ensureCleoOsHub } = await import('./scaffold.js');
+      const hubResult = await ensureCleoOsHub();
+      if (hubResult.action === 'created') {
+        actions.push({
+          action: 'cleoos_hub',
+          status: 'applied',
+          details: hubResult.details ?? 'CleoOS hub scaffolded',
+        });
       }
     } catch {
       /* best-effort */
@@ -1291,6 +1351,66 @@ export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<D
             fix: 'Run: cleo upgrade',
           });
         }
+
+        // T528/T531/T549 column validation — ensure brain schema expansions applied
+        const brainColumnChecks: Array<{ table: string; columns: string[]; task: string }> = [
+          {
+            table: 'brain_page_nodes',
+            columns: ['quality_score', 'content_hash', 'last_activity_at', 'updated_at'],
+            task: 'T528',
+          },
+          {
+            table: 'brain_decisions',
+            columns: [
+              'quality_score',
+              'memory_tier',
+              'memory_type',
+              'verified',
+              'valid_at',
+              'invalid_at',
+              'source_confidence',
+              'citation_count',
+            ],
+            task: 'T531/T549',
+          },
+          {
+            table: 'brain_observations',
+            columns: ['quality_score', 'memory_tier', 'memory_type', 'verified'],
+            task: 'T531/T549',
+          },
+        ];
+
+        const allBrainColsMissing: string[] = [];
+        for (const { table, columns, task } of brainColumnChecks) {
+          const hasTable = nativeDb
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+            .get(table) as { name?: string } | undefined;
+          if (!hasTable?.name) continue;
+
+          const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+            name: string;
+          }>;
+          const colNames = new Set(cols.map((c: { name: string }) => c.name));
+          const missing = columns.filter((c) => !colNames.has(c));
+          if (missing.length > 0) {
+            allBrainColsMissing.push(`${table}: ${missing.join(', ')} (${task})`);
+          }
+        }
+
+        if (allBrainColsMissing.length > 0) {
+          findings.push({
+            check: 'brain.db.schema_columns',
+            status: 'error',
+            details: `Missing brain schema columns: ${allBrainColsMissing.join('; ')}`,
+            fix: 'Run: cleo upgrade (will add missing columns automatically)',
+          });
+        } else {
+          findings.push({
+            check: 'brain.db.schema_columns',
+            status: 'ok',
+            details: 'All T528/T531/T549 brain schema columns present',
+          });
+        }
       } else {
         findings.push({
           check: 'brain.db.connection',
@@ -1310,6 +1430,85 @@ export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<D
       check: 'brain.db',
       status: 'warning',
       details: 'brain.db not found (will be created on first use)',
+      fix: 'Run: cleo upgrade',
+    });
+  }
+
+  // ── signaldock.db validation ──
+  const signaldockDbPath = join(cleoDir, 'signaldock.db');
+  if (existsSync(signaldockDbPath)) {
+    findings.push({
+      check: 'signaldock.db',
+      status: 'ok',
+      details: 'signaldock.db exists',
+    });
+  } else {
+    findings.push({
+      check: 'signaldock.db',
+      status: 'warning',
+      details: 'signaldock.db not found',
+      fix: 'Run: cleo upgrade',
+    });
+  }
+
+  // ── conduit.db validation ──
+  const conduitDbPath = join(cleoDir, 'conduit.db');
+  if (existsSync(conduitDbPath)) {
+    findings.push({
+      check: 'conduit.db',
+      status: 'ok',
+      details: 'conduit.db exists',
+    });
+  } else {
+    findings.push({
+      check: 'conduit.db',
+      status: 'warning',
+      details: 'conduit.db not found',
+      fix: 'Run: cleo upgrade',
+    });
+  }
+
+  // ── memory-bridge.md validation ──
+  const memoryBridgePath = join(cleoDir, 'memory-bridge.md');
+  if (existsSync(memoryBridgePath)) {
+    try {
+      const content = readFileSync(memoryBridgePath, 'utf-8');
+      const hasAutoGenMarker = content.includes('Auto-generated');
+      const hasGarbage = content.includes('undefined') && content.length < 100;
+      if (hasGarbage) {
+        findings.push({
+          check: 'memory-bridge.md',
+          status: 'error',
+          details: 'memory-bridge.md contains garbage content',
+          fix: 'Run: cleo upgrade (will regenerate)',
+        });
+      } else if (hasAutoGenMarker) {
+        findings.push({
+          check: 'memory-bridge.md',
+          status: 'ok',
+          details: 'memory-bridge.md exists and has valid content',
+        });
+      } else {
+        findings.push({
+          check: 'memory-bridge.md',
+          status: 'warning',
+          details: 'memory-bridge.md exists but may be stale (no auto-generated marker)',
+          fix: 'Run: cleo upgrade (will regenerate)',
+        });
+      }
+    } catch {
+      findings.push({
+        check: 'memory-bridge.md',
+        status: 'warning',
+        details: 'memory-bridge.md exists but could not be read',
+      });
+    }
+  } else {
+    findings.push({
+      check: 'memory-bridge.md',
+      status: 'warning',
+      details: 'memory-bridge.md not found',
+      fix: 'Run: cleo upgrade (will regenerate)',
     });
   }
 

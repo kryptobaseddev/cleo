@@ -331,15 +331,15 @@ export async function buildCantEnrichedPrompt(
       // Dynamic import — @cleocode/cant is NOT a compile-time dependency of adapters.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const cantModule = (await import(/* webpackIgnore: true */ '@cleocode/cant' as string)) as {
-        compileBundle?: (paths: string[]) => {
+        compileBundle?: (paths: string[]) => Promise<{
           renderSystemPrompt: () => string;
           valid: boolean;
           diagnostics: unknown[];
-        };
+        }>;
       };
 
       if (typeof cantModule.compileBundle === 'function') {
-        const bundle = cantModule.compileBundle(files);
+        const bundle = await cantModule.compileBundle(files);
         if (bundle.valid) {
           const rendered = bundle.renderSystemPrompt();
           if (rendered) {

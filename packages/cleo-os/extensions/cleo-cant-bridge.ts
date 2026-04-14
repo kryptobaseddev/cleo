@@ -48,11 +48,10 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -74,6 +73,128 @@ import {
   ICON_TRIANGLE,
   LINE_VERTICAL,
 } from "./tui-theme.js";
+
+const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Module resolution helper for deployed extensions
+// ---------------------------------------------------------------------------
+// When this extension is deployed to ~/.local/share/cleo/extensions/, bare
+// specifier imports like `import("@cleocode/cant")` fail because there is no
+// node_modules in that directory. The postinstall script creates a symlink
+// (extensions/node_modules → cleo-os/node_modules) to fix this, but as a
+// defensive fallback we also try `createRequire` rooted at the cleo-os
+// package.json. This makes the extension work even if the symlink is missing.
+
+/**
+ * Resolve the cleo-os package root by walking up from this file's location.
+ *
+ * In development (monorepo), the extension lives at
+ * `packages/cleo-os/extensions/cleo-cant-bridge.ts` so the package root is `..`.
+ *
+ * When deployed to `~/.local/share/cleo/extensions/`, the symlink
+ * `node_modules → <pkgRoot>/node_modules` lets us find the package root
+ * by resolving the symlink target's parent.
+ *
+ * As a last resort, searches common global npm paths for @cleocode/cleo-os.
+ *
+ * @returns The absolute path to the cleo-os package.json, or null if not found.
+ */
+function findCleoOsPackageJson(): string | null {
+  // Strategy 1: We're inside the package (dev or extensions/ is in pkgRoot)
+  const parentPkgJson = join(import.meta.dirname ?? ".", "..", "package.json");
+  try {
+    if (existsSync(parentPkgJson)) {
+      const pkg = JSON.parse(readFileSync(parentPkgJson, "utf-8"));
+      if (pkg.name === "@cleocode/cleo-os") return parentPkgJson;
+    }
+  } catch { /* ignore */ }
+
+  // Strategy 2: Search common global install locations
+  const home = homedir();
+  const candidates = [
+    // npm global (custom prefix)
+    join(home, ".npm-global", "lib", "node_modules", "@cleocode", "cleo-os", "package.json"),
+    // npm global (default prefix on Linux/macOS)
+    join("/usr", "local", "lib", "node_modules", "@cleocode", "cleo-os", "package.json"),
+    // npm global (default prefix via nvm)
+    ...(process.env["NVM_DIR"]
+      ? [join(process.env["NVM_DIR"], "versions", "node", `v${process.version.slice(1)}`, "lib", "node_modules", "@cleocode", "cleo-os", "package.json")]
+      : []),
+    // npm global (prefix from env)
+    ...(process.env["npm_config_prefix"]
+      ? [join(process.env["npm_config_prefix"], "lib", "node_modules", "@cleocode", "cleo-os", "package.json")]
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch { /* ignore */ }
+  }
+
+  return null;
+}
+
+/** Cached createRequire instance rooted at the cleo-os package. */
+let _cleoOsRequire: NodeRequire | null | undefined;
+
+/**
+ * Get a `require` function rooted at the cleo-os package.json.
+ *
+ * Used as a fallback when `import()` cannot resolve @cleocode/* packages
+ * from the deployed extensions directory.
+ *
+ * @returns A `require` function, or null if the cleo-os package cannot be found.
+ */
+function getCleoOsRequire(): NodeRequire | null {
+  if (_cleoOsRequire !== undefined) return _cleoOsRequire;
+
+  const pkgJson = findCleoOsPackageJson();
+  if (pkgJson) {
+    _cleoOsRequire = createRequire(pkgJson);
+  } else {
+    _cleoOsRequire = null;
+  }
+  return _cleoOsRequire;
+}
+
+/**
+ * Dynamically import a @cleocode/* module with fallback resolution.
+ *
+ * Tries the standard `import()` first (works when node_modules symlink exists
+ * or in a monorepo). Falls back to `createRequire` rooted at the cleo-os
+ * package root so that deployed extensions can find @cleocode/* dependencies
+ * even without the symlink.
+ *
+ * @param specifier - The bare module specifier (e.g. "@cleocode/cant").
+ * @returns The imported module, or throws if resolution fails everywhere.
+ */
+async function importCleoModule(specifier: string): Promise<unknown> {
+  // Try standard import() first — works in dev and with node_modules symlink
+  try {
+    return await import(specifier);
+  } catch {
+    // Standard import failed — try createRequire fallback
+  }
+
+  // Fallback: use createRequire rooted at cleo-os package
+  const req = getCleoOsRequire();
+  if (req) {
+    try {
+      // resolve() finds the path, then import() loads it as ESM
+      const resolved = req.resolve(specifier);
+      return await import(resolved);
+    } catch {
+      // createRequire also failed — fall through to throw
+    }
+  }
+
+  throw new Error(
+    `Cannot resolve module "${specifier}". ` +
+    `Ensure @cleocode/cleo-os is installed globally and its postinstall ran successfully.`
+  );
+}
 
 // ============================================================================
 // T420: validate-on-load constants and pure helpers
@@ -498,13 +619,9 @@ function discoverCantFilesMultiTier(projectDir: string): {
     fileMap.set(basename(file), file);
   }
 
-  const afterGlobal = fileMap.size;
-
   for (const file of userFiles) {
     fileMap.set(basename(file), file);
   }
-
-  const afterUser = fileMap.size;
 
   for (const file of projectFiles) {
     fileMap.set(basename(file), file);
@@ -547,7 +664,8 @@ async function fetchMentalModelInjection(
   try {
     // Lazy import: @cleocode/core may not be present in all environments.
     // memoryFind is the engine-compat wrapper (T418) that accepts `agent`.
-    const coreModule = (await import("@cleocode/core")) as {
+    // Uses importCleoModule for resolution from deployed extensions directory.
+    const coreModule = (await importCleoModule("@cleocode/core")) as {
       memoryFind?: (
         params: {
           query: string;
@@ -628,8 +746,9 @@ export default function (pi: ExtensionAPI): void {
       const { files, stats } = discoverCantFilesMultiTier(ctx.cwd);
       if (files.length === 0) return;
 
-      // Dynamic import: @cleocode/cant may not be installed in all environments
-      const cantModule = (await import("@cleocode/cant")) as {
+      // Dynamic import: @cleocode/cant may not be installed in all environments.
+      // Uses importCleoModule for resolution from deployed extensions directory.
+      const cantModule = (await importCleoModule("@cleocode/cant")) as {
         compileBundle: (paths: string[]) => Promise<{
           renderSystemPrompt: () => string;
           diagnostics: Array<{ severity: string; message: string; sourcePath: string }>;
@@ -777,7 +896,8 @@ export default function (pi: ExtensionAPI): void {
   //        declared write globs. Leads dispatch; workers execute within scope.
   // Fires on every Pi tool_call event.
   // The before_agent_start handler (T420 validate-on-load) is NOT touched here.
-  pi.on(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Pi >=0.66 exposes tool_call but type defs lag behind
+  (pi as any).on(
     "tool_call",
     async (event: {
       /** CANT agent definition resolved by Pi at spawn time, if available. */

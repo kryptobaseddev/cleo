@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +126,76 @@ function deployExtension(extensionName, pkgRoot, extensionsDir) {
     }
     else {
         process.stdout.write(`CleoOS: deployed ${extensionName}.js to ${dest}\n`);
+    }
+}
+// ---------------------------------------------------------------------------
+// Extension node_modules symlink
+// ---------------------------------------------------------------------------
+/**
+ * Create a symlink from the extensions directory's `node_modules` to the
+ * cleo-os package's `node_modules`.
+ *
+ * Extensions are compiled JS files copied to `~/.local/share/cleo/extensions/`
+ * by {@link deployExtension}. When they use `import("@cleocode/cant")` or
+ * `import("@cleocode/core")`, Node's module resolution looks for
+ * `node_modules` relative to the extension file's directory. Since the
+ * extensions directory has no `node_modules`, the import fails.
+ *
+ * This function creates:
+ *   `<extensionsDir>/node_modules` → `<pkgRoot>/node_modules`
+ *
+ * so that bare-specifier imports from deployed extensions resolve against the
+ * cleo-os package's dependency tree. The symlink is idempotent: if it already
+ * points to the correct target, it is left in place; if it points elsewhere
+ * (e.g., after a prefix change), it is replaced.
+ *
+ * @param pkgRoot - Absolute path to the installed cleo-os package root.
+ * @param extensionsDir - Absolute path to the XDG extensions directory.
+ */
+function linkExtensionNodeModules(pkgRoot, extensionsDir) {
+    const target = join(pkgRoot, 'node_modules');
+    const link = join(extensionsDir, 'node_modules');
+    // Bail if the package's node_modules doesn't exist (shouldn't happen, but be safe)
+    if (!existsSync(target)) {
+        process.stdout.write(`CleoOS: skipping node_modules symlink (${target} not found)\n`);
+        return;
+    }
+    try {
+        // Check if symlink already exists and points to the right place.
+        // Use lstatSync first (doesn't follow symlinks) to handle dangling symlinks.
+        let linkExists = false;
+        try {
+            linkExists = lstatSync(link).isSymbolicLink() || existsSync(link);
+        }
+        catch {
+            // Path doesn't exist at all — fine, we'll create it
+        }
+        if (linkExists) {
+            try {
+                const currentTarget = readlinkSync(link);
+                if (currentTarget === target) {
+                    // Already correct — nothing to do
+                    return;
+                }
+            }
+            catch {
+                // readlinkSync fails if it's not a symlink — remove and re-create
+            }
+            // Points elsewhere or is stale — remove and re-create
+            unlinkSync(link);
+        }
+    }
+    catch {
+        // Cleanup failed — try creating anyway
+    }
+    try {
+        symlinkSync(target, link, 'dir');
+        process.stdout.write(`CleoOS: linked extensions/node_modules → ${target}\n`);
+    }
+    catch (err) {
+        // Best-effort: log and continue. The extension has a createRequire fallback.
+        const message = err instanceof Error ? err.message : String(err);
+        process.stdout.write(`CleoOS: warning: could not symlink node_modules: ${message}\n`);
     }
 }
 // ---------------------------------------------------------------------------
@@ -240,8 +310,9 @@ function installSkills() {
 /**
  * Entry point for the CleoOS postinstall script.
  *
- * Orchestrates directory scaffolding, extension deployment, CANT stub
- * creation, and optional skill installation. All operations are idempotent.
+ * Orchestrates directory scaffolding, extension deployment, node_modules
+ * linking, CANT stub creation, and optional skill installation. All
+ * operations are idempotent.
  */
 function main() {
     if (!isGlobalInstall()) {
@@ -255,12 +326,17 @@ function main() {
         ensureDir(dir);
     }
     // 2. Deploy compiled extensions
-    // tui-theme is a shared library imported by cleo-cant-bridge and
-    // cleo-agent-monitor — it must be present before either extension loads.
+    // tui-theme is a shared library imported by all other extensions — deploy first.
     deployExtension('tui-theme', pkgRoot, paths.extensions);
+    deployExtension('cleo-startup', pkgRoot, paths.extensions);
     deployExtension('cleo-cant-bridge', pkgRoot, paths.extensions);
+    deployExtension('cleo-hooks-bridge', pkgRoot, paths.extensions);
     deployExtension('cleo-chatroom', pkgRoot, paths.extensions);
     deployExtension('cleo-agent-monitor', pkgRoot, paths.extensions);
+    // 2b. Symlink extensions/node_modules → pkgRoot/node_modules so that
+    // deployed extensions can resolve @cleocode/* and @mariozechner/*
+    // bare-specifier imports against the cleo-os dependency tree.
+    linkExtensionNodeModules(pkgRoot, paths.extensions);
     // 3. Write default CANT stub (only if file does not exist)
     scaffoldDefaultCant(paths.cant);
     // 4. Deploy starter CANT bundle (team + agents) to global tier
