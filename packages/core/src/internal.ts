@@ -897,6 +897,13 @@ export type {
   BrainSearchHit,
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
+export {
+  autoLinkMemories,
+  linkMemoryToCode,
+  listCodeLinks,
+  queryCodeForMemory,
+  queryMemoriesForCode,
+} from './memory/graph-memory-bridge.js';
 // Memory — LLM extraction gate (additional)
 export type {
   ExtractedMemory,
