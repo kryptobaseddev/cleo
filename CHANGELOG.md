@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.40] (2026-04-14)
+
+Cross-Provider Agent Autonomy — CANT context injection for Claude Code, OpenCode, and all spawn providers.
+
+### Shared CANT Context Builder (`packages/adapters/src/cant-context.ts`)
+- **NEW MODULE**: `buildCantEnrichedPrompt()` — universal entry point for all spawn providers
+- 3-tier CANT discovery (global → user → project) with override semantics
+- Memory bridge injection from `.cleo/memory-bridge.md`
+- Mental model fetch from brain.db via dynamic import of `@cleocode/core`
+- All operations best-effort: agents always spawn, CANT context is enrichment not gate
+- Ported from Pi's `cleo-cant-bridge.ts` (922 lines) into a 380-line reusable module
+
+### Claude Code CANT Injection
+- `ClaudeCodeSpawnProvider.spawn()` now calls `buildCantEnrichedPrompt()` before writing the prompt file
+- Spawned Claude Code agents receive: compiled CANT bundle + memory bridge + mental model
+- Graceful fallback: raw prompt used if CANT enrichment fails
+
+### OpenCode CANT Injection
+- `OpenCodeSpawnProvider.spawn()` now calls `buildCantEnrichedPrompt()` before creating subagent definition
+- `ensureSubagentDefinition()` accepts enriched instructions parameter
+- Spawned OpenCode agents receive same CANT context as Claude Code and Pi agents
+
+### Upgrade Command Enhancement
+- `cleo upgrade` now deploys starter CANT bundle to `.cleo/cant/` if missing
+- Extracted `deployStarterBundle()` from `init.ts` — shared between init and upgrade
+- Existing projects get agent definitions on upgrade, not just first-time init
+
+### Tests
+- 16 new unit tests for `cant-context.ts` covering discovery, bridge, enrichment, fallbacks
+- XDG path isolation in tests prevents interference from real user config
+
 ## [2026.4.39] (2026-04-14)
 
 Hook Wiring + Tree-sitter Fix — connect all brain modules to real events, eliminate npm install warnings.

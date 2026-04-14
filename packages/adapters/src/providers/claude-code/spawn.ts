@@ -74,8 +74,22 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
     let tmpFile: string | undefined;
 
     try {
+      // Enrich prompt with CANT bundle, memory bridge, and mental model (T555).
+      // Best-effort: if CANT context is unavailable, the raw prompt is used.
+      let enrichedPrompt = context.prompt;
+      try {
+        const { buildCantEnrichedPrompt } = await import('../../cant-context.js');
+        enrichedPrompt = await buildCantEnrichedPrompt({
+          projectDir: context.workingDirectory ?? process.cwd(),
+          basePrompt: context.prompt,
+          agentName: (context.options?.agentName as string) ?? undefined,
+        });
+      } catch {
+        // CANT enrichment unavailable — use raw prompt
+      }
+
       tmpFile = `/tmp/claude-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, context.prompt, 'utf-8');
+      await writeFile(tmpFile, enrichedPrompt, 'utf-8');
 
       const args = ['--allow-insecure', '--no-upgrade-check', tmpFile];
       const spawnOpts: Parameters<typeof nodeSpawn>[2] = {

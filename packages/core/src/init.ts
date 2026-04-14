@@ -832,65 +832,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // This gives the CANT bridge a working team topology on first `cleoos` run.
   // Only deploys if .cleo/cant/ does not already contain .cant files (idempotent).
   try {
-    const cantDir = join(cleoDir, 'cant');
-    const cantAgentsDir = join(cantDir, 'agents');
-    const hasCantFiles =
-      existsSync(cantDir) &&
-      readdirSync(cantDir, { recursive: true }).some(
-        (f) => typeof f === 'string' && f.endsWith('.cant'),
-      );
-
-    if (!hasCantFiles) {
-      // Resolve the starter-bundle from @cleocode/cleo-os package
-      let starterBundleSrc: string | null = null;
-      try {
-        const { createRequire } = await import('node:module');
-        const req = createRequire(import.meta.url);
-        const cleoOsPkgMain = req.resolve('@cleocode/cleo-os/package.json');
-        const cleoOsPkgRoot = dirname(cleoOsPkgMain);
-        const candidate = join(cleoOsPkgRoot, 'starter-bundle');
-        if (existsSync(candidate)) {
-          starterBundleSrc = candidate;
-        }
-      } catch {
-        // Not resolvable via require.resolve — try workspace fallbacks
-      }
-
-      if (!starterBundleSrc) {
-        const packageRoot = getPackageRoot();
-        const fallbacks = [
-          join(packageRoot, '..', 'cleo-os', 'starter-bundle'),
-          join(packageRoot, '..', '..', 'packages', 'cleo-os', 'starter-bundle'),
-        ];
-        starterBundleSrc = fallbacks.find((p) => existsSync(p)) ?? null;
-      }
-
-      if (starterBundleSrc) {
-        await mkdir(cantDir, { recursive: true });
-        await mkdir(cantAgentsDir, { recursive: true });
-
-        // Copy team.cant
-        const teamSrc = join(starterBundleSrc, 'team.cant');
-        const teamDst = join(cantDir, 'team.cant');
-        if (existsSync(teamSrc) && !existsSync(teamDst)) {
-          await copyFile(teamSrc, teamDst);
-        }
-
-        // Copy agent .cant files
-        const agentsSrc = join(starterBundleSrc, 'agents');
-        if (existsSync(agentsSrc)) {
-          const agentFiles = readdirSync(agentsSrc).filter((f) => f.endsWith('.cant'));
-          for (const agentFile of agentFiles) {
-            const dst = join(cantAgentsDir, agentFile);
-            if (!existsSync(dst)) {
-              await copyFile(join(agentsSrc, agentFile), dst);
-            }
-          }
-        }
-
-        created.push('starter-bundle: team + agent .cant files deployed to .cleo/cant/');
-      }
-    }
+    await deployStarterBundle(cleoDir, created, warnings);
   } catch (err) {
     warnings.push(`Starter bundle deploy: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -1067,4 +1009,93 @@ export async function getVersion(projectRoot?: string): Promise<{ version: strin
   }
 
   return { version: '0.0.0' };
+}
+
+// ---------------------------------------------------------------------------
+// Starter bundle deployment (T441) — shared between init and upgrade
+// ---------------------------------------------------------------------------
+
+/**
+ * Deploy the starter CANT bundle (team + agents) to a project's `.cleo/cant/`.
+ *
+ * Idempotent: skips deployment if `.cleo/cant/` already contains `.cant` files.
+ * Does not overwrite existing files. Resolves the starter bundle from
+ * `@cleocode/cleo-os/starter-bundle` or workspace fallback paths.
+ *
+ * Called by both `initProject()` and `runUpgrade()` to ensure every project
+ * gets a working team topology for the CANT bridge.
+ *
+ * @param cleoDir - Absolute path to the project's `.cleo/` directory.
+ * @param created - Array to push created-file descriptions into.
+ * @param warnings - Array to push warning messages into.
+ */
+export async function deployStarterBundle(
+  cleoDir: string,
+  created: string[],
+  warnings: string[],
+): Promise<void> {
+  const cantDir = join(cleoDir, 'cant');
+  const cantAgentsDir = join(cantDir, 'agents');
+  const hasCantFiles =
+    existsSync(cantDir) &&
+    readdirSync(cantDir, { recursive: true }).some(
+      (f) => typeof f === 'string' && f.endsWith('.cant'),
+    );
+
+  if (hasCantFiles) return; // Already deployed — idempotent
+
+  // Resolve the starter-bundle from @cleocode/cleo-os package
+  let starterBundleSrc: string | null = null;
+  try {
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const cleoOsPkgMain = req.resolve('@cleocode/cleo-os/package.json');
+    const cleoOsPkgRoot = dirname(cleoOsPkgMain);
+    const candidate = join(cleoOsPkgRoot, 'starter-bundle');
+    if (existsSync(candidate)) {
+      starterBundleSrc = candidate;
+    }
+  } catch {
+    // Not resolvable via require.resolve — try workspace fallbacks
+  }
+
+  if (!starterBundleSrc) {
+    const packageRoot = getPackageRoot();
+    const fallbacks = [
+      join(packageRoot, '..', 'cleo-os', 'starter-bundle'),
+      join(packageRoot, '..', '..', 'packages', 'cleo-os', 'starter-bundle'),
+    ];
+    starterBundleSrc = fallbacks.find((p) => existsSync(p)) ?? null;
+  }
+
+  if (!starterBundleSrc) {
+    warnings.push(
+      'Starter bundle not found — .cleo/cant/ will remain empty. Run cleo init in a project with @cleocode/cleo-os installed.',
+    );
+    return;
+  }
+
+  await mkdir(cantDir, { recursive: true });
+  await mkdir(cantAgentsDir, { recursive: true });
+
+  // Copy team.cant
+  const teamSrc = join(starterBundleSrc, 'team.cant');
+  const teamDst = join(cantDir, 'team.cant');
+  if (existsSync(teamSrc) && !existsSync(teamDst)) {
+    await copyFile(teamSrc, teamDst);
+  }
+
+  // Copy agent .cant files
+  const agentsSrc = join(starterBundleSrc, 'agents');
+  if (existsSync(agentsSrc)) {
+    const agentFiles = readdirSync(agentsSrc).filter((f) => f.endsWith('.cant'));
+    for (const agentFile of agentFiles) {
+      const dst = join(cantAgentsDir, agentFile);
+      if (!existsSync(dst)) {
+        await copyFile(join(agentsSrc, agentFile), dst);
+      }
+    }
+  }
+
+  created.push('starter-bundle: team + agent .cant files deployed to .cleo/cant/');
 }
