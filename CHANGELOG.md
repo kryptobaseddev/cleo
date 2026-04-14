@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.37] (2026-04-13)
+
+Living Brain v3 — LLM-managed memory architecture. Epic T554.
+
+### LLM Extraction Gate (T555)
+- **LLM-driven extraction** replaces keyword regex in `auto-extract.ts`. Uses Anthropic SDK with structured output (Zod schema) to extract typed memories: decisions, patterns, learnings, constraints, corrections
+- **Importance scoring** (0.0-1.0) at write time — only ≥0.6 stored
+- **Entity extraction** identifies code symbols, files, concepts referenced
+- **Source tagging** as `agent-llm-extracted` for downstream dedup
+- **Dead code removed**: `ACTION_PATTERNS` regex, `extractTaskCompletionMemory` stub, `extractSessionEndMemory` stub all deleted
+- **Config**: `brain.llmExtraction.enabled` (default true), `.model` (default claude-haiku-4-5-20251001)
+
+### Reciprocal Rank Fusion (T556)
+- **Hybrid retrieval** fuses FTS5 keyword + vector similarity via `reciprocalRankFusion()` with score=sum(1/(rank+60))
+- **Default in searchBrainCompact** via `useRRF: true` parameter
+- Replaces naive hybrid combining in `brain-search.ts`
+
+### Observer/Reflector Pattern (T557)
+- **Observer**: compresses recent observations after task completion (3-6x compression ratio)
+- **Reflector**: restructures at session end into structured patterns + learnings
+- Both use Anthropic SDK with structured output
+- Wired into `session-hooks.ts` and `task-hooks.ts`
+
+### Anthropic API Key Auto-Discovery
+- **Zero-config for Claude Code users**: auto-discovers OAuth token from `~/.claude/.credentials.json`
+- **Resolution priority**: ANTHROPIC_API_KEY env → `~/.local/share/cleo/anthropic-key` → Claude Code credentials
+- **Shared resolver** in `anthropic-key-resolver.ts` used by all LLM modules
+- Token expiration checking, process-lifetime caching
+
+### CleoOS Flagship (T558)
+- **Hooks bridge**: `cleo-hooks-bridge.ts` bridges Pi events (tool_call, tool_result, before_agent_start) to CLEO observations with 500ms rate-limiter
+- **Memory bridge injection**: every Pi agent gets `.cleo/memory-bridge.md` in system prompt automatically
+- **Session lifecycle**: Pi session_start/session_shutdown wired to cleo session start/end with project-root capture for correct CWD
+
+### Conduit Messaging
+- **Event messaging** in orchestrate-engine: `agent.spawned` and `orchestrate.handoff` events via `sendConduitEvent()` (fire-and-forget)
+- **Hook-based conduit**: `conduit-hooks.ts` writes SubagentStart/SubagentStop/SessionEnd events to conduit.db via LocalTransport. 22 new tests
+- Code review fixes: removed unnecessary getDb() call, captured sessionProjectRoot for shutdown CWD
+
+## [2026.4.36] (2026-04-13)
+
+Tree-sitter peer dep fix + Rust crate alignment.
+
+### Dependencies
+- Downgrade tree-sitter to 0.21.1 — eliminates all npm peer dep warnings
+- tree-sitter-c@0.23.2, tree-sitter-python@0.23.4, tree-sitter-rust@0.23.1 pinned
+
+### Infrastructure
+- All 16 Rust workspace crates aligned with ferrous-forge v1.9.5 standards
+- CANT LSP: complete match arms + split oversized cant-core modules
+
+## [2026.4.35] (2026-04-13)
+
+Intelligence CLI + Living Memory Infrastructure.
+
+### Intelligence Domain
+- **11th canonical domain**: 5 query operations registered (predict, suggest, learn-errors, confidence, match)
+- IntelligenceHandler was registered but had zero OperationDef entries — now all 5 dispatch correctly
+
+### Living Memory
+- **Citation tracking**: wired into searchBrainCompact + fetchBrainEntries. Every retrieval increments citation_count
+- **Retrieval log**: brain_retrieval_log table (self-healing) tracks every retrieval event for co-retrieval analysis
+- **Auto-verification**: owner/task-outcome sources set verified=true at write time as ground truth
+- **Memory bridge fix**: filters junk learnings (Completed:*) and noise patterns (Recurring label*), increased truncation limits, restored dual Patterns/Anti-Patterns sections
+
+### Nexus Code Intelligence
+- **Symbol kind priority sort**: functions rank before files in nexus context/impact queries. Blast radius analysis now returns real callers/callees
+
+### Pi Adapter
+- Session start/end hooks added to cleo-cant-bridge extension
+
 ## [2026.4.34] (2026-04-13)
 
 JIT Agent Integration + Pi First-Class Support. Fresh agent test score: 9/10.
