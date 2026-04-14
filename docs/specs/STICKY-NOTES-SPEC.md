@@ -3,7 +3,7 @@
 **Epic:** T5267  
 **Status:** SHIPPED  
 **Date:** 2026-03-04  
-**Domain:** sticky (10th canonical domain)
+**Domain:** sticky (10th of 11 canonical domains)
 
 ---
 
@@ -27,7 +27,7 @@ Sticky Notes are intentionally human-scale capture. They are not the live agent-
 **STICKY IS THE 10TH DOMAIN** - Uses canonical domain slot:
 
 ```
-10 Canonical Domains:
+11 Canonical Domains:
 1. tasks
 2. session
 3. memory
@@ -37,7 +37,8 @@ Sticky Notes are intentionally human-scale capture. They are not the live agent-
 7. tools
 8. admin
 9. nexus (now includes sharing sub-operations)
-10. sticky ← NEW
+10. sticky
+11. intelligence
 ```
 
 ```
@@ -277,7 +278,7 @@ cleo skill install library:ct-stickynote
 
 ## 12. Canonical Compliance
 
-✅ **10 domains maintained** - sticky replaces sharing slot  
+✅ **11 domains maintained** - sticky replaces sharing slot  
 ✅ **Canonical domain** - sticky (not session.stickynote)  
 ✅ **Canonical CLI** - cleo sticky (not cleo note)  
 ✅ **Canonical verbs** - add, list, show, convert, archive  
@@ -293,7 +294,7 @@ cleo skill install library:ct-stickynote
 
 1. **Domain: sticky** (not session.stickynote) - Clean domain ownership
 2. **CLI: cleo sticky** (not cleo note) - Canonical naming
-3. **10th domain slot** - Replaces sharing (merged into nexus)
+3. **10th domain slot (of 11)** - Replaces sharing (merged into nexus)
 4. **brain.db storage** - Sticky domain owns brain_sticky_notes table
 5. **5 core operations** - add, list, show, convert, archive
 

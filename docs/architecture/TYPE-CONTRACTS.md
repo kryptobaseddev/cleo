@@ -14,7 +14,7 @@ This document catalogs the complete public type API of `@cleocode/core`. All typ
 
 ## 1. Facade APIs
 
-The `Cleo` class exposes 10 domain getter properties. Each returns an interface defining the available operations.
+The `Cleo` class exposes 12 domain getter properties. Each returns an interface defining the available operations.
 
 | Property | Interface | Description |
 |----------|-----------|-------------|

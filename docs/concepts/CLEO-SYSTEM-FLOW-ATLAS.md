@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-This document provides a visual, human-readable map of how CLEO's four conceptual systems (BRAIN, LOOM, NEXUS, LAFS) map to the 10 runtime domains, and how requests flow through the architecture. It is the companion to the normative Operation Constitution (`docs/specs/CLEO-OPERATION-CONSTITUTION.md`).
+This document provides a visual, human-readable map of how CLEO's six conceptual systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) map to the 11 runtime domains, and how requests flow through the architecture. It is the companion to the normative Operation Constitution (`docs/specs/CLEO-OPERATION-CONSTITUTION.md`).
 
 Use this document to understand:
 - How conceptual systems relate to runtime domains.
@@ -19,16 +19,18 @@ Use this document to understand:
 
 ---
 
-## 2. The Four Systems and Their Domain Mapping
+## 2. The Six Systems and Their Domain Mapping
 
-CLEO's architecture is organized around four conceptual systems. These systems are **overlays**, not runtime boundaries. The 10 canonical domains are the runtime contract.
+CLEO's architecture is organized around six conceptual systems. These systems are **overlays**, not runtime boundaries. The 11 canonical domains are the runtime contract.
 
 | System | Primary Domain(s) | Supporting Domains | Purpose |
 |--------|-------------------|-------------------|---------|
-| **BRAIN** | memory | tasks, session | Cognitive memory -- observations, decisions, patterns, learnings |
+| **TASKS** | tasks | session, pipeline | Work tracking -- task hierarchy, dependencies, status, audit history |
 | **LOOM** | pipeline | check, orchestrate | Lifecycle management (RCASD-IVTR+C stages), artifact ledger, release orchestration |
+| **BRAIN** | memory | tasks, session | Cognitive memory -- observations, decisions, patterns, learnings |
 | **NEXUS** | nexus | admin | Cross-project coordination, registry, dependency graph, and `nexus.share.*` relay operations |
-| **LAFS** | (cross-cutting) | all domains | Progressive disclosure protocol, field selection, envelope verbosity |
+| **CANT** | (cross-cutting) | orchestrate, session | Agent communication protocol -- conversation syntax, directive-to-operation mapping, LAFS response syntax |
+| **CONDUIT** | orchestrate | session, nexus | Agent relay path -- 4-shell transport stack, durable delivery, LAFS/A2A only |
 
 ### Workshop Vocabulary Mapping
 
@@ -48,12 +50,12 @@ The realm also uses a secondary workshop language for how work is shaped. This l
 
 ### Autonomous Workshop Overlay
 
-The live workshop also has named runtime forms for autonomous motion. These names remain overlays on the same ten canonical domains, but they are not all the same kind of thing:
+The live workshop also has named runtime forms for autonomous motion. These names remain overlays on the same eleven canonical domains, but they are not all the same kind of thing:
 
 | Term | Runtime Type | Primary Domain(s) | Meaning |
 |------|--------------|-------------------|---------|
 | **The Hearth** | surface | session, orchestrate, tools | Terminal-facing workshop surface where active sessions, roles, and capabilities gather |
-| **The Circle of Ten** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Catchers, Keepers |
+| **The Circle of Eleven** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Catchers, Keepers, Seers |
 | **The Impulse** | motion | orchestrate, pipeline, tasks | Self-propelling motion that advances ready work through governed chains |
 | **Conduit** | relay path | orchestrate, session, nexus | Agent relay path. 4-shell stack: Shell 1 (Pi native process spawn, parent/child relay, free), Shell 2 (`conduit.db` project-local SQLite, v2026.4.12), Shell 3 (`signaldock-sdk` Rust via `api.signaldock.io`, cross-machine, shipped), Shell 4 (Rust broker with leases + DLQ, planned). The Chat Room TUI is a Hearth surface, not a Conduit shell. `sticky` is not the live relay lane. |
 | **Watchers** | patrols | pipeline, orchestrate, check, admin | Long-running Cascades that patrol health, continuity, and gate state |
@@ -139,9 +141,10 @@ Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2
 |  |                @cleocode/core                        |  |
 |  |  (standalone package -- installable independently)   |  |
 |  |                                                      |  |
-|  |  The four canonical systems implemented as modules:  |  |
-|  |  BRAIN -> memory/          LOOM -> lifecycle/        |  |
-|  |  NEXUS -> nexus/ (partial) LAFS -> output.ts (envelopes)|  |
+|  |  The six canonical systems implemented as modules:   |  |
+|  |  TASKS -> tasks/      LOOM -> lifecycle/             |  |
+|  |  BRAIN -> memory/     NEXUS -> nexus/                |  |
+|  |  CANT -> cant/        CONDUIT -> conduit/            |  |
 |  |                                                      |  |
 |  |  Domains: tasks, sessions, memory, orchestration,    |  |
 |  |           lifecycle, release, admin + 30+ modules    |  |
@@ -655,7 +658,7 @@ These rules MUST always hold true in a correct CLEO installation:
 7. **Domain ownership**: Each data store has exactly one owning domain. Cross-domain writes go through the owner.
 8. **Append-only audit**: The audit log in tasks.db is append-only. Entries are never modified or deleted.
 9. **Canonical verbs**: All operation names use verbs from `docs/specs/VERB-STANDARDS.md`. No `search`, `create`, `get` in new operations.
-10. **10 domains**: The domain list is fixed at 10. New functionality maps to existing domains.
+10. **11 domains**: The domain list is fixed at 11. New functionality maps to existing domains.
 11. **Completion consistency**: `tasks.complete` is canonical for `done`; `tasks.update status=done` MUST route through the same completion enforcement path.
 12. **Verification default**: Task completion verification enforcement is default-on and only disabled by explicit project config (`verification.enabled=false`).
 
@@ -668,7 +671,7 @@ These rules MUST always hold true in a correct CLEO installation:
 | **BRAIN** | Cognitive memory system backed by brain.db. Stores observations, decisions, patterns, learnings. |
 | **CQRS** | Command Query Responsibility Segregation. Reads (query) and writes (mutate) are separate gateways. |
 | **Dispatch** | The central routing layer that resolves domain + operation to a handler. |
-| **Domain** | One of 10 canonical runtime boundaries (tasks, session, memory, etc.). |
+| **Domain** | One of 11 canonical runtime boundaries (tasks, session, memory, intelligence, etc.). |
 | **Engine** | Adapter layer between domain handlers and core business logic. |
 | **FTS5** | SQLite Full-Text Search extension, version 5. Used by brain.db for text search. |
 | **Gateway** | One of two dispatch gateways: `query` (read) or `mutate` (write). Accessed via CLI commands. |
