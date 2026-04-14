@@ -136,7 +136,7 @@ These names are not one flat class of "stations." They are different kinds of ru
 
 **The Hearth** is the runtime surface. It is the terminal-facing workshop seat where the Circle gathers, where sessions stay visible, where tools are close at hand, and where work can be taken up without pretending that the terminal itself is the whole system. The Hearth is not a domain. It is the active surface built from `session`, `orchestrate`, and `tools`.
 
-**The Circle of Ten** is the role overlay of the canonical domains:
+**The Circle of Eleven** is the role overlay of the canonical domains:
 
 - **The Smiths** keep the house of `tasks`
 - **The Weavers** keep the house of `pipeline`
@@ -148,6 +148,7 @@ These names are not one flat class of "stations." They are different kinds of ru
 - **The Wayfinders** keep the house of `nexus`
 - **The Catchers** keep the house of `sticky`
 - **The Keepers** keep the house of `admin`
+- **The Seers** keep the house of `intelligence`
 
 **The Impulse** is runtime motion. It is what notices ready work, picks it up without waiting for ceremony, and advances it through governed chains. It is motion under discipline, not ad-hoc restlessness.
 
@@ -167,9 +168,9 @@ These names are not one flat class of "stations." They are different kinds of ru
 
 If a thing cannot be shown to have a distinct runtime responsibility, it has not earned a canon name yet. Canon exists to clarify the machinery, not to perfume it.
 
-These names do not introduce new domains, transports, or private protocols. They are the live workshop overlay on the same four great systems and the same ten canonical domains.
+These names do not introduce new domains, transports, or private protocols. They are the live workshop overlay on the same six great systems and the same eleven canonical domains.
 
-Once the language is seen this way, the ten domains stop feeling like admin tables and start feeling like houses in the same city.
+Once the language is seen this way, the eleven domains stop feeling like admin tables and start feeling like houses in the same city.
 
 The `tasks` domain is the house of Threads. It is where loose work first becomes graspable and where the smallest strands are tracked, bound, and advanced.
 

@@ -360,7 +360,7 @@ The facade exposes 12 domain getter properties:
 | `cleo.agents` | `AgentsAPI` | `register`, `deregister`, `health`, `detectCrashed`, `recordHeartbeat`, `capacity`, `isOverloaded`, `list` |
 | `cleo.intelligence` | `IntelligenceAPI` | `predictImpact`, `blastRadius` |
 
-The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The 12th domain in the canonical Circle of Ten (`check`) maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
+The `check` domain is represented through the `validation` namespace at the barrel level, not as a distinct facade property. The `check` domain in the canonical Circle of Eleven maps to validation operations accessible via `import { validation } from '@cleocode/core'`.
 
 The `sync` property provides the provider-agnostic task reconciliation API. Consumers implement `ExternalTaskProvider` to normalize their issue tracker's data, then call `cleo.sync.reconcile()` to sync with CLEO as SSoT. External task links are tracked in the `external_task_links` table for bidirectional traceability.
 

@@ -27,7 +27,7 @@ NON_NEGOTIABLES:
 - LOOM (Logical Order of Operations Methodology) is the lifecycle pipeline -- encompassing RCASD-IVTR+C
 - BRAIN is the memory system
 - NEXUS is the cross-project connective layer
-- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, Sticky Notes, The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
+- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, Sticky Notes, The Hearth, The Impulse, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical six systems or 11 domains
 
 CANONICAL_IDENTITY:
 CLEO is a vendor-neutral Brain and Memory system for AI software
@@ -37,10 +37,11 @@ model provider, or coding tool.
 
 CANONICAL_PILLARS:
 - Portable Memory (BRAIN)
-- Agent Communication Contract (LAFS)
-- Structured Lifecycle (RCASD-IVTR+C)
+- Agent Communication Protocol (CANT) + Envelope Contract (LAFS)
+- Structured Lifecycle (RCASD-IVTR+C via LOOM)
 - Deterministic Safety
 - Cognitive Retrieval (BRAIN + NEXUS)
+- Agent Coordination (CONDUIT)
 ```
 
 ---
@@ -59,7 +60,7 @@ CLEO is the name of the system. It originated as "Command Line Entity Orchestrat
 
 ## System Architecture
 
-CLEO is composed of four interdependent systems. Each has a distinct role, and together they form a complete platform for AI-assisted software development.
+CLEO is composed of six interdependent systems. Each has a distinct role, and together they form a complete platform for AI-assisted software development.
 
 ```
 +=====================================================================+
@@ -68,51 +69,68 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 +=====================================================================+
 |                                                                     |
 |  +------------------------------+  +----------------------------+   |
-|  |          B R A I N            |  |     L  O  O  M              |   |
-|  |     Memory & Cognition       |  |   Logical Order of         |   |
+|  |       T  A  S  K  S           |  |     L  O  O  M              |   |
+|  |   Project Management         |  |   Logical Order of         |   |
 |  |                              |  |   Operations Methodology   |   |
-|  |  Observations  Patterns      |  |                            |   |
-|  |  Learnings     Decisions     |  |  RCASD-IVTR+C Pipeline:    |   |
-|  |  Sessions      Profiles      |  |  Research -> Consensus     |   |
-|  |  FTS5 [OK] + Vec/Graph [TGT] |  |  -> Architecture Decision  |   |
-|  |                              |  |  -> Specification          |   |
-|  +------------------------------+  |  -> Decomposition          |   |
-|                                    |  -> Implementation         |   |
-|  +------------------------------+  |  -> Validation -> Testing  |   |
-|  |         N E X U S             |  |  -> Release                |   |
-|  |   Cross-Project Network      |  |  + Contribution (X-cut)    |   |
-|  |                              |  +----------------------------+   |
-|  |  Project Registry            |                                   |
-|  |  Global Graph                |  +----------------------------+   |
-|  |  Permission Model            |  |          L A F S            |   |
-|  |  Federated Queries           |  |   Agent Communication      |   |
-|  |  PageIndex + Similarity      |  |                            |   |
-|  +------------------------------+  |  JSON Envelopes   MVI      |   |
-|                                    |  Field Filtering  Flags    |   |
-|                                    |  Exit Codes       Schema   |   |
+|  |  Tasks   Sessions  ADRs      |  |                            |   |
+|  |  Lifecycle  Audit  Hierarchy |  |  RCASD-IVTR+C Pipeline:    |   |
+|  |  Epics   Subtasks  Deps      |  |  Research -> Consensus     |   |
+|  |                              |  |  -> Architecture Decision  |   |
+|  +------------------------------+  |  -> Specification          |   |
+|                                    |  -> Decomposition          |   |
+|  +------------------------------+  |  -> Implementation         |   |
+|  |          B R A I N            |  |  -> Validation -> Testing  |   |
+|  |     Memory & Cognition       |  |  -> Release                |   |
+|  |                              |  |  + Contribution (X-cut)    |   |
+|  |  Observations  Patterns      |  +----------------------------+   |
+|  |  Learnings     Decisions     |                                   |
+|  |  FTS5 [OK] + Vec/Graph [TGT] |  +----------------------------+   |
+|  +------------------------------+  |         N E X U S           |   |
+|                                    |   Cross-Project Network     |   |
+|  +------------------------------+  |                            |   |
+|  |       C  A  N  T              |  |  Project Registry          |   |
+|  |   Agent DSL & Protocol       |  |  Global Graph              |   |
+|  |                              |  |  Permission Model          |   |
+|  |  .cant files   Directives    |  |  Federated Queries         |   |
+|  |  Team decls    ACL gates     |  +----------------------------+   |
+|  |  Mental models Grammar       |                                   |
+|  +------------------------------+  +----------------------------+   |
+|                                    |       C O N D U I T         |   |
+|                                    |   Agent Messaging          |   |
+|                                    |                            |   |
+|                                    |  4-shell relay stack       |   |
+|                                    |  conduit.db  signaldock    |   |
+|                                    |  Durable delivery  DLQ     |   |
 |                                    +----------------------------+   |
 |                                                                     |
+|  Cross-Cutting: LAFS envelope format {success, data?, error?, meta} |
 |  +-----------------------------------------------------------------+
 |  |               Shared Core (packages/core/src/)                  |
-|  |  CLI (citty)        | API    |
+|  |  CLI (citty)  11 canonical domains  248 operations              |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
-|  |  .cleo/tasks.db     .cleo/brain.db    .cleo/signaldock.db        |
+|  |  .cleo/tasks.db     .cleo/brain.db    .cleo/conduit.db          |
 |  |  (project work)     (memory/cognition)(agent messaging)         |
 |  |  ~/.local/share/cleo/nexus.db  (global network)                 |
 |  +-----------------------------------------------------------------+
 +=====================================================================+
 ```
 
-### The Four Systems
+### The Six Systems
 
-- **BRAIN -- Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 9 core tables (decisions, patterns, learnings, observations, sticky_notes, memory_links, schema_meta, page_nodes, page_edges) plus FTS5 and vec0 virtual tables, 3-layer retrieval (search/timeline/fetch), observe operation, hybrid search (FTS5 + vector + graph), and 5,122 migrated observations. The lifeblood of anti-hallucination.
+- **TASKS -- Project Management**: The foundational work tracking system. Manages tasks, sessions, lifecycle, audit log, epics, subtasks, and dependency graphs in `tasks.db` (SQLite via Drizzle ORM). The kernel of all project work.
 
 - **LOOM -- Logical Order of Operations Methodology**: The systematic framework for how CLEO processes project threads from concept to completion. LOOM encompasses the RCASD-IVTR+C pipeline (Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release) with the Contribution protocol (+C) running across all stages. It is the "order of operations" that moves work through its lifecycle.
 
+- **BRAIN -- Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 9 core tables (decisions, patterns, learnings, observations, sticky_notes, memory_links, schema_meta, page_nodes, page_edges) plus FTS5 and vec0 virtual tables, 3-layer retrieval (search/timeline/fetch), observe operation, hybrid search (FTS5 + vector + graph), and 5,122 migrated observations. The lifeblood of anti-hallucination.
+
 - **NEXUS -- Cross-Project Network**: The connective layer between registered CLEO projects. Uses the project's exposed tools to bridge global graphs, shared patterns, and federated queries while preserving per-project isolation.
 
-- **LAFS -- Agent Communication Contract**: The LLM-Agent-First Specification protocol. Defines how agents communicate with CLEO: JSON envelopes, MVI progressive disclosure, field filtering, exit codes, and output format semantics.
+- **CANT -- Agent Communication Protocol**: The Collaborative Agent Notation Tongue. Defines how agents speak to each other (`.cant` DSL files, directive grammar, team declarations, ACL gates, mental model injection). The `cant-core` Rust crate is the parsing SSoT.
+
+- **CONDUIT -- Agent Messaging**: The agent-to-agent relay system. Implements a 4-shell stack (Pi native → `conduit.db` → `signaldock-sdk` → future broker) for durable cross-session message delivery and coordination state.
+
+**Cross-Cutting Protocol**: **LAFS** (LLM-Agent-First Specification) is the envelope format `{success, data?, error?, meta}` used across all six systems. It is not a system — it is the shared response contract that makes CLEO provider-neutral.
 
 ---
 
@@ -136,7 +154,7 @@ BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool 
 
 ### Brain Metaphor: Domains as Cognitive Functions
 
-CLEO's 10 canonical domains map directly to cognitive functions -- each domain operates like a specialized brain system:
+CLEO's 11 canonical domains map directly to cognitive functions -- each domain operates like a specialized brain system:
 
 | Domain | Brain Metaphor | What It Means |
 |--------|---------------|---------------|
@@ -150,6 +168,7 @@ CLEO's 10 canonical domains map directly to cognitive functions -- each domain o
 | **admin** | Autonomic System | Background infrastructure -- breathing, heartbeat, backups. Admin handles the unconscious operations: configuration, backups, migrations, and system health. |
 | **nexus** | Hive Network | Cross-project intelligence -- connecting brains. Nexus enables knowledge sharing and federated queries across registered CLEO projects. Sharing operations (remotes, push/pull, snapshots) live under the `nexus.share.*` sub-namespace. |
 | **sticky** | Capture Shelf | Ephemeral capture before formal encoding. The sticky domain provides Sticky Notes (SN-xxx IDs) that exist before formal task or memory creation. It is intentionally human quick capture, not live agent relay. |
+| **intelligence** | Analytical Cortex | Impact prediction, blast radius analysis, code intelligence. The intelligence domain surfaces `predictImpact`, `blastRadius`, and related analytical operations that reason about the downstream effects of changes. |
 
 This metaphor isn't decorative -- it reflects the architectural design where tasks form neural networks via dependencies and hierarchy, orchestration mirrors executive function, and the pipeline serves as the executive pathway for moving work from conception to completion.
 
@@ -307,7 +326,7 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 - **Cascade**: a Tapestry in live gated motion across execution thresholds
 - **Tome**: living readable canon rendered from durable memory and system state
 - **The Hearth**: the terminal-facing workshop surface where active sessions, roles, and tools gather
-- **The Circle of Ten**: the role overlay mapped 1:1 onto the ten canonical domains
+- **The Circle of Eleven**: the role overlay mapped 1:1 onto the eleven canonical domains
 - **The Impulse**: the self-propelling motion that advances ready work through governed chains
 - **Conduit**: agent-to-agent relay using LAFS envelopes and A2A delegation only
 - **Watchers**: long-running Cascades that patrol health, continuity, and gate state
@@ -537,7 +556,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where CLI are thin wrappers around `packages/core/src/`. The business logic in `packages/core/src/` is published as the standalone `@cleocode/core` npm package, making it independently consumable without the full `@cleocode/cleo` product:
 
-- **CLI**: 100+ commands via citty -- registry-defined operations across 10 canonical domains (see `packages/cleo/src/dispatch/registry.ts`)
+- **CLI**: 248 operations via citty -- registry-defined operations across 11 canonical domains (see `packages/cleo/src/dispatch/registry.ts`)
 - **`@cleocode/core` (Canonical)**: All business logic, published as a standalone package. CLI delegates here. Consumers can install it independently.
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
 
@@ -558,7 +577,7 @@ Consumer patterns:
   Custom store:   await Cleo.init('./project', { store: myAccessor })
 ```
 
-The four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all four systems through the same business logic that powers `@cleocode/cleo`.
+The six canonical systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) are implemented as domain modules within `@cleocode/core`. Consumers of the standalone package have direct access to all six systems through the same business logic that powers `@cleocode/cleo`. The LAFS envelope format is a cross-cutting protocol used by all systems.
 
 All interfaces MUST preserve the same memory model, lifecycle guarantees, provenance invariants, and LAFS compliance.
 
@@ -637,7 +656,7 @@ cleo session end --note "Completed auth flow, tests passing"
 - Any change that alters canonical identity requires explicit vision amendment.
 - Changes MUST be synchronized to `README.md` and `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md`.
 - Strategic documents MUST align to this vision; they cannot redefine it.
-- The four systems (BRAIN, LOOM, NEXUS, LAFS) are canonical and immutable.
+- The six systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) are canonical and immutable. LAFS is the cross-cutting envelope protocol, not a system.
 - Individual system specifications may evolve, but the roles described here are fixed.
 
 ### Document Authority Hierarchy

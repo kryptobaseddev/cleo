@@ -14,8 +14,8 @@ This document is the specification for CANT, the unified agent communication pro
 
 | Canon Document | What It Defines | Relationship to CANT |
 |---|---|---|
-| [CLEO-VISION.md](./CLEO-VISION.md) | Identity, four canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
-| [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md) | 10 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
+| [CLEO-VISION.md](./CLEO-VISION.md) | Identity, six canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
+| [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md) | 11 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
 | [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md) | Runtime flow, package boundaries | CANT flows through this system |
 | [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md) | Workshop vocabulary (Thread, Loom, Conduit) | CANT is spoken over the Conduit relay path |
 | [CLEO-MANIFESTO.md](./CLEO-MANIFESTO.md) | Mythic identity, the Circle | CANT is the language the Circle speaks when building together |
@@ -71,7 +71,7 @@ CANT is one layer in a clean five-layer stack. Each layer has a distinct respons
     |
   Conduit       how messages move (transport relay)
     |
-  Dispatch      where operations route (10 domains, CQRS gateways)
+  Dispatch      where operations route (11 domains, CQRS gateways)
     |
   LOOM          what stage work is in (RCASD-IVTR+C lifecycle)
     |

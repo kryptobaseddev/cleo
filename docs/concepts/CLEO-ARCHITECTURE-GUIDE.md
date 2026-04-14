@@ -25,7 +25,7 @@ CANT        — What agents SAY        (the language)
 Conduit     — HOW messages MOVE      (the phone)
 Transport   — WHAT WIRE carries it   (local/SSE/HTTP)
 SignalDock  — WHO DELIVERS it        (the tower)
-Dispatch    — WHERE it ROUTES        (10 domains)
+Dispatch    — WHERE it ROUTES        (11 domains)
 LOOM        — WHAT STAGE it's in     (the lifecycle)
 CAAMP       — WHEN events FIRE       (the hooks)
 ```
@@ -72,7 +72,7 @@ SignalDock runs in **dual mode**:
 
 Both use the same schema. Messages written locally are the same format as messages in the cloud. An agent can work fully offline with LocalTransport → signaldock.db, then sync to the cloud later.
 
-**SignalDock is NOT a CLEO system.** CLEO has four systems (below). SignalDock is an ally — essential infrastructure, but not part of CLEO's identity.
+**SignalDock is NOT a CLEO system.** CLEO has six systems (below). SignalDock is an ally — essential infrastructure, but not part of CLEO's identity.
 
 ### The Full Flow
 
@@ -87,17 +87,13 @@ Your Agent
 
 ---
 
-## The Four Great Systems
+## The Six Great Systems
 
 These are the foundational systems that define what CLEO *is*. They are immutable — they don't change, they don't merge, they don't get replaced.
 
-### BRAIN — Memory & Cognition
+### TASKS — Work Tracking
 
-The memory system. BRAIN stores everything agents learn across sessions: observations, patterns, learnings, decisions. It lives in `brain.db` with FTS5 full-text search and vector embeddings.
-
-BRAIN is **not** a database. `brain.db` is a database. BRAIN is the *system* — the intelligence layer that includes search, retrieval, compression, knowledge graphs, and memory linking. Calling BRAIN "the database" is like calling a human "the skull."
-
-**Three-Layer Retrieval**: Find (search index, cheap) → Timeline (chronological context) → Fetch (full details by ID). Always search before fetching. Never dump the whole database into context.
+The task management system. TASKS is the foundation: every piece of work from epics to subtasks lives here. It stores task hierarchy, dependencies, status, audit history, and lifecycle pipeline state in `tasks.db`.
 
 ### LOOM — Logical Order of Operations Methodology
 
@@ -121,33 +117,37 @@ The lifecycle framework. LOOM defines how work flows from idea to shipped produc
 
 LOOM is **not** a pipeline. `pipeline` is a domain (The Weavers) that *implements* LOOM's lifecycle gates. LOOM is the methodology — the framework that says "work flows through these stages in this order." The domain enforces it at runtime.
 
+### BRAIN — Memory & Cognition
+
+The memory system. BRAIN stores everything agents learn across sessions: observations, patterns, learnings, decisions. It lives in `brain.db` with FTS5 full-text search and vector embeddings.
+
+BRAIN is **not** a database. `brain.db` is a database. BRAIN is the *system* — the intelligence layer that includes search, retrieval, compression, knowledge graphs, and memory linking. Calling BRAIN "the database" is like calling a human "the skull."
+
+**Three-Layer Retrieval**: Find (search index, cheap) → Timeline (chronological context) → Fetch (full details by ID). Always search before fetching. Never dump the whole database into context.
+
 ### NEXUS — Cross-Project Coordination
 
 The network that connects separate CLEO projects together. If you have three repos each with their own `.cleo/` directory, NEXUS lets them discover each other's tasks, share patterns, and coordinate dependencies.
 
 NEXUS is **not** a registry. It uses registries internally, but NEXUS is the *system* — the federation layer, the cross-project intelligence, the shared knowledge graph. Calling NEXUS "the registry" is like calling the internet "the DNS server."
 
-### LAFS — LLM-Agent-First Specification
+### CANT — Collaborative Agent Notation Tongue
 
-The envelope format. Every response from CLEO to any agent comes wrapped in a LAFS envelope:
+The agent communication protocol. CANT defines how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). It is the grammar of the workshop floor.
 
-```json
-{
-  "success": true,
-  "data": { ... },
-  "_meta": { "operation": "tasks.show", "timestamp": "..." }
-}
-```
+CANT is **not** a transport. It defines what messages look like — the Conduit moves them.
 
-LAFS ensures every LLM provider — Claude, GPT, Gemini, Llama, anything — gets the same structured responses. It includes progressive disclosure (minimal/standard/full) so agents can request only the detail level they need.
+### CONDUIT — Agent-to-Agent Relay
 
-LAFS is **not** a transport. It's the *format* — the shape of every envelope, regardless of how it was delivered.
+The live relay path for agent-to-agent messaging. Conduit carries tasking, handoff, status, and result messages using LAFS envelopes and A2A delegation. It uses a 4-shell transport stack: Pi native → conduit.db → signaldock-sdk → future broker.
+
+Conduit is **not** a domain. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay.
 
 ---
 
-## The Circle of Ten
+## The Circle of Eleven
 
-CLEO has exactly **ten** canonical domains. Not eleven. Not twelve. Ten. These are the rooms in the building where work gets done.
+CLEO has exactly **eleven** canonical domains. These are the rooms in the building where work gets done.
 
 | Domain | House Name | What Happens Here |
 |--------|-----------|-------------------|
@@ -161,6 +161,7 @@ CLEO has exactly **ten** canonical domains. Not eleven. Not twelve. Ten. These a
 | `admin` | The Keepers | Config, diagnostics, system health |
 | `nexus` | The Wayfinders | Cross-project intelligence (NEXUS) |
 | `sticky` | The Catchers | Quick captures before formal task creation |
+| `intelligence` | The Seers | Quality prediction, pattern extraction, impact analysis |
 
 Every operation in CLEO is addressed as `{domain}.{action}` — for example `tasks.add`, `memory.observe`, `pipeline.stage.validate`. Two gateways route them:
 
@@ -200,16 +201,16 @@ CLEO uses a non-normative workshop vocabulary to make work intuitive:
 | **Tessera** | A repeatable pattern template |
 | **Sticky Note** | Quick ephemeral capture before formal classification |
 
-These words are for humans — they make the system feel like a workshop, not a spreadsheet. The runtime still uses the ten canonical domains.
+These words are for humans — they make the system feel like a workshop, not a spreadsheet. The runtime still uses the eleven canonical domains.
 
 ---
 
 ## Quick Reference Card
 
 ```
-Systems:    BRAIN (memory) | LOOM (lifecycle) | NEXUS (network) | LAFS (envelope)
-Allies:     CAAMP (hooks) | CANT (grammar) | SignalDock (delivery) | Conduit (interface)
-Domains:    tasks | session | memory | check | pipeline | orchestrate | tools | admin | nexus | sticky
+Systems:    TASKS (work) | LOOM (lifecycle) | BRAIN (memory) | NEXUS (network) | CANT (protocol) | CONDUIT (relay)
+Allies:     CAAMP (hooks) | LAFS (envelope format) | SignalDock (delivery) | intelligence (quality)
+Domains:    tasks | session | memory | check | pipeline | orchestrate | tools | admin | nexus | sticky | intelligence
 Gateways:   query (read) | mutate (write)
 Transports: Local (SQLite) > SSE (push) > HTTP (poll)
 Pipeline:   R → C → A → S → D → I → V → T → R → +C

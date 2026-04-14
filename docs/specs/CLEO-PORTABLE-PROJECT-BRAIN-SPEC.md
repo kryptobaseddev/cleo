@@ -271,7 +271,7 @@ The TypeScript CLI (`packages/cleo/src/cli/`) is the primary runtime interface (
 
 ### 7.2 Dispatch Architecture
 
-The CLI exposes 2 dispatch gateways (`query`, `mutate`) following the CQRS pattern, with registry-defined operations (see `packages/cleo/src/dispatch/registry.ts` for current count) across 10 canonical domains. ~224 canonical ops total. The dispatch engines (`packages/cleo/src/dispatch/engines/`) delegate to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
+The CLI exposes 2 dispatch gateways (`query`, `mutate`) following the CQRS pattern, with registry-defined operations (see `packages/cleo/src/dispatch/registry.ts` for current count) across 11 canonical domains. 248 operations total (229 canonical + 19 experimental). The dispatch engines (`packages/cleo/src/dispatch/engines/`) delegate to `packages/core/src/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.).
 
 All operations route through `packages/cleo/src/dispatch/`.
 

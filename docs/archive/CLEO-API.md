@@ -143,7 +143,7 @@ All responses follow **LAFS** (LLM-Agent-First Specification):
 
 ### 4.1 Total Operations
 
-The live operation inventory spans **10 canonical domains**. For current totals, use `packages/cleo/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` as the source of truth.
+The live operation inventory spans **11 canonical domains** (`tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`, `intelligence`). For current totals, use `packages/cleo/src/dispatch/registry.ts` and `docs/specs/CLEO-OPERATION-CONSTITUTION.md` as the source of truth. [UPDATED 2026-04-14: was "10 canonical domains", corrected to 11]
 
 - Query operations are read-only and idempotent
 - Mutate operations are state-changing and validated

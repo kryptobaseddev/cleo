@@ -14,7 +14,7 @@ This document designs a configuration management platform for CLEO, inspired by 
 |  Sitar (Cloud)              CLEO (Local-First CLI)                  |
 |  -------------              ------------------------                 |
 |  GitHub PR + Web Portal --> cleo config set / config.json + git     |
-|  Tenants (by theme)     --> Config Domains (10 canonical domains)   |
+|  Tenants (by theme)     --> Config Domains (11 canonical domains)   |
 |  Control Plane          --> Config Orchestrator (core/config/)      |
 |  Data Plane             --> config.db (SQLite, versioned)           |
 |  Sidecar Agent          --> @cleocode/runtime config watcher        |
@@ -34,7 +34,7 @@ This document designs a configuration management platform for CLEO, inspired by 
 Configs are grouped into "tenants" organized by theme. Each tenant has owners, custom tests, and dedicated CD pipelines.
 
 ### What Exists in CLEO Today
-- 10 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`
+- 11 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`, `intelligence`
 - `CleoConfig` interface in `packages/contracts/src/config.ts` already groups config by theme: `output`, `backup`, `hierarchy`, `session`, `enforcement`, `verification`, `lifecycle`, `logging`, `sharing`, `signaldock`, `brain`
 - Config engine in `packages/core/src/config.ts` with cascade resolution
 
