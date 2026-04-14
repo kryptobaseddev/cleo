@@ -218,6 +218,7 @@ export {
   memoryPatternFind,
   memoryPatternStats,
   memoryPatternStore,
+  memoryQualityReport,
   memoryReasonSimilar,
   memoryReasonWhy,
   memorySearchHybrid,
@@ -244,6 +245,17 @@ export {
   pipelineManifestStats,
   readManifestEntries,
 } from './memory/pipeline-manifest-sqlite.js';
+export type {
+  CorrelateOutcomesResult,
+  MemoryOutcome,
+  MemoryQualityReport,
+} from './memory/quality-feedback.js';
+// Memory — quality feedback loop (T555)
+export {
+  correlateOutcomes,
+  getMemoryQualityReport,
+  trackMemoryUsage,
+} from './memory/quality-feedback.js';
 // Metrics
 export {
   autoRecordDispatchTokenUsage,

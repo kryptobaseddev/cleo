@@ -69,6 +69,17 @@ export async function handleToolComplete(
     }
   });
 
+  // T555: Correlate retrieval outcomes against this task completion.
+  // Fire-and-forget: quality score adjustments must never block the response.
+  setImmediate(async () => {
+    try {
+      const { correlateOutcomes } = await import('../../memory/quality-feedback.js');
+      await correlateOutcomes(projectRoot);
+    } catch {
+      // Quality correlation errors must never surface to the task complete flow
+    }
+  });
+
   // T138: Refresh memory bridge after task completes (best-effort)
   await maybeRefreshMemoryBridge(projectRoot);
 }

@@ -15,6 +15,7 @@ import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getDb } from '../store/sqlite.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeDecisionQuality } from './quality-scoring.js';
+import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Parameters for storing a new decision. */
 export interface StoreDecisionParams {
@@ -231,6 +232,29 @@ export async function storeDecision(
   } catch {
     /* Graph population is best-effort — never block the primary return */
   }
+
+  // Detect supersession: check if this new decision supersedes any existing ones.
+  // Fire-and-forget — never block the primary return.
+  detectSupersession(projectRoot, {
+    id: saved.id,
+    text: saved.decision + ' ' + saved.rationale,
+    createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+  })
+    .then((candidates) => {
+      for (const candidate of candidates) {
+        supersedeMemory(
+          projectRoot,
+          candidate.existingId,
+          saved.id,
+          'auto:decision-supersedes — high overlap detected at store time',
+        ).catch(() => {
+          /* best-effort */
+        });
+      }
+    })
+    .catch(() => {
+      /* best-effort */
+    });
 
   return saved;
 }

@@ -30,6 +30,7 @@ export {
   memoryPatternFind,
   memoryPatternStats,
   memoryPatternStore,
+  memoryQualityReport,
   memoryReasonSimilar,
   memoryReasonWhy,
   memorySearchHybrid,

@@ -12,6 +12,7 @@
 
 import {
   backfillBrainGraph,
+  getMemoryQualityReport,
   getProjectRoot,
   purgeBrainNoise,
   runBrainMaintenance,
@@ -240,6 +241,79 @@ export function registerBrainCommand(program: Command): void {
           console.log(JSON.stringify({ success: false, error: message }));
         } else {
           console.error(`Brain purge failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  brain
+    .command('quality')
+    .description(
+      'Show memory quality metrics: retrieval rates, top/never-retrieved entries, quality distribution, and noise ratio.',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      try {
+        const report = await getMemoryQualityReport(root);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: report,
+                meta: { operation: 'brain.quality', timestamp: new Date().toISOString() },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        // Human-readable output
+        console.log('\nBrain Memory Quality Report');
+        console.log('══════════════════════════════════════════');
+        console.log(`  Total retrievals:       ${report.totalRetrievals}`);
+        console.log(`  Unique entries hit:     ${report.uniqueEntriesRetrieved}`);
+        console.log(`  Usage rate:             ${(report.usageRate * 100).toFixed(1)}%`);
+        console.log(`  Noise ratio:            ${(report.noiseRatio * 100).toFixed(1)}%`);
+
+        console.log('\nQuality Distribution');
+        console.log(`  Low  (<0.3):    ${report.qualityDistribution.low}`);
+        console.log(`  Med  (0.3-0.6): ${report.qualityDistribution.medium}`);
+        console.log(`  High (>0.6):    ${report.qualityDistribution.high}`);
+
+        console.log('\nTier Distribution');
+        console.log(`  Short:   ${report.tierDistribution.short}`);
+        console.log(`  Medium:  ${report.tierDistribution.medium}`);
+        console.log(`  Long:    ${report.tierDistribution.long}`);
+        if (report.tierDistribution.unknown > 0) {
+          console.log(`  Unknown: ${report.tierDistribution.unknown}`);
+        }
+
+        if (report.topRetrieved.length > 0) {
+          console.log('\nTop 10 Most Retrieved');
+          for (const e of report.topRetrieved) {
+            console.log(`  [${e.citationCount}x] ${e.id}  ${e.title.slice(0, 60)}`);
+          }
+        }
+
+        if (report.neverRetrieved.length > 0) {
+          console.log('\nNever Retrieved (pruning candidates)');
+          for (const e of report.neverRetrieved) {
+            console.log(`  q=${e.qualityScore.toFixed(2)}  ${e.id}  ${e.title.slice(0, 60)}`);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Brain quality report failed: ${message}`);
         }
         process.exit(1);
       }

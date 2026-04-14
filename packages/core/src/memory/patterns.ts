@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
+import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
 
 /** Pattern types from ADR-009. */
 export type PatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
@@ -178,6 +179,29 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
   ).catch(() => {
     /* best-effort */
   });
+
+  // Detect supersession: check if this new pattern supersedes any existing ones.
+  // Fire-and-forget — never block the primary return.
+  detectSupersession(projectRoot, {
+    id: saved.id,
+    text: saved.pattern + ' ' + saved.context,
+    createdAt: saved.extractedAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+  })
+    .then((candidates) => {
+      for (const candidate of candidates) {
+        supersedeMemory(
+          projectRoot,
+          candidate.existingId,
+          saved.id,
+          'auto:pattern-supersedes — high overlap detected at store time',
+        ).catch(() => {
+          /* best-effort */
+        });
+      }
+    })
+    .catch(() => {
+      /* best-effort */
+    });
 
   return {
     ...saved,
