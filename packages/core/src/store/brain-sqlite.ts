@@ -151,6 +151,18 @@ function runBrainMigrations(
       'brain',
     );
   }
+
+  // T417: agent provenance field on brain_observations.
+  // Added here as a safety net because the T417 migration file is an ALTER TABLE
+  // that is skipped on fresh databases when the migration journal reconciler marks
+  // all migrations as applied without actually running them (Scenario 2 race).
+  // ensureColumns is idempotent — no-op if the column already exists.
+  ensureColumns(
+    nativeDb,
+    'brain_observations',
+    [{ name: 'agent', ddl: 'text' }],
+    'brain',
+  );
 }
 
 /**

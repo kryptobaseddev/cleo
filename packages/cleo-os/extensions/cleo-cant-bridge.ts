@@ -859,109 +859,110 @@ export default function (pi: ExtensionAPI): void {
       if (isMainAgent) {
         const projectRoot = event.projectRoot ?? ctx?.cwd ?? "";
 
-        // Build identity + briefing in parallel (best-effort, 8s timeout)
-        const [briefingResult, nextResult, memoryResult] = await Promise.allSettled([
-          execFileAsync("cleo", ["session", "briefing", "--json"], {
-            timeout: 8_000,
-            cwd: projectRoot || undefined,
-          }),
-          execFileAsync("cleo", ["next", "--json", "--limit", "3"], {
-            timeout: 8_000,
-            cwd: projectRoot || undefined,
-          }),
-          execFileAsync("cleo", ["memory", "find", "decision", "--json", "--limit", "5"], {
-            timeout: 8_000,
-            cwd: projectRoot || undefined,
-          }),
-        ]);
-
-        // Build the identity block
-        const identityLines: string[] = [
-          "",
-          "===== CLEOOS IDENTITY BOOTSTRAP =====",
-          "",
-          "You are **CleoOS**, the Agentic Development Environment.",
-          "You are NOT a generic AI assistant. You are a governed, autonomous project management intelligence.",
-          "",
-          "## Your Systems",
-          "- **BRAIN** — Your persistent memory. Observations, patterns, learnings, decisions in brain.db. Use `cleo memory find/fetch/observe`.",
-          "- **LOOM** — Your lifecycle methodology. RCASD-IVTR+C pipeline with gates. Use `cleo pipeline`.",
-          "- **NEXUS** — Your cross-project network. Project registry, federated queries. Use `cleo nexus`.",
-          "- **LAFS** — Your communication contract. JSON envelopes, MVI progressive disclosure, exit codes.",
-          "- **CANT** — Your agent definition language. Team topology, agent personas, tool ACLs.",
-          "",
-          "## Your Capabilities",
-          "- 224 canonical operations across 10 domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky",
-          "- Multi-agent orchestration: spawn Team Leads who manage Workers via the CANT team topology",
-          "- Autonomous task management: create, assign, verify, complete tasks with lifecycle governance",
-          "- Living memory: observe facts, store decisions/patterns/learnings, recall via 3-layer retrieval",
-          "",
-          "## Your Protocol",
-          "- Start with `cleo session status` → `cleo dash` → `cleo current` → `cleo next`",
-          "- Use `cleo memory find` to recall prior knowledge before making decisions",
-          "- Use `cleo observe` to store important facts for future sessions",
-          "- Use `cleo complete` to mark tasks done (requires verification gates)",
-          "- End sessions with `cleo session end --note \"handoff summary\"`",
-          "",
-          "## Your Rules",
-          "- You MUST use the cleo CLI for all operations. Never read/write .cleo/ files directly.",
-          "- You MUST follow RCASD-IVTR+C lifecycle gates. No skipping stages.",
-          "- You MUST record decisions via `cleo memory decision.store`.",
-          "- You MUST verify work before marking complete.",
-          "- You speak the CANT DSL and can read/create agent definitions.",
-          "",
-        ];
-
-        // Append briefing data if available
-        if (briefingResult.status === "fulfilled") {
-          try {
-            const briefing = JSON.parse(briefingResult.value.stdout);
-            const data = briefing?.data ?? briefing;
-            if (data?.currentTask) {
-              identityLines.push(`## Current Task`);
-              identityLines.push(`- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`);
-              identityLines.push("");
-            }
-            if (data?.handoff?.note) {
-              identityLines.push(`## Last Session Handoff`);
-              identityLines.push(data.handoff.note);
-              identityLines.push("");
-            }
-          } catch { /* parse failure — skip briefing data */ }
+        // Read CLEOOS-IDENTITY.md from disk (project-level or global XDG).
+        // Search order: <projectRoot>/.cleo/CLEOOS-IDENTITY.md → ~/.local/share/cleo/CLEOOS-IDENTITY.md
+        // Best-effort: if neither path exists the block is skipped silently.
+        let identityFileContent: string | null = null;
+        if (projectRoot) {
+          const projectIdentityPath = join(projectRoot, ".cleo", "CLEOOS-IDENTITY.md");
+          if (existsSync(projectIdentityPath)) {
+            try {
+              identityFileContent = readFileSync(projectIdentityPath, "utf-8") || null;
+            } catch { /* read failure — fall through */ }
+          }
+        }
+        if (!identityFileContent) {
+          const xdgData = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share");
+          const globalIdentityPath = join(xdgData, "cleo", "CLEOOS-IDENTITY.md");
+          if (existsSync(globalIdentityPath)) {
+            try {
+              identityFileContent = readFileSync(globalIdentityPath, "utf-8") || null;
+            } catch { /* read failure — skip identity injection */ }
+          }
         }
 
-        // Append next tasks
-        if (nextResult.status === "fulfilled") {
-          try {
-            const next = JSON.parse(nextResult.value.stdout);
-            const tasks = next?.data?.tasks ?? next?.data?.results ?? [];
-            if (Array.isArray(tasks) && tasks.length > 0) {
-              identityLines.push(`## Next Tasks`);
-              for (const t of tasks.slice(0, 3)) {
-                identityLines.push(`- **${t.id}**: ${t.title} (${t.priority ?? "medium"})`);
+        if (identityFileContent) {
+          // Gather live operational context in parallel (best-effort, 8s timeout each)
+          const [briefingResult, nextResult, memoryResult] = await Promise.allSettled([
+            execFileAsync("cleo", ["session", "briefing", "--json"], {
+              timeout: 8_000,
+              cwd: projectRoot || undefined,
+            }),
+            execFileAsync("cleo", ["next", "--json", "--limit", "3"], {
+              timeout: 8_000,
+              cwd: projectRoot || undefined,
+            }),
+            execFileAsync("cleo", ["memory", "find", "decision", "--json", "--limit", "5"], {
+              timeout: 8_000,
+              cwd: projectRoot || undefined,
+            }),
+          ]);
+
+          const identityLines: string[] = [
+            "",
+            "===== CLEOOS IDENTITY BOOTSTRAP =====",
+            "",
+            identityFileContent.trim(),
+          ];
+
+          // Append briefing data if available
+          if (briefingResult.status === "fulfilled") {
+            try {
+              const briefing = JSON.parse(briefingResult.value.stdout) as {
+                data?: { currentTask?: { id: string; title: string; status: string }; handoff?: { note: string } };
+              };
+              const data = briefing?.data ?? briefing;
+              if (data?.currentTask) {
+                identityLines.push("");
+                identityLines.push(`## Current Task`);
+                identityLines.push(`- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`);
               }
-              identityLines.push("");
-            }
-          } catch { /* parse failure — skip */ }
-        }
-
-        // Append recent brain decisions
-        if (memoryResult.status === "fulfilled") {
-          try {
-            const mem = JSON.parse(memoryResult.value.stdout);
-            const results = mem?.data?.results ?? [];
-            if (Array.isArray(results) && results.length > 0) {
-              identityLines.push(`## Recent Brain Context`);
-              for (const r of results.slice(0, 5)) {
-                identityLines.push(`- [${r.id}] ${r.title} (${r.date ?? ""})`);
+              if (data?.handoff?.note) {
+                identityLines.push("");
+                identityLines.push(`## Last Session Handoff`);
+                identityLines.push(data.handoff.note);
               }
-              identityLines.push("");
-            }
-          } catch { /* parse failure — skip */ }
-        }
+            } catch { /* parse failure — skip briefing data */ }
+          }
 
-        identityLines.push("===== END IDENTITY BOOTSTRAP =====");
-        appendix += identityLines.join("\n");
+          // Append next tasks
+          if (nextResult.status === "fulfilled") {
+            try {
+              const next = JSON.parse(nextResult.value.stdout) as {
+                data?: { tasks?: Array<{ id: string; title: string; priority?: string }> };
+              };
+              const tasks = next?.data?.tasks ?? [];
+              if (Array.isArray(tasks) && tasks.length > 0) {
+                identityLines.push("");
+                identityLines.push(`## Next Tasks`);
+                for (const t of tasks.slice(0, 3)) {
+                  identityLines.push(`- **${t.id}**: ${t.title} (${t.priority ?? "medium"})`);
+                }
+              }
+            } catch { /* parse failure — skip */ }
+          }
+
+          // Append recent brain decisions
+          if (memoryResult.status === "fulfilled") {
+            try {
+              const mem = JSON.parse(memoryResult.value.stdout) as {
+                data?: { results?: Array<{ id: string; title: string; date?: string }> };
+              };
+              const results = mem?.data?.results ?? [];
+              if (Array.isArray(results) && results.length > 0) {
+                identityLines.push("");
+                identityLines.push(`## Recent Brain Context`);
+                for (const r of results.slice(0, 5)) {
+                  identityLines.push(`- [${r.id}] ${r.title} (${r.date ?? ""})`);
+                }
+              }
+            } catch { /* parse failure — skip */ }
+          }
+
+          identityLines.push("");
+          identityLines.push("===== END IDENTITY BOOTSTRAP =====");
+          appendix += identityLines.join("\n");
+        }
       }
 
       // APPEND CANT bundle prompt
