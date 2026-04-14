@@ -19,25 +19,29 @@ Agent-first task orchestration. Persistent memory. Multi-provider coordination. 
 
 CLEO is built for the developers who build after the world goes quiet — the ones carrying six unfinished ideas and the stubborn belief that this next session might be the one where everything clicks. It solves the coordination crisis of working with multiple AI agents across complex projects by giving them something they've never had: structure, memory, and a lifecycle that survives interruption.
 
-### The Four Great Systems
+### The Six Great Systems
 
 | System | Purpose |
 |--------|---------|
-| **BRAIN** | Memory that does not decay — observations, patterns, and learnings persisted across sessions with semantic search |
+| **TASKS** | Project management — hierarchical work tracking, dependencies, sessions, completion lifecycle |
 | **LOOM** | The lifecycle that governs all work — 9-stage RCASD-IVTR+C pipeline from idea to shipped release |
-| **NEXUS** | The network between projects — cross-repo coordination, shared patterns, federated intelligence |
-| **LAFS** | The common tongue — every response wrapped in a structured envelope that any LLM provider can parse |
+| **BRAIN** | Memory that does not decay — observations, patterns, and learnings persisted across sessions with semantic search |
+| **NEXUS** | Code intelligence + cross-project registry — symbol resolution, impact analysis, federated graphs |
+| **CANT** | Agent definition DSL — team topology, personas, tool ACLs, hook bindings |
+| **CONDUIT** | Agent-to-agent communication — message delivery, the Hearth, persistent messaging |
+
+*LAFS is the envelope format (`{success, data?, error?, meta}`) carried across all system boundaries — a protocol, not a system.*
 
 ### Core Capabilities
 
 - **Task Management**: Hierarchical tracking with dependencies, priorities, and lifecycle states
 - **Session Management**: Contextual work sessions that survive across conversations
-- **Agent Orchestration**: Multi-agent coordination through the [Circle of Ten](#the-circle-of-ten) domains
+- **Agent Orchestration**: Multi-agent coordination through the [11 Canonical Domains](#the-circle-of-ten)
 - **Multi-Provider Support**: Works with Claude Code, OpenCode, Cursor, Gemini, Codex, and more
 
 ## Monorepo Structure
 
-This monorepo contains 11 packages organized in a 4-layer architecture:
+This monorepo contains 12 packages organized in a 4-layer architecture:
 
 | Layer | Package | Purpose |
 |-------|---------|---------|
@@ -47,6 +51,7 @@ This monorepo contains 11 packages organized in a 4-layer architecture:
 | **Protocol** | [`@cleocode/agents`](packages/agents) | Subagent templates and LOOM lifecycle protocol definitions |
 | **Protocol** | [`@cleocode/skills`](packages/skills) | Pre-built skills and capabilities for development workflows |
 | **Protocol** | [`@cleocode/cant`](packages/cant) | CANT protocol parser with napi-rs Rust binding |
+| **Protocol** | [`@cleocode/nexus`](packages/nexus) | Code intelligence pipeline — symbol graph, call resolution, community detection |
 | **Feature** | [`@cleocode/caamp`](packages/caamp) | Central AI Agent Managed Packages — unified provider registry and MCP management |
 | **Feature** | [`@cleocode/runtime`](packages/runtime) | Long-running process layer (polling, SSE, heartbeat) |
 | **Kernel** | [`@cleocode/core`](packages/core) | Business logic SDK — tasks, sessions, memory, orchestration, lifecycle |
@@ -128,7 +133,7 @@ pnpm test
 ┌─────────────────────────────────────────────────────────────┐
 │              @cleocode/cleo  +  @cleocode/cleo-os           │
 │                    CLI Product Layer                         │
-│    89 commands • dispatch routing • output formatting        │
+│   248 operations • 11 domains • dispatch routing • MVI       │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────┐
@@ -141,8 +146,8 @@ pnpm test
       ┌──────────────────────┼──────────────────────┐
       │                      │                      │
 ┌─────┴──────┐  ┌────────────┴────────────┐  ┌─────┴──────┐
-│  adapters  │  │  caamp • cant • runtime │  │  agents    │
-│ (providers)│  │  (protocols & features) │  │  skills    │
+│  adapters  │  │ caamp • cant • nexus    │  │  agents    │
+│ (providers)│  │ runtime (protocols)     │  │  skills    │
 └────────────┘  └─────────────────────────┘  └────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────┐
@@ -185,7 +190,7 @@ pnpm test
 
 ## The Circle of Ten
 
-CLEO organizes all work through ten canonical domains — the houses where work gets done:
+CLEO organizes all work through 11 canonical domains — the houses where work gets done. The original Circle of Ten was joined by `intelligence` as the cognitive analytics layer.
 
 | Domain | House | What Happens Here | Key Commands |
 |--------|-------|-------------------|--------------|
@@ -194,11 +199,14 @@ CLEO organizes all work through ten canonical domains — the houses where work 
 | `memory` | The Archivists | Knowledge that does not decay | observe, memory-brain, sync, sticky |
 | `check` | The Wardens | Integrity stands guard | validate, verify, compliance, doctor |
 | `pipeline` | The Weavers | The lifecycle threads forward | release, lifecycle, phases, promote |
-| `orchestrate` | The Conductors | Agents move in concert | orchestrate, consensus, contribution, dash |
+| `orchestrate` | The Conductors | Agents move in concert | orchestrate, consensus, contribution, dash, conduit |
 | `tools` | The Artificers | Capabilities are crafted | skills, providers |
 | `admin` | The Keepers | The realm stays healthy | config, backup, migrate, grade |
 | `nexus` | The Wayfinders | Projects find each other | nexus, remote, push, pull, snapshot |
 | `sticky` | The Catchers | Quick capture before the thought escapes | sticky |
+| `intelligence` | The Seers | Predictive analytics and pattern insight | predict, suggest |
+
+**248 total operations** (134 queries, 95 mutations, 19 experimental) across the 11 domains.
 
 ## Contributing
 
