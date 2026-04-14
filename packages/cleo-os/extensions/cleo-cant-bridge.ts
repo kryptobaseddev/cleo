@@ -829,8 +829,8 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  // before_agent_start: APPEND compiled bundle prompt + mental-model injection
-  // to system prompt (per ULTRAPLAN L6, never replace)
+  // before_agent_start: APPEND identity bootstrap + CANT bundle + memory bridge
+  // + mental-model injection to system prompt (per ULTRAPLAN L6, never replace)
   pi.on(
     "before_agent_start",
     async (
@@ -849,6 +849,120 @@ export default function (pi: ExtensionAPI): void {
     ) => {
       const existingPrompt = event.systemPrompt ?? "";
       let appendix = "";
+
+      // ================================================================
+      // IDENTITY BOOTSTRAP (T555): Inject CleoOS identity + operational
+      // briefing for the MAIN session agent. Sub-agents get their identity
+      // from the CANT bundle + mental model below.
+      // ================================================================
+      const isMainAgent = !event.agentName || event.agentName === "";
+      if (isMainAgent) {
+        const projectRoot = event.projectRoot ?? ctx?.cwd ?? "";
+
+        // Build identity + briefing in parallel (best-effort, 8s timeout)
+        const [briefingResult, nextResult, memoryResult] = await Promise.allSettled([
+          execFileAsync("cleo", ["session", "briefing", "--json"], {
+            timeout: 8_000,
+            cwd: projectRoot || undefined,
+          }),
+          execFileAsync("cleo", ["next", "--json", "--limit", "3"], {
+            timeout: 8_000,
+            cwd: projectRoot || undefined,
+          }),
+          execFileAsync("cleo", ["memory", "find", "decision", "--json", "--limit", "5"], {
+            timeout: 8_000,
+            cwd: projectRoot || undefined,
+          }),
+        ]);
+
+        // Build the identity block
+        const identityLines: string[] = [
+          "",
+          "===== CLEOOS IDENTITY BOOTSTRAP =====",
+          "",
+          "You are **CleoOS**, the Agentic Development Environment.",
+          "You are NOT a generic AI assistant. You are a governed, autonomous project management intelligence.",
+          "",
+          "## Your Systems",
+          "- **BRAIN** — Your persistent memory. Observations, patterns, learnings, decisions in brain.db. Use `cleo memory find/fetch/observe`.",
+          "- **LOOM** — Your lifecycle methodology. RCASD-IVTR+C pipeline with gates. Use `cleo pipeline`.",
+          "- **NEXUS** — Your cross-project network. Project registry, federated queries. Use `cleo nexus`.",
+          "- **LAFS** — Your communication contract. JSON envelopes, MVI progressive disclosure, exit codes.",
+          "- **CANT** — Your agent definition language. Team topology, agent personas, tool ACLs.",
+          "",
+          "## Your Capabilities",
+          "- 224 canonical operations across 10 domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky",
+          "- Multi-agent orchestration: spawn Team Leads who manage Workers via the CANT team topology",
+          "- Autonomous task management: create, assign, verify, complete tasks with lifecycle governance",
+          "- Living memory: observe facts, store decisions/patterns/learnings, recall via 3-layer retrieval",
+          "",
+          "## Your Protocol",
+          "- Start with `cleo session status` → `cleo dash` → `cleo current` → `cleo next`",
+          "- Use `cleo memory find` to recall prior knowledge before making decisions",
+          "- Use `cleo observe` to store important facts for future sessions",
+          "- Use `cleo complete` to mark tasks done (requires verification gates)",
+          "- End sessions with `cleo session end --note \"handoff summary\"`",
+          "",
+          "## Your Rules",
+          "- You MUST use the cleo CLI for all operations. Never read/write .cleo/ files directly.",
+          "- You MUST follow RCASD-IVTR+C lifecycle gates. No skipping stages.",
+          "- You MUST record decisions via `cleo memory decision.store`.",
+          "- You MUST verify work before marking complete.",
+          "- You speak the CANT DSL and can read/create agent definitions.",
+          "",
+        ];
+
+        // Append briefing data if available
+        if (briefingResult.status === "fulfilled") {
+          try {
+            const briefing = JSON.parse(briefingResult.value.stdout);
+            const data = briefing?.data ?? briefing;
+            if (data?.currentTask) {
+              identityLines.push(`## Current Task`);
+              identityLines.push(`- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`);
+              identityLines.push("");
+            }
+            if (data?.handoff?.note) {
+              identityLines.push(`## Last Session Handoff`);
+              identityLines.push(data.handoff.note);
+              identityLines.push("");
+            }
+          } catch { /* parse failure — skip briefing data */ }
+        }
+
+        // Append next tasks
+        if (nextResult.status === "fulfilled") {
+          try {
+            const next = JSON.parse(nextResult.value.stdout);
+            const tasks = next?.data?.tasks ?? next?.data?.results ?? [];
+            if (Array.isArray(tasks) && tasks.length > 0) {
+              identityLines.push(`## Next Tasks`);
+              for (const t of tasks.slice(0, 3)) {
+                identityLines.push(`- **${t.id}**: ${t.title} (${t.priority ?? "medium"})`);
+              }
+              identityLines.push("");
+            }
+          } catch { /* parse failure — skip */ }
+        }
+
+        // Append recent brain decisions
+        if (memoryResult.status === "fulfilled") {
+          try {
+            const mem = JSON.parse(memoryResult.value.stdout);
+            const results = mem?.data?.results ?? [];
+            if (Array.isArray(results) && results.length > 0) {
+              identityLines.push(`## Recent Brain Context`);
+              for (const r of results.slice(0, 5)) {
+                identityLines.push(`- [${r.id}] ${r.title} (${r.date ?? ""})`);
+              }
+              identityLines.push("");
+            }
+          } catch { /* parse failure — skip */ }
+        }
+
+        identityLines.push("===== END IDENTITY BOOTSTRAP =====");
+        appendix += identityLines.join("\n");
+      }
 
       // APPEND CANT bundle prompt
       if (bundlePrompt) {

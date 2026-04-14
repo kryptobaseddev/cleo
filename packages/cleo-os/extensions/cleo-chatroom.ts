@@ -277,6 +277,7 @@ export default function (pi: ExtensionAPI): void {
       recordMessage(msg);
       renderWidget(ctx);
       return {
+        details: undefined,
         content: [
           {
             type: "text" as const,
@@ -315,6 +316,7 @@ export default function (pi: ExtensionAPI): void {
       recordMessage(msg);
       renderWidget(ctx);
       return {
+        details: undefined,
         content: [
           {
             type: "text" as const,
@@ -353,6 +355,7 @@ export default function (pi: ExtensionAPI): void {
       recordMessage(msg);
       renderWidget(ctx);
       return {
+        details: undefined,
         content: [
           {
             type: "text" as const,
@@ -391,6 +394,7 @@ export default function (pi: ExtensionAPI): void {
       recordMessage(msg);
       renderWidget(ctx);
       return {
+        details: undefined,
         content: [
           {
             type: "text" as const,
