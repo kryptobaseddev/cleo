@@ -441,6 +441,142 @@ function buildEnumNode(node: SyntaxNode, filePath: string, language: string): Gr
 }
 
 // ---------------------------------------------------------------------------
+// Re-export extraction (barrel files)
+// ---------------------------------------------------------------------------
+
+/**
+ * A re-export record extracted from a barrel/index file.
+ *
+ * Represents one of:
+ * - `export { Foo } from './foo'`  → named: exportedName='Foo', localName='Foo'
+ * - `export { Foo as Bar } from './foo'` → exportedName='Bar', localName='Foo'
+ * - `export * from './foo'`         → wildcard: exportedName=null (re-exports all)
+ * - `export * as ns from './foo'`   → namespace re-export, skipped (not traceable)
+ *
+ * Used to build a BarrelExportMap that lets Tier 2a resolution follow re-export
+ * chains from barrel index files to canonical symbol source files.
+ */
+export interface ExtractedReExport {
+  /** Relative file path of the barrel file containing the re-export. */
+  filePath: string;
+  /** Raw import path string as it appears in source (e.g. `'./tasks/find.js'`). */
+  rawSourcePath: string;
+  /**
+   * The name as exported by this barrel (the external name callers import).
+   * `null` for wildcard `export * from '...'` re-exports.
+   */
+  exportedName: string | null;
+  /**
+   * The name as imported from the source module (the internal name).
+   * Equal to `exportedName` for un-aliased re-exports.
+   * `null` for wildcard `export * from '...'` re-exports.
+   */
+  localName: string | null;
+}
+
+/**
+ * Extract all re-export statements from a TypeScript/JavaScript file.
+ *
+ * Handles:
+ * - `export { Foo, Bar } from './source'`
+ * - `export { Foo as PublicFoo } from './source'`
+ * - `export * from './source'`
+ *
+ * Namespace re-exports (`export * as ns from '...'`) are skipped because
+ * the caller would need type inference to resolve `ns.Foo` references.
+ *
+ * @param root - AST root node (program node)
+ * @param filePath - File path relative to repo root
+ * @returns Array of extracted re-export records
+ */
+export function extractReExports(root: SyntaxNode, filePath: string): ExtractedReExport[] {
+  const results: ExtractedReExport[] = [];
+
+  for (let i = 0; i < root.namedChildCount; i++) {
+    const stmt = root.namedChild(i);
+    if (!stmt) continue;
+
+    // Tree-sitter represents `export ... from '...'` as export_statement nodes.
+    // We only care about those with a source (re-exports), not plain exports.
+    if (stmt.type !== 'export_statement') continue;
+
+    // Find the source string node (the `from '...'` part)
+    const sourceNode = stmt.childForFieldName('source');
+    if (!sourceNode) continue;
+
+    const rawSource = sourceNode.text.replace(/^['"]|['"]$/g, '');
+    if (!rawSource) continue;
+
+    // Check for `export * from '...'`
+    // Tree-sitter represents this with a '*' text child (non-named) and no
+    // named_exports child. We detect it by looking for a '*' keyword child.
+    let isWildcard = false;
+    let hasNamespace = false;
+    for (let j = 0; j < stmt.children.length; j++) {
+      const child = stmt.children[j];
+      if (!child) continue;
+      if (!child.isNamed && child.text === '*') {
+        isWildcard = true;
+      }
+      // `export * as ns from '...'` has a namespace_export child
+      if (child.type === 'namespace_export') {
+        hasNamespace = true;
+      }
+    }
+
+    if (isWildcard && !hasNamespace) {
+      // Plain `export * from '...'` — wildcard re-export
+      results.push({
+        filePath,
+        rawSourcePath: rawSource,
+        exportedName: null,
+        localName: null,
+      });
+      continue;
+    }
+
+    if (hasNamespace) {
+      // `export * as ns from '...'` — namespace re-export, skip
+      continue;
+    }
+
+    // Named re-exports: `export { Foo, Bar as Baz } from '...'`
+    // Look for export_clause child (named_exports or export_clause depending on grammar)
+    for (let j = 0; j < stmt.namedChildCount; j++) {
+      const child = stmt.namedChild(j);
+      if (!child) continue;
+
+      // export_clause or named_exports contains export_specifier children
+      if (child.type === 'export_clause' || child.type === 'named_exports') {
+        for (let k = 0; k < child.namedChildCount; k++) {
+          const specifier = child.namedChild(k);
+          if (!specifier) continue;
+          if (specifier.type !== 'export_specifier') continue;
+
+          const nameNode = specifier.childForFieldName('name');
+          const aliasNode = specifier.childForFieldName('alias');
+
+          if (!nameNode) continue;
+          const localName = nameNode.text;
+          const exportedName = aliasNode?.text ?? localName;
+
+          if (localName && exportedName) {
+            results.push({
+              filePath,
+              rawSourcePath: rawSource,
+              exportedName,
+              localName,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Import extraction
 // ---------------------------------------------------------------------------
 
@@ -851,8 +987,9 @@ export function extractCalls(root: SyntaxNode, filePath: string): ExtractedCall[
  * Full extraction result for one file.
  *
  * Contains all definitions (GraphNodes), raw import records (for import
- * processor), heritage clauses (for heritage edge emission), and call
- * expressions (for Tier 1 + 2a call resolution).
+ * processor), heritage clauses (for heritage edge emission), call expressions
+ * (for Tier 1 + 2a call resolution), and re-export records (for barrel
+ * export chain tracing — T617).
  */
 export interface TypeScriptExtractionResult {
   /** Symbol definition nodes extracted from the file. */
@@ -863,13 +1000,16 @@ export interface TypeScriptExtractionResult {
   heritage: ExtractedHeritage[];
   /** Call expressions for CALLS edge emission (Phase 3e). */
   calls: ExtractedCall[];
+  /** Re-export records for barrel export chain tracing (T617). */
+  reExports: ExtractedReExport[];
 }
 
 /**
  * Extract all intelligence data from a TypeScript/JavaScript AST.
  *
  * Combines definition extraction, import extraction, heritage extraction,
- * and call expression extraction in a single AST traversal pass.
+ * call expression extraction, and re-export extraction (barrel tracing — T617)
+ * in a single AST traversal pass.
  *
  * @param rootNode - The root (program) node of the parsed AST
  * @param filePath - File path relative to the repository root
@@ -892,6 +1032,7 @@ export function extractTypeScript(
   const imports = extractImports(rootNode, filePath);
   const heritage = extractHeritage(rootNode, filePath);
   const calls = extractCalls(rootNode, filePath);
+  const reExports = extractReExports(rootNode, filePath);
 
-  return { definitions, imports, heritage, calls };
+  return { definitions, imports, heritage, calls, reExports };
 }

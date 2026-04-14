@@ -32,7 +32,8 @@
 
 import type { GraphRelation } from '@cleocode/contracts';
 import type { ExtractedCall } from './extractors/typescript-extractor.js';
-import type { NamedImportMap } from './import-processor.js';
+import type { BarrelExportMap, NamedImportMap } from './import-processor.js';
+import { resolveBarrelBinding } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { TIER_CONFIDENCE } from './resolution-context.js';
 import type { SymbolTable } from './symbol-table.js';
@@ -120,6 +121,8 @@ export function emitClassMemberEdges(graph: KnowledgeGraph): {
  * Resolution order:
  * 1. Tier 1 — same-file exact lookup (`symbolTable.lookupExact`)
  * 2. Tier 2a — named import binding (`namedImportMap` → `symbolTable.lookupExact`)
+ *    2a-barrel — barrel chain tracing: if binding.sourcePath is a barrel, follow
+ *                the BarrelExportMap to find the canonical definition (T617)
  * 3. Tier 3 — global callable index (`symbolTable.lookupCallableByName`),
  *             only when exactly one candidate is found
  *
@@ -129,6 +132,7 @@ function resolveSingleCall(
   call: ExtractedCall,
   symbolTable: SymbolTable,
   namedImportMap: NamedImportMap,
+  barrelMap: BarrelExportMap,
 ): { nodeId: string; confidence: number; tier: 'same-file' | 'import-scoped' | 'global' } | null {
   const { filePath, calledName, argCount } = call;
 
@@ -143,7 +147,7 @@ function resolveSingleCall(
   if (fileBindings) {
     const binding = fileBindings.get(calledName);
     if (binding) {
-      // Resolve the exported name from the source file
+      // Direct lookup: symbol defined in the imported file
       const tier2Id = symbolTable.lookupExact(binding.sourcePath, binding.exportedName);
       if (tier2Id) {
         return {
@@ -151,6 +155,30 @@ function resolveSingleCall(
           confidence: TIER_CONFIDENCE['import-scoped'],
           tier: 'import-scoped',
         };
+      }
+
+      // Barrel tracing (T617): the imported file is a barrel that re-exports the
+      // symbol from a deeper source file. Follow the chain to find the canonical
+      // definition.
+      if (barrelMap.has(binding.sourcePath)) {
+        const canonical = resolveBarrelBinding(
+          binding.sourcePath,
+          binding.exportedName,
+          barrelMap,
+        );
+        if (canonical) {
+          const barrelResolvedId = symbolTable.lookupExact(
+            canonical.canonicalFile,
+            canonical.canonicalName,
+          );
+          if (barrelResolvedId) {
+            return {
+              nodeId: barrelResolvedId,
+              confidence: TIER_CONFIDENCE['import-scoped'],
+              tier: 'import-scoped',
+            };
+          }
+        }
       }
     }
   }
@@ -200,6 +228,7 @@ function resolveSingleCall(
  * @param graph - KnowledgeGraph to write CALLS edges into
  * @param symbolTable - Fully-populated SymbolTable (all files parsed)
  * @param namedImportMap - Named import bindings from the import processing phase
+ * @param barrelMap - Barrel export chain map for Tier 2a barrel tracing (T617)
  * @returns Resolution counters
  */
 export async function resolveCalls(
@@ -207,6 +236,7 @@ export async function resolveCalls(
   graph: KnowledgeGraph,
   symbolTable: SymbolTable,
   namedImportMap: NamedImportMap,
+  barrelMap: BarrelExportMap = new Map(),
 ): Promise<CallResolutionResult> {
   let tier1Count = 0;
   let tier2aCount = 0;
@@ -235,7 +265,7 @@ export async function resolveCalls(
     }
 
     for (const call of fileCalls) {
-      const resolved = resolveSingleCall(call, symbolTable, namedImportMap);
+      const resolved = resolveSingleCall(call, symbolTable, namedImportMap, barrelMap);
 
       if (!resolved) {
         unresolvedCount++;

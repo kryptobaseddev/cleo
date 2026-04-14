@@ -648,7 +648,7 @@ export async function runPipeline(
   // Heritage + call resolution still runs on the full in-memory graph so
   // cross-file call edges across the changed/unchanged boundary are preserved.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
-  const { allHeritage, allCalls } = await runParseLoop(
+  const { allHeritage, allCalls, barrelMap } = await runParseLoop(
     filesToParse,
     graph,
     symbolTable,
@@ -670,8 +670,9 @@ export async function runPipeline(
   void heritageMap; // Available for future virtual-dispatch wave
 
   // Phase 3e: Call resolution — emit CALLS + HAS_METHOD + HAS_PROPERTY edges
+  // Pass barrelMap so Tier 2a can trace imports through barrel re-export chains (T617).
   process.stderr.write('[nexus] Phase 3e: Resolving calls...\n');
-  const callResult = await resolveCalls(allCalls, graph, symbolTable, namedImportMap);
+  const callResult = await resolveCalls(allCalls, graph, symbolTable, namedImportMap, barrelMap);
   process.stderr.write(
     `[nexus] Calls: tier1=${callResult.tier1Count}, tier2a=${callResult.tier2aCount}, tier3=${callResult.tier3Count}, unresolved=${callResult.unresolvedCount}\n`,
   );

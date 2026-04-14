@@ -5,11 +5,13 @@
  *   cleo memory store --type <type> --content <text> --context <text>
  *   cleo memory find <query> [--type pattern|learning]
  *   cleo memory stats
+ *   cleo memory consolidate — run full consolidation pipeline (tier promotion, dedup, etc.)
  *
- * @task T4770
+ * @task T4770 T614
  * @epic T4763
  */
 
+import { getProjectRoot, runConsolidation } from '@cleocode/core/internal';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
@@ -574,5 +576,74 @@ export function registerMemoryBrainCommand(program: Command): void {
         { memoryId },
         { command: 'memory', operation: 'memory.code.for-memory' },
       );
+    });
+
+  // -- consolidate (run full consolidation pipeline, including tier promotion) --
+  memory
+    .command('consolidate')
+    .description(
+      'Run the full brain consolidation pipeline: dedup, quality recompute, tier promotion, ' +
+        'contradiction detection, soft eviction, graph strengthening, summary generation. ' +
+        'Equivalent to the session-end sleep-time consolidation but triggered on demand.',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Running memory consolidation (including tier promotion)...');
+      }
+
+      try {
+        const result = await runConsolidation(root);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: result,
+                meta: {
+                  operation: 'memory.consolidate',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        // Human-readable output
+        console.log('\nConsolidation complete.');
+        console.log(`  Deduplicated:    ${result.deduplicated}`);
+        console.log(`  Quality recomp:  ${result.qualityRecomputed}`);
+        console.log(`  Tier promoted:   ${result.tierPromotions.promoted.length} entries promoted`);
+        console.log(`  Tier evicted:    ${result.tierPromotions.evicted.length} entries evicted`);
+        console.log(`  Contradictions:  ${result.contradictions}`);
+        console.log(`  Soft evicted:    ${result.softEvicted}`);
+        console.log(`  Edges strength:  ${result.edgesStrengthened}`);
+        console.log(`  Summaries gen:   ${result.summariesGenerated}`);
+        if (result.graphLinksCreated !== undefined) {
+          console.log(`  Graph links:     ${result.graphLinksCreated}`);
+        }
+
+        if (result.tierPromotions.promoted.length > 0) {
+          console.log('\nTier promotions:');
+          for (const p of result.tierPromotions.promoted) {
+            console.log(`  [${p.table}] ${p.id}: ${p.fromTier} → ${p.toTier} (${p.reason})`);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Memory consolidation failed: ${message}`);
+        }
+        process.exit(1);
+      }
     });
 }
