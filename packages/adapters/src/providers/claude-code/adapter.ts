@@ -123,6 +123,10 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
   async initialize(projectDir: string): Promise<void> {
     this.projectDir = projectDir;
     this.initialized = true;
+
+    // Activate CLEO hook bridge for this project — connects Claude Code
+    // native events to CLEO's internal hook dispatch (T555).
+    await this.hooks.registerNativeHooks(projectDir);
   }
 
   /**
