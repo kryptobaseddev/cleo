@@ -14,11 +14,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Ensure no leaked path mocks from other tests in the same vitest shard
-// pollute this integration test (which uses real SQLite + real paths).
-vi.unmock('../../paths.js');
-vi.unmock('../../store/brain-sqlite.js');
-vi.unmock('../../store/nexus-sqlite.js');
+// Force-pass-through the real modules so that any leaked mocks from other
+// test files in the same vitest shard cannot pollute this integration test.
+// vitest resolves mocks at file-load time; vi.unmock is not sufficient when
+// another file's vi.mock('../../paths.js') already poisoned the module registry.
+vi.mock('../../paths.js', async () => await vi.importActual('../../paths.js'));
+vi.mock(
+  '../../store/brain-sqlite.js',
+  async () => await vi.importActual('../../store/brain-sqlite.js'),
+);
+vi.mock(
+  '../../store/nexus-sqlite.js',
+  async () => await vi.importActual('../../store/nexus-sqlite.js'),
+);
+vi.mock('../../config.js', async () => await vi.importActual('../../config.js'));
 
 let tempDir: string;
 
