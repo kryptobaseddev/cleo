@@ -16,6 +16,11 @@
       "import": "./dist/internal.js",
       "require": "./dist/internal.js"
     },
+    "./conduit": {
+      "types": "./dist/conduit/index.d.ts",
+      "import": "./dist/conduit/index.js",
+      "require": "./dist/conduit/index.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",

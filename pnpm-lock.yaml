@@ -103,6 +103,9 @@ importers:
       '@types/node':
         specifier: ^22.19.15
         version: 22.19.15
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@22.19.15)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/agents: {}
 
@@ -254,6 +257,10 @@ importers:
       tree-sitter-typescript:
         specifier: ^0.23.2
         version: 0.23.2(tree-sitter@0.21.1)
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/cleo-os:
     dependencies:
@@ -280,7 +287,11 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/contracts: {}
+  packages/contracts:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/core:
     dependencies:
@@ -502,7 +513,11 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/skills: {}
+  packages/skills:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
 packages:
 
@@ -6713,7 +6728,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@types/node@22.19.15)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.4':
     dependencies:

@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && vitest run --project='' packages/cleo/src",
     "postinstall": "node bin/postinstall.js"
   },
   "dependencies": {
@@ -53,6 +54,9 @@
     "bin",
     "templates"
   ],
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",

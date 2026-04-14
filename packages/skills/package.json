@@ -12,7 +12,11 @@
     "*.d.ts"
   ],
   "scripts": {
-    "validate:ops": "tsx scripts/validate-operations.ts"
+    "validate:ops": "tsx scripts/validate-operations.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
   },
   "repository": {
     "type": "git",
