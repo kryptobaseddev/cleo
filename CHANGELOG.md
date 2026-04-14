@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.45] (2026-04-14)
+
+Critical fix — `@cleocode/core/conduit` subpath export.
+
+### Build Fix
+- **`build.mjs` core options**: added `packages/core/src/conduit/index.ts` as a second esbuild entry point so `dist/conduit/index.js` is produced alongside `dist/index.js`
+- **Also added** `internal.ts` as an explicit entry for the `./internal` export
+- **Root cause**: v2026.4.43 and v2026.4.44 shipped `dist/conduit/*.d.ts` files (from tsc declarations) without the corresponding `.js` files (esbuild only ran one entry point). This broke `cleo orchestrate conduit-send/status/peek` at runtime with `Cannot find module '.../dist/conduit/index.js'`.
+- **Verified**: CONDUIT attestation T577 now passes — 164 messages in conduit.db, 20 transitioned pending→delivered, latency p99 4.2ms
+
+### SQLite Migration Journal Fix (T571)
+- **`reconcileJournal` in `packages/core/src/store/migration-manager.ts`**: distinguish between two Scenario 2 sub-cases
+- **Case A (DB ahead of install)**: all local hashes present but DB has extra unknown entries — forward-compat, skip reconciliation, log debug only
+- **Case B (stale hashes)**: some local hashes missing — delete and re-seed, log at warn
+- **Impact**: eliminates the repeated "Detected stale migration journal entries" WARN spam on every `cleo` command
+
+### Carries Forward
+All v2026.4.44 changes.
+
 ## [2026.4.44] (2026-04-14)
 
 Release hygiene — fixes v2026.4.43 publish gap.
