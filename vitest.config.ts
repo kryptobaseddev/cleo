@@ -13,6 +13,8 @@ export default defineConfig({
       'packages/*/src/**/*.test.ts',
       'packages/*/src/**/__tests__/*.test.ts',
       'packages/*/tests/**/*.test.ts',
+      // skills package uses skills/ instead of src/
+      'packages/skills/skills/**/__tests__/*.test.ts',
     ],
     exclude: [
       'node_modules',

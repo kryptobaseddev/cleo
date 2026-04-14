@@ -118,10 +118,39 @@ export class ConduitHandler implements DomainHandler {
     return credential;
   }
 
-  /** Get connection status and unread count. */
+  /** Get connection status and unread count. Uses LocalTransport when conduit.db is available. */
   private async getStatus(agentId?: string) {
     const credential = await this.resolveCredential(agentId);
+    const pollerRunning = activePoller !== null && activeAgentId === credential.agentId;
 
+    // Check local conduit.db unread count when available
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (LocalTransport.isAvailable(process.cwd())) {
+      const transport = new LocalTransport();
+      await transport.connect({
+        agentId: credential.agentId,
+        apiKey: credential.apiKey,
+        apiBaseUrl: credential.apiBaseUrl,
+      });
+      try {
+        const pending = await transport.poll({ limit: 1000 });
+        return {
+          success: true,
+          data: {
+            agentId: credential.agentId,
+            connected: true,
+            transport: 'local',
+            pollerRunning,
+            unreadTotal: pending.length,
+            actionItems: 0,
+          },
+        };
+      } finally {
+        await transport.disconnect();
+      }
+    }
+
+    // Fallback: HTTP inbox endpoint for cloud-only agents
     const response = await fetch(`${credential.apiBaseUrl}/agents/${credential.agentId}/inbox`, {
       headers: {
         Authorization: `Bearer ${credential.apiKey}`,
@@ -135,7 +164,8 @@ export class ConduitHandler implements DomainHandler {
         data: {
           agentId: credential.agentId,
           connected: false,
-          pollerRunning: activePoller !== null && activeAgentId === credential.agentId,
+          transport: 'http',
+          pollerRunning,
           error: `API returned ${response.status}`,
         },
       };
@@ -150,16 +180,51 @@ export class ConduitHandler implements DomainHandler {
       data: {
         agentId: credential.agentId,
         connected: true,
-        pollerRunning: activePoller !== null && activeAgentId === credential.agentId,
+        transport: 'http',
+        pollerRunning,
         unreadTotal: body.data?.unreadTotal ?? 0,
         actionItems: body.data?.actionItems?.length ?? 0,
       },
     };
   }
 
-  /** One-shot peek for messages. */
+  /** One-shot peek for messages. Uses LocalTransport when conduit.db is available. */
   private async peek(agentId?: string, limit?: number) {
     const credential = await this.resolveCredential(agentId);
+
+    // Prefer LocalTransport when conduit.db is present — no network round-trip needed.
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (LocalTransport.isAvailable(process.cwd())) {
+      const transport = new LocalTransport();
+      await transport.connect({
+        agentId: credential.agentId,
+        apiKey: credential.apiKey,
+        apiBaseUrl: credential.apiBaseUrl,
+      });
+      try {
+        const messages = await transport.poll({ limit: limit ?? 20 });
+        if (messages.length > 0) {
+          await transport.ack(messages.map((m) => m.id));
+        }
+        return {
+          success: true,
+          data: {
+            agentId: credential.agentId,
+            messages: messages.map((m) => ({
+              id: m.id,
+              from: m.from,
+              content: m.content,
+              conversationId: m.threadId,
+              timestamp: m.timestamp,
+            })),
+          },
+        };
+      } finally {
+        await transport.disconnect();
+      }
+    }
+
+    // Fallback: HTTP peek endpoint for cloud-only agents
     const params = new URLSearchParams();
     params.set('mentioned', credential.agentId);
     params.set('limit', String(limit ?? 20));
@@ -202,7 +267,7 @@ export class ConduitHandler implements DomainHandler {
     };
   }
 
-  /** Start continuous polling via @cleocode/runtime AgentPoller. */
+  /** Start continuous polling via @cleocode/runtime AgentPoller. Uses LocalTransport when conduit.db is available. */
   private async startPolling(
     agentId?: string,
     pollIntervalMs?: number,
@@ -221,6 +286,23 @@ export class ConduitHandler implements DomainHandler {
 
     const credential = await this.resolveCredential(agentId);
     const { AgentPoller } = await import('@cleocode/runtime');
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+
+    // Prefer LocalTransport when conduit.db exists — delivers messages written
+    // by other agents in the same project without any cloud round-trip.
+    let transport: import('@cleocode/contracts').Transport | undefined;
+    let transportName = 'http';
+
+    if (LocalTransport.isAvailable(process.cwd())) {
+      const local = new LocalTransport();
+      await local.connect({
+        agentId: credential.agentId,
+        apiKey: credential.apiKey,
+        apiBaseUrl: credential.apiBaseUrl,
+      });
+      transport = local;
+      transportName = 'local';
+    }
 
     activePoller = new AgentPoller({
       agentId: credential.agentId,
@@ -228,6 +310,7 @@ export class ConduitHandler implements DomainHandler {
       apiBaseUrl: credential.apiBaseUrl,
       pollIntervalMs: pollIntervalMs ?? 5000,
       groupConversationIds,
+      transport,
     });
     activeAgentId = credential.agentId;
 
@@ -239,6 +322,7 @@ export class ConduitHandler implements DomainHandler {
         agentId: credential.agentId,
         pollIntervalMs: pollIntervalMs ?? 5000,
         groupConversationIds: groupConversationIds ?? [],
+        transport: transportName,
         message: 'Polling started.',
       },
     };
@@ -267,7 +351,7 @@ export class ConduitHandler implements DomainHandler {
     };
   }
 
-  /** Send a message to an agent or conversation. */
+  /** Send a message to an agent or conversation. Uses LocalTransport when conduit.db is available. */
   private async sendMessage(
     content: string,
     to?: string,
@@ -283,6 +367,37 @@ export class ConduitHandler implements DomainHandler {
 
     const credential = await this.resolveCredential(agentId);
 
+    // Prefer LocalTransport when conduit.db is present — message written directly
+    // to the SQLite store without network, available for immediate local polling.
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (LocalTransport.isAvailable(process.cwd())) {
+      const transport = new LocalTransport();
+      await transport.connect({
+        agentId: credential.agentId,
+        apiKey: credential.apiKey,
+        apiBaseUrl: credential.apiBaseUrl,
+      });
+      try {
+        const recipient = to ?? conversationId ?? '';
+        const result = await transport.push(recipient, content, {
+          conversationId,
+        });
+        return {
+          success: true,
+          data: {
+            messageId: result.messageId,
+            from: credential.agentId,
+            to: recipient,
+            transport: 'local',
+            sentAt: new Date().toISOString(),
+          },
+        };
+      } finally {
+        await transport.disconnect();
+      }
+    }
+
+    // Fallback: HTTP send for cloud-only agents
     let url: string;
     const body: Record<string, string> = { content };
 
@@ -321,6 +436,7 @@ export class ConduitHandler implements DomainHandler {
         messageId: data.data?.message?.id ?? 'unknown',
         from: credential.agentId,
         to: to ?? conversationId,
+        transport: 'http',
         sentAt: new Date().toISOString(),
       },
     };

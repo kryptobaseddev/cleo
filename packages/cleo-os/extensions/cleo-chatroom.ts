@@ -25,6 +25,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -96,6 +97,34 @@ function recordMessage(msg: ChatMessage): void {
     } catch {
       // Best-effort: never crash Pi over a log write failure.
     }
+  }
+}
+
+/**
+ * Deliver a chat message via conduit so it is written to conduit.db
+ * and available for the recipient agent to poll.
+ *
+ * Uses `execFileSync` (not `exec`) with an explicit argument array to prevent
+ * shell injection. Recipient agent IDs and message content are passed as
+ * discrete argv elements — the shell never interprets them.
+ *
+ * Failures are best-effort: the TUI widget still works without conduit delivery.
+ *
+ * @param toAgentId - Recipient agent ID (registered in the local registry).
+ * @param message - Message text to deliver.
+ * @param cwd - Working directory for the cleo command (project root).
+ */
+function deliverViaConduit(toAgentId: string, message: string, cwd: string): void {
+  try {
+    // `cleo agent send <message> --to <agentId>` uses LocalTransport when
+    // conduit.db is present, writing the message directly to SQLite.
+    execFileSync("cleo", ["agent", "send", message, "--to", toAgentId], {
+      cwd,
+      stdio: "ignore",
+      timeout: 5000,
+    });
+  } catch {
+    // Best-effort: conduit delivery failure must not break the TUI.
   }
 }
 
@@ -275,6 +304,8 @@ export default function (pi: ExtensionAPI): void {
         role: params.role,
       };
       recordMessage(msg);
+      // Deliver via conduit so the lead agent can poll the message from conduit.db
+      deliverViaConduit(params.lead, params.message, ctx.cwd);
       renderWidget(ctx);
       return {
         details: undefined,
@@ -314,6 +345,8 @@ export default function (pi: ExtensionAPI): void {
         role: params.role,
       };
       recordMessage(msg);
+      // Broadcast to the group channel agent ID (convention: team:<group>)
+      deliverViaConduit(`team:${params.group}`, params.message, ctx.cwd);
       renderWidget(ctx);
       return {
         details: undefined,
@@ -353,6 +386,8 @@ export default function (pi: ExtensionAPI): void {
         role: params.role,
       };
       recordMessage(msg);
+      // Deliver to orchestrator agent via conduit
+      deliverViaConduit(params.orchestrator, params.message, ctx.cwd);
       renderWidget(ctx);
       return {
         details: undefined,
@@ -392,6 +427,8 @@ export default function (pi: ExtensionAPI): void {
         role: params.role,
       };
       recordMessage(msg);
+      // Deliver to peer agent via conduit
+      deliverViaConduit(params.peer, params.message, ctx.cwd);
       renderWidget(ctx);
       return {
         details: undefined,

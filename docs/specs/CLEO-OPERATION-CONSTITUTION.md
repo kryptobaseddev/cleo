@@ -1,9 +1,9 @@
 # CLEO Operation Constitution
 
-**Version**: 2026.4.24
+**Version**: 2026.4.42
 **Status**: APPROVED
-**Date**: 2026-04-10
-**Task**: T451 (update); T5721 (original)
+**Date**: 2026-04-14
+**Task**: T565 (update); T451 (prior update); T5721 (original)
 **Supersedes**: CLEO-OPERATIONS-REFERENCE.md
 **ADR**: ADR-042 (conduit domain disposition and registry alignment)
 
@@ -77,7 +77,7 @@ dispatch('mutate', 'tasks', 'add', { title: 'foo', description: 'bar' });
 
 ## 4. Canonical Domains
 
-CLEO defines exactly **10 canonical domains**. These are the runtime contract. Conceptual systems (BRAIN, LOOM, NEXUS, LAFS) are overlays, not domains.
+CLEO defines exactly **11 canonical domains**. These are the runtime contract. Conceptual systems (BRAIN, LOOM, NEXUS, LAFS) are overlays, not domains.
 
 | Domain | Purpose | Primary Store |
 |--------|---------|---------------|
@@ -91,6 +91,7 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `admin` | Configuration, backup, migration, diagnostics, ADRs, protocol injection | config.json, tasks.db |
 | `nexus` | Cross-project coordination, registry, dependency graph | nexus.db |
 | `sticky` | Ephemeral project-wide capture, quick notes before formal task creation | brain.db |
+| `intelligence` | Predictive quality analysis: risk scoring, gate focus, pattern matching | brain.db + tasks.db |
 
 The canonical domain list is defined in `packages/cleo/src/dispatch/types.ts` as:
 
@@ -98,6 +99,7 @@ The canonical domain list is defined in `packages/cleo/src/dispatch/types.ts` as
 export const CANONICAL_DOMAINS = [
   'tasks', 'session', 'memory', 'check', 'pipeline',
   'orchestrate', 'tools', 'admin', 'nexus', 'sticky',
+  'intelligence',
 ] as const;
 ```
 
@@ -156,7 +158,7 @@ Every operation is defined by the `OperationDef` interface:
 ```typescript
 interface OperationDef {
   gateway: 'query' | 'mutate';     // CQRS gateway
-  domain: CanonicalDomain;          // One of 10 canonical domains
+  domain: CanonicalDomain;          // One of 11 canonical domains
   operation: string;                // Dot-notation name (e.g. 'stage.validate')
   description: string;              // Brief description
   tier: 0 | 1 | 2;                 // Progressive disclosure tier
@@ -648,9 +650,29 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 
 **Tier reclassification:** Entire domain demoted from tier 0 to tier 1. Sticky notes are a convenience layer, not cold-start essentials.
 
+### 6.11 intelligence (5 operations)
+
+The intelligence domain exposes predictive quality analysis functions from `@cleocode/core`. It reads from brain.db and tasks.db to produce risk scores, gate-focus recommendations, and pattern matches. The mutate gateway is unsupported — intelligence writes happen via hooks, not direct dispatch calls.
+
+All 5 operations are tier 1. This domain was introduced in T549 (epic T5149) and first registered alongside the memory architecture v2 initiative.
+
+| Gateway | Operation | Description | Tier | Required Params | Idempotent |
+|---------|-----------|-------------|------|-----------------|------------|
+| query | `predict` | Calculate risk score for a task, or predict validation outcome for a lifecycle stage when `stage` param is provided | 1 | `taskId` | Yes |
+| query | `suggest` | Suggest which verification gate(s) to focus on for a task based on historical failure patterns | 1 | `taskId` | Yes |
+| query | `learn-errors` | Extract recurring failure patterns from task history and brain.db; optional `limit` param | 1 | -- | Yes |
+| query | `confidence` | Score verification confidence for a task based on current gate state and historical evidence | 1 | `taskId` | Yes |
+| query | `match` | Match known brain patterns against a task to surface relevant historical context | 1 | `taskId` | Yes |
+
+**Query/mutate split:** Query-only. All 5 operations are read-only against brain.db and tasks.db. No mutate operations exist — writes are performed by the hook system after task completion or session end.
+
+**Escalation path:** All operations are tier 1; reachable via `cleo help --tier 1`. No tier-0 escalation is required since these operations are not part of the cold-start mandatory sequence.
+
 ### Summary Counts
 
-> **ADR-042 update (v2026.4.24)**: 17 canonical operations added across 6 domains. 7 experimental operations (`orchestrate.conduit.*` ×5, `admin.map` ×2) appear in Section 6.6 tables or remain registry-only, and are **excluded from this count** pending CLI surface and workflow documentation. Registry total is 231; constitutional canonical total is 224; 7 experimental ops remain undocumented by design.
+> **T565 update (v2026.4.42)**: `intelligence` domain added as the 11th canonical domain with 5 query-only operations. 7 experimental operations (`orchestrate.conduit.*` ×5, `admin.map` ×2) remain excluded from this count pending CLI surface and workflow documentation. Registry total is 248; constitutional canonical total is 229; 7 experimental ops remain undocumented by design.
+
+> **ADR-042 update (v2026.4.24)**: 17 canonical operations added across 6 domains. Registry total was 231; constitutional canonical total was 224 prior to this update.
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
@@ -664,7 +686,8 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | admin | 20 | 17 | 37 |
 | nexus | 13 | 9 | 22 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **129** | **95** | **224** |
+| intelligence | 5 | 0 | 5 |
+| **Total** | **134** | **95** | **229** |
 
 > Orchestrate counts exclude the 5 experimental `orchestrate.conduit.*` operations (which appear in the Section 6.6 table for discoverability). Admin counts exclude `admin.map` (query and mutate forms) which are experimental. The registry is the authoritative source of truth for the current operation count.
 

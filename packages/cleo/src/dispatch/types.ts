@@ -109,7 +109,7 @@ export interface ParamDef {
 }
 
 /**
- * The 10 canonical domain names.
+ * The 11 canonical domain names.
  */
 export const CANONICAL_DOMAINS = [
   'tasks',
@@ -232,8 +232,8 @@ export interface DispatchResponse {
 /**
  * Contract for domain handlers.
  *
- * Each of the 9 target domains (tasks, session, memory, check, pipeline,
- * orchestrate, tools, admin, nexus) implements this interface.
+ * Each of the 11 target domains (tasks, session, memory, check, pipeline,
+ * orchestrate, tools, admin, nexus, sticky, intelligence) implements this interface.
  */
 export interface DomainHandler {
   /** Execute a read-only query operation. */
