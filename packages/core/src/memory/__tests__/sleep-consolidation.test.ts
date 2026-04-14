@@ -171,7 +171,11 @@ function buildMockNativeDb(options: {
     return { run: mockRun, all: mockAll, get: vi.fn().mockReturnValue({ cnt: 0 }) };
   });
 
-  const stmtMock = { run: mockRun, all: vi.fn().mockReturnValue([]), get: vi.fn().mockReturnValue({ cnt: 0 }) };
+  const stmtMock = {
+    run: mockRun,
+    all: vi.fn().mockReturnValue([]),
+    get: vi.fn().mockReturnValue({ cnt: 0 }),
+  };
   return { prepare, _stmtMock: stmtMock };
 }
 
