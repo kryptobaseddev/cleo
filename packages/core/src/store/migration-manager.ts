@@ -144,23 +144,55 @@ export function reconcileJournal(
   }
 
   // Scenario 2: Journal has orphaned entries from a previous CLEO version
+  //
+  // Two distinct sub-cases require different handling:
+  //
+  // A) DB is AHEAD of this install (forward-compatibility): all local hashes
+  //    are present in the DB, but the DB also has additional entries for
+  //    migrations this install does not know about. This happens when a user
+  //    runs a globally-installed (older) cleo binary against a DB that was
+  //    last written by a newer cleo version. Deleting those entries would
+  //    cause an infinite reconciliation cycle: Drizzle re-runs the "missing"
+  //    migrations, hits duplicate-column errors (Scenario 3 recovers), writes
+  //    them back — only for this install to delete them again on the next run.
+  //    ACTION: skip reconciliation, log at debug only.
+  //
+  // B) DB has stale hashes from a genuinely old CLEO version whose checksum
+  //    algorithm produced different hashes for the same migration files (i.e.,
+  //    at least one local hash is MISSING from the DB while other DB entries
+  //    are unrecognised). ACTION: delete and re-seed as before, log at warn.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const localHashes = new Set(localMigrations.map((m) => m.hash));
     const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
       hash: string;
     }>;
-    const hasOrphanedEntries = dbEntries.some((e) => !localHashes.has(e.hash));
+    const orphanedEntries = dbEntries.filter((e) => !localHashes.has(e.hash));
+    const hasOrphanedEntries = orphanedEntries.length > 0;
 
     if (hasOrphanedEntries) {
-      const log = getLogger(logSubsystem);
-      log.warn(
-        { orphaned: dbEntries.filter((e) => !localHashes.has(e.hash)).length },
-        `Detected stale migration journal entries from a previous CLEO version. Reconciling.`,
-      );
-      nativeDb.exec('DELETE FROM "__drizzle_migrations"');
-      for (const m of localMigrations) {
-        insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
+      const dbHashes = new Set(dbEntries.map((e) => e.hash));
+      const allLocalHashesPresentInDb = localMigrations.every((m) => dbHashes.has(m.hash));
+
+      if (allLocalHashesPresentInDb) {
+        // Sub-case A: DB is ahead — this install is older than the DB.
+        // Do NOT modify the journal; log at debug so we can trace if needed.
+        const log = getLogger(logSubsystem);
+        log.debug(
+          { extra: orphanedEntries.length },
+          `Migration journal has ${orphanedEntries.length} entries for migrations not known to this install (DB is ahead). Skipping reconciliation.`,
+        );
+      } else {
+        // Sub-case B: Genuine stale hashes from an older CLEO version.
+        const log = getLogger(logSubsystem);
+        log.warn(
+          { orphaned: orphanedEntries.length },
+          `Detected stale migration journal entries from a previous CLEO version. Reconciling.`,
+        );
+        nativeDb.exec('DELETE FROM "__drizzle_migrations"');
+        for (const m of localMigrations) {
+          insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
+        }
       }
     }
   }
