@@ -98,15 +98,15 @@ export interface ScannedFile {
 // ---------------------------------------------------------------------------
 
 /**
- * Read and parse a single `.gitignore` file into a list of patterns.
+ * Read and parse a single ignore file (`.gitignore` or `.cleoignore`) into a list of patterns.
  *
  * Returns an empty array if the file does not exist or cannot be read.
  *
- * @param gitignorePath - Absolute path to the `.gitignore` file
+ * @param ignorePath - Absolute path to the ignore file
  */
-async function readGitignorePatterns(gitignorePath: string): Promise<string[]> {
+async function readIgnorePatterns(ignorePath: string): Promise<string[]> {
   try {
-    const content = await fs.readFile(gitignorePath, 'utf-8');
+    const content = await fs.readFile(ignorePath, 'utf-8');
     return content
       .split('\n')
       .map((line) => line.trim())
@@ -184,9 +184,11 @@ export async function walkRepositoryPaths(
   repoPath: string,
   onProgress?: (current: number, total: number, filePath: string) => void,
 ): Promise<ScannedFile[]> {
-  // Load root .gitignore patterns
-  const gitignorePatterns = await readGitignorePatterns(path.join(repoPath, '.gitignore'));
-  const ignoreMatchers = gitignorePatterns
+  // Load root .gitignore and .cleoignore patterns
+  const gitignorePatterns = await readIgnorePatterns(path.join(repoPath, '.gitignore'));
+  const cleoignorePatterns = await readIgnorePatterns(path.join(repoPath, '.cleoignore'));
+  const allIgnorePatterns = [...gitignorePatterns, ...cleoignorePatterns];
+  const ignoreMatchers = allIgnorePatterns
     .map(buildIgnoreMatcher)
     .filter((m): m is (relPath: string) => boolean => m !== null);
 
