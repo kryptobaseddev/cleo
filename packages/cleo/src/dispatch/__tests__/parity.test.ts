@@ -134,9 +134,10 @@ describe('Group 1: Registry completeness', () => {
     // T535: added 4 new memory graph traversal query ops (trace, related, context, stats).
     // T549 Wave 5-A: added admin.context.pull (query). +1 query / +1 total.
     // Intelligence domain: 5 query-only ops (predict, suggest, learn-errors, confidence, match).
-    expect(queryCount).toBe(143);
-    expect(mutateCount).toBe(99);
-    expect(OPERATIONS.length).toBe(242);
+    // T554: memory.quality (query), memory.code.* (4 query + 2 mutate = 6 ops).
+    expect(queryCount).toBe(147);
+    expect(mutateCount).toBe(101);
+    expect(OPERATIONS.length).toBe(248);
   });
 
   it('all operations have valid gateway values', () => {

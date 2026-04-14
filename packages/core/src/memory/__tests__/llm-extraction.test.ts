@@ -43,6 +43,15 @@ vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({
   zodOutputFormat: vi.fn().mockReturnValue({ _mock: 'zodOutputFormat' }),
 }));
 
+// Mock the key resolver so tests don't depend on filesystem state
+// (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
+// Default: no key. Tests that inject a client bypass this anyway.
+const mockResolveKey = vi.fn().mockReturnValue(null);
+vi.mock('../anthropic-key-resolver.js', () => ({
+  resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
+  clearAnthropicKeyCache: vi.fn(),
+}));
+
 // Mock the SDK entry point so buildAnthropicClient doesn't touch the network.
 // Tests that need this will inject a custom client via options.client instead.
 vi.mock('@anthropic-ai/sdk', () => {
@@ -51,6 +60,14 @@ vi.mock('@anthropic-ai/sdk', () => {
   }
   return { default: MockAnthropic };
 });
+
+// Mock the key resolver so tests don't depend on filesystem state
+// (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
+// Default: no key. Tests that inject a client via options.client bypass this.
+vi.mock('../anthropic-key-resolver.js', () => ({
+  resolveAnthropicApiKey: vi.fn().mockReturnValue(null),
+  clearAnthropicKeyCache: vi.fn(),
+}));
 
 // ---- imports after mocks --------------------------------------------------
 

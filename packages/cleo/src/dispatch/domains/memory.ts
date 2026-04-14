@@ -36,6 +36,7 @@ import {
   // Pattern operations
   memoryPatternFind,
   memoryPatternStore,
+  memoryQualityReport,
   memoryReasonSimilar,
   // Reasoning & hybrid search (T5388-T5393)
   memoryReasonWhy,
@@ -322,6 +323,37 @@ export class MemoryHandler implements DomainHandler {
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
+        case 'quality': {
+          const result = await memoryQualityReport(projectRoot);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'code.links': {
+          const { listCodeLinks } = await import('@cleocode/core/internal');
+          const result = await listCodeLinks(projectRoot);
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'code.memories-for-code': {
+          const symbol = params?.symbol as string;
+          if (!symbol) {
+            return errorResult('query', 'memory', operation, 'E_INVALID_INPUT', 'symbol is required', startTime);
+          }
+          const { queryMemoriesForCode } = await import('@cleocode/core/internal');
+          const result = await queryMemoriesForCode(projectRoot, symbol);
+          return wrapResult({ success: true, data: result }, 'query', 'memory', operation, startTime);
+        }
+
+        case 'code.for-memory': {
+          const memoryId = params?.memoryId as string;
+          if (!memoryId) {
+            return errorResult('query', 'memory', operation, 'E_INVALID_INPUT', 'memoryId is required', startTime);
+          }
+          const { queryCodeForMemory } = await import('@cleocode/core/internal');
+          const result = await queryCodeForMemory(projectRoot, memoryId);
+          return wrapResult({ success: true, data: result }, 'query', 'memory', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'memory', operation, startTime);
       }
@@ -503,6 +535,23 @@ export class MemoryHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
+        case 'code.link': {
+          const memoryId = params?.memoryId as string;
+          const codeSymbol = params?.codeSymbol as string;
+          if (!memoryId || !codeSymbol) {
+            return errorResult('mutate', 'memory', operation, 'E_INVALID_INPUT', 'memoryId and codeSymbol are required', startTime);
+          }
+          const { linkMemoryToCode } = await import('@cleocode/core/internal');
+          const linked = await linkMemoryToCode(projectRoot, memoryId, codeSymbol);
+          return wrapResult({ success: true, data: { linked } }, 'mutate', 'memory', operation, startTime);
+        }
+
+        case 'code.auto-link': {
+          const { autoLinkMemories } = await import('@cleocode/core/internal');
+          const result = await autoLinkMemories(projectRoot);
+          return wrapResult({ success: true, data: result }, 'mutate', 'memory', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'memory', operation, startTime);
       }
@@ -538,6 +587,10 @@ export class MemoryHandler implements DomainHandler {
         'reason.why',
         'reason.similar',
         'search.hybrid',
+        'quality',
+        'code.links',
+        'code.memories-for-code',
+        'code.for-memory',
       ],
       mutate: [
         'observe',
@@ -547,6 +600,8 @@ export class MemoryHandler implements DomainHandler {
         'link',
         'graph.add',
         'graph.remove',
+        'code.link',
+        'code.auto-link',
       ],
     };
   }

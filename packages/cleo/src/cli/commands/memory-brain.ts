@@ -509,4 +509,70 @@ export function registerMemoryBrainCommand(program: Command): void {
         { command: 'memory', operation: 'memory.search.hybrid' },
       );
     });
+
+  // -- code-links (show all code ↔ memory connections) --
+  memory
+    .command('code-links')
+    .description('Show code ↔ memory connections (code_reference edges between brain and nexus)')
+    .option('--limit <n>', 'Maximum entries to return (default 100)', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'code.links',
+        {
+          ...(opts['limit'] !== undefined && { limit: opts['limit'] }),
+        },
+        { command: 'memory', operation: 'memory.code.links' },
+      );
+    });
+
+  // -- code-auto-link (scan brain nodes and auto-link to nexus) --
+  memory
+    .command('code-auto-link')
+    .description('Scan brain memory nodes for entity references and auto-link to nexus code nodes')
+    .option('--json', 'Output as JSON')
+    .action(async () => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'code.auto-link',
+        {},
+        {
+          command: 'memory',
+          operation: 'memory.code.auto-link',
+        },
+      );
+    });
+
+  // -- code-memories-for-code (find memories that reference a code symbol) --
+  memory
+    .command('code-memories-for-code <symbol>')
+    .description('Find brain memory nodes that reference a given nexus code symbol')
+    .option('--json', 'Output as JSON')
+    .action(async (symbol: string) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'code.memories-for-code',
+        { symbol },
+        { command: 'memory', operation: 'memory.code.memories-for-code' },
+      );
+    });
+
+  // -- code-for-memory (find code nodes referenced by a memory entry) --
+  memory
+    .command('code-for-memory <memoryId>')
+    .description('Find nexus code nodes referenced by a given brain memory entry')
+    .option('--json', 'Output as JSON')
+    .action(async (memoryId: string) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'code.for-memory',
+        { memoryId },
+        { command: 'memory', operation: 'memory.code.for-memory' },
+      );
+    });
 }
