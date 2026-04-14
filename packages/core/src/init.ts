@@ -1097,5 +1097,12 @@ export async function deployStarterBundle(
     }
   }
 
-  created.push('starter-bundle: team + agent .cant files deployed to .cleo/cant/');
+  // Copy CLEOOS-IDENTITY.md to .cleo/ (orchestrator identity for main session agent)
+  const identitySrc = join(starterBundleSrc, 'CLEOOS-IDENTITY.md');
+  const identityDst = join(cleoDir, 'CLEOOS-IDENTITY.md');
+  if (existsSync(identitySrc) && !existsSync(identityDst)) {
+    await copyFile(identitySrc, identityDst);
+  }
+
+  created.push('starter-bundle: team + agent .cant files + identity deployed to .cleo/');
 }

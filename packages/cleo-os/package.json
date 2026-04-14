@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo-os",
-  "version": "2026.4.41",
+  "version": "2026.4.42",
   "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
   "type": "module",
   "main": "./dist/cli.js",
