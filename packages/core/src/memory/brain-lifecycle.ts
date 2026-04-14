@@ -579,6 +579,8 @@ export interface RunConsolidationResult {
   edgesStrengthened: number;
   /** Summary nodes generated. */
   summariesGenerated: number;
+  /** Code↔memory graph links created. */
+  graphLinksCreated?: number;
 }
 
 /**
@@ -669,6 +671,17 @@ export async function runConsolidation(projectRoot: string): Promise<RunConsolid
     result.summariesGenerated = summaryResult.merged;
   } catch (err) {
     console.warn('[consolidation] Step 7 summary generation failed:', err);
+  }
+
+  // Step 8: Link memory nodes to code graph (graph-memory-bridge, T555)
+  // Scans brain entries for entity references and creates code_reference
+  // edges connecting memory to nexus-indexed symbols.
+  try {
+    const { autoLinkMemories } = await import('./graph-memory-bridge.js');
+    const bridgeResult = await autoLinkMemories(projectRoot);
+    result.graphLinksCreated = bridgeResult.linked;
+  } catch (err) {
+    console.warn('[consolidation] Step 8 graph memory bridge failed:', err);
   }
 
   return result;

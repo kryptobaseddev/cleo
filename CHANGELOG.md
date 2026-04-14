@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.39] (2026-04-14)
+
+Hook Wiring + Tree-sitter Fix — connect all brain modules to real events, eliminate npm install warnings.
+
+### Hook Dispatch Wiring (T555)
+- **PostToolUse dispatch** wired into `completeTask()` — observer, quality feedback, memory bridge refresh now fire on every task completion
+- **SubagentStart/SubagentStop dispatch** wired into `orchestrateSpawnExecute()` — brain records agent spawns and completions, conduit gets lifecycle messages
+- **Graph bridge Step 8** wired into `runConsolidation()` — `autoLinkMemories()` connects memory nodes to code graph during sleep-time consolidation
+
+### Claude Code Adapter Activation (T555)
+- `registerNativeHooks()` now writes CLEO hook entries to `~/.claude/settings.json` — Stop triggers `cleo session end`, PostToolUse (Write|Edit) triggers brain observations
+- `unregisterNativeHooks()` cleans up by removing `# cleo-hook` marked entries
+- `projectDir` properly stored and exposed via `getProjectDir()`
+- Adapter `initialize()` calls `registerNativeHooks(projectDir)` on startup
+
+### Tree-sitter Peer Dependency Fix
+- Downgraded `tree-sitter` to `0.21.1` — eliminates ALL npm ERESOLVE peer dependency warnings on `npm install -g @cleocode/cleo-os`
+- Pinned `tree-sitter-c@0.23.2`, `tree-sitter-python@0.23.4`, `tree-sitter-rust@0.23.1` (newer versions changed peer deps to `^0.22.1`)
+- Removed now-unnecessary `overrides` from cleo and cleo-os
+- Upstream issue: tree-sitter-javascript#347 — language packages haven't updated peer deps
+
+### Test Fixes
+- `llm-extraction.test.ts`: Mocked `anthropic-key-resolver.js` — "no API key" test no longer breaks when Claude Code credentials exist on filesystem
+- `performance-safety.test.ts`: Widened timing thresholds (500ms single, 20s bulk) — eliminates CI flaking under load
+
 ## [2026.4.38] (2026-04-14)
 
 Complete Living Brain Architecture — all 7 research-backed memory techniques implemented. Epic T554 Phase 2.

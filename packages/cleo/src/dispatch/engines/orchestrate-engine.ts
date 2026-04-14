@@ -624,8 +624,46 @@ export async function orchestrateSpawnExecute(
       // Capacity check is best-effort — never block spawn
     }
 
+    // Dispatch SubagentStart hook BEFORE spawning — triggers brain observation
+    // recording and conduit messaging for the agent lifecycle (T555).
+    try {
+      const { hooks } = await import('@cleocode/core/internal');
+      await hooks
+        .dispatch('SubagentStart', cwd, {
+          timestamp: new Date().toISOString(),
+          taskId,
+          agentId: cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`,
+          role: protocolType || 'worker',
+          providerId: adapter.providerId,
+        })
+        .catch(() => {
+          /* Hooks are best-effort — never block spawn */
+        });
+    } catch {
+      /* Hook registry unavailable — non-fatal */
+    }
+
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
+
+    // Dispatch SubagentStop hook AFTER spawn returns — records completion
+    // status in brain and conduit (T555).
+    try {
+      const { hooks } = await import('@cleocode/core/internal');
+      await hooks
+        .dispatch('SubagentStop', cwd, {
+          timestamp: new Date().toISOString(),
+          taskId,
+          agentId: cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`,
+          status: result.status,
+          instanceId: result.instanceId,
+        })
+        .catch(() => {
+          /* Hooks are best-effort — never block spawn */
+        });
+    } catch {
+      /* Hook registry unavailable — non-fatal */
+    }
 
     // Best-effort: record spawn event in conduit.db so agents can observe
     // orchestration activity. Never awaited in a blocking way — fires and

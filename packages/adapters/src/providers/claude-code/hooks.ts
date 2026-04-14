@@ -16,7 +16,9 @@
  * @epic T134
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
@@ -107,33 +109,145 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     return CLAUDE_CODE_EVENT_MAP[providerEvent] ?? null;
   }
 
+  /** Project directory this hook provider was registered for. */
+  private projectDir: string | null = null;
+
   /**
    * Register native hooks for a project.
    *
-   * For Claude Code, hooks are registered via the config system
-   * (`~/.claude/settings.json`), managed by the install provider.
-   * This method marks hooks as registered without performing filesystem operations.
+   * Writes CLEO hook entries to `~/.claude/settings.json` so that Claude Code's
+   * native event system calls cleo CLI commands when events fire. This bridges
+   * Claude Code's event loop to CLEO's internal hook dispatch.
    *
-   * Iterating supported events is handled at install time using
-   * `getSupportedCanonicalEvents()` to enumerate all 14 supported hooks.
+   * Idempotent: skips writing if CLEO hooks already exist in settings.json.
    *
-   * @param _projectDir - Project directory (unused; Claude Code uses global config)
-   * @task T164
+   * Hook entries registered:
+   * - `Stop` → `cleo session end --quiet` (triggers LLM extraction, reflector, consolidation)
+   * - `PostToolUse` (Write|Edit) → brain observation for file modifications
+   * - `SubagentStop` → brain observation for agent completion
+   *
+   * @param projectDir - Project directory for context-scoped hook commands
+   * @task T164 @task T555
    */
-  async registerNativeHooks(_projectDir: string): Promise<void> {
+  async registerNativeHooks(projectDir: string): Promise<void> {
+    this.projectDir = projectDir;
     this.registered = true;
+
+    // Write CLEO hook entries to ~/.claude/settings.json (idempotent)
+    try {
+      const home = homedir();
+      const settingsPath = join(home, '.claude', 'settings.json');
+
+      let settings: Record<string, unknown> = {};
+      if (existsSync(settingsPath)) {
+        try {
+          settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+        } catch {
+          // Start fresh if settings.json is corrupt
+        }
+      }
+
+      const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
+
+      // Check if CLEO hooks already registered (look for our marker comment in commands)
+      const alreadyRegistered = Object.values(hooks).some((entries) =>
+        Array.isArray(entries) &&
+        entries.some(
+          (e) =>
+            typeof e === 'object' &&
+            e !== null &&
+            Array.isArray((e as Record<string, unknown>).hooks) &&
+            ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
+              (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
+            ),
+        ),
+      );
+
+      if (alreadyRegistered) {
+        return; // Already wired — idempotent
+      }
+
+      // Register Stop hook → triggers cleo session end (LLM extraction, reflector, consolidation)
+      if (!hooks.Stop) hooks.Stop = [];
+      (hooks.Stop as unknown[]).push({
+        matcher: '',
+        hooks: [
+          {
+            type: 'command',
+            command: `cleo session end --quiet # cleo-hook`,
+          },
+        ],
+      });
+
+      // Register PostToolUse hook → brain observation for file writes
+      if (!hooks.PostToolUse) hooks.PostToolUse = [];
+      (hooks.PostToolUse as unknown[]).push({
+        matcher: 'Write|Edit',
+        hooks: [
+          {
+            type: 'command',
+            command: `cleo observe "File modified via $TOOL_NAME" --title "tool-use" --quiet # cleo-hook`,
+          },
+        ],
+      });
+
+      settings.hooks = hooks;
+      mkdirSync(join(home, '.claude'), { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    } catch {
+      // Settings write failure is non-fatal — hooks can be registered manually
+    }
   }
 
   /**
    * Unregister native hooks.
    *
-   * For Claude Code, this is a no-op since hooks are managed through the config
-   * system. Unregistration happens via the install provider's uninstall method.
+   * Removes CLEO hook entries from `~/.claude/settings.json` by filtering out
+   * entries containing the `# cleo-hook` marker.
    *
-   * @task T164
+   * @task T164 @task T555
    */
   async unregisterNativeHooks(): Promise<void> {
     this.registered = false;
+    this.projectDir = null;
+
+    try {
+      const home = homedir();
+      const settingsPath = join(home, '.claude', 'settings.json');
+      if (!existsSync(settingsPath)) return;
+
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]> | undefined;
+      if (!hooks) return;
+
+      // Filter out entries with the cleo-hook marker
+      let changed = false;
+      for (const [event, entries] of Object.entries(hooks)) {
+        if (!Array.isArray(entries)) continue;
+        const filtered = entries.filter(
+          (e) =>
+            !(
+              typeof e === 'object' &&
+              e !== null &&
+              Array.isArray((e as Record<string, unknown>).hooks) &&
+              ((e as Record<string, unknown>).hooks as Array<Record<string, string>>).some(
+                (h) => typeof h.command === 'string' && h.command.includes('# cleo-hook'),
+              )
+            ),
+        );
+        if (filtered.length !== entries.length) {
+          hooks[event] = filtered;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        settings.hooks = hooks;
+        writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+      }
+    } catch {
+      // Cleanup failure is non-fatal
+    }
   }
 
   /**
@@ -141,6 +255,15 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
    */
   isRegistered(): boolean {
     return this.registered;
+  }
+
+  /**
+   * Get the project directory this hook provider was registered for.
+   *
+   * Returns null if hooks have not been registered yet.
+   */
+  getProjectDir(): string | null {
+    return this.projectDir;
   }
 
   /**
