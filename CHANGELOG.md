@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.38] (2026-04-14)
+
+Complete Living Brain Architecture — all 7 research-backed memory techniques implemented. Epic T554 Phase 2.
+
+### Sleep-Time Consolidation
+- **`sleep-consolidation.ts`** (932 lines): LLM-driven background process that runs after session end
+- 4-step pipeline: merge near-duplicates (embedding similarity > 0.85), prune stale entries (LLM adjudication before eviction), strengthen frequently-cited learnings into patterns, generate cross-cutting insights from observation clusters
+- Uses `resolveAnthropicApiKey()` — zero config needed
+- Wired into `brain-lifecycle.ts` consolidation pipeline
+
+### Graph Memory Bridge
+- **`graph-memory-bridge.ts`** (745 lines): connects brain memory nodes to nexus code intelligence nodes
+- `linkMemoryToCode()` creates `code_reference` edges from memories to code symbols
+- `autoLinkMemories()` scans observations/decisions for entity references (file paths, function names), matches against nexus_nodes
+- `queryMemoriesForCode()` and `queryCodeForMemory()` enable bidirectional traversal
+- New `code_reference` edge type added to `BRAIN_EDGE_TYPES` schema
+
+### Quality Feedback Loop
+- **`quality-feedback.ts`** (644 lines): closes the self-improvement loop
+- `trackMemoryUsage()` records whether retrieved memories were actually used
+- `correlateOutcomes()` boosts quality for memories used in successful tasks, penalizes failures, flags 30-day unused entries for pruning
+- `getMemoryQualityReport()` returns dashboard: retrieval stats, top cited, never-retrieved, quality distribution, noise ratio
+- New `brain_usage_log` table (self-healing), `prune_candidate` column on all brain tables
+- CLI: `cleo brain quality --json`, dispatch: `memory.quality` (query, tier 1)
+- Wired into `task-hooks.ts` `handleToolComplete` for automatic outcome correlation
+
+### Temporal Supersession
+- **`temporal-supersession.ts`** (529 lines): never delete, only supersede
+- `supersedeMemory()` marks old entry as superseded with pointer to replacement via `supersedes` edge
+- `detectSupersession()` automatically checks new entries against existing ones (embedding similarity + entity overlap)
+- `getSupersessionChain()` traces the full version history: [newest → ... → original]
+- Wired into `storeLearning()`, `storeDecision()`, `storePattern()` for automatic detection at store time
+
+### Codebase Audit
+- Confirmed: `.cleo/research/`, `.cleo/consensus/`, `.cleo/decomposition/`, `.cleo/specs/` are DEAD directories — no production code creates or reads them
+- `.cleo/nexus-index.db` (0 bytes, 0 code references) deleted as ghost artifact
+- `.cleo/rcasd/`, `.cleo/adrs/`, `.cleo/agent-outputs/`, `.cleo/cant/`, `.cleo/backups/` confirmed ALIVE and actively used
+
 ## [2026.4.37] (2026-04-13)
 
 Living Brain v3 — LLM-managed memory architecture. Epic T554.
