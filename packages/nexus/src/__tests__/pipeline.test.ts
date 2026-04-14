@@ -220,9 +220,57 @@ describe('walkRepositoryPaths', () => {
     expect(progressCalls.length).toBeGreaterThan(0);
   });
 
+  it('excludes files matching .cleoignore patterns', async () => {
+    writeFile(tmpDir, 'src/index.ts');
+    writeFile(tmpDir, 'temp/build.tmp', 'temp');
+    writeFile(tmpDir, 'src/config.local.json', 'config');
+    // Create .cleoignore file with patterns
+    writeFileSync(`${tmpDir}/.cleoignore`, 'temp/\n*.local.json\n');
+
+    const files = await walkRepositoryPaths(tmpDir);
+    const paths = files.map((f) => f.path);
+
+    expect(paths).toContain('src/index.ts');
+    expect(paths).not.toContain('temp/build.tmp');
+    expect(paths).not.toContain('src/config.local.json');
+  });
+
   it('handles empty repository', async () => {
     const files = await walkRepositoryPaths(tmpDir);
     expect(files).toHaveLength(0);
+  });
+
+  it('scans 10,000 files in under 2 seconds', { timeout: 10000 }, async () => {
+    // Create a directory structure with 10,000 empty TypeScript files
+    // using a batched approach for efficiency
+    const startTime = performance.now();
+
+    // Create files in subdirectories to simulate realistic repo structure
+    // 10 directories x 1000 files each
+    for (let dir = 0; dir < 10; dir++) {
+      for (let file = 0; file < 1000; file++) {
+        const dirName = `src${dir}`;
+        const fileName = `file${file}.ts`;
+        const relPath = `${dirName}/${fileName}`;
+        writeFile(tmpDir, relPath);
+      }
+    }
+
+    const setupTime = performance.now() - startTime;
+
+    // Now measure the walker performance
+    const walkStart = performance.now();
+    const files = await walkRepositoryPaths(tmpDir);
+    const walkTime = performance.now() - walkStart;
+
+    // Verify we got all 10,000 files
+    expect(files).toHaveLength(10000);
+
+    // Assert performance criterion: walker completes in under 2 seconds
+    expect(walkTime).toBeLessThan(2000);
+
+    // Log performance metrics for validation
+    console.log(`  [T514-B] Setup: ${setupTime.toFixed(2)}ms, Walk: ${walkTime.toFixed(2)}ms`);
   });
 });
 
