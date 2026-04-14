@@ -95,12 +95,19 @@ function workspacePlugin(name, inlineMap) {
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const coreBuildOptions = {
-  entryPoints: ['packages/core/src/index.ts'],
+  entryPoints: [
+    { in: 'packages/core/src/index.ts', out: 'index' },
+    // Sub-entry for @cleocode/core/conduit — must produce dist/conduit/index.js
+    // to match the "./conduit" export in packages/core/package.json.
+    { in: 'packages/core/src/conduit/index.ts', out: 'conduit/index' },
+    // Sub-entry for @cleocode/core/internal — matches the "./internal" export.
+    { in: 'packages/core/src/internal.ts', out: 'internal' },
+  ],
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  outfile: 'packages/core/dist/index.js',
+  outdir: 'packages/core/dist',
   sourcemap: true,
   plugins: [
     workspacePlugin('bundle-core-deps', {
