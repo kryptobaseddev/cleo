@@ -11,9 +11,67 @@
  * @packageDocumentation
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveCleoOsPaths } from './xdg.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Read the version field from a package.json file.
+ *
+ * @param packageJsonPath - Absolute path to a package.json file.
+ * @returns The version string, or 'unknown' if not readable.
+ */
+function readPackageVersion(packageJsonPath: string): string {
+  try {
+    const raw = readFileSync(packageJsonPath, 'utf-8');
+    const pkg = JSON.parse(raw) as { version?: string };
+    return pkg.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Handle version flags before delegating to Pi.
+ *
+ * - `--version` / `-V`: prints the CleoOS version from its own package.json.
+ * - `--cleo-version`: prints the @cleocode/cleo CLI version.
+ *
+ * @param args - User-supplied CLI arguments.
+ * @returns `true` if a version flag was handled (caller should exit), `false` otherwise.
+ */
+function handleVersionFlags(args: string[]): boolean {
+  if (args.includes('--version') || args.includes('-V')) {
+    const version = readPackageVersion(join(__dirname, '..', 'package.json'));
+    console.log(`CleoOS v${version}`);
+    return true;
+  }
+
+  if (args.includes('--cleo-version')) {
+    // Resolve @cleocode/cleo package.json via require.resolve pattern
+    let cleoVersion = 'unknown';
+    try {
+      const cleoPkgPath = join(
+        __dirname,
+        '..',
+        'node_modules',
+        '@cleocode',
+        'cleo',
+        'package.json',
+      );
+      cleoVersion = readPackageVersion(cleoPkgPath);
+    } catch {
+      // fallback: already 'unknown'
+    }
+    console.log(`CLEO CLI v${cleoVersion}`);
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Collect CleoOS extension paths that exist on disk.
@@ -37,6 +95,18 @@ function collectExtensionPaths(): string[] {
   const bridgePath = join(paths.extensions, 'cleo-cant-bridge.js');
   if (existsSync(bridgePath)) {
     extensions.push(bridgePath);
+  }
+
+  // cleo-hooks-bridge: CAAMP hooks (PreToolUse, PostToolUse, SubagentStart)
+  const hooksBridgePath = join(paths.extensions, 'cleo-hooks-bridge.js');
+  if (existsSync(hooksBridgePath)) {
+    extensions.push(hooksBridgePath);
+  }
+
+  // cleo-chatroom: inter-agent messaging TUI
+  const chatroomPath = join(paths.extensions, 'cleo-chatroom.js');
+  if (existsSync(chatroomPath)) {
+    extensions.push(chatroomPath);
   }
 
   const monitorPath = join(paths.extensions, 'cleo-agent-monitor.js');
@@ -72,6 +142,13 @@ function buildArgs(userArgs: string[], extensionPaths: string[]): string[] {
  * Exits with code 1 if Pi is not installed, providing install instructions.
  */
 async function main(): Promise<void> {
+  // Intercept version flags before touching Pi — prevents Pi from printing
+  // its own version (e.g. 0.67.1) when the user asks for CleoOS's version.
+  const userArgs = process.argv.slice(2);
+  if (handleVersionFlags(userArgs)) {
+    return;
+  }
+
   // Dynamically import Pi — it's a peerDependency, may not be installed
   let piMain: (args: string[]) => Promise<void>;
   try {
@@ -87,7 +164,7 @@ async function main(): Promise<void> {
   }
 
   const extensionPaths = collectExtensionPaths();
-  const args = buildArgs(process.argv.slice(2), extensionPaths);
+  const args = buildArgs(userArgs, extensionPaths);
 
   await piMain(args);
 }

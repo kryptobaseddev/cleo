@@ -262,8 +262,8 @@ export default function (pi: ExtensionAPI): void {
     async execute(
       _id: string,
       params: { message: string; from: string; lead: string; role?: AgentTierRole },
-      _signal: AbortSignal,
-      _onUpdate: (text: string) => void,
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
       const msg: ChatMessage = {
@@ -300,8 +300,8 @@ export default function (pi: ExtensionAPI): void {
     async execute(
       _id: string,
       params: { message: string; from: string; group: string; role?: AgentTierRole },
-      _signal: AbortSignal,
-      _onUpdate: (text: string) => void,
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
       const msg: ChatMessage = {
@@ -338,8 +338,8 @@ export default function (pi: ExtensionAPI): void {
     async execute(
       _id: string,
       params: { message: string; from: string; orchestrator: string; role?: AgentTierRole },
-      _signal: AbortSignal,
-      _onUpdate: (text: string) => void,
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
       const msg: ChatMessage = {
@@ -376,8 +376,8 @@ export default function (pi: ExtensionAPI): void {
     async execute(
       _id: string,
       params: { message: string; from: string; peer: string; role?: AgentTierRole },
-      _signal: AbortSignal,
-      _onUpdate: (text: string) => void,
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
       const msg: ChatMessage = {
