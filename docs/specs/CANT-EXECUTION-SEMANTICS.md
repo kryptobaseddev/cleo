@@ -44,7 +44,7 @@ event taxonomy from provider-only events to domain-sourced events.
 | CANT-DSL-SPEC.md Section 7 | This document expands Section 7 with formal semantics |
 | CANT-DSL-SPEC.md Section 5 | This document extends the CAAMP event table with domain events |
 | CANT-DSL-SPEC.md Section 8 | Approval Token Protocol is referenced; suspension model is formalized here |
-| CLEO-OPERATION-CONSTITUTION.md | Domain events map to the 10 canonical domains and CQRS gateways |
+| CLEO-OPERATION-CONSTITUTION.md | Domain events map to the 11 canonical domains and CQRS gateways |
 | VERB-STANDARDS.md | All operation references use canonical verbs |
 | hook-mappings.json | Domain event additions to the canonical event taxonomy are specified here |
 
@@ -760,7 +760,7 @@ metadata that explains what triggered the event and enables programmatic event g
 ```
 D:O:P = {domain}:{operation}:{phase}
 
-domain    = one of the 10 canonical CLEO domains (tasks, session, memory, ...)
+domain    = one of the 11 canonical CLEO domains (tasks, session, memory, intelligence, ...)
 operation = the canonical verb from VERB-STANDARDS.md (complete, add, observe, ...)
 phase     = "pre" | "post"
 ```
@@ -910,7 +910,7 @@ The `domainSources` section is designed for future domain sources beyond CLEO:
 ### 10.1 Event Taxonomy
 
 CLEO registers as the first domain source. Its events map to CQRS operations across four
-of the ten canonical domains:
+of the eleven canonical domains:
 
 #### 10.1.1 Task Events (The Smiths)
 

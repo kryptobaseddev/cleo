@@ -39,7 +39,7 @@ governed, continuous software development operation.
 > One developer. Many agents. One operating system for the work.
 
 CleoOS is **not** a replacement for CLEO. It is the name for what CLEO
-becomes when its four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are
+becomes when its six canonical systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) are
 fully realized with autonomous execution, multi-agent coordination, and
 project lifecycle management from inception to maintenance.
 

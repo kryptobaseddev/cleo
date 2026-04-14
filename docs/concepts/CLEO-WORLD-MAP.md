@@ -49,27 +49,34 @@
 | Layer | Practical Role | Mythic Reading |
 |-------|----------------|----------------|
 | **Intent** | Human goals, constraints, acceptance | The Crown |
-| **Contract** | LAFS envelopes and stable outputs | The Common Tongue |
+| **Contract** | LAFS envelope format `{success, data?, error?, meta}` — cross-cutting, not a system | The Common Tongue |
 | **Command** | CLEO routing, policy, continuity | The Sovereign Mind |
 | **Provisioning** | CAAMP skills, providers, MCP config writing, instructions | The Campfire Quartermaster |
+| **Work Registry** | TASKS — tasks, sessions, lifecycle, audit | The Permanent Record |
 | **Memory** | BRAIN persistence and retrieval | The Eternal Archive |
 | **Lifecycle** | LOOM sequencing from research to release | The Fate Weaver |
 | **Network** | NEXUS cross-project coordination | The Star Road |
+| **Agent Grammar** | CANT — DSL, team declarations, ACL gates | The Charter House |
+| **Agent Relay** | CONDUIT — 4-shell message delivery | The Dispatch Road |
 | **Field** | Tasks, checks, tools, agents, releases | The March of Work |
 
 ---
 
-## 3. The Five Named Powers
+## 3. The Seven Named Powers
 
 | Power | What It Really Does | Important Constraint |
 |-------|----------------------|----------------------|
 | **CLEO** | Governs continuity and system action | Must remain vendor-neutral |
+| **TASKS** | Permanent work registry — tasks, sessions, lifecycle, audit | Must preserve full provenance chain |
 | **BRAIN** | Stores durable project knowledge | Must preserve provenance |
 | **LOOM** | Enforces order of operations | Must prevent fake velocity |
 | **NEXUS** | Connects projects without merging them | Must preserve local autonomy |
-| **LAFS** | Standardizes outputs for tools and agents | Defines response shape, not transport |
+| **CANT** | Defines agent grammar, team structure, and permission boundaries | Must be parsed by cant-core Rust crate |
+| **CONDUIT** | Relays messages between agents across sessions and machines | Must not lose messages; 4-shell delivery |
 
-**CAAMP** is the provisioning ally, not a replacement for the core five named powers above.
+**Cross-Cutting Protocol**: **LAFS** standardizes the envelope format `{success, data?, error?, meta}` used by all systems. It is not a named power — it is the common tongue all powers speak.
+
+**CAAMP** is the provisioning ally, not a replacement for the six canonical systems.
 It equips the realm with provider configs, skills, MCP server configurations for downstream providers, and injected instructions.
 
 ---
@@ -100,7 +107,7 @@ The live workshop also has named runtime forms:
 | Form | Type | Runtime Meaning |
 |------|------|-----------------|
 | **The Hearth** | surface | The terminal-facing workshop surface where sessions, roles, and tools stay close at hand |
-| **The Circle of Ten** | role overlay | The role overlay mapped 1:1 to the ten canonical domains |
+| **The Circle of Eleven** | role overlay | The role overlay mapped 1:1 to the eleven canonical domains |
 | **The Impulse** | motion | The self-propelling motion that advances ready work through Warp-bound chains |
 | **Conduit** | relay path | Agent-to-agent communication layer. 4-shell stack: Shell 1 = Pi native process spawn (parent/child relay, free), Shell 2 = `conduit.db` SQLite (project-local messaging, v2026.4.12), Shell 3 = `signaldock-sdk` Rust via `api.signaldock.io` (cross-machine, shipped), Shell 4 = Rust broker with leases + DLQ (planned). The Chat Room is a Hearth TUI surface, NOT a Conduit shell. `sticky` is not the live relay lane. |
 | **Watchers** | patrols | Long-running Cascades that patrol continuity, gates, and system health |
@@ -112,7 +119,7 @@ The live workshop also has named runtime forms:
 
 ---
 
-## 5. The Circle of Ten
+## 5. The Circle of Eleven
 
 ```text
                            +-------------------+
@@ -155,10 +162,15 @@ The live workshop also has named runtime forms:
                             +--------+--------+
                             |     memory      |
                             |  The Archivists |
+                            +--------+--------+
+                                     |
+                            +--------+--------+
+                            |  intelligence   |
+                            |   The Seers     |
                             +-----------------+
 ```
 
-The Catchers keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`; they do not create an eleventh house.
+The Catchers keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`. The Seers (`intelligence`) provide impact prediction, blast radius analysis, and code intelligence.
 
 ---
 
@@ -225,21 +237,25 @@ The Proving returns a LAFS-shaped result with preserved context and fewer heroic
 | Character | Function | Personality |
 |-----------|----------|-------------|
 | **CLEO** | Governs continuity and coordination | Calm, exacting, remembers receipts |
+| **TASKS** | Keeps the permanent record of all work | Meticulous, never forgets a commitment |
 | **BRAIN** | Keeps durable knowledge | Quiet, impossible to gaslight |
 | **LOOM** | Keeps order of operations | Patient, allergic to chaos |
 | **NEXUS** | Connects projects and patterns | Strategic, always sees the wider map |
-| **LAFS** | Makes outputs understandable everywhere | Diplomatic, hates ambiguous payloads |
+| **CANT** | Defines what agents are and what they may do | Formal, reads every agent their rights |
+| **CONDUIT** | Delivers messages between agents reliably | Persistent, allergic to dropped packets |
+| **LAFS** | Makes outputs understandable everywhere (cross-cutting envelope format) | Diplomatic, hates ambiguous payloads |
 | **CAAMP** | Supplies the camp and configures the expedition | Practical, overprepared, suspicious of broken YAML |
 
 One line worth keeping:
 
-**If an agent returns pure vibes instead of structure, LAFS sends it back to fill out the proper forms, and CAAMP checks whether it packed the right tools in the first place.**
+**If an agent returns pure vibes instead of structure, LAFS sends it back to fill out the proper forms, CANT checks its charter, and CAAMP checks whether it packed the right tools in the first place.**
 
 ---
 
 ## 8. Canon In One Sentence
 
 ```text
-CLEO rules the work, BRAIN remembers it, LOOM frames it,
-NEXUS connects it, LAFS makes it legible, and CAAMP keeps the camp ready.
+CLEO rules the work, TASKS records it, BRAIN remembers it, LOOM frames it,
+NEXUS connects it, CANT governs the agents, CONDUIT relays them,
+LAFS makes every response legible, and CAAMP keeps the camp ready.
 ```

@@ -135,3 +135,10 @@ packages/*/.cleo/*.db-wal
 packages/*/.cleo/*.db-shm
 packages/*/.cleo/*.db-journal
 .gitnexus
+
+# Claude Code worktrees — transient per-agent clones
+.claude/worktrees/
+
+# Temp folders — ephemeral scratch, not tracked
+temp/
+*.tgz

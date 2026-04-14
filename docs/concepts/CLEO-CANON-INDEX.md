@@ -9,10 +9,10 @@ All core canon documents now live in this `concepts/` folder. This index gives a
 ## Read Order
 
 1. [CLEO-VISION.md](./CLEO-VISION.md)
-   The constitutional identity of CLEO. Read this first to understand what CLEO is, what the four canonical systems are, what is shipped vs planned, and which terms are non-negotiable.
+   The constitutional identity of CLEO. Read this first to understand what CLEO is, what the six canonical systems are (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT), what is shipped vs planned, and which terms are non-negotiable.
 
 2. [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md)
-   The runtime contract. Read this second to understand the 10 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
+   The runtime contract. Read this second to understand the 11 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
 
 3. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
    The visual map. Read this third to see how the conceptual systems, workshop vocabulary, and live runtime forms map to the runtime domains, how requests flow, and where data lives. Includes the package boundary diagram showing `@cleocode/core` vs `@cleocode/cleo`.

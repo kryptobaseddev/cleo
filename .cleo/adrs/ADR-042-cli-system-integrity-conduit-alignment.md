@@ -1,7 +1,8 @@
 # ADR-042: CLI System Integrity — Conduit Domain Disposition and Registry Alignment
 
-**Status**: PROPOSED
+**Status**: PARTIALLY SUPERSEDED
 **Date**: 2026-04-10
+**Superseded-By**: T565 (v2026.4.42) — `intelligence` added as the 11th canonical domain. Decision 1 of this ADR (fold conduit into orchestrate, preserve 10-domain invariant) was executed and the conduit fold stands. However, the "exactly 10 canonical domains" invariant no longer holds: the canonical count is now **11** (`tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`, `intelligence`). All references to "10 canonical domains" within this ADR reflect the state at time of authoring and are preserved as historical record. [UPDATED 2026-04-14: count corrected]
 **Related Tasks**: T443, T444, T445, T446
 **Related ADRs**: ADR-030, ADR-036, ADR-037, ADR-039
 **Keywords**: conduit, registry, constitution, domain-count, invariant, cli-audit, undocumented-ops, canonical, experimental

@@ -91,11 +91,21 @@ With NEXUS, wisdom can travel.
 
 ---
 
-## III. The Four Great Systems
+## III. The Six Great Systems
 
-CLEO stands on four interdependent systems. These are not flavor text. They are the canon because they are the architecture.
+CLEO stands on six interdependent systems. These are not flavor text. They are the canon because they are the architecture.
 
-### 1. BRAIN: The Eternal Archive
+### 1. TASKS: The Work Registry
+
+TASKS is the foundational project management system.
+
+It tracks every unit of work: tasks, epics, subtasks, sessions, dependencies, lifecycle stages, and the audit trail that links every decision to the moment it was made. TASKS is the permanent record of what was intended, what was attempted, and what was completed.
+
+It is the substrate on which every other system acts.
+
+Without TASKS, there is no work to remember, no lifecycle to sequence, no campaign to coordinate, and no provenance to preserve.
+
+### 2. BRAIN: The Eternal Archive
 
 BRAIN is the memory system.
 
@@ -107,7 +117,7 @@ It separates raw activity from extracted knowledge. It uses progressive retrieva
 
 If ordinary agents are goldfish with excellent branding, BRAIN is the vault they pretend not to need.
 
-### 2. LOOM: The Fate Weaver
+### 3. LOOM: The Fate Weaver
 
 LOOM is the lifecycle methodology.
 
@@ -121,7 +131,7 @@ LOOM removes fake speed: the kind that feels rapid because it is skipping sequen
 
 It is the system that gives work lineage, stage, and explainable order.
 
-### 3. NEXUS: The Star Road
+### 4. NEXUS: The Star Road
 
 NEXUS is the cross-project network.
 
@@ -129,19 +139,44 @@ It binds projects without fusing them, allows knowledge to travel without dissol
 
 NEXUS is how one project's lesson can become another project's shortcut instead of another project's repeat mistake.
 
-### 4. LAFS: The Common Tongue
+### 5. CANT: The Agent Grammar
 
-LAFS is the LLM-Agent-First Specification.
+CANT is the Collaborative Agent Notation Tongue.
 
-It is not a runtime, not a provider, and not a transport. It is the response contract that makes tools and agents speak in a consistent, machine-parseable form: structured envelopes, stable metadata, deterministic errors, field selection, and progressive disclosure.
+It is the language that agents use to declare what they are, what they can do, and how they may be orchestrated. CANT `.cant` files define team structures, role hierarchies, permission boundaries, mental models, and workflow compositions.
+
+The `cant-core` Rust crate parses the grammar. The CANT bridge enforces ACLs at the Pi `tool_call` hook level. CANT is what makes multi-agent coordination governed rather than improvised.
+
+In the myth, CANT is the formal charter that every agent carries — the document that proves who sent them, what authority they hold, and what they are forbidden to touch.
+
+### 6. CONDUIT: The Relay
+
+CONDUIT is the agent messaging system.
+
+It is the relay layer that lets agents communicate across sessions, machines, and time boundaries without losing messages to the void or building their own bespoke protocols.
+
+CONDUIT runs as a 4-shell stack: from Pi native process coordination, to project-local `conduit.db` persistence, to cloud relay via `signaldock.io`, to a full durable broker with leases and dead-letter handling.
+
+CONDUIT is what separates coordination from conversation.
+
+---
+
+### The Common Tongue: LAFS
+
+Beneath the six systems runs a single shared protocol.
+
+LAFS — the LLM-Agent-First Specification — is not a system. It is the response contract that all six systems speak.
+
+It is not a runtime, not a provider, and not a transport. It is the envelope format `{success, data?, error?, meta}` that makes tools and agents communicate in a consistent, machine-parseable form: structured envelopes, stable metadata, deterministic errors, field selection, and progressive disclosure.
 
 The `cleo` CLI defines how CLEO is invoked.
 A2A defines how agents communicate and delegate.
+CANT defines the grammar agents use to express structure.
 **LAFS defines the shape of what comes back.**
 
 That distinction matters.
 
-LAFS is what keeps a multi-agent system from becoming a diplomatic incident between incompatible payloads.
+LAFS is what keeps a six-system platform from becoming a diplomatic incident between incompatible payloads.
 
 In the myth, LAFS is the common tongue at the war table.
 
@@ -149,9 +184,9 @@ In practice, it is how provider-neutral orchestration remains sane.
 
 ---
 
-## IV. The Fifth Fire At Camp
+## IV. The Seventh Fire At Camp
 
-There are four great systems.
+There are six great systems.
 
 But every expedition needs a camp.
 
@@ -159,7 +194,7 @@ That camp is **CAAMP**.
 
 CAAMP, in practical terms, is the unified provider registry and package manager for AI coding agents. It helps developers manage skills, downstream MCP server configurations, instruction-file injection, agent configuration, and multi-provider setup without hand-editing fifty different configuration formats like a cursed scribe in a windowless tower.
 
-CAAMP is not a fifth core system replacing BRAIN, LOOM, NEXUS, or LAFS.
+CAAMP is not a seventh core system replacing TASKS, BRAIN, LOOM, NEXUS, CANT, or CONDUIT.
 
 CAAMP is the provisioning ground inside the realm.
 The encampment.
@@ -168,9 +203,12 @@ The place where wandering agents arrive to be outfitted, configured, armed, and 
 
 In the myth:
 
+- TASKS records what must be done.
 - BRAIN remembers the campaign.
 - LOOM plans the march.
 - NEXUS maps the roads.
+- CANT gives every agent their charter.
+- CONDUIT keeps messages flowing across the front.
 - LAFS ensures everyone can understand the orders.
 - **CAAMP makes sure the camp is stocked, the gear fits, the tools are registered, and nobody shows up with the wrong config file and a heroic excuse.**
 
@@ -275,7 +313,7 @@ Around the NEXUS Core, the realm also speaks of work in a more tactile language.
 
 A quick thought begins as a **Sticky Note** so it is not lost to the dark. If it proves real, it is promoted into a **Thread**: one concrete task, one strand of work. Related Threads are mounted on a **Loom**, the working frame of an epic. Several Looms, viewed as one deliberate campaign, become a **Tapestry**. When that Tapestry is held together by strict protocol chains--the synthesis of continuous workflow and unyielding quality gates--it is bound by the **Warp**. When that pattern is understood well enough to be reused with inputs, conditions, and variations, it becomes a **Tessera**: a repeatable composition card for future work. **Cogs** are the small precise mechanisms that let the pattern act in the world, each brief activation a single **Click**. When the prepared pattern begins crossing real gates in motion, it enters **Cascade**. And when the work has been proven, learned, and made readable without going stale, it enters **Tome**.
 
-This workshop vocabulary does not replace the four great systems.
+This workshop vocabulary does not replace the six great systems.
 
 It gives the realm a human language for how work is caught, shaped, moved, and remembered inside them.
 
@@ -283,9 +321,9 @@ The live workshop also has named runtime forms. **The Hearth** is the terminal-f
 
 ---
 
-## VII. The Circle of Ten
+## VII. The Circle of Eleven
 
-CLEO's runtime is governed by ten canonical domains. In myth, they are the ten houses of the realm. In implementation, they are the real contract.
+CLEO's runtime is governed by eleven canonical domains. In myth, they are the eleven houses of the realm. In implementation, they are the real contract.
 
 | Domain | Archetype | Duty |
 |--------|-----------|------|
@@ -299,6 +337,7 @@ CLEO's runtime is governed by ten canonical domains. In myth, they are the ten h
 | `admin` | The Keepers | Maintain config, backup, migration, and systemic health |
 | `nexus` | The Wayfinders | Govern cross-project graphs, registries, and routefinding |
 | `sticky` | The Catchers | Carry quick captures and draft handoffs until they are formally bound; live agent relay belongs to Conduit |
+| `intelligence` | The Seers | Predict impact, trace blast radius, and surface analytical insights about the work |
 
 Treat them as story if you need memory.
 
@@ -378,10 +417,13 @@ CLEO is built for the age after novelty.
 For all the story, the practical reading is clear:
 
 - **CLEO** is the operating intelligence.
+- **TASKS** is the permanent work registry.
 - **BRAIN** is persistent project memory.
 - **LOOM** is structured lifecycle execution.
 - **NEXUS** is cross-project coordination.
-- **LAFS** is the provider-neutral response contract.
+- **CANT** is the agent grammar and permission system.
+- **CONDUIT** is the agent-to-agent relay.
+- **LAFS** is the cross-cutting envelope format -- the shape of every response (not a system).
 - **CAAMP** is the provisioning camp for providers, skills, downstream MCP server configurations, and instruction injection.
 
 Together, they form an LLM-agent-first system that can organize, mobilize, and remember software work at the scale modern AI development demands.

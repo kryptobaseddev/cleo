@@ -11,7 +11,7 @@
 
 ## 1. Purpose
 
-This specification defines CLEO's autonomous runtime as a canon-aligned execution layer built on top of the existing four systems, ten canonical domains, and the CQRS query/mutate split in the dispatch registry.
+This specification defines CLEO's autonomous runtime as a canon-aligned execution layer built on top of the existing six systems, eleven canonical domains, and the CQRS query/mutate split in the dispatch registry.
 
 It gives implementation meaning to the live workshop terms:
 
@@ -34,7 +34,7 @@ This document is normative for terminology, mapping, and architectural constrain
 
 The autonomous runtime MUST obey the following constraints:
 
-1. CLEO keeps exactly 10 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`.
+1. CLEO keeps exactly 11 canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`, `intelligence`.
 2. The autonomous runtime introduces no additional domains, transports, or private protocols.
 3. Conduit MUST use LAFS envelopes and A2A delegation only.
 4. `sticky` MUST remain provisional capture and MUST NOT become the live agent-to-agent broker, inbox, or outbox.
@@ -63,7 +63,7 @@ The autonomous runtime is composed of three foundational services and a set of h
 | Form | Runtime Type | Primary Task | Purpose |
 |------|--------------|--------------|---------|
 | The Hearth | surface | `T5520` | Terminal-facing workshop surface for observing and interacting with live runtime state |
-| The Circle of Ten | role overlay | `T5521` | Persistent aspect model mapped to the ten canonical domains |
+| The Circle of Eleven | role overlay | `T5521` | Persistent aspect model mapped to the eleven canonical domains |
 | The Impulse | motion | `T5522`, `T5574` | Self-propelling work pickup and governed execution triggering |
 | Conduit | relay path | `T5524` | Agent relay path using LAFS and A2A only |
 | Watchers | patrols | `T5523`, `T5575` | Long-running Cascade patrols for health, continuity, and retry pressure |
@@ -80,7 +80,7 @@ The autonomous runtime is composed of three foundational services and a set of h
 | Canon Term | Runtime Type | Runtime Meaning | Primary Domains | Hook/Event Focus | Primary Tasks |
 |------------|--------------|-----------------|-----------------|------------------|---------------|
 | **The Hearth** | surface | Terminal-facing workshop surface and operator viewport | `session`, `orchestrate`, `tools` | `onAgentSpawn`, `onAgentComplete` | `T5520` |
-| **The Circle of Ten** | role overlay | Persistent aspect overlay mapped 1:1 to the canonical domains | all 10 domains | runtime role assignment | `T5521` |
+| **The Circle of Eleven** | role overlay | Persistent aspect overlay mapped 1:1 to the canonical domains | all 11 domains | runtime role assignment | `T5521` |
 | **The Impulse** | motion | Self-propelling motion that advances ready work | `orchestrate`, `pipeline`, `tasks` | `onWorkAvailable`, `onCascadeStart` | `T5522`, `T5574` |
 | **Conduit** | relay path | LAFS/A2A relay path between workers, sessions, and runtime surfaces | `orchestrate`, `session`, `nexus` | `onAgentSpawn`, `onAgentComplete` | `T5524` |
 | **Watchers** | patrols | Long-running Cascades that patrol health, continuity, and gate state | `pipeline`, `orchestrate`, `check`, `admin` | `onPatrol` | `T5523`, `T5575` |
@@ -92,9 +92,9 @@ The autonomous runtime is composed of three foundational services and a set of h
 
 ---
 
-## 5. The Circle of Ten
+## 5. The Circle of Eleven
 
-The Circle of Ten is a role overlay, not a new namespace. Each aspect maps directly to an existing canonical domain:
+The Circle of Eleven is a role overlay, not a new namespace. Each aspect maps directly to an existing canonical domain:
 
 | Aspect | Canonical Domain | Duty |
 |--------|------------------|------|
@@ -108,8 +108,9 @@ The Circle of Ten is a role overlay, not a new namespace. Each aspect maps direc
 | The Wayfinders | `nexus` | Govern the star road, cross-project lookup, and `nexus.share.*` relay |
 | The Catchers | `sticky` | Carry quick captures, draft handoffs, and promotable notes |
 | The Keepers | `admin` | Maintain health, backup, sequencing, and runtime continuity |
+| The Seers | `intelligence` | Predict quality, extract patterns, and analyze impact |
 
-`sticky` is the house of the Catchers. It is a provisional shelf, not the live A2A lane. Cross-project sharing remains under `nexus.share.*` and belongs to the Wayfinders.
+`sticky` is the house of the Catchers. It is a provisional shelf, not the live A2A lane. Cross-project sharing remains under `nexus.share.*` and belongs to the Wayfinders. The `intelligence` domain is the house of the Seers.
 
 ---
 
@@ -211,7 +212,7 @@ This dependency layering preserves the runtime foundation before operator surfac
 
 The autonomous runtime does not:
 
-- create an eleventh domain
+- create a twelfth domain
 - replace dispatch, shared core, or the CQRS gateway tags
 - replace LAFS with a private message protocol
 - redefine `nexus.share.*` as `sticky`

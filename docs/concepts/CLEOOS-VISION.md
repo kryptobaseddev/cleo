@@ -12,7 +12,7 @@ CleoOS is the full Agentic Development Environment built on top of `@cleocode/co
 
 Where `@cleocode/core` is the kernel -- tasks, sessions, memory, orchestration, lifecycle -- CleoOS is the complete operating system: the runtime, the coordination layer, the deployment surface, and the intelligence fabric that turns a solo developer and their AI agents into a governed, continuous software development operation.
 
-CleoOS is not a new product replacing CLEO. It is the name for what CLEO becomes when its four canonical systems (BRAIN, LOOM, NEXUS, LAFS) are fully realized with autonomous execution, multi-agent coordination, and project lifecycle management from inception to maintenance.
+CleoOS is not a new product replacing CLEO. It is the name for what CLEO becomes when its six canonical systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) are fully realized with autonomous execution, multi-agent coordination, and project lifecycle management from inception to maintenance.
 
 > One developer. Many agents. One operating system for the work.
 
@@ -63,14 +63,18 @@ Current tools solve pieces of this:
 
 None of them solve the whole problem. None of them provide an integrated environment where tasks, memory, lifecycle, orchestration, and multi-agent coordination operate as a single coherent system with provenance, validation, and continuity.
 
-CleoOS solves the whole problem by assembling the four canonical systems into a unified development environment:
+CleoOS solves the whole problem by assembling the six canonical systems into a unified development environment:
 
 | System | Kernel Role | CleoOS Extension |
 |--------|------------|------------------|
-| **BRAIN** | Store observations, patterns, learnings, decisions | Active memory circulation, contradiction detection, knowledge graph, temporal reasoning, semantic retrieval |
+| **TASKS** | Task hierarchy, sessions, lifecycle, audit log | Autonomous work pickup (Impulse), wave planning, gate enforcement |
 | **LOOM** | Lifecycle gates, stage transitions, pipeline stages | Autonomous progression through RCASD-IVTR+C, Tessera-driven decomposition, Warp-bound execution |
+| **BRAIN** | Store observations, patterns, learnings, decisions | Active memory circulation, contradiction detection, knowledge graph, temporal reasoning, semantic retrieval |
 | **NEXUS** | Cross-project registry, federated queries | Organization-scale coordination, global pattern libraries, shared intelligence |
-| **LAFS** | Structured envelopes, exit codes, progressive disclosure | Provider-neutral runtime contract for all agent communication |
+| **CANT** | Agent communication protocol, `.cant` DSL, directive grammar | CANT bridge, ACL enforcement, mental model injection, team declarations |
+| **CONDUIT** | Agent-to-agent relay, project-scoped messaging | Durable cross-session delivery, 4-shell stack, dead-letter handling |
+
+**Cross-Cutting Protocol**: **LAFS** (LLM-Agent-First Specification) defines the envelope format `{success, data?, error?, meta}` used by all six systems for agent communication. It is not a system — it is the shared response contract.
 
 ---
 
@@ -80,7 +84,7 @@ CleoOS solves the whole problem by assembling the four canonical systems into a 
 
 The autonomous runtime is the execution layer that makes CLEO self-propelling.
 
-Specified in `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`, it introduces three foundational services built on top of the existing hook substrate and 10 canonical domains:
+Specified in `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`, it introduces three foundational services built on top of the existing hook substrate and 11 canonical domains:
 
 - **Agent-Runtime Core** -- Source of truth for worker lifecycle, leases, identity, and event emission
 - **The Impulse Engine** -- Self-propelling work pickup: when ready work exists, the system advances it through governed execution without waiting for explicit human or agent instruction
@@ -97,7 +101,7 @@ Higher-order runtime forms include:
 | **Living BRAIN** | Memory in active circulation with reinforcement, contradiction detection, and retrieval loops |
 | **The Proving** | End-to-end validation of the runtime under load and failure conditions |
 
-The autonomous runtime does not create new domains. It layers execution behavior on top of the existing `orchestrate`, `pipeline`, `check`, `admin`, `memory`, and `session` domains through the internal hook substrate (`onWorkAvailable`, `onAgentSpawn`, `onAgentComplete`, `onCascadeStart`, `onPatrol`).
+The autonomous runtime does not create new domains. It layers execution behavior on top of the existing `orchestrate`, `pipeline`, `check`, `admin`, `memory`, and `session` domains through the internal hook substrate (`onWorkAvailable`, `onAgentSpawn`, `onAgentComplete`, `onCascadeStart`, `onPatrol`). Note: CLEO has 11 canonical domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky, intelligence).
 
 ### 4.2 Conduit Protocol
 
@@ -231,7 +235,7 @@ The kernel is shipped and operational:
 - `@cleocode/core` v2026.4.18 -- standalone business logic kernel with 45 domain modules
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
-- `@cleocode/cleo` -- full CLI product (registry-defined operations across 10 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
+- `@cleocode/cleo` -- full CLI product (registry-defined operations across 11 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
 - BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
 - LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
 - NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
@@ -290,7 +294,7 @@ CleoOS inherits and extends the principles from `@cleocode/core`:
 
 1. **Kernel stability** -- The kernel ships independently. CleoOS execution layers never destabilize core business logic.
 
-2. **No new domains** -- The 10 canonical domains are fixed. CleoOS adds execution behavior on top of existing domains, never beside them.
+2. **No new domains** -- The 11 canonical domains are fixed. CleoOS adds execution behavior on top of existing domains, never beside them.
 
 3. **Provider neutrality** -- Every CleoOS capability works with any provider that implements the adapter contract. No provider lock-in at any layer.
 
@@ -309,7 +313,7 @@ CleoOS inherits and extends the principles from `@cleocode/core`:
 ## 8. What CleoOS Is Not
 
 - CleoOS is **not a cloud platform**. It runs locally, on the developer's machine, in their terminal.
-- CleoOS is **not a replacement for CLEO**. It is the full realization of what CLEO's four systems become when assembled into a complete environment.
+- CleoOS is **not a replacement for CLEO**. It is the full realization of what CLEO's six systems become when assembled into a complete environment.
 - CleoOS is **not an AI model**. It coordinates AI agents but does not provide intelligence itself. The intelligence comes from the models; CleoOS provides memory, governance, and continuity.
 - CleoOS is **not a new protocol**. It uses LAFS and A2A for structured agent communication and extends Pi via the ExtensionAPI. It does not invent new communication standards.
 - CleoOS is **not a multi-tenant SaaS**. It is built for one developer and their agents, with NEXUS providing optional cross-project coordination.
@@ -321,12 +325,14 @@ CleoOS inherits and extends the principles from `@cleocode/core`:
 
 If `@cleocode/core` is the kernel, then:
 
+- **TASKS** is the job table -- the registry of all work units, their state, and their relationships
 - **BRAIN** is the filesystem -- persistent, structured, queryable memory
 - **LOOM** is the process scheduler -- work progresses through governed stages
-- **LAFS** is the system call interface -- structured contracts between user space and kernel
 - **NEXUS** is the network stack -- connecting isolated systems into a coherent whole
+- **CANT** is the instruction set architecture -- the grammar agents use to express intent
+- **CONDUIT** is IPC -- how processes (agents) communicate across shells
+- **LAFS** is the system call interface -- structured contracts between user space and kernel (cross-cutting, not a system)
 - **The Impulse** is the init process -- the first motion that starts everything else
-- **Conduit** is IPC -- how processes (agents) communicate
 - **Watchers** are cron -- scheduled operations that maintain system health
 - **The Hearth** is the terminal -- where the operator observes and interacts
 
