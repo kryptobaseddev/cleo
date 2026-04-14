@@ -24,11 +24,7 @@ import { fileURLToPath } from 'node:url';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 
 /** Lines that should appear in CLAUDE.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = [
-  '@.cleo/CLEOOS-IDENTITY.md',
-  '@~/.cleo/templates/CLEO-INJECTION.md',
-  '@.cleo/memory-bridge.md',
-];
+const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
 /** Resolve the commands directory bundled with this adapter. */
 function getAdapterCommandsDir(): string {
