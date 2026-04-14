@@ -334,6 +334,26 @@ export async function completeTask(
       /* Graph population is best-effort */
     });
 
+  // Dispatch PostToolUse hook — triggers observer, quality feedback, and memory bridge refresh.
+  // This is the missing link between "task completed" and "brain processes it" (T555).
+  try {
+    const { hooks } = await import('../hooks/registry.js');
+    await hooks
+      .dispatch('PostToolUse', cwd ?? process.cwd(), {
+        timestamp: new Date().toISOString(),
+        taskId: options.taskId,
+        taskTitle: task.title,
+        previousStatus: before.status,
+        newStatus: 'done',
+        unblockedCount: unblockedTasks.length,
+      })
+      .catch(() => {
+        /* Hooks are best-effort — never block task completion */
+      });
+  } catch {
+    /* Hook registry unavailable — non-fatal */
+  }
+
   return {
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
