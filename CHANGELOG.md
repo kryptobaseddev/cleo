@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.43] (2026-04-14)
+
+System-Wide Architecture Audit — 23-agent parallel pipeline across 4 waves.
+
+### Identity & Injection Unification
+- **CLEOOS-IDENTITY.md rewritten**: Correct 6 systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT). LAFS removed (envelope format, not a system)
+- **Global XDG deployment**: `init.ts deployStarterBundle()` copies identity to `~/.local/share/cleo/`
+- **Injection unified**: `cant-context.ts` is now the canonical entry point with `isMainAgent` + `compiledBundle` options
+- **Hardcoded identity block replaced**: `cleo-cant-bridge.ts` reads CLEOOS-IDENTITY.md from disk instead of inline markdown
+- **Duplicate composeSpawnPayload removed**: `orchestrate-engine.ts` no longer double-compiles CANT bundle
+
+### CONDUIT Delivery Loop (First Real Messages)
+- **LocalTransport priority**: `factory.ts` now prefers LocalTransport when conduit.db exists
+- **Dispatch wired**: All 4 conduit dispatch methods use LocalTransport with HTTP fallback
+- **Pi chatroom wired**: All 4 messaging tools deliver via `cleo conduit send`
+- **Package exports fixed**: Explicit `"./conduit"` entry in core/package.json
+- **First CONDUIT messages delivered**: 33 messages in audit session, local transport verified
+
+### Constitution Reconciled
+- **11 domains documented** (was 10): `intelligence` domain (5 query ops) added to §4 and §6.11
+- **229 canonical operations** (was 224): Updated §6 summary counts
+- **Types.ts JSDoc updated**: Domain count references corrected
+
+### Test Infrastructure
+- **5 test failures fixed**: cant fixture SSoT, core path resolution, lafs/runtime vitest configs
+- **76 unwired test files wired**: Added test scripts + vitest configs to adapters (195 tests), contracts (6), cleo (1204), skills (29)
+- **brain.db schema fixed**: `agent` column added to `ensureColumns` safety net
+
+### T514: Codebase Scanner (.cleoignore + Performance)
+- **`.cleoignore` support**: Generic `readIgnorePatterns()` loads both .gitignore and .cleoignore
+- **Performance benchmark**: 10K files in 338ms (acceptance: under 2s)
+- **Full team orchestration**: 7 CONDUIT messages tracked the Orchestrator→Lead→Workers chain
+
+## [2026.4.42] (2026-04-14)
+
+Fix ALL validator-discovered bugs.
+
+## [2026.4.41] (2026-04-14)
+
+Fix ALL validator-discovered bugs.
+
 ## [2026.4.40] (2026-04-14)
 
 Cross-Provider Agent Autonomy — CANT context injection for Claude Code, OpenCode, and all spawn providers.
