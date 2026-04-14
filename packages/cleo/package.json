@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "cd ../.. && vitest run --project='' packages/cleo/src",
+    "test": "cd ../.. && vitest run packages/cleo/src",
     "postinstall": "node bin/postinstall.js"
   },
   "dependencies": {
