@@ -21,9 +21,18 @@ vi.mock('../../audit.js', () => ({
   queryAudit: mocks.queryAudit,
 }));
 
-vi.mock('../../paths.js', () => ({
-  getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
-}));
+// Use importActual + spread so OTHER exports of paths.js remain available to any
+// module that loads this test's mocked paths.js from the vitest module registry.
+// Without this, tests that run AFTER this file in the same shard see paths.js
+// missing every export except getCleoDirAbsolute (T633 root cause: nexus-e2e
+// shard-2 audit failures, graph-memory-bridge mock errors).
+vi.mock('../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+  return {
+    ...actual,
+    getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
+  };
+});
 
 // Import after mocks are set up
 import { gradeSession, readGrades } from '../session-grade.js';

@@ -25,9 +25,15 @@ vi.mock('../../audit.js', () => ({
   queryAudit: mocks.queryAudit,
 }));
 
-vi.mock('../../paths.js', () => ({
-  getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
-}));
+// Use importActual + spread so OTHER exports of paths.js remain available — see
+// session-grade.test.ts for the T633 root-cause comment.
+vi.mock('../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+  return {
+    ...actual,
+    getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : mocks.tempCleoDir.value),
+  };
+});
 
 import { gradeSession, readGrades } from '../session-grade.js';
 
