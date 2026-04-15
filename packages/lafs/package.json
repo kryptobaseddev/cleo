@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/lafs",
-  "version": "2026.4.54",
+  "version": "2026.4.55",
   "private": false,
   "type": "module",
   "description": "LLM-Agent-First Specification schemas and conformance tooling",
