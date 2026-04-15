@@ -475,6 +475,35 @@ async function runParallelParseLoop(
   }
 
   // Build barrel export map from worker-collected re-export records (T617)
+  if (process.env['CLEO_BARREL_DEBUG']) {
+    const coreInternalRecords = allParallelReExports.filter((re) =>
+      re.filePath.includes('core/src/internal'),
+    );
+    process.stderr.write(
+      `[parse-loop-debug] allParallelReExports.length = ${allParallelReExports.length}\n`,
+    );
+    process.stderr.write(
+      `[parse-loop-debug] core/src/internal records = ${coreInternalRecords.length}\n`,
+    );
+    // Check if internal.ts was in the worker inputs
+    const internalInput = workerInputs.find((f) => f.path.includes('core/src/internal'));
+    process.stderr.write(
+      `[parse-loop-debug] internal.ts in workerInputs = ${internalInput ? 'YES: ' + internalInput.path : 'NO'}\n`,
+    );
+    // Check if internal.ts had symbols or imports
+    for (const wr of workerResults) {
+      const hasInternalSymbol = wr.symbols.some((s) => s.filePath.includes('core/src/internal'));
+      const hasInternalImport = wr.imports.some((i) => i.filePath.includes('core/src/internal'));
+      const hasInternalReExport = wr.reExports.some((r) =>
+        r.filePath.includes('core/src/internal'),
+      );
+      if (hasInternalSymbol || hasInternalImport || hasInternalReExport) {
+        process.stderr.write(
+          `[parse-loop-debug] Worker result: symbols=${hasInternalSymbol}, imports=${hasInternalImport}, reExports=${hasInternalReExport}\n`,
+        );
+      }
+    }
+  }
   const parallelBarrelMap = buildBarrelExportMap(allParallelReExports, importCtx, tsconfigPaths);
   process.stderr.write(
     `[nexus] Barrel map: ${parallelBarrelMap.size} barrel files with re-export chains\n`,
