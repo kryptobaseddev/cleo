@@ -15,7 +15,7 @@
  *   project conduit.db    — project_agent_refs  (openConduitDb)
  *   Join performed in Node (SQLite cannot cross-file-handle JOIN).
  *
- * @see .cleo/specs/T310-conduit-signaldock-spec.md §3.5
+ * @see .cleo/rcasd/T310/specification/T310-specification.md §3.5
  * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md
  * @task T355
  * @epic T310

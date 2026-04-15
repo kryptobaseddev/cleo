@@ -13,9 +13,9 @@ This reference defines all CLI operations for managing the agent outputs manifes
 The manifest system provides O(1) append operations and race-condition-free concurrent writes through JSONL format. Each line is a complete JSON object representing one research/output entry.
 
 **Default Paths**:
-- Output directory: `claudedocs/agent-outputs/` (configurable via `agentOutputs.directory`)
+- Output directory: `.cleo/agent-outputs/` (configurable via `agentOutputs.directory`)
 - Manifest file: `MANIFEST.jsonl` (configurable via `agentOutputs.manifestFile`)
-- Full path: `{{OUTPUT_DIR}}/MANIFEST.jsonl` (i.e., `claudedocs/agent-outputs/MANIFEST.jsonl`)
+- Full path: `{{OUTPUT_DIR}}/MANIFEST.jsonl` (i.e., `.cleo/agent-outputs/MANIFEST.jsonl`)
 
 **Design Principles**:
 - Append-only writes preserve audit trail
@@ -72,7 +72,7 @@ cleo research add \
 {
   "success": true,
   "entryId": "jwt-authentication-2026-02-07",
-  "manifestPath": "claudedocs/agent-outputs/MANIFEST.jsonl"
+  "manifestPath": ".cleo/agent-outputs/MANIFEST.jsonl"
 }
 ```
 
@@ -454,7 +454,7 @@ When present, the `audit` field provides operational metadata:
 | `{{EPIC_ID}}` | Parent epic identifier | `T3147` |
 | `{{DATE}}` | Current date | `2026-02-07` |
 | `{{TOPIC_SLUG}}` | URL-safe topic name | `jwt-authentication` |
-| `{{OUTPUT_DIR}}` | Output directory | `claudedocs/agent-outputs` |
+| `{{OUTPUT_DIR}}` | Output directory | `.cleo/agent-outputs` |
 | `{{MANIFEST_PATH}}` | Manifest filename | `MANIFEST.jsonl` |
 
 ### Command Tokens (CLEO Defaults)
@@ -538,7 +538,7 @@ jq -nc '{id: "test", title: "Test"}' >> MANIFEST.jsonl
 
 ```bash
 # WRONG - Bypasses validation
-echo "$json" >> claudedocs/agent-outputs/MANIFEST.jsonl
+echo "$json" >> .cleo/agent-outputs/MANIFEST.jsonl
 ```
 
 **Problem**: No validation, no atomic operation, no audit trail

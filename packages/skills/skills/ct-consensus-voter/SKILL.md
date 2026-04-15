@@ -126,7 +126,7 @@ Validate the matrix through `cleo check protocol`:
 ```bash
 cleo check protocol \
   --protocolType consensus \
-  --votingMatrixFile ./.cleo/consensus/CONS-0042.json \
+  --votingMatrixFile ./.cleo/rcasd/T4797/consensus/T4797-consensus.json \
   --taskId T4797
 ```
 
