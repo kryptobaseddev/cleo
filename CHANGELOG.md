@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.48] (2026-04-15)
+
+Agent SDK providers + CLEO Studio portal + barrel tracing infrastructure + CI fix.
+
+### Fix: CI biome format failures (urgent)
+- `pnpm biome check` applied to T617 barrel tracing files
+- Auto-applied optional chain refactors across core, caamp, test files
+- Pre-release verification pipeline standardized (feedback memory documented)
+
+### Feat: Claude Agent SDK spawn provider (T581)
+- `packages/adapters/src/providers/claude-sdk/` — 6 files including spawn.ts, session-store.ts, tool-bridge.ts, mcp-registry.ts
+- `@anthropic-ai/claude-agent-sdk@0.2.108` added as dependency
+- Persistent multi-turn agents, tool use, MCP integration
+- Config toggle: `provider.claude.mode sdk|cli` (default cli for backwards compat)
+- 19 new tests
+
+### Feat: OpenAI Agents SDK spawn provider (T582)
+- `packages/adapters/src/providers/openai-sdk/` — 8 files with guardrails, tracing, handoffs
+- First-class agent-to-agent handoffs (CLEO Lead → Worker mapping)
+- `CleoConduitTraceProcessor` writes spans to conduit.db
+- `supportsHandoffs: true` capability declared in manifest
+- 63 new tests
+
+### Shared utilities
+- `packages/adapters/src/providers/shared/sdk-result-mapper.ts` — normalizes RunResult → SpawnResult
+- `packages/adapters/src/providers/shared/conduit-trace-writer.ts` — shared audit path
+
+### Feat: CLEO Studio unified web portal (T577-T580)
+- `packages/studio/` — SvelteKit 2 + Svelte 5 + adapter-node + Hono
+- Routes: `/nexus` `/brain` `/tasks` (foundation scaffold)
+- `src/lib/server/db/connections.ts` — read-only sqlite for all 3 DBs
+- `src/routes/api/health/+server.ts` — live DB availability check
+- `cleo web start` wired to launch studio build/
+- Auto-build on first start via `pnpm --filter @cleocode/studio build`
+- LIVE VERIFIED: / /nexus /brain /tasks /api/health all return correct HTML + JSON
+
+### Feat: NEXUS barrel export tracing (T617 complete infrastructure)
+- `buildBarrelExportMap`, `resolveBarrelBinding`, `extractReExports` in import-processor.ts
+- 441-line barrel-tracing.test.ts with 23 tests
+- Wildcard export key prefix support
+- Follow-up T618 for wiring into active call resolution path
+
+### Test suite
+- 410 test files (was 405 at start of session)
+- 7420 tests passing (was 7275)
+- Zero regressions, 15 biome warnings (all non-breaking)
+
 ## [2026.4.47] (2026-04-14)
 
 T569 Attestation Epic — 4 critical bugs fixed + barrel tracing infrastructure.
