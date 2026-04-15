@@ -1,0 +1,45 @@
+{
+  "id": "openai-sdk",
+  "name": "OpenAI Agents SDK Adapter",
+  "version": "1.0.0",
+  "description": "CLEO adapter for the OpenAI Agents SDK with first-class handoffs and multi-model support",
+  "provider": "openai-sdk",
+  "entryPoint": "src/providers/openai-sdk/index.ts",
+  "capabilities": {
+    "supportsHooks": false,
+    "supportedHookEvents": [],
+    "supportsSpawn": true,
+    "supportsInstall": true,
+    "supportsMcp": false,
+    "supportsInstructionFiles": true,
+    "instructionFilePattern": "AGENTS.md",
+    "supportsContextMonitor": false,
+    "supportsStatusline": false,
+    "supportsProviderPaths": false,
+    "supportsTransport": false,
+    "supportsHandoffs": true,
+    "supportsMultiModel": true,
+    "supportsTracing": true
+  },
+  "config": {
+    "provider.openai.model": {
+      "type": "string",
+      "default": "gpt-4.1",
+      "description": "Default model for lead/orchestrator agents"
+    },
+    "provider.openai.workerModel": {
+      "type": "string",
+      "default": "gpt-4.1-mini",
+      "description": "Default model for worker agents"
+    },
+    "provider.openai.tracingEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to write SDK span events to conduit.db"
+    }
+  },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "OPENAI_API_KEY", "description": "OpenAI API key must be set" }
+  ],
+  "workerArchetypes": ["worker-read", "worker-write", "worker-bash"]
+}
