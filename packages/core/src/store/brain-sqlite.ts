@@ -98,69 +98,20 @@ function runBrainMigrations(
   // partial migration (Scenario 3) that slips through the proactive check above.
   migrateWithRetry(db, migrationsFolder, nativeDb, 'brain_decisions', 'brain');
 
-  // Safety net: ensure all columns from T528/T531/T549 exist even if the
-  // migration files were never committed to git or the journal was not updated.
-  // ensureColumns uses PRAGMA table_info + ALTER TABLE ADD COLUMN — idempotent.
-
-  // T528: graph schema expansion — quality scoring, content hashing, last-activity.
-  // Note: last_activity_at uses nullable text (no non-constant default) because
-  // ALTER TABLE ADD COLUMN with datetime('now') default fails on non-empty tables.
-  ensureColumns(
-    nativeDb,
-    'brain_page_nodes',
-    [
-      { name: 'quality_score', ddl: 'real DEFAULT 0.5' },
-      { name: 'content_hash', ddl: 'text' },
-      { name: 'last_activity_at', ddl: 'text' },
-      { name: 'updated_at', ddl: 'text' },
-    ],
-    'brain',
-  );
-
-  // T531: quality score on typed brain tables
-  for (const table of [
-    'brain_decisions',
-    'brain_patterns',
-    'brain_learnings',
-    'brain_observations',
-  ] as const) {
-    ensureColumns(nativeDb, table, [{ name: 'quality_score', ddl: 'real' }], 'brain');
-  }
-
-  // T549: tiered + typed memory architecture
-  for (const table of [
-    'brain_decisions',
-    'brain_patterns',
-    'brain_learnings',
-    'brain_observations',
-  ] as const) {
-    ensureColumns(
-      nativeDb,
-      table,
-      [
-        { name: 'memory_tier', ddl: "text DEFAULT 'short'" },
-        { name: 'memory_type', ddl: "text DEFAULT 'episodic'" },
-        { name: 'verified', ddl: 'integer NOT NULL DEFAULT 0' },
-        // valid_at uses nullable text (no datetime('now') default) because
-        // ALTER TABLE ADD COLUMN with non-constant defaults fails on non-empty tables.
-        { name: 'valid_at', ddl: 'text' },
-        { name: 'invalid_at', ddl: 'text' },
-        { name: 'source_confidence', ddl: "text DEFAULT 'agent'" },
-        { name: 'citation_count', ddl: 'integer NOT NULL DEFAULT 0' },
-      ],
-      'brain',
-    );
-  }
-
-  // T632 root-cause fix: the migration journal reconciler (Sub-case B) now uses
-  // a per-migration DDL probe instead of wholesale-marking-all-applied. ALTER TABLE
-  // ADD COLUMN migrations (T417 agent, T528 provenance) now run correctly when
-  // their columns are missing.
+  // T632 root-cause fix (complete): the migration journal reconciler (Sub-case B)
+  // uses a per-migration DDL probe (probeAndMarkApplied in migration-manager.ts)
+  // instead of wholesale-marking-all-applied. ALTER TABLE ADD COLUMN migrations
+  // (T417 agent, T528 graph schema, T531 quality-score, T549 tiered-memory, etc.)
+  // now run correctly when their columns are missing — the reconciler leaves them
+  // unjournaled so Drizzle's migrate() runs the DDL.
   //
-  // The previous `ensureColumns` band-aids (for `agent` and `provenance`) were
-  // removed in v2026.4.54 alongside the reconciler fix. If schema regressions
-  // recur, the right action is to debug `probeAndMarkApplied` in
-  // migration-manager.ts — NOT to add new band-aids here.
+  // The ensureColumns band-aids for T528/T531/T549 were removed here as part of
+  // T632 because all their columns are covered by Drizzle migration files. If a
+  // schema regression recurs, debug probeAndMarkApplied in migration-manager.ts —
+  // do NOT add new band-aids here.
+  //
+  // ensureColumns below are retained ONLY for columns that have NO corresponding
+  // Drizzle migration file (self-healing DDL only — see each comment).
 
   // T626-M1: Normalize co_retrieved edge type — idempotent safety-net UPDATE.
   // The shipped Hebbian strengthener emitted edge_type = 'relates_to' instead of

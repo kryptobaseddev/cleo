@@ -349,3 +349,325 @@ describe('reconcileJournal — Scenario 3 (T417: partially-applied migration)', 
     expect(isDuplicateColumnError(null)).toBe(false);
   });
 });
+
+/**
+ * Tests for Scenario 2 Sub-case A and Sub-case B in reconcileJournal.
+ *
+ * Sub-case A: DB is ahead — all local hashes are present in DB, DB has extras.
+ *   Root cause (T571): an older global install would delete+re-seed, causing an
+ *   infinite WARN cycle. Fix: detect forward-compat and skip reconciliation.
+ *
+ * Sub-case B: Stale hashes from genuinely old CLEO — at least one local hash is
+ *   MISSING from DB, meaning the hash algorithm changed.
+ *   Root cause (T632): the original fix deleted the journal and re-inserted ALL
+ *   local migrations as applied WITHOUT running their SQL, leaving columns missing.
+ *   Fix: probeAndMarkApplied — mark a migration applied ONLY if its DDL targets
+ *   already exist in the schema; leave the rest for Drizzle's migrate() to run.
+ *
+ * @task T632
+ * @task T571
+ */
+describe('reconcileJournal — Scenario 2 (T632: Sub-case A/B stale journal discrimination)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-scenario2-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('Sub-case A: does NOT modify journal when DB is ahead of this install', async () => {
+    // Simulate: DB has journal entries for migrations this install does not know about.
+    // This is the forward-compatibility scenario (older global binary, newer DB).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'brain-subcase-a.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getBrainMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    // Simulate a full-version DB that knows about all migrations.
+    // "This install" will only know about the first migration.
+    const installKnows = allMigrations.slice(0, 1);
+
+    // Create schema (just needs brain_decisions to exist).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "brain_decisions" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "decision" text NOT NULL,
+        "rationale" text NOT NULL,
+        "confidence" text NOT NULL,
+        "outcome" text,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      )
+    `);
+
+    // Journal has ALL migrations (written by newer install).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    const countBefore = (
+      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
+        cnt: number;
+      }
+    ).cnt;
+
+    // Run reconcileJournal with a migrations folder that only has installKnows[0].
+    // We simulate this by creating a temp subfolder with just that one migration.
+    const { mkdtemp: mkdtemp2, cp, rm: rmTemp } = await import('node:fs/promises');
+    const fakeInstallDir = await mkdtemp2(join(tmpdir(), 'fake-install-'));
+    try {
+      const { join: pathJoin } = await import('node:path');
+      const { cp: cpFn } = await import('node:fs/promises');
+      // Copy only the first migration folder.
+      const firstMigName = installKnows[0]!.name;
+      await cpFn(
+        pathJoin(migrationsFolder, firstMigName!),
+        pathJoin(fakeInstallDir, firstMigName!),
+        { recursive: true },
+      );
+      // Copy meta files if present (journal.json, etc.)
+      const { existsSync } = await import('node:fs');
+      for (const meta of ['journal.json', '_journal.json']) {
+        const src = pathJoin(migrationsFolder, meta);
+        if (existsSync(src)) {
+          await cpFn(src, pathJoin(fakeInstallDir, meta));
+        }
+      }
+
+      // Reconcile from the old install's perspective.
+      reconcileJournal(nativeDb, fakeInstallDir, 'brain_decisions', 'brain');
+    } finally {
+      await rmTemp(fakeInstallDir, { recursive: true, force: true });
+    }
+
+    // Journal must NOT have been modified — Sub-case A must preserve all entries.
+    const countAfter = (
+      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
+        cnt: number;
+      }
+    ).cnt;
+    expect(countAfter).toBe(countBefore);
+
+    nativeDb.close();
+  });
+
+  it('Sub-case B: marks migrations applied only when their DDL targets already exist (T632 root-cause fix)', async () => {
+    // Simulate: DB has stale hashes from an older CLEO version (hash algorithm changed).
+    // The schema already has some columns applied (e.g., from direct ALTER TABLE),
+    // but the journal hashes do not match any current migration.
+    //
+    // The old bandaid: mark ALL local migrations applied → columns assumed present.
+    // The root-cause fix: probe each migration's DDL; only mark applied if columns exist.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'brain-subcase-b.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getBrainMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+
+    // Find T417 (agent column) migration to verify probe behaviour.
+    const t417 = allMigrations.find((m) => m.name?.includes('t417'));
+    expect(t417).toBeDefined();
+
+    // Create the schema with brain_decisions (existence check table).
+    // brain_observations WITHOUT the `agent` column — simulates that T417 has
+    // NOT been applied yet on this DB despite the stale journal claiming otherwise.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "brain_decisions" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "decision" text NOT NULL,
+        "rationale" text NOT NULL,
+        "confidence" text NOT NULL,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS "brain_observations" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "title" text NOT NULL,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      )
+    `);
+
+    // Journal with STALE hashes (not matching any current migration).
+    // This is the genuine Sub-case B: hashes changed due to algorithm update.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    // Insert fake stale hashes — none match current migration hashes.
+    nativeDb.exec(`
+      INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name")
+        VALUES ('stale_hash_aaaaaa', 1000000, 'old_initial'),
+               ('stale_hash_bbbbbb', 1000001, 'old_second')
+    `);
+
+    // Confirm: at least one local hash is missing from DB (Sub-case B condition).
+    const dbHashes = new Set(
+      (
+        nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+          hash: string;
+        }>
+      ).map((e) => e.hash),
+    );
+    const allLocalPresent = allMigrations.every((m) => dbHashes.has(m.hash));
+    expect(allLocalPresent).toBe(false); // confirms we are in Sub-case B
+
+    // Run reconcileJournal — Sub-case B fires, journal is cleared and probed.
+    reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
+
+    // After reconciliation the stale hashes must be gone.
+    const afterEntries = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations"')
+      .all() as Array<{ hash: string }>;
+
+    expect(afterEntries.some((e) => e.hash === 'stale_hash_aaaaaa')).toBe(false);
+    expect(afterEntries.some((e) => e.hash === 'stale_hash_bbbbbb')).toBe(false);
+
+    // T417 migration targets brain_observations.agent — the column is MISSING, so
+    // probeAndMarkApplied must NOT mark it applied. Drizzle migrate() will run it.
+    expect(afterEntries.some((e) => e.hash === t417!.hash)).toBe(false);
+  });
+
+  it('Sub-case B: marks migration applied when its DDL columns already exist', async () => {
+    // Same Sub-case B setup, but T417 column is already present.
+    // probeAndMarkApplied MUST mark T417 applied (column exists → skip Drizzle).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'brain-subcase-b-present.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getBrainMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const t417 = allMigrations.find((m) => m.name?.includes('t417'));
+    expect(t417).toBeDefined();
+
+    // Create schema WITH brain_observations.agent column already present.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "brain_decisions" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "decision" text NOT NULL,
+        "rationale" text NOT NULL,
+        "confidence" text NOT NULL,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS "brain_observations" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "title" text NOT NULL,
+        "agent" text,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      )
+    `);
+
+    // Stale journal (Sub-case B).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    nativeDb.exec(`
+      INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name")
+        VALUES ('stale_hash_cccccc', 1000000, 'old_initial')
+    `);
+
+    // Run reconcileJournal.
+    reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
+
+    // T417 column (agent) exists → probeAndMarkApplied must insert the journal entry.
+    const afterEntries = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations"')
+      .all() as Array<{ hash: string }>;
+    expect(afterEntries.some((e) => e.hash === t417!.hash)).toBe(true);
+
+    nativeDb.close();
+  });
+
+  it('Sub-case B: leaves migration unjournaled when table targeted by CREATE TABLE is missing', async () => {
+    // Verifies probeAndMarkApplied does NOT mark a CREATE TABLE migration applied
+    // when the table does not yet exist in the DB.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'brain-subcase-b-create.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getBrainMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+
+    // Find any migration that has a CREATE TABLE (e.g., T528 which recreates brain_page_edges).
+    const t528 = allMigrations.find((m) => m.name?.includes('t528'));
+    expect(t528).toBeDefined();
+
+    // Only create brain_decisions (the existence table), NOT brain_page_nodes/brain_page_edges.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "brain_decisions" (
+        "id" text PRIMARY KEY,
+        "type" text NOT NULL,
+        "decision" text NOT NULL,
+        "rationale" text NOT NULL,
+        "confidence" text NOT NULL,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL
+      )
+    `);
+
+    // Stale journal (Sub-case B).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    nativeDb.exec(
+      `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('stale_hash_dddddd', 1000000, 'old_initial')`,
+    );
+
+    reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
+
+    // T528 targets brain_page_nodes.quality_score and brain_page_edges — both tables
+    // are absent, so T528 must NOT be marked applied.
+    const afterEntries = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations"')
+      .all() as Array<{ hash: string }>;
+    expect(afterEntries.some((e) => e.hash === t528!.hash)).toBe(false);
+
+    nativeDb.close();
+  });
+});
