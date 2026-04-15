@@ -105,7 +105,7 @@ describe('topologicalSortTasks', () => {
   });
 });
 
-describe('detectCycles', () => {
+describe('detectCycles — store/import-sort', () => {
   it('should return true for acyclic graph', () => {
     const tasks: SortableTask[] = [
       { id: 'T001', parentId: null, depends: [] },

@@ -31,7 +31,7 @@ import {
 // Title Validation
 // ============================================================================
 
-describe('validateTitle', () => {
+describe('validateTitle — validation/engine', () => {
   it('accepts valid title', () => {
     const result = validateTitle('Implement authentication');
     expect(result.valid).toBe(true);

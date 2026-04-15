@@ -60,7 +60,7 @@ describe('fileExists', () => {
   });
 });
 
-describe('generateProjectHash', () => {
+describe('generateProjectHash — via scaffold module', () => {
   it('produces a 12-character hex string', () => {
     const hash = generateProjectHash('/some/project');
     expect(hash).toMatch(/^[0-9a-f]{12}$/);

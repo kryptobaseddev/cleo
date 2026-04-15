@@ -153,7 +153,7 @@ describe('prepareSpawn', () => {
   });
 });
 
-describe('autoDispatch', () => {
+describe('autoDispatch — orchestration module', () => {
   it('dispatches by label', () => {
     const task: Task = {
       id: 'T001',
