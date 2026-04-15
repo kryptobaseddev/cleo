@@ -668,6 +668,111 @@ export function checkLegacyAgentOutputs(projectRoot?: string): CheckResult {
 }
 
 // ============================================================================
+// Check: Canonical RCASD Paths (ADR-045)
+// ============================================================================
+
+/**
+ * Validate that artifacts are at canonical RCASD paths per ADR-045.
+ * Detects drift: deprecated flat dirs, misplaced agent outputs, etc.
+ *
+ * @task T708 (scaffolding path drift validator)
+ */
+export function checkCanonicalRcasdPaths(projectRoot?: string): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const cleoDir = join(root, '.cleo');
+  const failures: string[] = [];
+
+  // 1. Check for deprecated flat directories with content
+  const deprecatedDirs = ['research', 'consensus', 'specs', 'decomposition'];
+  for (const dir of deprecatedDirs) {
+    const dirPath = join(cleoDir, dir);
+    if (existsSync(dirPath)) {
+      try {
+        const entries = (require('node:fs').readdirSync(dirPath) as string[]).filter(
+          (e) => !e.startsWith('.'),
+        );
+        if (entries.length > 0) {
+          failures.push(
+            `deprecated .cleo/${dir}/ contains files (should migrate to .cleo/rcasd/{epicId}/${dir}/)`,
+          );
+        }
+      } catch {
+        // directory exists but can't read; skip
+      }
+    }
+  }
+
+  // 2. Check for misplaced audit files at .cleo/rcasd/ root
+  const rcasdPath = join(cleoDir, 'rcasd');
+  if (existsSync(rcasdPath)) {
+    try {
+      const rootFiles = (require('node:fs').readdirSync(rcasdPath) as string[]).filter((e) =>
+        e.endsWith('.md'),
+      );
+      if (rootFiles.length > 0) {
+        failures.push(
+          `misplaced .md files in .cleo/rcasd/ root (audit-*.md, etc. should be in .cleo/agent-outputs/)`,
+        );
+      }
+    } catch {
+      // directory exists but can't read; skip
+    }
+  }
+
+  // 3. Check for claudedocs legacy location
+  const claudedocsPath = join(root, 'claudedocs');
+  if (existsSync(claudedocsPath)) {
+    try {
+      const agentOutputs = join(claudedocsPath, 'agent-outputs');
+      if (existsSync(agentOutputs)) {
+        failures.push(
+          `legacy claudedocs/agent-outputs/ directory exists (should migrate to .cleo/agent-outputs/)`,
+        );
+      }
+    } catch {
+      // path exists but can't read; skip
+    }
+  }
+
+  // 4. Check for @see references pointing to deprecated paths in source code
+  // (This is a sample check; full validation should be done at lint time)
+  // For now, just provide guidance in the message.
+
+  if (failures.length > 0) {
+    return {
+      id: 'canonical_rcasd_paths',
+      category: 'configuration',
+      status: 'warning',
+      message: `Canonical path drift detected (ADR-045): ${failures.join('; ')}`,
+      details: {
+        issues: failures,
+        canonical: {
+          rcasdStages: '.cleo/rcasd/{epicId}/{stage}/{epicId}-{stage}.md',
+          agentOutputs: '.cleo/agent-outputs/{taskId}-{slug}.md',
+          publishedSpecs: 'docs/specs/SPEC-NAME.md',
+        },
+      },
+      fix: 'cleo upgrade (migrates old paths) or manually move files per ADR-045',
+    };
+  }
+
+  return {
+    id: 'canonical_rcasd_paths',
+    category: 'configuration',
+    status: 'passed',
+    message: 'All artifacts at canonical RCASD paths (ADR-045 compliant)',
+    details: {
+      canonical: {
+        rcasdStages: '.cleo/rcasd/{epicId}/{stage}/{epicId}-{stage}.md',
+        agentOutputs: '.cleo/agent-outputs/{taskId}-{slug}.md',
+        publishedSpecs: 'docs/specs/SPEC-NAME.md',
+      },
+    },
+    fix: null,
+  };
+}
+
+// ============================================================================
 // Check: CAAMP marker integrity
 // ============================================================================
 
@@ -1166,6 +1271,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkCoreFilesNotIgnored(projectRoot),
     checkSqliteNotTracked(projectRoot),
     checkLegacyAgentOutputs(projectRoot),
+    // ADR-045 canonical paths check (T708)
+    checkCanonicalRcasdPaths(projectRoot),
     // Injection chain checks (T5153)
     checkCaampMarkerIntegrity(projectRoot),
     checkAtReferenceTargetExists(projectRoot),

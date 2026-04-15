@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import type { PageData } from './$types';
   import type { EpicProgress, RecentTask } from './+page.server.js';
+  import type { SearchTaskRow } from '../api/tasks/search/+server.js';
+  import { normalizeSearch } from '$lib/tasks/search.js';
 
   interface Props {
     data: PageData;
@@ -10,6 +13,112 @@
   const stats = data.stats;
   const recentTasks: RecentTask[] = data.recentTasks ?? [];
   const epicProgress: EpicProgress[] = data.epicProgress ?? [];
+
+  // ---------------------------------------------------------------------------
+  // Search state
+  // ---------------------------------------------------------------------------
+
+  let searchRaw = $state('');
+  let searchLoading = $state(false);
+  let searchError = $state<string | null>(null);
+
+  /** Results for a fuzzy title search. */
+  let titleResults = $state<SearchTaskRow[]>([]);
+  /** Whether the current search resolved to an exact ID that was not found. */
+  let idNotFound = $state(false);
+  /** The resolved ID that was looked up (for not-found message). */
+  let resolvedId = $state<string | null>(null);
+
+  /** True when a title search returned zero results. */
+  let noTitleResults = $state(false);
+
+  /** True when a title search is active (results panel visible). */
+  let showResults = $state(false);
+
+  $effect(() => {
+    const raw = searchRaw;
+    const normalized = normalizeSearch(raw);
+
+    if (normalized.kind === 'empty') {
+      titleResults = [];
+      idNotFound = false;
+      resolvedId = null;
+      noTitleResults = false;
+      showResults = false;
+      return;
+    }
+
+    let controller = new AbortController();
+
+    // Debounce: wait 250ms before firing the request
+    const timer = setTimeout(async () => {
+      searchLoading = true;
+      searchError = null;
+      idNotFound = false;
+      noTitleResults = false;
+      resolvedId = null;
+
+      try {
+        const res = await fetch(`/api/tasks/search?q=${encodeURIComponent(raw)}`, {
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          searchError = `Search failed (${res.status})`;
+          searchLoading = false;
+          return;
+        }
+
+        const body = (await res.json()) as
+          | { kind: 'empty' }
+          | { kind: 'id'; task: SearchTaskRow | null }
+          | { kind: 'title'; tasks: SearchTaskRow[]; total: number }
+          | { error: string };
+
+        if ('error' in body) {
+          searchError = body.error;
+          searchLoading = false;
+          return;
+        }
+
+        if (body.kind === 'id') {
+          if (body.task) {
+            // Exact match — navigate directly to task detail
+            goto(`/tasks/${body.task.id}`);
+          } else {
+            idNotFound = true;
+            resolvedId = normalizeSearch(raw).kind === 'id' ? (normalizeSearch(raw) as { kind: 'id'; id: string }).id : null;
+            showResults = true;
+          }
+        } else if (body.kind === 'title') {
+          titleResults = body.tasks;
+          noTitleResults = body.total === 0;
+          showResults = true;
+        } else {
+          showResults = false;
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          searchError = String(err);
+        }
+      } finally {
+        searchLoading = false;
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  });
+
+  function clearSearch(): void {
+    searchRaw = '';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
 
   function priorityClass(p: string): string {
     if (p === 'critical') return 'priority-critical';
@@ -97,6 +206,61 @@
     </div>
   </div>
 
+  <!-- Search bar -->
+  <div class="search-section">
+    <div class="search-box" class:loading={searchLoading}>
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input
+        class="search-input"
+        type="text"
+        placeholder="Search by ID (T663, t663, 663) or title..."
+        bind:value={searchRaw}
+        autocomplete="off"
+        spellcheck="false"
+      />
+      {#if searchRaw.length > 0}
+        <button class="search-clear" onclick={clearSearch} aria-label="Clear search">✕</button>
+      {/if}
+    </div>
+    {#if searchError}
+      <div class="search-error">{searchError}</div>
+    {/if}
+  </div>
+
+  <!-- Search results panel -->
+  {#if showResults}
+    <div class="search-results-panel">
+      {#if idNotFound}
+        <div class="search-empty">Task {resolvedId ?? searchRaw} not found.</div>
+      {:else if noTitleResults}
+        <div class="search-empty">No tasks match "{searchRaw}".</div>
+      {:else}
+        <div class="search-results-header">
+          <span class="results-count">{titleResults.length} result{titleResults.length === 1 ? '' : 's'}</span>
+          <button class="results-close" onclick={clearSearch} aria-label="Close results">✕</button>
+        </div>
+        <div class="search-results-list">
+          {#each titleResults as t}
+            <a href="/tasks/{t.id}" class="search-result-row" onclick={clearSearch}>
+              <span class="result-status-icon {statusClass(t.status)}">{statusIcon(t.status)}</span>
+              <div class="result-info">
+                <span class="result-id">{t.id}</span>
+                {#if t.type !== 'task'}
+                  <span class="result-type">{t.type}</span>
+                {/if}
+                <span class="result-title">{t.title}</span>
+              </div>
+              <div class="result-meta">
+                <span class="result-priority {priorityClass(t.priority)}">{t.priority}</span>
+                <span class="result-time">{formatTime(t.updated_at)}</span>
+              </div>
+            </a>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   {#if stats}
     <div class="stats-section">
       <div class="stat-group">
@@ -165,6 +329,7 @@
               <div class="epic-header-row">
                 <span class="epic-id">{ep.id}</span>
                 <span class="epic-title">{ep.title}</span>
+                <span class="epic-counts">{ep.done}/{ep.total}</span>
                 <span class="epic-pct">{progressPct(ep)}%</span>
               </div>
               <div class="epic-progress-bar">
@@ -288,6 +453,211 @@
   .live-ts {
     color: #475569;
   }
+
+  /* Search */
+
+  .search-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    padding: 0.5rem 0.875rem;
+    transition: border-color 0.15s;
+  }
+
+  .search-box:focus-within {
+    border-color: rgba(168, 85, 247, 0.5);
+  }
+
+  .search-box.loading {
+    border-color: rgba(168, 85, 247, 0.3);
+  }
+
+  .search-icon {
+    color: #475569;
+    font-size: 1.125rem;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #f1f5f9;
+    font-size: 0.875rem;
+    min-width: 0;
+  }
+
+  .search-input::placeholder {
+    color: #475569;
+  }
+
+  .search-clear {
+    background: none;
+    border: none;
+    color: #475569;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0.125rem 0.25rem;
+    border-radius: 3px;
+    transition: color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .search-clear:hover {
+    color: #94a3b8;
+  }
+
+  .search-error {
+    font-size: 0.75rem;
+    color: #ef4444;
+    padding: 0 0.25rem;
+  }
+
+  /* Search results panel */
+
+  .search-results-panel {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .search-empty {
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: #64748b;
+    text-align: center;
+  }
+
+  .search-results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #2d3748;
+  }
+
+  .results-count {
+    font-size: 0.75rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  .results-close {
+    background: none;
+    border: none;
+    color: #475569;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    transition: color 0.15s;
+  }
+
+  .results-close:hover {
+    color: #94a3b8;
+  }
+
+  .search-results-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .search-result-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 1rem;
+    border-bottom: 1px solid #1e2435;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s;
+  }
+
+  .search-result-row:hover {
+    background: #21273a;
+  }
+
+  .search-result-row:last-child {
+    border-bottom: none;
+  }
+
+  .result-status-icon {
+    font-size: 0.75rem;
+    width: 1rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .result-info {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .result-id {
+    font-size: 0.7rem;
+    color: #a855f7;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .result-type {
+    font-size: 0.675rem;
+    color: #64748b;
+    background: #1e2435;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .result-title {
+    font-size: 0.8125rem;
+    color: #e2e8f0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .result-priority {
+    font-size: 0.675rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .result-time {
+    font-size: 0.675rem;
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Stats section */
 
   .stats-section {
     display: flex;
@@ -484,6 +854,7 @@
 
   .epic-id { font-size: 0.7rem; color: #a855f7; font-weight: 600; flex-shrink: 0; }
   .epic-title { font-size: 0.8125rem; color: #e2e8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .epic-counts { font-size: 0.75rem; color: #22c55e; font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .epic-pct { font-size: 0.75rem; color: #94a3b8; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
   .epic-progress-bar {

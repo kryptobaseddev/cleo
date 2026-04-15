@@ -65,7 +65,7 @@ cleo research show A-research-id
 
 # 3. Orchestrator spawns Agent B with context:
 # "Previous research found: OAuth2 recommended, JWT for sessions, 30-day token expiry.
-#  If you need details, read: claudedocs/agent-outputs/2026-01-31_A-research.md
+#  If you need details, read: .cleo/agent-outputs/2026-01-31_A-research.md
 #  Your task: Implement the authentication module based on these findings."
 ```
 

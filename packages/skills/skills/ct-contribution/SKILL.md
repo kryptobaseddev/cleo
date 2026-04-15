@@ -383,7 +383,7 @@ Get injection block for subagent prompts.
 
 ```bash
 source lib/contribution-protocol.sh
-injection=$(contribution_get_injection "T2204" "claudedocs/protocol.md")
+injection=$(contribution_get_injection "T2204" ".cleo/agent-outputs/protocol.md")
 ```
 
 ### contribution_create_manifest_entry()
