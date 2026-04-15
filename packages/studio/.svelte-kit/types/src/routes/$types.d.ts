@@ -12,8 +12,8 @@ type OptionalUnion<U extends Record<string, any>, A extends keyof U = U extends 
 export type Snapshot<T = any> = Kit.Snapshot<T>;
 type PageServerParentData = EnsureDefined<LayoutServerData>;
 type PageParentData = EnsureDefined<LayoutData>;
-type LayoutRouteId = RouteId | "/" | "/brain" | "/nexus" | "/tasks" | null
-type LayoutParams = RouteParams & {  }
+type LayoutRouteId = RouteId | "/" | "/brain" | "/brain/decisions" | "/brain/graph" | "/brain/observations" | "/brain/quality" | "/nexus" | "/nexus/community/[id]" | "/nexus/symbol/[name]" | "/projects" | "/tasks" | "/tasks/[id]" | "/tasks/pipeline" | "/tasks/sessions" | "/tasks/tree/[epicId]" | null
+type LayoutParams = RouteParams & { id?: string; name?: string; epicId?: string }
 type LayoutParentData = EnsureDefined<{}>;
 
 export type PageServerLoad<OutputData extends OutputDataShape<PageServerParentData> = OutputDataShape<PageServerParentData>> = Kit.ServerLoad<RouteParams, PageServerParentData, OutputData, RouteId>;

@@ -16,7 +16,7 @@
     "src": "../../node_modules/.pnpm/@sveltejs+kit@2.57.1_@sveltejs+vite-plugin-svelte@5.1.1_svelte@5.55.4_vite@8.0.8_@types_3b291ab8aecb731f2569fb111f44cf77/node_modules/@sveltejs/kit/src/runtime/components/svelte-5/error.svelte",
     "isEntry": true,
     "imports": [
-      "_environment.js",
+      "_index-server.js",
       "_client.js",
       "_dev.js"
     ]
@@ -27,10 +27,12 @@
     "src": "../../node_modules/.pnpm/@sveltejs+kit@2.57.1_@sveltejs+vite-plugin-svelte@5.1.1_svelte@5.55.4_vite@8.0.8_@types_3b291ab8aecb731f2569fb111f44cf77/node_modules/@sveltejs/kit/src/runtime/server/index.js",
     "isEntry": true,
     "imports": [
+      "_index-server.js",
       "_environment.js",
       "_internal.js",
       "_utils.js",
       "_exports.js",
+      "_app.js",
       "_shared.js",
       "_dev.js"
     ]
@@ -45,10 +47,35 @@
       "_internal.js"
     ]
   },
+  "_NexusGraph.CA44Eg2r.css": {
+    "file": "_app/immutable/assets/NexusGraph.CA44Eg2r.css",
+    "src": "_NexusGraph.CA44Eg2r.css"
+  },
+  "_NexusGraph.js": {
+    "file": "chunks/NexusGraph.js",
+    "name": "NexusGraph",
+    "imports": [
+      "_index-server.js",
+      "_navigation.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/NexusGraph.CA44Eg2r.css"
+    ]
+  },
+  "_app.js": {
+    "file": "chunks/app.js",
+    "name": "app"
+  },
+  "_cleo-home.js": {
+    "file": "chunks/cleo-home.js",
+    "name": "cleo-home"
+  },
   "_client.js": {
     "file": "chunks/client.js",
     "name": "client",
     "imports": [
+      "_index-server.js",
       "_environment.js",
       "_internal.js",
       "_exports.js",
@@ -58,7 +85,10 @@
   },
   "_connections.js": {
     "file": "chunks/connections.js",
-    "name": "connections"
+    "name": "connections",
+    "imports": [
+      "_cleo-home.js"
+    ]
   },
   "_dev.js": {
     "file": "chunks/dev.js",
@@ -66,10 +96,7 @@
   },
   "_environment.js": {
     "file": "chunks/environment.js",
-    "name": "environment",
-    "imports": [
-      "_dev.js"
-    ]
+    "name": "environment"
   },
   "_exports.js": {
     "file": "chunks/exports.js",
@@ -78,19 +105,41 @@
       "_dev.js"
     ]
   },
+  "_index-server.js": {
+    "file": "chunks/index-server.js",
+    "name": "index-server",
+    "imports": [
+      "_dev.js"
+    ]
+  },
   "_internal.js": {
     "file": "chunks/internal.js",
     "name": "internal",
     "imports": [
+      "_index-server.js",
       "_environment.js",
       "_dev.js"
+    ]
+  },
+  "_navigation.js": {
+    "file": "chunks/navigation.js",
+    "name": "navigation",
+    "imports": [
+      "_client.js"
+    ]
+  },
+  "_project-context.js": {
+    "file": "chunks/project-context.js",
+    "name": "project-context",
+    "imports": [
+      "_cleo-home.js"
     ]
   },
   "_shared.js": {
     "file": "chunks/shared.js",
     "name": "shared",
     "imports": [
-      "_environment.js",
+      "_index-server.js",
       "_dev.js"
     ]
   },
@@ -108,7 +157,7 @@
     "src": "src/routes/+layout.svelte",
     "isEntry": true,
     "imports": [
-      "_environment.js",
+      "_index-server.js",
       "_client.js",
       "_dev.js"
     ],
@@ -137,10 +186,146 @@
       "_app/immutable/assets/_page.4tNR_TUx.css"
     ]
   },
+  "src/routes/api/brain/decisions/+server.ts": {
+    "file": "entries/endpoints/api/brain/decisions/_server.ts.js",
+    "name": "entries/endpoints/api/brain/decisions/_server.ts",
+    "src": "src/routes/api/brain/decisions/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/brain/graph/+server.ts": {
+    "file": "entries/endpoints/api/brain/graph/_server.ts.js",
+    "name": "entries/endpoints/api/brain/graph/_server.ts",
+    "src": "src/routes/api/brain/graph/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/brain/observations/+server.ts": {
+    "file": "entries/endpoints/api/brain/observations/_server.ts.js",
+    "name": "entries/endpoints/api/brain/observations/_server.ts",
+    "src": "src/routes/api/brain/observations/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/brain/quality/+server.ts": {
+    "file": "entries/endpoints/api/brain/quality/_server.ts.js",
+    "name": "entries/endpoints/api/brain/quality/_server.ts",
+    "src": "src/routes/api/brain/quality/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
   "src/routes/api/health/+server.ts": {
     "file": "entries/endpoints/api/health/_server.ts.js",
     "name": "entries/endpoints/api/health/_server.ts",
     "src": "src/routes/api/health/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/nexus/+server.ts": {
+    "file": "entries/endpoints/api/nexus/_server.ts.js",
+    "name": "entries/endpoints/api/nexus/_server.ts",
+    "src": "src/routes/api/nexus/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/nexus/community/[id]/+server.ts": {
+    "file": "entries/endpoints/api/nexus/community/_id_/_server.ts.js",
+    "name": "entries/endpoints/api/nexus/community/_id_/_server.ts",
+    "src": "src/routes/api/nexus/community/[id]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/nexus/search/+server.ts": {
+    "file": "entries/endpoints/api/nexus/search/_server.ts.js",
+    "name": "entries/endpoints/api/nexus/search/_server.ts",
+    "src": "src/routes/api/nexus/search/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/nexus/symbol/[name]/+server.ts": {
+    "file": "entries/endpoints/api/nexus/symbol/_name_/_server.ts.js",
+    "name": "entries/endpoints/api/nexus/symbol/_name_/_server.ts",
+    "src": "src/routes/api/nexus/symbol/[name]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/search/+server.ts": {
+    "file": "entries/endpoints/api/search/_server.ts.js",
+    "name": "entries/endpoints/api/search/_server.ts",
+    "src": "src/routes/api/search/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_cleo-home.js",
+      "_project-context.js"
+    ]
+  },
+  "src/routes/api/tasks/+server.ts": {
+    "file": "entries/endpoints/api/tasks/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/_server.ts",
+    "src": "src/routes/api/tasks/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/tasks/[id]/+server.ts": {
+    "file": "entries/endpoints/api/tasks/_id_/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/_id_/_server.ts",
+    "src": "src/routes/api/tasks/[id]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/tasks/events/+server.ts": {
+    "file": "entries/endpoints/api/tasks/events/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/events/_server.ts",
+    "src": "src/routes/api/tasks/events/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/tasks/pipeline/+server.ts": {
+    "file": "entries/endpoints/api/tasks/pipeline/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/pipeline/_server.ts",
+    "src": "src/routes/api/tasks/pipeline/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/tasks/sessions/+server.ts": {
+    "file": "entries/endpoints/api/tasks/sessions/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/sessions/_server.ts",
+    "src": "src/routes/api/tasks/sessions/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/api/tasks/tree/[epicId]/+server.ts": {
+    "file": "entries/endpoints/api/tasks/tree/_epicId_/_server.ts.js",
+    "name": "entries/endpoints/api/tasks/tree/_epicId_/_server.ts",
+    "src": "src/routes/api/tasks/tree/[epicId]/+server.ts",
     "isEntry": true,
     "imports": [
       "_connections.js"
@@ -164,7 +349,59 @@
       "_dev.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.C92tpZzl.css"
+      "_app/immutable/assets/_page.DUN9eWob.css"
+    ]
+  },
+  "src/routes/brain/decisions/+page.svelte": {
+    "file": "entries/pages/brain/decisions/_page.svelte.js",
+    "name": "entries/pages/brain/decisions/_page.svelte",
+    "src": "src/routes/brain/decisions/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index-server.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.Crrkn-dS.css"
+    ]
+  },
+  "src/routes/brain/graph/+page.svelte": {
+    "file": "entries/pages/brain/graph/_page.svelte.js",
+    "name": "entries/pages/brain/graph/_page.svelte",
+    "src": "src/routes/brain/graph/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index-server.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.dLrGvhBz.css"
+    ]
+  },
+  "src/routes/brain/observations/+page.svelte": {
+    "file": "entries/pages/brain/observations/_page.svelte.js",
+    "name": "entries/pages/brain/observations/_page.svelte",
+    "src": "src/routes/brain/observations/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index-server.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.zwdklswq.css"
+    ]
+  },
+  "src/routes/brain/quality/+page.svelte": {
+    "file": "entries/pages/brain/quality/_page.svelte.js",
+    "name": "entries/pages/brain/quality/_page.svelte",
+    "src": "src/routes/brain/quality/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index-server.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.7mt6nqGX.css"
     ]
   },
   "src/routes/nexus/+page.server.ts": {
@@ -182,10 +419,78 @@
     "src": "src/routes/nexus/+page.svelte",
     "isEntry": true,
     "imports": [
+      "_dev.js",
+      "_NexusGraph.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.DJBpgVRS.css"
+    ]
+  },
+  "src/routes/nexus/community/[id]/+page.server.ts": {
+    "file": "entries/pages/nexus/community/_id_/_page.server.ts.js",
+    "name": "entries/pages/nexus/community/_id_/_page.server.ts",
+    "src": "src/routes/nexus/community/[id]/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/nexus/community/[id]/+page.svelte": {
+    "file": "entries/pages/nexus/community/_id_/_page.svelte.js",
+    "name": "entries/pages/nexus/community/_id_/_page.svelte",
+    "src": "src/routes/nexus/community/[id]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js",
+      "_NexusGraph.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.bCUSurl2.css"
+    ]
+  },
+  "src/routes/nexus/symbol/[name]/+page.server.ts": {
+    "file": "entries/pages/nexus/symbol/_name_/_page.server.ts.js",
+    "name": "entries/pages/nexus/symbol/_name_/_page.server.ts",
+    "src": "src/routes/nexus/symbol/[name]/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/nexus/symbol/[name]/+page.svelte": {
+    "file": "entries/pages/nexus/symbol/_name_/_page.svelte.js",
+    "name": "entries/pages/nexus/symbol/_name_/_page.svelte",
+    "src": "src/routes/nexus/symbol/[name]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js",
+      "_NexusGraph.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.BK-v4rcQ.css"
+    ]
+  },
+  "src/routes/projects/+page.server.ts": {
+    "file": "entries/pages/projects/_page.server.ts.js",
+    "name": "entries/pages/projects/_page.server.ts",
+    "src": "src/routes/projects/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_project-context.js"
+    ]
+  },
+  "src/routes/projects/+page.svelte": {
+    "file": "entries/pages/projects/_page.svelte.js",
+    "name": "entries/pages/projects/_page.svelte",
+    "src": "src/routes/projects/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_navigation.js",
+      "_client.js",
       "_dev.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.BOrZ0clC.css"
+      "_app/immutable/assets/_page.DP-hlj4s.css"
     ]
   },
   "src/routes/tasks/+page.server.ts": {
@@ -206,7 +511,91 @@
       "_dev.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.CBMHUWtE.css"
+      "_app/immutable/assets/_page.D-mF5Pzk.css"
+    ]
+  },
+  "src/routes/tasks/[id]/+page.server.ts": {
+    "file": "entries/pages/tasks/_id_/_page.server.ts.js",
+    "name": "entries/pages/tasks/_id_/_page.server.ts",
+    "src": "src/routes/tasks/[id]/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/tasks/[id]/+page.svelte": {
+    "file": "entries/pages/tasks/_id_/_page.svelte.js",
+    "name": "entries/pages/tasks/_id_/_page.svelte",
+    "src": "src/routes/tasks/[id]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.DKwxyo93.css"
+    ]
+  },
+  "src/routes/tasks/pipeline/+page.server.ts": {
+    "file": "entries/pages/tasks/pipeline/_page.server.ts.js",
+    "name": "entries/pages/tasks/pipeline/_page.server.ts",
+    "src": "src/routes/tasks/pipeline/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/tasks/pipeline/+page.svelte": {
+    "file": "entries/pages/tasks/pipeline/_page.svelte.js",
+    "name": "entries/pages/tasks/pipeline/_page.svelte",
+    "src": "src/routes/tasks/pipeline/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.DD-MRcTL.css"
+    ]
+  },
+  "src/routes/tasks/sessions/+page.server.ts": {
+    "file": "entries/pages/tasks/sessions/_page.server.ts.js",
+    "name": "entries/pages/tasks/sessions/_page.server.ts",
+    "src": "src/routes/tasks/sessions/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/tasks/sessions/+page.svelte": {
+    "file": "entries/pages/tasks/sessions/_page.svelte.js",
+    "name": "entries/pages/tasks/sessions/_page.svelte",
+    "src": "src/routes/tasks/sessions/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.DWzk8nj5.css"
+    ]
+  },
+  "src/routes/tasks/tree/[epicId]/+page.server.ts": {
+    "file": "entries/pages/tasks/tree/_epicId_/_page.server.ts.js",
+    "name": "entries/pages/tasks/tree/_epicId_/_page.server.ts",
+    "src": "src/routes/tasks/tree/[epicId]/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_connections.js"
+    ]
+  },
+  "src/routes/tasks/tree/[epicId]/+page.svelte": {
+    "file": "entries/pages/tasks/tree/_epicId_/_page.svelte.js",
+    "name": "entries/pages/tasks/tree/_epicId_/_page.svelte",
+    "src": "src/routes/tasks/tree/[epicId]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.DMfPDnBN.css"
     ]
   }
 }

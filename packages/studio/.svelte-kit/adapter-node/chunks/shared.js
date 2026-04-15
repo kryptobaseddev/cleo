@@ -1,4 +1,4 @@
-import { s as hydratable } from "./environment.js";
+import { i as hydratable } from "./index-server.js";
 import { dt as get_type, ft as is_plain_object$1, gt as valid_array_indices, ht as stringify_string, lt as DevalueError, mt as stringify_key, pt as is_primitive, ut as enumerable_symbols } from "./dev.js";
 import { HttpError, SvelteKitError } from "@sveltejs/kit/internal";
 //#region ../../node_modules/.pnpm/@sveltejs+kit@2.57.1_@sveltejs+vite-plugin-svelte@5.1.1_svelte@5.55.4_vite@8.0.8_@types_3b291ab8aecb731f2569fb111f44cf77/node_modules/@sveltejs/kit/src/utils/functions.js

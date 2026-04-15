@@ -1,5 +1,6 @@
-import { a as index_server_exports } from "./environment.js";
+import { t as index_server_exports } from "./index-server.js";
 import { x as noop } from "./shared.js";
+import "./environment.js";
 import { O as writable, X as noop$1 } from "./dev.js";
 import "./exports.js";
 import "./internal.js";
