@@ -355,6 +355,43 @@ export interface CleoConfig {
    * @defaultValue undefined
    */
   brain?: BrainConfig;
+  /**
+   * Provider-specific configuration (optional, uses defaults when absent).
+   *
+   * @defaultValue undefined
+   */
+  provider?: ProviderConfig;
+}
+
+/**
+ * Claude provider spawn mode.
+ *
+ * - `'cli'` — use the `ClaudeCodeSpawnProvider` (shells out to `claude` CLI).
+ *   This is the default and requires the Claude Code CLI to be installed.
+ * - `'sdk'` — use the `ClaudeSDKSpawnProvider` (programmatic SDK, requires
+ *   `ANTHROPIC_API_KEY`). Enables structured output, session IDs, and
+ *   multi-turn resumption.
+ */
+export type ClaudeSpawnMode = 'cli' | 'sdk';
+
+/** Configuration for the Claude provider adapter. */
+export interface ClaudeProviderConfig {
+  /**
+   * Spawn mode for Claude subagents.
+   *
+   * @defaultValue 'cli'
+   */
+  mode?: ClaudeSpawnMode;
+}
+
+/** Top-level provider adapter configuration. */
+export interface ProviderConfig {
+  /**
+   * Claude-specific provider settings.
+   *
+   * @defaultValue undefined
+   */
+  claude?: ClaudeProviderConfig;
 }
 
 /** Configuration resolution priority. */
