@@ -4,6 +4,157 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.58] (2026-04-15)
+
+**Studio canvas now actually shows substrate connections + admin hygiene UI.**
+
+### Fix: T651 follow-up — edge color map covers all API edge types
+
+Owner-reported "no connections between substrates" — root cause was the
+`EDGE_COLOR` map only knowing 6 edge types out of the 25 the API now
+emits. The other 19 (`derived_from`, `contradicts`, `code_reference`,
+`produced_by`, `has_method`, `parent_of`, etc.) fell through to a
+30%-opacity gray fallback — invisible against the dark canvas. Now
+each substrate-bridge type renders in a distinct color so the brain
+visually shows its inter-substrate weave.
+
+Same change brightens the unmapped-type fallback so future drift
+remains legible.
+
+### Change: Brain canvas defaults to full graph
+
+Removed the "Full graph" button. The `/brain` canvas now loads the
+full payload (5000-node cap) on first paint. Owner mandate: the brain
+should always look complete on first visit, not a half-payload preview.
+
+### Feat: T657 — Studio /projects Admin UI
+
+`/projects` page upgraded into a full Admin surface:
+- Per-row actions: **Index** (never-indexed), **Re-Index** (stale > 7d),
+  **Delete** (modal with type-to-confirm)
+- Toolbar **Scan** button — discovers unregistered `.cleo/` directories
+  on configurable filesystem roots
+- Toolbar **Clean** button — bulk-purge by path pattern with
+  `Preview` (dry-run) / `Purge` (type-to-confirm) workflow
+- Five new API endpoints under `/api/project/`, all shelling out to
+  the corresponding `cleo nexus projects` CLI commands via a shared
+  `spawn-cli.ts` helper (60s timeout, JSON envelope parsing)
+- 31 new tests, 174 studio tests total
+
+### Feat: T655 + T656 — Hygiene CLI commands
+
+Two new sibling subcommands under `cleo nexus projects`:
+
+- **`clean`** — bulk-purge `nexus.db` rows by path criteria
+  - `--dry-run` (recommended), `--pattern <regex>`, `--include-temp`,
+    `--include-tests`, `--unhealthy`, `--never-indexed`, `--yes`,
+    `--json`
+  - Refuses to run without at least one criteria flag
+  - Smoke: `--include-temp --dry-run` reports 24,762 of 24,816 rows in
+    a fresh registry — that's the noise the studio filter (T646) was
+    already hiding from the UI
+- **`scan`** — discover unregistered `.cleo/` directories
+  - `--roots <paths>` (defaults: `~/code,~/projects,/mnt/projects`)
+  - `--max-depth <n>` (default 4), `--auto-register`
+  - Skips `node_modules`, `.git`, `target`, `dist`, etc.
+  - Does not follow symlinks; does not cross filesystem boundaries
+
+### Feat: T646 — `.temp/` strict server-side exclusion
+
+`listRegisteredProjects` in studio's project context now filters any
+project whose path matches `(^|/)\.temp(/|$)` BEFORE reaching the
+client. Non-toggleable. In our local registry this hid 24,679 of
+24,733 rows from the project switcher (99.8% noise).
+
+### Feat: T646 — Header project selector
+
+Always-visible project switcher in the studio header: searchable
+dropdown, current project displayed, test-path heuristic toggle,
+unhealthy projects dimmed.
+
+### Feat: T650 — Project context propagation (CRITICAL)
+
+Cookie-set project now actually scopes the data on every page. Before
+this fix, all studio pages always read `cwd/.cleo/` regardless of
+selection. New `hooks.server.ts` reads cookie → resolves
+`ProjectContext` → sets `event.locals.projectCtx`; all 20 page server
+loads + API endpoints now use the propagated context. The bug
+defeated the entire multi-project Studio premise.
+
+### Feat: T649 — Route consolidation
+
+- `/living-brain` → `/brain` (canvas takes the prime URL)
+- `/brain` → `/brain/overview` (the stats dashboard)
+- `/nexus` → `/code`
+- `/projects` removed from nav (lives in header dropdown)
+- All existing dashboards (`/brain/decisions`, `/brain/observations`,
+  `/brain/quality`, `/brain/graph`) preserved
+
+### Feat: T647 — Living Brain renderer fixes
+
+`LivingBrainGraph.svelte`: edges now render (sigma `defaultEdgeType`
+fix), labels use white text with semi-transparent background (was
+unreadable black), long labels truncate to 24 chars with full text
+in tooltip.
+
+### Feat: T644 — Cosmograph GPU mode toggle
+
+`/brain` page has a Standard / GPU toggle. GPU mode uses `cosmos.gl`
+for >2K node graphs. Includes WebGL2 detect with graceful fallback
+banner. Now correctly calls `cosmos.start(1.0)` instead of `render()`
+so the simulation actually runs.
+
+### Feat: T643 — SSE live synapses endpoint
+
+`GET /api/living-brain/stream` returns `text/event-stream` with
+heartbeat + 5 event types: `node.create`, `edge.strengthen`,
+`task.status`, `message.send`, `nexus.reindex`. Reconnect with
+exponential backoff. Pulse animation on touched nodes.
+
+### Feat: T651 — API edges 34× increase
+
+Three layered bugs in the brain adapter fixed:
+- `brain_patterns` schema mismatch (`pattern` vs `title`) threw inside
+  silent `catch{}`, aborting all edge synthesis
+- `brain_page_edges` IDs are prefixed (`observation:O-abc`) but the
+  adapter looked up raw IDs — added `typeIdToLBId` map
+- SQLite stores ISO timestamps with space separator — switched to
+  `strftime('%Y-%m-%dT%H:%M:%S', ...)`
+
+API now returns 1068 nodes / 3964 edges across 10 types and 4
+substrates (was 357 nodes / 114 nexus-only edges).
+
+### Feat: T635 P1 — LBNode.createdAt + working time slider
+
+Substrate timestamps now project into `LBNode.createdAt`:
+brain.created_at, nexus.indexed_at, tasks.created_at,
+conduit.messages.created_at (ISO converted from unix epoch).
+
+### Fix: T645 — BRAIN_EDGE_TYPES enum drift
+
+Added `co_retrieved`, `code_reference`, `affects`, `mentions` to the
+Drizzle enum (16 elements total). Eliminates the silent raw-SQL
+bypass in `strengthenCoRetrievedEdges` and `cleo memory
+code-auto-link`.
+
+### Docs: T634 — `brain-synaptic-visualization-research.md` v3 + STDP
+
+Restored doc past v2 with 13 audit improvements applied. Locked
+decisions D-BRAIN-VIZ-01 through 13 surfaced at top. Status truth
+table per phase. Substrate map at a glance. Cross-substrate edge
+reality. Hebbian substrate pointer. Target architecture diagram.
+7-phase plan with kill criteria. STDP factored to standalone
+`docs/plans/stdp-feasibility.md`.
+
+### Known follow-ups
+
+- **T660 (epic)** — Phase 6 3D Synapse Brain (`3d-force-graph` +
+  `UnrealBloomPass`). The "real synapses + cortex" vision in the
+  research doc — never started; this is the next major.
+- **T658/T659** — Phase 1 fork isolation (T646 fork-safety carry-over)
+- Phase 4 cross-project meta-brain
+- Phase 5 STDP-inspired plasticity (owner checkpoint required)
+
 ## [2026.4.57] (2026-04-15)
 
 **CI GREEN — ends 5-release regression (v2026.4.52–56).** Two root causes
