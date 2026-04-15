@@ -97,6 +97,7 @@
 
     for (const edge of edges) {
       if (!g.hasNode(edge.source) || !g.hasNode(edge.target)) continue;
+      if (edge.source === edge.target) continue; // skip self-loops (allowSelfLoops: false)
       if (g.hasEdge(edge.source, edge.target)) continue;
       const thickness = Math.max(0.5, (edge.weight ?? 0.5) * 3);
       g.addEdge(edge.source, edge.target, {
