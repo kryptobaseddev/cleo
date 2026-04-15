@@ -517,10 +517,7 @@ function extractImports(
     if (!sourceNode) continue;
 
     let raw = sourceNode.text;
-    if (
-      (raw.startsWith('"') && raw.endsWith('"')) ||
-      (raw.startsWith("'") && raw.endsWith("'"))
-    ) {
+    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
       raw = raw.slice(1, -1);
     }
     if (!raw) continue;
