@@ -52,6 +52,24 @@
  */
 
 import { typedAll } from '../store/typed-query.js';
+import { computeStabilityScore, upgradePlasticityClass } from './brain-plasticity-class.js';
+
+// ============================================================================
+// Reward backfill types
+// ============================================================================
+
+/**
+ * Result returned by `backfillRewardSignals`.
+ *
+ * @task T681
+ * @epic T673
+ */
+export interface RewardBackfillResult {
+  /** Number of brain_retrieval_log rows updated with a reward_signal. */
+  rowsLabeled: number;
+  /** Number of rows skipped (already labeled, backfill session, or no task match). */
+  rowsSkipped: number;
+}
 
 // ============================================================================
 // STDP constants
@@ -257,20 +275,37 @@ export async function applyStdpPlasticity(
   // For each ordered pair (i, j) where i < j (spike i before spike j),
   // apply the STDP rule if Δt <= sessionWindowMs.
   const prepareGetEdge = nativeDb.prepare(
-    `SELECT weight FROM brain_page_edges
+    `SELECT weight, reinforcement_count, last_reinforced_at, plasticity_class, depression_count, last_depressed_at
+     FROM brain_page_edges
      WHERE from_id = ? AND to_id = ? AND edge_type = 'co_retrieved'`,
   );
 
-  const prepareUpdateEdge = nativeDb.prepare(
+  // LTP UPDATE: increment reinforcement_count, set plasticity_class='stdp' (T693)
+  const prepareUpdateEdgeLtp = nativeDb.prepare(
     `UPDATE brain_page_edges
-     SET weight = MAX(?, MIN(?, weight + ?))
+     SET weight = MAX(?, MIN(?, weight + ?)),
+         reinforcement_count = reinforcement_count + 1,
+         last_reinforced_at = ?,
+         plasticity_class = ?,
+         stability_score = ?
+     WHERE from_id = ? AND to_id = ? AND edge_type = 'co_retrieved'`,
+  );
+
+  // LTD UPDATE: increment depression_count, set plasticity_class='stdp' (T693)
+  const prepareUpdateEdgeLtd = nativeDb.prepare(
+    `UPDATE brain_page_edges
+     SET weight = MAX(?, MIN(?, weight + ?)),
+         depression_count = depression_count + 1,
+         last_depressed_at = ?,
+         plasticity_class = ?,
+         stability_score = ?
      WHERE from_id = ? AND to_id = ? AND edge_type = 'co_retrieved'`,
   );
 
   const prepareInsertEdge = nativeDb.prepare(
     `INSERT OR IGNORE INTO brain_page_edges
-       (from_id, to_id, edge_type, weight, provenance, created_at)
-     VALUES (?, ?, 'co_retrieved', ?, 'plasticity:stdp-ltp', ?)`,
+       (from_id, to_id, edge_type, weight, provenance, reinforcement_count, last_reinforced_at, plasticity_class, stability_score, created_at)
+     VALUES (?, ?, 'co_retrieved', ?, 'plasticity:stdp-ltp', 1, ?, 'stdp', ?, ?)`,
   );
 
   const prepareLogEvent = nativeDb.prepare(
@@ -299,16 +334,45 @@ export async function applyStdpPlasticity(
 
       // Check whether an existing co_retrieved edge A→B exists
       const existingEdge = prepareGetEdge.get(spikeA.entryId, spikeB.entryId) as
-        | { weight: number }
+        | {
+            weight: number;
+            reinforcement_count: number;
+            last_reinforced_at: string | null;
+            plasticity_class: string | null;
+            depression_count: number;
+            last_depressed_at: string | null;
+          }
         | undefined;
 
       try {
         if (existingEdge !== undefined) {
-          prepareUpdateEdge.run(WEIGHT_MIN, WEIGHT_MAX, deltaW, spikeA.entryId, spikeB.entryId);
+          // LTP UPDATE: Set plasticity_class='stdp' (upgrades from 'hebbian'), compute stability (T693)
+          const upgradedClass = upgradePlasticityClass(existingEdge.plasticity_class, 'stdp');
+          const newRcCount = (existingEdge.reinforcement_count ?? 0) + 1;
+          const stability = computeStabilityScore(newRcCount, nowIso, now);
+
+          prepareUpdateEdgeLtp.run(
+            WEIGHT_MIN,
+            WEIGHT_MAX,
+            deltaW,
+            nowIso, // last_reinforced_at
+            upgradedClass,
+            stability,
+            spikeA.entryId,
+            spikeB.entryId,
+          );
         } else {
-          // Insert new edge with initial LTP weight (capped at WEIGHT_MAX)
+          // INSERT: Set plasticity_class='stdp', reinforcement_count=1, compute stability (T693)
+          const stability = computeStabilityScore(1, nowIso, now);
           const initialWeight = Math.min(WEIGHT_MAX, deltaW);
-          prepareInsertEdge.run(spikeA.entryId, spikeB.entryId, initialWeight, nowIso);
+          prepareInsertEdge.run(
+            spikeA.entryId,
+            spikeB.entryId,
+            initialWeight,
+            nowIso, // last_reinforced_at
+            stability,
+            nowIso,
+          );
           result.edgesCreated++;
         }
 
@@ -323,12 +387,40 @@ export async function applyStdpPlasticity(
       const deltaWNeg = -(A_POST * Math.exp(-deltaT / TAU_POST_MS));
 
       const existingReverseEdge = prepareGetEdge.get(spikeB.entryId, spikeA.entryId) as
-        | { weight: number }
+        | {
+            weight: number;
+            reinforcement_count: number;
+            last_reinforced_at: string | null;
+            plasticity_class: string | null;
+            depression_count: number;
+            last_depressed_at: string | null;
+          }
         | undefined;
 
       if (existingReverseEdge !== undefined && Math.abs(deltaWNeg) >= 1e-6) {
         try {
-          prepareUpdateEdge.run(WEIGHT_MIN, WEIGHT_MAX, deltaWNeg, spikeB.entryId, spikeA.entryId);
+          // LTD UPDATE: Set plasticity_class='stdp' (upgrades), compute stability (T693)
+          const upgradedClass = upgradePlasticityClass(
+            existingReverseEdge.plasticity_class,
+            'stdp',
+          );
+          // Stability is based on LTP count, not depression (per spec §3.10)
+          const stability = computeStabilityScore(
+            existingReverseEdge.reinforcement_count,
+            existingReverseEdge.last_reinforced_at,
+            now,
+          );
+
+          prepareUpdateEdgeLtd.run(
+            WEIGHT_MIN,
+            WEIGHT_MAX,
+            deltaWNeg,
+            nowIso, // last_depressed_at
+            upgradedClass,
+            stability,
+            spikeB.entryId,
+            spikeA.entryId,
+          );
           prepareLogEvent.run(spikeB.entryId, spikeA.entryId, deltaWNeg, 'ltd', nowIso);
           result.ltdEvents++;
         } catch {
@@ -445,4 +537,265 @@ export async function getPlasticityStats(
       sessionId: r.session_id,
     })),
   };
+}
+
+// ============================================================================
+// R-STDP reward backfill (Step 9a of runConsolidation)
+// ============================================================================
+
+/**
+ * Backfill reward_signal values on brain_retrieval_log rows for a session.
+ *
+ * Step 9a of the `runConsolidation` pipeline — runs BEFORE `applyStdpPlasticity`
+ * (Step 9b) so reward signals are present when STDP reads them.
+ *
+ * ## Signal derivation
+ *
+ * Queries tasks.db for tasks attributed to `sessionId` within `lookbackDays`.
+ * Maps task outcomes to reward scalars:
+ *
+ * | Task state | Reward |
+ * |-----------|--------|
+ * | `status='done'`, `verification.passed=true` | +1.0 (verified correct) |
+ * | `status='done'`, verification not passed | +0.5 (completed, unverified) |
+ * | `status='cancelled'` | -0.5 (cancelled) |
+ *
+ * All brain_retrieval_log rows for the session receive the derived scalar as
+ * a session-level reward (the entire session's retrieval pattern is rated by
+ * the session's overall task outcome). If multiple tasks exist in the session,
+ * the MAXIMUM reward takes precedence (positive outcome wins).
+ *
+ * ## Skipped sessions
+ *
+ * Sessions with `session_id LIKE 'ses_backfill_%'` are synthetic (date-bucketed
+ * historical rows per M1). These have no real task correlation and MUST be skipped.
+ *
+ * ## Idempotency
+ *
+ * Already-labeled rows (reward_signal IS NOT NULL) are not overwritten.
+ * Running twice on the same session is safe.
+ *
+ * ## Transaction pattern
+ *
+ * Two separate SQLite connections (no ATTACH): reads tasks.db → computes reward
+ * map → writes brain.db in separate transactions. Matches `cross-db-cleanup.ts`.
+ *
+ * @param projectRoot - Project root directory for database resolution
+ * @param sessionId - The session ID to backfill. Pass null/undefined for no-op.
+ * @param lookbackDays - Days of tasks.db history to scan (default 30)
+ * @returns Counts of rows labeled and skipped
+ *
+ * @task T681
+ * @epic T673
+ */
+export async function backfillRewardSignals(
+  projectRoot: string,
+  sessionId: string | null | undefined,
+  lookbackDays = 30,
+): Promise<RewardBackfillResult> {
+  const result: RewardBackfillResult = { rowsLabeled: 0, rowsSkipped: 0 };
+
+  // No-op: null/undefined sessionId has no task correlation
+  if (!sessionId) {
+    return result;
+  }
+
+  // No-op: synthetic backfill sessions have no task correlation (spec §2.4 / §4.3)
+  if (sessionId.startsWith('ses_backfill_')) {
+    return result;
+  }
+
+  // ── Step 1: Read tasks.db for tasks in this session ────────────────────────
+  //
+  // Two-connection pattern: read tasks.db first, then write brain.db separately.
+  // No ATTACH. Matches cross-db-cleanup.ts pattern.
+
+  interface TaskOutcomeRow {
+    id: string;
+    status: string;
+    verificationJson: string | null;
+    completedAt: string | null;
+    cancelledAt: string | null;
+  }
+
+  let taskRows: TaskOutcomeRow[] = [];
+
+  try {
+    const { getDb } = await import('../store/sqlite.js');
+    const tasksDb = await getDb(projectRoot);
+    const { tasks } = await import('../store/tasks-schema.js');
+    const { and, eq, inArray, gte, or, isNotNull } = await import('drizzle-orm');
+
+    const cutoffTs = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
+
+    const rawRows = await tasksDb
+      .select({
+        id: tasks.id,
+        status: tasks.status,
+        verificationJson: tasks.verificationJson,
+        completedAt: tasks.completedAt,
+        cancelledAt: tasks.cancelledAt,
+      })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.sessionId, sessionId),
+          inArray(tasks.status, ['done', 'cancelled'] as const),
+          or(
+            and(isNotNull(tasks.completedAt), gte(tasks.completedAt, cutoffTs)),
+            and(isNotNull(tasks.cancelledAt), gte(tasks.cancelledAt, cutoffTs)),
+          ),
+        ),
+      )
+      .all();
+
+    taskRows = rawRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      verificationJson: r.verificationJson ?? null,
+      completedAt: r.completedAt ?? null,
+      cancelledAt: r.cancelledAt ?? null,
+    }));
+  } catch {
+    // tasks.db may not be accessible (fresh project, test environment without tasks.db)
+    // Return early — no task data means no reward signal can be derived
+    return result;
+  }
+
+  // ── Step 2: Derive session-level reward from task outcomes ──────────────────
+  //
+  // Reward assignment per spec §3.6 / §4.3:
+  //   +1.0 — done + verification.passed = true (verified correct)
+  //   +0.5 — done, verification not passed (completed, unverified)
+  //   -0.5 — cancelled
+  //
+  // If multiple tasks in session, take the MAXIMUM reward (positive outcome wins).
+  // If no matching tasks, return early — reward stays null (unlabeled).
+
+  if (taskRows.length === 0) {
+    return result;
+  }
+
+  let sessionReward: number | null = null;
+
+  /** Derive the scalar reward for one task row. */
+  function deriveTaskReward(task: TaskOutcomeRow): number {
+    if (task.status === 'cancelled') {
+      return -0.5;
+    }
+    // status === 'done'
+    let verificationPassed = false;
+    if (task.verificationJson) {
+      try {
+        const v = JSON.parse(task.verificationJson) as { passed?: boolean };
+        verificationPassed = v.passed === true;
+      } catch {
+        // malformed JSON — treat as unverified
+      }
+    }
+    return verificationPassed ? 1.0 : 0.5;
+  }
+
+  for (const task of taskRows) {
+    const taskReward = deriveTaskReward(task);
+    if (sessionReward === null || taskReward > sessionReward) {
+      sessionReward = taskReward;
+    }
+  }
+
+  if (sessionReward === null) {
+    return result;
+  }
+
+  // ── Step 3: Write reward_signal to brain.db ─────────────────────────────────
+  //
+  // Separate connection from tasks.db — no ATTACH, per spec §4.3.
+
+  try {
+    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    await getBrainDb(projectRoot);
+    const nativeDb = getBrainNativeDb();
+
+    if (!nativeDb) return result;
+
+    // Guard: retrieval log must exist
+    try {
+      nativeDb.prepare('SELECT 1 FROM brain_retrieval_log LIMIT 1').get();
+    } catch {
+      return result;
+    }
+
+    // UPDATE retrieval log rows for this session that are still unlabeled.
+    // Idempotent: WHERE reward_signal IS NULL means already-labeled rows are untouched.
+    const updateResult = nativeDb
+      .prepare(
+        `UPDATE brain_retrieval_log
+         SET reward_signal = ?
+         WHERE session_id = ?
+           AND reward_signal IS NULL`,
+      )
+      .run(sessionReward, sessionId);
+
+    const updatedCount = typeof updateResult.changes === 'number' ? updateResult.changes : 0;
+    result.rowsLabeled = updatedCount;
+
+    // Count rows that were already labeled (skipped this run)
+    const skipRow = nativeDb
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM brain_retrieval_log
+         WHERE session_id = ? AND reward_signal IS NOT NULL`,
+      )
+      .get(sessionId) as { cnt: number } | undefined;
+    result.rowsSkipped = skipRow?.cnt ?? 0;
+
+    // ── Step 4: INSERT brain_modulators rows for each task outcome ──────────
+    //
+    // Guard: modulators table must exist (M4 migration may not have run yet)
+    let modulatorsExist = false;
+    try {
+      nativeDb.prepare('SELECT 1 FROM brain_modulators LIMIT 1').get();
+      modulatorsExist = true;
+    } catch {
+      // table not created yet — skip, best-effort
+    }
+
+    if (modulatorsExist && updatedCount > 0) {
+      const insertModulator = nativeDb.prepare(
+        `INSERT INTO brain_modulators
+           (modulator_type, valence, magnitude, source_event_id, session_id, description)
+         VALUES (?, ?, 1.0, ?, ?, ?)`,
+      );
+
+      for (const task of taskRows) {
+        const taskReward = deriveTaskReward(task);
+
+        let modulatorType: string;
+        let description: string;
+
+        if (task.status === 'cancelled') {
+          modulatorType = 'task_cancelled';
+          description = `Task ${task.id} cancelled`;
+        } else if (taskReward >= 1.0) {
+          modulatorType = 'task_verified';
+          description = `Task ${task.id} completed and verified`;
+        } else {
+          modulatorType = 'task_completed';
+          description = `Task ${task.id} completed (unverified)`;
+        }
+
+        try {
+          insertModulator.run(modulatorType, taskReward, task.id, sessionId, description);
+        } catch {
+          // best-effort: modulator INSERT failure does not block backfill
+        }
+      }
+    }
+  } catch {
+    // brain.db write failure — non-fatal, best-effort
+  }
+
+  return result;
 }
