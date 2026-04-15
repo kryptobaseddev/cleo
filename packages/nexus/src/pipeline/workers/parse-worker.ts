@@ -522,9 +522,12 @@ function extractImports(
     }
     if (!raw) continue;
 
-    // Extract named bindings for Tier 2a resolution (T617)
+    // Extract named bindings for Tier 2a resolution (T617).
+    // `import_clause` is a regular (unnamed field) child of `import_statement`
+    // in the tree-sitter TypeScript grammar — NOT a named field — so
+    // `childForFieldName('clause')` always returns null. Find it by type.
     const namedBindings: WorkerNamedImportBinding[] = [];
-    const importClause = stmt.childForFieldName('clause');
+    const importClause = stmt.children.find((c) => c.type === 'import_clause') ?? null;
     if (importClause) {
       for (let j = 0; j < importClause.namedChildCount; j++) {
         const clauseChild = importClause.namedChild(j);

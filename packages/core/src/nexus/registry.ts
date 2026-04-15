@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
@@ -36,6 +36,13 @@ export type NexusPermissionLevel = 'read' | 'write' | 'execute';
 
 export type NexusHealthStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
+/** Per-project code intelligence statistics stored in stats_json. */
+export interface NexusProjectStats {
+  nodeCount: number;
+  relationCount: number;
+  fileCount: number;
+}
+
 /** Domain representation of a registered Nexus project. */
 export interface NexusProject {
   hash: string;
@@ -50,6 +57,14 @@ export interface NexusProject {
   lastSync: string;
   taskCount: number;
   labels: string[];
+  /** Absolute path to the project's brain.db. Null if not yet populated. */
+  brainDbPath: string | null;
+  /** Absolute path to the project's tasks.db. Null if not yet populated. */
+  tasksDbPath: string | null;
+  /** ISO 8601 timestamp of the last code intelligence index run. Null if never indexed. */
+  lastIndexed: string | null;
+  /** Code intelligence stats from the last index run. */
+  stats: NexusProjectStats;
 }
 
 /** Legacy registry file shape (pre-SQLite). Retained for migration compatibility. */
@@ -90,6 +105,17 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
   } catch {
     labels = [];
   }
+  let stats: NexusProjectStats = { nodeCount: 0, relationCount: 0, fileCount: 0 };
+  try {
+    const parsed = JSON.parse(row.statsJson ?? '{}') as Partial<NexusProjectStats>;
+    stats = {
+      nodeCount: parsed.nodeCount ?? 0,
+      relationCount: parsed.relationCount ?? 0,
+      fileCount: parsed.fileCount ?? 0,
+    };
+  } catch {
+    stats = { nodeCount: 0, relationCount: 0, fileCount: 0 };
+  }
   return {
     hash: row.projectHash,
     projectId: row.projectId,
@@ -103,6 +129,10 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     lastSync: row.lastSync,
     taskCount: row.taskCount,
     labels,
+    brainDbPath: row.brainDbPath ?? null,
+    tasksDbPath: row.tasksDbPath ?? null,
+    lastIndexed: row.lastIndexed ?? null,
+    stats,
   };
 }
 
@@ -328,6 +358,9 @@ export async function nexusRegister(
   const meta = await readProjectMeta(projectPath);
   const now = new Date().toISOString();
   let projectId = await readProjectId(projectPath);
+  const resolvedPath = resolve(projectPath);
+  const brainDbPath = join(resolvedPath, '.cleo', 'brain.db');
+  const tasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
 
   if (existing) {
     // Merge nexus fields into existing entry
@@ -339,6 +372,8 @@ export async function nexusRegister(
         taskCount: meta.taskCount,
         labelsJson: JSON.stringify(meta.labels),
         lastSeen: now,
+        brainDbPath,
+        tasksDbPath,
       })
       .where(eq(projectRegistry.projectHash, projectHash));
   } else {
@@ -361,6 +396,9 @@ export async function nexusRegister(
       lastSync: now,
       taskCount: meta.taskCount,
       labelsJson: JSON.stringify(meta.labels),
+      brainDbPath,
+      tasksDbPath,
+      statsJson: '{}',
     });
   }
 
@@ -525,6 +563,70 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
   });
 
   return { synced, failed };
+}
+
+/**
+ * Update code intelligence index stats for a registered project.
+ *
+ * Called after a successful `cleo nexus analyze` run to record the
+ * latest node/relation/file counts and the indexed timestamp.
+ *
+ * @param projectPath - Absolute path to the project root.
+ * @param stats       - Results from the pipeline run.
+ * @task T622
+ */
+export async function nexusUpdateIndexStats(
+  projectPath: string,
+  stats: NexusProjectStats,
+): Promise<void> {
+  if (!projectPath) return;
+
+  const projectHash = generateProjectHash(projectPath);
+  const now = new Date().toISOString();
+
+  try {
+    const { getNexusDb } = await import('../store/nexus-sqlite.js');
+    const { eq } = await import('drizzle-orm');
+    const db = await getNexusDb();
+
+    const rows = await db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectHash, projectHash));
+
+    if (rows.length === 0) {
+      // Not yet registered — auto-register first (best effort)
+      try {
+        await nexusRegister(projectPath);
+      } catch {
+        // Already registered or cannot register — ignore
+      }
+    }
+
+    await db
+      .update(projectRegistry)
+      .set({
+        lastIndexed: now,
+        statsJson: JSON.stringify(stats),
+        lastSeen: now,
+      })
+      .where(eq(projectRegistry.projectHash, projectHash));
+
+    await writeNexusAudit({
+      action: 'update-index-stats',
+      projectHash,
+      operation: 'update-index-stats',
+      success: true,
+      details: {
+        nodeCount: stats.nodeCount,
+        relationCount: stats.relationCount,
+        fileCount: stats.fileCount,
+      },
+    });
+  } catch (err) {
+    // Non-fatal — index stats update must never break the analyze pipeline
+    getLogger('nexus').warn({ err }, 'nexus: failed to update index stats');
+  }
 }
 
 /**

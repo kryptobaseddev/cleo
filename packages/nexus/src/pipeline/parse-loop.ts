@@ -190,12 +190,16 @@ function grammarKeyForLanguage(language: string): string | null {
 /**
  * Common extraction result shape shared across all language extractors.
  * Each extractor returns this interface so the parse loop can handle them uniformly.
+ *
+ * `reExports` is optional: only TypeScript/JavaScript extractors produce re-export
+ * records. Python, Go, and Rust extractors omit this field.
  */
 interface CommonExtractionResult {
   definitions: GraphNode[];
   imports: ExtractedImport[];
   heritage: ExtractedHeritage[];
   calls: ExtractedCall[];
+  reExports?: ExtractedReExport[];
 }
 
 /**
