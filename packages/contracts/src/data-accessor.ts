@@ -104,6 +104,7 @@ export interface TaskFieldUpdates {
   sessionId?: string | null;
   updatedAt?: string | null;
   assignee?: string | null;
+  pipelineStage?: string | null;
 }
 
 /**
