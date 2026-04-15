@@ -291,7 +291,7 @@ export {
 export { searchAcrossProjects } from './nexus/discover.js';
 export { setPermission } from './nexus/permissions.js';
 export { resolveTask, validateSyntax } from './nexus/query.js';
-export type { NexusPermissionLevel } from './nexus/registry.js';
+export type { NexusPermissionLevel, NexusProject, NexusProjectStats } from './nexus/registry.js';
 export {
   nexusGetProject,
   nexusInit,
@@ -301,6 +301,7 @@ export {
   nexusSync,
   nexusSyncAll,
   nexusUnregister,
+  nexusUpdateIndexStats,
 } from './nexus/registry.js';
 export { getSharingStatus } from './nexus/sharing/index.js';
 // Context
@@ -625,6 +626,24 @@ export {
   coreTaskTree,
   coreTaskUnarchive,
 } from './tasks/task-ops.js';
+// Self-improvement telemetry (T624)
+export type {
+  CommandStats as TelemetryCommandStats,
+  DiagnosticsReport as TelemetryDiagnosticsReport,
+  TelemetryConfig,
+  TelemetryEvent,
+} from './telemetry/index.js';
+export {
+  buildDiagnosticsReport,
+  disableTelemetry,
+  enableTelemetry,
+  exportTelemetryEvents,
+  getTelemetryConfigPath,
+  getTelemetryDbPath,
+  isTelemetryEnabled,
+  loadTelemetryConfig,
+  recordTelemetryEvent,
+} from './telemetry/index.js';
 export type { IssueTemplate, TemplateConfig, TemplateSection } from './templates/parser.js';
 // Templates
 export {
