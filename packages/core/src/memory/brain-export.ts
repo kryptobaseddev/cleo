@@ -10,7 +10,8 @@
  */
 
 import type { BrainPageEdgeRow, BrainPageNodeRow } from '../store/brain-schema.js';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainDb } from '../store/brain-sqlite.js';
+import * as brainSchema from '../store/brain-schema.js';
 
 /**
  * GEXF export result with XML content.
@@ -57,20 +58,48 @@ export type BrainExportResult = BrainExportGexfResult | BrainExportJsonResult;
  * ```
  */
 export async function exportBrainAsGexf(projectRoot: string): Promise<BrainExportGexfResult> {
-  const accessor = await getBrainAccessor(projectRoot);
+  const db = await getBrainDb(projectRoot);
 
-  // Fetch all nodes and edges
-  // Note: May fail on older schemas without certain columns; in that case, default to empty
+  // Fetch all nodes and edges using basic select without provenance column
+  // This handles older schemas gracefully
   let nodes: BrainPageNodeRow[] = [];
   let edges: BrainPageEdgeRow[] = [];
 
   try {
-    nodes = await accessor.findPageNodes();
-    edges = await accessor.findPageEdges();
-  } catch (err) {
-    // If the graph tables don't exist or are missing columns, return empty export
-    // (This can happen on fresh installs or migrations)
-    console.warn('Note: brain_page_nodes or brain_page_edges tables may be missing or incomplete');
+    nodes = await db
+      .select({
+        id: brainSchema.brainPageNodes.id,
+        nodeType: brainSchema.brainPageNodes.nodeType,
+        label: brainSchema.brainPageNodes.label,
+        qualityScore: brainSchema.brainPageNodes.qualityScore,
+        contentHash: brainSchema.brainPageNodes.contentHash,
+        lastActivityAt: brainSchema.brainPageNodes.lastActivityAt,
+        metadataJson: brainSchema.brainPageNodes.metadataJson,
+        createdAt: brainSchema.brainPageNodes.createdAt,
+        updatedAt: brainSchema.brainPageNodes.updatedAt,
+      })
+      .from(brainSchema.brainPageNodes);
+  } catch {
+    // If the graph nodes table doesn't exist, default to empty
+    nodes = [];
+  }
+
+  try {
+    // Select edges without the provenance column to handle older schemas
+    const rawEdges = await db
+      .select({
+        fromId: brainSchema.brainPageEdges.fromId,
+        toId: brainSchema.brainPageEdges.toId,
+        edgeType: brainSchema.brainPageEdges.edgeType,
+        weight: brainSchema.brainPageEdges.weight,
+        createdAt: brainSchema.brainPageEdges.createdAt,
+      })
+      .from(brainSchema.brainPageEdges);
+    // Add provenance as null for missing rows and cast to the full row type
+    edges = rawEdges.map((e) => ({ ...e, provenance: null } as BrainPageEdgeRow));
+  } catch {
+    // If that fails, default to empty
+    edges = [];
   }
 
   // Build GEXF document
@@ -102,20 +131,48 @@ export async function exportBrainAsGexf(projectRoot: string): Promise<BrainExpor
  * ```
  */
 export async function exportBrainAsJson(projectRoot: string): Promise<BrainExportJsonResult> {
-  const accessor = await getBrainAccessor(projectRoot);
+  const db = await getBrainDb(projectRoot);
 
-  // Fetch all nodes and edges
-  // Note: May fail on older schemas without certain columns; in that case, default to empty
+  // Fetch all nodes and edges using basic select without provenance column
+  // This handles older schemas gracefully
   let nodes: BrainPageNodeRow[] = [];
   let edges: BrainPageEdgeRow[] = [];
 
   try {
-    nodes = await accessor.findPageNodes();
-    edges = await accessor.findPageEdges();
-  } catch (err) {
-    // If the graph tables don't exist or are missing columns, return empty export
-    // (This can happen on fresh installs or migrations)
-    console.warn('Note: brain_page_nodes or brain_page_edges tables may be missing or incomplete');
+    nodes = await db
+      .select({
+        id: brainSchema.brainPageNodes.id,
+        nodeType: brainSchema.brainPageNodes.nodeType,
+        label: brainSchema.brainPageNodes.label,
+        qualityScore: brainSchema.brainPageNodes.qualityScore,
+        contentHash: brainSchema.brainPageNodes.contentHash,
+        lastActivityAt: brainSchema.brainPageNodes.lastActivityAt,
+        metadataJson: brainSchema.brainPageNodes.metadataJson,
+        createdAt: brainSchema.brainPageNodes.createdAt,
+        updatedAt: brainSchema.brainPageNodes.updatedAt,
+      })
+      .from(brainSchema.brainPageNodes);
+  } catch {
+    // If the graph nodes table doesn't exist, default to empty
+    nodes = [];
+  }
+
+  try {
+    // Select edges without the provenance column to handle older schemas
+    const rawEdges = await db
+      .select({
+        fromId: brainSchema.brainPageEdges.fromId,
+        toId: brainSchema.brainPageEdges.toId,
+        edgeType: brainSchema.brainPageEdges.edgeType,
+        weight: brainSchema.brainPageEdges.weight,
+        createdAt: brainSchema.brainPageEdges.createdAt,
+      })
+      .from(brainSchema.brainPageEdges);
+    // Add provenance as null for missing rows and cast to the full row type
+    edges = rawEdges.map((e) => ({ ...e, provenance: null } as BrainPageEdgeRow));
+  } catch {
+    // If that fails, default to empty
+    edges = [];
   }
 
   return {
