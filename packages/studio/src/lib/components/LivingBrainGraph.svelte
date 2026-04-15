@@ -45,15 +45,45 @@
     signaldock: '#ef4444',
   };
 
-  /** Edge type colour. */
+  /**
+   * Edge type colour map — covers ALL edge types emitted by the API
+   * (T651 expanded the set significantly — keep this in sync).
+   * Unknown types fall back to a slightly brighter gray than before so
+   * cross-substrate bridges are still legible against the dark canvas.
+   */
   const EDGE_COLOR: Record<string, string> = {
+    // Memory provenance / supersession
     supersedes: '#ef4444',
-    affects: '#3b82f6',
+    contradicts: '#dc2626',
+    derived_from: '#f59e0b',
+    produced_by: '#fb923c',
+    informed_by: '#fbbf24',
+    documents: '#10b981',
+    summarizes: '#06b6d4',
+    // Bridge edges (brain ↔ code / tasks / sessions)
     applies_to: '#22c55e',
+    references: '#84cc16',
+    code_reference: '#65a30d',
+    modified_by: '#0ea5e9',
+    affects: '#3b82f6',
+    // Code edges
     calls: '#94a3b8',
+    has_method: '#cbd5e1',
+    has_property: '#94a3b8',
+    extends: '#a78bfa',
+    implements: '#c084fc',
+    imports: '#7dd3fc',
+    contains: '#64748b',
+    // Workflow edges
+    part_of: '#f97316',
+    parent_of: '#fb923c',
+    // Plastic edges (Hebbian / STDP)
     co_retrieved: '#a855f7',
+    relates_to: '#a855f7',
+    // Conduit / messaging
     mentions: '#eab308',
-    // fallback handled below
+    messages: '#fbbf24',
+    // fallback below
   };
 
   // ---------------------------------------------------------------------------
@@ -84,7 +114,9 @@
   // Helper: edge colour with fallback
   // ---------------------------------------------------------------------------
   function edgeColor(type: string): string {
-    return EDGE_COLOR[type] ?? 'rgba(148,163,184,0.3)';
+    // Fallback: brighter than 30% gray so unmapped types remain visible.
+    // If you see a lot of these on the canvas, add the type to EDGE_COLOR.
+    return EDGE_COLOR[type] ?? 'rgba(203,213,225,0.6)';
   }
 
   // ---------------------------------------------------------------------------

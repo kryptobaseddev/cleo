@@ -1,9 +1,8 @@
 /**
  * Brain canvas page server load (`/brain`).
  *
- * Fetches the initial graph from the unified Living Brain API with a
- * default limit of 500 nodes.  The client-side component can request
- * larger slices via the "Full graph" button.
+ * Loads the **full** unified graph on first paint.  Owner mandate (2026-04-15):
+ * the canvas should always look complete — no half-payload first paint.
  *
  * @note The underlying API route is `/api/living-brain` for historical reasons
  * (the route was originally served at `/living-brain`). A rename of the API
@@ -14,11 +13,14 @@ import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
 import type { LBGraph } from '$lib/server/living-brain/types.js';
 import type { PageServerLoad } from './$types';
 
+/** Hard cap to prevent runaway server-side memory on enormous registries. */
+const MAX_NODES = 5000;
+
 export interface PageData {
   graph: LBGraph;
 }
 
 export const load: PageServerLoad = ({ locals }): PageData => {
-  const graph = getAllSubstrates({ limit: 500, projectCtx: locals.projectCtx });
+  const graph = getAllSubstrates({ limit: MAX_NODES, projectCtx: locals.projectCtx });
   return { graph };
 };
