@@ -11,7 +11,7 @@
  *      Bundled JSON Schema at schemas/manifest-v1.json inside the bundle.
  * @what BackupManifest describes metadata, databases, json files,
  *       global files, and integrity block for a portable CLEO backup.
- * @see .cleo/specs/T311-backup-portability-spec.md §3
+ * @see .cleo/rcasd/T311/specification/T311-specification.md §3
  * @see .cleo/adrs/ADR-038-backup-portability.md §3
  * @module backup-manifest
  */
