@@ -1,9 +1,9 @@
 {
   "name": "@cleocode/nexus",
-  "version": "2026.4.61",
+  "version": "2026.4.62",
   "private": false,
   "type": "module",
-  "description": "CLEO project registry and code intelligence \u2014 unified nexus package",
+  "description": "CLEO project registry and code intelligence — unified nexus package",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {

@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getProjectRoot, runConsolidation } from '@cleocode/core/internal';
+import { getProjectRoot, runConsolidation, triggerManualDream } from '@cleocode/core/internal';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
@@ -728,6 +728,88 @@ export function registerMemoryBrainCommand(program: Command): void {
           console.log(JSON.stringify({ success: false, error: message }));
         } else {
           console.error(`Memory consolidation failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  // -- dream (manual trigger for full dream cycle incl. STDP plasticity — T628) --
+  memory
+    .command('dream')
+    .description(
+      'Manually trigger the full auto-dream cycle: consolidation pipeline including ' +
+        'R-STDP reward backfill (Step 9a), STDP plasticity (Step 9b), and homeostatic ' +
+        'decay (Step 9c). Equivalent to autonomous autonomous nightly consolidation but ' +
+        'triggered on demand. Idempotent — safe to run multiple times.',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Triggering dream cycle (full consolidation including STDP plasticity)...');
+      }
+
+      try {
+        const result = await triggerManualDream(root);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: result,
+                meta: {
+                  operation: 'memory.dream',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        // Human-readable output
+        console.log('\nDream cycle complete.');
+        console.log(`  Deduplicated:    ${result.deduplicated}`);
+        console.log(`  Quality recomp:  ${result.qualityRecomputed}`);
+        console.log(`  Tier promoted:   ${result.tierPromotions.promoted.length} entries promoted`);
+        console.log(`  Tier evicted:    ${result.tierPromotions.evicted.length} entries evicted`);
+        console.log(`  Contradictions:  ${result.contradictions}`);
+        console.log(`  Soft evicted:    ${result.softEvicted}`);
+        console.log(`  Edges strength:  ${result.edgesStrengthened}`);
+        console.log(`  Summaries gen:   ${result.summariesGenerated}`);
+        if (result.graphLinksCreated !== undefined) {
+          console.log(`  Graph links:     ${result.graphLinksCreated}`);
+        }
+        if (result.rewardBackfilled !== undefined) {
+          console.log(
+            `  Reward backfill: ${result.rewardBackfilled.rowsLabeled} labeled, ` +
+              `${result.rewardBackfilled.rowsSkipped} skipped`,
+          );
+        }
+        if (result.stdpPlasticity !== undefined) {
+          console.log(
+            `  STDP plasticity: ${result.stdpPlasticity.ltpEvents} LTP, ` +
+              `${result.stdpPlasticity.ltdEvents} LTD, ` +
+              `${result.stdpPlasticity.edgesCreated} edges created`,
+          );
+        }
+        if (result.homeostaticDecay !== undefined) {
+          console.log(
+            `  Decay/pruning:   ${result.homeostaticDecay.edgesDecayed} decayed, ` +
+              `${result.homeostaticDecay.edgesPruned} pruned`,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Dream cycle failed: ${message}`);
         }
         process.exit(1);
       }

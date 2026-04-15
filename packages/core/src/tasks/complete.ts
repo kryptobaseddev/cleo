@@ -13,6 +13,13 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import { isValidPipelineStage } from './pipeline-stage.js';
+
+/**
+ * IVTR execution stages — tasks in these stages auto-advance to 'release'
+ * when marked complete (cleo complete TXXX).  T719.
+ */
+const EXECUTION_STAGES_FOR_RELEASE = new Set(['implementation', 'validation', 'testing']);
 
 /** Options for completing a task. */
 export interface CompleteTaskOptions {
@@ -208,6 +215,18 @@ export async function completeTask(
 
   const now = new Date().toISOString();
   const before = { ...task };
+
+  // Auto-advance pipelineStage: IVTR execution stages → release (T719)
+  // When a task is completed, advance from implementation/validation/testing to release.
+  // This mirrors the lifecycle model: completing work exits the IVTR phase.
+  const completionStage = task.pipelineStage;
+  if (
+    completionStage &&
+    isValidPipelineStage(completionStage) &&
+    EXECUTION_STAGES_FOR_RELEASE.has(completionStage)
+  ) {
+    task.pipelineStage = 'release';
+  }
 
   // Update task
   task.status = 'done';
