@@ -13,14 +13,19 @@ import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gte, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import type {
+  BrainConsolidationEventRow,
   BrainDecisionRow,
   BrainLearningRow,
   BrainMemoryLinkRow,
+  BrainModulatorInsert,
+  BrainModulatorRow,
   BrainObservationRow,
   BrainPageEdgeRow,
   BrainPageNodeRow,
   BrainPatternRow,
   BrainStickyNoteRow,
+  BrainWeightHistoryInsert,
+  BrainWeightHistoryRow,
   NewBrainDecisionRow,
   NewBrainLearningRow,
   NewBrainMemoryLinkRow,
@@ -619,4 +624,119 @@ export class BrainDataAccessor {
 export async function getBrainAccessor(cwd?: string): Promise<BrainDataAccessor> {
   const db = await getBrainDb(cwd);
   return new BrainDataAccessor(db);
+}
+
+// ============================================================================
+// M4 PLASTICITY AUX TABLE ACCESSORS (T673-M4)
+// Minimal writers — Wave 1+ workers wire the full call paths.
+// ============================================================================
+
+/**
+ * Insert one row into brain_weight_history.
+ * Called by writeWeightHistory() in brain-stdp.ts for each LTP, LTD, Hebbian,
+ * or prune event that crosses the 1e-6 negligibility threshold.
+ *
+ * @param cwd - Project root (locates brain.db). Defaults to process.cwd().
+ * @param input - Row data. `changedAt` defaults to SQLite datetime('now').
+ * @returns The inserted row with its generated id.
+ *
+ * @task T697
+ * @epic T673
+ */
+export async function insertWeightHistoryRow(
+  cwd: string | undefined,
+  input: BrainWeightHistoryInsert,
+): Promise<BrainWeightHistoryRow> {
+  const db = await getBrainDb(cwd);
+  const result = await db.insert(brainSchema.brainWeightHistory).values(input).returning();
+  return result[0]!;
+}
+
+/**
+ * Insert one row into brain_modulators.
+ * Called by backfillRewardSignals() for each task outcome it processes.
+ * Both this INSERT and the retrieval_log UPDATE MUST run in the same logical
+ * pass but in separate transactions (no ATTACH) — see spec §4.3.
+ *
+ * @param cwd - Project root (locates brain.db). Defaults to process.cwd().
+ * @param input - Row data. `createdAt` defaults to SQLite datetime('now').
+ * @returns The inserted row with its generated id.
+ *
+ * @task T699
+ * @epic T673
+ */
+export async function insertModulatorRow(
+  cwd: string | undefined,
+  input: BrainModulatorInsert,
+): Promise<BrainModulatorRow> {
+  const db = await getBrainDb(cwd);
+  const result = await db.insert(brainSchema.brainModulators).values(input).returning();
+  return result[0]!;
+}
+
+/**
+ * Open a consolidation event row in brain_consolidation_events.
+ * Call this at the START of runConsolidation before any steps execute.
+ * Returns the new row id — pass it to logConsolidationComplete() when done.
+ *
+ * @param cwd - Project root (locates brain.db).
+ * @param trigger - What initiated this consolidation run.
+ * @param sessionId - Active session ID, if any.
+ * @returns The id of the newly inserted row.
+ *
+ * @task T701
+ * @epic T673
+ */
+export async function logConsolidationStart(
+  cwd: string | undefined,
+  trigger: string,
+  sessionId?: string,
+): Promise<number> {
+  const db = await getBrainDb(cwd);
+  const result = await db
+    .insert(brainSchema.brainConsolidationEvents)
+    .values({
+      trigger,
+      sessionId: sessionId ?? null,
+      // stepResultsJson is required NOT NULL — use empty object as placeholder
+      // until logConsolidationComplete updates it with final step results.
+      stepResultsJson: '{}',
+      succeeded: true,
+    })
+    .returning({ id: brainSchema.brainConsolidationEvents.id });
+  return result[0]!.id;
+}
+
+/**
+ * Complete a consolidation event row by updating it with final results.
+ * Call this at the END of runConsolidation after all steps complete.
+ *
+ * @param cwd - Project root (locates brain.db).
+ * @param id - Row id returned by logConsolidationStart.
+ * @param stats - JSON-serializable step results object.
+ * @param durationMs - Total wall-clock duration in milliseconds.
+ * @param succeeded - Whether the run completed without error.
+ * @returns The updated row.
+ *
+ * @task T701
+ * @epic T673
+ */
+export async function logConsolidationComplete(
+  cwd: string | undefined,
+  id: number,
+  stats: Record<string, unknown>,
+  durationMs: number,
+  succeeded = true,
+): Promise<BrainConsolidationEventRow> {
+  const db = await getBrainDb(cwd);
+  const result = await db
+    .update(brainSchema.brainConsolidationEvents)
+    .set({
+      stepResultsJson: JSON.stringify(stats),
+      durationMs,
+      succeeded,
+    })
+    .where(eq(brainSchema.brainConsolidationEvents.id, id))
+    .returning();
+  return result[0]!;
 }

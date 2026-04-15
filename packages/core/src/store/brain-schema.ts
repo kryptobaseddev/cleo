@@ -668,12 +668,83 @@ export const brainPageEdges = sqliteTable(
     provenance: text('provenance'),
 
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    // === T673-M3: Plasticity tracking columns ===
+
+    /**
+     * ISO 8601 timestamp of the last LTP event applied to this edge.
+     * Used by the decay pass: edges with (now - last_reinforced_at) > decay_threshold_days
+     * receive a per-day weight decay. Null = never reinforced (structural/semantic edges).
+     * Only populated when plasticity_class IN ('hebbian', 'stdp').
+     *
+     * @task T706
+     */
+    lastReinforcedAt: text('last_reinforced_at'),
+
+    /**
+     * Count of LTP (potentiation) events applied to this edge lifetime.
+     * Incremented on every LTP write. Used to compute stability_score.
+     *
+     * @task T706
+     */
+    reinforcementCount: integer('reinforcement_count').notNull().default(0),
+
+    /**
+     * Plasticity class governing which algorithm(s) write to this edge.
+     *
+     * - 'static':  Non-plastic edge (structural, semantic, etc.). Immune to decay.
+     * - 'hebbian': Written by strengthenCoRetrievedEdges. Subject to decay.
+     * - 'stdp':    Written or refined by applyStdpPlasticity. Subject to decay + LTD.
+     *
+     * Edges start 'static' for all non-co_retrieved types.
+     * co_retrieved edges start 'hebbian' (seeded by M3 migration), can upgrade to 'stdp'.
+     *
+     * @task T706
+     */
+    plasticityClass: text('plasticity_class', {
+      enum: ['static', 'hebbian', 'stdp'] as const,
+    })
+      .notNull()
+      .default('static'),
+
+    /**
+     * ISO 8601 timestamp of the last LTD (depression) event on this edge.
+     * Null = never depressed. Used for debugging and Studio viz animation.
+     *
+     * @task T706
+     */
+    lastDepressedAt: text('last_depressed_at'),
+
+    /**
+     * Count of LTD (depression) events applied to this edge lifetime.
+     * Enables analysis of edges that are persistently weakened.
+     *
+     * @task T706
+     */
+    depressionCount: integer('depression_count').notNull().default(0),
+
+    /**
+     * Biological-analog stability score: 0.0 (unstable) – 1.0 (consolidated).
+     *
+     * Computed by runConsolidation decay pass as:
+     *   stability = tanh(reinforcement_count / 10) × exp(-(days_since_reinforced / 30))
+     *
+     * Null = not yet computed (new edges). Enables fast filtering in decay pass:
+     * edges with stability > 0.9 skip the full decay recalculation.
+     * Updated at session-end consolidation, NOT per-event.
+     *
+     * @task T706
+     */
+    stabilityScore: real('stability_score'),
   },
   (table) => [
     primaryKey({ columns: [table.fromId, table.toId, table.edgeType] }),
     index('idx_brain_edges_from').on(table.fromId),
     index('idx_brain_edges_to').on(table.toId),
     index('idx_brain_edges_type').on(table.edgeType),
+    index('idx_brain_edges_last_reinforced').on(table.lastReinforcedAt),
+    index('idx_brain_edges_plasticity_class').on(table.plasticityClass),
+    index('idx_brain_edges_stability').on(table.stabilityScore),
   ],
 );
 
@@ -687,9 +758,20 @@ export const brainPageEdges = sqliteTable(
  *   - Co-retrieval edge strengthening (consolidation step 6)
  *   - Memory quality instrumentation (retrieval frequency tracking)
  *   - Citation count validation (corroboration for tier promotion)
+ *   - STDP plasticity — spike-timing pairs derived from retrieval timestamps (T673)
  *
  * Each row records one retrieval event: the query, which entries were returned,
  * and the retrieval source (find/fetch/hybrid).
+ *
+ * Column notes (T673-M1):
+ *   entry_ids    — stored as JSON array string '["id1","id2"]' (never CSV).
+ *                  Writer: JSON.stringify(entryIds). Readers: JSON.parse(row.entry_ids).
+ *                  M1 migration converts existing CSV rows to JSON format.
+ *   session_id   — synced to live table via M1 ALTER (was missing from live DDL).
+ *   reward_signal — R-STDP third-factor: +1.0 verified | +0.5 done | -0.5 cancelled | null.
+ *   retrieval_order — existed in live table via self-healing DDL but was absent in Drizzle.
+ *                     M1 brings Drizzle into sync (schema drift fix).
+ *   delta_ms     — same schema drift resolution as retrieval_order.
  */
 export const brainRetrievalLog = sqliteTable(
   'brain_retrieval_log',
@@ -699,7 +781,12 @@ export const brainRetrievalLog = sqliteTable(
     /** The search query or fetch IDs that triggered this retrieval. */
     query: text('query').notNull(),
 
-    /** Comma-separated list of entry IDs returned in this retrieval. */
+    /**
+     * JSON array of entry IDs returned in this retrieval.
+     * Stored as JSON array string: '["obs:A","obs:B"]'.
+     * Always write with JSON.stringify() — NEVER join(',').
+     * Readers call JSON.parse(). Migration M1 converts any pre-existing CSV rows.
+     */
     entryIds: text('entry_ids').notNull(),
 
     /** Number of entries returned. */
@@ -715,11 +802,29 @@ export const brainRetrievalLog = sqliteTable(
     sessionId: text('session_id'),
 
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    // === T673-M1: STDP plasticity columns ===
+
+    /** Sequence position of this retrieval within a batch query (0-based). */
+    retrievalOrder: integer('retrieval_order'),
+
+    /** Wall-clock ms since the previous retrieval row in the same batch. */
+    deltaMs: integer('delta_ms'),
+
+    /**
+     * R-STDP reward signal: scalar [-1.0, +1.0], null = unlabeled.
+     * Populated by backfillRewardSignals() at session end (Step 9a).
+     * +1.0 = task verified and passed | +0.5 = done (unverified) | -0.5 = cancelled.
+     * Per D-BRAIN-VIZ-13. backfillRewardSignals MUST skip rows where
+     * session_id LIKE 'ses_backfill_%' (synthetic historical sessions, no task correlation).
+     */
+    rewardSignal: real('reward_signal'),
   },
   (table) => [
     index('idx_retrieval_log_created').on(table.createdAt),
     index('idx_retrieval_log_source').on(table.source),
     index('idx_retrieval_log_session').on(table.sessionId),
+    index('idx_retrieval_log_reward').on(table.rewardSignal),
   ],
 );
 
@@ -759,6 +864,53 @@ export const brainPlasticityEvents = sqliteTable(
     timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
     /** Session ID that triggered the STDP pass, if available. */
     sessionId: text('session_id'),
+
+    // === T673-M2: Observability columns ===
+
+    /**
+     * Edge weight immediately BEFORE this plasticity event was applied.
+     * Null on the first LTP event that inserts a new edge (edge didn't exist).
+     * Enables "show learning history" in Studio viz without querying brain_weight_history.
+     *
+     * @task T696
+     */
+    weightBefore: real('weight_before'),
+
+    /**
+     * Edge weight immediately AFTER this plasticity event was applied.
+     * Computed as CLAMP(weight_before + delta_w, 0.0, 1.0).
+     * Redundant with delta_w but enables fast before/after display without arithmetic.
+     *
+     * @task T696
+     */
+    weightAfter: real('weight_after'),
+
+    /**
+     * Soft FK to brain_retrieval_log.id — the retrieval row that triggered this pair.
+     * Null for externally-triggered or legacy events.
+     * Enables: "which memory retrieval caused this edge to strengthen?"
+     *
+     * @task T696
+     */
+    retrievalLogId: integer('retrieval_log_id'),
+
+    /**
+     * R-STDP reward signal active when this event fired.
+     * Copied from the retrieval_log row's reward_signal at time of plasticity pass.
+     * Null = unmodulated. Denormalized for fast filtering without a JOIN.
+     *
+     * @task T696
+     */
+    rewardSignal: real('reward_signal'),
+
+    /**
+     * Wall-clock milliseconds between the two spikes that generated this event.
+     * Pre-computed at INSERT time — avoids re-deriving from retrieval timestamps.
+     * Enables analysis of STDP window distribution.
+     *
+     * @task T696
+     */
+    deltaTMs: integer('delta_t_ms'),
   },
   (table) => [
     index('idx_plasticity_source').on(table.sourceNode),
@@ -766,6 +918,210 @@ export const brainPlasticityEvents = sqliteTable(
     index('idx_plasticity_timestamp').on(table.timestamp),
     index('idx_plasticity_session').on(table.sessionId),
     index('idx_plasticity_kind').on(table.kind),
+    index('idx_plasticity_retrieval_log').on(table.retrievalLogId),
+    index('idx_plasticity_reward').on(table.rewardSignal),
+  ],
+);
+
+// ============================================================================
+// WEIGHT HISTORY — immutable per-edge Δw audit log (T673-M4, T697)
+// ============================================================================
+
+/**
+ * Immutable audit log of every edge weight change (LTP, LTD, Hebbian, prune,
+ * external). Routine exponential decay writes do NOT appear here — only discrete
+ * plasticity events that cross the 1e-6 negligibility threshold.
+ *
+ * Retention policy: rolling 90 days. runConsolidation Step 9d DELETE sweep
+ * purges rows older than 90 days. Actual pruning wired in Wave 3 (T690).
+ *
+ * Spec: docs/specs/stdp-wire-up-spec.md §2.1.4 (owner Q4 mandate — in scope).
+ *
+ * @task T697
+ * @epic T673
+ */
+export const brainWeightHistory = sqliteTable(
+  'brain_weight_history',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** from_id of the affected brain_page_edges row. */
+    edgeFromId: text('edge_from_id').notNull(),
+
+    /** to_id of the affected brain_page_edges row. */
+    edgeToId: text('edge_to_id').notNull(),
+
+    /** Edge type of the affected brain_page_edges row (e.g. 'co_retrieved'). */
+    edgeType: text('edge_type').notNull(),
+
+    /** Edge weight immediately before this event. Null if the edge was just created. */
+    weightBefore: real('weight_before'),
+
+    /** Edge weight after this event. CLAMP(weightBefore + deltaWeight, 0, 1). NOT NULL. */
+    weightAfter: real('weight_after').notNull(),
+
+    /**
+     * Signed weight delta applied to the edge.
+     * Positive = potentiation (LTP/Hebbian), negative = depression (LTD).
+     * Prune events record the final weight that triggered deletion (negative).
+     */
+    deltaWeight: real('delta_weight').notNull(),
+
+    /**
+     * Plasticity event kind.
+     * 'ltp'      — Long-Term Potentiation (STDP pre-before-post)
+     * 'ltd'      — Long-Term Depression (STDP post-before-pre)
+     * 'hebbian'  — Co-retrieval Hebbian strengthening
+     * 'decay'    — Temporal decay (only prune-triggering decays written here)
+     * 'prune'    — Edge deleted (weight fell below min_weight threshold)
+     * 'external' — Manually-applied external weight change
+     */
+    eventKind: text('event_kind').notNull(),
+
+    /** Soft FK to brain_plasticity_events.id — the STDP event that caused this. */
+    sourcePlasticityEventId: integer('source_plasticity_event_id'),
+
+    /** Soft FK to brain_retrieval_log.id — the retrieval batch that triggered this. */
+    retrievalLogId: integer('retrieval_log_id'),
+
+    /** R-STDP reward signal at time of event (copied from retrieval_log.reward_signal). */
+    rewardSignal: real('reward_signal'),
+
+    /** ISO 8601 timestamp when this weight change was applied. */
+    changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_weight_history_edge').on(table.edgeFromId, table.edgeToId, table.edgeType),
+    index('idx_weight_history_from').on(table.edgeFromId),
+    index('idx_weight_history_to').on(table.edgeToId),
+    index('idx_weight_history_changed_at').on(table.changedAt),
+    index('idx_weight_history_event_kind').on(table.eventKind),
+    index('idx_weight_history_plasticity_event').on(table.sourcePlasticityEventId),
+  ],
+);
+
+// ============================================================================
+// BRAIN MODULATORS — R-STDP neuromodulator event log (T673-M4, T699)
+// ============================================================================
+
+/**
+ * Discrete neuromodulator event log for R-STDP third-factor gating.
+ * Records every reward/correction/feedback signal that modulates plasticity.
+ * Inserted by backfillRewardSignals for each task outcome it processes.
+ *
+ * Both writes (retrieval_log UPDATE and modulators INSERT) use two separate
+ * SQLite connections — no ATTACH — matching the cross-db-cleanup.ts pattern.
+ *
+ * Spec: docs/specs/stdp-wire-up-spec.md §2.1.5 (Lead A §4.5).
+ *
+ * @task T699
+ * @epic T673
+ */
+export const brainModulators = sqliteTable(
+  'brain_modulators',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * Modulator event type. String (not enum constraint) for extensibility.
+     * Expected values: 'task_verified'|'task_completed'|'task_cancelled'|
+     * 'owner_verify'|'session_success'|'session_blocker'|'external'
+     */
+    modulatorType: text('modulator_type').notNull(),
+
+    /**
+     * Reward valence in range [-1.0, +1.0].
+     * +1.0 = strong reward (verified correct task)
+     * +0.5 = moderate reward (done, unverified)
+     * -0.5 = mild correction (cancelled task)
+     * -1.0 = strong correction (explicit invalidation)
+     *  0.0 = neutral signal
+     */
+    valence: real('valence').notNull(),
+
+    /**
+     * Magnitude 0.0–1.0 confidence scaling.
+     * Effective reward = valence × magnitude.
+     * Defaults to 1.0 (full confidence).
+     */
+    magnitude: real('magnitude').notNull().default(1.0),
+
+    /** Polymorphic source event ID — task ID, memory entry ID, or other string ref. */
+    sourceEventId: text('source_event_id'),
+
+    /** Session ID (soft FK to tasks.db sessions). */
+    sessionId: text('session_id'),
+
+    /** Human-readable description of why this modulator was emitted. */
+    description: text('description'),
+
+    /** ISO 8601 timestamp when this modulator event was recorded. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_modulators_type').on(table.modulatorType),
+    index('idx_modulators_session').on(table.sessionId),
+    index('idx_modulators_created_at').on(table.createdAt),
+    index('idx_modulators_source_event').on(table.sourceEventId),
+    index('idx_modulators_valence').on(table.valence),
+  ],
+);
+
+// ============================================================================
+// BRAIN CONSOLIDATION EVENTS — pipeline run audit log (T673-M4, T701)
+// ============================================================================
+
+/**
+ * One row per runConsolidation execution. Enables T628 auto-dream scheduling
+ * and pipeline observability. Required by the auto-dream cycle for scheduling.
+ *
+ * runConsolidation in brain-lifecycle.ts MUST accept an optional trigger
+ * parameter and INSERT one row per run with step_results_json + duration_ms.
+ *
+ * Spec: docs/specs/stdp-wire-up-spec.md §2.1.6 (Lead A + Lead C joint).
+ *
+ * @task T701
+ * @epic T673
+ */
+export const brainConsolidationEvents = sqliteTable(
+  'brain_consolidation_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * What triggered this consolidation run. String (not enum constraint) for
+     * forward compatibility with T628 scheduler.
+     * Expected values: 'session_end' | 'maintenance' | 'scheduled' | 'manual'
+     */
+    trigger: text('trigger').notNull(),
+
+    /** Session ID that initiated this consolidation (soft FK to tasks.db sessions). */
+    sessionId: text('session_id'),
+
+    /**
+     * JSON-serialized ConsolidationResult — all per-step counts and metrics.
+     * Shape: { [stepName: string]: { count: number, durationMs?: number } }
+     * Required NOT NULL — every run must record its results for T628 scheduling.
+     */
+    stepResultsJson: text('step_results_json').notNull(),
+
+    /** Wall-clock milliseconds from start to completion. Null if run did not complete. */
+    durationMs: integer('duration_ms'),
+
+    /**
+     * Whether the run succeeded.
+     * Stored as integer(boolean) per Drizzle SQLite boolean convention.
+     * true = completed without unhandled error, false = partial or error.
+     */
+    succeeded: integer('succeeded', { mode: 'boolean' }).notNull().default(true),
+
+    /** ISO 8601 timestamp when this consolidation run started. */
+    startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_consolidation_events_started_at').on(table.startedAt),
+    index('idx_consolidation_events_trigger').on(table.trigger),
+    index('idx_consolidation_events_session').on(table.sessionId),
   ],
 );
 
@@ -791,4 +1147,20 @@ export type BrainStickyNoteRow = typeof brainStickyNotes.$inferSelect;
 export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;
 export type BrainPlasticityEventRow = typeof brainPlasticityEvents.$inferSelect;
 export type NewBrainPlasticityEventRow = typeof brainPlasticityEvents.$inferInsert;
+
+/** Row type for brain_weight_history SELECT queries. */
+export type BrainWeightHistoryRow = typeof brainWeightHistory.$inferSelect;
+/** Row type for brain_weight_history INSERT operations. */
+export type BrainWeightHistoryInsert = typeof brainWeightHistory.$inferInsert;
+
+/** Row type for brain_modulators SELECT queries. */
+export type BrainModulatorRow = typeof brainModulators.$inferSelect;
+/** Row type for brain_modulators INSERT operations. */
+export type BrainModulatorInsert = typeof brainModulators.$inferInsert;
+
+/** Row type for brain_consolidation_events SELECT queries. */
+export type BrainConsolidationEventRow = typeof brainConsolidationEvents.$inferSelect;
+/** Row type for brain_consolidation_events INSERT operations. */
+export type BrainConsolidationEventInsert = typeof brainConsolidationEvents.$inferInsert;
+
 // BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.
