@@ -1,0 +1,52 @@
+[debug] [vite] connecting...
+[debug] [vite] connected.
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [BIND_FB #1] target=36160 fb=null(screen)
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #1] target=36160 fb=null(screen)
+[log] [CLEAR #1] mask=16384
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #2] target=36160 fb=non-null
+[log] [BIND_FB #3] target=36160 fb=non-null
+[log] [BIND_FB #2] target=36160 fb=null(screen)
+[log] [BIND_FB #3] target=36160 fb=null(screen)
+[log] [CLEAR #2] mask=16384
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [BIND_FB #1] target=36160 fb=null(screen)
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #1] target=36160 fb=null(screen)
+[log] [CLEAR #1] mask=16384
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #2] target=36160 fb=non-null
+[log] [BIND_FB #3] target=36160 fb=non-null
+[log] [BIND_FB #2] target=36160 fb=null(screen)
+[log] [BIND_FB #3] target=36160 fb=null(screen)
+[log] [CLEAR #2] mask=16384
+[warning] [.WebGL-0x95c00133200]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x95c00135000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x95c00134400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=true EXT_color_buffer_float=false OES_texture_half_float=true
+[log] [BIND_FB #1] target=36160 fb=non-null
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #2] target=36160 fb=null(screen)
+[log] [BIND_FB #3] target=36160 fb=non-null
+[log] [CLEAR #2] mask=17664
+[log] [WEBGL_EXTS] OES_texture_float=false EXT_color_buffer_float=true OES_texture_half_float=false
+[log] [WEBGL_EXTS] OES_texture_float=true EXT_color_buffer_float=false OES_texture_half_float=true
+[log] [BIND_FB #1] target=36160 fb=non-null
+[log] [CLEAR #1] mask=16384
+[log] [BIND_FB #2] target=36160 fb=null(screen)
+[log] [BIND_FB #3] target=36160 fb=non-null
+[log] [DRAW_ARRAYS #1] primitive=5 count=4
+[log] [DRAW_ARRAYS #2] primitive=5 count=4
+[log] [DRAW_ARRAYS #3] primitive=5 count=4
+[log] [DRAW_ARRAYS #4] primitive=0 count=2347
+[log] [DRAW_ARRAYS #5] primitive=5 count=4
+[log] [CLEAR #2] mask=17664
+[warning] [.WebGL-0x95c03799a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[log] [CLEAR #3] mask=17664

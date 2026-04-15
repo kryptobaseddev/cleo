@@ -421,12 +421,23 @@
       cosmos.setLinkColors(linkColors);
       cosmos.setLinkWidths(linkWidths);
 
-      // CRITICAL: cosmos.gl 2.0 needs `start()` to begin the force simulation.
-      // Calling only `render()` paints a single frame at the random initial
-      // positions and never animates — the canvas appears blank because the
-      // initial random scatter falls outside the default viewport.
-      // `start(alpha)` kicks the simulation; alpha=1.0 means full re-heating.
-      cosmos.start(1.0);
+      // CRITICAL: cosmos.gl 2.0 requires `render()` — not `start()` — as the
+      // very first call after setting data via set*() methods.
+      //
+      // Root cause (T685): after `new CosmosGraph(container, config)` and before
+      // any data upload, `graph.pointPositions` is undefined, so
+      // `graph.pointsNumber` returns `undefined` (falsy).  `start()` guards on
+      // `this.graph.pointsNumber` and silently does NOTHING when it is falsy.
+      //
+      // `render(alpha)` calls `this.graph.update()` first, which copies
+      // `inputPointPositions → pointPositions` (making `pointsNumber` valid),
+      // then calls `this.update(alpha)` which runs `create()` + `initPrograms()`
+      // + `start(alpha)` — the full initialisation sequence.
+      //
+      // On subsequent data refreshes the component calls `initCosmos()` which
+      // destroys the old instance and creates a fresh one, so this first-render
+      // path is always exercised for every mount.
+      cosmos.render(1.0);
 
       // Apply any initial pulses
       if (pulsingNodes.size > 0) {
@@ -438,9 +449,13 @@
         applyPulses(idToIdx);
       }
 
-      // Fit the camera to the simulated layout. We schedule two attempts:
-      //   - immediate (in case the simulation already settled fast)
+      // Fit the camera to the simulated layout. We schedule three attempts:
+      //   - 500ms (after first paint cycle when CSS grid has computed dimensions)
+      //   - immediate via requestAnimationFrame (in case simulation settled fast)
       //   - 1.5s later (after most force-layout convergence)
+      setTimeout(() => {
+        if (cosmos) cosmos.fitView(500, 0.15);
+      }, 500);
       requestAnimationFrame(() => {
         if (cosmos) cosmos.fitView(800, 0.15);
       });

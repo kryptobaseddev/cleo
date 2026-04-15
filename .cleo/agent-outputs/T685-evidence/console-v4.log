@@ -1,0 +1,77 @@
+[debug] [vite] connecting...
+[debug] [vite] connected.
+[warning] [.WebGL-0x3b7405508c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x3b7405508600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x3b7400139c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[log] [COSMOS_CANVAS] found cosmos WebGL context (float textures available)
+[log] [COSMOS_CANVAS] found cosmos WebGL context (float textures available)
+[log] [POST_DRAW #1] center pixel: r=0 g=0 b=0 a=0 prim=0 count=2347
+[log] [POST_DRAW #1] non-bg count in 20 samples: 20
+[log] [POST_DRAW #2] center pixel: r=0 g=0 b=0 a=0 prim=0 count=2347
+[log] [POST_DRAW #2] non-bg count in 20 samples: 20
+[log] [POST_DRAW #3] center pixel: r=0 g=0 b=0 a=0 prim=0 count=2347
+[log] [POST_DRAW #3] non-bg count in 20 samples: 20
+[warning] [.WebGL-0x3b740550f800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
+[warning] [.WebGL-0x3b740550fe00] GL_INVALID_OPERATION: glReadPixelsRobustANGLE: Invalid format and type combination.
