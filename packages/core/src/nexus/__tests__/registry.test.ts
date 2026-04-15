@@ -87,7 +87,7 @@ afterEach(async () => {
   await rm(testDir, { recursive: true, force: true });
 });
 
-describe('generateProjectHash', () => {
+describe('generateProjectHash — within nexus registry', () => {
   it('returns a 12-character hex string', () => {
     const hash = generateProjectHash('/some/path');
     expect(hash).toMatch(/^[a-f0-9]{12}$/);

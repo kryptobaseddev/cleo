@@ -18,7 +18,7 @@ import {
 } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-describe('CursorAdapter', () => {
+describe('CursorAdapter — integration', () => {
   let adapter: CursorAdapter;
 
   beforeEach(() => {
@@ -95,7 +95,7 @@ describe('CursorAdapter', () => {
   });
 });
 
-describe('CursorHookProvider', () => {
+describe('CursorHookProvider — integration', () => {
   let hooks: CursorHookProvider;
 
   beforeEach(() => {
@@ -130,7 +130,7 @@ describe('CursorHookProvider', () => {
   });
 });
 
-describe('CursorInstallProvider', () => {
+describe('CursorInstallProvider — integration', () => {
   let install: CursorInstallProvider;
   let testDir: string;
 
@@ -228,7 +228,7 @@ describe('CursorInstallProvider', () => {
   });
 });
 
-describe('createAdapter factory', () => {
+describe('createCursorAdapter factory', () => {
   it('returns a CursorAdapter instance', () => {
     const adapter = createAdapter();
     expect(adapter).toBeInstanceOf(CursorAdapter);

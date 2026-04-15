@@ -8,7 +8,8 @@
 
 import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
-import { existsSync, rmSync } from 'fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
@@ -23,7 +24,8 @@ import {
   releaseTag,
 } from '../release-engine.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-release-engine');
+/** Per-test isolated temp directory. Assigned in beforeEach, cleaned in afterEach. */
+let TEST_ROOT: string;
 
 const SAMPLE_TASKS: Array<Partial<Task> & { id: string }> = [
   {
@@ -64,14 +66,13 @@ async function setupTestDb(): Promise<void> {
 
 describe('Release Engine', () => {
   beforeEach(async () => {
+    TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-release-engine-'));
     await setupTestDb();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     resetDbState();
-    if (existsSync(TEST_ROOT)) {
-      rmSync(TEST_ROOT, { recursive: true, force: true });
-    }
+    await rm(TEST_ROOT, { recursive: true, force: true });
   });
 
   describe('releasePrepare', () => {

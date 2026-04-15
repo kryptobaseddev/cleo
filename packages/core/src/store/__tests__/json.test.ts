@@ -66,7 +66,7 @@ describe('readJsonRequired', () => {
   });
 });
 
-describe('computeChecksum', () => {
+describe('computeChecksum — json module', () => {
   it('produces a 16-character hex string', () => {
     const checksum = computeChecksum({ tasks: [] });
     expect(checksum).toMatch(/^[a-f0-9]{16}$/);

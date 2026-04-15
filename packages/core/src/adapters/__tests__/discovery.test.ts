@@ -8,14 +8,14 @@ import type { DetectionPattern } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
 
-describe('discoverAdapterManifests', () => {
+describe('discoverAdapterManifests — unit', () => {
   it('returns empty array when adapters directory does not exist', () => {
     const result = discoverAdapterManifests('/tmp/nonexistent-project');
     expect(result).toEqual([]);
   });
 });
 
-describe('detectProvider', () => {
+describe('detectProvider — unit', () => {
   beforeEach(() => {
     // Clean up any test env vars
     delete process.env.TEST_CLEO_ADAPTER_DETECT;

@@ -114,7 +114,7 @@ describe('getBlockedTasks', () => {
   });
 });
 
-describe('getReadyTasks', () => {
+describe('getReadyTasks — tasks/dependency-check', () => {
   it('returns tasks with all deps met', () => {
     const tasks = [
       makeTask({ id: 'T001', status: 'done' }),
@@ -243,7 +243,7 @@ describe('validateDependencies', () => {
   });
 });
 
-describe('topologicalSort', () => {
+describe('topologicalSort — tasks/dependency-check', () => {
   it('sorts tasks in dependency order', () => {
     const tasks = [
       makeTask({ id: 'T003', depends: ['T002'] }),

@@ -135,7 +135,7 @@ describe('getTaskDeps', () => {
   });
 });
 
-describe('topologicalSort', () => {
+describe('topologicalSort — phases/deps', () => {
   it('sorts tasks in dependency order', () => {
     const sorted = topologicalSort(baseTasksFull);
     const ids = sorted.map((t) => t.id);
@@ -180,7 +180,7 @@ describe('getExecutionWaves', () => {
   });
 });
 
-describe('getCriticalPath', () => {
+describe('getCriticalPath — phases/deps', () => {
   it('finds longest dependency chain', async () => {
     await writeTodo();
     const result = await getCriticalPath('T001', env.tempDir, accessor);
@@ -199,7 +199,7 @@ describe('getImpact', () => {
   });
 });
 
-describe('detectCycles', () => {
+describe('detectCycles — phases/deps', () => {
   it('detects no cycles in valid graph', async () => {
     await writeTodo();
     const result = await detectCycles(env.tempDir, accessor);

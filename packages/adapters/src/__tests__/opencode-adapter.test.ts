@@ -19,7 +19,7 @@ import {
 } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-describe('OpenCodeAdapter', () => {
+describe('OpenCodeAdapter — integration', () => {
   let adapter: OpenCodeAdapter;
 
   beforeEach(() => {
@@ -90,7 +90,7 @@ describe('OpenCodeAdapter', () => {
   });
 });
 
-describe('OpenCodeHookProvider', () => {
+describe('OpenCodeHookProvider — integration', () => {
   let hooks: OpenCodeHookProvider;
 
   beforeEach(() => {
@@ -159,7 +159,7 @@ describe('OpenCodeHookProvider', () => {
   });
 });
 
-describe('OpenCodeSpawnProvider', () => {
+describe('OpenCodeSpawnProvider — integration', () => {
   let spawn: OpenCodeSpawnProvider;
 
   beforeEach(() => {
@@ -181,7 +181,7 @@ describe('OpenCodeSpawnProvider', () => {
   });
 });
 
-describe('OpenCodeInstallProvider', () => {
+describe('OpenCodeInstallProvider — integration', () => {
   let install: OpenCodeInstallProvider;
   let testDir: string;
 
@@ -241,7 +241,7 @@ describe('OpenCodeInstallProvider', () => {
   });
 });
 
-describe('createAdapter factory', () => {
+describe('createOpenCodeAdapter factory', () => {
   it('returns an OpenCodeAdapter instance', () => {
     const adapter = createAdapter();
     expect(adapter).toBeInstanceOf(OpenCodeAdapter);

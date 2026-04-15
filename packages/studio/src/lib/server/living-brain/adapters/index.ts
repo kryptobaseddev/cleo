@@ -203,9 +203,18 @@ export function getAllSubstrates(options: LBQueryOptions = {}): LBGraph {
   // Second pass: load stub nodes for any edge target IDs not yet loaded.
   // This recovers cross-substrate edges that would otherwise be silently dropped
   // (e.g. brain→nexus bridges to low-in-degree symbols).
+  //
+  // When a substrates filter is explicitly provided, only add stubs for substrates
+  // within the requested set — never inject nodes from excluded substrates, as that
+  // would violate the caller's filter contract.
+  const requestedSubstrateSet = options.substrates ? new Set<string>(options.substrates) : null;
   const stubNodes = loadStubNodesForEdgeTargets(seenIds, allEdges);
   for (const stubNode of stubNodes) {
     if (!seenIds.has(stubNode.id)) {
+      // Skip stubs from substrates not in the requested set
+      if (requestedSubstrateSet && !requestedSubstrateSet.has(stubNode.substrate)) {
+        continue;
+      }
       seenIds.add(stubNode.id);
       uniqueNodes.push(stubNode);
     }

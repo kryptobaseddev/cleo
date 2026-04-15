@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { compareChecksums, computeChecksum, verifyBackup } from '../checksum.js';
 
-describe('computeChecksum', () => {
+describe('computeChecksum — migration/checksum', () => {
   let tempDir: string;
 
   beforeEach(async () => {

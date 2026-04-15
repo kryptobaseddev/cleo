@@ -13,7 +13,7 @@ import {
   serializeFrontmatter,
 } from '../frontmatter.js';
 
-describe('parseFrontmatter', () => {
+describe('parseFrontmatter — lifecycle/frontmatter', () => {
   it('parses valid frontmatter with all fields', () => {
     const content = `---
 epic: T4881
