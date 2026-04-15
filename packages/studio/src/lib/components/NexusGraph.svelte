@@ -94,11 +94,12 @@
 
     for (const edge of edges) {
       if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
+      if (edge.source === edge.target) continue; // skip self-loops
       if (graph.hasEdge(edge.source, edge.target)) continue;
       graph.addEdge(edge.source, edge.target, {
         color: 'rgba(148,163,184,0.25)',
         size: 0.8,
-        type: edge.type ?? 'calls',
+        edgeCategory: edge.type ?? 'calls', // custom attr (not sigma's `type` — that requires a registered program)
       });
     }
 
