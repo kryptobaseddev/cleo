@@ -155,73 +155,73 @@ fn jit_backend_dev_fixture_parses() {
     );
 }
 
-// ── T615: Starter bundle parse + validate check (temporary diagnostic) ───────
+// ── T615: Starter bundle parse + validate ────────────────────────────────────
 
-#[test]
-fn t615_starter_bundle_parse_errors_diagnostic() {
-    let base = {
-        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.pop();
-        p.pop(); // up from crates/cant-core to repo root
-        p
-    };
+/// Returns the repository root derived from the crate manifest directory.
+fn repo_root() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop(); // crates/cant-core → crates
+    p.pop(); // crates → repo root
+    p
+}
 
-    let files = vec![
-        "packages/cleo-os/starter-bundle/team.cant",
-        "packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant",
-        "packages/cleo-os/starter-bundle/agents/dev-lead.cant",
-        "packages/cleo-os/starter-bundle/agents/code-worker.cant",
-        "packages/cleo-os/starter-bundle/agents/docs-worker.cant",
-    ];
+/// Asserts that a starter bundle `.cant` file (path relative to repo root)
+/// parses and validates with zero errors.
+fn assert_starter_file_clean(rel_path: &str) {
+    let path = repo_root().join(rel_path);
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
 
-    let mut report = String::new();
-    let mut total_parse = 0usize;
-    let mut total_val = 0usize;
-
-    for rel in &files {
-        let path = base.join(rel);
-        let content = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        match parse_document(&content) {
-            Ok(doc) => {
-                let diags = validate(&doc);
-                let errs: Vec<_> = diags
-                    .iter()
-                    .filter(|d| {
-                        matches!(d.severity, cant_core::validate::diagnostic::Severity::Error)
-                    })
-                    .collect();
-                if errs.is_empty() {
-                    report.push_str(&format!("OK: {rel}\n"));
-                } else {
-                    report.push_str(&format!("VAL_ERR {rel}: {} errors\n", errs.len()));
-                    for e in &errs {
-                        report.push_str(&format!("  [{}] {}\n", e.rule_id, e.message));
-                    }
-                    total_val += errs.len();
-                }
-            }
-            Err(errs) => {
-                report.push_str(&format!("PARSE_ERR {rel}: {} errors\n", errs.len()));
-                for e in errs.iter().take(20) {
-                    report.push_str(&format!("  line {}: {}\n", e.span.line, e.message));
-                }
-                if errs.len() > 20 {
-                    report.push_str(&format!("  ...{} more\n", errs.len() - 20));
-                }
-                total_parse += errs.len();
-            }
+    let doc = parse_document(&content).unwrap_or_else(|errs| {
+        let mut msg = format!("parse failed for {rel_path}: {} error(s)\n", errs.len());
+        for e in errs.iter().take(20) {
+            msg.push_str(&format!("  line {}: {}\n", e.span.line, e.message));
         }
-    }
+        if errs.len() > 20 {
+            msg.push_str(&format!("  ...{} more error(s)\n", errs.len() - 20));
+        }
+        panic!("{msg}");
+    });
 
-    report.push_str(&format!(
-        "\nTotal parse errors: {total_parse}, validation errors: {total_val}\n"
-    ));
-    // Print for visibility, then assert
-    eprintln!("{report}");
-    assert_eq!(
-        total_parse + total_val,
-        0,
-        "Starter bundle errors:\n{report}"
+    let diags = validate(&doc);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, cant_core::validate::diagnostic::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "{rel_path} emitted {} validation error(s): {:#?}",
+        errors.len(),
+        errors
     );
+}
+
+/// T615: `team.cant` starter bundle file parses and validates clean.
+#[test]
+fn starter_bundle_team_cant_parses_clean() {
+    assert_starter_file_clean("packages/cleo-os/starter-bundle/team.cant");
+}
+
+/// T615: `cleo-orchestrator.cant` starter bundle file parses and validates clean.
+#[test]
+fn starter_bundle_cleo_orchestrator_cant_parses_clean() {
+    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant");
+}
+
+/// T615: `dev-lead.cant` starter bundle file parses and validates clean.
+#[test]
+fn starter_bundle_dev_lead_cant_parses_clean() {
+    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/dev-lead.cant");
+}
+
+/// T615: `code-worker.cant` starter bundle file parses and validates clean.
+#[test]
+fn starter_bundle_code_worker_cant_parses_clean() {
+    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/code-worker.cant");
+}
+
+/// T615: `docs-worker.cant` starter bundle file parses and validates clean.
+#[test]
+fn starter_bundle_docs_worker_cant_parses_clean() {
+    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/docs-worker.cant");
 }
