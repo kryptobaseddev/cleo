@@ -5,6 +5,9 @@
  * @epic T4454
  */
 
+// Auto-register hook handlers
+import '../hooks/handlers/index.js';
+
 import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -12,9 +15,19 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
+import { isValidPipelineStage } from '../tasks/pipeline-stage.js';
 
-// Auto-register hook handlers
-import '../hooks/handlers/index.js';
+/**
+ * RCASD planning stages — tasks in these stages auto-advance to 'implementation'
+ * when work begins (cleo start TXXX).
+ */
+const PLANNING_STAGES = new Set([
+  'research',
+  'consensus',
+  'architecture_decision',
+  'specification',
+  'decomposition',
+]);
 
 /** Result of getting current task. */
 export interface TaskCurrentResult {
@@ -92,6 +105,14 @@ export async function startTask(
         fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
       },
     );
+  }
+
+  // Auto-advance pipelineStage: RCASD planning stages → implementation (T719)
+  // Best-effort: if pipelineStage is in planning stages, advance to implementation.
+  // This mirrors the lifecycle model: starting work means entering the IVTR phase.
+  const currentStage = task.pipelineStage;
+  if (currentStage && isValidPipelineStage(currentStage) && PLANNING_STAGES.has(currentStage)) {
+    await acc.updateTaskFields(taskId, { pipelineStage: 'implementation' });
   }
 
   const focus = (await acc.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);

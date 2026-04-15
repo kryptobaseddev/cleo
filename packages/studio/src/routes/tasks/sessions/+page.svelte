@@ -107,33 +107,78 @@
                 {/if}
               </div>
               <div class="session-counts">
+                {#if sess.currentTask}
+                  <span class="count-chip count-active">
+                    active: <a
+                      href="/tasks/{sess.currentTask.id}"
+                      class="active-task-link"
+                      onclick={(e) => e.stopPropagation()}
+                    >{sess.currentTask.id}</a>
+                  </span>
+                {/if}
                 {#if sess.completedCount > 0}
                   <span class="count-chip count-done">{sess.completedCount} completed</span>
                 {/if}
                 {#if sess.createdCount > 0}
                   <span class="count-chip count-created">{sess.createdCount} created</span>
                 {/if}
-                {#if sess.completedCount === 0 && sess.createdCount === 0}
+                {#if sess.workedTasks.length > 0}
+                  <span class="count-chip count-worked">{sess.workedTasks.length} worked</span>
+                {/if}
+                {#if sess.completedCount === 0 && sess.createdCount === 0 && !sess.currentTask && sess.workedTasks.length === 0}
                   <span class="count-chip count-empty">no tasks</span>
                 {/if}
               </div>
             </div>
 
-            {#if expandedId === sess.id && sess.completedTasks.length > 0}
-              <div class="session-tasks">
-                <div class="tasks-label">Completed Tasks</div>
-                {#each sess.completedTasks as t}
+            {#if expandedId === sess.id}
+              {#if sess.currentTask}
+                <div class="session-tasks">
+                  <div class="tasks-label">Active Task</div>
                   <a
-                    href="/tasks/{t.id}"
-                    class="completed-task-row"
+                    href="/tasks/{sess.currentTask.id}"
+                    class="completed-task-row active-row"
                     onclick={(e) => e.stopPropagation()}
                   >
-                    <span class="ct-id">{t.id}</span>
-                    <span class="ct-title">{t.title}</span>
-                    <span class="ct-status">{t.status}</span>
+                    <span class="ct-id">{sess.currentTask.id}</span>
+                    <span class="ct-title">{sess.currentTask.title}</span>
+                    <span class="ct-status ct-status-active">in progress</span>
                   </a>
-                {/each}
-              </div>
+                </div>
+              {/if}
+              {#if sess.workedTasks.length > 0}
+                <div class="session-tasks">
+                  <div class="tasks-label">Task Work History</div>
+                  {#each sess.workedTasks as t (t.id + t.setAt)}
+                    <a
+                      href="/tasks/{t.id}"
+                      class="completed-task-row"
+                      onclick={(e) => e.stopPropagation()}
+                    >
+                      <span class="ct-id">{t.id}</span>
+                      <span class="ct-title">{t.title}</span>
+                      <span class="ct-time">{formatDate(t.setAt)}</span>
+                      <span class="ct-status">{t.clearedAt ? 'done' : 'active'}</span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+              {#if sess.completedTasks.length > 0}
+                <div class="session-tasks">
+                  <div class="tasks-label">Completed Tasks</div>
+                  {#each sess.completedTasks as t}
+                    <a
+                      href="/tasks/{t.id}"
+                      class="completed-task-row"
+                      onclick={(e) => e.stopPropagation()}
+                    >
+                      <span class="ct-id">{t.id}</span>
+                      <span class="ct-title">{t.title}</span>
+                      <span class="ct-status">{t.status}</span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </div>
         </div>
@@ -399,6 +444,29 @@
     color: #3b82f6;
   }
 
+  .count-worked {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+  }
+
+  .count-active {
+    background: rgba(168, 85, 247, 0.15);
+    color: #c084fc;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .active-task-link {
+    color: #a855f7;
+    text-decoration: none;
+    font-weight: 700;
+  }
+
+  .active-task-link:hover {
+    text-decoration: underline;
+  }
+
   .count-empty {
     background: #1e2435;
     color: #475569;
@@ -458,5 +526,21 @@
     font-size: 0.675rem;
     color: #64748b;
     flex-shrink: 0;
+  }
+
+  .ct-status-active {
+    color: #a855f7;
+    font-weight: 600;
+  }
+
+  .ct-time {
+    font-size: 0.675rem;
+    color: #475569;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .active-row {
+    border-left: 2px solid rgba(168, 85, 247, 0.4);
   }
 </style>
