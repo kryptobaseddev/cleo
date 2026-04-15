@@ -74,7 +74,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
     let tmpFile: string | undefined;
 
     try {
-      // Enrich prompt with CANT bundle, memory bridge, and mental model (T555).
+      // Enrich prompt with CANT bundle, memory bridge, mental model, and NEXUS context (T555, T625).
       // Best-effort: if CANT context is unavailable, the raw prompt is used.
       let enrichedPrompt = context.prompt;
       try {
@@ -83,6 +83,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
           projectDir: context.workingDirectory ?? process.cwd(),
           basePrompt: context.prompt,
           agentName: (context.options?.agentName as string) ?? undefined,
+          // Inject NEXUS code intelligence context for the task scope (T625).
+          // This injects callers/callees/impact data so the agent understands
+          // blast radius before modifying any symbol.
+          taskId: context.taskId ?? undefined,
         });
       } catch {
         // CANT enrichment unavailable — use raw prompt

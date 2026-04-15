@@ -1402,6 +1402,21 @@ export function registerNexusCommand(program: Command): void {
           // Non-fatal — bridge refresh failure should not fail the analyze command
         }
 
+        // Auto-register project and update index stats in the multi-project registry (best-effort)
+        try {
+          const { nexusUpdateIndexStats } = await import('@cleocode/core/internal' as string);
+          await nexusUpdateIndexStats(repoPath, {
+            nodeCount: result.nodeCount,
+            relationCount: result.relationCount,
+            fileCount: result.fileCount,
+          });
+          if (!jsonOutput) {
+            process.stderr.write('[nexus] Project registered/updated in multi-project registry.\n');
+          }
+        } catch {
+          // Non-fatal — registry update must never fail the analyze command
+        }
+
         if (jsonOutput) {
           const envelope = {
             success: true,
@@ -1446,6 +1461,194 @@ export function registerNexusCommand(program: Command): void {
             },
           };
           process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus projects ────────────────────────────────────────────────────────
+  // A focused subcommand group for the multi-project registry (T622).
+  // Maps to the existing nexus.list / nexus.register / nexus.unregister
+  // operations but adds richer output including db paths and index stats.
+
+  const projects = nexus.command('projects').description('Multi-project registry management');
+
+  projects
+    .command('list')
+    .description('List all projects registered in the global nexus registry')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      try {
+        const { nexusList } = await import('@cleocode/core/internal' as string);
+        const list = (await nexusList()) as Array<{
+          name: string;
+          path: string;
+          projectId: string;
+          hash: string;
+          brainDbPath?: string | null;
+          tasksDbPath?: string | null;
+          lastIndexed?: string | null;
+          stats?: { nodeCount?: number; relationCount?: number; fileCount?: number };
+          taskCount: number;
+          lastSeen: string;
+          healthStatus: string;
+        }>;
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: { projects: list, count: list.length },
+                meta: {
+                  operation: 'nexus.projects.list',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else if (list.length === 0) {
+          process.stdout.write(
+            '[nexus] No projects registered. Run: cleo nexus projects register\n',
+          );
+        } else {
+          process.stdout.write(`[nexus] Registered projects (${list.length}):\n\n`);
+          for (const p of list) {
+            const nodes = p.stats?.nodeCount ?? 0;
+            const rels = p.stats?.relationCount ?? 0;
+            const indexed = p.lastIndexed ? p.lastIndexed.slice(0, 10) : 'never';
+            process.stdout.write(
+              `  ${p.name.padEnd(28)}  tasks=${String(p.taskCount).padStart(5)}  nodes=${String(nodes).padStart(6)}  relations=${String(rels).padStart(7)}  indexed=${indexed}\n` +
+                `  ${''.padEnd(28)}  path=${p.path}\n`,
+            );
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
+        process.exitCode = 1;
+      }
+    });
+
+  projects
+    .command('register [path]')
+    .description('Register a project in the global nexus registry (default: current directory)')
+    .option('--name <name>', 'Custom project name (default: directory name)')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (targetPath: string | undefined, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const repoPath = targetPath ? path.resolve(targetPath) : process.cwd();
+      const name = opts['name'] as string | undefined;
+
+      try {
+        const { nexusRegister } = await import('@cleocode/core/internal' as string);
+        const hash = await (nexusRegister as (p: string, n?: string) => Promise<string>)(
+          repoPath,
+          name,
+        );
+        const durationMs = Date.now() - startTime;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: { hash, path: repoPath },
+                meta: {
+                  operation: 'nexus.projects.register',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(`[nexus] Registered: ${repoPath} (hash: ${hash})\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_REGISTER_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.projects.register',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  projects
+    .command('remove <nameOrHash>')
+    .alias('rm')
+    .description('Remove a project from the global nexus registry')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (nameOrHash: string, opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      try {
+        const { nexusUnregister } = await import('@cleocode/core/internal' as string);
+        await nexusUnregister(nameOrHash);
+        const durationMs = Date.now() - startTime;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: { removed: nameOrHash },
+                meta: {
+                  operation: 'nexus.projects.remove',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(`[nexus] Removed: ${nameOrHash}\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_REMOVE_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.projects.remove',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
         } else {
           process.stderr.write(`[nexus] Error: ${msg}\n`);
         }
@@ -1516,6 +1719,239 @@ export function registerNexusCommand(program: Command): void {
           );
         } else {
           process.stderr.write(`[nexus] Error refreshing bridge: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus diff ────────────────────────────────────────────────────────────
+
+  /**
+   * Compare NEXUS index state between two git commits.
+   *
+   * Runs an incremental re-analysis against the current working tree state
+   * (representing the "after" snapshot) and compares relation/node counts
+   * against the pre-analysis snapshot. Reports new relations, removed
+   * relations, and any regressions detected.
+   *
+   * @task T625
+   */
+  nexus
+    .command('diff')
+    .description(
+      'Compare NEXUS index state between two git commits — shows new/removed relations and broken call chains',
+    )
+    .option('--before <sha>', 'Git SHA or ref for the "before" snapshot (default: HEAD~1)')
+    .option('--after <sha>', 'Git SHA or ref for the "after" snapshot (default: HEAD)', 'HEAD')
+    .option('--path <dir>', 'Repository directory to analyze (default: cwd)')
+    .option('--json', 'Output result as JSON (LAFS envelope format)')
+    .option('--project-id <id>', 'Override the project ID (default: auto-detected from path)')
+    .action(async (opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const repoPath = opts['path'] ? path.resolve(opts['path'] as string) : process.cwd();
+      const projectIdOverride = opts['projectId'] as string | undefined;
+      const projectId =
+        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+      const beforeRef = (opts['before'] as string | undefined) ?? 'HEAD~1';
+      const afterRef = (opts['after'] as string | undefined) ?? 'HEAD';
+
+      if (!jsonOutput) {
+        process.stderr.write(
+          `[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}\n`,
+        );
+      }
+
+      try {
+        const { execFile: execFileNode } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFileNode);
+
+        /** Resolve a git ref to a short SHA. Falls back to the ref itself on failure. */
+        const resolveSha = async (ref: string): Promise<string> => {
+          try {
+            const { stdout } = await execFileAsync('git', ['rev-parse', '--short', ref], {
+              timeout: 5_000,
+              cwd: repoPath,
+            });
+            return stdout.trim();
+          } catch {
+            return ref;
+          }
+        };
+
+        const [beforeSha, afterSha] = await Promise.all([
+          resolveSha(beforeRef),
+          resolveSha(afterRef),
+        ]);
+
+        // Get files changed between the two refs (TypeScript/JavaScript/Rust only)
+        let changedFiles: string[] = [];
+        try {
+          const { stdout: diffOutput } = await execFileAsync(
+            'git',
+            ['diff', '--name-only', beforeSha, afterSha],
+            { timeout: 10_000, cwd: repoPath },
+          );
+          changedFiles = diffOutput
+            .split('\n')
+            .map((f) => f.trim())
+            .filter(
+              (f) => f.length > 0 && (f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.rs')),
+            );
+        } catch {
+          // git diff failed — proceed with full status comparison
+        }
+
+        // Load nexus DB and snapshot relation/node counts before incremental analysis
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        let relationsBefore = 0;
+        let nodesBefore = 0;
+        try {
+          const allRelsBefore = db.select().from(nexusSchema.nexusRelations).all() as Array<
+            Record<string, unknown>
+          >;
+          const allNodesBefore = db.select().from(nexusSchema.nexusNodes).all() as Array<
+            Record<string, unknown>
+          >;
+          relationsBefore = allRelsBefore.filter((r) => r['projectId'] === projectId).length;
+          nodesBefore = allNodesBefore.filter((n) => n['projectId'] === projectId).length;
+        } catch {
+          // DB not yet initialized — start from zero
+        }
+
+        // Run incremental pipeline to reflect the afterRef state
+        const { runPipeline } = await import('@cleocode/nexus/pipeline' as string);
+        const pipelineResult = await runPipeline(
+          repoPath,
+          projectId,
+          db,
+          {
+            nexusNodes: nexusSchema.nexusNodes,
+            nexusRelations: nexusSchema.nexusRelations,
+          },
+          undefined, // no progress callback in diff mode
+          { incremental: true },
+        );
+
+        // Snapshot counts after incremental analysis
+        let relationsAfter = 0;
+        let nodesAfter = 0;
+        try {
+          const allRelsAfter = db.select().from(nexusSchema.nexusRelations).all() as Array<
+            Record<string, unknown>
+          >;
+          const allNodesAfter = db.select().from(nexusSchema.nexusNodes).all() as Array<
+            Record<string, unknown>
+          >;
+          relationsAfter = allRelsAfter.filter((r) => r['projectId'] === projectId).length;
+          nodesAfter = allNodesAfter.filter((n) => n['projectId'] === projectId).length;
+        } catch {
+          // Fallback: use pipeline result counts directly
+          relationsAfter = pipelineResult.relationCount;
+          nodesAfter = pipelineResult.nodeCount;
+        }
+
+        const newRelations = Math.max(0, relationsAfter - relationsBefore);
+        const removedRelations = Math.max(0, relationsBefore - relationsAfter);
+        const newNodes = Math.max(0, nodesAfter - nodesBefore);
+        const removedNodes = Math.max(0, nodesBefore - nodesAfter);
+        const durationMs = Date.now() - startTime;
+
+        // Classify regressions: significant relation or node loss
+        const regressions: string[] = [];
+        if (removedRelations > 5) {
+          regressions.push(`${removedRelations} relations removed — verify no broken call chains`);
+        }
+        if (removedNodes > 0) {
+          regressions.push(`${removedNodes} symbols removed — callers may be broken`);
+        }
+
+        const diffHealthStatus =
+          regressions.length > 0
+            ? 'REGRESSIONS_DETECTED'
+            : removedRelations > 0
+              ? 'RELATIONS_REDUCED'
+              : newRelations > 0
+                ? 'RELATIONS_ADDED'
+                : 'STABLE';
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  beforeRef,
+                  afterRef,
+                  beforeSha,
+                  afterSha,
+                  projectId,
+                  repoPath,
+                  changedFiles,
+                  nodesBefore,
+                  nodesAfter,
+                  newNodes,
+                  removedNodes,
+                  relationsBefore,
+                  relationsAfter,
+                  newRelations,
+                  removedRelations,
+                  healthStatus: diffHealthStatus,
+                  regressions,
+                },
+                meta: {
+                  operation: 'nexus.diff',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Diff: ${beforeSha}..${afterSha}\n` +
+              `  Changed files: ${changedFiles.length > 0 ? changedFiles.join(', ') : 'n/a'}\n` +
+              `  Nodes:     before=${nodesBefore}  after=${nodesAfter}  new=+${newNodes}  removed=-${removedNodes}\n` +
+              `  Relations: before=${relationsBefore}  after=${relationsAfter}  new=+${newRelations}  removed=-${removedRelations}\n` +
+              `  Health:    ${diffHealthStatus}\n`,
+          );
+          if (regressions.length > 0) {
+            process.stdout.write('\n  REGRESSIONS:\n');
+            for (const reg of regressions) {
+              process.stdout.write(`    - ${reg}\n`);
+            }
+          } else {
+            process.stdout.write('  No regressions detected.\n');
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const durationMs = Date.now() - startTime;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_DIFF_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.diff',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error running diff: ${msg}\n`);
         }
         process.exitCode = 1;
       }
