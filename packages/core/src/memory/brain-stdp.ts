@@ -46,13 +46,42 @@
  * initial STDP-derived weight (potentiation pairs only — LTD does not create
  * new edges, only weakens existing ones).
  *
+ * ## Two-Window Architecture (T679 BUG-1 fix)
+ *
+ * Prior code used `sessionWindowMs=5min` as BOTH the SQL lookback cutoff AND the
+ * spike-pair Δt gate, causing all live rows (>5min old) to produce zero plasticity
+ * events. This version separates the two concerns:
+ *
+ * | Parameter         | Default    | Purpose                                  |
+ * |-------------------|------------|------------------------------------------|
+ * | `lookbackDays`    | 30 days    | SQL cutoff for fetching retrieval rows   |
+ * | `pairingWindowMs` | 5 min      | Max Δt between two spikes for pairing    |
+ *
+ * Wave 2 (T688) will expand `pairingWindowMs` to 24 h for cross-session pairs.
+ *
  * @task T626
- * @epic T626
+ * @task T679
+ * @epic T673
  * @see packages/core/src/memory/brain-lifecycle.ts#strengthenCoRetrievedEdges
+ * @see docs/specs/stdp-wire-up-spec.md §3.2 Two-Window Architecture
  */
 
 import { typedAll } from '../store/typed-query.js';
 import { computeStabilityScore, upgradePlasticityClass } from './brain-plasticity-class.js';
+
+// ============================================================================
+// STDP defaults (T679)
+// ============================================================================
+
+/** Default SQL lookback window: fetch retrieval rows from the last N days. */
+const DEFAULT_LOOKBACK_DAYS = 30;
+
+/**
+ * Default spike-pair matching window in milliseconds.
+ * Spikes more than this apart are NOT paired.
+ * Wave 2 (T688) will expand to 24 h for cross-session pairs.
+ */
+const DEFAULT_PAIRING_WINDOW_MS = 5 * 60 * 1000; // 5 min
 
 // ============================================================================
 // Reward backfill types
@@ -69,6 +98,32 @@ export interface RewardBackfillResult {
   rowsLabeled: number;
   /** Number of rows skipped (already labeled, backfill session, or no task match). */
   rowsSkipped: number;
+}
+
+/**
+ * Options for `applyStdpPlasticity`.
+ *
+ * ### Migration note — legacy number signature deprecated (T679)
+ *
+ * The old single-parameter signature `applyStdpPlasticity(root, sessionWindowMs)`
+ * used the same value for both SQL lookback cutoff and spike-pair Δt gate.
+ * All 38 live retrieval rows were older than 5 min, so zero events ever fired.
+ *
+ * Pass `lookbackDays` (how far back to fetch rows) and `pairingWindowMs`
+ * (max Δt between two spikes for pair formation) as separate parameters.
+ */
+export interface StdpPlasticityOptions {
+  /**
+   * SQL lookback window: only retrieve log rows from the last N days.
+   * Default: 30. A 30-day window captures all meaningful retrieval history
+   * without unbounded growth.
+   */
+  lookbackDays?: number;
+  /**
+   * Maximum Δt (ms) between two spikes for them to form a STDP pair.
+   * Default: 5 min (300,000 ms). Wave 2 (T688) expands to 24 h.
+   */
+  pairingWindowMs?: number;
 }
 
 // ============================================================================
@@ -154,15 +209,22 @@ interface RetrievalLogRow {
   created_at: string;
   retrieval_order: number | null;
   delta_ms: number | null;
-  session_id?: string | null;
+  /** Session that produced this retrieval. Populated by M1 migration / T703 writer fix. */
+  session_id: string | null;
+  /** R-STDP reward signal populated by backfillRewardSignals (Step 9a). */
+  reward_signal: number | null;
 }
 
-/** A spike: one entry ID retrieved at one timestamp, with ordering metadata. */
+/** A spike: one entry ID retrieved at one timestamp, with ordering and session metadata. */
 interface Spike {
   entryId: string;
   rowId: number;
   retrievedAt: number; // epoch ms
   order: number;
+  /** Session that produced this spike — from brain_retrieval_log.session_id. */
+  sessionId: string | null;
+  /** R-STDP reward signal from the retrieval row. */
+  rewardSignal: number | null;
 }
 
 // ============================================================================
@@ -172,22 +234,56 @@ interface Spike {
 /**
  * Apply Spike-Timing-Dependent Plasticity to brain_page_edges.
  *
- * Reads `brain_retrieval_log` for rows within the past `sessionWindowMs`
- * milliseconds, reconstructs the temporal spike sequence per session, and
- * applies the STDP rule to every ordered pair within the window.
+ * Reads `brain_retrieval_log` for rows within the past `lookbackDays` days
+ * (default 30), reconstructs the temporal spike sequence, and applies the
+ * STDP rule to every ordered pair within `pairingWindowMs` (default 5 min).
  *
- * All weight changes are logged to `brain_plasticity_events` for
- * observability and `cleo brain plasticity stats` reporting.
+ * All weight changes are logged to `brain_plasticity_events` (with
+ * `session_id`, `retrieval_log_id`, `weight_before`, `weight_after`,
+ * `delta_t_ms`) and to `brain_weight_history` for the full audit trail.
+ *
+ * ### T679 fixes (root cause: BUG-1 from stdp-wire-up-spec.md §1.4)
+ *
+ * - Separated `lookbackDays` (SQL fetch window, default 30d) from
+ *   `pairingWindowMs` (spike-pair Δt gate, default 5min). Previously both
+ *   used `sessionWindowMs=5min`, causing all live rows (>5min old) to produce
+ *   zero events.
+ * - Writer now populates `session_id` + `retrieval_log_id` + `weight_before` /
+ *   `weight_after` on `brain_plasticity_events` INSERT.
+ * - Writer now inserts into `brain_weight_history` per weight delta.
+ * - Fixed bug where `prepareUpdateEdge.run()` was missing 4 of 9 SQL params.
+ *
+ * ### Backward compatibility
+ *
+ * The legacy `applyStdpPlasticity(root, number)` signature is still accepted.
+ * The number is mapped to `pairingWindowMs`; `lookbackDays` stays at 30d.
+ * A deprecation warning is emitted to steer callers to `StdpPlasticityOptions`.
  *
  * @param projectRoot - Project root directory for brain.db resolution
- * @param sessionWindowMs - Time window (ms) to consider retrievals as
- *   temporally related. Defaults to 5 minutes.
+ * @param options - `StdpPlasticityOptions` or a legacy number (deprecated `sessionWindowMs`).
  * @returns Counts of LTP/LTD events applied and edges created/updated.
  */
 export async function applyStdpPlasticity(
   projectRoot: string,
-  sessionWindowMs = 5 * 60 * 1000,
+  options?: StdpPlasticityOptions | number,
 ): Promise<StdpPlasticityResult> {
+  // ---- Backward-compatible options resolution ----
+  let lookbackDays = DEFAULT_LOOKBACK_DAYS;
+  let pairingWindowMs = DEFAULT_PAIRING_WINDOW_MS;
+
+  if (typeof options === 'number') {
+    // Legacy call: applyStdpPlasticity(root, sessionWindowMs)
+    // Map to pairingWindowMs only; lookbackDays stays at 30d so historical rows are fetched.
+    console.warn(
+      '[brain-stdp] Deprecated: passing sessionWindowMs as a number. ' +
+        'Use StdpPlasticityOptions { lookbackDays, pairingWindowMs } instead. (T679)',
+    );
+    pairingWindowMs = options;
+  } else if (options !== undefined) {
+    lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+    pairingWindowMs = options.pairingWindowMs ?? DEFAULT_PAIRING_WINDOW_MS;
+  }
+
   const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
@@ -216,18 +312,19 @@ export async function applyStdpPlasticity(
   }
 
   const now = Date.now();
-  const cutoffMs = now - sessionWindowMs;
+  // T679 BUG-1 fix: use lookbackDays (default 30d) for the SQL cutoff, NOT pairingWindowMs.
+  // Previously: cutoffMs = now - sessionWindowMs (5 min) → all 38 live rows were skipped.
+  const cutoffMs = now - lookbackDays * 24 * 60 * 60 * 1000;
   const cutoffIso = new Date(cutoffMs).toISOString().replace('T', ' ').slice(0, 19);
   const nowIso = new Date(now).toISOString().replace('T', ' ').slice(0, 19);
 
   // Fetch recent retrieval log rows including the STDP columns.
-  // We use all rows in the window regardless of whether retrieval_order is set —
-  // if it is null (legacy rows), we fall back to ordering by created_at.
+  // T679: also fetch session_id and reward_signal for plasticity events INSERT.
   let logRows: RetrievalLogRow[] = [];
   try {
     logRows = typedAll<RetrievalLogRow>(
       nativeDb.prepare(
-        `SELECT id, entry_ids, created_at, retrieval_order, delta_ms
+        `SELECT id, entry_ids, created_at, retrieval_order, delta_ms, session_id, reward_signal
          FROM brain_retrieval_log
          WHERE created_at >= ?
          ORDER BY created_at ASC, id ASC
@@ -243,7 +340,8 @@ export async function applyStdpPlasticity(
 
   // Build an ordered spike sequence from the log rows.
   // Each retrieval log row may contain multiple entry_ids (a batch retrieval).
-  // We expand them into individual spikes, preserving the retrieval timestamp.
+  // We expand them into individual spikes, preserving the retrieval timestamp,
+  // session_id, and reward_signal from the source row.
   const spikes: Spike[] = [];
   let globalOrder = 0;
 
@@ -252,28 +350,36 @@ export async function applyStdpPlasticity(
     try {
       ids = JSON.parse(row.entry_ids) as string[];
     } catch {
+      // entry_ids is not JSON — row was not migrated (BUG-2). Skip silently.
       continue;
     }
+
+    if (!Array.isArray(ids)) continue;
 
     const rowTime = new Date(row.created_at.replace(' ', 'T') + 'Z').getTime();
 
     for (const rawId of ids) {
+      if (typeof rawId !== 'string' || rawId.length === 0) continue;
       const entryId = rawId.includes(':') ? rawId : `observation:${rawId}`;
       spikes.push({
         entryId,
         rowId: row.id,
         retrievedAt: rowTime,
         order: row.retrieval_order ?? globalOrder,
+        sessionId: row.session_id ?? null,
+        rewardSignal: row.reward_signal ?? null,
       });
       globalOrder++;
     }
   }
 
+  if (spikes.length < 2) return result;
+
   // Sort spikes by (retrievedAt, order) to establish canonical temporal sequence.
   spikes.sort((a, b) => a.retrievedAt - b.retrievedAt || a.order - b.order);
 
   // For each ordered pair (i, j) where i < j (spike i before spike j),
-  // apply the STDP rule if Δt <= sessionWindowMs.
+  // apply the STDP rule if Δt <= pairingWindowMs.
   const prepareGetEdge = nativeDb.prepare(
     `SELECT weight, reinforcement_count, last_reinforced_at, plasticity_class, depression_count, last_depressed_at
      FROM brain_page_edges
@@ -308,11 +414,30 @@ export async function applyStdpPlasticity(
      VALUES (?, ?, 'co_retrieved', ?, 'plasticity:stdp-ltp', 1, ?, 'stdp', ?, ?)`,
   );
 
+  // T679: plasticity events INSERT now includes session_id, retrieval_log_id,
+  // weight_before, weight_after, delta_t_ms per spec §2.1.2.
   const prepareLogEvent = nativeDb.prepare(
     `INSERT INTO brain_plasticity_events
-       (source_node, target_node, delta_w, kind, timestamp)
-     VALUES (?, ?, ?, ?, ?)`,
+       (source_node, target_node, delta_w, kind, timestamp,
+        session_id, retrieval_log_id, weight_before, weight_after, delta_t_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+
+  // T679: brain_weight_history INSERT per spec §2.1.4.
+  // Table is guaranteed by brain-sqlite.ts ensureColumns guard — safe to INSERT.
+  let prepareLogWeightHistory: ReturnType<typeof nativeDb.prepare> | null = null;
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_weight_history LIMIT 1').get();
+    prepareLogWeightHistory = nativeDb.prepare(
+      `INSERT INTO brain_weight_history
+         (edge_from_id, edge_to_id, edge_type, weight_before, weight_after,
+          delta_weight, event_kind, source_plasticity_event_id, retrieval_log_id,
+          reward_signal, changed_at)
+       VALUES (?, ?, 'co_retrieved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+  } catch {
+    // brain_weight_history not yet created — skip history writes best-effort
+  }
 
   for (let i = 0; i < spikes.length; i++) {
     const spikeA = spikes[i]!;
@@ -321,7 +446,7 @@ export async function applyStdpPlasticity(
       const spikeB = spikes[j]!;
       const deltaT = spikeB.retrievedAt - spikeA.retrievedAt; // ms, always >= 0
 
-      if (deltaT > sessionWindowMs) break; // spikes are sorted; further pairs exceed window
+      if (deltaT > pairingWindowMs) break; // spikes are sorted; further pairs exceed window
 
       if (spikeA.entryId === spikeB.entryId) continue; // skip self-pairs
 
@@ -332,20 +457,30 @@ export async function applyStdpPlasticity(
 
       if (deltaW < 1e-6) continue; // negligible change — skip
 
+      // Use session_id from the pre-spike's retrieval row (spikeA) — causal attribution.
+      const eventSessionId = spikeA.sessionId ?? null;
+      const eventRewardSignal = spikeA.rewardSignal ?? null;
+
       // Check whether an existing co_retrieved edge A→B exists
+      type EdgeRow = {
+        weight: number;
+        reinforcement_count: number;
+        last_reinforced_at: string | null;
+        plasticity_class: string | null;
+        depression_count: number;
+        last_depressed_at: string | null;
+      };
+
       const existingEdge = prepareGetEdge.get(spikeA.entryId, spikeB.entryId) as
-        | {
-            weight: number;
-            reinforcement_count: number;
-            last_reinforced_at: string | null;
-            plasticity_class: string | null;
-            depression_count: number;
-            last_depressed_at: string | null;
-          }
+        | EdgeRow
         | undefined;
+
+      let ltpEventId: number | null = null;
 
       try {
         if (existingEdge !== undefined) {
+          const currentWeight = existingEdge.weight;
+          const newWeight = Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, currentWeight + deltaW));
           // LTP UPDATE: Set plasticity_class='stdp' (upgrades from 'hebbian'), compute stability (T693)
           const upgradedClass = upgradePlasticityClass(existingEdge.plasticity_class, 'stdp');
           const newRcCount = (existingEdge.reinforcement_count ?? 0) + 1;
@@ -361,6 +496,39 @@ export async function applyStdpPlasticity(
             spikeA.entryId,
             spikeB.entryId,
           );
+
+          // T679: include session_id, retrieval_log_id, weight_before, weight_after, delta_t_ms
+          const evtStmt = prepareLogEvent.run(
+            spikeA.entryId,
+            spikeB.entryId,
+            deltaW,
+            'ltp',
+            nowIso,
+            eventSessionId,
+            spikeA.rowId,
+            currentWeight,
+            newWeight,
+            deltaT,
+          );
+          ltpEventId =
+            (evtStmt as { lastInsertRowid?: number | bigint }).lastInsertRowid != null
+              ? Number((evtStmt as { lastInsertRowid: number | bigint }).lastInsertRowid)
+              : null;
+
+          if (prepareLogWeightHistory) {
+            prepareLogWeightHistory.run(
+              spikeA.entryId,
+              spikeB.entryId,
+              currentWeight,
+              newWeight,
+              deltaW,
+              'ltp',
+              ltpEventId,
+              spikeA.rowId,
+              eventRewardSignal,
+              nowIso,
+            );
+          }
         } else {
           // INSERT: Set plasticity_class='stdp', reinforcement_count=1, compute stability (T693)
           const stability = computeStabilityScore(1, nowIso, now);
@@ -374,9 +542,41 @@ export async function applyStdpPlasticity(
             nowIso,
           );
           result.edgesCreated++;
+
+          // T679: weight_before = null (new edge), include session_id, retrieval_log_id, delta_t_ms
+          const evtStmt = prepareLogEvent.run(
+            spikeA.entryId,
+            spikeB.entryId,
+            initialWeight,
+            'ltp',
+            nowIso,
+            eventSessionId,
+            spikeA.rowId,
+            null,
+            initialWeight,
+            deltaT,
+          );
+          ltpEventId =
+            (evtStmt as { lastInsertRowid?: number | bigint }).lastInsertRowid != null
+              ? Number((evtStmt as { lastInsertRowid: number | bigint }).lastInsertRowid)
+              : null;
+
+          if (prepareLogWeightHistory) {
+            prepareLogWeightHistory.run(
+              spikeA.entryId,
+              spikeB.entryId,
+              null,
+              initialWeight,
+              initialWeight,
+              'ltp',
+              ltpEventId,
+              spikeA.rowId,
+              eventRewardSignal,
+              nowIso,
+            );
+          }
         }
 
-        prepareLogEvent.run(spikeA.entryId, spikeB.entryId, deltaW, 'ltp', nowIso);
         result.ltpEvents++;
       } catch {
         /* best-effort */
@@ -387,18 +587,16 @@ export async function applyStdpPlasticity(
       const deltaWNeg = -(A_POST * Math.exp(-deltaT / TAU_POST_MS));
 
       const existingReverseEdge = prepareGetEdge.get(spikeB.entryId, spikeA.entryId) as
-        | {
-            weight: number;
-            reinforcement_count: number;
-            last_reinforced_at: string | null;
-            plasticity_class: string | null;
-            depression_count: number;
-            last_depressed_at: string | null;
-          }
+        | EdgeRow
         | undefined;
 
       if (existingReverseEdge !== undefined && Math.abs(deltaWNeg) >= 1e-6) {
         try {
+          const currentReverseWeight = existingReverseEdge.weight;
+          const newReverseWeight = Math.max(
+            WEIGHT_MIN,
+            Math.min(WEIGHT_MAX, currentReverseWeight + deltaWNeg),
+          );
           // LTD UPDATE: Set plasticity_class='stdp' (upgrades), compute stability (T693)
           const upgradedClass = upgradePlasticityClass(
             existingReverseEdge.plasticity_class,
@@ -421,7 +619,40 @@ export async function applyStdpPlasticity(
             spikeB.entryId,
             spikeA.entryId,
           );
-          prepareLogEvent.run(spikeB.entryId, spikeA.entryId, deltaWNeg, 'ltd', nowIso);
+
+          // T679: include session_id, retrieval_log_id (post-synaptic), weight_before, weight_after
+          const ltdEvtStmt = prepareLogEvent.run(
+            spikeB.entryId,
+            spikeA.entryId,
+            deltaWNeg,
+            'ltd',
+            nowIso,
+            eventSessionId,
+            spikeB.rowId,
+            currentReverseWeight,
+            newReverseWeight,
+            deltaT,
+          );
+          const ltdEventId =
+            (ltdEvtStmt as { lastInsertRowid?: number | bigint }).lastInsertRowid != null
+              ? Number((ltdEvtStmt as { lastInsertRowid: number | bigint }).lastInsertRowid)
+              : null;
+
+          if (prepareLogWeightHistory) {
+            prepareLogWeightHistory.run(
+              spikeB.entryId,
+              spikeA.entryId,
+              currentReverseWeight,
+              newReverseWeight,
+              deltaWNeg,
+              'ltd',
+              ltdEventId,
+              spikeB.rowId,
+              eventRewardSignal,
+              nowIso,
+            );
+          }
+
           result.ltdEvents++;
         } catch {
           /* best-effort */
