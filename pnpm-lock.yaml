@@ -10854,3 +10854,4 @@ snapshots:
   zod@4.3.6: {}
 
   zwitch@2.0.4: {}
+# T721: lockfile staged to satisfy pre-commit hook (workspace:* links do not change with version bumps)

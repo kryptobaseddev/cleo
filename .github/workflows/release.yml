@@ -125,8 +125,45 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Wipe all dist directories before building to prevent stale incremental
+      # tsbuildinfo cache from producing incomplete tarballs (T721 / T633).
+      # Without this, `tsc --composite` reuses cached .d.ts-only outputs when
+      # the pnpm node_modules cache is restored but the dist tree is partial.
+      - name: Clean dist (prevent stale cache)
+        run: |
+          pnpm -r exec -- sh -c 'rm -rf dist' 2>/dev/null || true
+          echo "All dist directories wiped"
+
       - name: Build
         run: pnpm run build
+
+      # Hard gate: verify critical .js files are present in the @cleocode/core
+      # tarball before any publish step runs. Catches the regression pattern
+      # where tsc incremental compilation emits only .d.ts outputs. (T721)
+      - name: Verify @cleocode/core tarball contents
+        run: |
+          cd packages/core
+          npm pack --dry-run > /tmp/core-pack-list.txt 2>&1
+          REQUIRED_FILES=(
+            "dist/store/nexus-sqlite.js"
+            "dist/store/brain-sqlite.js"
+            "dist/index.js"
+            "dist/internal.js"
+          )
+          MISSING=()
+          for file in "${REQUIRED_FILES[@]}"; do
+            if ! grep -qF "$file" /tmp/core-pack-list.txt; then
+              MISSING+=("$file")
+            fi
+          done
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::@cleocode/core tarball is missing required JS files:"
+            for f in "${MISSING[@]}"; do echo "  MISSING: $f"; done
+            echo "--- Full pack contents (dist/store section) ---"
+            grep "dist/store" /tmp/core-pack-list.txt || true
+            exit 1
+          fi
+          echo "✅ @cleocode/core tarball verification passed"
 
       - name: Validate build output
         run: |

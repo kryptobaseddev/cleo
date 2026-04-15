@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/cleo-os",
-  "version": "2026.4.60",
-  "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
+  "version": "2026.4.61",
+  "description": "CleoOS \u2014 the batteries-included agentic development environment wrapping Pi",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
@@ -15,7 +15,7 @@
     "build:extensions": "tsc -p tsconfig.extensions.json || true",
     "build:postinstall": "tsc -p tsconfig.postinstall.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.extensions.json --noEmit && tsc -p tsconfig.postinstall.json --noEmit",
-    "prepublishOnly": "pnpm run build && test -f extensions/tui-theme.js && test -f extensions/cleo-cant-bridge.js && test -f extensions/cleo-startup.js && test -f extensions/cleo-chatroom.js && test -f extensions/cleo-agent-monitor.js && test -f extensions/cleo-hooks-bridge.js && test -f bin/postinstall.js || (echo 'ERROR: extensions or postinstall not built — run pnpm run build first' && exit 1)",
+    "prepublishOnly": "pnpm run build && test -f extensions/tui-theme.js && test -f extensions/cleo-cant-bridge.js && test -f extensions/cleo-startup.js && test -f extensions/cleo-chatroom.js && test -f extensions/cleo-agent-monitor.js && test -f extensions/cleo-hooks-bridge.js && test -f bin/postinstall.js || (echo 'ERROR: extensions or postinstall not built \u2014 run pnpm run build first' && exit 1)",
     "test": "vitest run",
     "postinstall": "node bin/postinstall.js"
   },
