@@ -215,7 +215,7 @@ describe('toSkillSummary', () => {
   });
 });
 
-describe('getSkillSearchPaths', () => {
+describe('getSkillSearchPaths — skills/discovery', () => {
   it('should return ordered search paths', () => {
     // Pin the project root to the isolated test dir via CLEO_ROOT (the
     // escape hatch documented in paths.ts). Without this, the test

@@ -39,7 +39,7 @@ import { CANONICAL_DOMAINS } from '../../dispatch/types.js';
 // Test Group 1: Registry completeness
 // ===========================================================================
 
-describe('Group 1: Registry completeness', () => {
+describe('Parity Group 1: Registry completeness', () => {
   it('every OPERATIONS entry has a params field (array, may be empty)', () => {
     for (const op of OPERATIONS) {
       // params is optional in OperationDef (T4897 migration), so undefined is
@@ -156,7 +156,7 @@ describe('Group 1: Registry completeness', () => {
 // Test Group 2: ParamDef → Schema derivation
 // ===========================================================================
 
-describe('Group 2: ParamDef → Schema derivation', () => {
+describe('Parity Group 2: ParamDef → Schema derivation', () => {
   it('buildDispatchInputSchema returns valid JSON Schema object shape', () => {
     const def = {
       gateway: 'query' as const,
@@ -370,7 +370,7 @@ describe('Group 2: ParamDef → Schema derivation', () => {
 // Test Group 3: ParamDef → Commander derivation
 // ===========================================================================
 
-describe('Group 3: ParamDef → Commander derivation', () => {
+describe('Parity Group 3: ParamDef → Commander derivation', () => {
   it('buildCommanderArgs correctly splits positionals from options', () => {
     const def = {
       gateway: 'query',
@@ -553,7 +553,7 @@ describe('Group 3: ParamDef → Commander derivation', () => {
 // Test Group 4: Dispatch routing correctness
 // ===========================================================================
 
-describe('Group 4: Dispatch routing correctness', () => {
+describe('Parity Group 4: Dispatch routing correctness', () => {
   it('resolve("query", "tasks", "show") returns the correct OperationDef', () => {
     const result = resolve('query', 'tasks', 'show');
 
@@ -683,7 +683,7 @@ describe('Group 4: Dispatch routing correctness', () => {
 // Test Group 5: Schema utils
 // ===========================================================================
 
-describe('Group 5: Schema utils', () => {
+describe('Parity Group 5: Schema utils', () => {
   it('getOperationSchema for op with no params returns permissive schema', () => {
     // tasks.show has no params[] in current registry (T4897 migration pending)
     const schema = getOperationSchema('tasks', 'show', 'query');
@@ -791,7 +791,7 @@ describe('Group 5: Schema utils', () => {
 // Test Group 6: Per-domain operation coverage (post-consolidation T5099)
 // ===========================================================================
 
-describe('Group 6: Per-domain operation coverage', () => {
+describe('Parity Group 6: Per-domain operation coverage', () => {
   it('all canonical domains have at least one registered operation', () => {
     const activeDomains = getActiveDomains();
     // The 10 canonical domains from CANONICAL_DOMAINS
@@ -884,7 +884,7 @@ describe('Group 6: Per-domain operation coverage', () => {
 // Test Group 7: Response structure consistency (post-consolidation T5099)
 // ===========================================================================
 
-describe('Group 7: EngineResult response structure consistency', () => {
+describe('Parity Group 7: EngineResult response structure consistency', () => {
   it('engineError returns correct EngineResult shape', async () => {
     const { engineError } = await import('../../dispatch/engines/_error.js');
 

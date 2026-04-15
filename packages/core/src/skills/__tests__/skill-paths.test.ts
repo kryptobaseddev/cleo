@@ -21,7 +21,7 @@ vi.mock('node:fs', async () => {
 import { existsSync } from 'node:fs';
 import { getSkillSearchPaths } from '../skill-paths.js';
 
-describe('getSkillSearchPaths', () => {
+describe('getSkillSearchPaths — skill-paths module', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {

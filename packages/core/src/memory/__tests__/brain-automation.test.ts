@@ -464,7 +464,7 @@ describe('ingestStructuredSummary', () => {
 // 4. extractFromTranscript (auto-extract.ts → llm-extraction.ts)
 // ============================================================================
 
-describe('extractFromTranscript (wrapper)', () => {
+describe('extractFromTranscript (wrapper) — brain-automation integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Prevent real network calls during these tests by unsetting the API key.

@@ -115,7 +115,7 @@ describe('normalizePriority', () => {
   });
 });
 
-describe('validatePriority', () => {
+describe('validatePriority — priority normalization', () => {
   it('should accept canonical string values', () => {
     expect(() => validatePriority('critical')).not.toThrow();
     expect(() => validatePriority('high')).not.toThrow();

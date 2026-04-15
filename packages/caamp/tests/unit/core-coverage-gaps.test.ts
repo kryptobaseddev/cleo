@@ -1,6 +1,11 @@
 /**
  * Tests to close coverage gaps across all core modules.
  * Each describe block targets a specific file's uncovered lines/branches.
+ *
+ * TODO(T659): T659 acceptance criteria listed this file for deletion as "coverage-debt".
+ * However it contains 205 real assertions testing lafs, lock-utils, config, instructions,
+ * skills, and mcp module branches. Deletion was deemed debatable — keeping with this note.
+ * If coverage infra is refactored, these tests should migrate to their per-module test files.
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";

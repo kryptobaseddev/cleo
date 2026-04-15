@@ -115,7 +115,7 @@ describe('analyzeEpic', () => {
   });
 });
 
-describe('getReadyTasks', () => {
+describe('getReadyTasks — orchestration module', () => {
   it('returns tasks with all deps met', async () => {
     await writeTodo();
     const ready = await getReadyTasks('T001', env.tempDir, accessor);
@@ -133,7 +133,7 @@ describe('getReadyTasks', () => {
   });
 });
 
-describe('getNextTask', () => {
+describe('getNextTask — orchestration module', () => {
   it('returns next ready task', async () => {
     await writeTodo();
     const next = await getNextTask('T001', env.tempDir, accessor);
