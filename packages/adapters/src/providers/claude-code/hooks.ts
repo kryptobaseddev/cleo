@@ -180,7 +180,7 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
         ],
       });
 
-      // Register PostToolUse hook → brain observation for file writes
+      // Register PostToolUse hook → brain observation for file writes + NEXUS post-check (T625)
       if (!hooks.PostToolUse) hooks.PostToolUse = [];
       (hooks.PostToolUse as unknown[]).push({
         matcher: 'Write|Edit',
@@ -188,6 +188,12 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
           {
             type: 'command',
             command: `cleo observe "File modified via $TOOL_NAME" --title "tool-use" --quiet # cleo-hook`,
+          },
+          {
+            // NEXUS post-modification check: re-index changed files and flag regressions.
+            // $TOOL_INPUT_file_path is populated by Claude Code for Write/Edit events.
+            type: 'command',
+            command: `cleo nexus analyze --incremental --json > /dev/null 2>&1 && cleo observe "NEXUS re-indexed after $TOOL_NAME on $TOOL_INPUT_file_path" --title "nexus-post-check" --quiet # cleo-hook`,
           },
         ],
       });

@@ -13,9 +13,23 @@
  * registry enable dynamic adapter loading by AdapterManager.
  */
 
-export type { BuildCantEnrichedPromptOptions, TierDiscoveryStats } from './cant-context.js';
+export type {
+  BuildCantEnrichedPromptOptions,
+  BuildNexusContextOptions,
+  NexusModificationCheckResult,
+  NexusSymbolContext,
+  TierDiscoveryStats,
+} from './cant-context.js';
 // Shared CANT context builder — used by all spawn providers
-export { buildCantEnrichedPrompt } from './cant-context.js';
+export {
+  buildCantEnrichedPrompt,
+  // NEXUS code intelligence helpers (T625)
+  buildNexusContext,
+  buildNexusContextBlock,
+  buildNexusContextForTask,
+  extractSymbolsFromText,
+  runNexusPostModificationCheck,
+} from './cant-context.js';
 // Re-export adapter classes for direct use
 // Per-provider factory functions (renamed to avoid collisions)
 export {

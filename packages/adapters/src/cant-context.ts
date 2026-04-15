@@ -8,6 +8,7 @@
  * 1. Compiled CANT bundle (team topology, agent personas, tool ACLs)
  * 2. Memory bridge (recent decisions, handoff notes, key patterns)
  * 3. Mental model injection (validate-on-load agent-specific observations)
+ * 4. NEXUS code intelligence context (callers, callees, impact data) [T625]
  *
  * All operations are best-effort: if any step fails (missing packages, empty
  * directories, compilation errors), the base prompt is returned unchanged.
@@ -17,6 +18,7 @@
  * (Pi-only; this module generalizes the same logic for all providers)
  *
  * @task T555
+ * @task T625
  */
 
 import { execFile } from 'node:child_process';
@@ -67,6 +69,69 @@ export interface BuildCantEnrichedPromptOptions {
    * Use this to avoid double-compilation when the Pi bridge already compiled the bundle.
    */
   compiledBundle?: string;
+  /**
+   * Task ID to inject NEXUS code intelligence context for.
+   * When provided, step 6b fetches callers/callees/impact for symbols
+   * mentioned in the task description and injects them into the prompt.
+   *
+   * @task T625
+   */
+  taskId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// NEXUS context injection types (T625)
+// ---------------------------------------------------------------------------
+
+/** A single symbol's NEXUS context entry (callers, callees, impact). */
+export interface NexusSymbolContext {
+  /** Symbol name as resolved in the code index. */
+  name: string;
+  /** Symbol kind (function, method, class, etc.). */
+  kind: string;
+  /** File path (relative to project root) where the symbol is defined. */
+  filePath: string | null;
+  /** Symbols that call this one (direct callers). */
+  callers: Array<{ name: string; kind: string; filePath: string | null }>;
+  /** Symbols that this one calls (direct callees). */
+  callees: Array<{ name: string; kind: string; filePath: string | null }>;
+  /** Risk level from impact analysis. */
+  riskLevel: string;
+  /** Total number of transitively impacted nodes. */
+  totalImpacted: number;
+}
+
+/** Options for {@link buildNexusContext}. */
+export interface BuildNexusContextOptions {
+  /** Symbols to query NEXUS for (extracted from task description). */
+  symbols: string[];
+  /** Project root directory (used to resolve project ID and run CLI commands). */
+  projectDir: string;
+  /** Maximum callers/callees to include per symbol (default: 10). */
+  limit?: number;
+  /**
+   * CLI timeout in milliseconds for each `cleo nexus context` call (default: 10000).
+   */
+  timeoutMs?: number;
+}
+
+/** Result of a post-modification NEXUS check (T625). */
+export interface NexusModificationCheckResult {
+  /**
+   * True if the incremental re-analysis completed successfully.
+   * False if the analysis failed (non-fatal — agents should still continue).
+   */
+  success: boolean;
+  /** Files that were re-indexed. */
+  reindexedFiles: string[];
+  /** Relations that exist in the post-check index but not in the snapshot. */
+  newRelations: number;
+  /** Relations that existed in the snapshot but are missing after re-analysis. */
+  removedRelations: number;
+  /** Human-readable summary of what changed. */
+  summary: string;
+  /** Any regressions detected (broken call chains, missing symbols). */
+  regressions: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +528,320 @@ export async function buildIdentityBootstrap(projectDir: string): Promise<string
 }
 
 // ---------------------------------------------------------------------------
+// NEXUS context injection (T625)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract candidate symbol names from a task description or title.
+ *
+ * Uses a simple heuristic: camelCase, PascalCase, and snake_case tokens
+ * longer than 3 characters that look like code identifiers.
+ *
+ * Pure function — no I/O.
+ *
+ * @param text - Raw text to scan for symbol names (task title + description).
+ * @returns Deduplicated array of candidate symbol names, longest first.
+ */
+export function extractSymbolsFromText(text: string): string[] {
+  // Match camelCase, PascalCase, snake_case identifiers of length >= 4
+  const identifierPattern =
+    /\b([A-Z][a-zA-Z0-9]{3,}|[a-z][a-zA-Z0-9]{3,}[A-Z][a-zA-Z0-9]*|[a-z]{2,}_[a-z][a-zA-Z0-9_]*)\b/g;
+  const seen = new Set<string>();
+  const matches: string[] = [];
+
+  for (const matchResult of text.matchAll(identifierPattern)) {
+    const symbol = matchResult[1];
+    if (symbol && !seen.has(symbol)) {
+      seen.add(symbol);
+      matches.push(symbol);
+    }
+  }
+
+  // Sort longest first (more specific symbols first)
+  return matches.sort((a, b) => b.length - a.length).slice(0, 8);
+}
+
+/**
+ * Build a NEXUS code intelligence context block for a set of symbols.
+ *
+ * Queries `cleo nexus context <symbol> --json` for each symbol and
+ * returns a formatted prompt block with callers, callees, and impact data.
+ *
+ * All CLI calls are best-effort with a configurable timeout. Failures
+ * for individual symbols are silently skipped.
+ *
+ * @param options - Symbols, project dir, and optional limits.
+ * @returns Array of resolved NEXUS symbol contexts.
+ * @task T625
+ */
+export async function buildNexusContext(
+  options: BuildNexusContextOptions,
+): Promise<NexusSymbolContext[]> {
+  const { symbols, projectDir, limit = 10, timeoutMs = 10_000 } = options;
+  if (symbols.length === 0) return [];
+
+  const results: NexusSymbolContext[] = [];
+
+  for (const symbol of symbols) {
+    try {
+      const { stdout } = await execFileAsync(
+        'cleo',
+        ['nexus', 'context', symbol, '--json', '--limit', String(limit)],
+        { timeout: timeoutMs, cwd: projectDir || undefined },
+      );
+
+      const parsed = JSON.parse(stdout) as {
+        success?: boolean;
+        data?: {
+          results?: Array<{
+            name?: unknown;
+            kind?: unknown;
+            filePath?: unknown;
+            callers?: Array<{ name?: unknown; kind?: unknown; filePath?: unknown }>;
+            callees?: Array<{ name?: unknown; kind?: unknown; filePath?: unknown }>;
+          }>;
+        };
+      };
+
+      if (!parsed.success || !parsed.data?.results?.length) continue;
+
+      // Also fetch impact for risk classification
+      let riskLevel = 'UNKNOWN';
+      let totalImpacted = 0;
+      try {
+        const { stdout: impactStdout } = await execFileAsync(
+          'cleo',
+          ['nexus', 'impact', symbol, '--json', '--depth', '2'],
+          { timeout: timeoutMs, cwd: projectDir || undefined },
+        );
+        const impactParsed = JSON.parse(impactStdout) as {
+          success?: boolean;
+          data?: { riskLevel?: unknown; totalImpactedNodes?: unknown };
+        };
+        if (impactParsed.success && impactParsed.data) {
+          riskLevel = String(impactParsed.data.riskLevel ?? 'UNKNOWN');
+          totalImpacted = Number(impactParsed.data.totalImpactedNodes ?? 0);
+        }
+      } catch {
+        // Impact fetch failure — non-fatal, use defaults
+      }
+
+      const primary = parsed.data.results[0];
+      if (!primary) continue;
+
+      results.push({
+        name: String(primary.name ?? symbol),
+        kind: String(primary.kind ?? 'unknown'),
+        filePath: primary.filePath ? String(primary.filePath) : null,
+        callers: (primary.callers ?? []).slice(0, limit).map((c) => ({
+          name: String(c.name ?? ''),
+          kind: String(c.kind ?? 'unknown'),
+          filePath: c.filePath ? String(c.filePath) : null,
+        })),
+        callees: (primary.callees ?? []).slice(0, limit).map((c) => ({
+          name: String(c.name ?? ''),
+          kind: String(c.kind ?? 'unknown'),
+          filePath: c.filePath ? String(c.filePath) : null,
+        })),
+        riskLevel,
+        totalImpacted,
+      });
+    } catch {
+      // Symbol not found or CLI unavailable — skip
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Format a NEXUS context array into a system-prompt block.
+ *
+ * Pure function — no I/O, safe to call in tests without a real DB.
+ *
+ * @param contexts - Resolved NEXUS symbol contexts.
+ * @returns Formatted prompt block, or empty string when contexts is empty.
+ * @task T625
+ */
+export function buildNexusContextBlock(contexts: NexusSymbolContext[]): string {
+  if (contexts.length === 0) return '';
+
+  const lines: string[] = [
+    '',
+    '===== NEXUS CODE INTELLIGENCE (pre-modification context) =====',
+    'Consult this before modifying any of these symbols.',
+    'High-risk symbols MUST be checked for callers before editing.',
+    '',
+  ];
+
+  for (const ctx of contexts) {
+    lines.push(`## ${ctx.name}  [${ctx.kind}]${ctx.filePath ? `  ${ctx.filePath}` : ''}`);
+    lines.push(`   Risk: ${ctx.riskLevel}  |  Impacted nodes: ${ctx.totalImpacted}`);
+
+    if (ctx.callers.length > 0) {
+      lines.push(
+        `   Callers (${ctx.callers.length}): ${ctx.callers.map((c) => c.name).join(', ')}`,
+      );
+    } else {
+      lines.push('   Callers: none');
+    }
+
+    if (ctx.callees.length > 0) {
+      lines.push(
+        `   Callees (${ctx.callees.length}): ${ctx.callees.map((c) => c.name).join(', ')}`,
+      );
+    } else {
+      lines.push('   Callees: none');
+    }
+
+    lines.push('');
+  }
+
+  lines.push('===== END NEXUS CONTEXT =====');
+  return lines.join('\n');
+}
+
+/**
+ * Inject NEXUS context for a task into the agent prompt.
+ *
+ * Fetches the task details from CLEO, extracts symbol names from the
+ * task title and description, then queries NEXUS for each symbol.
+ * Returns a formatted prompt block or empty string on any failure.
+ *
+ * @param taskId - CLEO task ID (e.g. "T625").
+ * @param projectDir - Project root directory.
+ * @returns Formatted NEXUS context block, or "" if unavailable.
+ * @task T625
+ */
+export async function buildNexusContextForTask(
+  taskId: string,
+  projectDir: string,
+): Promise<string> {
+  try {
+    // Fetch task details to extract symbols
+    const { stdout: taskStdout } = await execFileAsync('cleo', ['show', taskId, '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    const taskData = JSON.parse(taskStdout) as {
+      data?: { title?: string; description?: string };
+    };
+    const title = taskData?.data?.title ?? '';
+    const description = taskData?.data?.description ?? '';
+    const combinedText = `${title} ${description}`;
+
+    const symbols = extractSymbolsFromText(combinedText);
+    if (symbols.length === 0) return '';
+
+    const contexts = await buildNexusContext({ symbols, projectDir });
+    return buildNexusContextBlock(contexts);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Run a post-modification NEXUS check on a set of changed files.
+ *
+ * Performs an incremental re-analysis of the changed files and compares
+ * relation counts before/after. Regressions (net loss of relations after
+ * modification) are flagged and returned for BRAIN storage.
+ *
+ * All operations are best-effort — never throws.
+ *
+ * @param changedFiles - Absolute paths to files that were modified.
+ * @param projectDir - Project root directory.
+ * @returns Check result with regression data.
+ * @task T625
+ */
+export async function runNexusPostModificationCheck(
+  changedFiles: string[],
+  projectDir: string,
+): Promise<NexusModificationCheckResult> {
+  const empty: NexusModificationCheckResult = {
+    success: false,
+    reindexedFiles: [],
+    newRelations: 0,
+    removedRelations: 0,
+    summary: 'NEXUS post-check unavailable',
+    regressions: [],
+  };
+
+  if (changedFiles.length === 0) return empty;
+
+  try {
+    // 1. Snapshot current relation count before re-analysis
+    const { stdout: beforeStdout } = await execFileAsync('cleo', ['nexus', 'status', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    let relationsBefore = 0;
+    try {
+      const beforeData = JSON.parse(beforeStdout) as {
+        data?: { relationCount?: number; relations?: number };
+      };
+      relationsBefore = beforeData?.data?.relationCount ?? beforeData?.data?.relations ?? 0;
+    } catch {
+      // Count unavailable — proceed anyway
+    }
+
+    // 2. Run incremental analysis on the project (covers changed files)
+    await execFileAsync('cleo', ['nexus', 'analyze', projectDir, '--incremental', '--json'], {
+      timeout: 60_000,
+      cwd: projectDir || undefined,
+    });
+
+    // 3. Snapshot relation count after re-analysis
+    const { stdout: afterStdout } = await execFileAsync('cleo', ['nexus', 'status', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    let relationsAfter = 0;
+    try {
+      const afterData = JSON.parse(afterStdout) as {
+        data?: { relationCount?: number; relations?: number };
+      };
+      relationsAfter = afterData?.data?.relationCount ?? afterData?.data?.relations ?? 0;
+    } catch {
+      // Count unavailable
+    }
+
+    const delta = relationsAfter - relationsBefore;
+    const newRelations = Math.max(0, delta);
+    const removedRelations = Math.max(0, -delta);
+    const regressions: string[] = [];
+
+    // Flag significant relation loss as a potential regression
+    if (removedRelations > 5) {
+      regressions.push(
+        `Lost ${removedRelations} relations after modifying: ${changedFiles.map((f) => f.split('/').pop() ?? f).join(', ')}`,
+      );
+    }
+
+    const summary =
+      delta === 0
+        ? `NEXUS stable — no relation changes after modifying ${changedFiles.length} file(s)`
+        : delta > 0
+          ? `NEXUS: +${newRelations} new relations from ${changedFiles.length} file(s)`
+          : `NEXUS: -${removedRelations} relations removed from ${changedFiles.length} file(s)${regressions.length > 0 ? ' — REGRESSION DETECTED' : ''}`;
+
+    return {
+      success: true,
+      reindexedFiles: changedFiles,
+      newRelations,
+      removedRelations,
+      summary,
+      regressions,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -478,7 +857,8 @@ export async function buildIdentityBootstrap(projectDir: string): Promise<string
  * 3. Renders the compiled system prompt
  * 4. Reads the memory bridge from `.cleo/memory-bridge.md`
  * 5. Fetches mental model observations for the named agent
- * 6. Concatenates: basePrompt + CANT bundle + memory bridge + mental model
+ * 6b. Injects NEXUS code intelligence context for the task (T625)
+ * 7. Concatenates: basePrompt + CANT bundle + memory bridge + mental model + NEXUS
  *
  * All operations are best-effort. If any step fails, the base prompt is
  * returned unchanged. CANT context is an enrichment, not a gate — agents
@@ -490,7 +870,7 @@ export async function buildIdentityBootstrap(projectDir: string): Promise<string
 export async function buildCantEnrichedPrompt(
   options: BuildCantEnrichedPromptOptions,
 ): Promise<string> {
-  const { projectDir, basePrompt, agentName, isMainAgent, compiledBundle } = options;
+  const { projectDir, basePrompt, agentName, isMainAgent, compiledBundle, taskId } = options;
   let appendix = '';
 
   // Step 0: Identity bootstrap for the main session agent.
@@ -564,6 +944,20 @@ export async function buildCantEnrichedPrompt(
     }
   }
 
-  // Step 6: Return enriched prompt (or unchanged basePrompt if no context found)
+  // Step 6b: Inject NEXUS code intelligence context for the task (T625).
+  // Extracts symbols from the task title+description, queries NEXUS for
+  // callers/callees/impact data, and injects as a pre-modification guide.
+  if (taskId) {
+    try {
+      const nexusBlock = await buildNexusContextForTask(taskId, projectDir);
+      if (nexusBlock) {
+        appendix += nexusBlock;
+      }
+    } catch {
+      // NEXUS context fetch failure — non-fatal
+    }
+  }
+
+  // Step 7: Return enriched prompt (or unchanged basePrompt if no context found)
   return appendix ? basePrompt + appendix : basePrompt;
 }
