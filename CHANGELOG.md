@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.61] (2026-04-15)
+
+**P0 hotfix: @cleocode/core packaging regression + permanent tarball verification gate.**
+
+### Fix: T721 — @cleocode/core tarball missing dist/store/nexus-sqlite.js (v2026.4.60 regression)
+
+`@cleocode/core@2026.4.60` published with `dist/store/nexus-sqlite.js` absent from
+the npm tarball (recurrence of the v2026.4.58 bug). Root cause: the release workflow
+restored the pnpm node_modules cache, which included a stale `dist/store/` from a
+prior partial build. TypeScript `composite + incremental` compilation then reused the
+cached tsbuildinfo and emitted only `.d.ts` declaration outputs for the affected files,
+skipping `.js` emission entirely. Result: `cleo nexus projects clean` failed with
+"Cannot find module @cleocode/core/dist/store/nexus-sqlite.js" on every fresh install.
+
+**Permanent gate added to `.github/workflows/release.yml`:**
+
+1. **Clean dist step** — wipes all `dist/` directories before every release build so
+   the pnpm cache can never serve a partial or stale compiled output.
+2. **Tarball verification step** — runs `npm pack --dry-run` on `packages/core` and
+   asserts that `dist/store/nexus-sqlite.js`, `dist/store/brain-sqlite.js`,
+   `dist/index.js`, and `dist/internal.js` are all present before any `pnpm publish`
+   runs. The workflow exits with an error if any required file is absent.
+
 ## [2026.4.60] (2026-04-15)
 
 **Wave 0+1 Living Brain stabilization + 3D Synapse Brain hero view.**
