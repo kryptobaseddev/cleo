@@ -72,6 +72,7 @@ export * as sticky from './sticky/index.js';
 export * as system from './system/index.js';
 export * as taskWork from './task-work/index.js';
 export * as tasks from './tasks/index.js';
+export * as telemetry from './telemetry/index.js';
 export * as templates from './templates/index.js';
 export * as ui from './ui/index.js';
 export * as validation from './validation/index.js';

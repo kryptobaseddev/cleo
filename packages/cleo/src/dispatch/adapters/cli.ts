@@ -23,6 +23,7 @@ import { createAudit } from '../middleware/audit.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
+import { createTelemetry } from '../middleware/telemetry.js';
 import type { DispatchResponse, Gateway } from '../types.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
@@ -157,6 +158,7 @@ export function createCliDispatcher(): Dispatcher {
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       createAudit(), // T4959: CLI now gets audit trail
+      createTelemetry(), // T624: opt-in self-improvement telemetry
     ],
   });
 }

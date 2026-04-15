@@ -135,9 +135,10 @@ describe('Group 1: Registry completeness', () => {
     // T549 Wave 5-A: added admin.context.pull (query). +1 query / +1 total.
     // Intelligence domain: 5 query-only ops (predict, suggest, learn-errors, confidence, match).
     // T554: memory.quality (query), memory.code.* (4 query + 2 mutate = 6 ops).
-    expect(queryCount).toBe(147);
-    expect(mutateCount).toBe(101);
-    expect(OPERATIONS.length).toBe(248);
+    // T624: diagnostics domain — 3 query (status, analyze, export) + 2 mutate (enable, disable).
+    expect(queryCount).toBe(150);
+    expect(mutateCount).toBe(103);
+    expect(OPERATIONS.length).toBe(253);
   });
 
   it('all operations have valid gateway values', () => {
