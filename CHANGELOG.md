@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased / 2026.4.62]
+
+**STDP Phase 5 — complete plasticity substrate for agent memory learning (T673 epic, 21-task synthesis).**
+
+### Feat: STDP Phase 5 — Complete Plasticity Implementation
+
+**Root-cause bug fixes** (three bugs prevented v2026.4.51 half-built STDP from firing):
+
+- **BUG-1 (T688)**: Lookback/pairing window conflation — separated `lookbackDays` (30d SQL cutoff) from `pairingWindowMs` (24h spike-pair gate). Fixed zero-events regression where 5-minute window excluded all historical rows.
+- **BUG-2 (T679)**: `entry_ids` format mismatch — fixed `logRetrieval` to store `JSON.stringify()` instead of `join(',')`. Readers calling `JSON.parse()` now succeed. Idempotent migration converts 38 historical rows.
+- **BUG-3 (T703/T696)**: Missing `session_id` column — applied ALTER TABLE + date-bucketing backfill for historical rows. Enables cross-session spike pair formation.
+
+**Schema migrations** (M1–M4, all committed):
+
+- **M1 (T703)**: `brain_retrieval_log` + 4 columns (`session_id`, `reward_signal`, `retrieval_order`, `delta_ms`) + indexes + data fixes
+- **M2 (T706)**: `brain_plasticity_events` + 5 observability columns (`weight_before/after`, `retrieval_log_id`, `reward_signal`, `delta_t_ms`)
+- **M3 (T697)**: `brain_page_edges` + 6 plasticity columns (`last_reinforced_at`, `reinforcement_count`, `plasticity_class`, `last_depressed_at`, `depression_count`, `stability_score`) + seed `co_retrieved` edges as `plasticity_class='hebbian'`
+- **M4 (T699/T701/T715)**: New tables: `brain_weight_history` (audit log), `brain_modulators` (neuromodulator events), `brain_consolidation_events` (pipeline observability)
+
+**STDP algorithm** (4 waves, fully wired):
+
+- **Wave 1 (T679/T681/T693)**: Writer fixes + `backfillRewardSignals` Step 9a + plasticity_class tracking
+- **Wave 2 (T688/T689/T691/T692/T713/T714)**: Tiered τ decay (20s/30min/12h), R-STDP modulation (×(1±r)), novelty boost (1.5×), idempotency guard, minimum-pair gate
+- **Wave 3 (T690/T694/T695)**: Homeostatic decay (2%/day after 7-day grace), consolidation pipeline (Steps 9a→9b→9c), cross-session spike grouping
+- **Wave 4 (T682/T683)**: 7 end-to-end functional tests (real brain.db, no mocks), ADR-046, plan doc updates
+
+**Plasticity mechanics**:
+
+- **LTP (pre→post)**: `Δw = 0.05 × exp(−Δt/τ)` + novelty 1.5× on first pair + R-STDP modulation ×(1+r)
+- **LTD (post→pre)**: `Δw = −0.06 × exp(−Δt/τ)` + R-STDP modulation ×(1−r), weakens only existing edges
+- **Cross-session pairs**: 24-hour spike window across sessions; 30-day lookback on retrieval rows
+- **Homeostasis**: Idle edges decay 2%/day after 7-day grace; pruned below 0.05 weight
+- **R-STDP**: Task outcomes (+1.0 verified, +0.5 done, −0.5 cancelled) gate weight changes
+
+**Integration** (fully wired in consolidation pipeline):
+
+- Step 9a: `backfillRewardSignals` → task outcomes → `brain_retrieval_log.reward_signal` + `brain_modulators` row
+- Step 9b: `applyStdpPlasticity` → spike pair loop → plasticity events + edge weight updates
+- Step 9c: `applyHomeostaticDecay` → decay + prune idle edges
+- Step 9d: weight_history retention (90-day rolling window)
+- Step 9e: Consolidation event logging
+
+**Acceptance criteria** (15 criteria verified):
+
+- ✅ `cleo brain maintenance` produces `brain_plasticity_events COUNT > 0` (AC-1/AC-2)
+- ✅ Columns exist in live brain.db: `session_id`, `reward_signal`, `plasticity_class` (AC-3/AC-4/AC-6)
+- ✅ Functional test passes via `pnpm run test`: 7 E2E tests on real brain.db, zero mocks (AC-5)
+- ✅ `brain_weight_history` + `brain_modulators` + `brain_consolidation_events` tables exist + populated (AC-7/AC-8/AC-9)
+- ✅ Homeostatic decay prunes idle <0.05 edges (AC-10)
+- ✅ R-STDP: reward_signal=+1.0 → Δw≈0.10 vs standard 0.05 (AC-11)
+- ✅ Cross-session pairs (2d gap) produce LTP events (AC-12)
+- ✅ Plan docs updated (AC-13), ADR-046 written (AC-14), quality gates pass (AC-15)
+
+**See**: ADR-046, docs/specs/stdp-wire-up-spec.md, docs/plans/stdp-feasibility.md §10, docs/plans/brain-synaptic-visualization-research.md Phase 5
+
+**Ship commits** (2026-04-15):
+- `1b860dfc` — M4 plasticity tables
+- `cccce008` — plasticity_class + stability_score
+- `18728b9a` — Wave 2 core algorithms
+- `64ec61b6` — Wave 2 guards (idempotency + minimum-pair)
+- `ed81d9fc` — Wave 3 homeostasis + integration
+
 ## [2026.4.61] (2026-04-15)
 
 **P0 hotfix: @cleocode/core packaging regression + permanent tarball verification gate.**
