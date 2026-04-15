@@ -12,9 +12,16 @@ vi.mock('../../../../core/src/store/json.js', () => ({
   readJson: vi.fn(),
 }));
 
-vi.mock('../../../../core/src/paths.js', () => ({
-  getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
-}));
+// T633: use importActual + spread — see checkpoint.test.ts for the trap.
+vi.mock('../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
+    '../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
+  };
+});
 
 vi.mock('../../../../core/src/store/export.js', () => ({
   buildExportPackage: vi.fn().mockReturnValue({

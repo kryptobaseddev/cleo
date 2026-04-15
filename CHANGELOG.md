@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.56] (2026-04-15)
+
+CI GREEN — finish T633 vi.mock pollution fix in shard 1.
+
+### Fix: T633 — three more shard 1 tests with the same vi.mock trap
+- v2026.4.55 fixed shard 2 (session-grade tests). CI then surfaced shard 1
+  with the same root cause in three different files:
+  - `packages/cleo/src/cli/__tests__/checkpoint.test.ts`
+  - `packages/cleo/src/cli/__tests__/export-tasks.test.ts`
+  - `packages/cleo/src/dispatch/adapters/__tests__/cli.test.ts`
+- All three replaced `paths.js` exports with only the function they needed
+  (`getCleoDir`+`getConfigPath`, `getTodoPath`, `getProjectRoot`), so
+  later tests in shard 1 (deps.test.ts, query.test.ts, reconcile.test.ts,
+  transfer.test.ts, permissions.test.ts) loaded a polluted module without
+  the schema/path functions they needed → `Error: no such column:
+  "brain_db_path"` cascading through 49 tests.
+- Fix: all three now use `vi.importActual` + spread, same pattern as
+  graph-memory-bridge-integration.test.ts and v2026.4.55's session-grade fix.
+- 3/3 unit tests pass after fix (13 sub-tests).
+
 ## [2026.4.55] (2026-04-15)
 
 CI GREEN — fix T633 nexus-e2e shard-2 isolation root cause.
