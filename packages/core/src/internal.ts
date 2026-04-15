@@ -206,6 +206,13 @@ export type {
   PopulateEmbeddingsResult,
 } from './memory/brain-retrieval.js';
 export { populateEmbeddings, retrieveWithBudget } from './memory/brain-retrieval.js';
+// Memory — STDP plasticity (T626 phase 5)
+export type {
+  PlasticityStatsSummary,
+  RecentPlasticityEvent,
+  StdpPlasticityResult,
+} from './memory/brain-stdp.js';
+export { applyStdpPlasticity, getPlasticityStats } from './memory/brain-stdp.js';
 export { migrateClaudeMem } from './memory/claude-mem-migration.js';
 // Memory — engine-compat
 export {
