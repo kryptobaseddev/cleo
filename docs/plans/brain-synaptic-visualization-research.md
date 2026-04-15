@@ -1,6 +1,6 @@
 # CLEO Living Brain — Plan & Status
 
-> **Doc version**: v3 (grounded in shipped reality, 2026-04-15)
+> **Doc version**: v4 (T677 full reconciliation against verified shipped state, 2026-04-15)
 > **Active epic**: [T627 — Stabilization + Phase 2 RCASD](https://github.com/) (Phase 1 epic [T626](https://github.com/) is **done**)
 > **Owner**: keatonhoskins@gmail.com
 > **Subject**: Visualize and instrument CLEO's typed memory + code intelligence + tasks + messaging across all substrates as a single, plastic, living graph.
@@ -15,8 +15,8 @@
 | D-BRAIN-VIZ-01 | Stack: **Cosmograph** (GPU 2D) + **3d-force-graph** (3D hero) + **Graphology** (browser SSoT) + **SSE** (live feed) | Cosmograph for 1M-node ceiling; 3d-force-graph for brain aesthetic; Graphology as renderer-agnostic model |
 | D-BRAIN-VIZ-02 | **Option B** — one unified canvas with substrate filter toggles (not separate views per DB) | Cross-layer insight is the value; A loses it, C doubles client complexity |
 | D-BRAIN-VIZ-03 | **Five substrates**, not four — include SIGNALDOCK | Agent identity is the cross-project bridge; without it the meta-brain is incomplete |
-| D-BRAIN-VIZ-04 | Preserve shipped Hebbian strengthener during STDP upgrade (feature-flagged coexistence) | `strengthenCoRetrievedEdges` works; STDP v2 runs alongside until validated |
-| D-BRAIN-VIZ-05 | Rename emitted edge `relates_to` → `co_retrieved`; add `co_retrieved` + `code_reference` to `BRAIN_EDGE_TYPES` | Both edge types are emitted by shipped code but missing from the Drizzle enum (raw SQL bypasses the check) |
+| D-BRAIN-VIZ-04 | Preserve shipped Hebbian strengthener during STDP upgrade (feature-flagged coexistence) | `strengthenCoRetrievedEdges` works as code; STDP v2 runs alongside until validated |
+| D-BRAIN-VIZ-05 | Rename emitted edge `relates_to` → `co_retrieved`; add `co_retrieved` + `code_reference` to `BRAIN_EDGE_TYPES` | Both edge types are emitted by shipped code. **DONE in T645**: both are in the enum (brain-schema.ts:550–573) and the migration relabels historical `relates_to` rows |
 | D-BRAIN-VIZ-06 | Cross-project meta-brain is **Phase 4**, not MVP | Single-project unified view ships first; meta-brain compounds on top |
 | D-BRAIN-VIZ-07 | Use **vanilla `3d-force-graph`** (not the React wrapper) — Studio is SvelteKit | No React runtime; vanilla build imports cleanly |
 | D-BRAIN-VIZ-08 | STDP gets its own epic (Phase 5) with an owner checkpoint | Schema changes + algorithm tuning warrant a dedicated decision gate |
@@ -25,29 +25,30 @@
 | D-BRAIN-VIZ-11 | Evaluate `sqlite-ai` in Phase 6+, not now | Could replace `@huggingface/transformers`, but Elastic License needs review and we shouldn't churn before viz ships |
 | D-BRAIN-VIZ-12 | SQLite scale ceiling is **not a concern** for this workload | 2M edges ≈ 200 MB, 10–50K UPDATEs/sec WAL, batch decay <10 s — 10× margin |
 | D-BRAIN-VIZ-13 | Consider R-STDP via `brain_retrieval_log.reward_signal` column | Task completion + verification signals already exist; reward gating is the dopamine third-factor analog at near-zero cost |
+| D-BRAIN-VIZ-14 | Route consolidation: `/living-brain` → `/brain` (canvas), `/brain` → `/brain/overview`, `/nexus` → `/code` | Collapsed under one top-level nav umbrella, sidebar tabs within `/brain` for drilldowns. **DONE in T649** (v2026.4.58, SHA 384443b0) |
 
 ---
 
 ## §1 Status Truth Table (what shipped / what's open)
 
-| Phase | Scope | Status | Evidence | Tracking task |
+| Phase | Scope | True Status | Shipped In | Evidence / Tracking |
 |---|---|---|---|---|
-| **0** | Schema audit + cross-link reality assessment | ✅ DONE | This doc + memory `brain-living-initiative.md` | T626 |
-| **1a** | `/living-brain` route + 5-substrate API + filter toggles | ✅ DONE | `packages/studio/src/routes/living-brain/+page.svelte` (loaded), `LivingBrainGraph.svelte`, `LBNode/LBGraph/LBSubstrate` types | T626 |
-| **1b** | `/brain` overview page + stats | ✅ DONE | `packages/studio/src/routes/brain/+page.server.ts` (8 stat cards) | T620 |
-| **1c** | `/brain/graph` route — typed nodes + edges | ✅ DONE | `packages/studio/src/routes/brain/graph/+page.svelte`, `BrainGraph.svelte` | T620 |
-| **1d** | `/brain/decisions`, `/brain/observations`, `/brain/quality` | ✅ DONE | Routes present | T620 |
-| **2a** | LBNode.createdAt + working time slider | 🟡 IN PROGRESS | TODO at `living-brain/+page.svelte:299` | **T635** |
-| **2b** | SSE live synapses (pulse on memory write / Hebbian strengthen / task status / nexus reindex) | 🔴 OPEN | No SSE endpoint exists | **T635** |
-| **2c** | Cosmograph spike for >2K node graphs | 🔴 OPEN | Not integrated; current renderer is custom force layout | **T635** |
-| **3a** | Enum drift fix (`co_retrieved` + `code_reference` into `BRAIN_EDGE_TYPES`) | 🔴 OPEN | `packages/core/src/store/brain-schema.ts` enum needs 2 additions | TBD task |
-| **3b** | Backfill missing bridge edges (decisions→tasks, observations→symbols/files via regex) | 🔴 OPEN | Most decisions have `context_task_id` but no `brain_page_edges` row | TBD task |
-| **4** | Cross-project meta-brain (multiple `nexus.project_registry` projects unified) | 🔴 OPEN | Schema needed: `nexus_cross_project_edges` | TBD epic |
-| **5** | STDP-inspired plasticity upgrade | 🔴 OPEN | Spec at `docs/plans/stdp-feasibility.md` | TBD epic |
-| **6** | 3D hero view (`3d-force-graph`) | 🔴 OPEN | Not integrated | TBD task |
-| **7** | Polish (filters, snapshot export, cross-references, query bar) | 🔴 OPEN | Filters partially in place (substrate + weight) | TBD task |
+| **0** | Schema audit + cross-link reality assessment | ✅ DONE | T626 | This doc + memory `brain-living-initiative.md` |
+| **1a** | `/brain` canvas (was `/living-brain`) + 5-substrate API + filter toggles | ✅ DONE | T626, renamed in T649 (v2026.4.58, 384443b0) | `packages/studio/src/routes/brain/+page.svelte`, `LivingBrainGraph.svelte`, `LBNode/LBGraph/LBSubstrate` types |
+| **1b** | `/brain/overview` stats dashboard (was `/brain` root) | ✅ DONE | T620, moved in T649 (v2026.4.58) | `packages/studio/src/routes/brain/overview/+page.svelte` (8 stat cards) |
+| **1c** | `/brain/graph` route — typed nodes + edges | ✅ DONE | T620 | `packages/studio/src/routes/brain/graph/+page.svelte`, `BrainGraph.svelte` |
+| **1d** | `/brain/decisions`, `/brain/observations`, `/brain/quality` | ✅ DONE | T620 | Routes present under `/brain/*` |
+| **2a** | LBNode.createdAt + working time slider | ✅ DONE | T635, v2026.4.58 (384443b0) | `LBNode.createdAt` populated from substrate timestamps |
+| **2b** | SSE live synapses (pulse on memory write / Hebbian strengthen / task status / nexus reindex) | ✅ DONE | T643, v2026.4.58 (384443b0) | `GET /api/living-brain/stream` emits node.create / edge.strengthen / task.status |
+| **2c** | Cosmograph GPU mode for >2K node graphs | ✅ DONE | T644, v2026.4.58 (384443b0); GPU blank-canvas bug fixed T685 (SHA dbe48a84) | `LivingBrainCosmograph.svelte`; `cosmos.render()` fix in `LivingBrainCosmograph.svelte:440` |
+| **3a** | Enum drift fix (`co_retrieved` + `code_reference` into `BRAIN_EDGE_TYPES`) | ✅ DONE | T645, v2026.4.58 (384443b0) | `packages/core/src/store/brain-schema.ts:550–573` — 16 edge types in enum; migration relabels `relates_to` → `co_retrieved` |
+| **3b** | Backfill missing bridge edges (decisions→tasks via `applies_to`, observations→files/symbols) | 🟡 PARTIAL | Partial backfill exists; dominant bridge is `code_reference` (2,669 rows). `documents`=0 rows, `applies_to`=120 rows (from text-ref extractor, not from decision→task writer). `co_retrieved`=0 rows (Hebbian code correct, retrieval log too sparse to trigger threshold). `nexus_relations` type `documents`/`applies_to` both = 0 rows. | T662 council §architecture (T662-council-1-architecture.md) |
+| **4** | Cross-project meta-brain (multiple `nexus.project_registry` projects unified) | 🔴 OPEN | Not started | Schema needed: `nexus_cross_project_edges`; owned by future epic |
+| **5** | STDP-inspired plasticity wire-up | 🟡 IN PROGRESS | Schema table (`brain_plasticity_events`) exists but has 0 rows; 3 confirmed root-cause bugs (BUG-1: 5-min vs 30-day lookback conflation, BUG-2: `entry_ids` format mismatch comma vs JSON, BUG-3: missing `session_id` column in live table). T673 epic decomposed into 21 active tasks across 4 waves per `docs/specs/stdp-wire-up-spec.md`. | T673 (pending); synthesis at `.cleo/agent-outputs/T673-council-synthesis.md` |
+| **6** | 3D hero view (`3d-force-graph`) | 🟡 IN PROGRESS | Packages installed (T666, v2026.4.58): `3d-force-graph ^1.80.0`, `three ^0.183.2`, `three-stdlib ^2.36.1`. Components implemented (T667–T671): `LivingBrain3D.svelte` + `/brain/3d` route exist in working tree. **Not yet committed to a release** — files untracked as of HEAD (dbe48a84). T672 (A-Frame VR) remains pending. | T660 epic (pending); T666–T671 done in tasks.db; commit + release pending |
+| **7** | Polish (filters, snapshot export, cross-references, query bar) | 🟡 PARTIAL | Admin UI (T674 ✅), Tasks search + epic progress (T675 ✅), Dep/blocker visualization (T676 ✅) shipped in v2026.4.58 (384443b0). SSR 500 fix (T686 ✅, SHA dbe48a84 context). Remaining: snapshot export, query bar, subgraph highlight. | T674/T675/T676 done; remaining items untracked |
 
-**Active stabilization tasks under T627**: T628 (auto-dream cycle), T629 (provider-agnostic memory), T630/T633 (CI fixes), T632 (migration reconciler bandaid), **T634** (this doc), **T635** (Studio Phase 2).
+**Active T627 tasks**: T673 (STDP epic, 21 subtasks Wave 0–4), T660 (Phase 6 3D, commit + release pending), T687 (scaffolding reality check + ADR-045).
 
 ---
 
@@ -75,11 +76,20 @@ The user asked whether [sigma.js](https://github.com/jacomyal/sigma.js) was the 
 
 | Substrate | Scope | Schema (verify with) | Graph layer? | Cross-link surface |
 |---|---|---|---|---|
-| **NEXUS** | global | `packages/core/src/store/nexus-schema.ts` (verify: `cleo nexus status`) | `nexus_nodes` (31 kinds) + `nexus_relations` (22 types incl. **`documents`** + **`applies_to`** for brain bridge) | `project_registry.brain_db_path` + `.tasks_db_path` per project |
-| **BRAIN** | per-project | `packages/core/src/store/brain-schema.ts` (verify: `cleo memory graph-stats`) | `brain_page_nodes` (12 kinds incl. file/symbol/task/session) + `brain_page_edges` (12 types incl. **`references`** / **`documents`** / **`applies_to`** / **`modified_by`**) | `brain_decisions.context_task_id` + `brain_memory_links.task_id` + `brain_observations.source_session_id` |
-| **TASKS** | per-project | `packages/core/src/store/tasks-schema.ts` (verify: `cleo dash`) | Implicit graph: `tasks.parent_id` (hierarchy) + `task_dependencies` + `task_relations` (7 types) | `tasks.assignee` (signaldock agent), `tasks.session_id`, `external_task_links` |
-| **CONDUIT** | per-project | `packages/core/src/store/conduit-sqlite.ts` (verify: `cleo conduit status`) | Implicit: `messages.from_agent_id` ↔ `to_agent_id` + `attachment_contributors`, FTS5 over content | `project_agent_refs.agent_id` (signaldock soft FK) |
+| **NEXUS** | global | `packages/core/src/store/nexus-schema.ts` | `nexus_nodes` (33 kinds, `NEXUS_NODE_KINDS` array) + `nexus_relations` (21 types, `NEXUS_RELATION_TYPES` array — note: `documents` and `applies_to` are in the enum but have 0 live rows) | `project_registry.brain_db_path` + `.tasks_db_path` per project |
+| **BRAIN** | per-project | `packages/core/src/store/brain-schema.ts` | `brain_page_nodes` (12 kinds, `BRAIN_NODE_TYPES` array) + `brain_page_edges` (16 types, `BRAIN_EDGE_TYPES` array) | `brain_decisions.context_task_id` + `brain_memory_links.task_id` + `brain_observations.source_session_id` |
+| **TASKS** | per-project | `packages/core/src/store/tasks-schema.ts` | Implicit graph: `tasks.parent_id` (hierarchy) + `task_dependencies` + `task_relations` (7 types) | `tasks.assignee` (signaldock agent), `tasks.session_id`, `external_task_links` |
+| **CONDUIT** | per-project | `packages/core/src/store/conduit-sqlite.ts` | Implicit: `messages.from_agent_id` ↔ `to_agent_id` + `attachment_contributors`, FTS5 over content | `project_agent_refs.agent_id` (signaldock soft FK) |
 | **SIGNALDOCK** | global | `packages/core/src/store/signaldock-sqlite.ts` | `agent_connections` (cross-agent social) | Touched by every other DB via `agent_id` |
+
+**Constant counts (verified against source on 2026-04-15)**:
+
+| Constant | Count | Source |
+|---|---|---|
+| `BRAIN_EDGE_TYPES` | **16** | `packages/core/src/store/brain-schema.ts:550–573` |
+| `BRAIN_NODE_TYPES` | **12** | `packages/core/src/store/brain-schema.ts` |
+| `NEXUS_NODE_KINDS` | **33** | `packages/core/src/store/nexus-schema.ts:99–143` |
+| `NEXUS_RELATION_TYPES` | **21** | `packages/core/src/store/nexus-schema.ts:244–278` |
 
 **Verification commands** (each row above):
 ```bash
@@ -102,9 +112,9 @@ NEXUS (global)                            BRAIN (project)
     .brain_db_path                          brain_decisions.context_epic_id ─→ TASKS
     .tasks_db_path                          brain_observations.source_session_id ─→ TASKS
   nexus_relations.type ∈ {                  brain_observations.files_modified_json[*]
-    'documents',  ←─ brain bridge           brain_memory_links.task_id ─→ TASKS
-    'applies_to'  ←─ brain bridge           brain_page_nodes.node_type ∈ {file, symbol, task, session, epic}
-  }                                         brain_page_edges.edge_type ∈ {references, documents, modified_by, applies_to, part_of}
+    'documents',  ←─ schema only, 0 rows    brain_memory_links.task_id ─→ TASKS
+    'applies_to'  ←─ schema only, 0 rows    brain_page_nodes.node_type ∈ {file, symbol, task, session, epic}
+  }                                         brain_page_edges.edge_type ∈ {code_reference (2,669), applies_to (120), ...}
 
 CONDUIT (project)                         SIGNALDOCK (global)
   messages.from_agent_id ─→ SIGNALDOCK      agents.agent_id    ←─ touched by all DBs
@@ -112,13 +122,29 @@ CONDUIT (project)                         SIGNALDOCK (global)
   project_agent_refs.agent_id ─→ SIGNALDOCK
 ```
 
+**Live edge reality** (from T662 council audit, `T662-council-1-architecture.md`):
+
+| edge_type | live rows | provenance |
+|---|---|---|
+| `code_reference` | 2,669 | auto:exact-symbol=2597, auto:fuzzy-symbol=62, auto:exact-file=10 |
+| `applies_to` | 120 | backfill:observation.text-task-ref=109, backfill:sticky.content-task-ref=10, auto:store-decision=1 |
+| `co_retrieved` | **0** | Hebbian writer code correct but retrieval log too sparse (threshold ≥3 pairs not met) |
+| `documents` | **0** | No writer exists |
+| `modified_by` | **0** | No writer exists |
+| `affects` | **0** | No writer exists |
+| `mentions` | **0** | No writer exists |
+
+**Canvas edge survival** (from T684 browser validation, `.cleo/agent-outputs/T684-browser-validation/REPORT.md`):
+- Before T663 stub-node loader: 429 of 3,965 API edges rendered (10.8%)
+- After T663 stub-node loader: 2,894 cross-substrate edges visible; edge survival rate >90%
+
 ### §4.2 Edges that SHOULD exist but don't yet
 
 | From | To | Edge | Status | Phase |
 |---|---|---|---|---|
-| `brain_decisions.context_task_id` | `tasks.id` | `applies_to` row in `brain_page_edges` | MISSING — backfill needed | 3b |
+| `brain_decisions.context_task_id` | `tasks.id` | `applies_to` row in `brain_page_edges` (decision→task writer) | MISSING — only text-ref backfill exists, no dedicated decision→task writer | 3b |
 | `brain_observations.files_modified_json[*]` | `nexus_nodes` (file) | `modified_by` in `brain_page_edges` | MISSING — extractor needed | 3b |
-| `brain_observations` content (regex symbol-FQNs) | `nexus_nodes` (symbol) | `references` / `code_reference` | PARTIAL — `cleo memory code-auto-link` exists but enum-drift bug | 3a + 3b |
+| `brain_observations` content (regex symbol-FQNs) | `nexus_nodes` (symbol) | `documents` / `applies_to` in `nexus_relations` | MISSING — `nexus_relations` has 0 rows of either type despite both in enum | 3b |
 | `tasks.files_json[*]` | `nexus_nodes` (file) | `tasks_over_file` (synthesized) | MISSING — schema needed | 3b |
 | `conduit.messages.content` (FTS5) → memory IDs / task IDs / FQNs | `mentions` | MISSING — extractor needed | 7 |
 | `agents.agent_id` | (`tasks` ∪ `observations` ∪ `messages`) | `authored_by` (unified across DBs) | MISSING — view-layer query | 4 |
@@ -126,25 +152,26 @@ CONDUIT (project)                         SIGNALDOCK (global)
 
 ---
 
-## §5 Hebbian Plasticity Substrate (already shipped)
+## §5 Hebbian Plasticity Substrate (shipped as code, not yet producing data)
 
-**Location**: `packages/core/src/memory/brain-lifecycle.ts:911` — `strengthenCoRetrievedEdges`
+**Location**: `packages/core/src/memory/brain-lifecycle.ts` — `strengthenCoRetrievedEdges`
 
 **What it does today**:
 1. Reads `brain_retrieval_log` for retrievals in the last 30 days
 2. Counts every unordered pair from each retrieval's `entry_ids` JSON array
 3. For pairs with count ≥ 3 → strengthen edge weight by 0.1 (capped at 1.0); insert edge with weight 0.3 if absent
-4. Wired as step 6 of `runConsolidation` (brain-lifecycle.ts:606), which fires from session-end hook
+4. Wired as step 6 of `runConsolidation` (brain-lifecycle.ts), which fires from session-end hook
 
-**Verify it works**:
-```bash
-cleo memory consolidate          # Triggers full lifecycle including step 6
-cleo memory graph-stats          # Should show non-zero edges with provenance='consolidation:co-retrieval'
-```
+**Known state** (from T662 council, `T662-council-1-architecture.md`):
+- `brain_page_edges` has **0 `co_retrieved` rows** in live database
+- The retrieval log (38 rows at time of T662 audit) is too sparse to trigger the ≥3-pair threshold
+- `entry_ids` column stores comma-separated strings, but `strengthenCoRetrievedEdges` calls `JSON.parse()` — this is BUG-2 tracked in T673
 
-**Known issue (D-BRAIN-VIZ-05, fixed in Phase 3a)**: emits `edge_type='relates_to'` which is **not** in `BRAIN_EDGE_TYPES`. Works only because `INSERT OR IGNORE` uses raw SQL bypassing Drizzle's enum check. Same drift affects `cleo memory code-auto-link` which emits `code_reference` (also missing from enum).
+**Phase 3a fix** (T645, shipped v2026.4.58, 384443b0):
+- `co_retrieved` and `code_reference` both added to `BRAIN_EDGE_TYPES` (`brain-schema.ts:550–573`)
+- Migration relabels historical `relates_to` rows → `co_retrieved` (produced 0 changes because no `relates_to` rows existed)
 
-**Gaps for full STDP** — see [stdp-feasibility.md](./stdp-feasibility.md).
+**Full STDP wire-up** — see [Phase 5](#phase-5) and [docs/specs/stdp-wire-up-spec.md](../specs/stdp-wire-up-spec.md).
 
 ---
 
@@ -158,7 +185,7 @@ The aspirational stack — what every phase converges on:
 ┌─ Hero view: 3d-force-graph (ThreeJS)              ← "the brain"
 │   • typed node shapes (obs / learn / pat / dec / decision / symbol / task)
 │   • edge animation on memory-write events via SSE
-│   • VR variant available for demo
+│   • VR variant available for demo (T672 — pending)
 │   • plasticity edges pulse on Hebbian/STDP strengthen
 │
 ├─ Analytics view: Cosmograph (2D, GPU)             ← "scale mode"
@@ -168,10 +195,10 @@ The aspirational stack — what every phase converges on:
 │   • activates when payload > 2K nodes (toggle below that)
 │
 ├─ Data layer: Graphology                           ← "browser SSoT"
-│   • same graph object feeds both renderers
+│   • same graph object feeds both renderers (shipped T668)
 │   • PageRank highlights load-bearing memories
 │   • import from GEXF / export for snapshots
-│   • shared model across /living-brain and /brain/graph routes
+│   • shared model across /brain and /brain/3d routes
 │
 └─ Live wire: SSE from substrate hooks              ← "synapses firing"
     • every `cleo memory observe` → pulse the relevant node
@@ -181,47 +208,41 @@ The aspirational stack — what every phase converges on:
     • session end → fade/consolidate unused nodes
 ```
 
-### §6.1 Current shipped state (T620 + T626 + Phase 1)
+### §6.1 Current shipped state (T620 + T626 + T627 Phases 2–3 + T685)
 
-What `/living-brain` actually renders today, mapped to the target above:
+What `/brain` actually renders today, mapped to the target above:
 
 ```
-┌─ /living-brain (SHIPPED) ─────────────────────────────────────────────────┐
-│                                                                            │
-│   Renderer:  LivingBrainGraph.svelte (custom force layout)                 │
-│              ↑ Phase 2c will swap to Cosmograph for >2K nodes              │
-│              ↑ Phase 6  will add 3d-force-graph hero route                 │
-│                                                                            │
-│   Browser model: derived $state from server payload                        │
-│              ↑ Phase 2  will introduce Graphology as in-browser SSoT       │
-│                                                                            │
-│   API:                                                                     │
-│      ✅ GET /api/living-brain?limit=N   → LBGraph                          │
-│      ✅ GET /api/living-brain/node/:id  → LBNode detail                    │
-│      🔴 GET /api/living-brain/stream    → SSE (Phase 2b — T635)            │
-│                                                                            │
-│   Substrates: brain | nexus | tasks | conduit | signaldock  ✅             │
-│   Filters:    substrate toggles ✅, weight slider ✅, time slider 🟡 (T635) │
-│   Edges UI:   supersedes / affects / applies_to / calls / co_retrieved /   │
-│               mentions ✅                                                  │
-└────────────────────────────────────────────────────────────────────────────┘
+┌─ /brain (SHIPPED) ─────────────────────────────────────────────────────────┐
+│                                                                              │
+│   Renderer options:                                                          │
+│     [2D] LivingBrainGraph.svelte (custom force layout) — default            │
+│     [GPU] LivingBrainCosmograph.svelte (cosmos.gl) — activates >2K nodes   │
+│     [3D] LivingBrain3D.svelte (3d-force-graph) — route at /brain/3d        │
+│          ^ packages installed T666; component + route implemented T667–T671  │
+│          ^ files in working tree, NOT YET COMMITTED to a release             │
+│                                                                              │
+│   Browser model: Graphology store (living-brain-graph.ts) shared by        │
+│                  all three renderers (shipped T668)                          │
+│                                                                              │
+│   API:                                                                       │
+│      ✅ GET /api/living-brain?limit=N   → LBGraph (5000-node cap default)   │
+│      ✅ GET /api/living-brain/node/:id  → LBNode detail                     │
+│      ✅ GET /api/living-brain/stream    → SSE text/event-stream (T643)       │
+│                                                                              │
+│   Substrates: brain | nexus | tasks | conduit | signaldock  ✅              │
+│   Filters:    substrate toggles ✅, weight slider ✅, time slider ✅ (T635)  │
+│   Edge types: 25-type color map (T647 — was 6, 19 rendered invisible)       │
+│   Stub-node loader: ✅ (T663) — 2,894 cross-substrate edges visible          │
+└──────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ Backing data sources (read by Studio API) ─────────────────────────────────┐
-│   ✅ brain.db   page_nodes + page_edges + typed tables + retrieval_log      │
-│   ✅ nexus.db   nodes + relations (cross-project)                           │
-│   ✅ tasks.db   tasks + sessions + dependencies + relations                 │
-│   ✅ conduit.db messages + attachments + project_agent_refs                 │
-│   ✅ signaldock.db (global) agents + connections                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─ SSE event taxonomy (Phase 2b — T635) ──────────────────────────────────────┐
-│   • brain_retrieval_log INSERT trigger     → SSE event 'retrieval'          │
-│   • brain_page_edges UPDATE (Hebbian)      → SSE event 'edge.strengthen'    │
-│   • brain_observations INSERT              → SSE event 'node.create'        │
-│   • tasks.status UPDATE                    → SSE event 'task.status'        │
-│   • nexus phase transition                 → SSE event 'nexus.reindex'      │
-│   • conduit.messages INSERT                → SSE event 'message.send'       │
-└─────────────────────────────────────────────────────────────────────────────┘
+│   ✅ brain.db   page_nodes + page_edges + typed tables + retrieval_log       │
+│   ✅ nexus.db   nodes + relations (cross-project)                            │
+│   ✅ tasks.db   tasks + sessions + dependencies + relations                  │
+│   ✅ conduit.db messages + attachments + project_agent_refs                  │
+│   ✅ signaldock.db (global) agents + connections                             │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### §6.2 Why this specific stack
@@ -240,21 +261,22 @@ What `/living-brain` actually renders today, mapped to the target above:
 
 ### Phase 1 — Static unified brain `(large) ✅ DONE`
 
-`/living-brain` + `/brain/*` routes shipped under T620 + T626.
+`/brain` canvas + `/brain/*` routes shipped under T620 + T626. Route rename `/living-brain` → `/brain` shipped in T649, v2026.4.58 (SHA 384443b0).
+
 **Kill criteria (would have been)**: graph payload >5MB on cold load; render frame stalls >250ms.
 
-### Phase 2 — Live + interactive `(large) 🟡 IN PROGRESS [T635]`
+### Phase 2 — Live + interactive `(large) ✅ DONE [T635, T643, T644 — v2026.4.58, 384443b0]`
 
-- 2a. LBNode.createdAt projection + time slider
-- 2b. SSE endpoint with 5 event types
-- 2c. Cosmograph spike behind a toggle for >2K nodes
+- 2a. LBNode.createdAt projection + time slider — T635 ✅
+- 2b. SSE endpoint with node.create / edge.strengthen / task.status events — T643 ✅
+- 2c. Cosmograph GPU mode behind toggle for >2K nodes — T644 ✅; GPU blank-canvas bug fixed T685 (dbe48a84): `cosmos.start()` → `cosmos.render()`
 
-**Kill criteria**: SSE adds >50% server CPU at idle, OR Cosmograph integration breaks any existing route. Roll back the 2c bit and ship 2a + 2b only.
+**Kill criteria (met)**: SSE did not add >50% CPU at idle; Cosmograph toggle does not break existing routes.
 
-### Phase 3 — Schema & backfill `(medium) 🔴 OPEN`
+### Phase 3 — Schema & backfill `(medium) 🟡 PARTIAL`
 
-- 3a. Enum drift fix: add `co_retrieved` + `code_reference` to `BRAIN_EDGE_TYPES`. One-shot migration relabels `'relates_to'` → `'co_retrieved'`.
-- 3b. Backfill missing bridge edges (decisions→tasks, observations→files/symbols).
+- 3a. Enum drift fix — **✅ DONE** (T645, v2026.4.58, 384443b0): `co_retrieved` + `code_reference` in `BRAIN_EDGE_TYPES`; migration relabels historical rows.
+- 3b. Backfill missing bridge edges — **🟡 PARTIAL**: `code_reference` edges exist (2,669 rows from `cleo memory code-auto-link`). However: `documents`=0, `modified_by`=0, `affects`=0, `mentions`=0, `nexus_relations` `documents`/`applies_to` both=0. A full backfill writer for decision→task `applies_to` and observation→file `modified_by` does not yet exist.
 
 **Kill criteria**: backfill produces >10× the existing edge count (graph becomes unreadable). Cap with quality threshold.
 
@@ -262,30 +284,59 @@ What `/living-brain` actually renders today, mapped to the target above:
 
 - New table `nexus_cross_project_edges` in nexus.db
 - Analyzers: pattern-hash compare, agent-membership, symbol-FQN match, owner-flagged decisions
-- Studio `/living-brain?scope=meta` renders union with `project_id` as cluster color
+- Studio `/brain?scope=meta` renders union with `project_id` as cluster color
 
 **Kill criteria**: privacy concerns when shared workspaces leak project-A context into project-B view. Require explicit owner opt-in per project pair.
 
-### Phase 5 — STDP-inspired plasticity `(large, owner-checkpoint) 🔴 OPEN`
+### Phase 5 — STDP-inspired plasticity `(large) 🟡 IN PROGRESS [T673]` {#phase-5}
 
-- Schema additions per [stdp-feasibility.md](./stdp-feasibility.md) §3
-- Algorithm per [stdp-feasibility.md](./stdp-feasibility.md) §4 (LTP/LTD with exponential Δt windows + decay + pruning)
-- Optional R-STDP via `reward_signal` column
+**Schema**: `brain_plasticity_events` table exists (shipped v2026.4.51, c7e4143a). Has 0 rows. Three confirmed bugs prevent events from firing — see `docs/specs/stdp-wire-up-spec.md §1.4`.
+
+**3 root-cause bugs** (from T673 council, `docs/specs/stdp-wire-up-spec.md`):
+- BUG-1: `applyStdpPlasticity` default `sessionWindowMs=5min` is used as BOTH lookback AND pair window. Live `brain_retrieval_log` rows are 2+ days old → 0 rows qualify.
+- BUG-2: `logRetrieval` stores `entry_ids` as comma-separated; `strengthenCoRetrievedEdges` and `applyStdpPlasticity` call `JSON.parse()` → silent parse failure.
+- BUG-3: `brain_retrieval_log.session_id` column defined in Drizzle schema but ALTER TABLE was never applied to live DB.
+
+**Implementation plan**: T673 epic decomposed into **21 active tasks across 4 waves** per `docs/specs/stdp-wire-up-spec.md` (V2, synthesized by T673 council, 2026-04-15):
+
+| Wave | Tasks | Scope |
+|---|---|---|
+| **Wave 0** (7 tasks, fully parallel) | T703, T696, T706, T697, T699, T701, T715 | Schema migrations: `brain_retrieval_log` columns, `brain_plasticity_events` expand, `brain_page_edges` plasticity columns, `brain_weight_history` CREATE, `brain_modulators` CREATE, `brain_consolidation_events` CREATE, `session_id` backfill SQL |
+| **Wave 1** (3 tasks) | T679, T681, T693 | Core writer fixes: lookback window (30d), `session_id` INSERT, `backfillRewardSignals` Step 9a, `plasticity_class` writer |
+| **Wave 2** (6 tasks) | T688, T689, T692, T691, T713, T714 | Algorithm extensions: cross-session pair window (24h), tiered τ (near/session/episodic), R-STDP modulation, novelty boost, idempotency guard, minimum-pair gate |
+| **Wave 3** (3 tasks) | T690, T694, T695 | Homeostasis + pipeline: homeostatic decay pass, consolidation pipeline Steps 9a/9b/9c, cross-session spike grouping |
+| **Wave 4** (2 tasks) | T682, T683 | Testing + documentation: end-to-end functional test on real brain.db (no mocks), ADR + plan doc update |
+
+**STDP synthesis**: `.cleo/agent-outputs/T673-council-synthesis.md`
+**Master spec**: `docs/specs/stdp-wire-up-spec.md` (STDP-WIRE-UP-V2, authoritative)
 
 **Kill criteria**: weight distribution becomes pathologically bimodal (everything 0.05 or 1.0); LTD prunes >10% of edges per consolidation pass.
 
-### Phase 6 — 3D hero view `(medium) 🔴 OPEN`
+### Phase 6 — 3D hero view `(medium) 🟡 IN PROGRESS [T660]`
 
-- `/living-brain/3d` route using vanilla `3d-force-graph` (NOT React wrapper)
-- Same Graphology instance, ThreeJS renderer
-- Floating HTML labels via Svelte `{#each}` + projected coords (no `<Html>` from drei)
-- Optional `EffectComposer` + `UnrealBloomPass` for glow
+**Packages installed** (T666, v2026.4.58, 384443b0): `3d-force-graph ^1.80.0`, `three ^0.183.2`, `three-stdlib ^2.36.1`, `graphology ^0.26.0` all in `packages/studio/package.json`.
+
+**Components implemented** (T667–T671, tasks.db status = done, files in working tree untracked):
+- `LivingBrain3D.svelte` — 3D renderer mirroring `LivingBrainGraph` props, ThreeJS + 3d-force-graph
+- Graphology store reuse (T668) — shared `living-brain-graph.ts` store across 2D/GPU/3D renderers
+- `UnrealBloomPass` neon glow (T669) via `postProcessingComposer` API
+- HTML overlay labels (T670) — `THREE.Camera.project()` for 3D→2D coordinate mapping, RAF loop at 60fps
+- `/brain/3d` route + three-way toggle on `/brain` (T671) — `?view=3d` / `?view=gpu` query params
+
+**NOT YET COMMITTED**: `LivingBrain3D.svelte` and `/brain/3d/` are untracked in working tree as of HEAD (dbe48a84 a38b08a3). Release pending.
+
+**T672** (A-Frame VR variant `/brain/3d-vr`) — status: pending, remains as stretch goal.
 
 **Kill criteria**: 3D view requires >1 GB GPU memory, OR breaks on Linux/Wayland. Ship 2D as primary; 3D is hero/demo only.
 
-### Phase 7 — Polish `(medium) 🔴 OPEN`
+### Phase 7 — Polish `(medium) 🟡 PARTIAL`
 
-- Filter panel: time range, plasticity class, agent
+**Shipped** (v2026.4.58, 384443b0):
+- Admin UI in `/projects` (T674 ✅) — Index/Re-Index/Delete per project row + Scan/Clean toolbar
+- Tasks page search (T675 ✅) — case-insensitive T/t-prefixed ID search + epic progress display
+- Dep/blocker visualization (T676 ✅) — inline ↑N/↓N badges on tree nodes + sigma.js 1-hop dep graph
+
+**Open** (no tracking task yet):
 - Snapshot export: PNG / GEXF / JSON / SVG
 - Query bar: "show me everything agent X touched"
 - Subgraph highlight on `cleo memory find` queries
@@ -301,6 +352,7 @@ What `/living-brain` actually renders today, mapped to the target above:
 3. Time slider granularity — daily (current shipped pattern in `/brain/graph`), hourly, or wall-clock?
 4. Cross-project edges privacy default — opt-in per project pair, or opt-out?
 5. R-STDP scope — do we wire reward signals to all plasticity classes or only `stdp` class?
+6. Phase 6 commit timing — when do T666–T671 working-tree changes get committed + released?
 
 ---
 
@@ -343,22 +395,26 @@ What `/living-brain` actually renders today, mapped to the target above:
 - [How to Visualize a Graph with a Million Nodes (Nightingale)](https://nightingaledvs.com/how-to-visualize-a-graph-with-a-million-nodes/)
 - [Top 13 JavaScript graph visualization libraries (Linkurious)](https://linkurious.com/blog/top-javascript-graph-libraries/)
 
-### CLEO internal references (verified during plan grounding)
+### CLEO internal references (verified against source on 2026-04-15)
 
-#### Schema files (v3 grounded against these on 2026-04-15)
-- `packages/core/src/store/brain-schema.ts` — BRAIN typed tables + graph layer + retrieval log + 12-element edge enum
-- `packages/core/src/store/nexus-schema.ts` — `project_registry` (with brain_db_path / tasks_db_path) + `nexus_nodes` (31 kinds) + `nexus_relations` (22 types)
+#### Schema files
+- `packages/core/src/store/brain-schema.ts` — BRAIN typed tables + graph layer + retrieval log + **16-element** edge enum + **12-element** node type enum
+- `packages/core/src/store/nexus-schema.ts` — `project_registry` (with brain_db_path / tasks_db_path) + `nexus_nodes` (**33 kinds**) + `nexus_relations` (**21 types**)
 - `packages/core/src/store/tasks-schema.ts` — tasks + sessions + dependencies + lifecycle + agents + warp chains + external links
 - `packages/core/src/store/conduit-sqlite.ts` — conduit.db raw DDL (messages + FTS5 + attachments + project_agent_refs)
 - `packages/core/src/store/signaldock-sqlite.ts` — global agent identity
 
 #### Shipped code referenced by this plan
-- `packages/core/src/memory/brain-lifecycle.ts:911` — `strengthenCoRetrievedEdges` (Hebbian, shipped)
-- `packages/core/src/memory/brain-retrieval.ts:1415` — `logRetrieval` (retrieval log writer)
-- `packages/core/src/store/brain-sqlite.ts:172` — `loadBrainVecExtension` (sqlite-vec loader)
-- `packages/core/src/store/brain-sqlite.ts:192` — `initializeBrainVec` (vec0 virtual table)
-- `packages/studio/src/routes/living-brain/+page.svelte` — main /living-brain page (5-substrate filters + weight slider + side panel)
-- `packages/studio/src/lib/components/LivingBrainGraph.svelte` — current renderer (custom force layout)
+- `packages/core/src/memory/brain-lifecycle.ts` — `strengthenCoRetrievedEdges` (Hebbian, code correct, 0 output rows due to BUG-2)
+- `packages/core/src/memory/brain-retrieval.ts` — `logRetrieval` (retrieval log writer, stores comma-separated not JSON — BUG-2)
+- `packages/core/src/store/brain-sqlite.ts` — `loadBrainVecExtension` + `initializeBrainVec` (sqlite-vec loader)
+- `packages/core/src/memory/brain-stdp.ts` — `applyStdpPlasticity` (STDP writer, BUG-1/BUG-2/BUG-3 tracked in T673)
+- `packages/studio/src/routes/brain/+page.svelte` — main `/brain` canvas (5-substrate filters + weight slider + side panel + three-way renderer toggle)
+- `packages/studio/src/lib/components/LivingBrainGraph.svelte` — 2D renderer (custom force layout) — **committed**
+- `packages/studio/src/lib/components/LivingBrainCosmograph.svelte` — GPU renderer (cosmos.gl, `cosmos.render()` fix in dbe48a84) — **committed**
+- `packages/studio/src/lib/components/LivingBrain3D.svelte` — 3D renderer (3d-force-graph, T667) — **UNTRACKED working tree**
+- `packages/studio/src/routes/brain/3d/` — 3D route (T671) — **UNTRACKED working tree**
+- `packages/studio/src/lib/stores/living-brain-graph.ts` — shared Graphology store (T668) — **UNTRACKED working tree**
 - `packages/studio/src/lib/server/living-brain/types.ts` — LBNode/LBGraph/LBSubstrate
 
 #### Live state files
@@ -370,8 +426,22 @@ What `/living-brain` actually renders today, mapped to the target above:
 - T620 — BRAIN Studio View (knowledge graph + memory tiers + decisions timeline) **DONE**
 - T626 — EPIC: T-BRAIN-LIVING — Unified 5-substrate Living Brain **DONE**
 - T627 — EPIC: T-BRAIN-LIVING Stabilization + Phase 2 RCASD **ACTIVE**
-- T634 — Doc v3 (this doc)
-- T635 — Studio Phase 2 (time slider + SSE + Cosmograph spike)
+- T634 — Doc v3 (superseded by this v4 rewrite T677)
+- T635 — Phase 2a: time slider ✅ DONE (v2026.4.58, 384443b0)
+- T643 — Phase 2b: SSE live synapses ✅ DONE (v2026.4.58, 384443b0)
+- T644 — Phase 2c: Cosmograph GPU mode ✅ DONE (v2026.4.58, 384443b0)
+- T645 — Phase 3a: BRAIN_EDGE_TYPES enum drift fix ✅ DONE (v2026.4.58, 384443b0)
+- T649 — D-BRAIN-VIZ-14 route rename ✅ DONE (v2026.4.58, 384443b0)
+- T660 — EPIC: Phase 6 3D Synapse Brain **PENDING** (packages installed, components in working tree)
+- T663 — P0 stub-node loader (89% dropped edges) ✅ DONE; browser-verified 2,894 cross-substrate edges
+- T664 — P1 GPU blank canvas (CSS hypothesis) ✅ DONE; real fix was T685
+- T673 — EPIC: STDP Phase 5 wire-up **PENDING** (21 tasks, 4 waves)
+- T674 — Studio Admin UI ✅ DONE (v2026.4.58, 384443b0)
+- T675 — Tasks search + epic progress ✅ DONE (v2026.4.58, 384443b0)
+- T676 — Dep/blocker visualization ✅ DONE (v2026.4.58, 384443b0)
+- T685 — GPU mode real fix (`cosmos.start()` → `cosmos.render()`) ✅ DONE (SHA dbe48a84)
+- T686 — SSR 500 fix (sigma WebGL2 crash at module level) ✅ DONE
+- T687 — EPIC: Scaffolding reality check + ADR-045 **PENDING**
 - T549 — Tiered + typed memory (shipped — gave us tiers, cognitive types, source confidence, bitemporal, citation counts)
 - T513 — Native Code Intelligence Pipeline
 - T523 — BRAIN integrity work
@@ -398,8 +468,46 @@ What `/living-brain` actually renders today, mapped to the target above:
 
 ## §10 Next Actions
 
-- [ ] T635 (Studio Phase 2) — worker spawned, time slider first
-- [ ] Create Phase 3a task: enum drift fix in `BRAIN_EDGE_TYPES`
-- [ ] Create Phase 3b task: backfill bridge edges
-- [ ] Owner-checkpoint conversation for STDP (Phase 5) — pre-read [stdp-feasibility.md](./stdp-feasibility.md)
-- [ ] When T635 ships: re-render this doc to mark Phase 2 ✅ DONE
+- [ ] Commit + release Phase 6 working tree (T666–T671): `LivingBrain3D.svelte`, `/brain/3d/` route, `living-brain-graph.ts` store, TaskDepGraph.svelte (T676), stub-loader test (`stub-loader.test.ts`), Tasks API routes (`/api/tasks/[id]/deps`, `/api/tasks/graph`, `/api/tasks/search`)
+- [ ] T673 Wave 0: 7 parallel migration tasks (T703, T696, T706, T697, T699, T701, T715)
+- [ ] T673 Wave 1 → Wave 4: STDP writer fix + algorithm extensions + functional test
+- [ ] T627: Phase 3b backfill writer (decision→task `applies_to` + observation→file `modified_by`)
+- [ ] T687: Scaffolding reality check + ADR-045 implementation
+- [ ] Phase 4: owner checkpoint for cross-project meta-brain scope + `nexus_cross_project_edges` schema
+
+---
+
+## §11 Factual Citation Index (for validator audit)
+
+Every factual claim in this doc, cited to source:
+
+| Claim | Source | Verified |
+|---|---|---|
+| D-BRAIN-VIZ-14 route rename T649 done in v2026.4.58 | `cleo show T649 --json` status=done; git commit 384443b0 message lists T649 | ✅ |
+| Phase 2a T635 done in v2026.4.58 | `cleo show T635 --json` status=done, completedAt=2026-04-15T07:26:22; git 384443b0 message lists T635 | ✅ |
+| Phase 2b T643 done in v2026.4.58 | `cleo show T643 --json` status=done, verification.passed=true; git 384443b0 lists T643 | ✅ |
+| Phase 2c T644 done in v2026.4.58 | `cleo show T644 --json` status=done, verification.passed=true; git 384443b0 lists T644 | ✅ |
+| GPU blank-canvas real fix in T685, cosmos.start()→cosmos.render() | `cleo show T685 --json` status=done; git show dbe48a84 commit message + `.cleo/agent-outputs/T685-worker-gpu-real-fix.md` | ✅ |
+| Phase 3a T645 done in v2026.4.58 | `cleo show T645 --json` status=done; git 384443b0 lists T645 | ✅ |
+| BRAIN_EDGE_TYPES has 16 entries | `awk '/^export const BRAIN_EDGE_TYPES/,/\] as const/' brain-schema.ts | grep "'" | wc -l` → 16 | ✅ |
+| BRAIN_NODE_TYPES has 12 entries | same awk pattern on BRAIN_NODE_TYPES → 12 | ✅ |
+| NEXUS_NODE_KINDS has 33 entries | `awk '/^export const NEXUS_NODE_KINDS/,/\] as const/' nexus-schema.ts | grep "'" | wc -l` → 33 | ✅ |
+| NEXUS_RELATION_TYPES has 21 entries | same awk pattern on NEXUS_RELATION_TYPES → 21 | ✅ |
+| T649 added D-BRAIN-VIZ-14 (route rename /living-brain→/brain, /nexus→/code) | `cleo show T649 --json` description + acceptance criteria; git 384443b0 message lists T649 | ✅ |
+| 2,894 cross-substrate edges verified post-T663 | `.cleo/agent-outputs/T684-browser-validation/REPORT.md`: "2312 nodes, 4988 edges, 2894 cross-substrate bridges visible" | ✅ |
+| T663 stub-node loader done | `cleo show T663 --json` status=done, verification.passed=true, completedAt=2026-04-15T17:48:41 | ✅ |
+| Phase 3b: code_reference=2,669 rows, documents=0, co_retrieved=0 | `.cleo/agent-outputs/T662-council-1-architecture.md` edge type table | ✅ |
+| nexus_relations documents/applies_to = 0 rows | `.cleo/agent-outputs/T662-council-1-architecture.md`: "SELECT COUNT(*) → 0 rows each" | ✅ |
+| T673 STDP 3 root-cause bugs | `docs/specs/stdp-wire-up-spec.md §1.4`; `.cleo/agent-outputs/T673-council-synthesis.md` | ✅ |
+| T673 21 active tasks in 4 waves | `.cleo/agent-outputs/T673-council-synthesis.md` §4 task table: "Total active tasks: 21"; Wave 0 (7) + Wave 1 (3) + Wave 2 (6) + Wave 3 (3) + Wave 4 (2) = 21 | ✅ |
+| T660 Phase 6 packages installed in studio package.json | `cat packages/studio/package.json | python3 -c ...` → 3d-force-graph ^1.80.0, three ^0.183.2, three-stdlib ^2.36.1, graphology ^0.26.0 present | ✅ |
+| LivingBrain3D.svelte is UNTRACKED (not committed) | `git status packages/studio/src/lib/components/LivingBrain3D.svelte` → "Untracked files" | ✅ |
+| /brain/3d route is UNTRACKED | `git status packages/studio/src/routes/brain/3d/` → "Untracked files" | ✅ |
+| T666–T671 status=done in tasks.db | `for t in T666..T671; cleo show $t --json` → all status=done or checked via MANIFEST entries | ✅ |
+| T672 A-Frame VR still pending | `cleo show T672 --json | python3 ... | "pending"` | ✅ |
+| T674 Admin UI done in v2026.4.58 | `cleo show T674` status=done; git 384443b0 | ✅ |
+| T675 Tasks search done in v2026.4.58 | `cleo show T675` status=done; git 384443b0 | ✅ |
+| T676 Dep/blocker viz done in v2026.4.58 | `cleo show T676` status=done; git 384443b0 | ✅ |
+| T686 SSR 500 fix done | `cleo show T686` status=done | ✅ |
+| Current HEAD is dbe48a84 (T685 fix) + a38b08a3 (CI fix), latest release v2026.4.59 | `git log --oneline | head -3` | ✅ |
+| v2026.4.60 does not yet exist | `git log --oneline | grep "v2026.4.6[0-9]"` → no output | ✅ |
