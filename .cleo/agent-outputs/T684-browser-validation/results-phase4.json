@@ -1,0 +1,201 @@
+{
+  "default_view": {
+    "canvases": [
+      {
+        "id": "",
+        "class": "sigma-edges",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-edgeLabels",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-nodes",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-labels",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-hovers",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-hoverNodes",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      },
+      {
+        "id": "",
+        "class": "sigma-mouse",
+        "w": 1390,
+        "h": 672,
+        "w_px": 1390,
+        "h_px": 672,
+        "visible": true
+      }
+    ],
+    "svgs": [
+      {
+        "id": "",
+        "class": "chevron s-DSZCDrxorEfC",
+        "childCount": 1,
+        "viewBox": "0 0 10 10",
+        "w": "10",
+        "h": "10",
+        "edgeGroups": 0,
+        "allGroups": [
+          "path.s-DSZCDrxorEfC"
+        ]
+      }
+    ],
+    "windowKeys": [],
+    "buttons": [
+      {
+        "text": "? Select project",
+        "id": "",
+        "class": "trigger s-DSZCDrxorEfC"
+      },
+      {
+        "text": "brain",
+        "id": "",
+        "class": "substrate-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "nexus",
+        "id": "",
+        "class": "substrate-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "tasks",
+        "id": "",
+        "class": "substrate-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "conduit",
+        "id": "",
+        "class": "substrate-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "signaldock",
+        "id": "",
+        "class": "substrate-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "Time Off",
+        "id": "",
+        "class": "toggle-btn s-HlZpcbYZ04kL"
+      },
+      {
+        "text": "2D",
+        "id": "",
+        "class": "renderer-btn s-HlZpcbYZ04kL active"
+      },
+      {
+        "text": "GPU",
+        "id": "",
+        "class": "renderer-btn s-HlZpcbYZ04kL"
+      },
+      {
+        "text": "3D",
+        "id": "",
+        "class": "renderer-btn s-HlZpcbYZ04kL"
+      }
+    ],
+    "edgeCountFromText": 4988,
+    "nodeCountFromText": 2312,
+    "has500": false,
+    "url": "http://localhost:3456/brain"
+  },
+  "default_screenshot": "/mnt/projects/cleocode/.cleo/agent-outputs/T684-browser-validation/brain-default.png",
+  "gpu_view": {
+    "screenshot": "/mnt/projects/cleocode/.cleo/agent-outputs/T684-browser-validation/brain-gpu.png",
+    "gpu_button_clicked": true,
+    "canvas_analysis": {
+      "canvases": [
+        {
+          "id": "",
+          "class": "",
+          "w": 2780,
+          "h": 1344,
+          "w_px": 1390,
+          "h_px": 672,
+          "visible": true
+        },
+        {
+          "id": "",
+          "class": "",
+          "w": 2780,
+          "h": 1344,
+          "w_px": 1390,
+          "h_px": 672,
+          "visible": true
+        }
+      ],
+      "buttons": [
+        "? Select project",
+        "brain",
+        "nexus",
+        "tasks",
+        "conduit",
+        "signaldock",
+        "Time Off",
+        "2D",
+        "GPU",
+        "3D"
+      ],
+      "bodyText": "C\nCLEO Studio\n?\nSelect project\nBrain\nMemory\nCode\nTasks\nAdmin\nBrain Canvas\n2312 nodes \u00b7 4988 edges\nLIVE\nBRAIN\nNEXUS\nTASKS\nCONDUIT\nSIGNALDOCK\nmin weight: 0.00\nTIME OFF\n2D\nGPU\n3D\nGPU\nSUBSTRATES\nbrain 421"
+    }
+  },
+  "api_check": {
+    "status": 200,
+    "nodeCount": 100,
+    "edgeCount": 3726,
+    "keys": [
+      "nodes",
+      "edges",
+      "counts",
+      "truncated"
+    ],
+    "dataKeys": [],
+    "sampleEdge": {
+      "source": "brain:P-bbdb03c1",
+      "target": "tasks:T532",
+      "type": "derived_from",
+      "weight": 0.7,
+      "substrate": "cross"
+    }
+  },
+  "console_errors": [],
+  "webgl_errors": []
+}

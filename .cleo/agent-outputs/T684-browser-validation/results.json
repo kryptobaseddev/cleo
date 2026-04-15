@@ -1,0 +1,43 @@
+{
+  "dev_server_port": 3456,
+  "console_errors": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    }
+  ],
+  "console_warnings": [],
+  "default_view": {
+    "screenshot": "/mnt/projects/cleocode/.cleo/agent-outputs/T684-browser-validation/brain-default.png",
+    "canvas_count": 0,
+    "svg_count": 1,
+    "edge_count_from_hooks": null,
+    "svg_edge_analysis": {
+      "svgLines": 0,
+      "canvasCount": 0,
+      "svgTotal": 1
+    },
+    "substrates_in_dom": [
+      "brain",
+      "tasks"
+    ],
+    "buttons_found": [
+      "? Select project"
+    ],
+    "body_text_sample": "C\nCLEO Studio\n?\nSelect project\nBrain\nMemory\nCode\nTasks\nAdmin\n500\n\nInternal Error"
+  },
+  "gpu_view": {
+    "screenshot": "/mnt/projects/cleocode/.cleo/agent-outputs/T684-browser-validation/brain-gpu.png",
+    "gpu_button_found": false,
+    "gpu_button_clicked": false,
+    "canvas_analysis": {
+      "canvasCount": 0,
+      "canvasDetails": [],
+      "webglError": "no-gl"
+    }
+  },
+  "t663_verdict": "FAIL",
+  "t664_verdict": "FAIL",
+  "overall_verdict": "FAIL",
+  "webgl_errors": []
+}
