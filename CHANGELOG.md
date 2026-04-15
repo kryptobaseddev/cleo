@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v2026.4.62 — 2026-04-15
+### Fixed
+- T721-FOLLOWUP: build.mjs missing store/* entry points caused v2026.4.61 release to ship without dist/store/nexus-sqlite.js. Added explicit esbuild entry points for store/nexus-sqlite, store/nexus-schema, store/brain-sqlite. Verify gate (added in v2026.4.61) caught the regression — now passes.
+
 ## [Unreleased / 2026.4.62]
 
 **STDP Phase 5 — complete plasticity substrate for agent memory learning (T673 epic, 21-task synthesis).**

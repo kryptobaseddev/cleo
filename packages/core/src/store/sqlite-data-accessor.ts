@@ -788,6 +788,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         ['modifiedBy', 'modifiedBy'],
         ['sessionId', 'sessionId'],
         ['assignee', 'assignee'],
+        ['pipelineStage', 'pipelineStage'],
       ];
 
       for (const [key, col] of fieldMap) {

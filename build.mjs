@@ -102,6 +102,16 @@ const coreBuildOptions = {
     { in: 'packages/core/src/conduit/index.ts', out: 'conduit/index' },
     // Sub-entry for @cleocode/core/internal — matches the "./internal" export.
     { in: 'packages/core/src/internal.ts', out: 'internal' },
+    // Store subpath entry points — these files are dynamically imported at runtime
+    // via `import('@cleocode/core/store/nexus-sqlite' as string)` in the cleo CLI
+    // (packages/cleo/src/cli/commands/nexus.ts). They MUST exist as standalone .js
+    // files in dist/store/ — they are NOT bundled into dist/index.js.
+    // The `as string` cast prevents esbuild from inlining them when bundling cleo.
+    // T721: These were previously produced by a stale full `tsc` run. Registering
+    // them as explicit entry points guarantees they are always emitted. (T721)
+    { in: 'packages/core/src/store/nexus-sqlite.ts', out: 'store/nexus-sqlite' },
+    { in: 'packages/core/src/store/nexus-schema.ts', out: 'store/nexus-schema' },
+    { in: 'packages/core/src/store/brain-sqlite.ts', out: 'store/brain-sqlite' },
   ],
   bundle: true,
   platform: 'node',
