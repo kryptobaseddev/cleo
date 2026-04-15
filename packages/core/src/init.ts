@@ -1097,26 +1097,23 @@ export async function deployStarterBundle(
     }
   }
 
-  // Copy CLEOOS-IDENTITY.md to .cleo/ (orchestrator identity for main session agent)
-  const identitySrc = join(starterBundleSrc, 'CLEOOS-IDENTITY.md');
-  const identityDst = join(cleoDir, 'CLEOOS-IDENTITY.md');
-  if (existsSync(identitySrc) && !existsSync(identityDst)) {
-    await copyFile(identitySrc, identityDst);
-  }
-
-  // Also deploy CLEOOS-IDENTITY.md to the global XDG data directory so it is
-  // available system-wide (e.g. ~/.local/share/cleo/CLEOOS-IDENTITY.md).
-  // This mirrors the project-level copy above and follows the same
-  // idempotent pattern: never overwrite an existing file.
+  // Deploy CLEOOS-IDENTITY.md to global XDG via shared utility.
+  // Single SSoT at global path; project path reserved for optional per-project
+  // override (loader: cant-context.ts readIdentityFile reads project→global).
+  // Same utility is called by `cleo upgrade` so existing projects self-heal.
   try {
-    const { getCleoHome } = await import('./paths.js');
-    const globalIdentityDst = join(getCleoHome(), 'CLEOOS-IDENTITY.md');
-    if (existsSync(identitySrc) && !existsSync(globalIdentityDst)) {
-      await copyFile(identitySrc, globalIdentityDst);
+    const { ensureGlobalIdentity } = await import('./scaffold.js');
+    const identityResult = await ensureGlobalIdentity();
+    if (identityResult.action === 'created') {
+      created.push(`identity: ${identityResult.path}`);
+    } else if (identityResult.action === 'skipped' && identityResult.details) {
+      warnings.push(`identity skipped: ${identityResult.details}`);
     }
-  } catch {
-    // Non-fatal — global deploy is best-effort
+  } catch (err) {
+    warnings.push(`identity deploy failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  created.push('starter-bundle: team + agent .cant files + identity deployed to .cleo/');
+  created.push(
+    'starter-bundle: team + agent .cant files deployed to .cleo/ (identity at global XDG)',
+  );
 }

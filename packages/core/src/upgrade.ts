@@ -940,6 +940,23 @@ export async function runUpgrade(
       /* best-effort */
     }
 
+    // Ensure global CLEOOS-IDENTITY.md is present (T631 — single SSoT).
+    // Self-heals if file is missing on existing projects after upgrade.
+    try {
+      const { ensureGlobalIdentity } = await import('./scaffold.js');
+      const identityResult = await ensureGlobalIdentity();
+      actions.push({
+        action: 'global_identity',
+        status:
+          identityResult.action === 'created' || identityResult.action === 'repaired'
+            ? 'applied'
+            : 'skipped',
+        details: `${identityResult.path} (${identityResult.details ?? identityResult.action})`,
+      });
+    } catch {
+      /* best-effort — identity is already-kept-or-skipped on failure */
+    }
+
     // Install core skills
     try {
       const skillsCreated: string[] = [];
