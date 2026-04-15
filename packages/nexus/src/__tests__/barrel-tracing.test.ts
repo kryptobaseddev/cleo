@@ -20,6 +20,7 @@ import {
   buildImportResolutionContext,
   type ExtractedReExportRecord,
   resolveBarrelBinding,
+  resolveTypescriptImport,
 } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
@@ -441,5 +442,127 @@ describe('resolveCalls — barrel tracing (T617)', () => {
 
     expect(result.tier1Count).toBe(1);
     expect(result.unresolvedCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace package import resolution (T618-M4)
+// ---------------------------------------------------------------------------
+
+describe('resolveTypescriptImport — workspace package resolution', () => {
+  const allFiles = [
+    'packages/core/src/index.ts',
+    'packages/core/src/tasks/find.ts',
+    'packages/contracts/src/index.ts',
+    'packages/cleo/src/dispatch/engines/session-engine.ts',
+  ];
+
+  it('resolves @scope/package to packages/<name>/src/index.ts via workspacePackageMap', () => {
+    const ctx = buildImportResolutionContext(allFiles);
+    const workspacePackageMap = new Map([
+      ['@cleocode/core', 'packages/core/src/index.ts'],
+      ['@cleocode/contracts', 'packages/contracts/src/index.ts'],
+    ]);
+
+    const result = resolveTypescriptImport(
+      'packages/cleo/src/dispatch/engines/session-engine.ts',
+      '@cleocode/core',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      workspacePackageMap,
+    );
+
+    expect(result).toBe('packages/core/src/index.ts');
+  });
+
+  it('resolves @cleocode/contracts to its index via workspacePackageMap', () => {
+    const ctx = buildImportResolutionContext(allFiles);
+    const workspacePackageMap = new Map([
+      ['@cleocode/core', 'packages/core/src/index.ts'],
+      ['@cleocode/contracts', 'packages/contracts/src/index.ts'],
+    ]);
+
+    const result = resolveTypescriptImport(
+      'packages/core/src/tasks/find.ts',
+      '@cleocode/contracts',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      workspacePackageMap,
+    );
+
+    expect(result).toBe('packages/contracts/src/index.ts');
+  });
+
+  it('returns null for unknown external npm package even with workspacePackageMap', () => {
+    const ctx = buildImportResolutionContext(allFiles);
+    const workspacePackageMap = new Map([['@cleocode/core', 'packages/core/src/index.ts']]);
+
+    const result = resolveTypescriptImport(
+      'packages/cleo/src/dispatch/engines/session-engine.ts',
+      '@external/library',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      workspacePackageMap,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for @scope/package when workspacePackageMap is absent', () => {
+    const ctx = buildImportResolutionContext(allFiles);
+
+    // No workspacePackageMap — suffixResolve cannot find packages/core/src/index.ts
+    // from '@cleocode/core' because the suffix 'core/index.ts' is not in the index
+    // (the path has an extra 'src/' segment: packages/core/src/index.ts).
+    const result = resolveTypescriptImport(
+      'packages/cleo/src/dispatch/engines/session-engine.ts',
+      '@cleocode/core',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      undefined,
+    );
+
+    // Without workspace map, the scoped import cannot be resolved via suffix alone
+    // (packages/core/src/index.ts suffix 'core/index.ts' doesn't match '@cleocode/core')
+    expect(result).toBeNull();
+  });
+
+  it('stores namedImportMap entries for workspace package imports when resolved', () => {
+    // This test validates the integration: when @cleocode/core resolves to
+    // packages/core/src/index.ts, the namedImportMap should record the binding
+    // so barrel tracing can proceed.
+    const ctx = buildImportResolutionContext(allFiles);
+    ctx.workspacePackageMap = new Map([['@cleocode/core', 'packages/core/src/index.ts']]);
+
+    const resolved = resolveTypescriptImport(
+      'packages/cleo/src/dispatch/engines/session-engine.ts',
+      '@cleocode/core',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      ctx.workspacePackageMap,
+    );
+
+    // The resolved path must match the barrel file so barrel tracing fires
+    expect(resolved).toBe('packages/core/src/index.ts');
   });
 });

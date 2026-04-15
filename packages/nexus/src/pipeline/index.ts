@@ -97,6 +97,7 @@ export {
   buildImportResolutionContext,
   isFileInPackageDir,
   loadTsconfigPaths,
+  loadWorkspacePackages,
   processExtractedImports,
   resolveBarrelBinding,
   resolveTypescriptImport,
@@ -148,7 +149,11 @@ import { detectCommunities } from './community-processor.js';
 import type { ScannedFile } from './filesystem-walker.js';
 import { walkRepositoryPaths } from './filesystem-walker.js';
 import { buildHeritageMap, processHeritage } from './heritage-processor.js';
-import { buildImportResolutionContext, loadTsconfigPaths } from './import-processor.js';
+import {
+  buildImportResolutionContext,
+  loadTsconfigPaths,
+  loadWorkspacePackages,
+} from './import-processor.js';
 import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 import { createKnowledgeGraph } from './knowledge-graph.js';
 import { runParseLoop } from './parse-loop.js';
@@ -649,6 +654,13 @@ export async function runPipeline(
   const tsconfigPaths = await loadTsconfigPaths(repoPath);
   if (tsconfigPaths) {
     process.stderr.write(`[nexus] Loaded tsconfig paths: ${tsconfigPaths.aliases.size} aliases\n`);
+  }
+  const workspacePackageMap = await loadWorkspacePackages(repoPath, importCtx.allFilePaths);
+  importCtx.workspacePackageMap = workspacePackageMap;
+  if (workspacePackageMap.size > 0) {
+    process.stderr.write(
+      `[nexus] Loaded workspace packages: ${workspacePackageMap.size} entries\n`,
+    );
   }
 
   // Phase 3: Parse loop — extract symbols, imports, heritage, calls
