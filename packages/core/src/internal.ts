@@ -170,6 +170,13 @@ export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 export type { BrainBackfillResult } from './memory/brain-backfill.js';
 export { backfillBrainGraph } from './memory/brain-backfill.js';
+// Memory — brain export (T626-M6)
+export type {
+  BrainExportGexfResult,
+  BrainExportJsonResult,
+  BrainExportResult,
+} from './memory/brain-export.js';
+export { exportBrainAsGexf, exportBrainAsJson } from './memory/brain-export.js';
 // Memory — brain lifecycle (temporal decay + consolidation + tier promotion)
 export type {
   ConsolidationResult,
@@ -198,9 +205,6 @@ export type {
 export { runBrainMaintenance } from './memory/brain-maintenance.js';
 export type { PurgeResult } from './memory/brain-purge.js';
 export { purgeBrainNoise } from './memory/brain-purge.js';
-// Memory — brain export (T626-M6)
-export type { BrainExportGexfResult, BrainExportJsonResult, BrainExportResult } from './memory/brain-export.js';
-export { exportBrainAsGexf, exportBrainAsJson } from './memory/brain-export.js';
 export type {
   BudgetedEntry,
   BudgetedResult,

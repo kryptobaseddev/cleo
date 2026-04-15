@@ -11,12 +11,11 @@
  * @epic T626
  */
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { exportBrainAsGexf, exportBrainAsJson } from '@cleocode/core/internal';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('brain export', () => {
   let projectRoot: string;

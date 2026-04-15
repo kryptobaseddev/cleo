@@ -61,7 +61,7 @@ export async function searchSimilar(
   projectRoot: string,
   limit?: number,
 ): Promise<SimilarityResult[]> {
-  if (!query || !query.trim()) return [];
+  if (!query?.trim()) return [];
   if (!isEmbeddingAvailable()) return [];
 
   const maxResults = limit ?? 10;

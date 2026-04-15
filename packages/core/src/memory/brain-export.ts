@@ -10,8 +10,8 @@
  */
 
 import type { BrainPageEdgeRow, BrainPageNodeRow } from '../store/brain-schema.js';
-import { getBrainDb } from '../store/brain-sqlite.js';
 import * as brainSchema from '../store/brain-schema.js';
+import { getBrainDb } from '../store/brain-sqlite.js';
 
 /**
  * GEXF export result with XML content.
@@ -96,7 +96,7 @@ export async function exportBrainAsGexf(projectRoot: string): Promise<BrainExpor
       })
       .from(brainSchema.brainPageEdges);
     // Add provenance as null for missing rows and cast to the full row type
-    edges = rawEdges.map((e) => ({ ...e, provenance: null } as BrainPageEdgeRow));
+    edges = rawEdges.map((e) => ({ ...e, provenance: null }) as BrainPageEdgeRow);
   } catch {
     // If that fails, default to empty
     edges = [];
@@ -169,7 +169,7 @@ export async function exportBrainAsJson(projectRoot: string): Promise<BrainExpor
       })
       .from(brainSchema.brainPageEdges);
     // Add provenance as null for missing rows and cast to the full row type
-    edges = rawEdges.map((e) => ({ ...e, provenance: null } as BrainPageEdgeRow));
+    edges = rawEdges.map((e) => ({ ...e, provenance: null }) as BrainPageEdgeRow);
   } catch {
     // If that fails, default to empty
     edges = [];
