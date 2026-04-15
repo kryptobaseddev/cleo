@@ -3480,6 +3480,88 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+
+  // ===========================================================================
+  // DIAGNOSTICS domain (T624) — opt-in telemetry for self-improvement
+  // ===========================================================================
+
+  {
+    gateway: 'query',
+    domain: 'diagnostics',
+    operation: 'status',
+    description: 'diagnostics.status (query) — show telemetry opt-in state and DB path',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'diagnostics',
+    operation: 'analyze',
+    description:
+      'diagnostics.analyze (query) — aggregate telemetry patterns; surface failing/slow commands and generate BRAIN observations',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'days',
+        type: 'number' as const,
+        required: false,
+        description: 'Analysis window in days (default: 30)',
+        cli: { flag: 'days', short: '-d' },
+      },
+      {
+        name: 'noBrain',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Skip pushing observations to BRAIN',
+        cli: { flag: 'no-brain' },
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'diagnostics',
+    operation: 'export',
+    description: 'diagnostics.export (query) — JSON dump of all telemetry events',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'days',
+        type: 'number' as const,
+        required: false,
+        description: 'Limit export to last N days (default: all)',
+        cli: { flag: 'days', short: '-d' },
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'diagnostics',
+    operation: 'enable',
+    description:
+      'diagnostics.enable (mutate) — opt in to anonymous command telemetry; generates stable anonymousId',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'diagnostics',
+    operation: 'disable',
+    description: 'diagnostics.disable (mutate) — opt out of telemetry collection',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
 ];
 
 // ---------------------------------------------------------------------------

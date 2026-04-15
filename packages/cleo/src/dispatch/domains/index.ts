@@ -12,6 +12,7 @@ import type { DomainHandler } from '../types.js';
 import { AdminHandler } from './admin.js';
 import { CheckHandler } from './check.js';
 import { ConduitHandler } from './conduit.js';
+import { DiagnosticsHandler } from './diagnostics.js';
 import { IntelligenceHandler } from './intelligence.js';
 import { MemoryHandler } from './memory.js';
 import { NexusHandler } from './nexus.js';
@@ -26,6 +27,7 @@ export {
   AdminHandler,
   CheckHandler,
   ConduitHandler,
+  DiagnosticsHandler,
   IntelligenceHandler,
   MemoryHandler,
   NexusHandler,
@@ -54,6 +56,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('admin', new AdminHandler());
   handlers.set('nexus', new NexusHandler());
   handlers.set('sticky', new StickyHandler());
+  handlers.set('diagnostics', new DiagnosticsHandler());
   // ADR-042: conduit ops moved to orchestrate.conduit.* — ConduitHandler
   // is instantiated inside OrchestrateHandler; no standalone domain entry needed.
   return handlers;
