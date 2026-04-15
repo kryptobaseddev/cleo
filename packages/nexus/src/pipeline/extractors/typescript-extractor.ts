@@ -607,8 +607,11 @@ export function extractImports(root: SyntaxNode, filePath: string): ExtractedImp
 
     const namedBindings: NamedImportBinding[] = [];
 
-    // Walk import clauses to extract named bindings
-    const importClause = stmt.childForFieldName('clause');
+    // Walk import clauses to extract named bindings.
+    // In the tree-sitter TypeScript grammar, `import_clause` is a regular
+    // (unnamed field) child of `import_statement` — NOT a named field —
+    // so `childForFieldName('clause')` always returns null. Find it by type.
+    const importClause = stmt.children.find((c) => c.type === 'import_clause') ?? null;
     if (importClause) {
       // Check for named imports: { foo, bar as baz }
       for (let j = 0; j < importClause.namedChildCount; j++) {
