@@ -1,7 +1,13 @@
 /**
- * Task detail page server load — single task, subtasks, verification, acceptance.
+ * Task detail page server load — single task, subtasks, verification, acceptance,
+ * notes, MANIFEST artifacts, and linked git commits.
+ *
+ * @task T723
  */
 
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { error } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
@@ -39,6 +45,7 @@ export interface TaskDetail {
   } | null;
   acceptance: string[];
   labels: string[];
+  notes: string[];
   /** Tasks this task depends on (upstream blockers) */
   upstream: DepTask[];
   /** Tasks that depend on this task (downstream dependents) */
@@ -59,6 +66,130 @@ export interface SubtaskRow {
   completed_at: string | null;
 }
 
+/** A single MANIFEST.jsonl entry linked to this task. */
+export interface ManifestEntry {
+  id: string;
+  task: string;
+  type: string;
+  status: string;
+  date: string;
+  title: string | null;
+  summary: string | null;
+  output: string | null;
+  files: string[];
+  linked_tasks: string[];
+}
+
+/** A git commit linked to this task by ID in its subject. */
+export interface LinkedCommit {
+  sha: string;
+  subject: string;
+  date: string;
+  files: string[];
+}
+
+/**
+ * Parse MANIFEST.jsonl and return entries where the task field (or linked_tasks)
+ * matches the given task ID.
+ */
+function loadManifestEntries(projectPath: string, taskId: string): ManifestEntry[] {
+  const manifestPath = join(projectPath, '.cleo', 'agent-outputs', 'MANIFEST.jsonl');
+  if (!existsSync(manifestPath)) return [];
+
+  try {
+    const lines = readFileSync(manifestPath, 'utf8').split('\n').filter(Boolean);
+    const results: ManifestEntry[] = [];
+
+    for (const line of lines) {
+      try {
+        const raw = JSON.parse(line) as Record<string, unknown>;
+
+        // Match on task field (exact) or linked_tasks array, or id prefix matching taskId
+        const taskField = String(raw['task'] ?? '');
+        const linkedTasks = Array.isArray(raw['linked_tasks'])
+          ? (raw['linked_tasks'] as string[])
+          : [];
+        const entryId = String(raw['id'] ?? '');
+
+        const isMatch =
+          taskField === taskId || linkedTasks.includes(taskId) || entryId.startsWith(`${taskId}-`);
+
+        if (!isMatch) continue;
+
+        const files: string[] = [];
+        if (Array.isArray(raw['files'])) files.push(...(raw['files'] as string[]));
+        if (typeof raw['file'] === 'string') files.push(raw['file']);
+
+        results.push({
+          id: entryId,
+          task: taskField || taskId,
+          type: String(raw['type'] ?? raw['agent_type'] ?? 'unknown'),
+          status: String(raw['status'] ?? 'unknown'),
+          date: String(raw['date'] ?? raw['timestamp'] ?? ''),
+          title: raw['title'] != null ? String(raw['title']) : null,
+          summary: raw['summary'] != null ? String(raw['summary']) : null,
+          output:
+            raw['output'] != null
+              ? String(raw['output'])
+              : raw['outputFile'] != null
+                ? String(raw['outputFile'])
+                : null,
+          files,
+          linked_tasks: linkedTasks,
+        });
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Query git log for commits whose subject line mentions the task ID.
+ * Returns up to 20 matching commits, each with their changed files.
+ */
+function loadLinkedCommits(projectPath: string, taskId: string): LinkedCommit[] {
+  try {
+    const result = spawnSync(
+      'git',
+      ['log', '--all', '--oneline', '--format=%H|%s|%ai', `--grep=${taskId}`, '-n', '20'],
+      { cwd: projectPath, encoding: 'utf8', timeout: 5000 },
+    );
+
+    if (result.status !== 0 || !result.stdout?.trim()) return [];
+
+    const commits: LinkedCommit[] = [];
+
+    for (const line of result.stdout.trim().split('\n')) {
+      const parts = line.split('|');
+      if (parts.length < 2) continue;
+      const sha = parts[0]?.trim() ?? '';
+      const subject = parts[1]?.trim() ?? '';
+      const date = parts[2]?.trim() ?? '';
+      if (!sha) continue;
+
+      // Get files changed in this commit
+      const filesResult = spawnSync(
+        'git',
+        ['diff-tree', '--no-commit-id', '-r', '--name-only', sha],
+        { cwd: projectPath, encoding: 'utf8', timeout: 3000 },
+      );
+      const files =
+        filesResult.status === 0 ? filesResult.stdout.trim().split('\n').filter(Boolean) : [];
+
+      commits.push({ sha: sha.slice(0, 8), subject, date, files });
+    }
+
+    return commits;
+  } catch {
+    return [];
+  }
+}
+
 export const load: PageServerLoad = ({ locals, params }) => {
   const db = getTasksDb(locals.projectCtx);
   if (!db) {
@@ -71,7 +202,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
     .prepare(
       `SELECT id, title, description, status, priority, type, parent_id,
               pipeline_stage, size, phase, labels_json, acceptance_json,
-              verification_json, created_at, updated_at, completed_at,
+              verification_json, notes_json, created_at, updated_at, completed_at,
               assignee, session_id
        FROM tasks WHERE id = ?`,
     )
@@ -90,6 +221,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
         labels_json: string | null;
         acceptance_json: string | null;
         verification_json: string | null;
+        notes_json: string | null;
         created_at: string;
         updated_at: string;
         completed_at: string | null;
@@ -129,6 +261,15 @@ export const load: PageServerLoad = ({ locals, params }) => {
     // ignore
   }
 
+  let notes: string[] = [];
+  try {
+    if (row.notes_json) {
+      notes = JSON.parse(row.notes_json);
+    }
+  } catch {
+    // ignore
+  }
+
   const task: TaskDetail = {
     id: row.id,
     title: row.title,
@@ -148,6 +289,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
     verification,
     acceptance,
     labels,
+    notes,
     upstream: [],
     downstream: [],
   };
@@ -195,5 +337,13 @@ export const load: PageServerLoad = ({ locals, params }) => {
         | undefined) ?? null;
   }
 
-  return { task, subtasks, parent };
+  const projectPath = locals.projectCtx.projectPath;
+
+  // MANIFEST entries linked to this task
+  const manifestEntries = loadManifestEntries(projectPath, id);
+
+  // Git commits linked to this task
+  const linkedCommits = loadLinkedCommits(projectPath, id);
+
+  return { task, subtasks, parent, manifestEntries, linkedCommits };
 };
