@@ -351,67 +351,104 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
   /**
    * Extract a plain-text transcript from Claude Code session JSONL files.
    *
-   * Reads the most recent .jsonl file under `~/.claude/projects/` and
+   * Claude Code stores session data under `~/.claude/projects/<project-slug>/`:
+   *   - Root-level session JSONLs: `<sessionId>.jsonl` (primary transcript)
+   *   - UUID subdirectories contain `subagents/agent-*.jsonl` (subagent turns)
+   *
+   * Reads the most-recent root-level JSONL plus all subagent JSONLs and
    * extracts user/assistant turn text into a flat string for brain
    * observation extraction.
    *
    * Returns null when no session data is found or on any read error.
    *
-   * @param _sessionId - CLEO session ID (unused; reads the most recent file)
+   * @param sessionId - CLEO session ID (available for future subagent filtering)
    * @param _projectDir - Project directory (unused; Claude Code uses global paths)
-   * @task T144 @epic T134
+   * @task T729 @task T144 @epic T134
    */
-  async getTranscript(_sessionId: string, _projectDir: string): Promise<string | null> {
+  async getTranscript(sessionId: string, _projectDir: string): Promise<string | null> {
     try {
       const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '/root';
       const projectsDir = join(homeDir, '.claude', 'projects');
 
-      // Find all JSONL files across project subdirectories
-      let allFiles: Array<{ path: string; mtime: number }> = [];
+      // Collect root-level session JSONLs (siblings to UUID subdirs).
+      // Claude Code layout: ~/.claude/projects/<project>/<sessionId>.jsonl
+      // UUID subdirs contain only subagents/ and tool-results/, not JSONLs.
+      let rootFiles: Array<{ path: string }> = [];
+      const subagentFiles: Array<{ path: string }> = [];
+
       try {
         const projectDirs = await readdir(projectsDir, { withFileTypes: true });
-        for (const entry of projectDirs) {
-          if (!entry.isDirectory()) continue;
-          const subDir = join(projectsDir, entry.name);
+        for (const projectEntry of projectDirs) {
+          if (!projectEntry.isDirectory()) continue;
+          const projectDir = join(projectsDir, projectEntry.name);
+
           try {
-            const files = await readdir(subDir);
-            for (const file of files) {
-              if (!file.endsWith('.jsonl')) continue;
-              const filePath = join(subDir, file);
-              // Use file path modification heuristic (filename usually includes timestamp)
-              allFiles.push({ path: filePath, mtime: 0 });
+            const projectContents = await readdir(projectDir, { withFileTypes: true });
+            for (const entry of projectContents) {
+              // Root-level JSONL: direct child file ending in .jsonl
+              if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+                rootFiles.push({ path: join(projectDir, entry.name) });
+                continue;
+              }
+
+              // UUID subdir: check for subagent JSONLs
+              if (entry.isDirectory()) {
+                const subagentsDir = join(projectDir, entry.name, 'subagents');
+                try {
+                  const subagentEntries = await readdir(subagentsDir);
+                  for (const sa of subagentEntries) {
+                    if (sa.startsWith('agent-') && sa.endsWith('.jsonl')) {
+                      subagentFiles.push({ path: join(subagentsDir, sa) });
+                    }
+                  }
+                } catch {
+                  // No subagents dir in this subdir — skip
+                }
+              }
             }
           } catch {
-            // Skip unreadable subdirectories
+            // Skip unreadable project directories
           }
         }
       } catch {
         return null;
       }
 
-      if (allFiles.length === 0) return null;
+      if (rootFiles.length === 0 && subagentFiles.length === 0) return null;
 
-      // Sort by path descending (timestamps in filenames sort naturally)
-      allFiles = allFiles.sort((a, b) => b.path.localeCompare(a.path));
-      const mostRecent = allFiles[0];
-      if (!mostRecent) return null;
+      // Sort root files by path descending (timestamps in filenames sort naturally)
+      rootFiles = rootFiles.sort((a, b) => b.path.localeCompare(a.path));
 
-      const raw = await readFile(mostRecent.path, 'utf-8');
-      const lines = raw.split('\n').filter((l) => l.trim());
+      // Collect all JSONL paths: most-recent root file first, then subagent files
+      const allPaths = [
+        ...(rootFiles[0] ? [rootFiles[0].path] : []),
+        ...subagentFiles.map((f) => f.path),
+      ];
+
+      // Suppress unused variable warning — sessionId available for future filtering
+      void sessionId;
 
       const turns: string[] = [];
-      for (const line of lines) {
+      for (const filePath of allPaths) {
         try {
-          const entry = JSON.parse(line) as Record<string, unknown>;
-          const role = entry.role as string | undefined;
-          const content = entry.content;
-          if (role === 'assistant' && typeof content === 'string') {
-            turns.push(`assistant: ${content}`);
-          } else if (role === 'user' && typeof content === 'string') {
-            turns.push(`user: ${content}`);
+          const raw = await readFile(filePath, 'utf-8');
+          const lines = raw.split('\n').filter((l) => l.trim());
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line) as Record<string, unknown>;
+              const role = entry.role as string | undefined;
+              const content = entry.content;
+              if (role === 'assistant' && typeof content === 'string') {
+                turns.push(`assistant: ${content}`);
+              } else if (role === 'user' && typeof content === 'string') {
+                turns.push(`user: ${content}`);
+              }
+            } catch {
+              // Skip malformed lines
+            }
           }
         } catch {
-          // Skip malformed lines
+          // Skip unreadable files
         }
       }
 
