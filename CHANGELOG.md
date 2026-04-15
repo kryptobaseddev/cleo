@@ -4,6 +4,87 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.57] (2026-04-15)
+
+**CI GREEN — ends 5-release regression (v2026.4.52–56).** Two root causes
+were hiding behind each other. Phase 0 fix surfaced the second one.
+
+### Fix: T630/T633 — vi.mock paths.js pollution (Phase 0, 20 files)
+
+v2026.4.55/56 fixed 6 of 26 test files using incomplete synchronous
+`vi.mock('…/paths.js')` factories that replaced the entire module with
+one export. This release fixes the remaining 20 with the canonical
+async `vi.importActual` spread pattern:
+
+```typescript
+vi.mock('…/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('…/paths.js')>(
+    '…/paths.js',
+  );
+  return { ...actual, /* overrides */ };
+});
+```
+
+Files fixed:
+- `packages/cleo/src/dispatch/domains/__tests__/{admin,alias-detection,check,check-ops,memory-brain,memory-legacy-rejection,orchestrate,orchestrate-handoff,pipeline-manifest,registry-parity,sticky-list,tasks}.test.ts`
+- `packages/cleo/src/cli/__tests__/{import-tasks,web}.test.ts`
+- `packages/core/src/__tests__/{injection-shared,schema-management}.test.ts`
+- `packages/core/src/skills/orchestrator/__tests__/spawn-tier.test.ts`
+- `packages/core/src/store/__tests__/{git-checkpoint,global-salt,import-logging}.test.ts`
+
+### Fix: T630 root-cause #2 — missing nexus migrations in git (3rd incident)
+
+`.gitignore` rule `migrations/` blocked the T529 + T622 nexus migrations
+from being tracked. CI ran against pre-T622 schema; drizzle queries
+referenced `brain_db_path` column that the actual SQLite table didn't
+have. This is the **same footgun** that hit brain migrations in commit
+e91d3038 (T528/T531/T549).
+
+Force-added the missing migrations:
+- `packages/core/migrations/drizzle-nexus/20260412000001_t529-nexus-graph-tables/migration.sql`
+- `packages/core/migrations/drizzle-nexus/20260415000001_t622-project-registry-paths/migration.sql`
+
+### Fix: structural prevention
+
+- `.gitignore` rule `migrations/` → `/migrations/` (anchored to root).
+  Real `packages/*/migrations/` now track naturally without `git add -f`.
+- New CI job **Migration Integrity** fails if any `migration.sql` under
+  `packages/` or `crates/` is untracked. Prevents recurrence even if
+  the gitignore is edited carelessly.
+
+### Parallel work shipped alongside
+
+Complete-on-disk parallel task outputs committed in the same merge:
+
+- **T645** — BRAIN edge-type enum drift fix (`CODE_REFERENCE` in
+  `EDGE_TYPES` + `brain_page_edges` schema; removes inline type cast in
+  `graph-memory-bridge.ts`; +14 coverage tests).
+- **T643** — SSE live synapses endpoint at `/api/living-brain/stream`,
+  Svelte subscriber pulse-animates Hebbian/TASKS/BRAIN events.
+- **T646** — Studio per-project database context. Module-level DB
+  singletons → per-request `ProjectContext` resolution. Fixes stale
+  DB handle bug on project switch. `ProjectSelector.svelte` +
+  `/api/project/switch`. 21 new tests.
+- **T647/T648** — Studio graph UX fixes: edges rendered, readable
+  labels, filter rebuilds, community labels from `nexus_nodes`, edge
+  hover tooltips, `sigma-defaults.ts` helper extracted.
+- **T649** — Route rename `/living-brain` → `/brain`, `/nexus` →
+  `/code`. Canvas umbrella at `/brain` with `/overview` sub-route.
+- **T634** — Docs v3: `brain-synaptic-visualization-research.md`
+  restored + STDP spec split into standalone `stdp-feasibility.md`.
+
+### Known follow-ups (not blocking)
+
+- **Phase 1 (T658)** — vitest `pool:forks + isolate:true` surfaces
+  fork-unsafe code in T646 `connections.ts` (`resolveDefaultProjectContext`
+  doesn't propagate to child processes). Deferred until T646 is
+  fork-safe; then fork isolation closes the whole class of vi.mock
+  pollution bugs structurally.
+- **Phase 2 (T659)** — test suite rationalization: delete
+  `coverage-final-push.test.ts` + `core-coverage-gaps.test.ts`
+  (~4100 LOC), split monolithic tests, rename naming collisions,
+  tag spawn tests.
+
 ## [2026.4.56] (2026-04-15)
 
 CI GREEN — finish T633 vi.mock pollution fix in shard 1.

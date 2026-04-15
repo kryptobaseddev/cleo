@@ -10,7 +10,7 @@ return {
 	assets: new Set(["favicon.png"]),
 	mimeTypes: {".png":"image/png"},
 	_: {
-		client: {start:"_app/immutable/entry/start.DEwmZnxG.js",app:"_app/immutable/entry/app.BUP-wz2W.js",imports:["_app/immutable/entry/start.DEwmZnxG.js","_app/immutable/chunks/lNG2k0Yr.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/entry/app.BUP-wz2W.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
+		client: {start:"_app/immutable/entry/start.zh-HcglA.js",app:"_app/immutable/entry/app.dOHGKaTf.js",imports:["_app/immutable/entry/start.zh-HcglA.js","_app/immutable/chunks/ltU5_Kh5.js","_app/immutable/chunks/ZT3WoQr4.js","_app/immutable/entry/app.dOHGKaTf.js","_app/immutable/chunks/ZT3WoQr4.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
 		nodes: [
 			__memo(() => import('./nodes/0.js')),
 			__memo(() => import('./nodes/1.js')),
@@ -134,11 +134,46 @@ return {
 				endpoint: __memo(() => import('./entries/endpoints/api/nexus/symbol/_name_/_server.ts.js'))
 			},
 			{
+				id: "/api/project/clean",
+				pattern: /^\/api\/project\/clean\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/clean/_server.ts.js'))
+			},
+			{
+				id: "/api/project/scan",
+				pattern: /^\/api\/project\/scan\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/scan/_server.ts.js'))
+			},
+			{
 				id: "/api/project/switch",
 				pattern: /^\/api\/project\/switch\/?$/,
 				params: [],
 				page: null,
 				endpoint: __memo(() => import('./entries/endpoints/api/project/switch/_server.ts.js'))
+			},
+			{
+				id: "/api/project/[id]",
+				pattern: /^\/api\/project\/([^/]+?)\/?$/,
+				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/_id_/_server.ts.js'))
+			},
+			{
+				id: "/api/project/[id]/index",
+				pattern: /^\/api\/project\/([^/]+?)\/index\/?$/,
+				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/_id_/index/_server.ts.js'))
+			},
+			{
+				id: "/api/project/[id]/reindex",
+				pattern: /^\/api\/project\/([^/]+?)\/reindex\/?$/,
+				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/_id_/reindex/_server.ts.js'))
 			},
 			{
 				id: "/api/search",

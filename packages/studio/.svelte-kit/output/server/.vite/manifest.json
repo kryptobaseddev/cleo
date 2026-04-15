@@ -154,6 +154,10 @@
       "_dev.js"
     ]
   },
+  "_spawn-cli.js": {
+    "file": "chunks/spawn-cli.js",
+    "name": "spawn-cli"
+  },
   "_utils.js": {
     "file": "chunks/utils.js",
     "name": "utils",
@@ -330,6 +334,53 @@
     "isEntry": true,
     "imports": [
       "_connections.js"
+    ]
+  },
+  "src/routes/api/project/[id]/+server.ts": {
+    "file": "entries/endpoints/api/project/_id_/_server.ts.js",
+    "name": "entries/endpoints/api/project/_id_/_server.ts",
+    "src": "src/routes/api/project/[id]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_spawn-cli.js"
+    ]
+  },
+  "src/routes/api/project/[id]/index/+server.ts": {
+    "file": "entries/endpoints/api/project/_id_/index/_server.ts.js",
+    "name": "entries/endpoints/api/project/_id_/index/_server.ts",
+    "src": "src/routes/api/project/[id]/index/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_project-context.js",
+      "_spawn-cli.js"
+    ]
+  },
+  "src/routes/api/project/[id]/reindex/+server.ts": {
+    "file": "entries/endpoints/api/project/_id_/reindex/_server.ts.js",
+    "name": "entries/endpoints/api/project/_id_/reindex/_server.ts",
+    "src": "src/routes/api/project/[id]/reindex/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_project-context.js",
+      "_spawn-cli.js"
+    ]
+  },
+  "src/routes/api/project/clean/+server.ts": {
+    "file": "entries/endpoints/api/project/clean/_server.ts.js",
+    "name": "entries/endpoints/api/project/clean/_server.ts",
+    "src": "src/routes/api/project/clean/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_spawn-cli.js"
+    ]
+  },
+  "src/routes/api/project/scan/+server.ts": {
+    "file": "entries/endpoints/api/project/scan/_server.ts.js",
+    "name": "entries/endpoints/api/project/scan/_server.ts",
+    "src": "src/routes/api/project/scan/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_spawn-cli.js"
     ]
   },
   "src/routes/api/project/switch/+server.ts": {
@@ -586,7 +637,7 @@
       "_dev.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.DP-hlj4s.css"
+      "_app/immutable/assets/_page.UOd2WnhF.css"
     ]
   },
   "src/routes/tasks/+page.server.ts": {
