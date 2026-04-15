@@ -33,6 +33,7 @@ import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../sc
 import { getAccessor } from '../store/data-accessor.js';
 import {
   type CheckResult,
+  checkCanonicalRcasdPaths,
   checkCleoGitignore,
   checkCoreFilesNotIgnored,
   checkLegacyAgentOutputs,
@@ -824,11 +825,13 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     }
   }
 
-  // 5. Gitignore integrity, vital files, legacy paths (delegated to core checks)
+  // 5. Gitignore integrity, vital files, legacy paths, canonical paths (delegated to core checks)
   checks.push(mapCheckResult(checkCleoGitignore(projectRoot)));
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
   checks.push(mapCheckResult(checkCoreFilesNotIgnored(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
+  // ADR-045: canonical RCASD paths (T708)
+  checks.push(mapCheckResult(checkCanonicalRcasdPaths(projectRoot)));
 
   // 5b. Isolated .cleo/.git checkpoint repo check (T4872)
   const cleoGitHeadExists = existsSync(join(cleoDir, '.git', 'HEAD'));

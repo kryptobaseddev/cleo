@@ -1,0 +1,29 @@
+name: Lockfile Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lockfile-consistency:
+    name: Verify pnpm-lock.yaml consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Run frozen-lockfile check
+        run: pnpm install --frozen-lockfile
+        continue-on-error: false

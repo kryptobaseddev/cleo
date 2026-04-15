@@ -6,6 +6,7 @@
   import type { NodeLabelDrawingFunction } from 'sigma/rendering';
   import forceAtlas2 from 'graphology-layout-forceatlas2';
   import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
+  import { livingBrainGraphStore } from '$lib/stores/living-brain-graph.js';
 
   // ---------------------------------------------------------------------------
   // Props
@@ -324,6 +325,7 @@
   /**
    * Builds a new graphology graph, runs ForceAtlas2 layout, then creates a
    * fresh Sigma instance. Any existing Sigma instance is killed first.
+   * Updates the shared graph context so other renderers can consume it.
    */
   function initSigma(): void {
     if (!container) return;
@@ -336,6 +338,9 @@
 
     const g = buildGraph();
     const nodeCount = g.order;
+
+    // Update shared graph store so other renderers (e.g., LivingBrain3D) can read layout data
+    livingBrainGraphStore.set(g);
 
     if (nodeCount > 1) {
       const iterations = Math.min(500, Math.max(100, 5000 / (nodeCount + 1)));
@@ -423,6 +428,11 @@
     if (pulsingNodes.size > 0 || pulsingEdges.size > 0) {
       applyPulses(g);
     }
+  });
+
+  // Clean up store on unmount
+  onDestroy(() => {
+    livingBrainGraphStore.set(null);
   });
 </script>
 

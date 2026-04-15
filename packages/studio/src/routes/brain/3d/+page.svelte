@@ -1,8 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
-  import LivingBrainGraph from '$lib/components/LivingBrainGraph.svelte';
-  import LivingBrainCosmograph from '$lib/components/LivingBrainCosmograph.svelte';
   import LivingBrain3D from '$lib/components/LivingBrain3D.svelte';
   import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '$lib/server/living-brain/types.js';
 
@@ -37,7 +34,7 @@
   /** Edge keys (`${source}|${target}`) currently pulsing. */
   let pulsingEdges = $state<Set<string>>(new Set<string>());
 
-  /** How long (ms) a pulse animation lasts — must match LivingBrainGraph. */
+  /** How long (ms) a pulse animation lasts — must match LivingBrain3D. */
   const PULSE_DURATION_MS = 1_500;
 
   /** Current EventSource instance (null when disconnected). */
@@ -201,15 +198,6 @@
   onMount(() => {
     mounted = true;
     openStream();
-
-    // Initialize renderer mode from URL query param
-    const view = $page.url.searchParams.get('view');
-    if (view === '3d') {
-      rendererMode = '3d';
-    } else if (view === 'gpu') {
-      rendererMode = 'gpu';
-      useGpuRenderer = true;
-    }
   });
 
   onDestroy(() => {
@@ -232,64 +220,13 @@
   let minWeight = $state(0);
 
   // ---------------------------------------------------------------------------
-  // Time slider
-  // ---------------------------------------------------------------------------
-
-  /** Whether the time slider is toggled on. */
-  let useTimeSlider = $state(false);
-
-  /** Currently selected date index into allDates. */
-  let sliderIndex = $state(0);
-
-  /** Side panel node detail. */
-  let selectedNode = $state<LBNode | null>(null);
-  let sideLoading = $state(false);
-  let sideError = $state<string | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Visual encoding constants (must mirror LivingBrainGraph.svelte)
-  // ---------------------------------------------------------------------------
-
-  const ALL_SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
-
-  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
-    brain: '#3b82f6',
-    nexus: '#22c55e',
-    tasks: '#f97316',
-    conduit: '#a855f7',
-    signaldock: '#ef4444',
-  };
-
-  const EDGE_TYPES = [
-    { type: 'supersedes', color: '#ef4444' },
-    { type: 'affects', color: '#3b82f6' },
-    { type: 'applies_to', color: '#22c55e' },
-    { type: 'calls', color: '#94a3b8' },
-    { type: 'co_retrieved', color: '#a855f7' },
-    { type: 'mentions', color: '#eab308' },
-  ];
-
-  // ---------------------------------------------------------------------------
   // Derived filtered graph
   // ---------------------------------------------------------------------------
-
-  /** Sorted unique date strings (YYYY-MM-DD) derived from all graph nodes. */
-  let allDates = $derived(
-    [...new Set(graph.nodes.map((n) => n.createdAt?.slice(0, 10)).filter((d): d is string => d !== undefined && d !== null))].sort(),
-  );
-
-  /** The date selected by the slider, or null when slider is off. */
-  let filterDate = $derived(useTimeSlider ? (allDates[sliderIndex] ?? null) : null);
 
   let filteredGraph = $derived<LBGraph>({
     nodes: graph.nodes.filter((n) => {
       if (!enabledSubstrates.has(n.substrate)) return false;
       if ((n.weight ?? 1) < minWeight) return false;
-      if (filterDate !== null) {
-        // Include nodes created on or before the selected date.
-        // Nodes without a timestamp are always visible.
-        if (n.createdAt !== null && n.createdAt.slice(0, 10) > filterDate) return false;
-      }
       return true;
     }),
     edges: graph.edges.filter((e) => {
@@ -317,43 +254,29 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Time slider handlers
+  // Derived stats
   // ---------------------------------------------------------------------------
 
-  function toggleSlider(): void {
-    useTimeSlider = !useTimeSlider;
-    // Reset to last date when turning on so newest nodes are visible by default
-    if (useTimeSlider && allDates.length > 0) {
-      sliderIndex = allDates.length - 1;
-    }
-  }
+  const ALL_SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
 
-  function onSliderChange(e: Event): void {
-    const target = e.target as HTMLInputElement;
-    sliderIndex = parseInt(target.value, 10);
-  }
+  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+    brain: '#3b82f6',
+    nexus: '#22c55e',
+    tasks: '#f97316',
+    conduit: '#a855f7',
+    signaldock: '#ef4444',
+  };
 
-  // ---------------------------------------------------------------------------
-  // Full graph fetch
-  // ---------------------------------------------------------------------------
-
-  async function fetchFullGraph(): Promise<void> {
-    loading = true;
-    error = null;
-    try {
-      const res = await fetch('/api/living-brain?limit=5000');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      graph = (await res.json()) as LBGraph;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load graph';
-    } finally {
-      loading = false;
-    }
-  }
+  let totalNodes = $derived(filteredGraph.nodes.length);
+  let totalEdges = $derived(filteredGraph.edges.length);
 
   // ---------------------------------------------------------------------------
   // Node click → side panel
   // ---------------------------------------------------------------------------
+
+  let selectedNode = $state<LBNode | null>(null);
+  let sideLoading = $state(false);
+  let sideError = $state<string | null>(null);
 
   async function handleNodeClick(id: string): Promise<void> {
     sideLoading = true;
@@ -375,45 +298,10 @@
     selectedNode = null;
     sideError = null;
   }
-
-  // ---------------------------------------------------------------------------
-  // Renderer mode toggle (standard, gpu, 3d)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Current renderer mode: 'standard' (2D), 'gpu' (cosmos.gl), or '3d' (3d-force-graph).
-   * Initialized from URL query param view=3d, view=gpu, or defaults to 'standard'.
-   */
-  let rendererMode = $state<'standard' | 'gpu' | '3d'>('standard');
-
-  /**
-   * Whether the user has manually toggled GPU (cosmos.gl) mode on.
-   * Also auto-activates when filteredGraph.nodes.length exceeds 2 000.
-   */
-  let useGpuRenderer = $state(false);
-
-  /**
-   * True when GPU mode is active — either user-forced or auto-activated at
-   * the 2 000-node threshold where sigma's CPU layout becomes a bottleneck.
-   * Only applies when rendererMode !== '3d'.
-   */
-  let shouldUseGpu = $derived(
-    (rendererMode === 'gpu' || (useGpuRenderer && rendererMode === 'standard')) &&
-    rendererMode !== '3d' &&
-    (useGpuRenderer || filteredGraph.nodes.length > 2000)
-  );
-
-  // ---------------------------------------------------------------------------
-  // Derived stats
-  // ---------------------------------------------------------------------------
-
-  let totalNodes = $derived(filteredGraph.nodes.length);
-  let totalEdges = $derived(filteredGraph.edges.length);
-  let isFullGraph = $derived(graph.nodes.length > 500);
 </script>
 
 <svelte:head>
-  <title>Brain — CLEO Studio</title>
+  <title>Brain 3D — CLEO Studio</title>
 </svelte:head>
 
 <div class="lb-page">
@@ -422,7 +310,7 @@
   <!-- ====================================================================== -->
   <div class="lb-header">
     <div class="header-left">
-      <h1 class="page-title">Brain Canvas</h1>
+      <h1 class="page-title">Brain 3D Canvas</h1>
       <span class="node-count">
         {totalNodes} nodes · {totalEdges} edges
         {#if graph.truncated}
@@ -475,68 +363,9 @@
         />
       </div>
 
-      <!-- Time slider toggle -->
-      <button class="toggle-btn" class:active={useTimeSlider} onclick={toggleSlider}>
-        Time {useTimeSlider ? 'On' : 'Off'}
-      </button>
-      {#if useTimeSlider && allDates.length > 0}
-        <div class="slider-wrap">
-          <input
-            type="range"
-            min={0}
-            max={allDates.length - 1}
-            value={sliderIndex}
-            oninput={onSliderChange}
-            class="time-slider"
-          />
-          <span class="slider-date">{allDates[sliderIndex] ?? ''}</span>
-        </div>
-      {/if}
-
-      <!--
-        "Full graph" button removed 2026-04-15 — the canvas now loads the
-        full payload by default (server-side limit=5000).  Owner mandate:
-        the brain should always look complete on first paint.
-      -->
       {#if loading}
         <span class="full-graph-label">Loading…</span>
       {/if}
-
-      <!-- Renderer mode toggle (Standard | GPU | 3D) -->
-      <div class="renderer-toggle">
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === 'standard'}
-          onclick={() => {
-            rendererMode = 'standard';
-            useGpuRenderer = false;
-          }}
-          title="Switch to Standard 2D renderer (sigma.js)"
-        >
-          2D
-        </button>
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === 'gpu'}
-          onclick={() => {
-            rendererMode = 'gpu';
-            useGpuRenderer = true;
-          }}
-          title="Switch to GPU renderer (cosmos.gl)"
-        >
-          GPU
-        </button>
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === '3d'}
-          onclick={() => {
-            rendererMode = '3d';
-          }}
-          title="Switch to 3D renderer (3d-force-graph)"
-        >
-          3D
-        </button>
-      </div>
     </div>
   </div>
 
@@ -550,35 +379,14 @@
   <!-- ====================================================================== -->
   <div class="lb-body" class:has-panel={selectedNode !== null || sideLoading || sideError !== null}>
     <div class="lb-canvas">
-      {#if rendererMode === '3d'}
-        <LivingBrain3D
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-        />
-      {:else if rendererMode === 'gpu'}
-        <LivingBrainCosmograph
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-          onInitFailed={() => { rendererMode = 'standard'; }}
-        />
-      {:else}
-        <LivingBrainGraph
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-        />
-      {/if}
+      <LivingBrain3D
+        nodes={filteredGraph.nodes}
+        edges={filteredGraph.edges}
+        onNodeClick={handleNodeClick}
+        height="100%"
+        {pulsingNodes}
+        {pulsingEdges}
+      />
     </div>
 
     <!-- Side panel -->
@@ -651,48 +459,6 @@
         {/if}
       </div>
     {/if}
-  </div>
-
-  <!-- ====================================================================== -->
-  <!-- Legend bar -->
-  <!-- ====================================================================== -->
-  <div class="lb-legend">
-    <div class="legend-section">
-      <span class="legend-label">Substrates</span>
-      {#each ALL_SUBSTRATES as s}
-        {#if enabledSubstrates.has(s)}
-          <div class="legend-item">
-            <span class="legend-dot" style="background: {SUBSTRATE_COLOR[s]}"></span>
-            <span>
-              {s}
-              <span class="legend-count">{graph.counts.nodes[s] ?? 0}</span>
-            </span>
-          </div>
-        {/if}
-      {/each}
-    </div>
-
-    <div class="legend-section">
-      <span class="legend-label">Edges</span>
-      {#each EDGE_TYPES as et}
-        <div class="legend-item">
-          <span class="legend-line" style="background: {et.color}"></span>
-          <span>{et.type}</span>
-        </div>
-      {/each}
-    </div>
-
-    <div class="legend-section">
-      <span class="legend-label">Time slider</span>
-      {#if useTimeSlider && filterDate !== null}
-        <span class="legend-item">
-          <span class="legend-dot" style="background: #64748b"></span>
-          <span>up to {filterDate}</span>
-        </span>
-      {:else}
-        <span class="legend-item" style="color: #475569; font-style: italic; font-size: 0.6875rem;">off — toggle in header</span>
-      {/if}
-    </div>
   </div>
 </div>
 
@@ -863,29 +629,6 @@
   .weight-slider {
     width: 100px;
     accent-color: #3b82f6;
-  }
-
-  /* Full graph button */
-  .full-graph-btn {
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    background: rgba(59, 130, 246, 0.12);
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    color: #3b82f6;
-    cursor: pointer;
-    transition: background 0.15s;
-    white-space: nowrap;
-  }
-
-  .full-graph-btn:hover:not(:disabled) {
-    background: rgba(59, 130, 246, 0.22);
-  }
-
-  .full-graph-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .full-graph-label {
@@ -1077,137 +820,5 @@
 
   .panel-link:hover {
     background: rgba(59, 130, 246, 0.18);
-  }
-
-  /* ---- Legend bar ------------------------------------------------------- */
-  .lb-legend {
-    display: flex;
-    gap: 1.5rem;
-    padding: 0.5rem 0.875rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .legend-section {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .legend-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-right: 0.125rem;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: #94a3b8;
-  }
-
-  .legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .legend-line {
-    width: 14px;
-    height: 2px;
-    flex-shrink: 0;
-  }
-
-  .legend-count {
-    color: #475569;
-    font-variant-numeric: tabular-nums;
-    margin-left: 0.15rem;
-  }
-
-  /* ---- Time slider -------------------------------------------------------- */
-  .toggle-btn {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    background: none;
-    border: 1px solid #2d3748;
-    color: #64748b;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    white-space: nowrap;
-  }
-
-  .toggle-btn.active {
-    color: #3b82f6;
-    border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-  }
-
-  .toggle-btn:hover {
-    border-color: #3b82f6;
-    color: #3b82f6;
-  }
-
-  /* Renderer mode toggle group */
-  .renderer-toggle {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .renderer-btn {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    background: none;
-    border: 1px solid #2d3748;
-    color: #64748b;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    white-space: nowrap;
-  }
-
-  .renderer-btn.active {
-    color: #a855f7;
-    border-color: #a855f7;
-    background: rgba(168, 85, 247, 0.1);
-  }
-
-  .renderer-btn:hover {
-    border-color: #a855f7;
-    color: #a855f7;
-  }
-
-  .slider-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .time-slider {
-    width: 120px;
-    accent-color: #3b82f6;
-  }
-
-  .slider-date {
-    font-size: 0.6875rem;
-    color: #94a3b8;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
 </style>

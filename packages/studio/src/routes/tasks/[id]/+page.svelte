@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import type { SubtaskRow } from './+page.server.js';
+  import type { SubtaskRow, DepTask } from './+page.server.js';
 
   interface Props {
     data: PageData;
@@ -186,6 +186,55 @@
               </a>
             {/each}
           </div>
+        </section>
+      {/if}
+
+      <!-- Dependencies & blockers -->
+      {#if task.upstream.length > 0 || task.downstream.length > 0}
+        <section class="detail-section">
+          <h2 class="section-title">Dependencies</h2>
+
+          {#if task.upstream.length > 0}
+            <div class="dep-group">
+              <div class="dep-group-label dep-blocked-label">
+                ↑ Blocked by ({task.upstream.length}) — must complete before this task
+              </div>
+              {#snippet depRow(dep: DepTask)}
+                <a href="/tasks/{dep.id}" class="dep-row">
+                  <span class="dep-status {statusClass(dep.status)}">{statusIcon(dep.status)}</span>
+                  <span class="dep-id">{dep.id}</span>
+                  <span class="dep-title">{dep.title}</span>
+                  <span class="dep-priority {priorityClass(dep.priority)}">{dep.priority}</span>
+                </a>
+              {/snippet}
+              <div class="dep-list">
+                {#each task.upstream as dep}
+                  {@render depRow(dep)}
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          {#if task.downstream.length > 0}
+            <div class="dep-group">
+              <div class="dep-group-label dep-blocking-label">
+                ↓ Blocking ({task.downstream.length}) — these tasks wait on this one
+              </div>
+              {#snippet depRow2(dep: DepTask)}
+                <a href="/tasks/{dep.id}" class="dep-row">
+                  <span class="dep-status {statusClass(dep.status)}">{statusIcon(dep.status)}</span>
+                  <span class="dep-id">{dep.id}</span>
+                  <span class="dep-title">{dep.title}</span>
+                  <span class="dep-priority {priorityClass(dep.priority)}">{dep.priority}</span>
+                </a>
+              {/snippet}
+              <div class="dep-list">
+                {#each task.downstream as dep}
+                  {@render depRow2(dep)}
+                {/each}
+              </div>
+            </div>
+          {/if}
         </section>
       {/if}
     </div>
@@ -690,6 +739,87 @@
   .sidebar-link:hover {
     color: #a855f7;
     border-color: rgba(168, 85, 247, 0.3);
+  }
+
+  /* Dependencies section */
+  .dep-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .dep-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .dep-group-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.25rem 0;
+  }
+
+  .dep-blocked-label { color: #ef4444; }
+  .dep-blocking-label { color: #eab308; }
+
+  .dep-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #2d3748;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .dep-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #1e2435;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s;
+  }
+
+  .dep-row:hover {
+    background: #21273a;
+  }
+
+  .dep-row:last-child {
+    border-bottom: none;
+  }
+
+  .dep-status {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    width: 1rem;
+    text-align: center;
+  }
+
+  .dep-id {
+    font-size: 0.675rem;
+    font-weight: 600;
+    color: #a855f7;
+    flex-shrink: 0;
+  }
+
+  .dep-title {
+    font-size: 0.8125rem;
+    color: #e2e8f0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dep-priority {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
   }
 
   /* Shared status/priority colors */

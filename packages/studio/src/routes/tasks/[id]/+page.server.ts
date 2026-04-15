@@ -6,6 +6,13 @@ import { error } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
+export interface DepTask {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+}
+
 export interface TaskDetail {
   id: string;
   title: string;
@@ -32,6 +39,10 @@ export interface TaskDetail {
   } | null;
   acceptance: string[];
   labels: string[];
+  /** Tasks this task depends on (upstream blockers) */
+  upstream: DepTask[];
+  /** Tasks that depend on this task (downstream dependents) */
+  downstream: DepTask[];
 }
 
 export interface SubtaskRow {
@@ -137,6 +148,8 @@ export const load: PageServerLoad = ({ locals, params }) => {
     verification,
     acceptance,
     labels,
+    upstream: [],
+    downstream: [],
   };
 
   const subtasks = db
@@ -147,6 +160,31 @@ export const load: PageServerLoad = ({ locals, params }) => {
        ORDER BY position ASC, created_at ASC`,
     )
     .all(id) as SubtaskRow[];
+
+  // Deps: upstream (tasks this depends on) and downstream (tasks blocked by this)
+  const upstream = db
+    .prepare(
+      `SELECT t.id, t.title, t.status, t.priority
+       FROM tasks t
+       INNER JOIN task_dependencies td ON td.depends_on = t.id
+       WHERE td.task_id = ?
+       ORDER BY t.id ASC`,
+    )
+    .all(id) as DepTask[];
+
+  const downstream = db
+    .prepare(
+      `SELECT t.id, t.title, t.status, t.priority
+       FROM tasks t
+       INNER JOIN task_dependencies td ON td.task_id = t.id
+       WHERE td.depends_on = ?
+       ORDER BY t.id ASC`,
+    )
+    .all(id) as DepTask[];
+
+  // Merge deps into task
+  task.upstream = upstream;
+  task.downstream = downstream;
 
   // Parent breadcrumb
   let parent: { id: string; title: string; type: string } | null = null;
