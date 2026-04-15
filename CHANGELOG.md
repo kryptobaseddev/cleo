@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.59] (2026-04-15)
+
+### Fix: T665 — @cleocode/core packaging
+
+v2026.4.58 published tarball was missing `dist/store/nexus-sqlite.js` despite
+the file existing in local build output. Root cause: stale build artifact in
+published registry. Rebuilt all packages and verified nexus-sqlite.js is
+present in npm pack output. This fix unblocks `cleo nexus projects clean`
+command which imports from `@cleocode/core/store/nexus-sqlite`.
+
 ## [2026.4.58] (2026-04-15)
 
 **Studio canvas now actually shows substrate connections + admin hygiene UI.**
