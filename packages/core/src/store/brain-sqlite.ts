@@ -158,6 +158,23 @@ function runBrainMigrations(
   // all migrations as applied without actually running them (Scenario 2 race).
   // ensureColumns is idempotent — no-op if the column already exists.
   ensureColumns(nativeDb, 'brain_observations', [{ name: 'agent', ddl: 'text' }], 'brain');
+
+  // T626-M1: Normalize co_retrieved edge type — idempotent safety-net UPDATE.
+  // The shipped Hebbian strengthener emitted edge_type = 'relates_to' instead of
+  // 'co_retrieved'. Relabel only rows from the consolidation provenance so no
+  // semantic edges are affected. The Drizzle migration file does the same UPDATE;
+  // this guard handles installs where the journal reconciler already marked
+  // the migration applied before the SQL ran.
+  if (tableExists(nativeDb, 'brain_page_edges')) {
+    nativeDb
+      .prepare(
+        `UPDATE brain_page_edges
+         SET edge_type = 'co_retrieved'
+         WHERE edge_type = 'relates_to'
+           AND provenance LIKE 'consolidation:%'`,
+      )
+      .run();
+  }
 }
 
 /**

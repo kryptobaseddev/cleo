@@ -1501,6 +1501,8 @@ export * from './brain-retrieval.js';
 export * from './brain-search.js';
 // === BRAIN Memory modules (brain.db backed) ===
 export * from './decisions.js';
+// === T626-M1: Canonical edge-type constants ===
+export * from './edge-types.js';
 // === T549 Wave 2: Extraction Gate ===
 export * from './extraction-gate.js';
 export * from './learnings.js';
