@@ -1,4 +1,4 @@
-import { r as getCleoHome } from "./cleo-home.js";
+import { n as getCleoHome, r as getCleoProjectDir } from "./cleo-home.js";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -46,6 +46,58 @@ function clearActiveProjectId(cookies) {
 	cookies.delete(PROJECT_COOKIE, { path: "/" });
 }
 /**
+* Resolve the project context from the nexus.db registry for a given project ID.
+*
+* Returns null if the project is not registered or the DB rows are missing.
+* Falls back to deriving paths from the project_path column if brain_db_path
+* or tasks_db_path are not set in the registry.
+*/
+function resolveProjectContext(projectId) {
+	try {
+		const nexusPath = join(getCleoHome(), "nexus.db");
+		if (!existsSync(nexusPath)) return null;
+		const db = new DatabaseSync(nexusPath, { open: true });
+		try {
+			const row = db.prepare("SELECT project_id, name, project_path, brain_db_path, tasks_db_path FROM project_registry WHERE project_id = ?").get(projectId);
+			if (!row) return null;
+			const brainDbPath = row.brain_db_path ?? join(row.project_path, ".cleo", "brain.db");
+			const tasksDbPath = row.tasks_db_path ?? join(row.project_path, ".cleo", "tasks.db");
+			return {
+				projectId: row.project_id,
+				name: row.name,
+				projectPath: row.project_path,
+				brainDbPath,
+				tasksDbPath,
+				brainDbExists: existsSync(brainDbPath),
+				tasksDbExists: existsSync(tasksDbPath)
+			};
+		} finally {
+			db.close();
+		}
+	} catch {
+		return null;
+	}
+}
+/**
+* Resolve the default project context (current project from CLEO_ROOT / cwd).
+* Used as fallback when no project cookie is set.
+*/
+function resolveDefaultProjectContext() {
+	const projectDir = getCleoProjectDir();
+	const projectPath = projectDir.replace(/\/.cleo$/, "");
+	const brainDbPath = join(projectDir, "brain.db");
+	const tasksDbPath = join(projectDir, "tasks.db");
+	return {
+		projectId: "",
+		name: projectPath.split("/").pop() ?? "default",
+		projectPath,
+		brainDbPath,
+		tasksDbPath,
+		brainDbExists: existsSync(brainDbPath),
+		tasksDbExists: existsSync(tasksDbPath)
+	};
+}
+/**
 * List all registered projects from nexus.db.
 * Returns an empty array if nexus.db is unavailable.
 */
@@ -55,7 +107,7 @@ function listRegisteredProjects() {
 		if (!existsSync(nexusPath)) return [];
 		const db = new DatabaseSync(nexusPath, { open: true });
 		try {
-			return db.prepare(`SELECT
+			const rows = db.prepare(`SELECT
             project_id,
             name,
             project_path,
@@ -67,7 +119,16 @@ function listRegisteredProjects() {
             last_seen,
             health_status
           FROM project_registry
-          ORDER BY last_seen DESC`).all().map((row) => {
+          ORDER BY last_seen DESC`).all();
+			/**
+			* Strict server-side exclusion: any project whose path contains a `.temp/`
+			* segment is filtered out before reaching the client. This rule is
+			* non-negotiable (cannot be revealed via UI toggle) — `.temp/` is reserved
+			* for ephemeral fixture/scratch state that must never appear in the
+			* project switcher.
+			*/
+			const TEMP_PATH_PATTERN = /(^|\/)\.temp(\/|$)/;
+			return rows.filter((row) => !TEMP_PATH_PATTERN.test(row.project_path)).map((row) => {
 				let nodeCount = 0;
 				let relationCount = 0;
 				let fileCount = 0;
@@ -100,4 +161,4 @@ function listRegisteredProjects() {
 	}
 }
 //#endregion
-export { setActiveProjectId as i, getActiveProjectId as n, listRegisteredProjects as r, clearActiveProjectId as t };
+export { resolveProjectContext as a, resolveDefaultProjectContext as i, getActiveProjectId as n, setActiveProjectId as o, listRegisteredProjects as r, clearActiveProjectId as t };

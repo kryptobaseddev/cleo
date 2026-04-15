@@ -17,6 +17,7 @@ interface NexusNodeRow {
   kind: string;
   name: string;
   in_degree: number;
+  indexed_at: string | null;
 }
 
 /** Raw row from nexus_relations. */
@@ -58,7 +59,7 @@ export function getNexusSubstrate(options: LBQueryOptions = {}): {
     // Count in-degree for each node to use as weight
     const nodeRows = db
       .prepare(
-        `SELECT n.id, n.kind, n.name,
+        `SELECT n.id, n.kind, n.name, n.indexed_at,
                 COUNT(r.target_id) AS in_degree
          FROM nexus_nodes n
          LEFT JOIN nexus_relations r ON r.target_id = n.id
@@ -79,6 +80,7 @@ export function getNexusSubstrate(options: LBQueryOptions = {}): {
         substrate: 'nexus',
         label: row.name,
         weight: row.in_degree > 0 ? Math.min(1, row.in_degree / 50) : undefined,
+        createdAt: row.indexed_at ?? null,
         meta: { nexus_kind: row.kind, in_degree: row.in_degree },
       });
     }

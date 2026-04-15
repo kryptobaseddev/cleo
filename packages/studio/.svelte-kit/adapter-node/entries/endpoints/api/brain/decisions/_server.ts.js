@@ -7,8 +7,8 @@ import { json } from "@sveltejs/kit";
 *
 * Returns brain_decisions ordered chronologically for timeline view.
 */
-var GET = () => {
-	const db = getBrainDb();
+var GET = ({ locals }) => {
+	const db = getBrainDb(locals.projectCtx);
 	if (!db) return json({
 		decisions: [],
 		total: 0

@@ -9,8 +9,8 @@ import { json } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = ({ url }) => {
-  const db = getTasksDb();
+export const GET: RequestHandler = ({ locals, url }) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }

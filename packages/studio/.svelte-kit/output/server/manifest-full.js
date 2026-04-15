@@ -10,7 +10,7 @@ return {
 	assets: new Set(["favicon.png"]),
 	mimeTypes: {".png":"image/png"},
 	_: {
-		client: {start:"_app/immutable/entry/start.B4djkgEu.js",app:"_app/immutable/entry/app.CpVah3oA.js",imports:["_app/immutable/entry/start.B4djkgEu.js","_app/immutable/chunks/dVYxnWpL.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/entry/app.CpVah3oA.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
+		client: {start:"_app/immutable/entry/start.DEwmZnxG.js",app:"_app/immutable/entry/app.BUP-wz2W.js",imports:["_app/immutable/entry/start.DEwmZnxG.js","_app/immutable/chunks/lNG2k0Yr.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/entry/app.BUP-wz2W.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
 		nodes: [
 			__memo(() => import('./nodes/0.js')),
 			__memo(() => import('./nodes/1.js')),
@@ -92,6 +92,13 @@ return {
 				endpoint: __memo(() => import('./entries/endpoints/api/living-brain/node/_id_/_server.ts.js'))
 			},
 			{
+				id: "/api/living-brain/stream",
+				pattern: /^\/api\/living-brain\/stream\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/living-brain/stream/_server.ts.js'))
+			},
+			{
 				id: "/api/living-brain/substrate/[name]",
 				pattern: /^\/api\/living-brain\/substrate\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
@@ -125,6 +132,13 @@ return {
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
 				page: null,
 				endpoint: __memo(() => import('./entries/endpoints/api/nexus/symbol/_name_/_server.ts.js'))
+			},
+			{
+				id: "/api/project/switch",
+				pattern: /^\/api\/project\/switch\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/project/switch/_server.ts.js'))
 			},
 			{
 				id: "/api/search",
@@ -204,36 +218,36 @@ return {
 				endpoint: null
 			},
 			{
-				id: "/brain/quality",
-				pattern: /^\/brain\/quality\/?$/,
+				id: "/brain/overview",
+				pattern: /^\/brain\/overview\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 7 },
 				endpoint: null
 			},
 			{
-				id: "/living-brain",
-				pattern: /^\/living-brain\/?$/,
+				id: "/brain/quality",
+				pattern: /^\/brain\/quality\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 8 },
 				endpoint: null
 			},
 			{
-				id: "/nexus",
-				pattern: /^\/nexus\/?$/,
+				id: "/code",
+				pattern: /^\/code\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 9 },
 				endpoint: null
 			},
 			{
-				id: "/nexus/community/[id]",
-				pattern: /^\/nexus\/community\/([^/]+?)\/?$/,
+				id: "/code/community/[id]",
+				pattern: /^\/code\/community\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
 				page: { layouts: [0,], errors: [1,], leaf: 10 },
 				endpoint: null
 			},
 			{
-				id: "/nexus/symbol/[name]",
-				pattern: /^\/nexus\/symbol\/([^/]+?)\/?$/,
+				id: "/code/symbol/[name]",
+				pattern: /^\/code\/symbol\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
 				page: { layouts: [0,], errors: [1,], leaf: 11 },
 				endpoint: null

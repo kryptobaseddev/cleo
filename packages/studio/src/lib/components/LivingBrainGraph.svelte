@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import Graph from 'graphology';
   import Sigma from 'sigma';
+  import { EdgeArrowProgram } from 'sigma/rendering';
+  import type { NodeLabelDrawingFunction } from 'sigma/rendering';
   import forceAtlas2 from 'graphology-layout-forceatlas2';
   import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
 
@@ -15,9 +17,20 @@
     /** Fired when the user clicks a node. Passes the node ID. */
     onNodeClick?: (id: string) => void;
     height?: string;
+    /** Set of node IDs that are currently pulsing (new/updated). */
+    pulsingNodes?: Set<string>;
+    /** Set of edge keys (`${source}|${target}`) that are currently pulsing. */
+    pulsingEdges?: Set<string>;
   }
 
-  let { nodes, edges, onNodeClick, height = '100%' }: Props = $props();
+  let {
+    nodes,
+    edges,
+    onNodeClick,
+    height = '100%',
+    pulsingNodes = new Set<string>(),
+    pulsingEdges = new Set<string>(),
+  }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // Visual encoding maps
@@ -75,23 +88,103 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Helper: truncate long labels for display on canvas
+  // ---------------------------------------------------------------------------
+
+  /** Maximum label characters shown on-canvas; full label is in the tooltip. */
+  const LABEL_MAX_CHARS = 24;
+
+  /**
+   * Truncates a label string to `max` characters, appending an ellipsis when
+   * truncation is applied.
+   *
+   * @param s - The raw label string.
+   * @param max - Maximum characters (default: 24).
+   */
+  function truncateLabel(s: string, max = LABEL_MAX_CHARS): string {
+    return s.length > max ? `${s.slice(0, max - 1)}\u2026` : s;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom label renderer: white text on a semi-transparent dark pill
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Custom sigma node label drawing function that renders a rounded-rect
+   * background behind the label text for readability on dark canvas backgrounds.
+   * Labels are only drawn for nodes at or above the size threshold enforced by
+   * sigma's label-density grid; this function is called only when sigma decides
+   * a label should be visible.
+   */
+  const drawNodeLabel: NodeLabelDrawingFunction = (context, data, settings): void => {
+    if (!data.label) return;
+
+    const size: number = settings.labelSize;
+    const font: string = settings.labelFont;
+    const weight: string = settings.labelWeight;
+
+    context.font = `${weight} ${size}px ${font}`;
+
+    const label = data.label;
+    const textWidth = context.measureText(label).width;
+
+    // Pill dimensions
+    const paddingH = 4;
+    const paddingV = 2;
+    const pillW = textWidth + paddingH * 2;
+    const pillH = size + paddingV * 2;
+    const pillX = data.x + data.size + 3;
+    const pillY = data.y - size / 2 - paddingV;
+
+    // Dark background pill
+    context.fillStyle = 'rgba(10, 13, 20, 0.82)';
+    context.beginPath();
+    if (context.roundRect) {
+      context.roundRect(pillX, pillY, pillW, pillH, 3);
+    } else {
+      // Fallback for environments without roundRect
+      context.rect(pillX, pillY, pillW, pillH);
+    }
+    context.fill();
+
+    // White label text
+    context.fillStyle = '#f1f5f9';
+    context.fillText(label, pillX + paddingH, data.y + size / 3);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Pulse duration constant (ms)
+  // ---------------------------------------------------------------------------
+
+  /** How long a pulse animation lasts in milliseconds (ease-out fade). */
+  const PULSE_DURATION_MS = 1_500;
+
+  // ---------------------------------------------------------------------------
   // Build graphology instance from LBNode[] / LBEdge[]
   // ---------------------------------------------------------------------------
   function buildGraph(): Graph {
     const g = new Graph({ multi: false, allowSelfLoops: false });
 
+    const now = Date.now();
+
     for (const node of nodes) {
       if (g.hasNode(node.id)) continue;
-      const color = SUBSTRATE_COLOR[node.substrate] ?? '#64748b';
+      const isPulsing = pulsingNodes.has(node.id);
+      const baseColor = SUBSTRATE_COLOR[node.substrate] ?? '#64748b';
+      // Pulsing nodes get a larger size and brighter (full-opacity white-blend) color
+      const color = isPulsing ? '#ffffff' : baseColor;
+      const size = isPulsing ? nodeSize(node) * 2 : nodeSize(node);
       g.addNode(node.id, {
-        label: node.label,
-        size: nodeSize(node),
+        label: truncateLabel(node.label),
+        size,
         color,
         x: Math.random() * 800 - 400,
         y: Math.random() * 600 - 300,
         kind: node.kind,
         substrate: node.substrate,
         weight: node.weight,
+        fullLabel: node.label,
+        pulseUntil: isPulsing ? now + PULSE_DURATION_MS : null,
       });
     }
 
@@ -99,11 +192,14 @@
       if (!g.hasNode(edge.source) || !g.hasNode(edge.target)) continue;
       if (edge.source === edge.target) continue; // skip self-loops (allowSelfLoops: false)
       if (g.hasEdge(edge.source, edge.target)) continue;
-      const thickness = Math.max(0.5, (edge.weight ?? 0.5) * 3);
+      const edgeKey = `${edge.source}|${edge.target}`;
+      const isPulsing = pulsingEdges.has(edgeKey);
+      const baseThickness = Math.max(0.5, (edge.weight ?? 0.5) * 3);
       g.addEdge(edge.source, edge.target, {
-        color: edgeColor(edge.type),
-        size: thickness,
+        color: isPulsing ? '#ffffff' : edgeColor(edge.type),
+        size: isPulsing ? baseThickness * 2.5 : baseThickness,
         edgeType: edge.type,
+        pulseUntil: isPulsing ? now + PULSE_DURATION_MS : null,
       });
     }
 
@@ -111,10 +207,100 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Mount / destroy
+  // Apply pulse visuals to an existing graph (called when pulsingNodes/Edges
+  // props change without a full re-mount)
   // ---------------------------------------------------------------------------
-  onMount(() => {
+
+  /**
+   * Updates node and edge attributes in the live graphology instance to
+   * reflect the current `pulsingNodes` and `pulsingEdges` prop values.
+   *
+   * @param g - The live graphology graph to mutate.
+   */
+  function applyPulses(g: Graph): void {
+    const now = Date.now();
+
+    for (const nodeId of pulsingNodes) {
+      if (!g.hasNode(nodeId)) continue;
+      const attrs = g.getNodeAttributes(nodeId) as {
+        substrate: LBSubstrate;
+        weight: number | undefined;
+        size: number;
+        color: string;
+        label: string;
+        kind: string;
+        x: number;
+        y: number;
+        pulseUntil: number | null;
+      };
+      const baseColor = SUBSTRATE_COLOR[attrs.substrate] ?? '#64748b';
+      // Build a synthetic node for size calculation
+      const syntheticNode: LBNode = {
+        id: nodeId,
+        kind: attrs.kind as LBNode['kind'],
+        substrate: attrs.substrate,
+        label: attrs.label,
+        weight: attrs.weight,
+        createdAt: null,
+        meta: {},
+      };
+      g.setNodeAttribute(nodeId, 'color', '#ffffff');
+      g.setNodeAttribute(nodeId, 'size', nodeSize(syntheticNode) * 2);
+      g.setNodeAttribute(nodeId, 'pulseUntil', now + PULSE_DURATION_MS);
+
+      // Schedule reset after pulse duration
+      setTimeout(() => {
+        if (!g.hasNode(nodeId)) return;
+        g.setNodeAttribute(nodeId, 'color', baseColor);
+        g.setNodeAttribute(nodeId, 'size', nodeSize(syntheticNode));
+        g.setNodeAttribute(nodeId, 'pulseUntil', null);
+        sigmaInstance?.refresh();
+      }, PULSE_DURATION_MS);
+    }
+
+    for (const edgeKey of pulsingEdges) {
+      const [src, tgt] = edgeKey.split('|');
+      if (!src || !tgt || !g.hasEdge(src, tgt)) continue;
+      const attrs = g.getEdgeAttributes(g.edge(src, tgt)) as {
+        edgeType: string;
+        size: number;
+        color: string;
+        pulseUntil: number | null;
+      };
+      const baseColor = edgeColor(attrs.edgeType);
+      const baseSize = attrs.size;
+      g.setEdgeAttribute(g.edge(src, tgt), 'color', '#ffffff');
+      g.setEdgeAttribute(g.edge(src, tgt), 'size', baseSize * 2.5);
+      g.setEdgeAttribute(g.edge(src, tgt), 'pulseUntil', now + PULSE_DURATION_MS);
+
+      setTimeout(() => {
+        if (!g.hasNode(src) || !g.hasNode(tgt) || !g.hasEdge(src, tgt)) return;
+        g.setEdgeAttribute(g.edge(src, tgt), 'color', baseColor);
+        g.setEdgeAttribute(g.edge(src, tgt), 'size', baseSize);
+        g.setEdgeAttribute(g.edge(src, tgt), 'pulseUntil', null);
+        sigmaInstance?.refresh();
+      }, PULSE_DURATION_MS);
+    }
+
+    sigmaInstance?.refresh();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Initialise sigma with the current graph data
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Builds a new graphology graph, runs ForceAtlas2 layout, then creates a
+   * fresh Sigma instance. Any existing Sigma instance is killed first.
+   */
+  function initSigma(): void {
     if (!container) return;
+
+    // Kill existing instance before rebuilding (handles prop-change re-init)
+    if (sigmaInstance) {
+      sigmaInstance.kill();
+      sigmaInstance = null;
+    }
 
     const g = buildGraph();
     const nodeCount = g.order;
@@ -138,20 +324,24 @@
       labelRenderedSizeThreshold: 9,
       labelFont: 'monospace',
       labelSize: 11,
+      labelWeight: '500',
+      labelColor: { color: '#f1f5f9' },
+      defaultDrawNodeLabel: drawNodeLabel,
       zIndex: true,
+      edgeProgramClasses: { arrow: EdgeArrowProgram },
     });
 
     // Hover — show tooltip
     sigmaInstance.on('enterNode', ({ node, event }) => {
       const attrs = g.getNodeAttributes(node) as {
-        label: string;
+        fullLabel: string;
         kind: string;
         substrate: string;
         weight: number | undefined;
       };
       const rect = container.getBoundingClientRect();
       tooltip = {
-        label: attrs.label,
+        label: attrs.fullLabel,
         kind: attrs.kind,
         substrate: attrs.substrate,
         weight: attrs.weight,
@@ -170,11 +360,37 @@
     sigmaInstance.on('clickNode', ({ node }) => {
       onNodeClick?.(node);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mount / destroy
+  // ---------------------------------------------------------------------------
+  onMount(() => {
+    initSigma();
   });
 
   onDestroy(() => {
     sigmaInstance?.kill();
     sigmaInstance = null;
+  });
+
+  // React to nodes/edges prop changes — rebuild the graph entirely
+  $effect(() => {
+    // Access reactive props to register dependencies
+    const _n = nodes;
+    const _e = edges;
+    if (sigmaInstance) {
+      initSigma();
+    }
+  });
+
+  // React to new pulses pushed from the parent page
+  $effect(() => {
+    if (!sigmaInstance) return;
+    const g = sigmaInstance.getGraph();
+    if (pulsingNodes.size > 0 || pulsingEdges.size > 0) {
+      applyPulses(g);
+    }
   });
 </script>
 

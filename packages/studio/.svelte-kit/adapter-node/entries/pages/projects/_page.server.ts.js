@@ -1,4 +1,4 @@
-import { i as setActiveProjectId, n as getActiveProjectId, r as listRegisteredProjects, t as clearActiveProjectId } from "../../../chunks/project-context.js";
+import { n as getActiveProjectId, o as setActiveProjectId, r as listRegisteredProjects, t as clearActiveProjectId } from "../../../chunks/project-context.js";
 //#region src/routes/projects/+page.server.ts
 /**
 * Projects page server load — lists all projects registered in the

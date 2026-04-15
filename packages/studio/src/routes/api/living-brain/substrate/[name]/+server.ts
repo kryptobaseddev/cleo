@@ -22,7 +22,7 @@ import type { RequestHandler } from './$types';
 
 const VALID_SUBSTRATES = new Set<LBSubstrate>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']);
 
-export const GET: RequestHandler = ({ params, url }) => {
+export const GET: RequestHandler = ({ locals, params, url }) => {
   const name = params.name as LBSubstrate;
   if (!VALID_SUBSTRATES.has(name)) {
     return json(
@@ -40,7 +40,12 @@ export const GET: RequestHandler = ({ params, url }) => {
   const minWeight = minWeightParam !== null ? Math.max(0, parseFloat(minWeightParam)) : 0;
 
   try {
-    const graph = getAllSubstrates({ limit, substrates: [name], minWeight });
+    const graph = getAllSubstrates({
+      limit,
+      substrates: [name],
+      minWeight,
+      projectCtx: locals.projectCtx,
+    });
     return json(graph);
   } catch (err) {
     return json({ error: String(err) }, { status: 500 });

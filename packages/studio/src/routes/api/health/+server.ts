@@ -7,8 +7,8 @@ import { json } from '@sveltejs/kit';
 import { getDbStatus } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = () => {
-  const dbStatus = getDbStatus();
+export const GET: RequestHandler = ({ locals }) => {
+  const dbStatus = getDbStatus(locals.projectCtx);
   return json({
     ok: true,
     service: 'cleo-studio',

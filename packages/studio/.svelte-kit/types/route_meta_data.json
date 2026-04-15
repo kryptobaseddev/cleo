@@ -1,6 +1,8 @@
 {
 	"/": [
-		"src/routes/+page.server.ts"
+		"src/routes/+page.server.ts",
+		"src/routes/+layout.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/api/brain/decisions": [
 		"src/routes/api/brain/decisions/+server.ts"
@@ -23,6 +25,9 @@
 	"/api/living-brain/node/[id]": [
 		"src/routes/api/living-brain/node/[id]/+server.ts"
 	],
+	"/api/living-brain/stream": [
+		"src/routes/api/living-brain/stream/+server.ts"
+	],
 	"/api/living-brain/substrate/[name]": [
 		"src/routes/api/living-brain/substrate/[name]/+server.ts"
 	],
@@ -37,6 +42,9 @@
 	],
 	"/api/nexus/symbol/[name]": [
 		"src/routes/api/nexus/symbol/[name]/+server.ts"
+	],
+	"/api/project/switch": [
+		"src/routes/api/project/switch/+server.ts"
 	],
 	"/api/search": [
 		"src/routes/api/search/+server.ts"
@@ -60,40 +68,59 @@
 		"src/routes/api/tasks/[id]/+server.ts"
 	],
 	"/brain": [
-		"src/routes/brain/+page.server.ts"
+		"src/routes/brain/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
-	"/brain/decisions": [],
-	"/brain/graph": [],
-	"/brain/observations": [],
-	"/brain/quality": [],
-	"/living-brain": [
-		"src/routes/living-brain/+page.server.ts"
+	"/brain/decisions": [
+		"src/routes/+layout.server.ts"
 	],
-	"/nexus": [
-		"src/routes/nexus/+page.server.ts"
+	"/brain/graph": [
+		"src/routes/+layout.server.ts"
 	],
-	"/nexus/community/[id]": [
-		"src/routes/nexus/community/[id]/+page.server.ts"
+	"/brain/observations": [
+		"src/routes/+layout.server.ts"
 	],
-	"/nexus/symbol/[name]": [
-		"src/routes/nexus/symbol/[name]/+page.server.ts"
+	"/brain/overview": [
+		"src/routes/brain/overview/+page.server.ts",
+		"src/routes/+layout.server.ts"
+	],
+	"/brain/quality": [
+		"src/routes/+layout.server.ts"
+	],
+	"/code": [
+		"src/routes/code/+page.server.ts",
+		"src/routes/+layout.server.ts"
+	],
+	"/code/community/[id]": [
+		"src/routes/code/community/[id]/+page.server.ts",
+		"src/routes/+layout.server.ts"
+	],
+	"/code/symbol/[name]": [
+		"src/routes/code/symbol/[name]/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/projects": [
-		"src/routes/projects/+page.server.ts"
+		"src/routes/projects/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/tasks": [
-		"src/routes/tasks/+page.server.ts"
+		"src/routes/tasks/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/tasks/pipeline": [
-		"src/routes/tasks/pipeline/+page.server.ts"
+		"src/routes/tasks/pipeline/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/tasks/sessions": [
-		"src/routes/tasks/sessions/+page.server.ts"
+		"src/routes/tasks/sessions/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/tasks/tree/[epicId]": [
-		"src/routes/tasks/tree/[epicId]/+page.server.ts"
+		"src/routes/tasks/tree/[epicId]/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	],
 	"/tasks/[id]": [
-		"src/routes/tasks/[id]/+page.server.ts"
+		"src/routes/tasks/[id]/+page.server.ts",
+		"src/routes/+layout.server.ts"
 	]
 }

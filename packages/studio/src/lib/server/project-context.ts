@@ -199,37 +199,48 @@ export function listRegisteredProjects(): Array<{
         health_status: string;
       }>;
 
-      return rows.map((row) => {
-        let nodeCount = 0;
-        let relationCount = 0;
-        let fileCount = 0;
-        try {
-          const stats = JSON.parse(row.stats_json ?? '{}') as {
-            nodeCount?: number;
-            relationCount?: number;
-            fileCount?: number;
+      /**
+       * Strict server-side exclusion: any project whose path contains a `.temp/`
+       * segment is filtered out before reaching the client. This rule is
+       * non-negotiable (cannot be revealed via UI toggle) — `.temp/` is reserved
+       * for ephemeral fixture/scratch state that must never appear in the
+       * project switcher.
+       */
+      const TEMP_PATH_PATTERN = /(^|\/)\.temp(\/|$)/;
+
+      return rows
+        .filter((row) => !TEMP_PATH_PATTERN.test(row.project_path))
+        .map((row) => {
+          let nodeCount = 0;
+          let relationCount = 0;
+          let fileCount = 0;
+          try {
+            const stats = JSON.parse(row.stats_json ?? '{}') as {
+              nodeCount?: number;
+              relationCount?: number;
+              fileCount?: number;
+            };
+            nodeCount = stats.nodeCount ?? 0;
+            relationCount = stats.relationCount ?? 0;
+            fileCount = stats.fileCount ?? 0;
+          } catch {
+            // keep defaults
+          }
+          return {
+            projectId: row.project_id,
+            name: row.name,
+            projectPath: row.project_path,
+            brainDbPath: row.brain_db_path ?? null,
+            tasksDbPath: row.tasks_db_path ?? null,
+            lastIndexed: row.last_indexed ?? null,
+            taskCount: row.task_count ?? 0,
+            nodeCount,
+            relationCount,
+            fileCount,
+            lastSeen: row.last_seen,
+            healthStatus: row.health_status,
           };
-          nodeCount = stats.nodeCount ?? 0;
-          relationCount = stats.relationCount ?? 0;
-          fileCount = stats.fileCount ?? 0;
-        } catch {
-          // keep defaults
-        }
-        return {
-          projectId: row.project_id,
-          name: row.name,
-          projectPath: row.project_path,
-          brainDbPath: row.brain_db_path ?? null,
-          tasksDbPath: row.tasks_db_path ?? null,
-          lastIndexed: row.last_indexed ?? null,
-          taskCount: row.task_count ?? 0,
-          nodeCount,
-          relationCount,
-          fileCount,
-          lastSeen: row.last_seen,
-          healthStatus: row.health_status,
-        };
-      });
+        });
     } finally {
       db.close();
     }

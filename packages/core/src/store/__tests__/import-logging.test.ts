@@ -19,9 +19,13 @@ vi.mock('../json.js', () => ({
   appendJsonl: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../core/paths.js', () => ({
-  getLogPath: vi.fn().mockReturnValue('/tmp/test-log.json'),
-}));
+vi.mock('../../core/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../core/paths.js')>('../../core/paths.js');
+  return {
+    ...actual,
+    getLogPath: vi.fn().mockReturnValue('/tmp/test-log.json'),
+  };
+});
 
 import {
   extractPackageMeta,

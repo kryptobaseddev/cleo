@@ -57,6 +57,17 @@ export interface LBNode {
    * - CONDUIT/SIGNALDOCK: omitted
    */
   weight?: number;
+  /**
+   * ISO-8601 creation timestamp, or `null` when the substrate does not
+   * expose a timestamp for this node type.
+   *
+   * - BRAIN: `brain_*` tables `created_at` column (ISO text)
+   * - NEXUS: `nexus_nodes.indexed_at` column (ISO text)
+   * - TASKS: `tasks.created_at` / `sessions.started_at` column (ISO text)
+   * - CONDUIT: `messages.created_at` column converted from UNIX epoch (INTEGER)
+   * - SIGNALDOCK: `agents.created_at` column converted from UNIX epoch (INTEGER), or null
+   */
+  createdAt: string | null;
   /** Substrate-specific metadata (source row fields). */
   meta: Record<string, unknown>;
 }
@@ -113,6 +124,7 @@ export interface LBGraph {
  * `substrates` filters to specific databases; omit for all five.
  * `limit` caps total node count (default 500, max 2000).
  * `minWeight` excludes nodes/edges below this quality threshold.
+ * `projectCtx` resolves per-project DB paths; required for correct multi-project routing.
  */
 export interface LBQueryOptions {
   /** Which substrates to include. Defaults to all. */
@@ -121,4 +133,49 @@ export interface LBQueryOptions {
   limit?: number;
   /** Minimum quality/weight to include (0.0–1.0). Default 0. */
   minWeight?: number;
+  /**
+   * Active project context from `event.locals.projectCtx`.
+   * Per-project substrates (brain, tasks, conduit) use this to resolve DB paths.
+   * When absent, adapters fall back to the process-default paths.
+   */
+  projectCtx?: import('../project-context.js').ProjectContext;
 }
+
+/**
+ * Discriminated union of all SSE event payloads emitted by
+ * `GET /api/living-brain/stream`.
+ *
+ * Every variant carries a top-level `ts` field (ISO-8601 timestamp) so
+ * clients can sequence events even when they arrive out-of-order.
+ *
+ * - `hello`           — sent immediately on connect; confirms the stream is live.
+ * - `heartbeat`       — sent every 30 s to prevent connection timeout.
+ * - `node.create`     — a new row was inserted into `brain_observations`.
+ * - `edge.strengthen` — a `brain_page_edges` row had its `weight` column updated.
+ * - `task.status`     — a `tasks` row changed its `status` column.
+ * - `message.send`    — a new row was inserted into `conduit messages`.
+ */
+export type LBStreamEvent =
+  | { type: 'hello'; ts: string }
+  | { type: 'heartbeat'; ts: string }
+  | { type: 'node.create'; node: LBNode; ts: string }
+  | {
+      type: 'edge.strengthen';
+      fromId: string;
+      toId: string;
+      edgeType: string;
+      weight: number;
+      ts: string;
+    }
+  | { type: 'task.status'; taskId: string; status: string; ts: string }
+  | {
+      type: 'message.send';
+      messageId: string;
+      fromAgentId: string;
+      toAgentId: string;
+      preview: string;
+      ts: string;
+    };
+
+/** Connection state for the SSE client subscription. */
+export type LBConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';

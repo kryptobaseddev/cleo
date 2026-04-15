@@ -8,6 +8,7 @@
  */
 
 import { getTasksDb } from '../../db/connections.js';
+import { resolveDefaultProjectContext } from '../../project-context.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from tasks table. */
@@ -66,7 +67,8 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
   nodes: LBNode[];
   edges: LBEdge[];
 } {
-  const db = getTasksDb();
+  const ctx = options.projectCtx ?? resolveDefaultProjectContext();
+  const db = getTasksDb(ctx);
   if (!db) return { nodes: [], edges: [] };
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
@@ -102,6 +104,7 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
         substrate: 'tasks',
         label: row.title,
         weight,
+        createdAt: row.created_at,
         meta: {
           status: row.status,
           priority: row.priority,
@@ -131,6 +134,7 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
         substrate: 'tasks',
         label: `Session ${row.id.slice(-8)}`,
         weight: row.status === 'active' ? 0.9 : 0.4,
+        createdAt: row.started_at,
         meta: {
           status: row.status,
           started_at: row.started_at,
