@@ -111,8 +111,18 @@ clawmsgr-*.json
 # Test output artifacts
 vitest-results.json
 
-# Empty migration stubs
-migrations/
+# Root-level drizzle stub output only. Package migrations MUST be tracked
+# (packages/*/migrations/, crates/*/migrations/). Drizzle-kit sometimes
+# writes stub dirs to the repo root when invoked without a config path;
+# only those should be ignored. This rule is intentionally anchored with
+# a leading slash to prevent matching the real migration dirs that live
+# inside packages/ and crates/.
+#
+# Past incidents (commits e91d3038, c6ae85a3): broad "migrations/" rule
+# silently blocked new migration.sql files from being tracked, causing
+# CI to run against pre-migration schema and fail with "no such column"
+# errors. See .github/workflows/ci.yml "Migration Integrity Check" job.
+/migrations/
 
 # Rust build artifacts
 target/
