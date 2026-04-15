@@ -1,4 +1,4 @@
-import "../../chunks/environment.js";
+import "../../chunks/index-server.js";
 import { V as escape_html, et as getContext } from "../../chunks/dev.js";
 import { n as navigating$1, t as stores } from "../../chunks/client.js";
 Object.defineProperty({

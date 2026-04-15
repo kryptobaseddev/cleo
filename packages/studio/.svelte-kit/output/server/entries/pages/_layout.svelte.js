@@ -1,4 +1,4 @@
-import "../../chunks/environment.js";
+import "../../chunks/index-server.js";
 import { B as attr, V as escape_html, a as ensure_array_like, c as store_get, et as getContext, n as attr_class, u as unsubscribe_stores } from "../../chunks/dev.js";
 import "../../chunks/client.js";
 //#region ../../node_modules/.pnpm/@sveltejs+kit@2.57.1_@sveltejs+vite-plugin-svelte@5.1.1_svelte@5.55.4_vite@8.0.8_@types_3b291ab8aecb731f2569fb111f44cf77/node_modules/@sveltejs/kit/src/runtime/app/stores.js
@@ -34,6 +34,11 @@ function _layout($$renderer, $$props) {
 		var $$store_subs;
 		let { children } = $$props;
 		const navItems = [
+			{
+				href: "/projects",
+				label: "Projects",
+				description: "Multi-project registry"
+			},
 			{
 				href: "/nexus",
 				label: "Nexus",

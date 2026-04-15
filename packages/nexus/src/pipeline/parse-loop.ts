@@ -232,7 +232,7 @@ function runExtractor(
     case 'rust':
       return extractRust(node, filePath);
     default:
-      return { definitions: [], imports: [], heritage: [], calls: [] };
+      return { definitions: [], imports: [], heritage: [], calls: [], reExports: [] };
   }
 }
 
@@ -672,13 +672,7 @@ export async function runParseLoop(
     }
 
     // Extract definitions, imports, heritage, calls, and re-exports — dispatch by language
-    let extracted: {
-      definitions: GraphNode[];
-      imports: ExtractedImport[];
-      heritage: ExtractedHeritage[];
-      calls: ExtractedCall[];
-      reExports?: ExtractedReExport[];
-    };
+    let extracted: CommonExtractionResult;
     try {
       extracted = runExtractor(lang, rootNode, file.path);
     } catch (err) {
