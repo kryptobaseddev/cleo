@@ -473,9 +473,6 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
 
     for (const row of shortToMedium) {
       try {
-        nativeDb
-          .prepare(`UPDATE ${table} SET memory_tier = 'medium', updated_at = ? WHERE id = ?`)
-          .run(now, row.id);
         let reason: string;
         if (row.citation_count >= 3) {
           reason = `citationCount=${row.citation_count} >= 3, age > 24h`;
@@ -484,6 +481,12 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
         } else {
           reason = `verified=true, age > 24h`;
         }
+        // T743: persist tier_promoted_at + tier_promotion_reason for audit trail
+        nativeDb
+          .prepare(
+            `UPDATE ${table} SET memory_tier = 'medium', updated_at = ?, tier_promoted_at = ?, tier_promotion_reason = ? WHERE id = ?`,
+          )
+          .run(now, now, reason, row.id);
         promoted.push({ id: row.id, table, fromTier: 'short', toTier: 'medium', reason });
       } catch {
         /* best-effort */
@@ -513,13 +516,16 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
 
     for (const row of mediumToLong) {
       try {
-        nativeDb
-          .prepare(`UPDATE ${table} SET memory_tier = 'long', updated_at = ? WHERE id = ?`)
-          .run(now, row.id);
         const reason =
           row.citation_count >= 5
             ? `citationCount=${row.citation_count} >= 5, age > 7d`
             : `verified=true, age > 7d`;
+        // T743: persist tier_promoted_at + tier_promotion_reason for audit trail
+        nativeDb
+          .prepare(
+            `UPDATE ${table} SET memory_tier = 'long', updated_at = ?, tier_promoted_at = ?, tier_promotion_reason = ? WHERE id = ?`,
+          )
+          .run(now, now, reason, row.id);
         promoted.push({ id: row.id, table, fromTier: 'medium', toTier: 'long', reason });
       } catch {
         /* best-effort */
@@ -612,6 +618,17 @@ export interface RunConsolidationResult {
   homeostaticDecay?: {
     edgesDecayed: number;
     edgesPruned: number;
+  };
+  /**
+   * LLM-driven sleep consolidation result from Step 10 (T734).
+   * Populated when sleep consolidation ran. Absent when skipped (disabled or no LLM).
+   */
+  sleepConsolidation?: {
+    ran: boolean;
+    merged: number;
+    pruned: number;
+    patternsGenerated: number;
+    insightsStored: number;
   };
 }
 
@@ -811,6 +828,35 @@ export async function runConsolidation(
     }
   } catch (err) {
     console.warn('[consolidation] Step 9e consolidation event log failed:', err);
+  }
+
+  // Step 10: LLM-driven sleep consolidation (T734)
+  // Runs the 4-step LLM pipeline: merge duplicates, prune stale, strengthen
+  // patterns, generate insights. Enabled by default when an LLM API key is
+  // available. Graceful no-op when disabled or LLM is unavailable — never
+  // blocks or throws.
+  try {
+    const { runSleepConsolidation } = await import('./sleep-consolidation.js');
+    const sleepResult = await runSleepConsolidation(projectRoot);
+    result.sleepConsolidation = {
+      ran: sleepResult.ran,
+      merged: sleepResult.mergeDuplicates.merged,
+      pruned: sleepResult.pruneStale.pruned,
+      patternsGenerated: sleepResult.strengthenPatterns.patternsGenerated,
+      insightsStored: sleepResult.generateInsights.insightsStored,
+    };
+    if (sleepResult.ran) {
+      // Roll up LLM-generated summaries into the top-level summariesGenerated
+      // counter so that `cleo memory dream` output shows non-zero "Summaries gen"
+      // when the LLM pipeline ran successfully.
+      result.summariesGenerated +=
+        sleepResult.strengthenPatterns.patternsGenerated +
+        sleepResult.generateInsights.insightsStored;
+    } else {
+      console.warn('[consolidation] Step 10 sleep consolidation skipped (disabled or no LLM)');
+    }
+  } catch (err) {
+    console.warn('[consolidation] Step 10 sleep consolidation failed:', err);
   }
 
   return result;
