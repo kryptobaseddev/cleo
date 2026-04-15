@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.55] (2026-04-15)
+
+CI GREEN — fix T633 nexus-e2e shard-2 isolation root cause.
+
+### Fix: T633 — vi.mock pollution causing nexus-e2e shard 2 failures
+- `session-grade.test.ts` and `session-grade.integration.test.ts` mocked
+  `paths.js` with ONLY `getCleoDirAbsolute` exported, replacing the entire
+  module in vitest's registry.
+- Tests that ran AFTER in the same shard (graph-memory-bridge, nexus-e2e
+  audit log, health status, set-permission, init validation, error handling)
+  loaded the polluted module and threw `No "getCleoDirAbsolute" export is
+  defined on the "../paths.js" mock. Did you forget to return it from
+  "vi.mock"?` errors when calling other paths.js functions.
+- The error was caught silently by `writeNexusAudit`'s try/catch, leaving
+  the audit log empty. Test assertions like `expect(entries.length)
+  .toBeGreaterThanOrEqual(1)` then failed.
+- Fix: both files now use `vi.importActual` + spread to preserve all OTHER
+  exports while overriding only `getCleoDirAbsolute`.
+- Same pattern as `graph-memory-bridge-integration.test.ts` (which already
+  documented this trap).
+- 53/53 session-grade tests still pass. 4118/4118 shard-2 tests pass locally.
+
 ## [2026.4.54] (2026-04-15)
 
 ROOT-CAUSE FIX (T632): migration journal reconciler no longer marks migrations
