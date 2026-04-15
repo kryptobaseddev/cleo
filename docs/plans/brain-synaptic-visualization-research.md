@@ -288,29 +288,35 @@ What `/brain` actually renders today, mapped to the target above:
 
 **Kill criteria**: privacy concerns when shared workspaces leak project-A context into project-B view. Require explicit owner opt-in per project pair.
 
-### Phase 5 — STDP-inspired plasticity `(large) 🟡 IN PROGRESS [T673]` {#phase-5}
+### Phase 5 — STDP-inspired plasticity `(large) ✅ SHIPPED [T673]` {#phase-5}
 
-**Schema**: `brain_plasticity_events` table exists (shipped v2026.4.51, c7e4143a). Has 0 rows. Three confirmed bugs prevent events from firing — see `docs/specs/stdp-wire-up-spec.md §1.4`.
+**Status**: DONE (2026-04-15, v2026.4.62). All 21 tasks across 4 waves shipped. Plasticity substrate fully functional.
 
-**3 root-cause bugs** (from T673 council, `docs/specs/stdp-wire-up-spec.md`):
-- BUG-1: `applyStdpPlasticity` default `sessionWindowMs=5min` is used as BOTH lookback AND pair window. Live `brain_retrieval_log` rows are 2+ days old → 0 rows qualify.
-- BUG-2: `logRetrieval` stores `entry_ids` as comma-separated; `strengthenCoRetrievedEdges` and `applyStdpPlasticity` call `JSON.parse()` → silent parse failure.
-- BUG-3: `brain_retrieval_log.session_id` column defined in Drizzle schema but ALTER TABLE was never applied to live DB.
+**Root-cause bugs fixed**:
+- **BUG-1 (T688)**: Lookback/pairing window conflation — separated `lookbackDays` (30d SQL cutoff) from `pairingWindowMs` (24h pair gate)
+- **BUG-2 (T679)**: `entry_ids` format — fixed `logRetrieval` to store JSON arrays; idempotent migration converts 38 historical rows
+- **BUG-3 (T703/T696)**: Missing `session_id` column — applied ALTER TABLE + date-bucketing backfill
 
-**Implementation plan**: T673 epic decomposed into **21 active tasks across 4 waves** per `docs/specs/stdp-wire-up-spec.md` (V2, synthesized by T673 council, 2026-04-15):
+**Schema** (M1–M4 complete):
+- M1: `brain_retrieval_log` + 4 columns (`session_id`, `reward_signal`, `retrieval_order`, `delta_ms`)
+- M2: `brain_plasticity_events` + 5 columns (observability: `weight_before/after`, `retrieval_log_id`, `reward_signal`, `delta_t_ms`)
+- M3: `brain_page_edges` + 6 columns (`last_reinforced_at`, `reinforcement_count`, `plasticity_class`, `last_depressed_at`, `depression_count`, `stability_score`)
+- M4: New tables (`brain_weight_history` audit, `brain_modulators` signals, `brain_consolidation_events` observability)
 
-| Wave | Tasks | Scope |
-|---|---|---|
-| **Wave 0** (7 tasks, fully parallel) | T703, T696, T706, T697, T699, T701, T715 | Schema migrations: `brain_retrieval_log` columns, `brain_plasticity_events` expand, `brain_page_edges` plasticity columns, `brain_weight_history` CREATE, `brain_modulators` CREATE, `brain_consolidation_events` CREATE, `session_id` backfill SQL |
-| **Wave 1** (3 tasks) | T679, T681, T693 | Core writer fixes: lookback window (30d), `session_id` INSERT, `backfillRewardSignals` Step 9a, `plasticity_class` writer |
-| **Wave 2** (6 tasks) | T688, T689, T692, T691, T713, T714 | Algorithm extensions: cross-session pair window (24h), tiered τ (near/session/episodic), R-STDP modulation, novelty boost, idempotency guard, minimum-pair gate |
-| **Wave 3** (3 tasks) | T690, T694, T695 | Homeostasis + pipeline: homeostatic decay pass, consolidation pipeline Steps 9a/9b/9c, cross-session spike grouping |
-| **Wave 4** (2 tasks) | T682, T683 | Testing + documentation: end-to-end functional test on real brain.db (no mocks), ADR + plan doc update |
+**Algorithm** (4 waves, fully wired):
+- **Wave 1 (T679/T681/T693)**: Writer fixes + `backfillRewardSignals` Step 9a + plasticity_class tracking
+- **Wave 2 (T688/T689/T691/T692/T713/T714)**: Tiered τ (20s/30min/12h), R-STDP (×(1±r)), novelty 1.5×, guards
+- **Wave 3 (T690/T694/T695)**: Homeostatic decay (2%/day), consolidation pipeline, cross-session grouping
+- **Wave 4 (T682/T683)**: 7 E2E functional tests (real brain.db), ADR-046, plan docs, CHANGELOG
 
-**STDP synthesis**: `.cleo/agent-outputs/T673-council-synthesis.md`
-**Master spec**: `docs/specs/stdp-wire-up-spec.md` (STDP-WIRE-UP-V2, authoritative)
+**Plasticity in production**:
+- `brain_plasticity_events` now populated with LTP/LTD events per session-end consolidation
+- Edges strengthen via co-retrieval (Hebbian) + STDP (timing-dependent)
+- Edges weaken via LTD + homeostatic decay when idle
+- Reward signals (task outcomes) modulate learning via R-STDP
+- Cross-session learning works (hours/days between spikes)
 
-**Kill criteria**: weight distribution becomes pathologically bimodal (everything 0.05 or 1.0); LTD prunes >10% of edges per consolidation pass.
+**See**: ADR-046 (this session), CHANGELOG v2026.4.62, docs/specs/stdp-wire-up-spec.md (STDP-WIRE-UP-V2)
 
 ### Phase 6 — 3D hero view `(medium) 🟡 IN PROGRESS [T660]`
 
