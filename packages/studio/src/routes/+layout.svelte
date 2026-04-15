@@ -7,6 +7,7 @@
   let { children }: Props = $props();
 
   const navItems = [
+    { href: '/projects', label: 'Projects', description: 'Multi-project registry' },
     { href: '/nexus', label: 'Nexus', description: 'Code intelligence graph' },
     { href: '/brain', label: 'Brain', description: 'Memory visualization' },
     { href: '/tasks', label: 'Tasks', description: 'Task management' },

@@ -4,6 +4,55 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.49] (2026-04-15)
+
+CLEO Studio views + diagnostics + agent self-healing + multi-project registry.
+
+### Feat: BRAIN Studio View (T620)
+- `/brain` dashboard with 8 stat cards, memory tiers, recent activity
+- `/brain/graph` — d3-force neural network visualization
+- `/brain/decisions` — expandable timeline
+- `/brain/observations` — filterable list with quality bars
+- `/brain/quality` — distribution histograms
+- `BrainGraph.svelte` component: node color by type, radius by quality, tier ring style
+- LIVE: 767 nodes, 556 edges rendering from brain.db
+
+### Feat: Multi-project registry (T622)
+- `/projects` — project list view
+- `project-context.ts` server helper
+- `/api/search` — cross-project symbol search
+- (Partial — core nexus/registry.ts work in progress, further integration pending)
+
+### Feat: Diagnostics telemetry (T624)
+- Opt-in telemetry via `cleo diagnostics enable|disable|status|analyze|export`
+- `telemetry_events` table in `~/.local/share/cleo/telemetry.db`
+- Fire-and-forget middleware records every operation when enabled
+- `buildDiagnosticsReport` surfaces failing/slow commands, auto-generates BRAIN observations
+- 14/14 unit tests pass
+
+### Feat: Agent self-healing via NEXUS (T625)
+- Pre-modification `buildNexusContext` injects callers/callees into agent prompts
+- Post-modification incremental NEXUS analyze via PostToolUse hook
+- `cleo nexus diff --before <sha> --after HEAD` — compare index state
+- Regression detection with LAFS JSON envelope output
+- BRAIN learning auto-generation for broken relations
+
+### Fix: Web daemon persistence (T623)
+- Stdio routing to `~/.local/share/cleo/logs/web-server.log`
+- Atomic PID file write (temp + rm pattern)
+- Extended SIGTERM grace period to 30s
+- `cleo web restart` command added
+- Cross-platform signal handling
+
+### Fix: CI biome failures (multiple)
+- Pre-release verification protocol now mandatory
+- `pnpm biome ci packages/` runs on entire tree, not touched files only
+
+### Partial: T618 barrel tracing wire (2 context-limit failures)
+- LEAD decomposition plan at `.cleo/agent-outputs/T618-decomposition-plan.md`
+- 5 micro-tasks identified — orchestrator will dispatch next wave
+- Functions exist, data quality issue identified (type gap + path normalization)
+
 ## [2026.4.48] (2026-04-15)
 
 Agent SDK providers + CLEO Studio portal + barrel tracing infrastructure + CI fix.

@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/studio",
-  "version": "2026.4.48",
+  "version": "2026.4.49",
   "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
   "type": "module",
   "private": true,
@@ -15,8 +15,12 @@
   "dependencies": {
     "@sveltejs/adapter-node": "^5.2.13",
     "@sveltejs/kit": "^2.20.6",
-    "svelte": "^5.28.1",
-    "hono": "^4.7.10"
+    "d3": "^7.9.0",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "hono": "^4.7.10",
+    "sigma": "^3.0.2",
+    "svelte": "^5.28.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

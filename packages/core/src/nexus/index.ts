@@ -74,6 +74,7 @@ export {
   type NexusPermissionLevel,
   // Types
   type NexusProject,
+  type NexusProjectStats,
   type NexusRegistryFile,
   nexusGetProject,
   nexusInit,
@@ -85,6 +86,7 @@ export {
   nexusSync,
   nexusSyncAll,
   nexusUnregister,
+  nexusUpdateIndexStats,
   // Operations
   readRegistry,
   readRegistryRequired,

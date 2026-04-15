@@ -31,11 +31,20 @@ export const projectRegistry = sqliteTable(
     lastSync: text('last_sync').notNull().default(sql`(datetime('now'))`),
     taskCount: integer('task_count').notNull().default(0),
     labelsJson: text('labels_json').notNull().default('[]'),
+    /** Absolute path to the project's brain.db file. */
+    brainDbPath: text('brain_db_path'),
+    /** Absolute path to the project's tasks.db file. */
+    tasksDbPath: text('tasks_db_path'),
+    /** ISO 8601 timestamp of the last successful code intelligence index run. */
+    lastIndexed: text('last_indexed'),
+    /** JSON object with per-project code intelligence stats (node_count, relation_count, file_count). */
+    statsJson: text('stats_json').notNull().default('{}'),
   },
   (table) => [
     index('idx_project_registry_hash').on(table.projectHash),
     index('idx_project_registry_health').on(table.healthStatus),
     index('idx_project_registry_name').on(table.name),
+    index('idx_project_registry_last_indexed').on(table.lastIndexed),
   ],
 );
 
