@@ -438,9 +438,7 @@ export function allEpicChildrenVerified(epicId: string, tasks: TaskForVerificati
   const incomplete = children.filter((t) => t.status !== 'done');
   if (incomplete.length > 0) return false;
 
-  const unverified = children.filter(
-    (t) => t.status === 'done' && (!t.verification || !t.verification.passed),
-  );
+  const unverified = children.filter((t) => t.status === 'done' && !t.verification?.passed);
   return unverified.length === 0;
 }
 
@@ -451,9 +449,7 @@ export function allEpicChildrenVerified(epicId: string, tasks: TaskForVerificati
 export function allSiblingsVerified(parentId: string, tasks: TaskForVerification[]): boolean {
   const siblings = tasks.filter((t) => t.parentId === parentId);
 
-  const unverifiedDone = siblings.filter(
-    (t) => t.status === 'done' && (!t.verification || !t.verification.passed),
-  );
+  const unverifiedDone = siblings.filter((t) => t.status === 'done' && !t.verification?.passed);
 
   const incomplete = siblings.filter(
     (t) => t.status === 'pending' || t.status === 'active' || t.status === 'blocked',

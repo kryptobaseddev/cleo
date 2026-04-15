@@ -56,7 +56,7 @@ export function clearEmbeddingProvider(): void {
  * Returns null when no provider is set or not available (FTS5-only fallback).
  */
 export async function embedText(text: string): Promise<Float32Array | null> {
-  if (!currentProvider || !currentProvider.isAvailable()) return null;
+  if (!currentProvider?.isAvailable()) return null;
   return currentProvider.embed(text);
 }
 

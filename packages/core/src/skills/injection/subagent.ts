@@ -205,7 +205,7 @@ export async function orchestratorSpawnSkill(
 ): Promise<string> {
   // Find the skill
   const skill = findSkill(skillName, cwd);
-  if (!skill || !skill.content) {
+  if (!skill?.content) {
     throw new CleoError(ExitCode.NOT_FOUND, `Skill not found: ${skillName}`, {
       fix: `Check skills directory for ${skillName}/SKILL.md`,
     });

@@ -420,7 +420,7 @@ export async function analyzeArchive(
 
   const reportType = opts.report ?? 'summary';
 
-  if (!data || !data.archivedTasks?.length) {
+  if (!data?.archivedTasks?.length) {
     return {
       report: reportType,
       filters: null,

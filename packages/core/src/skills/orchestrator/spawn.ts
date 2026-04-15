@@ -45,7 +45,7 @@ export async function buildPrompt(
 
   // Find skill template
   const skill = findSkill(templateName, cwd);
-  if (!skill || !skill.content) {
+  if (!skill?.content) {
     const { canonical } = mapSkillName(templateName);
     throw new CleoError(ExitCode.NOT_FOUND, `Skill template ${templateName} not found`, {
       fix: `Expected at skills/${canonical}/SKILL.md`,

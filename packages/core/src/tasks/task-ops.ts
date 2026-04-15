@@ -144,7 +144,7 @@ function measureDependencyDepth(
   visited.add(taskId);
 
   const task = taskMap.get(taskId);
-  if (!task || !task.depends || task.depends.length === 0) return 0;
+  if (!task?.depends || task.depends.length === 0) return 0;
 
   let maxDepth = 0;
   for (const depId of task.depends) {
@@ -921,7 +921,7 @@ export async function coreTaskUnarchive(
   }
 
   const archive = await accessor.loadArchive();
-  if (!archive || !archive.archivedTasks) {
+  if (!archive?.archivedTasks) {
     throw new Error('No archive file found');
   }
 

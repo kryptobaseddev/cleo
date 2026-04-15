@@ -206,7 +206,7 @@ export async function readLogEntries(filePath: string): Promise<Record<string, u
       if (remainder) {
         for (const line of remainder.split('\n')) {
           const l = line.trim();
-          if (!l || !l.startsWith('{')) continue;
+          if (!l?.startsWith('{')) continue;
           try {
             entries.push(JSON.parse(l) as Record<string, unknown>);
           } catch {
@@ -219,7 +219,7 @@ export async function readLogEntries(filePath: string): Promise<Record<string, u
     // Pure JSONL (no initial JSON object)
     for (const line of trimmed.split('\n')) {
       const l = line.trim();
-      if (!l || !l.startsWith('{')) continue;
+      if (!l?.startsWith('{')) continue;
       try {
         entries.push(JSON.parse(l) as Record<string, unknown>);
       } catch {

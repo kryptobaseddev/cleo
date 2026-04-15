@@ -292,7 +292,7 @@ async function computeLastSession(
     const allSessions = await accessor.loadSessions();
 
     const session = allSessions.find((s) => s.id === sessionId);
-    if (!session || !session.endedAt) return null;
+    if (!session?.endedAt) return null;
 
     // Calculate duration if startedAt is available
     let duration = 0;
