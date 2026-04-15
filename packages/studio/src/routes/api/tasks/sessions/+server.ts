@@ -42,7 +42,47 @@ export const GET: RequestHandler = ({ locals, url }) => {
       debrief_json: string | null;
     }>;
 
-    // For each session, enrich with completed task titles if IDs present
+    // Pre-fetch all task_work_history rows for these sessions in one query
+    const sessionIds = sessions.map((s) => s.id);
+    const workHistoryRows =
+      sessionIds.length > 0
+        ? (db
+            .prepare(
+              `SELECT twh.session_id, twh.task_id, twh.set_at, twh.cleared_at,
+                      t.title, t.status
+               FROM task_work_history twh
+               JOIN tasks t ON t.id = twh.task_id
+               WHERE twh.session_id IN (${sessionIds.map(() => '?').join(',')})
+               ORDER BY twh.set_at ASC`,
+            )
+            .all(...sessionIds) as Array<{
+            session_id: string;
+            task_id: string;
+            set_at: string;
+            cleared_at: string | null;
+            title: string;
+            status: string;
+          }>)
+        : [];
+
+    // Group work history by session
+    const workHistoryBySession = new Map<
+      string,
+      Array<{ id: string; title: string; status: string; setAt: string; clearedAt: string | null }>
+    >();
+    for (const row of workHistoryRows) {
+      const existing = workHistoryBySession.get(row.session_id) ?? [];
+      existing.push({
+        id: row.task_id,
+        title: row.title,
+        status: row.status,
+        setAt: row.set_at,
+        clearedAt: row.cleared_at,
+      });
+      workHistoryBySession.set(row.session_id, existing);
+    }
+
+    // For each session, enrich with task data
     const enriched = sessions.map((s) => {
       let completedIds: string[] = [];
       try {
@@ -67,6 +107,17 @@ export const GET: RequestHandler = ({ locals, url }) => {
         if (t) completedTasks.push(t);
       }
 
+      // Resolve current active task
+      let currentTask: { id: string; title: string; status: string } | null = null;
+      if (s.current_task) {
+        const ct = db
+          .prepare('SELECT id, title, status FROM tasks WHERE id = ?')
+          .get(s.current_task) as { id: string; title: string; status: string } | undefined;
+        if (ct) currentTask = ct;
+      }
+
+      const workedTasks = workHistoryBySession.get(s.id) ?? [];
+
       const durationMs =
         s.started_at && s.ended_at
           ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
@@ -77,13 +128,14 @@ export const GET: RequestHandler = ({ locals, url }) => {
         name: s.name,
         status: s.status,
         agent: s.agent,
-        currentTask: s.current_task,
+        currentTask,
         startedAt: s.started_at,
         endedAt: s.ended_at,
         durationMs,
         completedCount: completedIds.length,
         createdCount: createdIds.length,
         completedTasks,
+        workedTasks,
       };
     });
 
