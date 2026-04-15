@@ -593,7 +593,12 @@ export interface RunConsolidationResult {
   summariesGenerated: number;
   /** Code↔memory graph links created. */
   graphLinksCreated?: number;
-  /** STDP plasticity result from step 9. */
+  /** R-STDP reward backfill result from step 9a (T681). */
+  rewardBackfilled?: {
+    rowsLabeled: number;
+    rowsSkipped: number;
+  };
+  /** STDP plasticity result from step 9b. */
   stdpPlasticity?: {
     ltpEvents: number;
     ltdEvents: number;
@@ -616,13 +621,21 @@ export interface RunConsolidationResult {
  *   5. Soft eviction — invalidate low-quality medium-term entries
  *   6. Graph edge strengthening — increment weight on frequently-traversed edges
  *   7. Summary generation — existing consolidateMemories() for large clusters
+ *   8. Code↔memory graph linking
+ *   9a. R-STDP reward backfill — assign reward_signal from task outcomes (T681)
+ *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal
  *
  * All steps are BEST-EFFORT — any step failure is caught and logged to console.warn.
  *
  * @param projectRoot - Project root directory for brain.db resolution
+ * @param sessionId - Active session ID, passed to backfillRewardSignals (Step 9a).
+ *   If null/undefined, Step 9a is a no-op (no task correlation available).
  * @returns Aggregated counts from each consolidation step
  */
-export async function runConsolidation(projectRoot: string): Promise<RunConsolidationResult> {
+export async function runConsolidation(
+  projectRoot: string,
+  sessionId?: string | null,
+): Promise<RunConsolidationResult> {
   const result: RunConsolidationResult = {
     deduplicated: 0,
     qualityRecomputed: 0,
@@ -703,15 +716,27 @@ export async function runConsolidation(projectRoot: string): Promise<RunConsolid
     console.warn('[consolidation] Step 8 graph memory bridge failed:', err);
   }
 
-  // Step 9: STDP timing-dependent plasticity (T626 phase 5)
+  // Step 9a: R-STDP reward backfill (T681)
+  // Derives reward_signal for brain_retrieval_log rows from task outcomes in tasks.db.
+  // Runs BEFORE Step 9b so that STDP can read reward signals during Δw computation.
+  // No-op when sessionId is null (no task correlation available) or synthetic session.
+  try {
+    const { backfillRewardSignals } = await import('./brain-stdp.js');
+    const rewardResult = await backfillRewardSignals(projectRoot, sessionId ?? null);
+    result.rewardBackfilled = rewardResult;
+  } catch (err) {
+    console.warn('[consolidation] Step 9a reward backfill failed:', err);
+  }
+
+  // Step 9b: STDP timing-dependent plasticity (T626 phase 5)
   // Refines co_retrieved edge weights using retrieval temporal order.
-  // Runs after Hebbian strengthening (step 6) so it builds on existing edges.
+  // Runs after Hebbian strengthening (step 6) and reward backfill (step 9a).
   try {
     const { applyStdpPlasticity } = await import('./brain-stdp.js');
     const stdpResult = await applyStdpPlasticity(projectRoot);
     result.stdpPlasticity = stdpResult;
   } catch (err) {
-    console.warn('[consolidation] Step 9 STDP plasticity failed:', err);
+    console.warn('[consolidation] Step 9b STDP plasticity failed:', err);
   }
 
   return result;
@@ -994,22 +1019,23 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
     const nodeTo = `observation:${toId}`;
 
     try {
-      // Try to update existing edge
+      // Try to update existing edge — set plasticity_class='hebbian' on UPDATE (T693)
       const updateStmt = nativeDb.prepare(`
         UPDATE brain_page_edges
-        SET weight = MIN(1.0, weight + 0.1)
+        SET weight = MIN(1.0, weight + 0.1),
+            plasticity_class = 'hebbian'
         WHERE from_id = ? AND to_id = ? AND edge_type = ?
       `);
       const updateResult = updateStmt.run(nodeFrom, nodeTo, EDGE_TYPES.CO_RETRIEVED);
       const changes = typeof updateResult.changes === 'number' ? updateResult.changes : 0;
 
       if (changes === 0) {
-        // Edge doesn't exist; insert it
+        // Edge doesn't exist; insert it with plasticity_class='hebbian' (T693)
         nativeDb
           .prepare(`
             INSERT OR IGNORE INTO brain_page_edges
-              (from_id, to_id, edge_type, weight, provenance, created_at)
-            VALUES (?, ?, ?, 0.3, 'consolidation:co-retrieval', ?)
+              (from_id, to_id, edge_type, weight, provenance, plasticity_class, created_at)
+            VALUES (?, ?, ?, 0.3, 'consolidation:co-retrieval', 'hebbian', ?)
           `)
           .run(nodeFrom, nodeTo, EDGE_TYPES.CO_RETRIEVED, now);
       }
