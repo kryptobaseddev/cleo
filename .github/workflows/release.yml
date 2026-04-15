@@ -370,12 +370,15 @@ jobs:
           PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
           FAILED_PKGS=()
 
-          # Returns 0 if @cleocode/$1 is already at $VERSION on npm (idempotent re-runs)
+          # Returns 0 if @cleocode/$1@$VERSION is already on npm (idempotent re-runs).
+          # Uses explicit @VERSION qualifier so the check is correct regardless of
+          # which dist-tag (latest/beta/dev) was used and regardless of npm registry
+          # cache state for the "latest" pointer.
           already_published() {
             local pkg="$1"
-            local current
-            current=$(npm view "@cleocode/$pkg" version 2>/dev/null || echo "")
-            [[ "$current" == "$VERSION" ]]
+            local published_version
+            published_version=$(npm view "@cleocode/$pkg@$VERSION" version 2>/dev/null || true)
+            [[ "$published_version" == "$VERSION" ]]
           }
 
           publish_pkg() {
@@ -390,19 +393,29 @@ jobs:
               return 0
             fi
             if already_published "$pkg"; then
-              echo "SKIP: @cleocode/$pkg@$VERSION already on npm (idempotent re-run)"
+              echo "✓ SKIP: @cleocode/$pkg@$VERSION already on npm (idempotent re-run)"
               return 0
             fi
             pushd "packages/$pkg" > /dev/null
-            if pnpm publish $PUBLISH_ARGS; then
-              echo "OK: @cleocode/$pkg@$VERSION published"
+            PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1)
+            PUBLISH_EXIT=$?
+            echo "$PUBLISH_OUTPUT"
+            if [[ $PUBLISH_EXIT -eq 0 ]]; then
+              echo "✓ PUBLISHED: @cleocode/$pkg@$VERSION"
             else
-              # Re-check after failure: if the version is now on npm, treat as success
-              # (handles race conditions and transient errors). Otherwise record failure.
+              # Re-check after failure: distinguish between version-conflict 403
+              # (already published — safe to skip) vs real OIDC/permission errors.
               if already_published "$pkg"; then
-                echo "OK: @cleocode/$pkg@$VERSION present on npm after retry-check"
+                echo "✓ SKIP-RACE: @cleocode/$pkg@$VERSION was published concurrently or pre-exists"
+              elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
+                # 403 "cannot publish over" — version exists but registry cache missed our pre-check
+                echo "✓ SKIP-CONFLICT: @cleocode/$pkg@$VERSION already published (403 version conflict)"
+              elif echo "$PUBLISH_OUTPUT" | grep -qi "OIDC\|trusted publish\|403\|401\|Unauthorized\|Forbidden"; then
+                echo "✗ FAIL: @cleocode/$pkg publish failed — possible OIDC/permission error"
+                echo "  Error detail: $(echo "$PUBLISH_OUTPUT" | grep -i 'OIDC\|403\|401\|error\|npm ERR' | head -5)"
+                FAILED_PKGS+=("$pkg")
               else
-                echo "FAIL: @cleocode/$pkg publish failed"
+                echo "✗ FAIL: @cleocode/$pkg publish failed"
                 FAILED_PKGS+=("$pkg")
               fi
             fi
@@ -426,13 +439,24 @@ jobs:
           publish_pkg cleo-os
 
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
-            echo "::error::Publish step failed for: ${FAILED_PKGS[*]}"
-            echo "Common causes:"
-            echo "  - npm Trusted Publisher not configured for @cleocode/<pkg>"
-            echo "    Fix: npmjs.com → package → Settings → Publishing access"
+            echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
+            echo ""
+            echo "Diagnosis guide:"
+            echo "  If error mentions OIDC / 401 / Unauthorized:"
+            echo "    → npm Trusted Publisher not configured or misconfigured"
+            echo "    → Fix: npmjs.com → package → Settings → Publishing access"
             echo "         → Add GitHub Actions trusted publisher (org=kryptobaseddev,"
-            echo "         repo=cleo, workflow=.github/workflows/release.yml)"
-            echo "  - Package marked private or missing publishConfig.access=public"
+            echo "           repo=cleo, workflow=.github/workflows/release.yml)"
+            echo ""
+            echo "  If error mentions 403 / permission denied (not 'cannot publish over'):"
+            echo "    → Package may be private or missing publishConfig.access=public"
+            echo ""
+            echo "  If error mentions 'cannot publish over previously published':"
+            echo "    → Version conflict: this version already exists on npm"
+            echo "    → This should have been caught as SKIP — check already_published() logic"
+            echo ""
+            echo "  NOTE: 403 'cannot publish over' is NOT an OIDC failure."
+            echo "        OIDC trusted publisher IS working if any packages published successfully."
             exit 1
           fi
-          echo "All packages published OK"
+          echo "✓ All packages published or skipped (idempotent re-run safe)"
