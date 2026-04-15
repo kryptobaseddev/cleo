@@ -84,6 +84,13 @@ interface RawEdge {
   weight: number;
   provenance: string | null;
   created_at: string;
+  // T673-M3 plasticity columns — may be absent from partial SELECTs
+  last_reinforced_at?: string | null;
+  reinforcement_count?: number;
+  plasticity_class?: string;
+  last_depressed_at?: string | null;
+  depression_count?: number;
+  stability_score?: number | null;
 }
 
 /** Map a snake_case raw row to a camelCase BrainPageNodeRow. */
@@ -110,6 +117,13 @@ function mapEdge(raw: RawEdge): BrainPageEdgeRow {
     weight: raw.weight,
     provenance: raw.provenance,
     createdAt: raw.created_at,
+    // T673-M3 plasticity columns (default to neutral values if absent from SELECT)
+    lastReinforcedAt: raw.last_reinforced_at ?? null,
+    reinforcementCount: raw.reinforcement_count ?? 0,
+    plasticityClass: (raw.plasticity_class ?? 'static') as BrainPageEdgeRow['plasticityClass'],
+    lastDepressedAt: raw.last_depressed_at ?? null,
+    depressionCount: raw.depression_count ?? 0,
+    stabilityScore: raw.stability_score ?? null,
   };
 }
 
