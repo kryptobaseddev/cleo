@@ -382,7 +382,7 @@ export function prepareSpawnMulti(
     const isPrimary = i === 0;
 
     const skill = findSkill(skillName, cwd);
-    if (!skill || !skill.content) {
+    if (!skill?.content) {
       continue;
     }
 

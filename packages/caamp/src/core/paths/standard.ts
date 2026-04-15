@@ -747,7 +747,7 @@ export function buildSkillSubPathCandidates(
 
   const knownPrefixes = ['.agents', '.claude'];
   for (const value of [base, parsed]) {
-    if (!value || !value.startsWith('skills/')) continue;
+    if (!value?.startsWith('skills/')) continue;
     for (const prefix of knownPrefixes) {
       candidates.push(`${prefix}/${value}`);
     }

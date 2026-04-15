@@ -316,7 +316,7 @@ export async function migrateClaudeMem(
 
       try {
         for (const row of batch) {
-          if (!row.learned || !row.learned.trim()) {
+          if (!row.learned?.trim()) {
             continue;
           }
 

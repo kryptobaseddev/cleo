@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.52] (2026-04-15)
+
+CLEO Studio stable + GEXF exports + STDP session grouping + Living Brain viz.
+
+### Fix: Studio graph rendering runtime errors
+- `/living-brain` — skip self-loop edges (allowSelfLoops: false caused UsageGraphError)
+- `/nexus` — renamed custom edge `type` to `edgeCategory` (sigma was trying to find a program for "cross-community")
+- Both routes render correctly now
+
+### Feat: Living Brain unified viz page (T626)
+- `packages/studio/src/routes/living-brain/` — main viz with sigma.js WebGL
+- `LivingBrainGraph.svelte` — unified graph component, substrate toggles, weight slider
+- Substrate colors: brain=blue, nexus=green, tasks=orange, conduit=purple, signaldock=red
+- Edge type colors: supersedes/affects/applies_to/calls/co_retrieved/mentions
+- ForceAtlas2 layout, click → side panel with node details
+- Nav link added to +layout.svelte
+
+### Feat: GEXF exports (T626 M6 + M7)
+- `cleo brain export --format gexf|json [--output file]` — 12 tests
+- `cleo nexus export --format gexf|json [--output file] [--project id]`
+- Gephi-compatible XML with semantic color coding by node kind
+- Enables round-trip analysis in Gephi per plan Phase 1
+
+### Feat: STDP session grouping (T626-M2)
+- `brain_retrieval_log.session_id` column added
+- `logRetrieval` accepts optional `sessionId` parameter
+- All 3 caller paths wired via `getCurrentSessionId()`
+- Enables session-scoped STDP plasticity calculation
+
+### Chore: Biome cleanup
+- 13 optional-chain refactors auto-applied (safe+unsafe passes)
+
 ## [2026.4.51] (2026-04-15)
 
 T626 Living Brain foundation — 5-substrate API + decision cross-links + STDP plasticity + edge normalization.
