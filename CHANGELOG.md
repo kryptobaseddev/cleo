@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.60] (2026-04-15)
+
+**Wave 0+1 Living Brain stabilization + 3D Synapse Brain hero view.**
+
+### Fix: T663 — Stub-node loader recovers 89% of dropped cross-substrate edges
+
+`living-brain/adapters/index.ts` was importing node-only `better-sqlite3`
+at the module level, causing the entire adapter to fail silently in the
+browser. Added SSR guard + stub-node loader so the 2894 cross-substrate
+edges (BRAIN↔NEXUS, BRAIN↔TASKS, NEXUS↔TASKS, CONDUIT bridges) are now
+visible in the canvas. Verified via browser screenshot (T684 validation).
+
+### Fix: T686 — `/brain` and `/brain/3d` SSR 500 errors
+
+`sigma` and `three` both import `WebGL2RenderingContext` at module scope,
+which is undefined in Node. Added `export const ssr = false` to both
+`brain/+page.server.ts` and `brain/3d/+page.server.ts`. Unblocks page load
+on first visit without hacks.
+
+### Fix: T685 — GPU mode blank canvas (cosmos.start → cosmos.render)
+
+`cosmos.start(1.0)` was a silent noop because `pointsNumber` is undefined
+until `graph.update()` runs inside `render()`. Changed to `cosmos.render(1.0)`.
+One line fix, verified GPU canvas fully renders. (Shipped in prior commit
+`dbe48a84`; bundled here for release tracking.)
+
+### Feat: T666/T667/T668/T669/T670/T671 — Phase 6: 3D Synapse Brain (T660 epic)
+
+Full 3D brain visualization foundation using `3d-force-graph` + `three`:
+
+- **T666**: Installed `3d-force-graph@^1.80.0`, `three@^0.183.2`,
+  `three-stdlib@^2.36.1` with proper lockfile sync
+- **T667**: `LivingBrain3D.svelte` — 348 LOC Svelte 5 runes component;
+  renders all brain nodes/edges in 3D force-directed graph
+- **T668**: Shared Graphology store (`living-brain-graph.ts`) — single
+  source of truth for both 2D sigma canvas and 3D force graph; eliminates
+  duplicate API fetches
+- **T669**: `UnrealBloomPass` neon synapse glow via `three-stdlib`;
+  30fps+ maintained with bloom compositor
+- **T670**: HTML overlay labels using `camera.project()` 3D→2D coordinate
+  mapping; labels follow nodes dynamically
+- **T671**: `/brain/3d` route + triple-mode toggle (2D | GPU | 3D) on the
+  main `/brain` page; `?view=3d` deep-link supported
+
+### Feat: T674 — Admin nav item
+
+Added **Admin** entry to Studio header nav (`+layout.svelte`).
+Nav order: Brain | Memory | Code | Tasks | Admin.
+
+### Feat: T675 — Tasks page search + epic progress bars
+
+- Case-insensitive search: `T663`, `t663`, and `663` all resolve to the
+  correct task. New `api/tasks/search/` endpoint + client-side store.
+- Epic progress bars on the tasks list view showing child completion ratio.
+- New utilities under `src/lib/tasks/` for search debouncing and deps
+  resolution.
+
+### Feat: T676 — Task dependency + blocker visualization
+
+- `TaskDepGraph.svelte` — sigma side-panel showing task dependency tree
+  for the selected task
+- Two new API routes: `api/tasks/[id]/deps/` and `api/tasks/graph/`
+- Tree badges on `tasks/tree/[epicId]` showing blocked/blocking counts
+
+### Pipeline safeguard (ORC-011)
+
+- Added `.github/workflows/lockfile-check.yml` — fast dedicated gate that
+  runs `pnpm install --frozen-lockfile` on every PR and push to main;
+  fails immediately if lockfile drifts from `package.json`
+- Added `docs/RELEASING.md` — canonical release checklist with explicit
+  prohibition on local `npm publish`
+- ADR-014 status updated to `accepted`
+
+### RCASD artifacts (plan-only)
+
+- **T673**: Plasticity council 3-way audit + synthesis →
+  `docs/specs/stdp-wire-up-spec.md`; 3 council `.md` files under
+  `.cleo/rcasd/T673/`
+- **T687**: Scaffolding reality check → `ADR-045-cleo-scaffolding-ssot.md`
+  + `docs/specs/cleo-scaffolding-ssot-spec.md`
+
+---
+
 ## [2026.4.59] (2026-04-15)
 
 ### Fix: T665 — @cleocode/core packaging

@@ -178,6 +178,129 @@ function runBrainMigrations(
       )
       .run();
   }
+
+  // T673-M1: STDP plasticity columns on brain_retrieval_log.
+  // session_id was declared in the Drizzle schema but never applied to the live table.
+  // reward_signal, retrieval_order, delta_ms are new additions per spec §2.1.1.
+  if (tableExists(nativeDb, 'brain_retrieval_log')) {
+    ensureColumns(
+      nativeDb,
+      'brain_retrieval_log',
+      [
+        { name: 'session_id', ddl: 'text' },
+        { name: 'reward_signal', ddl: 'real' },
+        { name: 'retrieval_order', ddl: 'integer' },
+        { name: 'delta_ms', ddl: 'integer' },
+      ],
+      'brain',
+    );
+  }
+
+  // T673-M2: observability columns on brain_plasticity_events
+  // session_id is declared in Drizzle schema and included in M2 CREATE TABLE IF NOT EXISTS,
+  // but may be missing from installs where the table was created before M2.
+  if (tableExists(nativeDb, 'brain_plasticity_events')) {
+    ensureColumns(
+      nativeDb,
+      'brain_plasticity_events',
+      [
+        { name: 'session_id', ddl: 'text' },
+        { name: 'weight_before', ddl: 'real' },
+        { name: 'weight_after', ddl: 'real' },
+        { name: 'retrieval_log_id', ddl: 'integer' },
+        { name: 'reward_signal', ddl: 'real' },
+        { name: 'delta_t_ms', ddl: 'integer' },
+      ],
+      'brain',
+    );
+  }
+
+  // T673-M3: plasticity tracking columns on brain_page_edges
+  ensureColumns(
+    nativeDb,
+    'brain_page_edges',
+    [
+      { name: 'last_reinforced_at', ddl: 'text' },
+      { name: 'reinforcement_count', ddl: 'integer NOT NULL DEFAULT 0' },
+      { name: 'plasticity_class', ddl: "text NOT NULL DEFAULT 'static'" },
+      { name: 'last_depressed_at', ddl: 'text' },
+      { name: 'depression_count', ddl: 'integer NOT NULL DEFAULT 0' },
+      { name: 'stability_score', ddl: 'real' },
+    ],
+    'brain',
+  );
+
+  // T673-M3: seed co_retrieved edges as hebbian (idempotent)
+  if (tableExists(nativeDb, 'brain_page_edges')) {
+    nativeDb
+      .prepare(
+        `UPDATE brain_page_edges SET plasticity_class = 'hebbian'
+         WHERE edge_type = 'co_retrieved' AND plasticity_class = 'static'`,
+      )
+      .run();
+  }
+
+  // T673-M4: new plasticity infrastructure tables — self-healing CREATE IF NOT EXISTS.
+  // These guards ensure the tables exist even on installs where the Drizzle migration
+  // journal was already partially applied. All three tables are CREATE IF NOT EXISTS
+  // so re-running is safe.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_weight_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      edge_from_id TEXT NOT NULL,
+      edge_to_id TEXT NOT NULL,
+      edge_type TEXT NOT NULL,
+      weight_before REAL,
+      weight_after REAL NOT NULL,
+      delta_weight REAL NOT NULL,
+      event_kind TEXT NOT NULL,
+      source_plasticity_event_id INTEGER,
+      retrieval_log_id INTEGER,
+      reward_signal REAL,
+      changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_weight_history_edge
+      ON brain_weight_history (edge_from_id, edge_to_id, edge_type)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_weight_history_changed_at
+      ON brain_weight_history (changed_at)`,
+  );
+
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_modulators (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      modulator_type TEXT NOT NULL,
+      valence REAL NOT NULL,
+      magnitude REAL NOT NULL DEFAULT 1.0,
+      source_event_id TEXT,
+      session_id TEXT,
+      description TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_modulators_session
+      ON brain_modulators (session_id)`,
+  );
+
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_consolidation_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger TEXT NOT NULL,
+      session_id TEXT,
+      step_results_json TEXT NOT NULL,
+      duration_ms INTEGER,
+      succeeded INTEGER NOT NULL DEFAULT 1,
+      started_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_consolidation_events_started_at
+      ON brain_consolidation_events (started_at)`,
+  );
 }
 
 /**
