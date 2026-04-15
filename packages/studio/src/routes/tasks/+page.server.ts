@@ -66,7 +66,11 @@ export const load: PageServerLoad = ({ locals }) => {
     const typeMap = Object.fromEntries(countByType.map((r) => [r.type, r.cnt]));
 
     const stats: DashboardStats = {
-      total: Object.values(statusMap).reduce((a, b) => a + b, 0),
+      total:
+        (statusMap['pending'] ?? 0) +
+        (statusMap['active'] ?? 0) +
+        (statusMap['done'] ?? 0) +
+        (statusMap['cancelled'] ?? 0),
       pending: statusMap['pending'] ?? 0,
       active: statusMap['active'] ?? 0,
       done: statusMap['done'] ?? 0,
@@ -91,7 +95,9 @@ export const load: PageServerLoad = ({ locals }) => {
       .all() as RecentTask[];
 
     const epics = db
-      .prepare(`SELECT id, title FROM tasks WHERE type = 'epic' AND status != 'archived' LIMIT 20`)
+      .prepare(
+        `SELECT id, title FROM tasks WHERE type = 'epic' AND status != 'archived' ORDER BY id`,
+      )
       .all() as Array<{ id: string; title: string }>;
 
     const epicProgress: EpicProgress[] = epics.map((epic) => {
