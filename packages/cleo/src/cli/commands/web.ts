@@ -337,9 +337,13 @@ export function registerWebCommand(program: Command): void {
         const port = opts['port'] ?? String(DEFAULT_PORT);
         const host = opts['host'] ?? DEFAULT_HOST;
 
-        // Trigger start command by calling its action directly
+        // Trigger start command by calling its action directly.
+        // Cast: commander shim's action handler accepts the registered options object.
         const startOpts = { port, host };
-        const startAction = webCmd.commands.find((c) => c.name() === 'start')?.action;
+        const startCmd = webCmd.commands.find((c) => c.name() === 'start');
+        const startAction = startCmd?.action as
+          | ((opts: Record<string, unknown>) => void | Promise<void>)
+          | undefined;
         if (startAction) {
           await startAction(startOpts);
         } else {
