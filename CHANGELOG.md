@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.50] (2026-04-15)
+
+T618 barrel tracing FIXED — workspace import resolution + multi-project registry complete.
+
+### Fix: T618 barrel tracing root cause (M4)
+- `resolveTypescriptImport('@cleocode/core')` returned null because `suffixResolve` couldn't match `@scope/package` style with `src/` segment
+- New `loadWorkspacePackages` scans `packages/*/package.json` and maps each name → `src/index.ts` entry
+- `ImportResolutionContext.workspacePackageMap` threaded through resolver
+- 5 new tests in barrel-tracing.test.ts
+- **Tier 2a barrel resolution: 0 → 9,587 calls**
+- **Accuracy: 71% → 86%** (findTasks 0→3, completeTask 7→8)
+
+### Fix: T618-M2 type gap
+- `CommonExtractionResult` now used uniformly (was duplicated inline type)
+- Default extractor branch emits `reExports: []`
+
+### Feat: T622 multi-project registry COMPLETE
+- `cleo nexus projects list/register/remove` CLI commands
+- Schema column mapping fixed in `core/src/nexus/registry.ts`
+- 24,169 projects registered globally
+- Studio /projects view shows live data
+- `/api/search` cross-project symbol search
+
+### Test results
+- 411+ test files, 7438+ tests passing
+- biome ci clean
+- build green
+
 ## [2026.4.49] (2026-04-15)
 
 CLEO Studio views + diagnostics + agent self-healing + multi-project registry.
