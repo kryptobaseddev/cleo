@@ -1514,7 +1514,7 @@ async function logRetrieval(
       )
       .run(
         query,
-        entryIds.join(','),
+        JSON.stringify(entryIds),
         entryIds.length,
         source,
         tokensUsed ?? null,
