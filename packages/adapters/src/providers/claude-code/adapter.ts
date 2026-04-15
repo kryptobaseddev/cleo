@@ -15,8 +15,10 @@ import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,
   AdapterHealthStatus,
+  AdapterSpawnProvider,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { ClaudeSDKSpawnProvider } from '../claude-sdk/spawn.js';
 import { ClaudeCodeContextMonitorProvider } from './context-monitor.js';
 import { ClaudeCodeHookProvider } from './hooks.js';
 import { ClaudeCodeInstallProvider } from './install.js';
@@ -84,8 +86,14 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
 
   /** Hook provider for CAAMP event mapping and registration. */
   hooks: ClaudeCodeHookProvider;
-  /** Spawn provider for launching subagent processes via `claude` CLI. */
-  spawn: ClaudeCodeSpawnProvider;
+  /**
+   * Spawn provider for launching subagent processes.
+   *
+   * Defaults to `ClaudeCodeSpawnProvider` (CLI mode). When
+   * `provider.claude.mode === 'sdk'` is set in CLEO config, the adapter
+   * swaps this for `ClaudeSDKSpawnProvider` at initialization time.
+   */
+  spawn: AdapterSpawnProvider;
   /** Install provider for managing instruction files and plugin registration. */
   install: ClaudeCodeInstallProvider;
   /** Path provider for resolving Claude Code directory locations. */
@@ -115,14 +123,43 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
   /**
    * Initialize the adapter for a given project directory.
    *
-   * Validates the environment by checking for the Claude CLI
-   * and Claude Code configuration directory.
+   * Reads the CLEO config to determine the spawn mode and swaps the spawn
+   * provider to `ClaudeSDKSpawnProvider` when `provider.claude.mode === 'sdk'`.
+   * Defaults to `ClaudeCodeSpawnProvider` (CLI) for backwards compatibility.
    *
    * @param projectDir - Root directory of the project
    */
   async initialize(projectDir: string): Promise<void> {
     this.projectDir = projectDir;
     this.initialized = true;
+
+    // Determine spawn mode from CLEO config. Best-effort: any error falls
+    // back to the default CLI provider.
+    try {
+      const { execFile } = await import('node:child_process');
+      const { promisify: pfy } = await import('node:util');
+      const execFileAsync = pfy(execFile);
+      const { stdout } = await execFileAsync('cleo', [
+        'config',
+        'get',
+        'provider.claude.mode',
+        '--output',
+        'json',
+      ]);
+      const parsed: unknown = JSON.parse(stdout.trim());
+      const mode =
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        'data' in parsed &&
+        typeof (parsed as Record<string, unknown>).data === 'string'
+          ? (parsed as Record<string, string>).data
+          : undefined;
+      if (mode === 'sdk') {
+        this.spawn = new ClaudeSDKSpawnProvider();
+      }
+    } catch {
+      // Config unavailable or mode is default 'cli' — keep CLI provider
+    }
 
     // Activate CLEO hook bridge for this project — connects Claude Code
     // native events to CLEO's internal hook dispatch (T555).
