@@ -46,6 +46,7 @@ vi.mock('../brain-retrieval.js', () => ({
 vi.mock('../brain-lifecycle.js', () => ({
   applyTemporalDecay: vi.fn().mockResolvedValue({ updated: 3 }),
   consolidateMemories: vi.fn().mockResolvedValue({ merged: 2, archived: 4 }),
+  runTierPromotion: vi.fn().mockResolvedValue({ promoted: [], evicted: [] }),
 }));
 
 // Mock auto-extract dependencies
