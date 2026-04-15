@@ -1,0 +1,17 @@
+{
+	"/": [
+		"src/routes/+page.server.ts"
+	],
+	"/api/health": [
+		"src/routes/api/health/+server.ts"
+	],
+	"/brain": [
+		"src/routes/brain/+page.server.ts"
+	],
+	"/nexus": [
+		"src/routes/nexus/+page.server.ts"
+	],
+	"/tasks": [
+		"src/routes/tasks/+page.server.ts"
+	]
+}

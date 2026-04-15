@@ -108,9 +108,12 @@ export function registerWebCommand(program: Command): void {
           );
         }
 
-        // Resolve server location from the main @cleocode/cleo package
+        // Resolve CLEO Studio server location.
+        // The studio package builds to packages/studio/build/index.js (adapter-node output).
+        // CLEO_STUDIO_DIR env var allows overriding for testing / custom installs.
         const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
-        const distServerDir = join(projectRoot, 'dist', 'cli');
+        const studioDir =
+          process.env['CLEO_STUDIO_DIR'] ?? join(projectRoot, 'packages', 'studio', 'build');
 
         // Ensure log directory exists
         await mkdir(join(getCleoHome(), 'logs'), { recursive: true });
@@ -125,26 +128,34 @@ export function registerWebCommand(program: Command): void {
           }),
         );
 
-        // Check if server is built (dist/cli/index.js from @cleocode/cleo)
-        const webIndexPath = join(distServerDir, 'index.js');
+        // Check if studio server is built
+        const webIndexPath = join(studioDir, 'index.js');
         try {
           await stat(webIndexPath);
         } catch {
-          // Need to build
+          // Need to build the studio package
           try {
-            execFileSync('npm', ['run', 'build'], { cwd: projectRoot, stdio: 'ignore' });
+            execFileSync('pnpm', ['--filter', '@cleocode/studio', 'run', 'build'], {
+              cwd: projectRoot,
+              stdio: 'ignore',
+            });
           } catch {
-            throw new CleoError(ExitCode.GENERAL_ERROR, `Build failed. Check logs: ${logFile}`);
+            throw new CleoError(
+              ExitCode.GENERAL_ERROR,
+              `Studio build failed. Run: pnpm --filter @cleocode/studio run build\nLogs: ${logFile}`,
+            );
           }
         }
 
-        // Start server
+        // Start studio server (adapter-node uses HOST/PORT env vars)
         const serverProcess = spawn('node', [webIndexPath], {
-          cwd: projectRoot,
+          cwd: studioDir,
           env: {
             ...process.env,
-            CLEO_WEB_PORT: String(port),
-            CLEO_WEB_HOST: host,
+            HOST: host,
+            PORT: String(port),
+            // Pass CLEO paths through to the studio server
+            CLEO_ROOT: projectRoot,
           },
           detached: true,
           stdio: 'ignore',
