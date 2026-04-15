@@ -31,6 +31,14 @@ export {
   getSetupInstructions,
   getStatuslineConfig,
 } from './providers/claude-code/index.js';
+export type { McpServerMap, McpStdioConfig, SessionEntry } from './providers/claude-sdk/index.js';
+export {
+  ClaudeSDKSpawnProvider,
+  DEFAULT_TOOLS,
+  getServers,
+  resolveTools,
+  SessionStore,
+} from './providers/claude-sdk/index.js';
 export {
   CodexAdapter,
   CodexHookProvider,
