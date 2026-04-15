@@ -65,8 +65,8 @@ function buildTree(
     }));
 }
 
-export const load: PageServerLoad = ({ params }) => {
-  const db = getTasksDb();
+export const load: PageServerLoad = ({ locals, params }) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     error(503, 'tasks.db unavailable');
   }

@@ -24,7 +24,7 @@ var VALID_SUBSTRATES = new Set([
 	"conduit",
 	"signaldock"
 ]);
-var GET = ({ params, url }) => {
+var GET = ({ locals, params, url }) => {
 	const name = params.name;
 	if (!VALID_SUBSTRATES.has(name)) return json({ error: `Unknown substrate: "${name}". Valid values: brain, nexus, tasks, conduit, signaldock` }, { status: 400 });
 	const limitParam = Number(url.searchParams.get("limit") ?? "500");
@@ -35,7 +35,8 @@ var GET = ({ params, url }) => {
 		return json(getAllSubstrates({
 			limit,
 			substrates: [name],
-			minWeight
+			minWeight,
+			projectCtx: locals.projectCtx
 		}));
 	} catch (err) {
 		return json({ error: String(err) }, { status: 500 });

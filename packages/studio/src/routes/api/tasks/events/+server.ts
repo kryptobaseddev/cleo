@@ -8,8 +8,9 @@
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ locals }) => {
   const encoder = new TextEncoder();
+  const projectCtx = locals.projectCtx;
 
   const stream = new ReadableStream({
     start(controller) {
@@ -37,7 +38,7 @@ export const GET: RequestHandler = () => {
         }
 
         try {
-          const db = getTasksDb();
+          const db = getTasksDb(projectCtx);
           if (!db) return;
 
           const row = db

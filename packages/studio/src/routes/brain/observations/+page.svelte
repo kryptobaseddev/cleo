@@ -115,11 +115,12 @@
 
 <div class="obs-page">
   <div class="page-header">
-    <a href="/brain" class="back-link">← Brain</a>
+    <a href="/brain/overview" class="back-link">← Overview</a>
     <h1 class="page-title">Observations</h1>
     {#if !loading && !error}
       <span class="count-badge">{filtered} shown / {total} total</span>
     {/if}
+    <a href="/brain?scope=brain&type=observation" class="canvas-pill">Open in Canvas &rarr;</a>
   </div>
 
   <div class="filters">
@@ -254,6 +255,27 @@
 
   .back-link:hover {
     color: #22c55e;
+  }
+
+  .canvas-pill {
+    margin-left: auto;
+    padding: 0.25rem 0.875rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #3b82f6;
+    text-decoration: none;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    background: rgba(59, 130, 246, 0.08);
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .canvas-pill:hover {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: #3b82f6;
   }
 
   .page-title {

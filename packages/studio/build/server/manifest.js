@@ -10,26 +10,26 @@ return {
 	assets: new Set(["favicon.png"]),
 	mimeTypes: {".png":"image/png"},
 	_: {
-		client: {start:"_app/immutable/entry/start.B4djkgEu.js",app:"_app/immutable/entry/app.CpVah3oA.js",imports:["_app/immutable/entry/start.B4djkgEu.js","_app/immutable/chunks/dVYxnWpL.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/entry/app.CpVah3oA.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
+		client: {start:"_app/immutable/entry/start.DEwmZnxG.js",app:"_app/immutable/entry/app.BUP-wz2W.js",imports:["_app/immutable/entry/start.DEwmZnxG.js","_app/immutable/chunks/lNG2k0Yr.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/entry/app.BUP-wz2W.js","_app/immutable/chunks/BaLXwP8b.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
 		nodes: [
-			__memo(() => import('./chunks/0-C6_3LK8w.js')),
-			__memo(() => import('./chunks/1-C6cTpjJ5.js')),
-			__memo(() => import('./chunks/2-DH4G59PK.js')),
-			__memo(() => import('./chunks/3-B6ur6jWD.js')),
-			__memo(() => import('./chunks/4-lKfiQLl2.js')),
-			__memo(() => import('./chunks/5-jaFNqXJq.js')),
-			__memo(() => import('./chunks/6-QEEqIpf6.js')),
-			__memo(() => import('./chunks/7-DbBue0MU.js')),
-			__memo(() => import('./chunks/8-DHEmOjSc.js')),
-			__memo(() => import('./chunks/9-De-b0iXE.js')),
-			__memo(() => import('./chunks/10-pHOkDX2K.js')),
-			__memo(() => import('./chunks/11-K345URBQ.js')),
-			__memo(() => import('./chunks/12-jL00Yw-p.js')),
-			__memo(() => import('./chunks/13-CbqfG5_k.js')),
-			__memo(() => import('./chunks/14-R16hI9FF.js')),
-			__memo(() => import('./chunks/15-CRNW9TLf.js')),
-			__memo(() => import('./chunks/16-CzBz8d8f.js')),
-			__memo(() => import('./chunks/17-Dqrzkmc_.js'))
+			__memo(() => import('./chunks/0-DDitQxuW.js')),
+			__memo(() => import('./chunks/1-42H6HWk_.js')),
+			__memo(() => import('./chunks/2-BPzBjbGa.js')),
+			__memo(() => import('./chunks/3-DYIReQ5c.js')),
+			__memo(() => import('./chunks/4-Ikfc1XVW.js')),
+			__memo(() => import('./chunks/5-DmmF7Yri.js')),
+			__memo(() => import('./chunks/6-BCePgB45.js')),
+			__memo(() => import('./chunks/7-D8bdyxXg.js')),
+			__memo(() => import('./chunks/8-Lyu7bc13.js')),
+			__memo(() => import('./chunks/9-DkYRyjOI.js')),
+			__memo(() => import('./chunks/10-BfC7uYDs.js')),
+			__memo(() => import('./chunks/11-9arAurAg.js')),
+			__memo(() => import('./chunks/12-BHjSlukc.js')),
+			__memo(() => import('./chunks/13-CxNuYFPX.js')),
+			__memo(() => import('./chunks/14-B9rARiPP.js')),
+			__memo(() => import('./chunks/15-9jQLdDnK.js')),
+			__memo(() => import('./chunks/16-C6Wozcf-.js')),
+			__memo(() => import('./chunks/17-gDFVzsaX.js'))
 		],
 		remotes: {
 			
@@ -47,133 +47,147 @@ return {
 				pattern: /^\/api\/brain\/decisions\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-D-pHBL9K.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-7JkDyBU8.js'))
 			},
 			{
 				id: "/api/brain/graph",
 				pattern: /^\/api\/brain\/graph\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-Dbt5DD0b.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-Ah7hdjI9.js'))
 			},
 			{
 				id: "/api/brain/observations",
 				pattern: /^\/api\/brain\/observations\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-F8a8rmuv.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-BfVFZJZg.js'))
 			},
 			{
 				id: "/api/brain/quality",
 				pattern: /^\/api\/brain\/quality\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-CKI5WKmO.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-BtA_iRqW.js'))
 			},
 			{
 				id: "/api/health",
 				pattern: /^\/api\/health\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-DUVJ0ePN.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-BzD7Yw_n.js'))
 			},
 			{
 				id: "/api/living-brain",
 				pattern: /^\/api\/living-brain\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-BBy0pSi1.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-CCpu-wJZ.js'))
 			},
 			{
 				id: "/api/living-brain/node/[id]",
 				pattern: /^\/api\/living-brain\/node\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-BOp9I6Wi.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-DrKaGqbL.js'))
+			},
+			{
+				id: "/api/living-brain/stream",
+				pattern: /^\/api\/living-brain\/stream\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./chunks/_server.ts-CHitXP3F.js'))
 			},
 			{
 				id: "/api/living-brain/substrate/[name]",
 				pattern: /^\/api\/living-brain\/substrate\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-D0NVM9S3.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-LSRVZBpk.js'))
 			},
 			{
 				id: "/api/nexus",
 				pattern: /^\/api\/nexus\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-DR5nwGwj.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-nRpBjQaC.js'))
 			},
 			{
 				id: "/api/nexus/community/[id]",
 				pattern: /^\/api\/nexus\/community\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-lLIaMc-o.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-nEYHoDB8.js'))
 			},
 			{
 				id: "/api/nexus/search",
 				pattern: /^\/api\/nexus\/search\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-Bun-sYvp.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-CzWrvVob.js'))
 			},
 			{
 				id: "/api/nexus/symbol/[name]",
 				pattern: /^\/api\/nexus\/symbol\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-BWx3w2Pn.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-C6OZ4Ejt.js'))
+			},
+			{
+				id: "/api/project/switch",
+				pattern: /^\/api\/project\/switch\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./chunks/_server.ts-DL36GSFr.js'))
 			},
 			{
 				id: "/api/search",
 				pattern: /^\/api\/search\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-Du7Cucow.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-D1s-ddOO.js'))
 			},
 			{
 				id: "/api/tasks",
 				pattern: /^\/api\/tasks\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-BQ2NpIlB.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-rReR9aQL.js'))
 			},
 			{
 				id: "/api/tasks/events",
 				pattern: /^\/api\/tasks\/events\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-JWwIIwJd.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-D07AdoQo.js'))
 			},
 			{
 				id: "/api/tasks/pipeline",
 				pattern: /^\/api\/tasks\/pipeline\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-BfMWVnjA.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-CpGsYyCZ.js'))
 			},
 			{
 				id: "/api/tasks/sessions",
 				pattern: /^\/api\/tasks\/sessions\/?$/,
 				params: [],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-THw-zNsa.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-BrXpM19N.js'))
 			},
 			{
 				id: "/api/tasks/tree/[epicId]",
 				pattern: /^\/api\/tasks\/tree\/([^/]+?)\/?$/,
 				params: [{"name":"epicId","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-hxGF82VX.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-B1YaJWKi.js'))
 			},
 			{
 				id: "/api/tasks/[id]",
 				pattern: /^\/api\/tasks\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
 				page: null,
-				endpoint: __memo(() => import('./chunks/_server.ts-aC1XcPTF.js'))
+				endpoint: __memo(() => import('./chunks/_server.ts-Cyw1rM9o.js'))
 			},
 			{
 				id: "/brain",
@@ -204,36 +218,36 @@ return {
 				endpoint: null
 			},
 			{
-				id: "/brain/quality",
-				pattern: /^\/brain\/quality\/?$/,
+				id: "/brain/overview",
+				pattern: /^\/brain\/overview\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 7 },
 				endpoint: null
 			},
 			{
-				id: "/living-brain",
-				pattern: /^\/living-brain\/?$/,
+				id: "/brain/quality",
+				pattern: /^\/brain\/quality\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 8 },
 				endpoint: null
 			},
 			{
-				id: "/nexus",
-				pattern: /^\/nexus\/?$/,
+				id: "/code",
+				pattern: /^\/code\/?$/,
 				params: [],
 				page: { layouts: [0,], errors: [1,], leaf: 9 },
 				endpoint: null
 			},
 			{
-				id: "/nexus/community/[id]",
-				pattern: /^\/nexus\/community\/([^/]+?)\/?$/,
+				id: "/code/community/[id]",
+				pattern: /^\/code\/community\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
 				page: { layouts: [0,], errors: [1,], leaf: 10 },
 				endpoint: null
 			},
 			{
-				id: "/nexus/symbol/[name]",
-				pattern: /^\/nexus\/symbol\/([^/]+?)\/?$/,
+				id: "/code/symbol/[name]",
+				pattern: /^\/code\/symbol\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
 				page: { layouts: [0,], errors: [1,], leaf: 11 },
 				endpoint: null

@@ -21,9 +21,13 @@ import {
 
 // Mock getCleoHome to use a per-test tmp directory
 let tmpHome: string;
-vi.mock('../../paths.js', () => ({
-  getCleoHome: () => tmpHome,
-}));
+vi.mock('../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+  return {
+    ...actual,
+    getCleoHome: () => tmpHome,
+  };
+});
 
 describe('global-salt', () => {
   beforeEach(() => {

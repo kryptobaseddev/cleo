@@ -73,8 +73,8 @@ function buildBuckets(db: import('node:sqlite').DatabaseSync, table: string): Qu
   });
 }
 
-export const GET: RequestHandler = () => {
-  const db = getBrainDb();
+export const GET: RequestHandler = ({ locals }) => {
+  const db = getBrainDb(locals.projectCtx);
   if (!db) {
     const empty = { buckets: [], verified_count: 0, prune_count: 0, invalidated_count: 0 };
     return json({

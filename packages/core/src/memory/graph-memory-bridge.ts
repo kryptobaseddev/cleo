@@ -273,15 +273,13 @@ export async function linkMemoryToCode(
         set: { lastActivityAt: now, updatedAt: now },
       });
 
-    // Write the code_reference edge
-    // Cast required: drizzle's enum type may not yet include 'code_reference'
-    // in the compiled .d.ts (the schema source was updated but not yet built).
+    // Write the code_reference edge ('code_reference' is now in BRAIN_EDGE_TYPES — T645)
     await brainDb
       .insert(brainPageEdges)
       .values({
         fromId: memoryId,
         toId: codeSymbol,
-        edgeType: 'code_reference' as import('../store/brain-schema.js').BrainEdgeType,
+        edgeType: 'code_reference',
         weight: 1.0,
         provenance: 'manual',
         createdAt: now,

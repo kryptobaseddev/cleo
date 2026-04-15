@@ -22,7 +22,7 @@ var VALID_SUBSTRATES = new Set([
 	"conduit",
 	"signaldock"
 ]);
-var GET = ({ url }) => {
+var GET = ({ locals, url }) => {
 	const limitParam = Number(url.searchParams.get("limit") ?? "500");
 	const limit = Math.min(Math.max(1, Number.isNaN(limitParam) ? 500 : limitParam), 2e3);
 	const substratesParam = url.searchParams.get("substrates");
@@ -33,7 +33,8 @@ var GET = ({ url }) => {
 		return json(getAllSubstrates({
 			limit,
 			substrates,
-			minWeight
+			minWeight,
+			projectCtx: locals.projectCtx
 		}));
 	} catch (err) {
 		return json({ error: String(err) }, { status: 500 });

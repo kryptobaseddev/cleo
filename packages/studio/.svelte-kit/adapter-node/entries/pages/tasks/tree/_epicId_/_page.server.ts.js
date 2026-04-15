@@ -20,8 +20,8 @@ function buildTree(parentId, allRows, depth) {
 		children: buildTree(r.id, allRows, depth + 1)
 	}));
 }
-var load = ({ params }) => {
-	const db = getTasksDb();
+var load = ({ locals, params }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) error(503, "tasks.db unavailable");
 	const { epicId } = params;
 	const epic = db.prepare(`SELECT id, title, status, priority, type, pipeline_stage, size,

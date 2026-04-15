@@ -1,21 +1,26 @@
 /**
- * Read-only SQLite connection helpers for CLEO Studio.
+ * Per-request SQLite connection helpers for CLEO Studio.
  *
- * Uses node:sqlite (Node.js built-in) with read-only mode.
- * All five CLEO databases (nexus, brain, tasks, conduit, signaldock) are accessed here.
- * Connections are opened lazily and cached per process lifetime.
+ * Uses node:sqlite (Node.js built-in).
+ *
+ * Global databases (nexus.db, signaldock.db) are shared across all projects
+ * and continue to use module-level caches — they have a single path per
+ * machine and never change between requests.
+ *
+ * Per-project databases (brain.db, tasks.db, conduit.db) are resolved from
+ * the active {@link ProjectContext} supplied by the SvelteKit `event.locals`
+ * injected in `hooks.server.ts`. No cross-request caching is performed for
+ * these: opening SQLite with `node:sqlite` is sub-millisecond and caching
+ * across different ProjectContexts is precisely the bug this module was
+ * rewritten to fix.
  */
 
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import {
-  dbExists,
-  getBrainDbPath,
-  getConduitDbPath,
-  getNexusDbPath,
-  getSignaldockDbPath,
-  getTasksDbPath,
-} from '../cleo-home.js';
+import { dbExists, getNexusDbPath, getSignaldockDbPath } from '../cleo-home.js';
+import type { ProjectContext } from '../project-context.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -23,13 +28,24 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
 
-/** Cached read-only connection instances. */
+// ---------------------------------------------------------------------------
+// Global singleton caches (path never changes per process)
+// ---------------------------------------------------------------------------
+
+/** Cached nexus.db connection — global, path is machine-scoped. */
 let nexusDb: DatabaseSync | null = null;
-let brainDb: DatabaseSync | null = null;
-let tasksDb: DatabaseSync | null = null;
-let conduitDb: DatabaseSync | null = null;
+
+/** Cached signaldock.db connection — global, path is machine-scoped. */
 let signaldockDb: DatabaseSync | null = null;
 
+// ---------------------------------------------------------------------------
+// Global DB getters (cached per process)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a read-only connection to the global nexus.db.
+ * Returns null when the file does not exist on disk.
+ */
 export function getNexusDb(): DatabaseSync | null {
   if (nexusDb) return nexusDb;
   const path = getNexusDbPath();
@@ -38,30 +54,10 @@ export function getNexusDb(): DatabaseSync | null {
   return nexusDb;
 }
 
-export function getBrainDb(): DatabaseSync | null {
-  if (brainDb) return brainDb;
-  const path = getBrainDbPath();
-  if (!dbExists(path)) return null;
-  brainDb = new DatabaseSync(path, { open: true });
-  return brainDb;
-}
-
-export function getTasksDb(): DatabaseSync | null {
-  if (tasksDb) return tasksDb;
-  const path = getTasksDbPath();
-  if (!dbExists(path)) return null;
-  tasksDb = new DatabaseSync(path, { open: true });
-  return tasksDb;
-}
-
-export function getConduitDb(): DatabaseSync | null {
-  if (conduitDb) return conduitDb;
-  const path = getConduitDbPath();
-  if (!dbExists(path)) return null;
-  conduitDb = new DatabaseSync(path, { open: true });
-  return conduitDb;
-}
-
+/**
+ * Returns a read-only connection to the global signaldock.db.
+ * Returns null when the file does not exist on disk.
+ */
 export function getSignaldockDb(): DatabaseSync | null {
   if (signaldockDb) return signaldockDb;
   const path = getSignaldockDbPath();
@@ -70,7 +66,71 @@ export function getSignaldockDb(): DatabaseSync | null {
   return signaldockDb;
 }
 
-export function getDbStatus(): {
+// ---------------------------------------------------------------------------
+// Per-project DB getters (NOT cached — resolved from ProjectContext)
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a connection to brain.db for the given project context.
+ *
+ * Each call opens a fresh DatabaseSync against the path stored in `ctx`.
+ * No per-request caching is performed; this is intentional to ensure project
+ * switching takes effect immediately without stale state.
+ *
+ * Returns null when brain.db does not exist for the project.
+ *
+ * @param ctx - The active project context from `event.locals.projectCtx`.
+ */
+export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
+  const path = ctx.brainDbPath;
+  if (!existsSync(path)) return null;
+  return new DatabaseSync(path, { open: true });
+}
+
+/**
+ * Opens a connection to tasks.db for the given project context.
+ *
+ * Each call opens a fresh DatabaseSync against the path stored in `ctx`.
+ * Returns null when tasks.db does not exist for the project.
+ *
+ * @param ctx - The active project context from `event.locals.projectCtx`.
+ */
+export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
+  const path = ctx.tasksDbPath;
+  if (!existsSync(path)) return null;
+  return new DatabaseSync(path, { open: true });
+}
+
+/**
+ * Opens a connection to conduit.db for the given project context.
+ *
+ * conduit.db lives alongside brain.db in the project's `.cleo/` directory.
+ * Its path is derived from the brain.db path since `ProjectContext` does not
+ * carry a dedicated conduitDbPath field.
+ *
+ * Returns null when conduit.db does not exist for the project.
+ *
+ * @param ctx - The active project context from `event.locals.projectCtx`.
+ */
+export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
+  const path = join(dirname(ctx.brainDbPath), 'conduit.db');
+  if (!existsSync(path)) return null;
+  return new DatabaseSync(path, { open: true });
+}
+
+// ---------------------------------------------------------------------------
+// Status helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns existence and path information for all five CLEO databases.
+ *
+ * Per-project paths are resolved from the supplied `ctx`; global paths are
+ * resolved from the machine-scoped helpers in cleo-home.ts.
+ *
+ * @param ctx - The active project context from `event.locals.projectCtx`.
+ */
+export function getDbStatus(ctx: ProjectContext): {
   nexus: boolean;
   brain: boolean;
   tasks: boolean;
@@ -82,16 +142,17 @@ export function getDbStatus(): {
   conduitPath: string;
   signaldockPath: string;
 } {
+  const conduitPath = join(dirname(ctx.brainDbPath), 'conduit.db');
   return {
     nexus: dbExists(getNexusDbPath()),
-    brain: dbExists(getBrainDbPath()),
-    tasks: dbExists(getTasksDbPath()),
-    conduit: dbExists(getConduitDbPath()),
+    brain: existsSync(ctx.brainDbPath),
+    tasks: existsSync(ctx.tasksDbPath),
+    conduit: existsSync(conduitPath),
     signaldock: dbExists(getSignaldockDbPath()),
     nexusPath: getNexusDbPath(),
-    brainPath: getBrainDbPath(),
-    tasksPath: getTasksDbPath(),
-    conduitPath: getConduitDbPath(),
+    brainPath: ctx.brainDbPath,
+    tasksPath: ctx.tasksDbPath,
+    conduitPath,
     signaldockPath: getSignaldockDbPath(),
   };
 }

@@ -20,9 +20,13 @@ vi.mock('../scaffold.js', () => ({
 }));
 
 // Mock paths.js for getCleoHome
-vi.mock('../paths.js', () => ({
-  getCleoHome: vi.fn(() => '/mock-cleo-home'),
-}));
+vi.mock('../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../paths.js')>('../paths.js');
+  return {
+    ...actual,
+    getCleoHome: vi.fn(() => '/mock-cleo-home'),
+  };
+});
 
 import { checkInjection, ensureInjection, getInjectionTemplateContent } from '../injection.js';
 import { getPackageRoot } from '../scaffold.js';

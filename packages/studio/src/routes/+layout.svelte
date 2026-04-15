@@ -1,17 +1,19 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import ProjectSelector from '$lib/components/ProjectSelector.svelte';
+  import type { LayoutData } from './$types';
 
   interface Props {
+    data: LayoutData;
     children: import('svelte').Snippet;
   }
-  let { children }: Props = $props();
+  let { data, children }: Props = $props();
 
   const navItems = [
-    { href: '/projects', label: 'Projects', description: 'Multi-project registry' },
-    { href: '/nexus', label: 'Nexus', description: 'Code intelligence graph' },
-    { href: '/brain', label: 'Brain', description: 'Memory visualization' },
-    { href: '/living-brain', label: 'Living Brain', description: 'Unified 5-substrate graph' },
-    { href: '/tasks', label: 'Tasks', description: 'Task management' },
+    { href: '/brain', label: 'Brain', description: '5-substrate living canvas', exact: true },
+    { href: '/brain/overview', label: 'Memory', description: 'BRAIN dashboard (decisions, observations, quality)', exact: false },
+    { href: '/code', label: 'Code', description: 'Code intelligence', exact: false },
+    { href: '/tasks', label: 'Tasks', description: 'Task management', exact: false },
   ];
 </script>
 
@@ -21,12 +23,20 @@
       <span class="logo-mark">C</span>
       <span class="logo-text">CLEO Studio</span>
     </a>
+
+    <ProjectSelector
+      projects={data.projects}
+      activeProjectId={data.activeProjectId}
+    />
+
     <nav class="studio-nav">
       {#each navItems as item}
         <a
           href={item.href}
           class="nav-link"
-          class:active={$page.url.pathname.startsWith(item.href)}
+          class:active={item.exact
+            ? $page.url.pathname === item.href
+            : $page.url.pathname.startsWith(item.href)}
           title={item.description}
         >
           {item.label}
@@ -63,7 +73,7 @@
   .studio-header {
     display: flex;
     align-items: center;
-    gap: 2rem;
+    gap: 1rem;
     padding: 0 1.5rem;
     height: 3rem;
     background: #1a1f2e;
@@ -79,6 +89,7 @@
     gap: 0.5rem;
     text-decoration: none;
     color: #e2e8f0;
+    flex-shrink: 0;
   }
 
   .logo-mark {

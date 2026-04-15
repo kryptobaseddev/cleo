@@ -18,11 +18,15 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
 }));
 
-vi.mock('../../../paths.js', () => ({
-  getProjectRoot: vi.fn(() => '/mock/project'),
-  getTaskPath: vi.fn(() => '/mock/project/.cleo/tasks.json'),
-  getAgentOutputsDir: vi.fn(() => '/mock/project/.cleo/agent-outputs'),
-}));
+vi.mock('../../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../paths.js')>('../../../paths.js');
+  return {
+    ...actual,
+    getProjectRoot: vi.fn(() => '/mock/project'),
+    getTaskPath: vi.fn(() => '/mock/project/.cleo/tasks.json'),
+    getAgentOutputsDir: vi.fn(() => '/mock/project/.cleo/agent-outputs'),
+  };
+});
 
 vi.mock('../../discovery.js', () => ({
   findSkill: vi.fn(),

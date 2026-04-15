@@ -7,8 +7,8 @@ import { json } from "@sveltejs/kit";
 * Query params:
 *   limit — max sessions (default 50)
 */
-var GET = ({ url }) => {
-	const db = getTasksDb();
+var GET = ({ locals, url }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return json({ error: "tasks.db unavailable" }, { status: 503 });
 	const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 200);
 	try {

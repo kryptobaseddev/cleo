@@ -98,6 +98,7 @@ describe('LBNode structural contract', () => {
       kind: 'observation',
       substrate: 'brain',
       label: 'Test observation',
+      createdAt: '2026-04-15T00:00:00.000Z',
       meta: {},
     };
 
@@ -115,6 +116,7 @@ describe('LBNode structural contract', () => {
       substrate: 'nexus',
       label: 'createTask',
       weight: 0.85,
+      createdAt: '2026-04-10T12:00:00.000Z',
       meta: { nexus_kind: 'function', in_degree: 42 },
     };
     expect(withWeight.weight).toBe(0.85);
@@ -124,6 +126,7 @@ describe('LBNode structural contract', () => {
       kind: 'message',
       substrate: 'conduit',
       label: 'Hello agent',
+      createdAt: null,
       meta: {},
     };
     expect(withoutWeight.weight).toBeUndefined();
@@ -136,11 +139,36 @@ describe('LBNode structural contract', () => {
       substrate: 'tasks',
       label: 'Unified Living Brain',
       weight: 1.0,
+      createdAt: '2026-03-01T08:00:00.000Z',
       meta: { status: 'pending', priority: 'critical', type: 'epic' },
     };
 
     expect(node.meta['status']).toBe('pending');
     expect(node.meta['priority']).toBe('critical');
+  });
+
+  it('accepts null createdAt for substrates without a timestamp', () => {
+    const node: LBNode = {
+      id: 'signaldock:agent-abc',
+      kind: 'agent',
+      substrate: 'signaldock',
+      label: 'cleo-prime',
+      createdAt: null,
+      meta: { status: 'active' },
+    };
+    expect(node.createdAt).toBeNull();
+  });
+
+  it('accepts ISO-8601 string for createdAt', () => {
+    const node: LBNode = {
+      id: 'brain:O-xyz',
+      kind: 'observation',
+      substrate: 'brain',
+      label: 'Some observation',
+      createdAt: '2026-04-15T07:20:00.000Z',
+      meta: {},
+    };
+    expect(node.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
 

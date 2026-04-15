@@ -16,7 +16,7 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-export const load = () => {
+export const load = ({ locals }: Parameters<PageServerLoad>[0]) => {
   let nexusStats: Stat[] | null = null;
   let brainStats: Stat[] | null = null;
   let tasksStats: Stat[] | null = null;
@@ -40,7 +40,7 @@ export const load = () => {
   }
 
   try {
-    const brain = getBrainDb();
+    const brain = getBrainDb(locals.projectCtx);
     if (brain) {
       const nodeRow = brain.prepare('SELECT COUNT(*) as cnt FROM brain_page_nodes').get() as {
         cnt: number;
@@ -58,7 +58,7 @@ export const load = () => {
   }
 
   try {
-    const tasks = getTasksDb();
+    const tasks = getTasksDb(locals.projectCtx);
     if (tasks) {
       const taskRow = tasks.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as { cnt: number };
       const epicRow = tasks
@@ -75,4 +75,3 @@ export const load = () => {
 
   return { nexusStats, brainStats, tasksStats };
 };
-;null as any as PageServerLoad;

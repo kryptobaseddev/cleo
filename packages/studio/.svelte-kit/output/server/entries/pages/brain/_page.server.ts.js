@@ -1,82 +1,21 @@
-import { t as getBrainDb } from "../../../chunks/connections.js";
+import { t as getAllSubstrates } from "../../../chunks/adapters.js";
 //#region src/routes/brain/+page.server.ts
 /**
-* Brain overview page server load — fetches stats for the dashboard.
+* Brain canvas page server load (`/brain`).
+*
+* Fetches the initial graph from the unified Living Brain API with a
+* default limit of 500 nodes.  The client-side component can request
+* larger slices via the "Full graph" button.
+*
+* @note The underlying API route is `/api/living-brain` for historical reasons
+* (the route was originally served at `/living-brain`). A rename of the API
+* path is deferred to a future task to avoid churn in other consumers.
 */
-function formatCount(n) {
-	if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
-	return String(n);
-}
-var load = () => {
-	let stats = null;
-	let recentNodes = [];
-	let nodeTypeCounts = [];
-	let tierCounts = [];
-	try {
-		const db = getBrainDb();
-		if (db) {
-			const nodeRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_page_nodes").get();
-			const edgeRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_page_edges").get();
-			const obsRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_observations").get();
-			const decRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_decisions").get();
-			const patRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_patterns").get();
-			const learnRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_learnings").get();
-			const verifiedRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_observations WHERE verified = 1").get();
-			const pruneRow = db.prepare("SELECT COUNT(*) as cnt FROM brain_observations WHERE prune_candidate = 1").get();
-			stats = [
-				{
-					value: formatCount(nodeRow.cnt),
-					label: "Graph Nodes"
-				},
-				{
-					value: formatCount(edgeRow.cnt),
-					label: "Graph Edges"
-				},
-				{
-					value: formatCount(obsRow.cnt),
-					label: "Observations"
-				},
-				{
-					value: formatCount(decRow.cnt),
-					label: "Decisions"
-				},
-				{
-					value: formatCount(patRow.cnt),
-					label: "Patterns"
-				},
-				{
-					value: formatCount(learnRow.cnt),
-					label: "Learnings"
-				},
-				{
-					value: formatCount(verifiedRow.cnt),
-					label: "Verified"
-				},
-				{
-					value: formatCount(pruneRow.cnt),
-					label: "Prune Candidates"
-				}
-			];
-			recentNodes = db.prepare(`SELECT id, label, node_type, quality_score, created_at
-           FROM brain_page_nodes
-           ORDER BY last_activity_at DESC, created_at DESC
-           LIMIT 10`).all();
-			nodeTypeCounts = db.prepare(`SELECT node_type, COUNT(*) as count
-           FROM brain_page_nodes
-           GROUP BY node_type
-           ORDER BY count DESC`).all();
-			tierCounts = db.prepare(`SELECT COALESCE(memory_tier, 'unknown') as tier, COUNT(*) as count
-           FROM brain_observations
-           GROUP BY memory_tier
-           ORDER BY count DESC`).all();
-		}
-	} catch {}
-	return {
-		stats,
-		recentNodes,
-		nodeTypeCounts,
-		tierCounts
-	};
+var load = ({ locals }) => {
+	return { graph: getAllSubstrates({
+		limit: 500,
+		projectCtx: locals.projectCtx
+	}) };
 };
 //#endregion
 export { load };

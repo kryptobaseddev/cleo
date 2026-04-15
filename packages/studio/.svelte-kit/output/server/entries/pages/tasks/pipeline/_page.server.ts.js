@@ -16,8 +16,8 @@ var PIPELINE_STAGES = [
 	"release",
 	"done"
 ];
-var load = () => {
-	const db = getTasksDb();
+var load = ({ locals }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return { columns: [] };
 	try {
 		const rows = db.prepare(`SELECT id, title, status, priority, type, parent_id, size,

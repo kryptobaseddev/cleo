@@ -10,8 +10,8 @@ import { json } from "@sveltejs/kit";
 *   type    — epic | task | subtask (comma-separated)
 *   limit   — max rows (default 200)
 */
-var GET = ({ url }) => {
-	const db = getTasksDb();
+var GET = ({ locals, url }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return json({ error: "tasks.db unavailable" }, { status: 503 });
 	const statusParam = url.searchParams.get("status");
 	const priorityParam = url.searchParams.get("priority");

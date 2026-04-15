@@ -19,8 +19,8 @@ export interface SessionEntry {
   completedTasks: Array<{ id: string; title: string; status: string }>;
 }
 
-export const load = () => {
-  const db = getTasksDb();
+export const load = ({ locals }: Parameters<PageServerLoad>[0]) => {
+  const db = getTasksDb(locals.projectCtx);
 
   if (!db) {
     return { sessions: [] };
@@ -94,4 +94,3 @@ export const load = () => {
     return { sessions: [] };
   }
 };
-;null as any as PageServerLoad;

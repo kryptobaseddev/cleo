@@ -14,10 +14,16 @@ vi.mock('../../../../core/src/store/json.js', () => ({
   computeChecksum: vi.fn().mockReturnValue('0000000000000000'),
 }));
 
-vi.mock('../../../../core/src/paths.js', () => ({
-  getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
-  getBackupDir: vi.fn().mockReturnValue('.cleo/backups/operational'),
-}));
+vi.mock('../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
+    '../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
+    getBackupDir: vi.fn().mockReturnValue('.cleo/backups/operational'),
+  };
+});
 
 describe('registerImportTasksCommand', () => {
   it('registers an import-tasks command on the program', () => {

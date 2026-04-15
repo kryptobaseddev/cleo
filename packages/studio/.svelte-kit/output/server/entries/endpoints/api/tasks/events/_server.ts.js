@@ -6,8 +6,9 @@ import { o as getTasksDb } from "../../../../../chunks/connections.js";
 * Polls tasks.db every 2 seconds and emits 'task-updated' events when
 * the last updated_at timestamp changes.
 */
-var GET = () => {
+var GET = ({ locals }) => {
 	const encoder = new TextEncoder();
+	const projectCtx = locals.projectCtx;
 	const stream = new ReadableStream({ start(controller) {
 		let lastUpdated = "";
 		let lastCount = 0;
@@ -28,7 +29,7 @@ var GET = () => {
 				return;
 			}
 			try {
-				const db = getTasksDb();
+				const db = getTasksDb(projectCtx);
 				if (!db) return;
 				const row = db.prepare(`SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks WHERE status != 'archived'`).get();
 				const latest = row?.latest ?? "";

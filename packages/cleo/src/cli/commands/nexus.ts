@@ -1847,6 +1847,639 @@ export function registerNexusCommand(program: Command): void {
       }
     });
 
+  // ── nexus projects scan ───────────────────────────────────────────────────
+  // Walk filesystem roots to discover .cleo/ directories not in the registry.
+
+  projects
+    .command('scan')
+    .description(
+      'Walk filesystem roots to discover .cleo/ directories not registered in the global nexus registry',
+    )
+    .option(
+      '--roots <paths>',
+      'Comma-separated search roots (default: ~/code,~/projects,/mnt/projects)',
+    )
+    .option('--max-depth <n>', 'Maximum directory traversal depth (default: 4)', parseInt, 4)
+    .option('--auto-register', 'Register all discovered unregistered projects automatically')
+    .option('--include-existing', 'Also report projects that are already registered')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const autoRegister = !!opts['autoRegister'];
+      const includeExisting = !!opts['includeExisting'];
+      const maxDepth = Math.max(1, Math.min((opts['maxDepth'] as number) ?? 4, 20));
+
+      // Resolve search roots
+      const { homedir } = await import('node:os');
+      const home = homedir();
+      const defaultRoots = [path.join(home, 'code'), path.join(home, 'projects'), '/mnt/projects'];
+      const rawRoots: string[] =
+        typeof opts['roots'] === 'string' && opts['roots'].trim().length > 0
+          ? opts['roots']
+              .split(',')
+              .map((r: string) => r.trim())
+              .filter((r: string) => r.length > 0)
+              .map((r: string) =>
+                r.startsWith('~') ? path.join(home, r.slice(1)) : path.resolve(r),
+              )
+          : defaultRoots;
+
+      // Filter to roots that actually exist
+      const { existsSync, readdirSync, statSync } = await import('node:fs');
+      const { Dirent } = await import('node:fs');
+      type DirentString = InstanceType<typeof Dirent<string>>;
+      const roots = rawRoots.filter((r) => {
+        try {
+          return existsSync(r) && statSync(r).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+
+      if (!jsonOutput) {
+        process.stdout.write(
+          `[nexus] Scanning ${roots.length} root(s) up to depth ${maxDepth}:\n` +
+            roots.map((r) => `  ${r}`).join('\n') +
+            '\n',
+        );
+      }
+
+      // ── Filesystem walker ──────────────────────────────────────────────
+      // Walk recursively up to maxDepth. Skip common build/cache directories.
+      // Does NOT follow symlinks. Does NOT cross mount points.
+      const SKIP_DIRS = new Set([
+        'node_modules',
+        '.git',
+        'target', // Rust build
+        'dist',
+        'build',
+        '.svelte-kit',
+        '.next',
+        '.cache',
+        'coverage',
+        '.turbo',
+        '.nx',
+        '__pycache__',
+        '.venv',
+        'venv',
+        '.tox',
+        'vendor',
+      ]);
+
+      /**
+       * Return the device number for a path, or -1 on error.
+       * Used to detect filesystem boundary crossings.
+       */
+      function getDevice(p: string): number {
+        try {
+          return statSync(p).dev;
+        } catch {
+          return -1;
+        }
+      }
+
+      /**
+       * Walk a directory tree looking for directories named `.cleo/`.
+       * Candidates are returned as absolute parent directory paths (the project root).
+       *
+       * @param dir     - Absolute directory path to walk.
+       * @param depth   - Current recursion depth (0 = root).
+       * @param rootDev - Device number of the search root for boundary checks.
+       */
+      function walkForCleo(dir: string, depth: number, rootDev: number): string[] {
+        if (depth > maxDepth) return [];
+
+        let entries: DirentString[];
+        try {
+          // withFileTypes:true + default encoding returns Dirent<string>[]
+          entries = readdirSync(dir, { withFileTypes: true }) as DirentString[];
+        } catch {
+          return [];
+        }
+
+        const found: string[] = [];
+
+        for (const entry of entries) {
+          // Only process directories; skip symlinks (security requirement).
+          if (!entry.isDirectory()) continue;
+          if (entry.isSymbolicLink()) continue;
+
+          const fullPath = path.join(dir, entry.name);
+
+          if (entry.name === '.cleo') {
+            // Parent dir is a CLEO project root
+            found.push(dir);
+            // Do not recurse into .cleo/ itself
+            continue;
+          }
+
+          if (SKIP_DIRS.has(entry.name)) continue;
+
+          // Filesystem boundary check — don't traverse into different mount points.
+          const childDev = getDevice(fullPath);
+          if (childDev !== rootDev && childDev !== -1) continue;
+
+          const nested = walkForCleo(fullPath, depth + 1, rootDev);
+          for (const n of nested) found.push(n);
+        }
+
+        return found;
+      }
+
+      // Collect all candidates
+      const allCandidates: string[] = [];
+      for (const root of roots) {
+        const rootDev = getDevice(root);
+        const found = walkForCleo(root, 0, rootDev);
+        for (const f of found) allCandidates.push(f);
+      }
+
+      // Deduplicate (a root could itself be a .cleo parent)
+      const candidates = [...new Set(allCandidates)];
+
+      // ── Cross-reference with registry ─────────────────────────────────
+      let registeredPaths = new Set<string>();
+      try {
+        const { nexusList: listProjects } = await import('@cleocode/core/internal' as string);
+        const projects = await listProjects();
+        for (const p of projects) {
+          registeredPaths.add(path.resolve(p.path));
+        }
+      } catch {
+        // Registry unavailable — treat all as unregistered
+        registeredPaths = new Set();
+      }
+
+      const unregistered: string[] = [];
+      const registered: string[] = [];
+
+      for (const candidate of candidates) {
+        const resolved = path.resolve(candidate);
+        if (registeredPaths.has(resolved)) {
+          registered.push(resolved);
+        } else {
+          unregistered.push(resolved);
+        }
+      }
+
+      const tally = {
+        total: candidates.length,
+        unregistered: unregistered.length,
+        registered: registered.length,
+      };
+
+      // ── Auto-register ─────────────────────────────────────────────────
+      const autoRegistered: string[] = [];
+      const autoRegisterErrors: Array<{ path: string; error: string }> = [];
+
+      if (autoRegister && unregistered.length > 0) {
+        const { nexusRegister: doRegister } = await import('@cleocode/core/internal' as string);
+        for (const projectPath of unregistered) {
+          try {
+            await (doRegister as (p: string) => Promise<string>)(projectPath);
+            autoRegistered.push(projectPath);
+          } catch (err) {
+            autoRegisterErrors.push({
+              path: projectPath,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+
+      // ── Audit log ─────────────────────────────────────────────────────
+      // Best-effort: never let audit failure surface to the user.
+      try {
+        const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
+        const { nexusAuditLog: auditTable } = await import(
+          '@cleocode/core/store/nexus-schema' as string
+        );
+        const { randomUUID } = await import('node:crypto');
+        const db = await getNexusDb();
+        await db.insert(auditTable).values({
+          id: randomUUID(),
+          action: 'projects.scan',
+          domain: 'nexus',
+          operation: 'projects.scan',
+          success: 1,
+          detailsJson: JSON.stringify({
+            roots,
+            found: candidates.length,
+            unregistered: unregistered.length,
+            registered: registered.length,
+            autoRegistered: autoRegistered.length,
+          }),
+        });
+      } catch {
+        // Audit failure is non-fatal
+      }
+
+      const durationMs = Date.now() - startTime;
+
+      // ── Output ────────────────────────────────────────────────────────
+      if (jsonOutput) {
+        const data: Record<string, unknown> = {
+          roots,
+          unregistered,
+          tally,
+        };
+        if (includeExisting) data['registered'] = registered;
+        if (autoRegister) {
+          data['autoRegistered'] = autoRegistered;
+          data['autoRegisterErrors'] = autoRegisterErrors;
+        }
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data,
+              meta: {
+                operation: 'nexus.projects.scan',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        // Human-readable output
+        process.stdout.write(
+          `\n[nexus] Scan complete — ${tally.total} project(s) found ` +
+            `(${tally.unregistered} unregistered, ${tally.registered} registered)\n`,
+        );
+
+        if (unregistered.length > 0) {
+          process.stdout.write('\n  Unregistered:\n');
+          for (const p of unregistered) {
+            process.stdout.write(`    ${p}\n`);
+          }
+          if (!autoRegister) {
+            process.stdout.write(
+              '\n  Tip: run with --auto-register to register all of the above.\n',
+            );
+          }
+        }
+
+        if (includeExisting && registered.length > 0) {
+          process.stdout.write('\n  Already registered:\n');
+          for (const p of registered) {
+            process.stdout.write(`    ${p}\n`);
+          }
+        }
+
+        if (autoRegister) {
+          process.stdout.write(
+            `\n  Auto-registered: ${autoRegistered.length} project(s)` +
+              (autoRegisterErrors.length > 0 ? `, ${autoRegisterErrors.length} failed` : '') +
+              '\n',
+          );
+          for (const e of autoRegisterErrors) {
+            process.stdout.write(`    FAILED ${e.path}: ${e.error}\n`);
+          }
+        }
+      }
+    });
+
+  // ── nexus projects clean ─────────────────────────────────────────────────
+  // Bulk purge project_registry rows matching path criteria.
+  // Provides safety rails: at least one criteria flag required, always shows
+  // a preview before deletion, runs deletion in a single transaction.
+
+  projects
+    .command('clean')
+    .description(
+      'Bulk purge project_registry rows matching path criteria (requires at least one filter flag)',
+    )
+    .option('--dry-run', 'List matching projects without deleting anything')
+    .option('--pattern <regex>', 'JS regex matched against project_path')
+    .option('--include-temp', 'Preset: match paths containing a .temp/ segment')
+    .option(
+      '--include-tests',
+      'Preset: match paths containing tmp/test/fixture/scratch/sandbox segments',
+    )
+    .option('--unhealthy', 'Also match rows where health_status is "unhealthy"')
+    .option('--never-indexed', 'Also match rows where last_indexed IS NULL')
+    .option('--yes', 'Skip confirmation prompt (still shows preview)')
+    .option('--json', 'Output as JSON (LAFS envelope format)')
+    .action(async (opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const jsonOutput = !!opts['json'];
+      const dryRun = !!opts['dryRun'];
+      const skipPrompt = !!opts['yes'];
+      const patternRaw = opts['pattern'] as string | undefined;
+      const includeTemp = !!opts['includeTemp'];
+      const includeTests = !!opts['includeTests'];
+      const matchUnhealthy = !!opts['unhealthy'];
+      const matchNeverIndexed = !!opts['neverIndexed'];
+
+      // Require at least one real criteria flag (not just --dry-run / --yes / --json)
+      const hasCriteria =
+        patternRaw !== undefined ||
+        includeTemp ||
+        includeTests ||
+        matchUnhealthy ||
+        matchNeverIndexed;
+
+      if (!hasCriteria) {
+        const errMsg =
+          'No filter criteria provided. Refusing to purge all projects without explicit criteria.\n' +
+          'Use at least one of: --pattern <regex>, --include-temp, --include-tests, --unhealthy, --never-indexed';
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_NO_CRITERIA', message: errMsg },
+                meta: {
+                  operation: 'nexus.projects.clean',
+                  duration_ms: Date.now() - startTime,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${errMsg}\n`);
+        }
+        process.exitCode = 6;
+        return;
+      }
+
+      // Compile user-supplied regex (if any)
+      let patternRegex: RegExp | null = null;
+      if (patternRaw !== undefined) {
+        try {
+          patternRegex = new RegExp(patternRaw);
+        } catch (err) {
+          const msg = `Invalid --pattern regex: ${err instanceof Error ? err.message : String(err)}`;
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  success: false,
+                  error: { code: 'E_INVALID_PATTERN', message: msg },
+                  meta: {
+                    operation: 'nexus.projects.clean',
+                    duration_ms: Date.now() - startTime,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          } else {
+            process.stderr.write(`[nexus] Error: ${msg}\n`);
+          }
+          process.exitCode = 6;
+          return;
+        }
+      }
+
+      // Preset regexes
+      const TEMP_RE = /(^|\/)\.temp(\/|$)/;
+      const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
+
+      /**
+       * Return true if a project_path matches any of the active criteria.
+       */
+      function matchesCriteria(
+        projectPath: string,
+        healthStatus: string,
+        lastIndexed: string | null,
+      ): boolean {
+        if (patternRegex?.test(projectPath)) return true;
+        if (includeTemp && TEMP_RE.test(projectPath)) return true;
+        if (includeTests && TESTS_RE.test(projectPath)) return true;
+        if (matchUnhealthy && healthStatus === 'unhealthy') return true;
+        if (matchNeverIndexed && lastIndexed === null) return true;
+        return false;
+      }
+
+      try {
+        const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
+        const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
+          '@cleocode/core/store/nexus-schema' as string
+        );
+        const { randomUUID } = await import('node:crypto');
+        const { inArray } = await import('drizzle-orm');
+        const db = await getNexusDb();
+
+        /** Minimal shape we need from each registry row. */
+        type RegistryRow = {
+          projectId: string;
+          projectPath: string;
+          healthStatus: string;
+          lastIndexed: string | null;
+        };
+
+        // Fetch all registry rows in one query — avoid N+1.
+        // Cast is required because dynamic imports with `as string` suppress
+        // the real module types; the actual schema column types match this shape.
+        const allRows = (await db
+          .select({
+            projectId: regTable.projectId,
+            projectPath: regTable.projectPath,
+            healthStatus: regTable.healthStatus,
+            lastIndexed: regTable.lastIndexed,
+          })
+          .from(regTable)) as RegistryRow[];
+
+        const matches = allRows.filter((row) =>
+          matchesCriteria(row.projectPath, row.healthStatus, row.lastIndexed),
+        );
+
+        const totalCount = allRows.length;
+        const matchCount = matches.length;
+        const samplePaths = matches.slice(0, 10).map((r) => r.projectPath);
+
+        // Always show preview
+        if (!jsonOutput) {
+          process.stdout.write(
+            `[nexus] Clean preview — ${matchCount} project(s) of ${totalCount} total match criteria:\n`,
+          );
+          if (matchCount === 0) {
+            process.stdout.write('  (no matches)\n');
+          } else {
+            for (const p of samplePaths) {
+              process.stdout.write(`  ${p}\n`);
+            }
+            if (matchCount > 10) {
+              process.stdout.write(`  ... and ${matchCount - 10} more\n`);
+            }
+          }
+        }
+
+        if (matchCount === 0) {
+          const durationMs = Date.now() - startTime;
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  success: true,
+                  data: {
+                    dryRun,
+                    matched: 0,
+                    purged: 0,
+                    remaining: totalCount,
+                    sample: [],
+                  },
+                  meta: {
+                    operation: 'nexus.projects.clean',
+                    duration_ms: durationMs,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          }
+          return;
+        }
+
+        // Dry-run: stop here
+        if (dryRun) {
+          const durationMs = Date.now() - startTime;
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  success: true,
+                  data: {
+                    dryRun: true,
+                    matched: matchCount,
+                    purged: 0,
+                    remaining: totalCount,
+                    sample: samplePaths,
+                  },
+                  meta: {
+                    operation: 'nexus.projects.clean',
+                    duration_ms: durationMs,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          } else {
+            process.stdout.write(
+              `[nexus] Dry-run — ${matchCount} project(s) would be purged. Rerun without --dry-run to delete.\n`,
+            );
+          }
+          return;
+        }
+
+        // Confirmation prompt (skip with --yes)
+        if (!skipPrompt) {
+          const { createInterface } = await import('node:readline');
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const confirmed = await new Promise<boolean>((resolve) => {
+            rl.question(
+              `\n[nexus] Delete ${matchCount} project(s) from the registry? [y/N] `,
+              (answer) => {
+                rl.close();
+                resolve(answer.trim().toLowerCase() === 'y');
+              },
+            );
+          });
+          if (!confirmed) {
+            process.stdout.write('[nexus] Aborted — no projects deleted.\n');
+            return;
+          }
+        }
+
+        // Delete in a single transaction
+        const idsToDelete = matches.map((r) => r.projectId);
+        await db.delete(regTable).where(inArray(regTable.projectId, idsToDelete));
+
+        const remaining = totalCount - matchCount;
+
+        // Audit log (best-effort)
+        try {
+          await db.insert(auditTable).values({
+            id: randomUUID(),
+            action: 'projects.clean',
+            domain: 'nexus',
+            operation: 'projects.clean',
+            success: 1,
+            detailsJson: JSON.stringify({
+              pattern: patternRaw ?? null,
+              presets: {
+                includeTemp,
+                includeTests,
+                matchUnhealthy,
+                matchNeverIndexed,
+              },
+              count: matchCount,
+              sample: samplePaths,
+            }),
+          });
+        } catch {
+          // Audit failure is non-fatal
+        }
+
+        const durationMs = Date.now() - startTime;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  dryRun: false,
+                  matched: matchCount,
+                  purged: matchCount,
+                  remaining,
+                  sample: samplePaths,
+                },
+                meta: {
+                  operation: 'nexus.projects.clean',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Purged ${matchCount} project(s). ${remaining} project(s) remaining in registry.\n`,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const durationMs = Date.now() - startTime;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_CLEAN_FAILED', message: msg },
+                meta: {
+                  operation: 'nexus.projects.clean',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stderr.write(`[nexus] Error: ${msg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
   // ── nexus refresh-bridge ──────────────────────────────────────────────────
 
   nexus

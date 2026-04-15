@@ -30,6 +30,14 @@ export default defineConfig({
     alias: {
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
+      '@cleocode/core/store/nexus-sqlite': new URL(
+        './packages/core/src/store/nexus-sqlite.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/store/nexus-schema': new URL(
+        './packages/core/src/store/nexus-schema.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { homedir } from "node:os";
 //#region src/lib/server/cleo-home.ts
 /**
 * Resolves CLEO home and project data paths for the studio server.
@@ -27,15 +27,6 @@ function getCleoProjectDir() {
 function getNexusDbPath() {
 	return join(getCleoHome(), "nexus.db");
 }
-function getBrainDbPath() {
-	return join(getCleoProjectDir(), "brain.db");
-}
-function getTasksDbPath() {
-	return join(getCleoProjectDir(), "tasks.db");
-}
-function getConduitDbPath() {
-	return join(getCleoProjectDir(), "conduit.db");
-}
 function getSignaldockDbPath() {
 	return join(getCleoHome(), "signaldock.db");
 }
@@ -43,4 +34,4 @@ function dbExists(dbPath) {
 	return existsSync(dbPath);
 }
 //#endregion
-export { getNexusDbPath as a, getConduitDbPath as i, getBrainDbPath as n, getSignaldockDbPath as o, getCleoHome as r, getTasksDbPath as s, dbExists as t };
+export { getSignaldockDbPath as a, getNexusDbPath as i, getCleoHome as n, getCleoProjectDir as r, dbExists as t };

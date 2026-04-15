@@ -39,8 +39,8 @@ export interface EpicProgress {
   pending: number;
 }
 
-export const load: PageServerLoad = () => {
-  const db = getTasksDb();
+export const load: PageServerLoad = ({ locals }) => {
+  const db = getTasksDb(locals.projectCtx);
 
   if (!db) {
     return { stats: null, recentTasks: [], epicProgress: [] };

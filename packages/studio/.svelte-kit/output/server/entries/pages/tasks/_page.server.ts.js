@@ -3,8 +3,8 @@ import { o as getTasksDb } from "../../../chunks/connections.js";
 /**
 * Tasks dashboard server load — status/priority/type counts, epic progress, recent activity.
 */
-var load = () => {
-	const db = getTasksDb();
+var load = ({ locals }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return {
 		stats: null,
 		recentTasks: [],

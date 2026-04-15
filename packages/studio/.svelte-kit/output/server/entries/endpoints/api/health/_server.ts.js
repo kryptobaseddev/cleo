@@ -5,8 +5,8 @@ import { json } from "@sveltejs/kit";
 * Health check endpoint for the CLEO Studio server.
 * GET /api/health → { ok: true, version: string, databases: {...} }
 */
-var GET = () => {
-	const dbStatus = getDbStatus();
+var GET = ({ locals }) => {
+	const dbStatus = getDbStatus(locals.projectCtx);
 	return json({
 		ok: true,
 		service: "cleo-studio",

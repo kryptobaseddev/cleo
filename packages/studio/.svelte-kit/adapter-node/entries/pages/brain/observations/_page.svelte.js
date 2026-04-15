@@ -71,12 +71,12 @@ function _page($$renderer, $$props) {
 				$$renderer.push(`<title>BRAIN Observations — CLEO Studio</title>`);
 			});
 		});
-		$$renderer.push(`<div class="obs-page svelte-8nabpv"><div class="page-header svelte-8nabpv"><a href="/brain" class="back-link svelte-8nabpv">← Brain</a> <h1 class="page-title svelte-8nabpv">Observations</h1> `);
+		$$renderer.push(`<div class="obs-page svelte-8nabpv"><div class="page-header svelte-8nabpv"><a href="/brain/overview" class="back-link svelte-8nabpv">← Overview</a> <h1 class="page-title svelte-8nabpv">Observations</h1> `);
 		if (!loading && !error) {
 			$$renderer.push("<!--[0-->");
 			$$renderer.push(`<span class="count-badge svelte-8nabpv">${escape_html(filtered)} shown / ${escape_html(total)} total</span>`);
 		} else $$renderer.push("<!--[-1-->");
-		$$renderer.push(`<!--]--></div> <div class="filters svelte-8nabpv"><input class="search-input svelte-8nabpv" type="text" placeholder="Search title or narrative…"${attr("value", searchText)}/> `);
+		$$renderer.push(`<!--]--> <a href="/brain?scope=brain&amp;type=observation" class="canvas-pill svelte-8nabpv">Open in Canvas →</a></div> <div class="filters svelte-8nabpv"><input class="search-input svelte-8nabpv" type="text" placeholder="Search title or narrative…"${attr("value", searchText)}/> `);
 		$$renderer.select({
 			class: "filter-select",
 			value: tierFilter,

@@ -23,8 +23,8 @@ function buildTree(parentId, allRows, depth) {
 		children: buildTree(r.id, allRows, depth + 1)
 	}));
 }
-var GET = ({ params }) => {
-	const db = getTasksDb();
+var GET = ({ locals, params }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return json({ error: "tasks.db unavailable" }, { status: 503 });
 	const { epicId } = params;
 	try {

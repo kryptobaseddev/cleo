@@ -9,8 +9,8 @@ import { json } from "@sveltejs/kit";
 * Limits to 500 nodes for performance (highest quality first).
 */
 var MAX_NODES = 500;
-var GET = () => {
-	const db = getBrainDb();
+var GET = ({ locals }) => {
+	const db = getBrainDb(locals.projectCtx);
 	if (!db) return json({
 		nodes: [],
 		edges: [],

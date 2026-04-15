@@ -35,8 +35,8 @@ export interface BrainObservationsResponse {
   filtered: number;
 }
 
-export const GET: RequestHandler = ({ url }) => {
-  const db = getBrainDb();
+export const GET: RequestHandler = ({ locals, url }) => {
+  const db = getBrainDb(locals.projectCtx);
   if (!db) {
     return json({ observations: [], total: 0, filtered: 0 } satisfies BrainObservationsResponse);
   }

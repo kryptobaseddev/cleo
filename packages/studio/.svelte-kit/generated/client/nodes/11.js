@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/nexus/symbol/[name]/+page.svelte";
+export { default as component } from "../../../../src/routes/code/symbol/[name]/+page.svelte";
