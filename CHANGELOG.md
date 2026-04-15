@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.51] (2026-04-15)
+
+T626 Living Brain foundation — 5-substrate API + decision cross-links + STDP plasticity + edge normalization.
+
+### Feat: Unified Living Brain API (T626 Phase 1)
+- `packages/studio/src/lib/server/living-brain/` — 5 substrate adapters (brain/nexus/tasks/conduit/signaldock)
+- `LBNode`, `LBEdge`, `LBGraph`, `LBQueryOptions` types
+- `GET /api/living-brain?limit=&substrates=&min_weight=`
+- `GET /api/living-brain/node/:id` — node + neighbors
+- `GET /api/living-brain/substrate/:name` — filtered by substrate
+- 21 tests pass
+
+### Feat: Decision auto cross-link (T626 Phase 1)
+- `autoCrossLinkDecision` extracts referenced file paths, function names, class names from decision text
+- Fire-and-forget wire into `storeDecision` — creates `affects` edges automatically
+- 14 new tests + 14 regression tests pass
+
+### Feat: STDP timing-dependent plasticity (T626 Phase 5 foundation)
+- `brain-stdp.ts` — `applyStdpPlasticity` implements spike-timing-dependent plasticity
+- LTP (pre→post): Δw = 0.05 × exp(−Δt/20s)
+- LTD (post→pre): Δw = −0.06 × exp(−Δt/20s)
+- `brain_plasticity_events` table logs all events
+- Wired into session.end consolidation pipeline (step 9)
+- `cleo brain plasticity stats` CLI
+- 12 tests pass
+
+### Fix: T626-M1 edge type normalization
+- `EDGE_TYPES` constants (`CO_RETRIEVED`, `SUPERSEDES`, `APPLIES_TO`, `AFFECTS`, etc.)
+- `strengthenCoRetrievedEdges` uses canonical `CO_RETRIEVED` type
+- Migration relabels existing rows
+- Foundation unlocks M2-M7 parallel work
+
 ## [2026.4.50] (2026-04-15)
 
 T618 barrel tracing FIXED — workspace import resolution + multi-project registry complete.
