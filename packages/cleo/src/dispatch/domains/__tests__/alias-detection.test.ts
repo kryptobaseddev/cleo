@@ -12,9 +12,15 @@
 import { describe, expect, it } from 'vitest';
 
 // Mock everything to allow handler instantiation
-vi.mock('../../../../../core/src/paths.js', () => ({
-  getProjectRoot: vi.fn(() => '/mock/project'),
-}));
+vi.mock('../../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
+    '../../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getProjectRoot: vi.fn(() => '/mock/project'),
+  };
+});
 vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
     error: vi.fn(),

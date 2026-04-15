@@ -49,8 +49,8 @@ export interface SubtaskRow {
   completed_at: string | null;
 }
 
-export const load = ({ params }: Parameters<PageServerLoad>[0]) => {
-  const db = getTasksDb();
+export const load = ({ locals, params }: Parameters<PageServerLoad>[0]) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     error(503, 'tasks.db unavailable');
   }

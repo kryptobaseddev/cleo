@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/living-brain/+page.svelte";
+export { default as component } from "../../../../src/routes/brain/quality/+page.svelte";

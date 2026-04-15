@@ -7,8 +7,8 @@ import { json } from "@sveltejs/kit";
 *
 * Supports optional query filters: tier, type, min_quality.
 */
-var GET = ({ url }) => {
-	const db = getBrainDb();
+var GET = ({ locals, url }) => {
+	const db = getBrainDb(locals.projectCtx);
 	if (!db) return json({
 		observations: [],
 		total: 0,

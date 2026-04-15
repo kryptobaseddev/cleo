@@ -5,19 +5,27 @@ function _page($$renderer, $$props) {
 		let { data } = $$props;
 		const portals = [
 			{
-				href: "/nexus",
-				title: "Nexus",
-				subtitle: "Code Intelligence Graph",
+				href: "/brain",
+				title: "Brain",
+				subtitle: "5-Substrate Living Canvas",
+				description: "Unified living canvas across all 5 substrates: brain, nexus, tasks, conduit, and signaldock. Explore the knowledge graph, decisions, observations, quality scores, and code intelligence in one view.",
+				color: "#22c55e",
+				stats: data.brainStats
+			},
+			{
+				href: "/code",
+				title: "Code",
+				subtitle: "Code Intelligence",
 				description: "Interactive visualization of the codebase symbol graph. Explore function calls, module dependencies, community clusters, and execution flows.",
 				color: "#3b82f6",
 				stats: data.nexusStats
 			},
 			{
-				href: "/brain",
-				title: "Brain",
-				subtitle: "Memory Visualization",
-				description: "Explore the CLEO memory graph. View decisions, patterns, learnings, and observations with quality scores and temporal relationships.",
-				color: "#22c55e",
+				href: "/brain/overview",
+				title: "Memory",
+				subtitle: "BRAIN Dashboard",
+				description: "Decisions timeline, observations, quality distribution, memory tiers, and recent activity. The overview dashboard for the 5-substrate BRAIN.",
+				color: "#f59e0b",
 				stats: data.brainStats
 			},
 			{

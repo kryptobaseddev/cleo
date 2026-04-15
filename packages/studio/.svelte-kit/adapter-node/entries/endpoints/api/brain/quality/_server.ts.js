@@ -44,8 +44,8 @@ function buildBuckets(db, table) {
 		};
 	});
 }
-var GET = () => {
-	const db = getBrainDb();
+var GET = ({ locals }) => {
+	const db = getBrainDb(locals.projectCtx);
 	if (!db) {
 		const empty = {
 			buckets: [],

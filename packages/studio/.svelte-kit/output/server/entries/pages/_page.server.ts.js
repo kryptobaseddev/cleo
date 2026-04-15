@@ -7,7 +7,7 @@ function formatCount(n) {
 	if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
 	return String(n);
 }
-var load = () => {
+var load = ({ locals }) => {
 	let nexusStats = null;
 	let brainStats = null;
 	let tasksStats = null;
@@ -26,7 +26,7 @@ var load = () => {
 		}
 	} catch {}
 	try {
-		const brain = getBrainDb();
+		const brain = getBrainDb(locals.projectCtx);
 		if (brain) {
 			const nodeRow = brain.prepare("SELECT COUNT(*) as cnt FROM brain_page_nodes").get();
 			const obsRow = brain.prepare("SELECT COUNT(*) as cnt FROM brain_observations").get();
@@ -40,7 +40,7 @@ var load = () => {
 		}
 	} catch {}
 	try {
-		const tasks = getTasksDb();
+		const tasks = getTasksDb(locals.projectCtx);
 		if (tasks) {
 			const taskRow = tasks.prepare("SELECT COUNT(*) as cnt FROM tasks").get();
 			const epicRow = tasks.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE type = 'epic'").get();

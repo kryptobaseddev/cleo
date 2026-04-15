@@ -11,10 +11,14 @@ vi.mock('../json.js', () => ({
   readJson: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../paths.js', () => ({
-  getCleoDir: vi.fn().mockReturnValue('.cleo'),
-  getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
-}));
+vi.mock('../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+  return {
+    ...actual,
+    getCleoDir: vi.fn().mockReturnValue('.cleo'),
+    getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
+  };
+});
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(

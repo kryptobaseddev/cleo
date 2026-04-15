@@ -62,8 +62,8 @@ function buildTree(
     }));
 }
 
-export const GET: RequestHandler = ({ params }) => {
-  const db = getTasksDb();
+export const GET: RequestHandler = ({ locals, params }) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }

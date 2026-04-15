@@ -132,7 +132,7 @@
 <div class="graph-page">
   <div class="graph-header">
     <div class="header-left">
-      <a href="/brain" class="back-link">← Brain</a>
+      <a href="/brain/overview" class="back-link">← Overview</a>
       <h1 class="page-title">Knowledge Graph</h1>
       {#if !loading && !error}
         <span class="node-count">{totalNodes} nodes · {totalEdges} edges</span>

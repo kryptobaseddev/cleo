@@ -17,7 +17,20 @@ interface AgentRow {
   agent_id: string;
   name: string;
   status: string;
-  created_at: string;
+  /** UNIX epoch seconds (INTEGER column in signaldock.db). May be null on legacy rows. */
+  created_at: number | null;
+}
+
+/**
+ * Converts a UNIX epoch seconds value to an ISO-8601 string.
+ * Returns null when the value is not a finite positive number.
+ *
+ * @param epoch - UNIX timestamp in seconds, or null.
+ * @returns ISO-8601 string or null.
+ */
+function epochToIso(epoch: number | null): string | null {
+  if (epoch === null || !Number.isFinite(epoch) || epoch <= 0) return null;
+  return new Date(epoch * 1000).toISOString();
 }
 
 /** Raw row from agent_connections table. */
@@ -70,6 +83,7 @@ export function getSignaldockSubstrate(options: LBQueryOptions = {}): {
         substrate: 'signaldock',
         label: row.name,
         weight: row.status === 'active' ? 1.0 : 0.5,
+        createdAt: epochToIso(row.created_at),
         meta: {
           status: row.status,
           created_at: row.created_at,

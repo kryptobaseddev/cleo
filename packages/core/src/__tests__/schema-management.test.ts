@@ -11,9 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let mockGlobalSchemasDir: string;
 let mockPackageRoot: string;
 
-vi.mock('../paths.js', () => ({
-  getCleoSchemasDir: () => mockGlobalSchemasDir,
-}));
+vi.mock('../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../paths.js')>('../paths.js');
+  return {
+    ...actual,
+    getCleoSchemasDir: () => mockGlobalSchemasDir,
+  };
+});
 
 vi.mock('../scaffold.js', () => ({
   getPackageRoot: () => mockPackageRoot,

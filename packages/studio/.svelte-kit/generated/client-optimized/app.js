@@ -21,7 +21,7 @@ export const nodes = [
 	() => import('./nodes/17')
 ];
 
-export const server_loads = [];
+export const server_loads = [0];
 
 export const dictionary = {
 		"/": [~2],
@@ -29,11 +29,11 @@ export const dictionary = {
 		"/brain/decisions": [4],
 		"/brain/graph": [5],
 		"/brain/observations": [6],
-		"/brain/quality": [7],
-		"/living-brain": [~8],
-		"/nexus": [~9],
-		"/nexus/community/[id]": [~10],
-		"/nexus/symbol/[name]": [~11],
+		"/brain/overview": [~7],
+		"/brain/quality": [8],
+		"/code": [~9],
+		"/code/community/[id]": [~10],
+		"/code/symbol/[name]": [~11],
 		"/projects": [~12],
 		"/tasks": [~13],
 		"/tasks/pipeline": [~15],

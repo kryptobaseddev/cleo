@@ -25,6 +25,8 @@ export const EDGE_TYPES = {
   MENTIONS: 'mentions',
   // Observation → symbol/file structural link
   DOCUMENTS: 'documents',
+  // Memory node → nexus symbol/file (T645)
+  CODE_REFERENCE: 'code_reference',
 } as const;
 
 /** Discriminated union of the canonical edge type constant values. */

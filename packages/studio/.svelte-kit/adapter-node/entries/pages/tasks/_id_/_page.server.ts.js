@@ -4,8 +4,8 @@ import { error } from "@sveltejs/kit";
 /**
 * Task detail page server load — single task, subtasks, verification, acceptance.
 */
-var load = ({ params }) => {
-	const db = getTasksDb();
+var load = ({ locals, params }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) error(503, "tasks.db unavailable");
 	const { id } = params;
 	const row = db.prepare(`SELECT id, title, description, status, priority, type, parent_id,

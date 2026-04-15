@@ -4,8 +4,8 @@ import { json } from "@sveltejs/kit";
 /**
 * GET /api/tasks/[id] — single task with subtasks, verification, and acceptance.
 */
-var GET = ({ params }) => {
-	const db = getTasksDb();
+var GET = ({ locals, params }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return json({ error: "tasks.db unavailable" }, { status: 503 });
 	const { id } = params;
 	try {

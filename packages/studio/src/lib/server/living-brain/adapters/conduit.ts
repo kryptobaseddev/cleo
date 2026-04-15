@@ -9,6 +9,7 @@
  */
 
 import { getConduitDb } from '../../db/connections.js';
+import { resolveDefaultProjectContext } from '../../project-context.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from conduit messages table. */
@@ -17,8 +18,21 @@ interface MessageRow {
   content: string;
   from_agent_id: string | null;
   to_agent_id: string | null;
-  created_at: string;
+  /** UNIX epoch seconds (INTEGER column in conduit.db). */
+  created_at: number;
   conversation_id: string | null;
+}
+
+/**
+ * Converts a UNIX epoch seconds value to an ISO-8601 string.
+ * Returns null when the value is not a finite positive number.
+ *
+ * @param epoch - UNIX timestamp in seconds.
+ * @returns ISO-8601 string or null.
+ */
+function epochToIso(epoch: number): string | null {
+  if (!Number.isFinite(epoch) || epoch <= 0) return null;
+  return new Date(epoch * 1000).toISOString();
 }
 
 /**
@@ -35,7 +49,8 @@ export function getConduitSubstrate(options: LBQueryOptions = {}): {
   nodes: LBNode[];
   edges: LBEdge[];
 } {
-  const db = getConduitDb();
+  const ctx = options.projectCtx ?? resolveDefaultProjectContext();
+  const db = getConduitDb(ctx);
   if (!db) return { nodes: [], edges: [] };
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
@@ -64,6 +79,7 @@ export function getConduitSubstrate(options: LBQueryOptions = {}): {
         kind: 'message',
         substrate: 'conduit',
         label,
+        createdAt: epochToIso(row.created_at),
         meta: {
           from_agent_id: row.from_agent_id,
           to_agent_id: row.to_agent_id,

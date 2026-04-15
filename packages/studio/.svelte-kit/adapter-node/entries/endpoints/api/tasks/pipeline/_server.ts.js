@@ -20,8 +20,8 @@ var PIPELINE_STAGES = [
 	"release",
 	"done"
 ];
-var GET = () => {
-	const db = getTasksDb();
+var GET = ({ locals }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return json({ error: "tasks.db unavailable" }, { status: 503 });
 	try {
 		const rows = db.prepare(`SELECT id, title, status, priority, type, parent_id,

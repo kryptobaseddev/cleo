@@ -1,4 +1,5 @@
 import { a as getSignaldockDb, i as getNexusDb, n as getConduitDb, o as getTasksDb, t as getBrainDb } from "./connections.js";
+import { i as resolveDefaultProjectContext } from "./project-context.js";
 //#region src/lib/server/living-brain/adapters/brain.ts
 /**
 * BRAIN substrate adapter for the Living Brain API.
@@ -7,12 +8,72 @@ import { a as getSignaldockDb, i as getNexusDb, n as getConduitDb, o as getTasks
 * observations, decisions, patterns, learnings, plus the graph layer
 * (brain_page_nodes / brain_page_edges).
 *
+* Cross-substrate bridges are synthesized for:
+* - brain_page_edges whose to_id references a task (task:T-xxx → tasks:T-xxx)
+* - brain_page_edges whose to_id is a nexus-style path (foo.ts::Symbol → nexus:...)
+* - brain_memory_links rows (memory_type + memory_id → task_id link)
+* - brain_observations.files_modified_json (observation → nexus file path)
+*
 * Node IDs are prefixed with "brain:" to prevent collisions.
 */
+/**
+* Converts a brain_page_edges type-prefixed ID (e.g. "observation:O-abc")
+* into the LBNode ID prefix (e.g. "brain:O-abc").
+*
+* Returns null when the prefix is not a recognised brain type.
+*
+* @param typeId - Type-prefixed ID from brain_page_edges.from_id or to_id.
+* @returns LBNode-prefixed ID or null.
+*/
+function brainTypeIdToLBId(typeId) {
+	const sep = typeId.indexOf(":");
+	if (sep === -1) return null;
+	const prefix = typeId.slice(0, sep);
+	const rawId = typeId.slice(sep + 1);
+	if (prefix === "observation" || prefix === "decision" || prefix === "pattern" || prefix === "learning") return `brain:${rawId}`;
+	return null;
+}
+/**
+* Returns true when a brain_page_edges to_id looks like a nexus node path
+* (contains "::" separator used by nexus for file::Symbol paths, or is a
+* relative file path with a known extension).
+*
+* @param toId - to_id value from brain_page_edges.
+* @returns True when the ID appears to reference a nexus node.
+*/
+function isNexusStyleId(toId) {
+	if (toId.includes("::")) return true;
+	if (!toId.includes(":") && toId.includes("/")) return true;
+	return false;
+}
+/**
+* Returns true when a brain_page_edges ID looks like a task reference
+* (e.g. "task:T532").
+*
+* @param id - ID from brain_page_edges.
+* @returns True when the ID references a task node.
+*/
+function isTaskId(id) {
+	return id.startsWith("task:");
+}
+/**
+* Converts a brain_page_edges task-reference to a tasks-substrate LBNode ID.
+* e.g. "task:T532" → "tasks:T532"
+*
+* @param taskRef - Task reference from brain_page_edges.
+* @returns tasks-substrate LBNode ID.
+*/
+function taskRefToLBId(taskRef) {
+	return `tasks:${taskRef.slice(5)}`;
+}
 /**
 * Returns all LBNodes and LBEdges sourced from brain.db.
 *
 * Pulls from all four typed memory tables plus brain_page_edges.
+* Emits intra-brain edges between loaded nodes, cross-substrate
+* brain→tasks bridges, cross-substrate brain→nexus bridges, and
+* brain_memory_links as cross-substrate edges.
+*
 * Applies `minWeight` filter where quality_score is available.
 * Node count is bounded by `limit / 5` to share budget with other substrates.
 *
@@ -20,7 +81,7 @@ import { a as getSignaldockDb, i as getNexusDb, n as getConduitDb, o as getTasks
 * @returns Nodes and edges from the BRAIN substrate.
 */
 function getBrainSubstrate(options = {}) {
-	const db = getBrainDb();
+	const db = getBrainDb(options.projectCtx ?? resolveDefaultProjectContext());
 	if (!db) return {
 		nodes: [],
 		edges: []
@@ -30,7 +91,9 @@ function getBrainSubstrate(options = {}) {
 	const nodes = [];
 	const edges = [];
 	try {
-		const obsRows = db.prepare(`SELECT id, title, quality_score, memory_tier, created_at, source_session_id
+		const obsRows = db.prepare(`SELECT id, title, quality_score, memory_tier,
+                strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at,
+                source_session_id, files_modified_json
          FROM brain_observations
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
@@ -41,13 +104,15 @@ function getBrainSubstrate(options = {}) {
 			substrate: "brain",
 			label: row.title,
 			weight: row.quality_score ?? void 0,
+			createdAt: row.created_at,
 			meta: {
 				memory_tier: row.memory_tier,
 				created_at: row.created_at,
 				source_session_id: row.source_session_id
 			}
 		});
-		const decRows = db.prepare(`SELECT id, decision, quality_score, context_task_id, created_at
+		const decRows = db.prepare(`SELECT id, decision, quality_score, context_task_id,
+                strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
          FROM brain_decisions
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
@@ -58,25 +123,32 @@ function getBrainSubstrate(options = {}) {
 			substrate: "brain",
 			label: row.decision.slice(0, 100),
 			weight: row.quality_score ?? void 0,
+			createdAt: row.created_at,
 			meta: {
 				context_task_id: row.context_task_id,
 				created_at: row.created_at
 			}
 		});
-		const patRows = db.prepare(`SELECT id, title, quality_score, created_at
+		const patRows = db.prepare(`SELECT id, pattern, type, quality_score,
+                strftime('%Y-%m-%dT%H:%M:%S', extracted_at) AS extracted_at
          FROM brain_patterns
          WHERE (quality_score IS NULL OR quality_score >= ?)
-         ORDER BY quality_score DESC, created_at DESC
+         ORDER BY quality_score DESC, extracted_at DESC
          LIMIT ?`).all(minWeight, Math.ceil(perSubstrateLimit * .2));
 		for (const row of patRows) nodes.push({
 			id: `brain:${row.id}`,
 			kind: "pattern",
 			substrate: "brain",
-			label: row.title,
+			label: row.pattern.slice(0, 100),
 			weight: row.quality_score ?? void 0,
-			meta: { created_at: row.created_at }
+			createdAt: row.extracted_at,
+			meta: {
+				pattern_type: row.type,
+				created_at: row.extracted_at
+			}
 		});
-		const learnRows = db.prepare(`SELECT id, title, quality_score, created_at
+		const learnRows = db.prepare(`SELECT id, insight, quality_score,
+                strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
          FROM brain_learnings
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
@@ -85,20 +157,85 @@ function getBrainSubstrate(options = {}) {
 			id: `brain:${row.id}`,
 			kind: "learning",
 			substrate: "brain",
-			label: row.title,
+			label: row.insight.slice(0, 100),
 			weight: row.quality_score ?? void 0,
+			createdAt: row.created_at,
 			meta: { created_at: row.created_at }
 		});
-		const nodeIds = new Set(nodes.map((n) => n.id));
-		const rawIds = new Set([...nodeIds].map((id) => id.replace(/^brain:/, "")));
+		const typeIdToLBId = /* @__PURE__ */ new Map();
+		for (const n of nodes) {
+			const rawId = n.id.slice(6);
+			let typePrefix;
+			if (n.kind === "observation") typePrefix = "observation";
+			else if (n.kind === "decision") typePrefix = "decision";
+			else if (n.kind === "pattern") typePrefix = "pattern";
+			else typePrefix = "learning";
+			typeIdToLBId.set(`${typePrefix}:${rawId}`, n.id);
+		}
 		const pageEdgeRows = db.prepare(`SELECT from_id, to_id, edge_type, weight FROM brain_page_edges`).all();
-		for (const row of pageEdgeRows) if (rawIds.has(row.from_id) && rawIds.has(row.to_id)) edges.push({
-			source: `brain:${row.from_id}`,
-			target: `brain:${row.to_id}`,
-			type: row.edge_type,
-			weight: row.weight ?? .5,
-			substrate: "brain"
-		});
+		for (const row of pageEdgeRows) {
+			const sourceLBId = typeIdToLBId.get(row.from_id) ?? brainTypeIdToLBId(row.from_id);
+			if (!sourceLBId) continue;
+			if (isTaskId(row.to_id)) edges.push({
+				source: sourceLBId,
+				target: taskRefToLBId(row.to_id),
+				type: row.edge_type,
+				weight: row.weight ?? .5,
+				substrate: "cross"
+			});
+			else if (isNexusStyleId(row.to_id)) edges.push({
+				source: sourceLBId,
+				target: `nexus:${row.to_id}`,
+				type: row.edge_type,
+				weight: row.weight ?? .5,
+				substrate: "cross"
+			});
+			else {
+				const targetLBId = typeIdToLBId.get(row.to_id) ?? brainTypeIdToLBId(row.to_id);
+				if (targetLBId) edges.push({
+					source: sourceLBId,
+					target: targetLBId,
+					type: row.edge_type,
+					weight: row.weight ?? .5,
+					substrate: "brain"
+				});
+			}
+		}
+		const memLinkRows = db.prepare(`SELECT memory_type, memory_id, task_id, link_type
+         FROM brain_memory_links`).all();
+		for (const row of memLinkRows) {
+			const sourceTypeId = `${row.memory_type}:${row.memory_id}`;
+			const sourceLBId = typeIdToLBId.get(sourceTypeId) ?? brainTypeIdToLBId(sourceTypeId);
+			if (!sourceLBId) continue;
+			edges.push({
+				source: sourceLBId,
+				target: `tasks:${row.task_id}`,
+				type: row.link_type,
+				weight: .7,
+				substrate: "cross"
+			});
+		}
+		for (const row of obsRows) {
+			if (!row.files_modified_json) continue;
+			let filePaths;
+			try {
+				filePaths = JSON.parse(row.files_modified_json);
+			} catch {
+				continue;
+			}
+			if (!Array.isArray(filePaths)) continue;
+			const sourceLBId = `brain:${row.id}`;
+			for (const rawPath of filePaths) {
+				if (typeof rawPath !== "string" || rawPath.length === 0) continue;
+				edges.push({
+					source: sourceLBId,
+					target: `nexus:${rawPath}`,
+					type: "modified_by",
+					weight: .6,
+					substrate: "cross"
+				});
+			}
+		}
 		for (const dec of decRows) if (dec.context_task_id) edges.push({
 			source: `brain:${dec.id}`,
 			target: `tasks:${dec.context_task_id}`,
@@ -124,6 +261,17 @@ function getBrainSubstrate(options = {}) {
 * Node IDs are prefixed with "conduit:" to prevent collisions.
 */
 /**
+* Converts a UNIX epoch seconds value to an ISO-8601 string.
+* Returns null when the value is not a finite positive number.
+*
+* @param epoch - UNIX timestamp in seconds.
+* @returns ISO-8601 string or null.
+*/
+function epochToIso$1(epoch) {
+	if (!Number.isFinite(epoch) || epoch <= 0) return null;
+	return (/* @__PURE__ */ new Date(epoch * 1e3)).toISOString();
+}
+/**
 * Returns all LBNodes and LBEdges sourced from conduit.db.
 *
 * Fetches the most recent messages (capped at perSubstrateLimit).
@@ -134,7 +282,7 @@ function getBrainSubstrate(options = {}) {
 * @returns Nodes and edges from the CONDUIT substrate.
 */
 function getConduitSubstrate(options = {}) {
-	const db = getConduitDb();
+	const db = getConduitDb(options.projectCtx ?? resolveDefaultProjectContext());
 	if (!db) return {
 		nodes: [],
 		edges: []
@@ -155,6 +303,7 @@ function getConduitSubstrate(options = {}) {
 				kind: "message",
 				substrate: "conduit",
 				label,
+				createdAt: epochToIso$1(row.created_at),
 				meta: {
 					from_agent_id: row.from_agent_id,
 					to_agent_id: row.to_agent_id,
@@ -224,7 +373,7 @@ function getNexusSubstrate(options = {}) {
 	const nodes = [];
 	const edges = [];
 	try {
-		const nodeRows = db.prepare(`SELECT n.id, n.kind, n.name,
+		const nodeRows = db.prepare(`SELECT n.id, n.kind, n.name, n.indexed_at,
                 COUNT(r.target_id) AS in_degree
          FROM nexus_nodes n
          LEFT JOIN nexus_relations r ON r.target_id = n.id
@@ -241,6 +390,7 @@ function getNexusSubstrate(options = {}) {
 			substrate: "nexus",
 			label: row.name,
 			weight: row.in_degree > 0 ? Math.min(1, row.in_degree / 50) : void 0,
+			createdAt: row.indexed_at ?? null,
 			meta: {
 				nexus_kind: row.kind,
 				in_degree: row.in_degree
@@ -283,6 +433,17 @@ function getNexusSubstrate(options = {}) {
 * (assignee), CONDUIT (from/to), and BRAIN (source agent).
 */
 /**
+* Converts a UNIX epoch seconds value to an ISO-8601 string.
+* Returns null when the value is not a finite positive number.
+*
+* @param epoch - UNIX timestamp in seconds, or null.
+* @returns ISO-8601 string or null.
+*/
+function epochToIso(epoch) {
+	if (epoch === null || !Number.isFinite(epoch) || epoch <= 0) return null;
+	return (/* @__PURE__ */ new Date(epoch * 1e3)).toISOString();
+}
+/**
 * Returns all LBNodes and LBEdges sourced from signaldock.db.
 *
 * Fetches all active agents plus their declared connections.
@@ -315,6 +476,7 @@ function getSignaldockSubstrate(options = {}) {
 				substrate: "signaldock",
 				label: row.name,
 				weight: row.status === "active" ? 1 : .5,
+				createdAt: epochToIso(row.created_at),
 				meta: {
 					status: row.status,
 					created_at: row.created_at
@@ -370,7 +532,7 @@ function priorityWeight(priority) {
 * @returns Nodes and edges from the TASKS substrate.
 */
 function getTasksSubstrate(options = {}) {
-	const db = getTasksDb();
+	const db = getTasksDb(options.projectCtx ?? resolveDefaultProjectContext());
 	if (!db) return {
 		nodes: [],
 		edges: []
@@ -400,6 +562,7 @@ function getTasksSubstrate(options = {}) {
 				substrate: "tasks",
 				label: row.title,
 				weight,
+				createdAt: row.created_at,
 				meta: {
 					status: row.status,
 					priority: row.priority,
@@ -422,6 +585,7 @@ function getTasksSubstrate(options = {}) {
 				substrate: "tasks",
 				label: `Session ${row.id.slice(-8)}`,
 				weight: row.status === "active" ? .9 : .4,
+				createdAt: row.started_at,
 				meta: {
 					status: row.status,
 					started_at: row.started_at,

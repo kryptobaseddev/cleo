@@ -4,6 +4,7 @@
   import Graph from 'graphology';
   import Sigma from 'sigma';
   import forceAtlas2 from 'graphology-layout-forceatlas2';
+  import { BASE_SIGMA_SETTINGS } from './sigma-defaults.js';
 
   interface NodeData {
     id: string;
@@ -97,9 +98,12 @@
       if (edge.source === edge.target) continue; // skip self-loops
       if (graph.hasEdge(edge.source, edge.target)) continue;
       graph.addEdge(edge.source, edge.target, {
-        color: 'rgba(148,163,184,0.25)',
-        size: 0.8,
-        edgeCategory: edge.type ?? 'calls', // custom attr (not sigma's `type` — that requires a registered program)
+        color: 'rgba(148,163,184,0.35)',
+        size: 1.0,
+        // `type` is read by Sigma to select the edge program.
+        // Sigma 3 ships 'arrow' and 'line' in its default edgeProgramClasses,
+        // so both work without extra registration.
+        type: edge.type === 'calls' || edge.type === 'call' ? 'arrow' : 'arrow',
       });
     }
 
@@ -127,12 +131,8 @@
     }
 
     sigmaInstance = new Sigma(graph, container, {
-      renderEdgeLabels: false,
-      defaultEdgeType: 'arrow',
+      ...BASE_SIGMA_SETTINGS,
       labelRenderedSizeThreshold: 8,
-      labelFont: 'monospace',
-      labelSize: 11,
-      zIndex: true,
     });
 
     // Hover: show tooltip.
@@ -156,6 +156,25 @@
     sigmaInstance.on('leaveNode', () => {
       tooltip = null;
       container.style.cursor = 'default';
+    });
+
+    // Hover: show edge relationship in tooltip.
+    sigmaInstance.on('enterEdge', ({ edge, event }) => {
+      const attrs = graph.getEdgeAttributes(edge) as Record<string, unknown>;
+      const sourceLabel = (graph.getNodeAttributes(graph.source(edge)) as { label: string }).label;
+      const targetLabel = (graph.getNodeAttributes(graph.target(edge)) as { label: string }).label;
+      const containerRect = container.getBoundingClientRect();
+      tooltip = {
+        label: `${sourceLabel} → ${targetLabel}`,
+        kind: String(attrs.type ?? 'calls'),
+        x: event.x - containerRect.left,
+        y: event.y - containerRect.top,
+      };
+      container.style.cursor = 'default';
+    });
+
+    sigmaInstance.on('leaveEdge', () => {
+      tooltip = null;
     });
 
     // Click: navigate to drill-down.
@@ -216,7 +235,7 @@
     flex-direction: column;
     gap: 0.15rem;
     z-index: 50;
-    max-width: 260px;
+    max-width: 320px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   }
 

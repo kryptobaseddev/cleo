@@ -29,8 +29,8 @@ export interface TaskRow {
   acceptance_json: string | null;
 }
 
-export const GET: RequestHandler = ({ url }) => {
-  const db = getTasksDb();
+export const GET: RequestHandler = ({ locals, url }) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }

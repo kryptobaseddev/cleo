@@ -46,9 +46,15 @@ vi.mock('../../lib/engine.js', () => ({
 }));
 
 // Mock getProjectRoot
-vi.mock('../../../../../core/src/paths.js', () => ({
-  getProjectRoot: vi.fn(() => '/mock/project'),
-}));
+vi.mock('../../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
+    '../../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getProjectRoot: vi.fn(() => '/mock/project'),
+  };
+});
 
 // Mock release channel functions
 vi.mock('../../../../../core/src/release/channel.js', () => ({

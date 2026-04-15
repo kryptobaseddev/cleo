@@ -544,7 +544,8 @@ export type BrainNodeType = (typeof BRAIN_NODE_TYPES)[number];
 /**
  * Edge types for the graph-native memory model.
  * Covers provenance/derivation, semantic relationships, structural links,
- * and graph bridging between memory entities and codebase nodes.
+ * graph bridging between memory entities and codebase nodes, and plastic
+ * Hebbian/STDP edges.
  */
 export const BRAIN_EDGE_TYPES = [
   // Provenance / derivation
@@ -563,6 +564,9 @@ export const BRAIN_EDGE_TYPES = [
   // Graph bridging (memory ↔ code)
   'references', // observation → references → symbol
   'modified_by', // file → modified_by → session
+  'code_reference', // memory node → code_reference → nexus symbol/file (T645)
+  'affects', // observation → affects → symbol/file (impact tracking)
+  'mentions', // observation → mentions → symbol name (weak reference)
   // Plasticity (Hebbian + STDP co-retrieval)
   'co_retrieved', // A → co_retrieved → B (Hebbian: frequently retrieved together)
 ] as const;

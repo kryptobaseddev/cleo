@@ -17,12 +17,15 @@ import { json } from "@sveltejs/kit";
 * Returns 404 if the node is not found.
 * Returns neighbors = nodes directly connected by at least one edge.
 */
-var GET = ({ params }) => {
+var GET = ({ locals, params }) => {
 	const nodeId = decodeURIComponent(params.id);
 	if (!nodeId) return json({ error: "id is required" }, { status: 400 });
 	if (nodeId.indexOf(":") === -1) return json({ error: "id must be substrate-prefixed, e.g. \"brain:O-abc\"" }, { status: 400 });
 	try {
-		const graph = getAllSubstrates({ limit: 2e3 });
+		const graph = getAllSubstrates({
+			limit: 2e3,
+			projectCtx: locals.projectCtx
+		});
 		const node = graph.nodes.find((n) => n.id === nodeId);
 		if (!node) return json({ error: `Node not found: ${nodeId}` }, { status: 404 });
 		const edges = graph.edges.filter((e) => e.source === nodeId || e.target === nodeId);

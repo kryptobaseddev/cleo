@@ -40,8 +40,8 @@ export interface PipelineColumn {
   tasks: PipelineTask[];
 }
 
-export const load = () => {
-  const db = getTasksDb();
+export const load = ({ locals }: Parameters<PageServerLoad>[0]) => {
+  const db = getTasksDb(locals.projectCtx);
 
   if (!db) {
     return { columns: [] };
@@ -94,4 +94,3 @@ export const load = () => {
     return { columns: [] };
   }
 };
-;null as any as PageServerLoad;

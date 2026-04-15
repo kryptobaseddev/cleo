@@ -20,9 +20,15 @@ vi.mock('../../lib/engine.js', () => ({
   orchestrateCheck: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/paths.js', () => ({
-  getProjectRoot: vi.fn(() => '/mock/project'),
-}));
+vi.mock('../../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
+    '../../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getProjectRoot: vi.fn(() => '/mock/project'),
+  };
+});
 
 import { orchestrateHandoff } from '../../lib/engine.js';
 import { OrchestrateHandler } from '../orchestrate.js';

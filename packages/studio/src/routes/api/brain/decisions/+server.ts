@@ -34,8 +34,8 @@ export interface BrainDecisionsResponse {
   total: number;
 }
 
-export const GET: RequestHandler = () => {
-  const db = getBrainDb();
+export const GET: RequestHandler = ({ locals }) => {
+  const db = getBrainDb(locals.projectCtx);
   if (!db) {
     return json({ decisions: [], total: 0 } satisfies BrainDecisionsResponse);
   }

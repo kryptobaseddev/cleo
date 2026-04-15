@@ -1,300 +1,405 @@
-# BRAIN Synaptic Visualization — Research & Implementation Plan
+# CLEO Living Brain — Plan & Status
 
-> **Status**: Research complete, ready for prototyping
-> **Date**: 2026-04-15
+> **Doc version**: v3 (grounded in shipped reality, 2026-04-15)
+> **Active epic**: [T627 — Stabilization + Phase 2 RCASD](https://github.com/) (Phase 1 epic [T626](https://github.com/) is **done**)
 > **Owner**: keatonhoskins@gmail.com
-> **Goal**: Build a live, visual brain mapping of CLEO's typed memory (observations, learnings, patterns, decisions) + NEXUS code intelligence (11K+ symbols, 22K+ relations). User-requested reference: [sigma.js](https://github.com/jacomyal/sigma.js).
-> **Integration target**: `packages/studio` (SvelteKit + Hono, port 3456)
+> **Subject**: Visualize and instrument CLEO's typed memory + code intelligence + tasks + messaging across all substrates as a single, plastic, living graph.
+> **STDP details**: factored into [docs/plans/stdp-feasibility.md](./stdp-feasibility.md)
 
 ---
 
-## 1. Context
+## §0 Locked Decisions (read first)
 
-The user asked whether [sigma.js](https://github.com/jacomyal/sigma.js) is the right pick — *or if something better exists* — for a "live synaptic" view of the AI brain: the nodes and edges of knowledge spanning observations, learnings, patterns, and decisions.
-
-Relevant CLEO state:
-
-- **BRAIN** database stores typed memory (`observation`, `learning`, `pattern`, `decision`).
-- **NEXUS** code intelligence: 11,195 symbols, 22,505 relations, 6 functional clusters, 75 execution flows (per `.cleo/nexus-bridge.md`, 2026-04-15).
-- **CLEO Studio** exists at `packages/studio` — SvelteKit + Hono on port 3456 (T577).
-- Decision D008 already commits to a 7-technique memory architecture (LLM extraction, dedup, observer/reflector, temporal supersession, graph memory bridge, sleep-time consolidation, retrieval).
-- Decision D009 explicitly keeps `brain.db` on SQLite + Drizzle — this plan concerns **visualization**, not storage migration.
-
----
-
-## 2. Research Summary — The Graph Viz Landscape (April 2026)
-
-### 2.1 Library tiers at a glance
-
-| Library | Rendering | Scale ceiling | Physics | Built-in analytics | Fit for CLEO |
-|---|---|---|---|---|---|
-| **Cosmograph / cosmos.gl** | WebGL 2 (luma.gl) | **1M+ nodes** | **GPU** (full simulation on GPU) | Clustering, sampling | 🥇 **Primary — scale mode** |
-| **3d-force-graph** (vasturiano) | ThreeJS / WebGL (3D) | ~50K nodes | d3-force-3d (CPU) | None | 🥈 **Hero view — "the brain"** |
-| **Sigma.js + Graphology** | WebGL | ~100K rendering, ~50K layout | ForceAtlas2 (CPU) | PageRank, centrality, communities | 🥉 **Analytics-first alt** |
-| Cytoscape.js | Canvas / SVG | ~10K | Multiple | Rich (PageRank, shortest path, etc.) | ❌ Too slow past 10K |
-| react-force-graph | Canvas / WebGL | As above | As above | None | ❌ React-only (we're on Svelte) |
-| AntV G6 | Canvas / SVG / WebGL | ~50K | Multiple | Built-in | ❌ Heavier API, less brain-aesthetic |
-| D3 force layout | SVG / Canvas | ~5K | CPU | DIY | ❌ Roll-your-own when better exists |
-| Graphistry | WebGL + GPU backend | Enterprise | Server-side | Rich | ❌ Commercial SaaS |
-| KeyLines / ReGraph | Canvas / WebGL | Enterprise | Multiple | Rich | ❌ Commercial license |
-
-### 2.2 AI-memory-specific systems (not just viz)
-
-| System | What it is | Why it matters |
+| ID | Decision | Rationale (one-line) |
 |---|---|---|
-| **Graphiti (by Zep)** | Temporal knowledge graph engine for AI agents | Tracks fact evolution, provenance, incremental ingestion, hybrid retrieval (semantic + BM25 + graph). Architectural peer to CLEO BRAIN's D008 direction. |
-| **Zep** | Production memory layer for LLMs | Stores conversation → facts → knowledge graph → temporal retrieval. |
-| **MCP Memory Servers** | Local knowledge-graph memory for agents | Not relevant — CLEO removed MCP 2026-04-04. |
-| **Microsoft GraphRAG** | Entity/relation extraction for RAG | Reference architecture for BRAIN extraction pipeline. |
-| **LangGraph** | Stateful agent-as-graph | Orthogonal — control-flow modeling, not memory viz. |
-| **InfraNodus** | Text → knowledge graph analysis UI | Good UX reference for how to *present* a brain. |
-| **NVIDIA txt2kg** | Text → knowledge graph w/ Three.js WebGPU | Reference for GPU-accelerated render choices. |
+| D-BRAIN-VIZ-01 | Stack: **Cosmograph** (GPU 2D) + **3d-force-graph** (3D hero) + **Graphology** (browser SSoT) + **SSE** (live feed) | Cosmograph for 1M-node ceiling; 3d-force-graph for brain aesthetic; Graphology as renderer-agnostic model |
+| D-BRAIN-VIZ-02 | **Option B** — one unified canvas with substrate filter toggles (not separate views per DB) | Cross-layer insight is the value; A loses it, C doubles client complexity |
+| D-BRAIN-VIZ-03 | **Five substrates**, not four — include SIGNALDOCK | Agent identity is the cross-project bridge; without it the meta-brain is incomplete |
+| D-BRAIN-VIZ-04 | Preserve shipped Hebbian strengthener during STDP upgrade (feature-flagged coexistence) | `strengthenCoRetrievedEdges` works; STDP v2 runs alongside until validated |
+| D-BRAIN-VIZ-05 | Rename emitted edge `relates_to` → `co_retrieved`; add `co_retrieved` + `code_reference` to `BRAIN_EDGE_TYPES` | Both edge types are emitted by shipped code but missing from the Drizzle enum (raw SQL bypasses the check) |
+| D-BRAIN-VIZ-06 | Cross-project meta-brain is **Phase 4**, not MVP | Single-project unified view ships first; meta-brain compounds on top |
+| D-BRAIN-VIZ-07 | Use **vanilla `3d-force-graph`** (not the React wrapper) — Studio is SvelteKit | No React runtime; vanilla build imports cleanly |
+| D-BRAIN-VIZ-08 | STDP gets its own epic (Phase 5) with an owner checkpoint | Schema changes + algorithm tuning warrant a dedicated decision gate |
+| D-BRAIN-VIZ-09 | We build **STDP-*inspired*** plasticity, NOT biological STDP | SNN frameworks (BindsNET/Nengo/Brian2) are wrong tool class. Algebraic edge-weight updates at batch cadence — SQLite handles it |
+| D-BRAIN-VIZ-10 | Keep `sqlite-vec` (already loaded); skip sqliteai's `sqlite-vector` / `sqlite-memory` / `sqlite-rag` / `sqlite-agent` | sqlite-vec is MIT/Apache and shipped. sqliteai's are Elastic License 2.0 + would replace our T549 model |
+| D-BRAIN-VIZ-11 | Evaluate `sqlite-ai` in Phase 6+, not now | Could replace `@huggingface/transformers`, but Elastic License needs review and we shouldn't churn before viz ships |
+| D-BRAIN-VIZ-12 | SQLite scale ceiling is **not a concern** for this workload | 2M edges ≈ 200 MB, 10–50K UPDATEs/sec WAL, batch decay <10 s — 10× margin |
+| D-BRAIN-VIZ-13 | Consider R-STDP via `brain_retrieval_log.reward_signal` column | Task completion + verification signals already exist; reward gating is the dopamine third-factor analog at near-zero cost |
 
 ---
 
-## 3. Deep-Dive: The Top 3 Options
+## §1 Status Truth Table (what shipped / what's open)
 
-### 🥇 Cosmograph / cosmos.gl — **the real answer for "live synaptic brain"**
+| Phase | Scope | Status | Evidence | Tracking task |
+|---|---|---|---|---|
+| **0** | Schema audit + cross-link reality assessment | ✅ DONE | This doc + memory `brain-living-initiative.md` | T626 |
+| **1a** | `/living-brain` route + 5-substrate API + filter toggles | ✅ DONE | `packages/studio/src/routes/living-brain/+page.svelte` (loaded), `LivingBrainGraph.svelte`, `LBNode/LBGraph/LBSubstrate` types | T626 |
+| **1b** | `/brain` overview page + stats | ✅ DONE | `packages/studio/src/routes/brain/+page.server.ts` (8 stat cards) | T620 |
+| **1c** | `/brain/graph` route — typed nodes + edges | ✅ DONE | `packages/studio/src/routes/brain/graph/+page.svelte`, `BrainGraph.svelte` | T620 |
+| **1d** | `/brain/decisions`, `/brain/observations`, `/brain/quality` | ✅ DONE | Routes present | T620 |
+| **2a** | LBNode.createdAt + working time slider | 🟡 IN PROGRESS | TODO at `living-brain/+page.svelte:299` | **T635** |
+| **2b** | SSE live synapses (pulse on memory write / Hebbian strengthen / task status / nexus reindex) | 🔴 OPEN | No SSE endpoint exists | **T635** |
+| **2c** | Cosmograph spike for >2K node graphs | 🔴 OPEN | Not integrated; current renderer is custom force layout | **T635** |
+| **3a** | Enum drift fix (`co_retrieved` + `code_reference` into `BRAIN_EDGE_TYPES`) | 🔴 OPEN | `packages/core/src/store/brain-schema.ts` enum needs 2 additions | TBD task |
+| **3b** | Backfill missing bridge edges (decisions→tasks, observations→symbols/files via regex) | 🔴 OPEN | Most decisions have `context_task_id` but no `brain_page_edges` row | TBD task |
+| **4** | Cross-project meta-brain (multiple `nexus.project_registry` projects unified) | 🔴 OPEN | Schema needed: `nexus_cross_project_edges` | TBD epic |
+| **5** | STDP-inspired plasticity upgrade | 🔴 OPEN | Spec at `docs/plans/stdp-feasibility.md` | TBD epic |
+| **6** | 3D hero view (`3d-force-graph`) | 🔴 OPEN | Not integrated | TBD task |
+| **7** | Polish (filters, snapshot export, cross-references, query bar) | 🔴 OPEN | Filters partially in place (substrate + weight) | TBD task |
 
-**What it is**: A WebGL-based force-graph engine where **both the force simulation and rendering run on the GPU** via fragment/vertex shaders. Cosmograph is the productized toolkit; `cosmos.gl` is the core engine.
-
-**Why it beats Sigma.js for this use case**:
-
-- Sigma runs rendering on GPU but layout on CPU (ForceAtlas2 via Graphology) — chokes past ~50K nodes.
-- Cosmograph runs **everything** on GPU → real-time physics on 100K–1M nodes on a laptop.
-- Dragging a node re-heats the simulation → the whole brain visibly reacts. **This is the exact "synapses firing" aesthetic the user described.**
-
-**2026 updates** (from [cosmos.gl repo](https://github.com/cosmosgl/graph) & [OpenJSF announcement](https://openjsf.org/blog/introducing-cosmos-gl)):
-
-- Joined the **OpenJS Foundation** in 2026 (first-class open-source governance).
-- Rendering ported from `regl` → **luma.gl (WebGL 2)**, supports sharing a `Device` across multiple graphs.
-- **Async init**: constructor returns immediately; all methods queue until `graph.ready` fires.
-- Simulation separated from rendering — `start()`, `stop()`, `pause()`, `unpause()`.
-- `getSampledLinks()` / `getSampledLinkPositionsMap()` for rendering overlays/labels on visible links.
-- Context-menu callbacks: `onContextMenu`, `onPointContextMenu`, `onLinkContextMenu`, `onBackgroundContextMenu`.
-- Point clustering force (`setPointClusters`, `setClusterPositions`, `setPointClusterStrength`).
-- Drag-to-reposition points.
-
-**Python widget** available for Jupyter (useful later if we want the owner's notebook to show BRAIN too).
-
-**Limitations**:
-
-- iOS versions < 15.4 broke the `EXT_float_blend` WebGL extension — latest iOS works again.
-- Android devices without `OES_texture_float` can't run it.
-- Graph physical space has a max size — millions of nodes may not all fit even at max space.
+**Active stabilization tasks under T627**: T628 (auto-dream cycle), T629 (provider-agnostic memory), T630/T633 (CI fixes), T632 (migration reconciler bandaid), **T634** (this doc), **T635** (Studio Phase 2).
 
 ---
 
-### 🥈 3d-force-graph (vasturiano) — **if we want the literal "neural brain" visual**
+## §2 Context
 
-**What it is**: A ThreeJS/WebGL 3D force-directed graph component. Part of a suite: [force-graph (2D Canvas)](https://github.com/vasturiano/force-graph), [3d-force-graph](https://github.com/vasturiano/3d-force-graph), [3d-force-graph-vr](https://github.com/vasturiano/3d-force-graph-vr), 3d-force-graph-ar.
+The user asked whether [sigma.js](https://github.com/jacomyal/sigma.js) was the right pick for a "live synaptic" view of the AI brain. Research reframed it as a **substrate** project, not a viz project: CLEO already had nearly all the pieces of a living, plastic, cross-layer knowledge graph — they just didn't visualize or cross-connect.
 
-**Why it's on the list**:
+**CLEO state at start (.cleo/nexus-bridge.md, 2026-04-15)**:
+- 2,374 files indexed
+- 11,195 symbols (4,503 functions, 1,848 interfaces, 787 methods, 537 type aliases, …)
+- 22,505 relations (10,766 calls, 2,752 imports, 77 extends)
+- 6 functional clusters, 75 traced execution flows
 
-- **3D** rotation gives the most literal "neural net / brain" metaphor.
-- VR variant uses A-Frame → could preview the brain in a headset.
-- Shared JSON data format across all 4 variants (2D/3D/VR/AR) → one pipeline feeds every view.
-- Trackball / orbit / fly camera controls.
-- Curved bezier links, self-loops, node drag re-heats simulation.
-
-**Versions** (as of April 2026 search):
-
-- `react-force-graph` v1.48.2 (React bindings — not needed for Svelte)
-- `react-force-graph-3d` v1.29.1 (2026-04)
-
-**Use as**: the "hero view" — marketing shot, demo reel, public-facing Studio page. Not the primary analytics surface.
-
-**Note**: We'd use `3d-force-graph` (plain) directly in Svelte, not `react-force-graph`, since `packages/studio` is SvelteKit.
+**Foundational decisions already in place**:
+- D008 — 7-technique memory architecture (LLM extraction, dedup, observer/reflector, temporal supersession, **graph memory bridge**, sleep-time consolidation, retrieval)
+- D009 — Keep brain.db on SQLite + Drizzle (don't migrate to LadybugDB/Kùzu)
+- T549 — Tiered + typed memory shipped (tiers, cognitive types, source confidence, bitemporal validity, citation counts)
+- T523 — BRAIN integrity work shipped
+- T513 — NEXUS pipeline shipped
+- T577 — CLEO Studio (SvelteKit + Hono on port 3456)
 
 ---
 
-### 🥉 Sigma.js + Graphology — **still excellent, not the ceiling**
+## §3 Substrate Map at a Glance
 
-**What it is**: The library the user asked about. WebGL rendering, typed-node "programs" (shapes, images, sprites). Relies on **Graphology** for the data model and layout algorithms.
+| Substrate | Scope | Schema (verify with) | Graph layer? | Cross-link surface |
+|---|---|---|---|---|
+| **NEXUS** | global | `packages/core/src/store/nexus-schema.ts` (verify: `cleo nexus status`) | `nexus_nodes` (31 kinds) + `nexus_relations` (22 types incl. **`documents`** + **`applies_to`** for brain bridge) | `project_registry.brain_db_path` + `.tasks_db_path` per project |
+| **BRAIN** | per-project | `packages/core/src/store/brain-schema.ts` (verify: `cleo memory graph-stats`) | `brain_page_nodes` (12 kinds incl. file/symbol/task/session) + `brain_page_edges` (12 types incl. **`references`** / **`documents`** / **`applies_to`** / **`modified_by`**) | `brain_decisions.context_task_id` + `brain_memory_links.task_id` + `brain_observations.source_session_id` |
+| **TASKS** | per-project | `packages/core/src/store/tasks-schema.ts` (verify: `cleo dash`) | Implicit graph: `tasks.parent_id` (hierarchy) + `task_dependencies` + `task_relations` (7 types) | `tasks.assignee` (signaldock agent), `tasks.session_id`, `external_task_links` |
+| **CONDUIT** | per-project | `packages/core/src/store/conduit-sqlite.ts` (verify: `cleo conduit status`) | Implicit: `messages.from_agent_id` ↔ `to_agent_id` + `attachment_contributors`, FTS5 over content | `project_agent_refs.agent_id` (signaldock soft FK) |
+| **SIGNALDOCK** | global | `packages/core/src/store/signaldock-sqlite.ts` | `agent_connections` (cross-agent social) | Touched by every other DB via `agent_id` |
 
-**Architecture (3-layer)**:
-
-1. **Graphology** — graph data structure, utilities, layouts (ForceAtlas2, Circular, Random), metrics (PageRank, betweenness centrality), import/export (GEXF, GraphML).
-2. **Sigma core** — WebGL renderer.
-3. **@react-sigma** ecosystem (React-only; not useful for us) or direct Sigma integration with Svelte.
-
-**Strengths for CLEO**:
-
-- Mature, widely deployed for knowledge graphs.
-- `NodeImageProgram` — set an `image` attribute per node → Sigma caches and renders it. Perfect for **typed memory icons**: observation 👁️, learning 📘, pattern ♻️, decision ⚖️ (TBD iconography).
-- Graphology's **PageRank / community detection** would directly answer: "which memories are load-bearing?" and "what functional clusters exist in the brain?"
-
-**Weaknesses**:
-
-- **Sparse reference docs** — TypeScript types help, but you learn from examples, not a reference.
-- Layout on CPU → ForceAtlas2 on 11K+ nodes is a noticeable pause, not a frame-by-frame animation.
-- If the goal is literally "see synapses fire in real time at scale", Cosmograph is a better match.
-
-**Keep Sigma in the plan** as an analytics view when we want centrality highlights, community coloring, and static snapshots — Graphology's algorithms are genuinely useful independent of the renderer.
+**Verification commands** (each row above):
+```bash
+cleo nexus status               # Verify nexus.db node/relation counts
+cleo memory graph-stats         # Verify brain.db page_nodes/page_edges counts
+cleo dash                       # Verify tasks.db live counts
+cleo conduit status             # Verify conduit.db messaging
+cleo agent list                 # Verify signaldock.db agent identity
+```
 
 ---
 
-## 4. Recommended Stack for CLEO Studio
+## §4 Cross-Substrate Edge Reality
+
+### §4.1 Edges that already exist (shipped)
+
+```
+NEXUS (global)                            BRAIN (project)
+  project_registry                          brain_decisions.context_task_id ─→ TASKS
+    .brain_db_path                          brain_decisions.context_epic_id ─→ TASKS
+    .tasks_db_path                          brain_observations.source_session_id ─→ TASKS
+  nexus_relations.type ∈ {                  brain_observations.files_modified_json[*]
+    'documents',  ←─ brain bridge           brain_memory_links.task_id ─→ TASKS
+    'applies_to'  ←─ brain bridge           brain_page_nodes.node_type ∈ {file, symbol, task, session, epic}
+  }                                         brain_page_edges.edge_type ∈ {references, documents, modified_by, applies_to, part_of}
+
+CONDUIT (project)                         SIGNALDOCK (global)
+  messages.from_agent_id ─→ SIGNALDOCK      agents.agent_id    ←─ touched by all DBs
+  messages.to_agent_id   ─→ SIGNALDOCK      agent_connections   (cross-agent social)
+  project_agent_refs.agent_id ─→ SIGNALDOCK
+```
+
+### §4.2 Edges that SHOULD exist but don't yet
+
+| From | To | Edge | Status | Phase |
+|---|---|---|---|---|
+| `brain_decisions.context_task_id` | `tasks.id` | `applies_to` row in `brain_page_edges` | MISSING — backfill needed | 3b |
+| `brain_observations.files_modified_json[*]` | `nexus_nodes` (file) | `modified_by` in `brain_page_edges` | MISSING — extractor needed | 3b |
+| `brain_observations` content (regex symbol-FQNs) | `nexus_nodes` (symbol) | `references` / `code_reference` | PARTIAL — `cleo memory code-auto-link` exists but enum-drift bug | 3a + 3b |
+| `tasks.files_json[*]` | `nexus_nodes` (file) | `tasks_over_file` (synthesized) | MISSING — schema needed | 3b |
+| `conduit.messages.content` (FTS5) → memory IDs / task IDs / FQNs | `mentions` | MISSING — extractor needed | 7 |
+| `agents.agent_id` | (`tasks` ∪ `observations` ∪ `messages`) | `authored_by` (unified across DBs) | MISSING — view-layer query | 4 |
+| `project_registry.project_id` A ↔ B | `shares_pattern` / `shares_decision` / `shares_agent` / `shares_symbol` | MISSING — needs `nexus_cross_project_edges` table | 4 |
+
+---
+
+## §5 Hebbian Plasticity Substrate (already shipped)
+
+**Location**: `packages/core/src/memory/brain-lifecycle.ts:911` — `strengthenCoRetrievedEdges`
+
+**What it does today**:
+1. Reads `brain_retrieval_log` for retrievals in the last 30 days
+2. Counts every unordered pair from each retrieval's `entry_ids` JSON array
+3. For pairs with count ≥ 3 → strengthen edge weight by 0.1 (capped at 1.0); insert edge with weight 0.3 if absent
+4. Wired as step 6 of `runConsolidation` (brain-lifecycle.ts:606), which fires from session-end hook
+
+**Verify it works**:
+```bash
+cleo memory consolidate          # Triggers full lifecycle including step 6
+cleo memory graph-stats          # Should show non-zero edges with provenance='consolidation:co-retrieval'
+```
+
+**Known issue (D-BRAIN-VIZ-05, fixed in Phase 3a)**: emits `edge_type='relates_to'` which is **not** in `BRAIN_EDGE_TYPES`. Works only because `INSERT OR IGNORE` uses raw SQL bypassing Drizzle's enum check. Same drift affects `cleo memory code-auto-link` which emits `code_reference` (also missing from enum).
+
+**Gaps for full STDP** — see [stdp-feasibility.md](./stdp-feasibility.md).
+
+---
+
+## §6 Unified Architecture
+
+### §6.0 Target architecture (where Phases 2–7 land us)
+
+The aspirational stack — what every phase converges on:
 
 ```
 ┌─ Hero view: 3d-force-graph (ThreeJS)              ← "the brain"
-│   • typed node shapes (obs / learn / pat / dec)
+│   • typed node shapes (obs / learn / pat / dec / decision / symbol / task)
 │   • edge animation on memory-write events via SSE
 │   • VR variant available for demo
+│   • plasticity edges pulse on Hebbian/STDP strengthen
 │
 ├─ Analytics view: Cosmograph (2D, GPU)             ← "scale mode"
 │   • 11K+ NEXUS symbols + BRAIN entries together
 │   • cluster coloring by functional community
 │   • 1M-node headroom for long-term growth
+│   • activates when payload > 2K nodes (toggle below that)
 │
 ├─ Data layer: Graphology                           ← "browser SSoT"
 │   • same graph object feeds both renderers
 │   • PageRank highlights load-bearing memories
 │   • import from GEXF / export for snapshots
+│   • shared model across /living-brain and /brain/graph routes
 │
-└─ Live wire: WebSocket / SSE from brain.db hooks   ← "synapses firing"
-    • every `cleo observe` → pulse the relevant node
-    • memory-consolidation events → animate edge creation
+└─ Live wire: SSE from substrate hooks              ← "synapses firing"
+    • every `cleo memory observe` → pulse the relevant node
+    • Hebbian/STDP edge strengthen → animate the affected edge
+    • task status change → tint task node by new state
+    • nexus reindex → ripple over touched code subgraph
     • session end → fade/consolidate unused nodes
 ```
 
-**Why this specific stack**:
+### §6.1 Current shipped state (T620 + T626 + Phase 1)
 
-- **Cosmograph** gives the **scale ceiling** — we never need to re-architect as BRAIN grows.
-- **3d-force-graph** gives the **living synapses** visual — demo-worthy, rotating 3D, VR-capable.
-- **Graphology** is the **shared in-memory model** both renderers consume — avoids dual sources of truth.
-- All three are **framework-agnostic** → Svelte-friendly, no React runtime needed.
+What `/living-brain` actually renders today, mapped to the target above:
 
----
+```
+┌─ /living-brain (SHIPPED) ─────────────────────────────────────────────────┐
+│                                                                            │
+│   Renderer:  LivingBrainGraph.svelte (custom force layout)                 │
+│              ↑ Phase 2c will swap to Cosmograph for >2K nodes              │
+│              ↑ Phase 6  will add 3d-force-graph hero route                 │
+│                                                                            │
+│   Browser model: derived $state from server payload                        │
+│              ↑ Phase 2  will introduce Graphology as in-browser SSoT       │
+│                                                                            │
+│   API:                                                                     │
+│      ✅ GET /api/living-brain?limit=N   → LBGraph                          │
+│      ✅ GET /api/living-brain/node/:id  → LBNode detail                    │
+│      🔴 GET /api/living-brain/stream    → SSE (Phase 2b — T635)            │
+│                                                                            │
+│   Substrates: brain | nexus | tasks | conduit | signaldock  ✅             │
+│   Filters:    substrate toggles ✅, weight slider ✅, time slider 🟡 (T635) │
+│   Edges UI:   supersedes / affects / applies_to / calls / co_retrieved /   │
+│               mentions ✅                                                  │
+└────────────────────────────────────────────────────────────────────────────┘
 
-## 5. Prototype Plan (Incremental)
+┌─ Backing data sources (read by Studio API) ─────────────────────────────────┐
+│   ✅ brain.db   page_nodes + page_edges + typed tables + retrieval_log      │
+│   ✅ nexus.db   nodes + relations (cross-project)                           │
+│   ✅ tasks.db   tasks + sessions + dependencies + relations                 │
+│   ✅ conduit.db messages + attachments + project_agent_refs                 │
+│   ✅ signaldock.db (global) agents + connections                            │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-### Phase 1 — Static brain (1–2 days)
+┌─ SSE event taxonomy (Phase 2b — T635) ──────────────────────────────────────┐
+│   • brain_retrieval_log INSERT trigger     → SSE event 'retrieval'          │
+│   • brain_page_edges UPDATE (Hebbian)      → SSE event 'edge.strengthen'    │
+│   • brain_observations INSERT              → SSE event 'node.create'        │
+│   • tasks.status UPDATE                    → SSE event 'task.status'        │
+│   • nexus phase transition                 → SSE event 'nexus.reindex'      │
+│   • conduit.messages INSERT                → SSE event 'message.send'       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-1. Add a command: `cleo nexus export --format gexf` that dumps symbols + relations to [GEXF format](https://gexf.net/) (Graphology has a native importer).
-2. Add a command: `cleo memory export --format gexf` that dumps BRAIN typed entries + cross-refs to GEXF.
-3. In `packages/studio`, add a `/brain` route that loads both GEXF files into one Graphology instance.
-4. Drop into Cosmograph for a static proof-of-scale render.
+### §6.2 Why this specific stack
 
-### Phase 2 — Typed nodes + clustering (1 day)
-
-1. Apply per-type node colors/shapes (obs/learn/pat/dec).
-2. Run Graphology community detection; recolor by cluster.
-3. Apply Graphology PageRank; scale node size by centrality.
-
-### Phase 3 — Live synapses (2 days)
-
-1. Add an SSE endpoint in Hono: `GET /studio/brain/events` emitting `{nodeId, event, ts}` on every memory write.
-2. Wire brain.db hooks to push into the channel.
-3. On client, pulse-animate the relevant node when an event arrives.
-4. For new nodes: spawn with a "firing" animation; for new edges: draw with a synapse-style animation.
-
-### Phase 4 — 3D hero view (1 day)
-
-1. Add a `/brain/3d` route using `3d-force-graph`.
-2. Same Graphology instance, different renderer.
-3. Camera controls: orbit by default, trackball toggle.
-
-### Phase 5 — Polish (optional)
-
-1. Filter panel: by type, by cluster, by time range.
-2. Snapshot export: PNG / GEXF / JSON.
-3. VR demo route (`3d-force-graph-vr`).
-
----
-
-## 6. Decisions to Lock
-
-- **Primary renderer for analytics view**: Cosmograph (default) vs Sigma (fallback if GPU extensions missing).
-- **3D view scope**: ship with initial release, or post-MVP?
-- **GEXF vs JSON wire format**: GEXF is richer and round-trips through tools like Gephi, but JSON is simpler. Recommend **both** — GEXF for export/archive, JSON for live SSE feed.
-- **Memory → graph-node mapping schema**: needs a short spec. At minimum:
-  - `id` — brain entry UUID or symbol FQN
-  - `type` — `observation` | `learning` | `pattern` | `decision` | `symbol`
-  - `label` — display name
-  - `size` — PageRank or confidence
-  - `createdAt`, `lastSeenAt` — for temporal fade
+- **Cosmograph** gives the **scale ceiling** — 1M nodes on GPU, no re-architect as BRAIN grows
+- **3d-force-graph** gives the **living synapses** visual — demo-worthy, rotating 3D, VR-capable
+- **Graphology** is the **shared in-memory model** both renderers consume — avoids dual sources of truth
+- **SSE** keeps the live wire **simple** — no WebSocket session management, no reconnect protocols, just an event stream
+- All four are **framework-agnostic** → Svelte-friendly, no React runtime needed (D-BRAIN-VIZ-07)
 
 ---
 
-## 7. Sources (all links)
+## §7 Phase Plan (sized + status + kill criteria)
 
-### Sigma.js ecosystem
+> Sizing per CLEO norms (`small` / `medium` / `large`). No time estimates per project-context.json.
 
-- [sigma.js on GitHub](https://github.com/jacomyal/sigma.js) — user-referenced project
-- [Graphology (data layer for Sigma)](https://graphology.github.io/)
-- [A Look At Graph Visualization With Sigma React (William Lyon)](https://lyonwj.com/blog/sigma-react-graph-visualization)
-- [React Sigma.js: The Practical Guide (MENUDO)](https://www.menudo.com/react-sigma-js-the-practical-guide-to-interactive-graph-visualization-in-react/)
+### Phase 1 — Static unified brain `(large) ✅ DONE`
 
-### Cosmograph / cosmos.gl (top recommendation)
+`/living-brain` + `/brain/*` routes shipped under T620 + T626.
+**Kill criteria (would have been)**: graph payload >5MB on cold load; render frame stalls >250ms.
 
+### Phase 2 — Live + interactive `(large) 🟡 IN PROGRESS [T635]`
+
+- 2a. LBNode.createdAt projection + time slider
+- 2b. SSE endpoint with 5 event types
+- 2c. Cosmograph spike behind a toggle for >2K nodes
+
+**Kill criteria**: SSE adds >50% server CPU at idle, OR Cosmograph integration breaks any existing route. Roll back the 2c bit and ship 2a + 2b only.
+
+### Phase 3 — Schema & backfill `(medium) 🔴 OPEN`
+
+- 3a. Enum drift fix: add `co_retrieved` + `code_reference` to `BRAIN_EDGE_TYPES`. One-shot migration relabels `'relates_to'` → `'co_retrieved'`.
+- 3b. Backfill missing bridge edges (decisions→tasks, observations→files/symbols).
+
+**Kill criteria**: backfill produces >10× the existing edge count (graph becomes unreadable). Cap with quality threshold.
+
+### Phase 4 — Cross-project meta-brain `(large) 🔴 OPEN`
+
+- New table `nexus_cross_project_edges` in nexus.db
+- Analyzers: pattern-hash compare, agent-membership, symbol-FQN match, owner-flagged decisions
+- Studio `/living-brain?scope=meta` renders union with `project_id` as cluster color
+
+**Kill criteria**: privacy concerns when shared workspaces leak project-A context into project-B view. Require explicit owner opt-in per project pair.
+
+### Phase 5 — STDP-inspired plasticity `(large, owner-checkpoint) 🔴 OPEN`
+
+- Schema additions per [stdp-feasibility.md](./stdp-feasibility.md) §3
+- Algorithm per [stdp-feasibility.md](./stdp-feasibility.md) §4 (LTP/LTD with exponential Δt windows + decay + pruning)
+- Optional R-STDP via `reward_signal` column
+
+**Kill criteria**: weight distribution becomes pathologically bimodal (everything 0.05 or 1.0); LTD prunes >10% of edges per consolidation pass.
+
+### Phase 6 — 3D hero view `(medium) 🔴 OPEN`
+
+- `/living-brain/3d` route using vanilla `3d-force-graph` (NOT React wrapper)
+- Same Graphology instance, ThreeJS renderer
+- Floating HTML labels via Svelte `{#each}` + projected coords (no `<Html>` from drei)
+- Optional `EffectComposer` + `UnrealBloomPass` for glow
+
+**Kill criteria**: 3D view requires >1 GB GPU memory, OR breaks on Linux/Wayland. Ship 2D as primary; 3D is hero/demo only.
+
+### Phase 7 — Polish `(medium) 🔴 OPEN`
+
+- Filter panel: time range, plasticity class, agent
+- Snapshot export: PNG / GEXF / JSON / SVG
+- Query bar: "show me everything agent X touched"
+- Subgraph highlight on `cleo memory find` queries
+
+**Kill criteria**: feature creep delays ship. Time-box; defer items past N tasks to a future epic.
+
+---
+
+## §8 Open Questions
+
+1. SSE event volume — should we batch + debounce or stream every event?
+2. Cosmograph adoption gating — keep custom force layout as default, or replace once Cosmograph is stable for our payload?
+3. Time slider granularity — daily (current shipped pattern in `/brain/graph`), hourly, or wall-clock?
+4. Cross-project edges privacy default — opt-in per project pair, or opt-out?
+5. R-STDP scope — do we wire reward signals to all plasticity classes or only `stdp` class?
+
+---
+
+## §9 Sources
+
+### Library research
+
+#### Cosmograph / cosmos.gl (D-BRAIN-VIZ-01 primary)
 - [Cosmograph docs — Concept](https://cosmograph.app/docs-general/concept/)
 - [Cosmograph docs — Introduction](https://cosmograph.app/docs-general/)
 - [Cosmograph docs — How to use](https://cosmograph.app/docs-app/)
-- [cosmos.gl — GPU-accelerated force graph (GitHub)](https://github.com/cosmosgl/graph)
+- [cosmos.gl on GitHub (GPU-accelerated force graph)](https://github.com/cosmosgl/graph)
 - [Introducing cosmos.gl — joined OpenJS Foundation (2026)](https://openjsf.org/blog/introducing-cosmos-gl)
-- [cosmosgl GitHub organization](https://github.com/cosmosgl)
 - [cosmos architecture deep dive (DeepWiki)](https://deepwiki.com/cosmograph-org/cosmos)
 - [Cosmograph — Information is Beautiful Awards](https://www.informationisbeautifulawards.com/showcase/5231-cosmograph)
 - [@sqlrooms/cosmos (third-party SQL-aware wrapper)](https://sqlrooms.org/api/cosmos/)
 
-### 3d-force-graph / react-force-graph (vasturiano suite)
-
-- [react-force-graph (React bindings to the suite)](https://github.com/vasturiano/react-force-graph)
-- [react-force-graph demo](https://vasturiano.github.io/react-force-graph/)
+#### 3d-force-graph (D-BRAIN-VIZ-07 hero view)
 - [3d-force-graph (ThreeJS/WebGL)](https://github.com/vasturiano/3d-force-graph)
 - [3d-force-graph demo](https://vasturiano.github.io/3d-force-graph/)
 - [3d-force-graph-vr (A-Frame)](https://github.com/vasturiano/3d-force-graph-vr)
-- [3d-force-graph-vr demo](https://vasturiano.github.io/3d-force-graph-vr/)
-- [react-force-graph-3d on npm](https://www.npmjs.com/package/react-force-graph-3d)
-- [react-force-graph on npm](https://www.npmjs.com/package/react-force-graph)
-- [react-force-graph-3d CodeSandbox examples](https://codesandbox.io/examples/package/react-force-graph-3d)
-- [Graph Data Visualization With GraphQL & react-force-graph (William Lyon)](https://lyonwj.com/blog/graph-visualization-with-graphql-react-force-graph)
+- [react-force-graph (the React wrapper we're NOT using)](https://github.com/vasturiano/react-force-graph)
 
-### AI memory systems (the layer above visualization)
+#### Sigma.js + Graphology (original ask, kept as analytics-fallback)
+- [sigma.js on GitHub](https://github.com/jacomyal/sigma.js)
+- [Graphology (data layer)](https://graphology.github.io/)
+- [A Look At Graph Visualization With Sigma React (William Lyon)](https://lyonwj.com/blog/sigma-react-graph-visualization)
 
+#### AI memory systems (architectural peers)
 - [Graphiti — Real-Time Knowledge Graphs for AI Agents (getzep)](https://github.com/getzep/graphiti)
 - [InfraNodus — AI Text Analysis with Knowledge Graph](https://infranodus.com)
-- [NVIDIA txt2kg (Text → Knowledge Graph with Three.js WebGPU)](https://build.nvidia.com/spark/txt2kg)
+- [NVIDIA txt2kg (Text → KG with Three.js WebGPU)](https://build.nvidia.com/spark/txt2kg)
 - [AI Knowledge Graph Generator (robert-mcdermott)](https://github.com/robert-mcdermott/ai-knowledge-graph)
-- [From Unstructured Text to Interactive Knowledge Graphs Using LLMs (Robert McDermott)](https://robert-mcdermott.medium.com/from-unstructured-text-to-interactive-knowledge-graphs-using-llms-dd02a1f71cd6)
 - [Awesome Knowledge Graph (totogo)](https://github.com/totogo/awesome-knowledge-graph)
 
-### Comparative analyses & benchmarks
-
+#### Comparative & landscape
 - [Top 10 JavaScript Libraries for Knowledge Graph Visualization (Focal)](https://www.getfocal.co/post/top-10-javascript-libraries-for-knowledge-graph-visualization)
 - [A Comparison of JavaScript Graph / Network Visualisation Libraries (Cylynx)](https://www.cylynx.io/blog/a-comparison-of-javascript-graph-network-visualisation-libraries/)
-- [Best Libraries and Methods to Render Large Force-Directed Graphs on the Web (Stephen, Medium)](https://weber-stephen.medium.com/the-best-libraries-and-methods-to-render-large-network-graphs-on-the-web-d122ece2f4dc)
-- [You Want a Fast, Easy-To-Use, and Popular Graph Visualization Tool? Pick Two! (Memgraph)](https://memgraph.com/blog/you-want-a-fast-easy-to-use-and-popular-graph-visualization-tool)
-- [Graph Drawing Libraries Comparison (anvaka)](https://github.com/anvaka/graph-drawing-libraries)
-- [Focal AI: Deep Dive into the Best Graph Libraries & Network Visualization](https://skywork.ai/skypage/en/Focal-AI-A-Deep-Dive-into-the-Best-Graph-Libraries-Network-Visualization/1976807925743284224)
-- [Top 13 JavaScript graph visualization libraries (Linkurious)](https://linkurious.com/blog/top-javascript-graph-libraries/)
+- [Best Libraries and Methods to Render Large Force-Directed Graphs (Stephen, Medium)](https://weber-stephen.medium.com/the-best-libraries-and-methods-to-render-large-network-graphs-on-the-web-d122ece2f4dc)
 - [How to Visualize a Graph with a Million Nodes (Nightingale)](https://nightingaledvs.com/how-to-visualize-a-graph-with-a-million-nodes/)
-- [JavaScript libraries for visualizing complex relationship mappings (Zigpoll)](https://www.zigpoll.com/content/can-you-recommend-any-javascript-libraries-or-tools-for-visualizing-and-managing-complex-relationship-mappings-between-entities-in-a-web-application)
+- [Top 13 JavaScript graph visualization libraries (Linkurious)](https://linkurious.com/blog/top-javascript-graph-libraries/)
 
-### Knowledge graph tooling (end-to-end)
+### CLEO internal references (verified during plan grounding)
 
-- [7 Best Knowledge Graph Tools and Software (AtlasWorkspace)](https://www.atlasworkspace.ai/blog/knowledge-graph-tools)
-- [Best AI Tools for Knowledge Graphs 2026 — GraphRAG, Agent Memory & Graph DBs (TokRepo)](https://tokrepo.com/en/ai-tools-for/knowledge-graph)
-- [15 Best Graph Visualization Tools for Neo4j (Neo4j blog)](https://neo4j.com/blog/graph-visualization/neo4j-graph-visualization-tools/)
-- [Knowledge Graph Tools — The Ultimate Guide (PuppyGraph)](https://www.puppygraph.com/blog/knowledge-graph-tools)
+#### Schema files (v3 grounded against these on 2026-04-15)
+- `packages/core/src/store/brain-schema.ts` — BRAIN typed tables + graph layer + retrieval log + 12-element edge enum
+- `packages/core/src/store/nexus-schema.ts` — `project_registry` (with brain_db_path / tasks_db_path) + `nexus_nodes` (31 kinds) + `nexus_relations` (22 types)
+- `packages/core/src/store/tasks-schema.ts` — tasks + sessions + dependencies + lifecycle + agents + warp chains + external links
+- `packages/core/src/store/conduit-sqlite.ts` — conduit.db raw DDL (messages + FTS5 + attachments + project_agent_refs)
+- `packages/core/src/store/signaldock-sqlite.ts` — global agent identity
+
+#### Shipped code referenced by this plan
+- `packages/core/src/memory/brain-lifecycle.ts:911` — `strengthenCoRetrievedEdges` (Hebbian, shipped)
+- `packages/core/src/memory/brain-retrieval.ts:1415` — `logRetrieval` (retrieval log writer)
+- `packages/core/src/store/brain-sqlite.ts:172` — `loadBrainVecExtension` (sqlite-vec loader)
+- `packages/core/src/store/brain-sqlite.ts:192` — `initializeBrainVec` (vec0 virtual table)
+- `packages/studio/src/routes/living-brain/+page.svelte` — main /living-brain page (5-substrate filters + weight slider + side panel)
+- `packages/studio/src/lib/components/LivingBrainGraph.svelte` — current renderer (custom force layout)
+- `packages/studio/src/lib/server/living-brain/types.ts` — LBNode/LBGraph/LBSubstrate
+
+#### Live state files
+- `.cleo/nexus-bridge.md` — auto-generated nexus index stats
+- `.cleo/memory-bridge.md` — auto-generated BRAIN bridge (recent decisions, learnings, observations)
+
+#### Tasks
+- T577 — CLEO Studio (SvelteKit + Hono on port 3456)
+- T620 — BRAIN Studio View (knowledge graph + memory tiers + decisions timeline) **DONE**
+- T626 — EPIC: T-BRAIN-LIVING — Unified 5-substrate Living Brain **DONE**
+- T627 — EPIC: T-BRAIN-LIVING Stabilization + Phase 2 RCASD **ACTIVE**
+- T634 — Doc v3 (this doc)
+- T635 — Studio Phase 2 (time slider + SSE + Cosmograph spike)
+- T549 — Tiered + typed memory (shipped — gave us tiers, cognitive types, source confidence, bitemporal, citation counts)
+- T513 — Native Code Intelligence Pipeline
+- T523 — BRAIN integrity work
+- T5157 — sqlite-vec integration
+
+### Vector / extension landscape (D-BRAIN-VIZ-10..11)
+- [sqlite-vec (asg017, Mozilla Builders) — what we use](https://github.com/asg017/sqlite-vec)
+- [sqlite-ai (sqliteai.com) — defer to Phase 6+](https://github.com/sqliteai/sqlite-ai)
+- [sqlite-vector (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-vector)
+- [sqlite-memory (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-memory)
+- [sqlite-rag (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-rag)
+- [sqlite-agent (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-agent)
+
+### STDP / SNN reference (full details in [stdp-feasibility.md](./stdp-feasibility.md))
+- [BindsNET (PyTorch SNN)](https://github.com/BindsNET/bindsnet)
+- [Brian2 simulator](https://briansimulator.org/)
+- [Inferno SNN framework (2024)](https://arxiv.org/html/2409.11567v1)
+- [Synaptic scaling + Hebbian plasticity (SPaSS, Frontiers 2012)](https://www.frontiersin.org/journals/computational-neuroscience/articles/10.3389/fncom.2012.00036/full)
+- [Hebbian + gradient plasticity in Transformers (OpenReview)](https://openreview.net/forum?id=34No0A0V56)
+- [LadybugDB (still ruled out per D009)](https://github.com/LadybugDB/ladybug)
+- [SQLite performance tuning (phiresky's gist)](https://gist.github.com/phiresky/978d8e204f77feaa0ab5cca08d2d5b27)
 
 ---
 
-## 8. Open Questions
+## §10 Next Actions
 
-1. Does the Studio route need to work offline (no SSE) or is live-always acceptable?
-2. How do we want to render **temporal decay** — opacity fade? Physical drift? Removal?
-3. Is there an appetite for **the VR view** as a shipped feature, or keep it internal demo?
-4. Do we want **edge animation directionality** (causal provenance) or undirected visual flow?
-5. Should NEXUS symbols and BRAIN entries **share one canvas** by default, or toggle between them?
-
----
-
-## 9. Next Steps
-
-- [ ] Create epic task: `cleo task add` — "BRAIN Synaptic Visualization" under CLEO Studio parent
-- [ ] Decompose into Phase 1–5 subtasks per §5
-- [ ] Spec the memory → graph-node schema (§6)
-- [ ] Spike: drop Cosmograph into `packages/studio` behind a feature flag
-- [ ] Spike: verify GEXF export from NEXUS + BRAIN round-trips through Graphology
+- [ ] T635 (Studio Phase 2) — worker spawned, time slider first
+- [ ] Create Phase 3a task: enum drift fix in `BRAIN_EDGE_TYPES`
+- [ ] Create Phase 3b task: backfill bridge edges
+- [ ] Owner-checkpoint conversation for STDP (Phase 5) — pre-read [stdp-feasibility.md](./stdp-feasibility.md)
+- [ ] When T635 ships: re-render this doc to mark Phase 2 ✅ DONE

@@ -1,4 +1,4 @@
-import { r as getCleoHome } from "../../../../chunks/cleo-home.js";
+import { n as getCleoHome } from "../../../../chunks/cleo-home.js";
 import { n as getActiveProjectId, r as listRegisteredProjects } from "../../../../chunks/project-context.js";
 import { createRequire } from "node:module";
 import { json } from "@sveltejs/kit";

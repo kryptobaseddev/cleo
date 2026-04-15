@@ -17,9 +17,15 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-vi.mock('../../../../core/src/paths.js', () => ({
-  getCleoHome: vi.fn().mockReturnValue('/home/test/.cleo'),
-}));
+vi.mock('../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
+    '../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getCleoHome: vi.fn().mockReturnValue('/home/test/.cleo'),
+  };
+});
 
 describe('registerWebCommand', () => {
   it('registers a web command with subcommands', () => {

@@ -3,8 +3,8 @@ import { o as getTasksDb } from "../../../../chunks/connections.js";
 /**
 * Sessions page server load — session history with task completions timeline.
 */
-var load = () => {
-	const db = getTasksDb();
+var load = ({ locals }) => {
+	const db = getTasksDb(locals.projectCtx);
 	if (!db) return { sessions: [] };
 	try {
 		return { sessions: db.prepare(`SELECT id, name, status, agent, started_at, ended_at,

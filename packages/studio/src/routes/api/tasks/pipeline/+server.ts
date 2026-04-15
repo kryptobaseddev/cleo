@@ -23,8 +23,8 @@ const PIPELINE_STAGES = [
   'done',
 ] as const;
 
-export const GET: RequestHandler = () => {
-  const db = getTasksDb();
+export const GET: RequestHandler = ({ locals }) => {
+  const db = getTasksDb(locals.projectCtx);
   if (!db) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }

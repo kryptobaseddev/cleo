@@ -26,7 +26,7 @@ export interface NodeNeighborsResponse {
   edges: LBEdge[];
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ locals, params }) => {
   const nodeId = decodeURIComponent(params.id);
   if (!nodeId) {
     return json({ error: 'id is required' }, { status: 400 });
@@ -40,7 +40,7 @@ export const GET: RequestHandler = ({ params }) => {
 
   try {
     // Load the full graph (limit 2000 to maximize chance of finding neighbors)
-    const graph = getAllSubstrates({ limit: 2000 });
+    const graph = getAllSubstrates({ limit: 2000, projectCtx: locals.projectCtx });
 
     const node = graph.nodes.find((n) => n.id === nodeId);
     if (!node) {
