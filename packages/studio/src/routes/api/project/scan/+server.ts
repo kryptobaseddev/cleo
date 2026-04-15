@@ -12,13 +12,12 @@
  *     autoRegister?: boolean; — auto-register discovered projects (--auto-register)
  *   }
  *
- * Returns a LAFS envelope or a 502 with reason on CLI failure.
+ * Returns a LAFS envelope or a 4xx with structured error envelope on CLI failure.
  *
- * @task T657
+ * @task T722
  */
 
-import { json } from '@sveltejs/kit';
-import { runCleoCli } from '$lib/server/spawn-cli.js';
+import { executeCliAction } from '$lib/server/cli-action.js';
 import type { RequestHandler } from './$types';
 
 /** Validated and normalised body for /api/project/scan. */
@@ -54,19 +53,8 @@ export const POST: RequestHandler = async ({ request }) => {
     args.push('--auto-register');
   }
 
-  const result = await runCleoCli(args);
-
-  if (!result.ok) {
-    const reason = result.stderr.trim() || result.stdout.trim() || 'CLI command failed';
-    return json(
-      {
-        success: false,
-        error: { message: reason, code: 'CLI_FAILURE' },
-        meta: { exitCode: result.exitCode },
-      },
-      { status: 502 },
-    );
-  }
-
-  return json(result.envelope ?? { success: true });
+  return executeCliAction(args, {
+    errorCode: 'E_SCAN_FAILED',
+    meta: { roots: body.roots, maxDepth: body.maxDepth, autoRegister: body.autoRegister },
+  });
 };

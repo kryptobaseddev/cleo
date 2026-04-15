@@ -183,15 +183,19 @@ describe('DELETE /api/project/[id]', () => {
     expect(body.success).toBe(true);
   });
 
-  it('returns 502 when CLI fails', async () => {
+  it('returns 400 with E_DELETE_FAILED when CLI fails', async () => {
     runCleoCli.mockResolvedValue(failResult('no such project'));
     const { DELETE } = await importDelete();
 
     const res = await DELETE({ params: { id: 'proj-abc123' } });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
 
-    const body = (await res.json()) as { success: boolean; error: { message: string } };
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
     expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_DELETE_FAILED');
     expect(body.error.message).toContain('no such project');
   });
 
@@ -230,15 +234,19 @@ describe('POST /api/project/[id]/index', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 502 when CLI fails', async () => {
+  it('returns 400 with E_INDEX_FAILED when CLI fails', async () => {
     runCleoCli.mockResolvedValue(failResult('analyze error'));
     const { POST } = await importIndex();
 
     const res = await POST({ params: { id: 'proj-abc123' } });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
 
-    const body = (await res.json()) as { success: boolean; error: { message: string } };
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
     expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_INDEX_FAILED');
     expect(body.error.message).toContain('analyze error');
   });
 
@@ -280,12 +288,19 @@ describe('POST /api/project/[id]/reindex', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 502 when CLI fails', async () => {
+  it('returns 400 with E_REINDEX_FAILED when CLI fails', async () => {
     runCleoCli.mockResolvedValue(failResult('reindex error'));
     const { POST } = await importReindex();
 
     const res = await POST({ params: { id: 'proj-abc123' } });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_REINDEX_FAILED');
   });
 });
 
@@ -388,15 +403,19 @@ describe('POST /api/project/clean', () => {
     expect(args).not.toContain('--pattern');
   });
 
-  it('returns 502 when CLI fails', async () => {
+  it('returns 400 with E_CLEAN_FAILED when CLI fails', async () => {
     runCleoCli.mockResolvedValue(failResult('clean failed'));
     const { POST } = await importClean();
 
     const res = await POST({ request: makeRequest({}) });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
 
-    const body = (await res.json()) as { success: boolean; error: { message: string } };
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
     expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_CLEAN_FAILED');
     expect(body.error.message).toContain('clean failed');
   });
 
@@ -486,15 +505,19 @@ describe('POST /api/project/scan', () => {
     expect(args).not.toContain('--max-depth');
   });
 
-  it('returns 502 when CLI fails', async () => {
+  it('returns 400 with E_SCAN_FAILED when CLI fails', async () => {
     runCleoCli.mockResolvedValue(failResult('scan error'));
     const { POST } = await importScan();
 
     const res = await POST({ request: makeRequest({}) });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
 
-    const body = (await res.json()) as { success: boolean; error: { message: string } };
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
     expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_SCAN_FAILED');
     expect(body.error.message).toContain('scan error');
   });
 
