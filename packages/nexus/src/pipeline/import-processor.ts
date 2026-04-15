@@ -102,6 +102,14 @@ export interface ImportResolutionContext {
   index: SuffixIndex;
   /** Cache of previously resolved imports: `"sourceFile::importPath"` → result. */
   resolveCache: Map<string, string | null>;
+  /**
+   * Workspace package name → resolved entry file path (relative to repo root).
+   *
+   * Built by `loadWorkspacePackages` from `packages/*\/package.json` files.
+   * Maps e.g. `"@cleocode/core"` → `"packages/core/src/index.ts"`.
+   * Optional: if absent, workspace package resolution is skipped.
+   */
+  workspacePackageMap?: Map<string, string>;
 }
 
 /**
@@ -121,6 +129,67 @@ export function buildImportResolutionContext(allPaths: string[]): ImportResoluti
     index,
     resolveCache: new Map(),
   };
+}
+
+/**
+ * Scan all `packages/*\/package.json` files under `repoRoot` and build a map
+ * from package name to its entry file path (relative to repo root).
+ *
+ * Resolution priority for the entry file:
+ * 1. `<pkgDir>/src/index.ts`  — TypeScript source (preferred for nexus analysis)
+ * 2. `<pkgDir>/index.ts`      — flat-layout TypeScript source
+ * 3. `<pkgDir>/src/index.js`  — JavaScript source fallback
+ * 4. `<pkgDir>/index.js`      — flat-layout JavaScript fallback
+ *
+ * The resulting map is stored in `ImportResolutionContext.workspacePackageMap`
+ * so that `resolveTypescriptImport` can resolve `@scope/package` imports to
+ * their source files instead of returning null.
+ *
+ * @param repoRoot - Absolute path to the repository root
+ * @param allFilePaths - Set of all known file paths (relative to repo root)
+ * @returns Map of package name → relative entry file path
+ */
+export async function loadWorkspacePackages(
+  repoRoot: string,
+  allFilePaths: Set<string>,
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+
+  let packagesDir: string[];
+  try {
+    packagesDir = await fs.readdir(path.join(repoRoot, 'packages'));
+  } catch {
+    return result;
+  }
+
+  for (const pkgName of packagesDir) {
+    const pkgJsonPath = path.join(repoRoot, 'packages', pkgName, 'package.json');
+    try {
+      const raw = await fs.readFile(pkgJsonPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { name?: string };
+      const packageName = parsed.name;
+      if (typeof packageName !== 'string' || !packageName) continue;
+
+      // Candidate entry files in priority order (source files preferred)
+      const candidates = [
+        `packages/${pkgName}/src/index.ts`,
+        `packages/${pkgName}/index.ts`,
+        `packages/${pkgName}/src/index.js`,
+        `packages/${pkgName}/index.js`,
+      ];
+
+      for (const candidate of candidates) {
+        if (allFilePaths.has(candidate)) {
+          result.set(packageName, candidate);
+          break;
+        }
+      }
+    } catch {
+      // Missing or invalid package.json — skip
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,8 +318,10 @@ const RESOLVE_CACHE_CAP = 100_000;
  * 1. Cache hit — return immediately
  * 2. tsconfig path alias rewriting (if `tsconfigPaths` is provided)
  * 3. Relative path resolution (`./` and `../`) with extension probing
- * 4. node_modules detection — return null (external dependency)
+ * 4. Workspace package resolution — `@scope/pkg` → `packages/pkg/src/index.ts`
+ *    (uses `workspacePackageMap` built by `loadWorkspacePackages`)
  * 5. Generic suffix matching via SuffixIndex (absolute/package imports)
+ * 6. node_modules / external — return null
  *
  * @param currentFile - The file that contains the import statement
  * @param importPath - The raw import path string from the AST
@@ -260,6 +331,7 @@ const RESOLVE_CACHE_CAP = 100_000;
  * @param resolveCache - Mutable cache shared across calls
  * @param tsconfigPaths - Parsed tsconfig path alias config, if available
  * @param index - Pre-built SuffixIndex for O(1) lookups
+ * @param workspacePackageMap - Workspace package name → entry file path map
  * @returns Resolved relative file path, or null if unresolvable/external
  */
 export function resolveTypescriptImport(
@@ -271,6 +343,7 @@ export function resolveTypescriptImport(
   resolveCache: Map<string, string | null>,
   tsconfigPaths: TsconfigPaths | null,
   index?: SuffixIndex,
+  workspacePackageMap?: Map<string, string>,
 ): string | null {
   const cacheKey = `${currentFile}::${importPath}`;
   if (resolveCache.has(cacheKey)) return resolveCache.get(cacheKey) ?? null;
@@ -340,13 +413,18 @@ export function resolveTypescriptImport(
     return cache(null);
   }
 
-  // 3. node_modules / external package: skip (no resolution)
-  // A non-relative, non-aliased import that does not start with a known
-  // repository path is an external dependency. Return null to signal external.
-  // We detect this heuristically: if the import contains no '/' or starts with
-  // a scoped package '@', it is almost certainly an npm package.
+  // 3. Workspace package resolution for `@scope/package` style imports.
+  // Bare and scoped imports that don't start with '.' are potential workspace
+  // packages. Check the workspace map first (exact name match), then fall back
+  // to suffix resolution, then give up (external npm package).
   if (!importPath.includes('/') || importPath.startsWith('@')) {
-    // Still try suffix resolution as last resort for scoped workspace packages
+    // 3a. Exact workspace package name lookup (e.g. `@cleocode/core`)
+    if (workspacePackageMap) {
+      const pkgEntry = workspacePackageMap.get(importPath);
+      if (pkgEntry) return cache(pkgEntry);
+    }
+
+    // 3b. Suffix resolution as fallback for non-standard workspace layouts
     const parts = importPath.split('/').filter(Boolean);
     const resolved = suffixResolve(parts, normalizedFileList, allFileList, index);
     return cache(resolved);
@@ -507,7 +585,14 @@ export async function processExtractedImports(options: ProcessImportsOptions): P
   const { imports, graph, importCtx, namedImportMap, moduleAliasMap, tsconfigPaths, onProgress } =
     options;
 
-  const { allFilePaths, allFileList, normalizedFileList, index, resolveCache } = importCtx;
+  const {
+    allFilePaths,
+    allFileList,
+    normalizedFileList,
+    index,
+    resolveCache,
+    workspacePackageMap,
+  } = importCtx;
 
   let edgesEmitted = 0;
 
@@ -543,6 +628,7 @@ export async function processExtractedImports(options: ProcessImportsOptions): P
         resolveCache,
         tsconfigPaths,
         index,
+        workspacePackageMap,
       );
 
       if (!resolved) continue;
@@ -623,7 +709,14 @@ export function buildBarrelExportMap(
   importCtx: ImportResolutionContext,
   tsconfigPaths: TsconfigPaths | null,
 ): BarrelExportMap {
-  const { allFilePaths, allFileList, normalizedFileList, index, resolveCache } = importCtx;
+  const {
+    allFilePaths,
+    allFileList,
+    normalizedFileList,
+    index,
+    resolveCache,
+    workspacePackageMap,
+  } = importCtx;
   const barrelMap: BarrelExportMap = new Map();
 
   for (const re of reExports) {
@@ -636,6 +729,7 @@ export function buildBarrelExportMap(
       resolveCache,
       tsconfigPaths,
       index,
+      workspacePackageMap,
     );
     if (!resolved) continue;
 
