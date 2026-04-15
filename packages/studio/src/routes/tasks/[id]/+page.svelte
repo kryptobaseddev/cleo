@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import type { SubtaskRow, DepTask } from './+page.server.js';
+  import type { SubtaskRow, DepTask, ManifestEntry, LinkedCommit } from './+page.server.js';
 
   interface Props {
     data: PageData;
   }
   let { data }: Props = $props();
 
-  const { task, subtasks, parent } = data;
+  const { task, subtasks, parent, manifestEntries, linkedCommits } = data;
 
   function priorityClass(p: string): string {
     if (p === 'critical') return 'priority-critical';
@@ -48,6 +48,16 @@
     }
   }
 
+  function formatDateShort(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return iso;
+    }
+  }
+
   function subtaskVerif(row: SubtaskRow): { implemented: boolean; testsPassed: boolean; qaPassed: boolean } | null {
     try {
       if (!row.verification_json) return null;
@@ -60,6 +70,53 @@
 
   const doneSubtasks = subtasks.filter((s: SubtaskRow) => s.status === 'done').length;
   const subtaskPct = subtasks.length > 0 ? Math.round((doneSubtasks / subtasks.length) * 100) : 0;
+
+  /**
+   * Derive a per-criterion pass state from the overall verification.
+   * We don't have per-criterion tracking in tasks.db — only overall gate state.
+   * If verification.passed is true, all criteria pass. Otherwise none pass (pending).
+   */
+  function acCheckClass(verificationPassed: boolean | null): string {
+    if (verificationPassed === true) return 'ac-pass';
+    return 'ac-pending';
+  }
+
+  function acCheckIcon(verificationPassed: boolean | null): string {
+    if (verificationPassed === true) return '✓';
+    return '○';
+  }
+
+  /** Map artifact type to a short readable label. */
+  function artifactTypeLabel(type: string): string {
+    const map: Record<string, string> = {
+      implementation: 'impl',
+      analysis: 'analysis',
+      research: 'research',
+      fix: 'fix',
+      audit: 'audit',
+      specification: 'spec',
+      consensus: 'consensus',
+      report: 'report',
+    };
+    return map[type] ?? type;
+  }
+
+  /** Truncate a long summary for display. */
+  function truncate(s: string | null, max: number): string {
+    if (!s) return '';
+    if (s.length <= max) return s;
+    return s.slice(0, max) + '…';
+  }
+
+  /** Extract just the filename from a path. */
+  function basename(p: string): string {
+    return p.split('/').pop() ?? p;
+  }
+
+  // Collapsible notes state
+  let notesExpanded = $state(true);
+  let manifestExpanded = $state(true);
+  let commitsExpanded = $state(true);
 </script>
 
 <svelte:head>
@@ -92,22 +149,32 @@
           {#if task.type !== 'task'}
             <span class="task-type-badge">{task.type}</span>
           {/if}
+          {#if task.size}
+            <span class="task-size-badge">{task.size}</span>
+          {/if}
         </div>
         <h1 class="task-title">{task.title}</h1>
         {#if task.description}
-          <p class="task-description">{task.description}</p>
+          <div class="task-description">{task.description}</div>
         {/if}
       </div>
 
       <!-- Acceptance criteria -->
       {#if task.acceptance && task.acceptance.length > 0}
         <section class="detail-section">
-          <h2 class="section-title">Acceptance Criteria</h2>
+          <h2 class="section-title">
+            Acceptance Criteria
+            <span class="ac-count">{task.acceptance.length} criteria</span>
+            {#if task.verification?.passed}
+              <span class="ac-all-pass">ALL PASSED</span>
+            {/if}
+          </h2>
           <ul class="acceptance-list">
             {#each task.acceptance as criterion}
-              <li class="acceptance-item">
-                <span class="acceptance-check">○</span>
-                <span>{criterion}</span>
+              {@const passed = task.verification?.passed ?? null}
+              <li class="acceptance-item {acCheckClass(passed)}">
+                <span class="acceptance-check {acCheckClass(passed)}">{acCheckIcon(passed)}</span>
+                <span class="acceptance-text">{criterion}</span>
               </li>
             {/each}
           </ul>
@@ -121,33 +188,149 @@
           <h2 class="section-title">
             Verification Gates
             <span class="verif-badge" class:passed={v.passed}>
-              {v.passed ? 'PASSED' : `Round ${v.round}`}
+              {v.passed ? 'PASSED' : `Round ${v.round} — Pending`}
             </span>
           </h2>
           <div class="gates-grid">
-            <div class="gate" class:gate-passed={v.gates.implemented}>
+            <div class="gate" class:gate-passed={v.gates.implemented} class:gate-failed={!v.gates.implemented && v.passed === false && v.round > 1}>
               <span class="gate-icon">{gateIcon(v.gates.implemented)}</span>
               <span class="gate-label">Implemented</span>
-              <span class="gate-short">I</span>
             </div>
-            <div class="gate" class:gate-passed={v.gates.testsPassed}>
+            <div class="gate" class:gate-passed={v.gates.testsPassed} class:gate-failed={!v.gates.testsPassed && v.passed === false && v.round > 1}>
               <span class="gate-icon">{gateIcon(v.gates.testsPassed)}</span>
               <span class="gate-label">Tests Passed</span>
-              <span class="gate-short">T</span>
             </div>
-            <div class="gate" class:gate-passed={v.gates.qaPassed}>
+            <div class="gate" class:gate-passed={v.gates.qaPassed} class:gate-failed={!v.gates.qaPassed && v.passed === false && v.round > 1}>
               <span class="gate-icon">{gateIcon(v.gates.qaPassed)}</span>
               <span class="gate-label">QA Passed</span>
-              <span class="gate-short">Q</span>
             </div>
           </div>
-          {#if v.lastAgent}
-            <p class="verif-meta">Last agent: {v.lastAgent} · {formatDate(v.lastUpdated)}</p>
+          {#if v.lastAgent || v.lastUpdated}
+            <p class="verif-meta">
+              {#if v.lastAgent}Last agent: <span class="verif-agent">{v.lastAgent}</span>{/if}
+              {#if v.lastUpdated} · {formatDate(v.lastUpdated)}{/if}
+            </p>
           {/if}
           {#if v.failureLog && v.failureLog.length > 0}
             <div class="failure-log">
+              <div class="failure-log-header">Failure Log ({v.failureLog.length} entries)</div>
               {#each v.failureLog as entry}
                 <div class="failure-entry">{entry}</div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- Notes / history -->
+      {#if task.notes && task.notes.length > 0}
+        <section class="detail-section">
+          <button
+            class="section-title section-title-btn"
+            onclick={() => { notesExpanded = !notesExpanded; }}
+            type="button"
+          >
+            Notes &amp; History
+            <span class="note-count">{task.notes.length}</span>
+            <span class="collapse-icon">{notesExpanded ? '▾' : '▸'}</span>
+          </button>
+          {#if notesExpanded}
+            <div class="notes-feed">
+              {#each task.notes as note, i}
+                <div class="note-entry">
+                  <span class="note-index">{i + 1}</span>
+                  <span class="note-text">{note}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- Linked MANIFEST artifacts -->
+      {#if manifestEntries && manifestEntries.length > 0}
+        <section class="detail-section">
+          <button
+            class="section-title section-title-btn"
+            onclick={() => { manifestExpanded = !manifestExpanded; }}
+            type="button"
+          >
+            Agent Artifacts
+            <span class="artifact-count">{manifestEntries.length}</span>
+            <span class="collapse-icon">{manifestExpanded ? '▾' : '▸'}</span>
+          </button>
+          {#if manifestExpanded}
+            <div class="artifact-list">
+              {#each manifestEntries as entry}
+                <div class="artifact-card" class:artifact-complete={entry.status === 'complete'} class:artifact-partial={entry.status === 'partial'} class:artifact-blocked={entry.status === 'blocked'}>
+                  <div class="artifact-header">
+                    <span class="artifact-type">{artifactTypeLabel(entry.type)}</span>
+                    <span class="artifact-status artifact-status-{entry.status}">{entry.status}</span>
+                    {#if entry.date}
+                      <span class="artifact-date">{formatDateShort(entry.date)}</span>
+                    {/if}
+                    <span class="artifact-id">{entry.id}</span>
+                  </div>
+                  {#if entry.title}
+                    <div class="artifact-title">{entry.title}</div>
+                  {/if}
+                  {#if entry.summary}
+                    <div class="artifact-summary">{truncate(entry.summary, 300)}</div>
+                  {/if}
+                  {#if entry.output}
+                    <div class="artifact-output">
+                      <span class="artifact-output-label">Output:</span>
+                      <code class="artifact-output-path">{entry.output}</code>
+                    </div>
+                  {/if}
+                  {#if entry.files && entry.files.length > 0}
+                    <div class="artifact-files">
+                      {#each entry.files as f}
+                        <code class="artifact-file">{basename(f)}</code>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- Linked git commits -->
+      {#if linkedCommits && linkedCommits.length > 0}
+        <section class="detail-section">
+          <button
+            class="section-title section-title-btn"
+            onclick={() => { commitsExpanded = !commitsExpanded; }}
+            type="button"
+          >
+            Git Commits
+            <span class="commit-count">{linkedCommits.length}</span>
+            <span class="collapse-icon">{commitsExpanded ? '▾' : '▸'}</span>
+          </button>
+          {#if commitsExpanded}
+            <div class="commit-list">
+              {#each linkedCommits as commit}
+                <div class="commit-row">
+                  <div class="commit-header">
+                    <code class="commit-sha">{commit.sha}</code>
+                    <span class="commit-subject">{commit.subject}</span>
+                    {#if commit.date}
+                      <span class="commit-date">{formatDateShort(commit.date)}</span>
+                    {/if}
+                  </div>
+                  {#if commit.files && commit.files.length > 0}
+                    <div class="commit-files">
+                      {#each commit.files.slice(0, 10) as f}
+                        <code class="commit-file">{f}</code>
+                      {/each}
+                      {#if commit.files.length > 10}
+                        <span class="commit-files-more">+{commit.files.length - 10} more</span>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
               {/each}
             </div>
           {/if}
@@ -158,7 +341,7 @@
       {#if subtasks.length > 0}
         <section class="detail-section">
           <h2 class="section-title">
-            Subtasks
+            {task.type === 'epic' ? 'Children' : 'Subtasks'}
             <span class="subtask-progress">{doneSubtasks}/{subtasks.length} ({subtaskPct}%)</span>
           </h2>
           <div class="subtask-progress-bar">
@@ -171,6 +354,9 @@
                 <span class="subtask-status {statusClass(sub.status)}">{statusIcon(sub.status)}</span>
                 <div class="subtask-info">
                   <span class="subtask-id">{sub.id}</span>
+                  {#if sub.type !== 'task'}
+                    <span class="subtask-type">{sub.type}</span>
+                  {/if}
                   <span class="subtask-title">{sub.title}</span>
                 </div>
                 <div class="subtask-meta">
@@ -304,6 +490,27 @@
             </dd>
           </div>
         {/if}
+        <!-- Linked artifact count summary -->
+        {#if (manifestEntries && manifestEntries.length > 0) || (linkedCommits && linkedCommits.length > 0)}
+          <div class="meta-row meta-row-artifacts">
+            <dt>Artifacts</dt>
+            <dd class="artifact-summary-counts">
+              {#if manifestEntries && manifestEntries.length > 0}
+                <span class="artifact-pill">{manifestEntries.length} agent output{manifestEntries.length === 1 ? '' : 's'}</span>
+              {/if}
+              {#if linkedCommits && linkedCommits.length > 0}
+                <span class="artifact-pill">{linkedCommits.length} commit{linkedCommits.length === 1 ? '' : 's'}</span>
+              {/if}
+            </dd>
+          </div>
+        {/if}
+        <!-- Notes count in sidebar -->
+        {#if task.notes && task.notes.length > 0}
+          <div class="meta-row">
+            <dt>Notes</dt>
+            <dd>{task.notes.length} note{task.notes.length === 1 ? '' : 's'}</dd>
+          </div>
+        {/if}
       </dl>
 
       <div class="sidebar-nav">
@@ -413,6 +620,15 @@
     border-radius: 4px;
   }
 
+  .task-size-badge {
+    font-size: 0.7rem;
+    color: #64748b;
+    background: #1a1f2e;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid #2d3748;
+  }
+
   .task-title {
     font-size: 1.25rem;
     font-weight: 700;
@@ -424,6 +640,8 @@
     font-size: 0.875rem;
     color: #94a3b8;
     line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   /* Sections */
@@ -446,7 +664,46 @@
     gap: 0.75rem;
   }
 
+  .section-title-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    width: 100%;
+  }
+
+  .section-title-btn:hover {
+    color: #e2e8f0;
+  }
+
+  .collapse-icon {
+    margin-left: auto;
+    color: #475569;
+    font-size: 0.75rem;
+  }
+
   /* Acceptance */
+  .ac-count {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .ac-all-pass {
+    font-size: 0.675rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
   .acceptance-list {
     list-style: none;
     display: flex;
@@ -460,12 +717,38 @@
     gap: 0.5rem;
     font-size: 0.875rem;
     color: #e2e8f0;
+    padding: 0.375rem 0.5rem;
+    border-radius: 4px;
+    background: #161b27;
+  }
+
+  .acceptance-item.ac-pass {
+    background: rgba(34, 197, 94, 0.05);
+    border-left: 2px solid rgba(34, 197, 94, 0.4);
+  }
+
+  .acceptance-item.ac-pending {
+    border-left: 2px solid #2d3748;
   }
 
   .acceptance-check {
-    color: #475569;
     flex-shrink: 0;
     margin-top: 0.1rem;
+    font-size: 0.875rem;
+    width: 1rem;
+    text-align: center;
+  }
+
+  .acceptance-check.ac-pass {
+    color: #22c55e;
+  }
+
+  .acceptance-check.ac-pending {
+    color: #475569;
+  }
+
+  .acceptance-text {
+    flex: 1;
   }
 
   /* Verification gates */
@@ -488,6 +771,7 @@
   .gates-grid {
     display: flex;
     gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .gate {
@@ -507,6 +791,11 @@
     background: rgba(34, 197, 94, 0.05);
   }
 
+  .gate.gate-failed {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.04);
+  }
+
   .gate-icon {
     font-size: 1rem;
     color: #475569;
@@ -514,6 +803,10 @@
 
   .gate.gate-passed .gate-icon {
     color: #22c55e;
+  }
+
+  .gate.gate-failed .gate-icon {
+    color: #ef4444;
   }
 
   .gate-label {
@@ -525,8 +818,8 @@
     color: #86efac;
   }
 
-  .gate-short {
-    display: none;
+  .gate.gate-failed .gate-label {
+    color: #fca5a5;
   }
 
   .verif-meta {
@@ -534,18 +827,299 @@
     color: #475569;
   }
 
+  .verif-agent {
+    color: #a855f7;
+  }
+
   .failure-log {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .failure-log-header {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #f97316;
+    background: rgba(249, 115, 22, 0.08);
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid rgba(249, 115, 22, 0.15);
   }
 
   .failure-entry {
     font-size: 0.75rem;
     color: #f97316;
-    background: rgba(249, 115, 22, 0.05);
-    border-left: 2px solid #f97316;
-    padding: 0.25rem 0.5rem;
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid rgba(249, 115, 22, 0.1);
+    background: rgba(249, 115, 22, 0.03);
+  }
+
+  .failure-entry:last-child {
+    border-bottom: none;
+  }
+
+  /* Notes feed */
+  .note-count {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    background: #1e2435;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+  }
+
+  .notes-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .note-entry {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-size: 0.8125rem;
+    padding: 0.625rem 0.75rem;
+    background: #161b27;
+    border: 1px solid #1e2435;
+    border-radius: 6px;
+    border-left: 3px solid #a855f7;
+  }
+
+  .note-index {
+    font-size: 0.675rem;
+    color: #a855f7;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-width: 1rem;
+    padding-top: 0.05rem;
+    flex-shrink: 0;
+  }
+
+  .note-text {
+    color: #cbd5e1;
+    line-height: 1.5;
+    flex: 1;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  /* Artifact cards */
+  .artifact-count, .commit-count {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    background: #1e2435;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+  }
+
+  .artifact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .artifact-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 0.75rem;
+    background: #161b27;
+    border: 1px solid #1e2435;
+    border-radius: 6px;
+    border-left: 3px solid #2d3748;
+  }
+
+  .artifact-card.artifact-complete {
+    border-left-color: #22c55e;
+  }
+
+  .artifact-card.artifact-partial {
+    border-left-color: #eab308;
+  }
+
+  .artifact-card.artifact-blocked {
+    border-left-color: #ef4444;
+  }
+
+  .artifact-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .artifact-type {
+    font-size: 0.675rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.1);
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+  }
+
+  .artifact-status {
+    font-size: 0.675rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+  }
+
+  .artifact-status-complete { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+  .artifact-status-partial { background: rgba(234, 179, 8, 0.1); color: #eab308; }
+  .artifact-status-blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+  .artifact-status-unknown { background: #1e2435; color: #64748b; }
+
+  .artifact-date {
+    font-size: 0.675rem;
+    color: #475569;
+  }
+
+  .artifact-id {
+    font-size: 0.675rem;
+    color: #475569;
+    font-family: monospace;
+    margin-left: auto;
+  }
+
+  .artifact-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    line-height: 1.4;
+  }
+
+  .artifact-summary {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    line-height: 1.55;
+  }
+
+  .artifact-output {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+  }
+
+  .artifact-output-label {
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.675rem;
+    flex-shrink: 0;
+  }
+
+  .artifact-output-path {
+    font-size: 0.75rem;
+    color: #a855f7;
+    font-family: monospace;
+    background: rgba(168, 85, 247, 0.05);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    word-break: break-all;
+  }
+
+  .artifact-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .artifact-file {
+    font-size: 0.7rem;
+    color: #64748b;
+    background: #1e2435;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+    font-family: monospace;
+  }
+
+  /* Git commits */
+  .commit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .commit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 0.625rem 0.75rem;
+    background: #161b27;
+    border: 1px solid #1e2435;
+    border-radius: 6px;
+    border-left: 3px solid #3b82f6;
+  }
+
+  .commit-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .commit-sha {
+    font-size: 0.75rem;
+    color: #3b82f6;
+    font-family: monospace;
+    background: rgba(59, 130, 246, 0.08);
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .commit-subject {
+    font-size: 0.8125rem;
+    color: #e2e8f0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .commit-date {
+    font-size: 0.675rem;
+    color: #475569;
+    flex-shrink: 0;
+  }
+
+  .commit-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .commit-file {
+    font-size: 0.675rem;
+    color: #64748b;
+    background: #1e2435;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+    font-family: monospace;
+  }
+
+  .commit-files-more {
+    font-size: 0.675rem;
+    color: #475569;
+    padding: 0.1rem 0.25rem;
   }
 
   /* Subtasks */
@@ -616,6 +1190,15 @@
     font-size: 0.7rem;
     color: #a855f7;
     font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .subtask-type {
+    font-size: 0.675rem;
+    color: #64748b;
+    background: #1e2435;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
     flex-shrink: 0;
   }
 
@@ -702,6 +1285,25 @@
     font-size: 0.8125rem;
     color: #e2e8f0;
     text-align: right;
+  }
+
+  .meta-row-artifacts dd {
+    text-align: right;
+  }
+
+  .artifact-summary-counts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    align-items: flex-end;
+  }
+
+  .artifact-pill {
+    font-size: 0.675rem;
+    color: #94a3b8;
+    background: #1e2435;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
   }
 
   .label-chips {
