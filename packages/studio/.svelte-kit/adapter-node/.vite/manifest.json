@@ -63,6 +63,13 @@
       "_app/immutable/assets/NexusGraph.CA44Eg2r.css"
     ]
   },
+  "_adapters.js": {
+    "file": "chunks/adapters.js",
+    "name": "adapters",
+    "imports": [
+      "_connections.js"
+    ]
+  },
   "_app.js": {
     "file": "chunks/app.js",
     "name": "app"
@@ -229,6 +236,33 @@
     "isEntry": true,
     "imports": [
       "_connections.js"
+    ]
+  },
+  "src/routes/api/living-brain/+server.ts": {
+    "file": "entries/endpoints/api/living-brain/_server.ts.js",
+    "name": "entries/endpoints/api/living-brain/_server.ts",
+    "src": "src/routes/api/living-brain/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_adapters.js"
+    ]
+  },
+  "src/routes/api/living-brain/node/[id]/+server.ts": {
+    "file": "entries/endpoints/api/living-brain/node/_id_/_server.ts.js",
+    "name": "entries/endpoints/api/living-brain/node/_id_/_server.ts",
+    "src": "src/routes/api/living-brain/node/[id]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_adapters.js"
+    ]
+  },
+  "src/routes/api/living-brain/substrate/[name]/+server.ts": {
+    "file": "entries/endpoints/api/living-brain/substrate/_name_/_server.ts.js",
+    "name": "entries/endpoints/api/living-brain/substrate/_name_/_server.ts",
+    "src": "src/routes/api/living-brain/substrate/[name]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_adapters.js"
     ]
   },
   "src/routes/api/nexus/+server.ts": {
@@ -402,6 +436,28 @@
     ],
     "css": [
       "_app/immutable/assets/_page.7mt6nqGX.css"
+    ]
+  },
+  "src/routes/living-brain/+page.server.ts": {
+    "file": "entries/pages/living-brain/_page.server.ts.js",
+    "name": "entries/pages/living-brain/_page.server.ts",
+    "src": "src/routes/living-brain/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_adapters.js"
+    ]
+  },
+  "src/routes/living-brain/+page.svelte": {
+    "file": "entries/pages/living-brain/_page.svelte.js",
+    "name": "entries/pages/living-brain/_page.svelte",
+    "src": "src/routes/living-brain/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index-server.js",
+      "_dev.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.BhvuOLjt.css"
     ]
   },
   "src/routes/nexus/+page.server.ts": {

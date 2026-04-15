@@ -72,6 +72,7 @@ declare module '$env/static/private' {
 	export const SYSTEMD_EXEC_PID: string;
 	export const XAUTHORITY: string;
 	export const SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS: string;
+	export const npm_config_recursive: string;
 	export const NoDefaultCurrentDirectoryInExePath: string;
 	export const CLAUDECODE: string;
 	export const NEXUS_HOME: string;
@@ -151,7 +152,6 @@ declare module '$env/static/private' {
 	export const FLATPAK_TTY_PROGRESS: string;
 	export const FNM_LOGLEVEL: string;
 	export const NPM_TOKEN: string;
-	export const OLDPWD: string;
 	export const npm_package_engines_node: string;
 	export const CF_API_TOKEN: string;
 	export const NODE_ENV: string;
@@ -275,6 +275,7 @@ declare module '$env/dynamic/private' {
 		SYSTEMD_EXEC_PID: string;
 		XAUTHORITY: string;
 		SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS: string;
+		npm_config_recursive: string;
 		NoDefaultCurrentDirectoryInExePath: string;
 		CLAUDECODE: string;
 		NEXUS_HOME: string;
@@ -354,7 +355,6 @@ declare module '$env/dynamic/private' {
 		FLATPAK_TTY_PROGRESS: string;
 		FNM_LOGLEVEL: string;
 		NPM_TOKEN: string;
-		OLDPWD: string;
 		npm_package_engines_node: string;
 		CF_API_TOKEN: string;
 		NODE_ENV: string;

@@ -1,4 +1,4 @@
-import { r as getNexusDb } from "../../../chunks/connections.js";
+import { i as getNexusDb } from "../../../chunks/connections.js";
 //#region src/routes/nexus/+page.server.ts
 /**
 * Nexus macro view server load.

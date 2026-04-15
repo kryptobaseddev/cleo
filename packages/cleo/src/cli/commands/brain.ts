@@ -12,6 +12,8 @@
 
 import {
   backfillBrainGraph,
+  exportBrainAsGexf,
+  exportBrainAsJson,
   getMemoryQualityReport,
   getPlasticityStats,
   getProjectRoot,
@@ -399,4 +401,59 @@ export function registerBrainCommand(program: Command): void {
         process.exit(1);
       }
     });
+
+  brain
+    .command('export')
+    .description('Export brain graph as GEXF (Gephi) or JSON format')
+    .option(
+      '--format <format>',
+      'Export format: gexf (Gephi standard) or json (flat arrays)',
+      'gexf',
+    )
+    .option('--output <file>', 'Write to file instead of stdout (optional)')
+    .action(
+      async (opts: { format?: string; output?: string }) => {
+        const root = getProjectRoot();
+        const format = opts.format ?? 'gexf';
+
+        if (format !== 'gexf' && format !== 'json') {
+          console.error(`Invalid format: ${format}. Use 'gexf' or 'json'.`);
+          process.exit(1);
+        }
+
+        try {
+          let content: string;
+          let nodeCount: number;
+          let edgeCount: number;
+
+          if (format === 'gexf') {
+            const result = await exportBrainAsGexf(root);
+            content = result.content;
+            nodeCount = result.nodeCount;
+            edgeCount = result.edgeCount;
+          } else {
+            const result = await exportBrainAsJson(root);
+            content = JSON.stringify(result, null, 2);
+            nodeCount = result.nodeCount;
+            edgeCount = result.edgeCount;
+          }
+
+          // Output to file or stdout
+          if (opts.output) {
+            // Use dynamic import for writeFileSync to avoid bundling issues
+            const fs = await import('node:fs');
+            fs.writeFileSync(opts.output, content, 'utf-8');
+            console.log(
+              `Exported to ${opts.output}: ${nodeCount} nodes, ${edgeCount} edges (${format.toUpperCase()})`,
+            );
+          } else {
+            console.log(content);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Brain export failed: ${message}`);
+          process.exit(1);
+        }
+      },
+    );
 }

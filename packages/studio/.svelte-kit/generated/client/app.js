@@ -17,7 +17,8 @@ export const nodes = [
 	() => import('./nodes/13'),
 	() => import('./nodes/14'),
 	() => import('./nodes/15'),
-	() => import('./nodes/16')
+	() => import('./nodes/16'),
+	() => import('./nodes/17')
 ];
 
 export const server_loads = [];
@@ -29,15 +30,16 @@ export const dictionary = {
 		"/brain/graph": [5],
 		"/brain/observations": [6],
 		"/brain/quality": [7],
-		"/nexus": [~8],
-		"/nexus/community/[id]": [~9],
-		"/nexus/symbol/[name]": [~10],
-		"/projects": [~11],
-		"/tasks": [~12],
-		"/tasks/pipeline": [~14],
-		"/tasks/sessions": [~15],
-		"/tasks/tree/[epicId]": [~16],
-		"/tasks/[id]": [~13]
+		"/living-brain": [~8],
+		"/nexus": [~9],
+		"/nexus/community/[id]": [~10],
+		"/nexus/symbol/[name]": [~11],
+		"/projects": [~12],
+		"/tasks": [~13],
+		"/tasks/pipeline": [~15],
+		"/tasks/sessions": [~16],
+		"/tasks/tree/[epicId]": [~17],
+		"/tasks/[id]": [~14]
 	};
 
 export const hooks = {
