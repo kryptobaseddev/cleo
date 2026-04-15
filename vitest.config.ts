@@ -6,6 +6,34 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
     hookTimeout: 60000,
+    // ---------------------------------------------------------------------------
+    // Pool strategy: 'forks' (child_process) with per-file module isolation.
+    //
+    // Vitest 4.x defaults to pool:'forks', but we set it explicitly here so the
+    // choice is canonical, greppable, and cannot regress if the default changes.
+    //
+    // Why forks over threads?
+    //   - child_process forks give each test file a completely independent V8
+    //     heap + module registry.  vi.mock() factory stubs registered in one
+    //     file CANNOT bleed into another file's module cache.
+    //   - threads (worker_threads) share the parent's module cache unless
+    //     isolate:true is also set, but even with isolate they share the same
+    //     Node.js process and some globals (e.g. process.env mutations in one
+    //     worker can race with reads in another).
+    //   - The T630/T633 regression (71 nexus-e2e failures across v2026.4.52-56)
+    //     was caused by synchronous vi.mock(paths.js) factories sharing the
+    //     module cache across shards.  Explicit forks+isolate prevents the whole
+    //     class of cross-file mock pollution.
+    //
+    // In Vitest 4.x the poolOptions.forks.isolate and poolOptions.forks.singleFork
+    // fields were promoted to top-level test.isolate and test.maxWorkers.
+    // We set pool + isolate here; maxWorkers is left at vitest's default (CPU-1).
+    //
+    // @see T658 Phase 1: vitest fork isolation
+    // @see T630/T633 root-cause: vi.mock pollution across shards
+    // ---------------------------------------------------------------------------
+    pool: 'forks',
+    isolate: true,
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.
