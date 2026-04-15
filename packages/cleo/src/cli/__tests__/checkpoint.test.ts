@@ -16,10 +16,20 @@ vi.mock('../../../../core/src/store/json.js', () => ({
   readJson: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../../../core/src/paths.js', () => ({
-  getCleoDir: vi.fn().mockReturnValue('.cleo'),
-  getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
-}));
+// T633: use importActual + spread to preserve ALL OTHER paths.js exports.
+// Replacing the whole module breaks any test that runs later in the same shard
+// and tries to call other paths.js functions (getBrainDbPath, getCleoHome, etc.)
+// which hit the polluted module from vitest's registry.
+vi.mock('../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
+    '../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getCleoDir: vi.fn().mockReturnValue('.cleo'),
+    getConfigPath: vi.fn().mockReturnValue('.cleo/config.json'),
+  };
+});
 
 import { execFileSync } from 'node:child_process';
 import { readJson } from '@cleocode/core/internal';
