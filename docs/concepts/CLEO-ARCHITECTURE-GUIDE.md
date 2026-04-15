@@ -48,7 +48,7 @@ Conduit is the client-side TypeScript interface that agents use to send and rece
 
 Think of Conduit as the phone. You talk into it. It handles the rest.
 
-**Conduit is NOT a domain.** It doesn't have its own house in the Circle of Ten. It doesn't create operations. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay. Conduit is the hallway between rooms, not a room itself.
+**Conduit is NOT a domain.** It doesn't have its own house in the Circle of Eleven. It doesn't create operations. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay. Conduit is the hallway between rooms, not a room itself.
 
 ### Transports — The Wires Between Phone and Tower
 
@@ -224,8 +224,8 @@ Verbs:      add show list find update delete archive restore complete start stop
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — Formal domain definitions and operation registry
 - `docs/specs/VERB-STANDARDS.md` — Canonical verbs with disambiguation rules
 - `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` — Transport relay contract
-- `docs/concepts/CLEO-VISION.md` — Four systems and identity
-- `docs/concepts/NEXUS-CORE-ASPECTS.md` — Workshop vocabulary and Circle of Ten
+- `docs/concepts/CLEO-VISION.md` — Six systems and identity
+- `docs/concepts/NEXUS-CORE-ASPECTS.md` — Workshop vocabulary and Circle of Eleven
 - `docs/concepts/CLEO-CANT.md` — Agent communication grammar
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` — Technical flow diagrams
 - `CLEO-ULTRAPLAN.md` — Agent lifecycle and orchestration (supersedes `docs/specs/CLEO-ORCH-PLAN.md`, archived)
