@@ -13,14 +13,14 @@
 import { describe, expect, it } from 'vitest';
 import { resolveCalls } from '../pipeline/call-processor.js';
 import type { ExtractedCall } from '../pipeline/extractors/typescript-extractor.js';
+import type { NamedImportMap } from '../pipeline/import-processor.js';
 import {
+  type BarrelExportMap,
   buildBarrelExportMap,
   buildImportResolutionContext,
-  resolveBarrelBinding,
-  type BarrelExportMap,
   type ExtractedReExportRecord,
+  resolveBarrelBinding,
 } from '../pipeline/import-processor.js';
-import type { NamedImportMap } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
 
@@ -156,7 +156,9 @@ describe('resolveBarrelBinding', () => {
     const barrelMap: BarrelExportMap = new Map([
       [
         'src/index.ts',
-        new Map([['findTasks', { canonicalFile: 'src/tasks/find.ts', canonicalName: 'findTasks' }]]),
+        new Map([
+          ['findTasks', { canonicalFile: 'src/tasks/find.ts', canonicalName: 'findTasks' }],
+        ]),
       ],
     ]);
 
@@ -170,7 +172,9 @@ describe('resolveBarrelBinding', () => {
     const barrelMap: BarrelExportMap = new Map([
       [
         'src/index.ts',
-        new Map([['findTasks', { canonicalFile: 'src/tasks/find.ts', canonicalName: 'findTasks' }]]),
+        new Map([
+          ['findTasks', { canonicalFile: 'src/tasks/find.ts', canonicalName: 'findTasks' }],
+        ]),
       ],
     ]);
 

@@ -326,7 +326,18 @@ export function resolveTypescriptImport(
     }
 
     const basePath = currentDir.join('/');
-    return cache(tryResolveWithExtensions(basePath, allFiles));
+    // Try as-is first (handles paths without extension or with correct extension)
+    const directResult = tryResolveWithExtensions(basePath, allFiles);
+    if (directResult) return cache(directResult);
+    // ESM convention uses .js extensions in source imports that actually resolve
+    // to .ts files. Strip the .js extension and retry so that
+    // `./index.js` resolves to `./index.ts`.
+    if (basePath.endsWith('.js')) {
+      const stripped = basePath.slice(0, -3);
+      const strippedResult = tryResolveWithExtensions(stripped, allFiles);
+      if (strippedResult) return cache(strippedResult);
+    }
+    return cache(null);
   }
 
   // 3. node_modules / external package: skip (no resolution)
@@ -655,6 +666,19 @@ export function buildBarrelExportMap(
     }
   }
 
+  if (process.env['CLEO_BARREL_DEBUG']) {
+    // Count re-export records from core files
+    const coreInternalRecords = reExports.filter(re => re.filePath.includes('core/src/internal'));
+    const coreIndexRecords = reExports.filter(re => re.filePath.includes('core/src/index') && !re.filePath.includes('index.ts:'));
+    process.stderr.write(`[barrel-debug] core/src/internal.ts re-export records: ${coreInternalRecords.length}\n`);
+    process.stderr.write(`[barrel-debug] core/src/index.ts re-export records: ${coreIndexRecords.length}\n`);
+    for (const [file, entries] of barrelMap) {
+      process.stderr.write(
+        `[barrel-debug] ${file}: ${entries.size} entries (${[...entries.keys()].slice(0, 5).join(', ')})\n`,
+      );
+    }
+  }
+
   return barrelMap;
 }
 
@@ -701,9 +725,7 @@ export function resolveBarrelBinding(
     // Collect all wildcard source files from this barrel
     let wildcardIndex = 0;
     while (barrelEntry.has(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)) {
-      const wildcardEntry = barrelEntry.get(
-        `${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`,
-      )!;
+      const wildcardEntry = barrelEntry.get(`${WILDCARD_EXPORT_KEY_PREFIX}${wildcardIndex}`)!;
       wildcardIndex++;
 
       const wildcardSourceFile = wildcardEntry.canonicalFile;

@@ -147,6 +147,16 @@ function resolveSingleCall(
   if (fileBindings) {
     const binding = fileBindings.get(calledName);
     if (binding) {
+      const debugMode = process.env['CLEO_BARREL_DEBUG'];
+      if (debugMode && calledName === 'coreFindTasks') {
+        process.stderr.write(
+          `[tier2a-debug] ${calledName} → sourcePath=${binding.sourcePath}, exportedName=${binding.exportedName}\n`,
+        );
+        process.stderr.write(
+          `[tier2a-debug] barrelMap.has(${binding.sourcePath}) = ${barrelMap.has(binding.sourcePath)}\n`,
+        );
+      }
+
       // Direct lookup: symbol defined in the imported file
       const tier2Id = symbolTable.lookupExact(binding.sourcePath, binding.exportedName);
       if (tier2Id) {
@@ -161,16 +171,22 @@ function resolveSingleCall(
       // symbol from a deeper source file. Follow the chain to find the canonical
       // definition.
       if (barrelMap.has(binding.sourcePath)) {
-        const canonical = resolveBarrelBinding(
-          binding.sourcePath,
-          binding.exportedName,
-          barrelMap,
-        );
+        const canonical = resolveBarrelBinding(binding.sourcePath, binding.exportedName, barrelMap);
+        if (debugMode && calledName === 'coreFindTasks') {
+          process.stderr.write(
+            `[tier2a-debug] resolveBarrelBinding result: ${JSON.stringify(canonical)}\n`,
+          );
+        }
         if (canonical) {
           const barrelResolvedId = symbolTable.lookupExact(
             canonical.canonicalFile,
             canonical.canonicalName,
           );
+          if (debugMode && calledName === 'coreFindTasks') {
+            process.stderr.write(
+              `[tier2a-debug] symbolTable.lookupExact(${canonical.canonicalFile}, ${canonical.canonicalName}) = ${barrelResolvedId}\n`,
+            );
+          }
           if (barrelResolvedId) {
             return {
               nodeId: barrelResolvedId,
