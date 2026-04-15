@@ -13,6 +13,7 @@ import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/brain-schema.js';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getDb } from '../store/sqlite.js';
+import { autoCrossLinkDecision } from './decision-cross-link.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeDecisionQuality } from './quality-scoring.js';
 import { detectSupersession, supersedeMemory } from './temporal-supersession.js';
@@ -229,6 +230,12 @@ export async function storeDecision(
         'auto:store-decision',
       );
     }
+
+    // Cross-link decision → referenced file/symbol nodes (T626 phase 1).
+    // Fire-and-forget — autoCrossLinkDecision swallows its own errors.
+    autoCrossLinkDecision(projectRoot, saved.id, saved.decision, saved.rationale).catch(() => {
+      /* best-effort */
+    });
   } catch {
     /* Graph population is best-effort — never block the primary return */
   }
