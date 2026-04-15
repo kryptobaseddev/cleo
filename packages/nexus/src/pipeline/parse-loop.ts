@@ -417,11 +417,12 @@ async function runParallelParseLoop(
       graph.addNode(graphNode);
     }
 
-    // Collect imports
+    // Collect imports (including named bindings for Tier 2a resolution — T617)
     for (const imp of workerResult.imports) {
       allExtractedImports.push({
         filePath: imp.filePath,
         rawImportPath: imp.rawImportPath,
+        namedBindings: imp.namedBindings,
       });
     }
 
