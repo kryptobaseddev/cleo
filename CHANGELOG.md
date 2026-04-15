@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2026.4.47] (2026-04-14)
 
-Fix `@cleocode/core` exports map so deep subpath imports resolve on fresh install.
+T569 Attestation Epic — 4 critical bugs fixed + barrel tracing infrastructure.
+
+### Fix: BRAIN tier promotion not running (T614)
+- `runTierPromotion` required `verified = 1` — 239/275 observations stuck in short tier
+- Removed hard gate, added 3 independent tracks: citation, quality, owner-verified
+- Added `cleo memory consolidate` CLI subcommand
+- Verified on live brain.db: 18 observations promoted to medium tier (was 0)
+
+### Fix: CANT parser starter bundle errors (T615)
+- Starter bundle `.cant` files had YAML-style list items not in formal DSL spec
+- 131 parse errors → 0. All 5 starter files parse clean
+- 5 integration tests added in `crates/cant-core/tests/parse_new_sections.rs`
+- 607 Rust tests + 194 cleo-os TS tests pass
+
+### Feat: NEXUS barrel export tracing (T617 — infrastructure)
+- `buildBarrelExportMap`, `resolveBarrelBinding`, `extractReExports` implemented
+- 441-line test suite covering named, wildcard, transitive chains
+- Follow-up T618 needed to wire into active call resolution path
 
 ### Fix: Missing `./store/*` and `./conduit/*` exports (T616)
 
