@@ -152,12 +152,15 @@ function runBrainMigrations(
     );
   }
 
-  // T417: agent provenance field on brain_observations.
-  // Added here as a safety net because the T417 migration file is an ALTER TABLE
-  // that is skipped on fresh databases when the migration journal reconciler marks
-  // all migrations as applied without actually running them (Scenario 2 race).
-  // ensureColumns is idempotent — no-op if the column already exists.
-  ensureColumns(nativeDb, 'brain_observations', [{ name: 'agent', ddl: 'text' }], 'brain');
+  // T632 root-cause fix: the migration journal reconciler (Sub-case B) now uses
+  // a per-migration DDL probe instead of wholesale-marking-all-applied. ALTER TABLE
+  // ADD COLUMN migrations (T417 agent, T528 provenance) now run correctly when
+  // their columns are missing.
+  //
+  // The previous `ensureColumns` band-aids (for `agent` and `provenance`) were
+  // removed in v2026.4.54 alongside the reconciler fix. If schema regressions
+  // recur, the right action is to debug `probeAndMarkApplied` in
+  // migration-manager.ts — NOT to add new band-aids here.
 
   // T626-M1: Normalize co_retrieved edge type — idempotent safety-net UPDATE.
   // The shipped Hebbian strengthener emitted edge_type = 'relates_to' instead of

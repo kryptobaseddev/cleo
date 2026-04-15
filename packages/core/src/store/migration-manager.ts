@@ -99,6 +99,99 @@ function insertJournalEntry(
 }
 
 /**
+ * Probe a migration's DDL against the live schema and mark the journal entry
+ * applied IF AND ONLY IF all DDL targets already exist in the database.
+ *
+ * Supports three DDL forms commonly emitted by drizzle migrations:
+ * - `ALTER TABLE foo ADD COLUMN bar text` → mark applied if column foo.bar exists
+ * - `CREATE TABLE foo (...)` → mark applied if table foo exists
+ * - `CREATE INDEX [IF NOT EXISTS] idx_foo ON foo(...)` → mark applied if index exists
+ *
+ * If the migration contains DDL that doesn't fall into these patterns, or if any
+ * target is missing, the function returns false and DOES NOT mark applied —
+ * leaving the migration for Drizzle's normal `migrate()` to run.
+ *
+ * Used by:
+ * - Scenario 2 Sub-case B (after journal reset, decide what was already applied)
+ * - Scenario 3 (originally inline; now extracted for reuse)
+ *
+ * Replaces the broken "wholesale mark applied" pattern that was the root cause
+ * of the ensureColumns band-aid sprawl (T632).
+ *
+ * @param nativeDb - Native SQLite database handle
+ * @param migration - One entry from drizzle's readMigrationFiles
+ * @param logSubsystem - Logger subsystem name
+ * @returns true if the journal entry was inserted; false if migration must run
+ */
+function probeAndMarkApplied(
+  nativeDb: DatabaseSync,
+  migration: { hash: string; folderMillis: number; name?: string; sql?: string | string[] },
+  logSubsystem: string,
+): boolean {
+  const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
+  const fullSql = sqlStatements.join('\n');
+
+  // Extract DDL targets we can probe.
+  const alterColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+  const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+  const createIndexRegex =
+    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+
+  const alterTargets: Array<{ table: string; column: string }> = [];
+  for (const m of fullSql.matchAll(alterColumnRegex)) {
+    alterTargets.push({ table: m[1] as string, column: m[2] as string });
+  }
+  const tableTargets: string[] = [];
+  for (const m of fullSql.matchAll(createTableRegex)) {
+    tableTargets.push(m[1] as string);
+  }
+  const indexTargets: string[] = [];
+  for (const m of fullSql.matchAll(createIndexRegex)) {
+    indexTargets.push(m[1] as string);
+  }
+
+  const totalTargets = alterTargets.length + tableTargets.length + indexTargets.length;
+  if (totalTargets === 0) {
+    // No probable DDL — could be UPDATE/INSERT/DELETE/etc. Leave for migrate().
+    return false;
+  }
+
+  // Probe each target.
+  const allAltersPresent = alterTargets.every(({ table, column }) => {
+    if (!tableExists(nativeDb, table)) return false;
+    const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    return cols.some((c) => c.name === column);
+  });
+  const allTablesPresent = tableTargets.every((t) => tableExists(nativeDb, t));
+  const allIndexesPresent = indexTargets.every((idx) => {
+    const rows = nativeDb
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name=?`)
+      .all(idx) as Array<{ name: string }>;
+    return rows.length > 0;
+  });
+
+  if (allAltersPresent && allTablesPresent && allIndexesPresent) {
+    insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
+    const log = getLogger(logSubsystem);
+    log.debug(
+      {
+        migration: migration.name,
+        alters: alterTargets.length,
+        tables: tableTargets.length,
+        indexes: indexTargets.length,
+      },
+      `Migration ${migration.name} DDL already present in schema — marked applied.`,
+    );
+    return true;
+  }
+
+  // At least one target missing — leave for drizzle migrate() to run.
+  return false;
+}
+
+/**
  * Bootstrap and reconcile the Drizzle migration journal.
  *
  * Handles four scenarios:
@@ -184,14 +277,23 @@ export function reconcileJournal(
         );
       } else {
         // Sub-case B: Genuine stale hashes from an older CLEO version.
+        // ROOT-CAUSE FIX (T632): The previous implementation DELETEd the journal
+        // and INSERTed all local migrations as applied WITHOUT running their SQL.
+        // That meant ALTER TABLE migrations (T417 agent, T528 provenance, etc.)
+        // got marked applied but their columns were never added — forcing
+        // ensureColumns band-aids in brain-sqlite.ts to patch the missing schema.
+        //
+        // Real fix: clear orphaned entries, then PROBE each local migration's
+        // DDL. Mark applied ONLY if the DDL targets already exist in the schema.
+        // Drizzle's migrate() (called next) will run whatever remains unjournaled.
         const log = getLogger(logSubsystem);
         log.warn(
           { orphaned: orphanedEntries.length },
-          `Detected stale migration journal entries from a previous CLEO version. Reconciling.`,
+          `Detected stale migration journal entries from a previous CLEO version. Reconciling via DDL probe.`,
         );
         nativeDb.exec('DELETE FROM "__drizzle_migrations"');
         for (const m of localMigrations) {
-          insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
+          probeAndMarkApplied(nativeDb, m, logSubsystem);
         }
       }
     }
