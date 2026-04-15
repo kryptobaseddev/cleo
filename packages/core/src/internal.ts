@@ -198,6 +198,9 @@ export type {
 export { runBrainMaintenance } from './memory/brain-maintenance.js';
 export type { PurgeResult } from './memory/brain-purge.js';
 export { purgeBrainNoise } from './memory/brain-purge.js';
+// Memory — brain export (T626-M6)
+export type { BrainExportGexfResult, BrainExportJsonResult, BrainExportResult } from './memory/brain-export.js';
+export { exportBrainAsGexf, exportBrainAsJson } from './memory/brain-export.js';
 export type {
   BudgetedEntry,
   BudgetedResult,

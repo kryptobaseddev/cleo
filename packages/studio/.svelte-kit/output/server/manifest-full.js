@@ -10,7 +10,7 @@ return {
 	assets: new Set(["favicon.png"]),
 	mimeTypes: {".png":"image/png"},
 	_: {
-		client: {start:"_app/immutable/entry/start.CNSF2Fgo.js",app:"_app/immutable/entry/app.C5qmu0Ar.js",imports:["_app/immutable/entry/start.CNSF2Fgo.js","_app/immutable/chunks/es2t1aRQ.js","_app/immutable/chunks/BxdpdJ6L.js","_app/immutable/entry/app.C5qmu0Ar.js","_app/immutable/chunks/BxdpdJ6L.js","_app/immutable/chunks/B64WrFVF.js","_app/immutable/chunks/BVEOzTpX.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
+		client: {start:"_app/immutable/entry/start.BRLrH92w.js",app:"_app/immutable/entry/app.DSDu2Elx.js",imports:["_app/immutable/entry/start.BRLrH92w.js","_app/immutable/chunks/DG2EYPxa.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/entry/app.DSDu2Elx.js","_app/immutable/chunks/CC_7gvW7.js","_app/immutable/chunks/DKwHt3Ho.js","_app/immutable/chunks/ibwe1TAv.js"],stylesheets:[],fonts:[],uses_env_dynamic_public:false},
 		nodes: [
 			__memo(() => import('./nodes/0.js')),
 			__memo(() => import('./nodes/1.js')),
@@ -28,7 +28,8 @@ return {
 			__memo(() => import('./nodes/13.js')),
 			__memo(() => import('./nodes/14.js')),
 			__memo(() => import('./nodes/15.js')),
-			__memo(() => import('./nodes/16.js'))
+			__memo(() => import('./nodes/16.js')),
+			__memo(() => import('./nodes/17.js'))
 		],
 		remotes: {
 			
@@ -75,6 +76,27 @@ return {
 				params: [],
 				page: null,
 				endpoint: __memo(() => import('./entries/endpoints/api/health/_server.ts.js'))
+			},
+			{
+				id: "/api/living-brain",
+				pattern: /^\/api\/living-brain\/?$/,
+				params: [],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/living-brain/_server.ts.js'))
+			},
+			{
+				id: "/api/living-brain/node/[id]",
+				pattern: /^\/api\/living-brain\/node\/([^/]+?)\/?$/,
+				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/living-brain/node/_id_/_server.ts.js'))
+			},
+			{
+				id: "/api/living-brain/substrate/[name]",
+				pattern: /^\/api\/living-brain\/substrate\/([^/]+?)\/?$/,
+				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
+				page: null,
+				endpoint: __memo(() => import('./entries/endpoints/api/living-brain/substrate/_name_/_server.ts.js'))
 			},
 			{
 				id: "/api/nexus",
@@ -189,66 +211,73 @@ return {
 				endpoint: null
 			},
 			{
+				id: "/living-brain",
+				pattern: /^\/living-brain\/?$/,
+				params: [],
+				page: { layouts: [0,], errors: [1,], leaf: 8 },
+				endpoint: null
+			},
+			{
 				id: "/nexus",
 				pattern: /^\/nexus\/?$/,
 				params: [],
-				page: { layouts: [0,], errors: [1,], leaf: 8 },
+				page: { layouts: [0,], errors: [1,], leaf: 9 },
 				endpoint: null
 			},
 			{
 				id: "/nexus/community/[id]",
 				pattern: /^\/nexus\/community\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
-				page: { layouts: [0,], errors: [1,], leaf: 9 },
+				page: { layouts: [0,], errors: [1,], leaf: 10 },
 				endpoint: null
 			},
 			{
 				id: "/nexus/symbol/[name]",
 				pattern: /^\/nexus\/symbol\/([^/]+?)\/?$/,
 				params: [{"name":"name","optional":false,"rest":false,"chained":false}],
-				page: { layouts: [0,], errors: [1,], leaf: 10 },
+				page: { layouts: [0,], errors: [1,], leaf: 11 },
 				endpoint: null
 			},
 			{
 				id: "/projects",
 				pattern: /^\/projects\/?$/,
 				params: [],
-				page: { layouts: [0,], errors: [1,], leaf: 11 },
+				page: { layouts: [0,], errors: [1,], leaf: 12 },
 				endpoint: null
 			},
 			{
 				id: "/tasks",
 				pattern: /^\/tasks\/?$/,
 				params: [],
-				page: { layouts: [0,], errors: [1,], leaf: 12 },
+				page: { layouts: [0,], errors: [1,], leaf: 13 },
 				endpoint: null
 			},
 			{
 				id: "/tasks/pipeline",
 				pattern: /^\/tasks\/pipeline\/?$/,
 				params: [],
-				page: { layouts: [0,], errors: [1,], leaf: 14 },
+				page: { layouts: [0,], errors: [1,], leaf: 15 },
 				endpoint: null
 			},
 			{
 				id: "/tasks/sessions",
 				pattern: /^\/tasks\/sessions\/?$/,
 				params: [],
-				page: { layouts: [0,], errors: [1,], leaf: 15 },
+				page: { layouts: [0,], errors: [1,], leaf: 16 },
 				endpoint: null
 			},
 			{
 				id: "/tasks/tree/[epicId]",
 				pattern: /^\/tasks\/tree\/([^/]+?)\/?$/,
 				params: [{"name":"epicId","optional":false,"rest":false,"chained":false}],
-				page: { layouts: [0,], errors: [1,], leaf: 16 },
+				page: { layouts: [0,], errors: [1,], leaf: 17 },
 				endpoint: null
 			},
 			{
 				id: "/tasks/[id]",
 				pattern: /^\/tasks\/([^/]+?)\/?$/,
 				params: [{"name":"id","optional":false,"rest":false,"chained":false}],
-				page: { layouts: [0,], errors: [1,], leaf: 13 },
+				page: { layouts: [0,], errors: [1,], leaf: 14 },
 				endpoint: null
 			}
 		],

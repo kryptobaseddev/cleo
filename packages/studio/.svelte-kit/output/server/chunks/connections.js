@@ -1,11 +1,11 @@
-import { a as getTasksDbPath, i as getNexusDbPath, n as getBrainDbPath, t as dbExists } from "./cleo-home.js";
+import { a as getNexusDbPath, i as getConduitDbPath, n as getBrainDbPath, o as getSignaldockDbPath, s as getTasksDbPath, t as dbExists } from "./cleo-home.js";
 import { createRequire } from "node:module";
 //#region src/lib/server/db/connections.ts
 /**
 * Read-only SQLite connection helpers for CLEO Studio.
 *
 * Uses node:sqlite (Node.js built-in) with read-only mode.
-* All three CLEO databases (nexus, brain, tasks) are accessed here.
+* All five CLEO databases (nexus, brain, tasks, conduit, signaldock) are accessed here.
 * Connections are opened lazily and cached per process lifetime.
 */
 var { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
@@ -13,10 +13,8 @@ var { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
 var nexusDb = null;
 var brainDb = null;
 var tasksDb = null;
-/**
-* Returns a cached read-only connection to nexus.db.
-* Returns null if nexus.db does not exist.
-*/
+var conduitDb = null;
+var signaldockDb = null;
 function getNexusDb() {
 	if (nexusDb) return nexusDb;
 	const path = getNexusDbPath();
@@ -24,10 +22,6 @@ function getNexusDb() {
 	nexusDb = new DatabaseSync(path, { open: true });
 	return nexusDb;
 }
-/**
-* Returns a cached read-only connection to brain.db.
-* Returns null if brain.db does not exist.
-*/
 function getBrainDb() {
 	if (brainDb) return brainDb;
 	const path = getBrainDbPath();
@@ -35,10 +29,6 @@ function getBrainDb() {
 	brainDb = new DatabaseSync(path, { open: true });
 	return brainDb;
 }
-/**
-* Returns a cached read-only connection to tasks.db.
-* Returns null if tasks.db does not exist.
-*/
 function getTasksDb() {
 	if (tasksDb) return tasksDb;
 	const path = getTasksDbPath();
@@ -46,18 +36,33 @@ function getTasksDb() {
 	tasksDb = new DatabaseSync(path, { open: true });
 	return tasksDb;
 }
-/**
-* Returns availability status for all three databases.
-*/
+function getConduitDb() {
+	if (conduitDb) return conduitDb;
+	const path = getConduitDbPath();
+	if (!dbExists(path)) return null;
+	conduitDb = new DatabaseSync(path, { open: true });
+	return conduitDb;
+}
+function getSignaldockDb() {
+	if (signaldockDb) return signaldockDb;
+	const path = getSignaldockDbPath();
+	if (!dbExists(path)) return null;
+	signaldockDb = new DatabaseSync(path, { open: true });
+	return signaldockDb;
+}
 function getDbStatus() {
 	return {
 		nexus: dbExists(getNexusDbPath()),
 		brain: dbExists(getBrainDbPath()),
 		tasks: dbExists(getTasksDbPath()),
+		conduit: dbExists(getConduitDbPath()),
+		signaldock: dbExists(getSignaldockDbPath()),
 		nexusPath: getNexusDbPath(),
 		brainPath: getBrainDbPath(),
-		tasksPath: getTasksDbPath()
+		tasksPath: getTasksDbPath(),
+		conduitPath: getConduitDbPath(),
+		signaldockPath: getSignaldockDbPath()
 	};
 }
 //#endregion
-export { getTasksDb as i, getDbStatus as n, getNexusDb as r, getBrainDb as t };
+export { getSignaldockDb as a, getNexusDb as i, getConduitDb as n, getTasksDb as o, getDbStatus as r, getBrainDb as t };

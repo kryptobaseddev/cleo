@@ -50,6 +50,11 @@ function _layout($$renderer, $$props) {
 				description: "Memory visualization"
 			},
 			{
+				href: "/living-brain",
+				label: "Living Brain",
+				description: "Unified 5-substrate graph"
+			},
+			{
 				href: "/tasks",
 				label: "Tasks",
 				description: "Task management"

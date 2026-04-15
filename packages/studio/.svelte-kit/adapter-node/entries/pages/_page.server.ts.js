@@ -1,4 +1,4 @@
-import { i as getTasksDb, r as getNexusDb, t as getBrainDb } from "../../chunks/connections.js";
+import { i as getNexusDb, o as getTasksDb, t as getBrainDb } from "../../chunks/connections.js";
 //#region src/routes/+page.server.ts
 /**
 * Home page server load — fetches summary stats from all three databases.

@@ -1,4 +1,4 @@
-import { n as getDbStatus } from "../../../../chunks/connections.js";
+import { r as getDbStatus } from "../../../../chunks/connections.js";
 import { json } from "@sveltejs/kit";
 //#region src/routes/api/health/+server.ts
 /**

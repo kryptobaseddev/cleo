@@ -10,6 +10,7 @@
     { href: '/projects', label: 'Projects', description: 'Multi-project registry' },
     { href: '/nexus', label: 'Nexus', description: 'Code intelligence graph' },
     { href: '/brain', label: 'Brain', description: 'Memory visualization' },
+    { href: '/living-brain', label: 'Living Brain', description: 'Unified 5-substrate graph' },
     { href: '/tasks', label: 'Tasks', description: 'Task management' },
   ];
 </script>
