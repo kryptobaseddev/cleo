@@ -143,7 +143,7 @@ describe('findEpicDir', () => {
   });
 });
 
-describe('getManifestPath', () => {
+describe('getManifestPath — lifecycle/rcasd', () => {
   it('returns _manifest.json path under the epic directory', () => {
     const path = getManifestPath('T001');
     expect(path).toBe(join(cleoDir, 'rcasd', 'T001', '_manifest.json'));

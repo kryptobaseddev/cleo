@@ -53,7 +53,7 @@ describe('validateStatus', () => {
   });
 });
 
-describe('validatePriority', () => {
+describe('validatePriority — tasks/add', () => {
   it('accepts valid priorities', () => {
     expect(() => validatePriority('critical')).not.toThrow();
     expect(() => validatePriority('low')).not.toThrow();

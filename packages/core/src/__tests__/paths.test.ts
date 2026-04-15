@@ -350,7 +350,7 @@ describe('getAgentOutputsAbsolute', () => {
   });
 });
 
-describe('getManifestPath', () => {
+describe('getManifestPath — core/paths', () => {
   const origEnv = process.env['CLEO_DIR'];
   let tempDir: string;
 

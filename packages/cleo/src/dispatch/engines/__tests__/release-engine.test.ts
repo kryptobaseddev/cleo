@@ -6,10 +6,10 @@
  * @task T4476
  */
 
-import type { Task } from '@cleocode/contracts';
-import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import type { Task } from '@cleocode/contracts';
+import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
