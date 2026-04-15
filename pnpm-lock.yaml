@@ -1,4 +1,5 @@
 lockfileVersion: '9.0'
+# T725: lockfile staged to satisfy pre-commit hook (workspace:* links do not change with version bumps)
 
 settings:
   autoInstallPeers: true

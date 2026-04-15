@@ -9,18 +9,18 @@ import { json } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-/** Ordered list of all pipeline stages. */
+/** Ordered list of all pipeline stages (RCASD-IVTR+C). Must match TASK_PIPELINE_STAGES in core. */
 const PIPELINE_STAGES = [
   'research',
+  'consensus',
+  'architecture_decision',
   'specification',
   'decomposition',
-  'design',
   'implementation',
-  'testing',
   'validation',
-  'review',
+  'testing',
   'release',
-  'done',
+  'contribution',
 ] as const;
 
 export const GET: RequestHandler = ({ locals }) => {

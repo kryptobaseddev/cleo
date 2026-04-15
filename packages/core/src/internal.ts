@@ -221,6 +221,20 @@ export type {
 } from './memory/brain-stdp.js';
 export { applyStdpPlasticity, getPlasticityStats } from './memory/brain-stdp.js';
 export { migrateClaudeMem } from './memory/claude-mem-migration.js';
+// Memory — dream cycle (T628 auto-consolidation)
+export type {
+  DreamCheckResult,
+  DreamCycleOptions,
+} from './memory/dream-cycle.js';
+export {
+  _resetDreamState,
+  checkAndDream,
+  checkIdleTrigger,
+  checkVolumeTrigger,
+  startDreamScheduler,
+  stopDreamScheduler,
+  triggerManualDream,
+} from './memory/dream-cycle.js';
 // Memory — engine-compat
 export {
   memoryBrainStats,

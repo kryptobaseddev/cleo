@@ -193,6 +193,65 @@ export async function getSystemHealth(
     checks.push(checkAuditLogAvailability(dbPath));
   }
 
+  // T724 safeguard: detect tasks.db wipe — zero tasks but backups exist indicates
+  // a recent accidental wipe. Fires a critical warning so the operator can restore
+  // before data loss is compounded (e.g., new tasks written to empty DB overwrite
+  // the backup window). See docs/RECOVERY.md for procedure.
+  if (existsSync(dbPath) && databaseSyncCtor) {
+    try {
+      const tasksDb = new databaseSyncCtor(dbPath, { readOnly: true });
+      let taskCount = 0;
+      try {
+        const tableExists = tasksDb
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+          .get() as { name?: string } | undefined;
+        if (tableExists?.name) {
+          const countRow = tasksDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
+            | { cnt?: number }
+            | undefined;
+          taskCount = countRow?.cnt ?? 0;
+        }
+      } finally {
+        tasksDb.close();
+      }
+
+      if (taskCount === 0) {
+        // Check whether backups exist with data (indicates possible wipe)
+        const { listSqliteBackups } = await import('../store/sqlite-backup.js');
+        const backups = listSqliteBackups(projectRoot);
+        if (backups.length > 0) {
+          // There are backups — this empty DB is suspicious
+          const latestBackup = backups[0];
+          checks.push({
+            name: 'tasks_wipe_guard',
+            status: 'fail',
+            message:
+              `WIPE ALERT: tasks.db has 0 tasks but ${backups.length} backup(s) exist. ` +
+              `Latest: ${latestBackup?.name ?? 'unknown'} (${new Date(latestBackup?.mtimeMs ?? 0).toISOString()}). ` +
+              `Probable data loss — restore via: cleo restore backup --file tasks.db. ` +
+              `See docs/RECOVERY.md for the full procedure. (T724)`,
+          });
+        } else {
+          // No backups — could be a fresh install or genuine empty project
+          checks.push({
+            name: 'tasks_wipe_guard',
+            status: 'warn',
+            message:
+              'tasks.db has 0 tasks and no backups exist (fresh install or data loss without backup recovery).',
+          });
+        }
+      } else {
+        checks.push({
+          name: 'tasks_wipe_guard',
+          status: 'pass',
+          message: `tasks.db integrity: ${taskCount} task(s) present`,
+        });
+      }
+    } catch {
+      // Non-fatal — skip the wipe guard if DB can't be read
+    }
+  }
+
   // Check signaldock.db with schema health (local agent messaging per T225)
   const sdDbPath = join(cleoDir, 'signaldock.db');
   if (existsSync(sdDbPath)) {

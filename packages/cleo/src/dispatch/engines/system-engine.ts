@@ -431,9 +431,11 @@ export async function systemStats(
       const type = t.type || 'task';
       byType[type] = (byType[type] ?? 0) + 1;
     }
+    // byPhase tracks RCASD-IVTR+C pipeline stages (pipelineStage), not project phases (phase).
+    // t.phase is a legacy project-phase field (e.g. "Phase 1"); t.pipelineStage is RCASD.
     const byPhase: Record<string, number> = {};
     for (const t of activeTasks) {
-      const phase = t.phase || 'unassigned';
+      const phase = t.pipelineStage || 'unassigned';
       byPhase[phase] = (byPhase[phase] ?? 0) + 1;
     }
 
