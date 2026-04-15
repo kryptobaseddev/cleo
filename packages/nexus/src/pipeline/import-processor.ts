@@ -668,10 +668,16 @@ export function buildBarrelExportMap(
 
   if (process.env['CLEO_BARREL_DEBUG']) {
     // Count re-export records from core files
-    const coreInternalRecords = reExports.filter(re => re.filePath.includes('core/src/internal'));
-    const coreIndexRecords = reExports.filter(re => re.filePath.includes('core/src/index') && !re.filePath.includes('index.ts:'));
-    process.stderr.write(`[barrel-debug] core/src/internal.ts re-export records: ${coreInternalRecords.length}\n`);
-    process.stderr.write(`[barrel-debug] core/src/index.ts re-export records: ${coreIndexRecords.length}\n`);
+    const coreInternalRecords = reExports.filter((re) => re.filePath.includes('core/src/internal'));
+    const coreIndexRecords = reExports.filter(
+      (re) => re.filePath.includes('core/src/index') && !re.filePath.includes('index.ts:'),
+    );
+    process.stderr.write(
+      `[barrel-debug] core/src/internal.ts re-export records: ${coreInternalRecords.length}\n`,
+    );
+    process.stderr.write(
+      `[barrel-debug] core/src/index.ts re-export records: ${coreIndexRecords.length}\n`,
+    );
     for (const [file, entries] of barrelMap) {
       process.stderr.write(
         `[barrel-debug] ${file}: ${entries.size} entries (${[...entries.keys()].slice(0, 5).join(', ')})\n`,
