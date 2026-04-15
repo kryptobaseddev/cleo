@@ -1,24 +1,22 @@
 -- T673-M1: Plasticity columns for brain_retrieval_log
 --
--- Adds four columns needed by the STDP writer (T673/T703/T715):
---   session_id      — declared in Drizzle at brain-schema.ts:715 but never
---                     applied to the live table via ALTER TABLE
---   reward_signal   — R-STDP third-factor scalar [-1.0, +1.0] (D-BRAIN-VIZ-13)
---   retrieval_order — already present in the live table via self-healing DDL;
---                     this brings the Drizzle declaration into sync with reality
---   delta_ms        — same drift situation as retrieval_order
+-- Adds two NEW columns to the live table:
+--   session_id    — declared in Drizzle at brain-schema.ts but never applied to
+--                   the live table via ALTER TABLE (was missing from live DDL)
+--   reward_signal — R-STDP third-factor scalar [-1.0, +1.0] (D-BRAIN-VIZ-13)
 --
--- Idempotent: SQLite silently ignores ADD COLUMN when the column already exists
--- in some builds; we rely on the migration journal to skip already-applied files.
--- The UPDATE statements are unconditionally idempotent via their WHERE clauses.
+-- NOTE: retrieval_order and delta_ms are NOT added here — they already exist in
+-- the live table via the self-healing DDL in brain-sqlite.ts (logRetrieval
+-- CREATE TABLE IF NOT EXISTS). The Drizzle schema declaration in brain-schema.ts
+-- now includes them for type-safety only (schema drift sync, no migration needed).
 --
--- SAFETY: brain_retrieval_log is not in the initial migration — it was created
--- only via self-healing DDL in brain-sqlite.ts. On a fresh DB this migration
--- runs before the self-healing code. CREATE TABLE IF NOT EXISTS ensures the
--- table exists so the ALTER TABLE statements below can succeed.
+-- SAFETY: brain_retrieval_log may not exist on a fresh DB (it was created only
+-- via self-healing DDL). CREATE TABLE IF NOT EXISTS ensures it exists so the
+-- ALTER TABLE statements can succeed on fresh installs.
 --
--- Migration sequence: M1 (this file) must precede M2/M3/M4.
--- Part of: docs/specs/stdp-wire-up-spec.md §5.1
+-- All UPDATE statements are idempotent via their WHERE clauses.
+-- Migration sequence: M1 must precede M2/M3/M4.
+-- Spec ref: docs/specs/stdp-wire-up-spec.md §5.1
 
 CREATE TABLE IF NOT EXISTS `brain_retrieval_log` (
   `id` integer PRIMARY KEY AUTOINCREMENT,
@@ -35,14 +33,11 @@ ALTER TABLE `brain_retrieval_log` ADD COLUMN `session_id` text;
 --> statement-breakpoint
 ALTER TABLE `brain_retrieval_log` ADD COLUMN `reward_signal` real;
 --> statement-breakpoint
-ALTER TABLE `brain_retrieval_log` ADD COLUMN `retrieval_order` integer;
---> statement-breakpoint
-ALTER TABLE `brain_retrieval_log` ADD COLUMN `delta_ms` integer;
---> statement-breakpoint
 
 -- Convert comma-separated entry_ids to JSON array format (idempotent).
 -- Rows already in JSON format (starting with '[') are untouched.
--- Per spec §2.3 -- fixes BUG-2: readers call JSON.parse() but writer stored CSV.
+-- Fixes BUG-2: readers call JSON.parse() but writer stored CSV.
+-- Per spec §2.3.
 UPDATE `brain_retrieval_log`
 SET entry_ids = '["' || REPLACE(entry_ids, ',', '","') || '"]'
 WHERE entry_ids IS NOT NULL AND entry_ids != '' AND entry_ids NOT LIKE '[%';
