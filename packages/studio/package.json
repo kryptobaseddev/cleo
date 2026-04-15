@@ -1,0 +1,35 @@
+{
+  "name": "@cleocode/studio",
+  "version": "2026.4.47",
+  "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev --port 3456",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "HOST=127.0.0.1 PORT=3456 node build/index.js",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-node": "^5.2.13",
+    "@sveltejs/kit": "^2.20.6",
+    "svelte": "^5.28.1",
+    "hono": "^4.7.10"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "svelte-check": "^4.1.6",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/studio"
+  }
+}
