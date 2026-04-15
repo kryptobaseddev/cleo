@@ -41,17 +41,19 @@ import { extractRust } from './extractors/rust-extractor.js';
 import {
   type ExtractedCall,
   type ExtractedHeritage,
+  type ExtractedReExport,
   extractTypeScript,
 } from './extractors/typescript-extractor.js';
 import type { ScannedFile } from './filesystem-walker.js';
 import type {
   BarrelExportMap,
   ExtractedImport,
+  ExtractedReExportRecord,
   ImportResolutionContext,
   NamedImportMap,
   TsconfigPaths,
 } from './import-processor.js';
-import { processExtractedImports } from './import-processor.js';
+import { buildBarrelExportMap, processExtractedImports } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import type { SymbolTable } from './symbol-table.js';
@@ -403,6 +405,7 @@ async function runParallelParseLoop(
 
   // Merge all worker results into graph, symbolTable, and accumulator arrays
   const allExtractedImports: ExtractedImport[] = [];
+  const allParallelReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
 
@@ -420,6 +423,13 @@ async function runParallelParseLoop(
         filePath: imp.filePath,
         rawImportPath: imp.rawImportPath,
       });
+    }
+
+    // Collect re-exports for barrel map construction (T617)
+    if (workerResult.reExports) {
+      for (const re of workerResult.reExports) {
+        allParallelReExports.push(re);
+      }
     }
 
     // Map heritage — worker uses same field names as sequential path
@@ -463,9 +473,13 @@ async function runParallelParseLoop(
     });
   }
 
-  // Parallel path: re-export collection is a future Wave I extension.
-  // Build an empty barrel map for now — sequential path handles re-exports.
-  return { allHeritage, allCalls, barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths) };
+  // Build barrel export map from worker-collected re-export records (T617)
+  const parallelBarrelMap = buildBarrelExportMap(allParallelReExports, importCtx, tsconfigPaths);
+  process.stderr.write(
+    `[nexus] Barrel map: ${parallelBarrelMap.size} barrel files with re-export chains\n`,
+  );
+
+  return { allHeritage, allCalls, barrelMap: parallelBarrelMap };
 }
 
 // ---------------------------------------------------------------------------
