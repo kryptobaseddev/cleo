@@ -219,6 +219,91 @@ Verbs:      add show list find update delete archive restore complete start stop
 
 ---
 
+## Canonical Artifact Paths
+
+Artifacts produced during work follow a standardized path structure. See [ADR-045](../../.cleo/adrs/ADR-045-cleo-scaffolding-ssot.md) and [cleo-scaffolding-ssot-spec.md](../specs/cleo-scaffolding-ssot-spec.md) for full details.
+
+### RCASD Lifecycle Stage Artifacts
+
+All RCASD (Research–Consensus–Architecture–Specification–Decomposition) stage outputs for epic `{epicId}` are stored at:
+
+```
+.cleo/rcasd/{epicId}/{stageSubdir}/{epicId}-{stageSlug}.md
+```
+
+| Stage | Subdir | Slug | Example Path |
+|-------|--------|------|--------------|
+| Research | `research` | `research` | `.cleo/rcasd/T687/research/T687-research.md` |
+| Consensus | `consensus` | `consensus` | `.cleo/rcasd/T687/consensus/T687-consensus.md` |
+| Architecture Decision | `architecture` | `architecture-decision` | `.cleo/rcasd/T687/architecture/T687-architecture-decision.md` |
+| Specification | `specification` | `specification` | `.cleo/rcasd/T687/specification/T687-specification.md` |
+| Decomposition | `decomposition` | `decomposition` | `.cleo/rcasd/T687/decomposition/T687-decomposition.md` |
+| Implementation | `implementation` | `implementation` | `.cleo/rcasd/T687/implementation/T687-implementation.md` |
+| Validation | `validation` | `validation` | `.cleo/rcasd/T687/validation/T687-validation.md` |
+| Testing | `testing` | `testing` | `.cleo/rcasd/T687/testing/T687-testing.md` |
+| Release | `release` | `release` | `.cleo/rcasd/T687/release/T687-release.md` |
+| Contribution | `contributions` | `contribution` | `.cleo/rcasd/T687/contributions/T687-contribution.md` |
+
+### Architecture Decision Records (ADRs)
+
+ADRs are stored at:
+
+```
+.cleo/adrs/ADR-NNN-short-description.md
+```
+
+Example: `.cleo/adrs/ADR-045-cleo-scaffolding-ssot.md`
+
+ADRs are managed via `cleo adr` commands and mirrored to the `architecture_decisions` database table.
+
+### Agent Output Files (Ad-hoc)
+
+Ad-hoc agent outputs (non-RCASD) are stored at:
+
+```
+.cleo/agent-outputs/{taskId}-{slug}.md
+```
+
+Examples:
+- `.cleo/agent-outputs/T687-scaffolding-rcasd-plan.md`
+- `.cleo/agent-outputs/T505-CLI-audit-report.md`
+- `.cleo/agent-outputs/T684-browser-validation/validation-report.md`
+
+### Published Specifications
+
+Normative, human-facing specifications (RFC 2119 language, stable contracts) are stored at:
+
+```
+docs/specs/SPEC-NAME.md
+```
+
+Example: `docs/specs/cleo-scaffolding-ssot-spec.md`
+
+### Engineering Plans
+
+Active engineering plans are stored at:
+
+```
+docs/plans/PLAN-NAME.md
+```
+
+Examples:
+- `docs/plans/CLEO-ULTRAPLAN.md`
+- `docs/plans/T662-council-round-table-report.md`
+
+### Deprecated Paths (Do Not Use)
+
+The following paths are **deprecated** and MUST NOT be used for new files:
+
+- `claudedocs/agent-outputs/` → use `.cleo/agent-outputs/`
+- `claudedocs/research-outputs/` → use `.cleo/agent-outputs/`
+- `.cleo/research/` → use `.cleo/rcasd/{epicId}/research/`
+- `.cleo/consensus/` → use `.cleo/rcasd/{epicId}/consensus/`
+- `.cleo/specs/` → use `.cleo/rcasd/{epicId}/specification/`
+- `.cleo/decomposition/` → use `.cleo/rcasd/{epicId}/decomposition/`
+
+---
+
 ## References
 
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — Formal domain definitions and operation registry

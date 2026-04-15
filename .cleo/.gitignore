@@ -43,3 +43,5 @@ sync/
 metrics/
 .backups/
 backups/
+memory-bridge.md
+nexus-bridge.md

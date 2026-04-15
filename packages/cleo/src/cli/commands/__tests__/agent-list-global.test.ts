@@ -17,7 +17,7 @@
  *
  * @task T362 @epic T310
  * @see packages/cleo/src/cli/commands/agent.ts
- * @see .cleo/specs/T310-conduit-signaldock-spec.md §5.2
+ * @see .cleo/rcasd/T310/specification/T310-specification.md §5.2
  * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md §4
  */
 
