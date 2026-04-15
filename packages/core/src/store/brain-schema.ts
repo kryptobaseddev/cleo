@@ -563,6 +563,8 @@ export const BRAIN_EDGE_TYPES = [
   // Graph bridging (memory ↔ code)
   'references', // observation → references → symbol
   'modified_by', // file → modified_by → session
+  // Plasticity (Hebbian + STDP co-retrieval)
+  'co_retrieved', // A → co_retrieved → B (Hebbian: frequently retrieved together)
 ] as const;
 
 /** Discriminated union of all supported brain graph edge types. */
@@ -713,6 +715,52 @@ export const brainRetrievalLog = sqliteTable(
   ],
 );
 
+// ============================================================================
+// PLASTICITY EVENTS — STDP weight-change audit log (T626 phase 5)
+// ============================================================================
+
+/**
+ * Records every STDP weight-change event applied to a brain_page_edges row.
+ *
+ * Each row captures the causal pair (source_node, target_node), the signed
+ * delta applied to the edge weight, whether it was a potentiation or
+ * depression event, and which session and timestamp triggered it.
+ *
+ * @task T626
+ * @epic T626
+ */
+export const brainPlasticityEvents = sqliteTable(
+  'brain_plasticity_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** from_id of the affected brain_page_edges row. */
+    sourceNode: text('source_node').notNull(),
+    /** to_id of the affected brain_page_edges row. */
+    targetNode: text('target_node').notNull(),
+    /**
+     * Signed weight delta applied to the edge.
+     * Positive = potentiation (LTP), negative = depression (LTD).
+     */
+    deltaW: real('delta_w').notNull(),
+    /**
+     * STDP event kind: `ltp` (Long-Term Potentiation) or `ltd` (Long-Term
+     * Depression).
+     */
+    kind: text('kind', { enum: ['ltp', 'ltd'] }).notNull(),
+    /** ISO 8601 timestamp when this event was applied. */
+    timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
+    /** Session ID that triggered the STDP pass, if available. */
+    sessionId: text('session_id'),
+  },
+  (table) => [
+    index('idx_plasticity_source').on(table.sourceNode),
+    index('idx_plasticity_target').on(table.targetNode),
+    index('idx_plasticity_timestamp').on(table.timestamp),
+    index('idx_plasticity_session').on(table.sessionId),
+    index('idx_plasticity_kind').on(table.kind),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type BrainRetrievalLogRow = typeof brainRetrievalLog.$inferSelect;
@@ -733,4 +781,6 @@ export type BrainPageEdgeRow = typeof brainPageEdges.$inferSelect;
 export type NewBrainPageEdgeRow = typeof brainPageEdges.$inferInsert;
 export type BrainStickyNoteRow = typeof brainStickyNotes.$inferSelect;
 export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;
+export type BrainPlasticityEventRow = typeof brainPlasticityEvents.$inferSelect;
+export type NewBrainPlasticityEventRow = typeof brainPlasticityEvents.$inferInsert;
 // BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.

@@ -13,6 +13,7 @@
 import {
   backfillBrainGraph,
   getMemoryQualityReport,
+  getPlasticityStats,
   getProjectRoot,
   purgeBrainNoise,
   runBrainMaintenance,
@@ -252,6 +253,75 @@ export function registerBrainCommand(program: Command): void {
           console.log(JSON.stringify({ success: false, error: message }));
         } else {
           console.error(`Brain purge failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  const plasticity = brain
+    .command('plasticity')
+    .description('STDP timing-dependent plasticity operations (T626 phase 5)');
+
+  plasticity
+    .command('stats')
+    .description(
+      'Show recent STDP plasticity events: LTP/LTD counts, net weight delta, and most recent events.',
+    )
+    .option('--limit <n>', 'Maximum recent events to show (default 20)', '20')
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { limit?: string; json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+      const limit = Number(opts.limit ?? '20') || 20;
+
+      try {
+        const stats = await getPlasticityStats(root, limit);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: stats,
+                meta: { operation: 'brain.plasticity.stats', timestamp: new Date().toISOString() },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        // Human-readable output
+        console.log('\nBrain Plasticity Stats (STDP)');
+        console.log('═════════════════════════════════════════');
+        console.log(`  Total events:       ${stats.totalEvents}`);
+        console.log(`  LTP (potentiation): ${stats.ltpCount}`);
+        console.log(`  LTD (depression):   ${stats.ltdCount}`);
+        const sign = stats.netDeltaW >= 0 ? '+' : '';
+        console.log(`  Net Δw:             ${sign}${stats.netDeltaW.toFixed(4)}`);
+        console.log(`  Last event:         ${stats.lastEventAt ?? '(none)'}`);
+
+        if (stats.recentEvents.length > 0) {
+          console.log(`\nRecent Events (newest first, limit=${limit})`);
+          for (const ev of stats.recentEvents) {
+            const evSign = ev.deltaW >= 0 ? '+' : '';
+            const src = ev.sourceNode.slice(0, 30).padEnd(30);
+            const tgt = ev.targetNode.slice(0, 30).padEnd(30);
+            console.log(
+              `  [${ev.kind.toUpperCase()}] ${src} → ${tgt}  Δw=${evSign}${ev.deltaW.toFixed(4)}  ${ev.timestamp}`,
+            );
+          }
+        } else {
+          console.log('\n  No plasticity events recorded yet.');
+          console.log('  Run `cleo brain maintenance` or `cleo session end` to trigger STDP.');
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Brain plasticity stats failed: ${message}`);
         }
         process.exit(1);
       }
