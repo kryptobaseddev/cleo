@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.54] (2026-04-15)
+
+ROOT-CAUSE FIX (T632): migration journal reconciler no longer marks migrations
+applied without running their SQL. All `ensureColumns` band-aids removed.
+Plus CI typecheck fix for v2026.4.53.
+
+### Fix: T632 ROOT-CAUSE — migration reconciler Sub-case B
+- `migration-manager.ts:185-196` previously DELETEd the journal then INSERTed
+  ALL local migrations as applied — without executing their SQL. Result:
+  ALTER TABLE migrations (T417 agent, T528 provenance) got marked applied
+  but their columns were never added.
+- New `probeAndMarkApplied(nativeDb, migration, logSubsystem)` helper:
+  - Parses migration SQL for ALTER TABLE ADD COLUMN, CREATE TABLE, CREATE INDEX
+  - Probes live schema for each target
+  - Marks journal entry applied ONLY if all DDL targets already exist
+  - Otherwise leaves migration unjournaled — drizzle migrate() runs it normally
+- Sub-case B now uses the probe instead of wholesale-mark-applied
+- **Removed band-aids** in `brain-sqlite.ts`:
+  - `ensureColumns(brain_observations, [agent])` (T417 patch) — REMOVED
+  - `ensureColumns(brain_page_edges, [provenance])` (added v2026.4.54 earlier) — REMOVED
+
+### Fix: TypeScript error in cleo restart (CI typecheck blocker)
+- `packages/cleo/src/cli/commands/web.ts:344` — `startAction` cast to proper signature
+- v2026.4.53 CI failed on this strict typecheck
+
+### Filed: T633 nexus-e2e CI shard 2 isolation
+- CI shard 2/2 fails 7 audit-log tests in `nexus-e2e.test.ts`
+- Locally passes 89/89 even with `--shard=2/2`
+- Test isolation issue suspected — pre-existing, tracked separately
+
 ## [2026.4.53] (2026-04-15)
 
 T631 Cleo Prime persona — single SSoT for identity + Bulldog Soul + ORC-010/011/012.
