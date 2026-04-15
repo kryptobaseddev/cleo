@@ -5,16 +5,102 @@
  *   cleo memory store --type <type> --content <text> --context <text>
  *   cleo memory find <query> [--type pattern|learning]
  *   cleo memory stats
+ *   cleo memory observe <text> [--title <title>] [--type <type>]
+ *   cleo memory import --from <dir> [--dry-run]
  *   cleo memory consolidate — run full consolidation pipeline (tier promotion, dedup, etc.)
  *
- * @task T4770 T614
- * @epic T4763
+ * @task T4770 T614 T629
+ * @epic T4763 T627
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { getProjectRoot, runConsolidation } from '@cleocode/core/internal';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
+
+// ---------------------------------------------------------------------------
+// Memory import helpers (T629 — provider-agnostic migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse YAML frontmatter from a markdown string.
+ * Supports simple `key: value` pairs only (no nested YAML).
+ *
+ * @param raw - Raw file content
+ * @returns Extracted frontmatter fields and body text
+ */
+function parseMemoryFileFrontmatter(raw: string): {
+  name?: string;
+  description?: string;
+  type?: string;
+  body: string;
+} {
+  const lines = raw.split('\n');
+  if (!lines[0]?.trim().startsWith('---')) {
+    return { body: raw.trim() };
+  }
+
+  const endIdx = lines.slice(1).findIndex((l) => /^---\s*$/.test(l));
+  if (endIdx === -1) {
+    return { body: raw.trim() };
+  }
+
+  const fmLines = lines.slice(1, endIdx + 1);
+  const body = lines
+    .slice(endIdx + 2)
+    .join('\n')
+    .trim();
+
+  const fm: Record<string, string> = {};
+  for (const line of fmLines) {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    const value = line.slice(colonIdx + 1).trim();
+    if (key && value) fm[key] = value;
+  }
+
+  return {
+    name: fm['name'],
+    description: fm['description'],
+    type: fm['type'],
+    body,
+  };
+}
+
+/**
+ * Compute a 16-char hex content fingerprint for dedup.
+ *
+ * @param title - Entry title
+ * @param body - Entry body text
+ * @returns 16-char hex prefix of SHA-256 hash
+ */
+function memoryContentHash(title: string, body: string): string {
+  return createHash('sha256').update(`${title}\n${body}`).digest('hex').slice(0, 16);
+}
+
+/** Load set of already-imported content hashes from the dedup state file. */
+function loadImportHashes(stateFile: string): Set<string> {
+  try {
+    if (!existsSync(stateFile)) return new Set();
+    const raw = readFileSync(stateFile, 'utf-8');
+    const parsed = JSON.parse(raw) as { hashes: string[] };
+    return new Set(parsed.hashes);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Persist updated set of imported hashes to the dedup state file. */
+function saveImportHashes(stateFile: string, hashes: Set<string>): void {
+  const dir = stateFile.slice(0, stateFile.lastIndexOf('/'));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(stateFile, JSON.stringify({ hashes: [...hashes] }, null, 2), 'utf-8');
+}
 
 export function registerMemoryBrainCommand(program: Command): void {
   const memory = program
@@ -645,5 +731,182 @@ export function registerMemoryBrainCommand(program: Command): void {
         }
         process.exit(1);
       }
+    });
+
+  // -- import (migrate MEMORY.md files to brain.db — T629 provider-agnostic) --
+  memory
+    .command('import')
+    .description(
+      'Import memory files from a provider-specific directory (e.g. ~/.claude/projects/*/memory/) into brain.db. ' +
+        'Enables provider-agnostic memory via CLEO CLI instead of Claude Code MEMORY.md.',
+    )
+    .option(
+      '--from <dir>',
+      'Source directory containing *.md memory files ' +
+        '(default: ~/.claude/projects/-mnt-projects-cleocode/memory)',
+    )
+    .option('--dry-run', 'Print what would be imported without writing to brain.db')
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { from?: string; dryRun?: boolean; json?: boolean }) => {
+      const sourceDir =
+        opts.from ?? join(homedir(), '.claude', 'projects', '-mnt-projects-cleocode', 'memory');
+      const isDryRun = !!opts.dryRun;
+      const isJson = !!opts.json;
+      const projectRoot = getProjectRoot();
+      const stateFile = join(projectRoot, '.cleo', 'migrate-memory-hashes.json');
+
+      if (!existsSync(sourceDir)) {
+        const msg = `Source directory not found: ${sourceDir}`;
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: msg }));
+        } else {
+          console.error(msg);
+        }
+        process.exit(1);
+      }
+
+      const files = readdirSync(sourceDir)
+        .filter((f) => f.endsWith('.md') && f !== 'MEMORY.md')
+        .map((f) => join(sourceDir, f));
+
+      const importedHashes = isDryRun ? new Set<string>() : loadImportHashes(stateFile);
+      const stats = { total: files.length, imported: 0, skipped: 0, errors: 0 };
+      const importedEntries: Array<{ file: string; type: string; title: string }> = [];
+      const skippedEntries: Array<{ file: string; reason: string }> = [];
+      const errorEntries: Array<{ file: string; error: string }> = [];
+
+      if (!isJson) {
+        console.log(`Importing memory from: ${sourceDir}`);
+        console.log(`Files found: ${files.length}`);
+        if (isDryRun) console.log('Mode: DRY RUN');
+        console.log('');
+      }
+
+      for (const filePath of files) {
+        const fileName = filePath.split('/').pop() ?? filePath;
+        try {
+          const raw = readFileSync(filePath, 'utf-8');
+          if (!raw.trim()) {
+            stats.skipped++;
+            skippedEntries.push({ file: fileName, reason: 'empty file' });
+            continue;
+          }
+
+          const { name, description, type, body } = parseMemoryFileFrontmatter(raw);
+          const title = name ?? fileName.replace(/\.md$/, '').replace(/-/g, ' ');
+          const bodyParts = [description, body].filter(Boolean);
+          const fullText = bodyParts.join('\n\n').trim();
+
+          if (!fullText) {
+            stats.skipped++;
+            skippedEntries.push({ file: fileName, reason: 'empty body' });
+            continue;
+          }
+
+          const hash = memoryContentHash(title, fullText);
+
+          if (!isDryRun && importedHashes.has(hash)) {
+            stats.skipped++;
+            skippedEntries.push({ file: fileName, reason: `already imported (hash: ${hash})` });
+            if (!isJson) console.log(`  [SKIP] ${fileName}`);
+            continue;
+          }
+
+          const entryType = type ?? 'project';
+
+          if (!isJson) {
+            const prefix = isDryRun ? '[DRY-RUN]' : '[IMPORT]';
+            console.log(`  ${prefix} ${fileName} (type: ${entryType})`);
+          }
+
+          if (!isDryRun) {
+            // Route by frontmatter type
+            if (entryType === 'feedback') {
+              // Feedback → learning
+              await dispatchFromCli(
+                'mutate',
+                'memory',
+                'learning.store',
+                {
+                  insight: `[MIGRATED] ${title}: ${fullText}`,
+                  source: 'manual',
+                  confidence: 0.8,
+                  actionable: false,
+                },
+                { command: 'memory', operation: 'memory.learning.store' },
+              );
+            } else {
+              // project | reference | user | default → observation
+              const observeType =
+                entryType === 'project'
+                  ? 'feature'
+                  : entryType === 'reference'
+                    ? 'discovery'
+                    : entryType === 'user'
+                      ? 'change'
+                      : 'discovery';
+
+              await dispatchFromCli(
+                'mutate',
+                'memory',
+                'observe',
+                {
+                  text: `[MIGRATED] ${title}: ${fullText}`,
+                  title: `[MIGRATED] ${title}`,
+                  type: observeType,
+                  sourceType: 'manual',
+                },
+                { command: 'memory', operation: 'memory.observe' },
+              );
+            }
+
+            importedHashes.add(hash);
+          }
+
+          stats.imported++;
+          importedEntries.push({ file: fileName, type: entryType, title });
+        } catch (err) {
+          stats.errors++;
+          const message = err instanceof Error ? err.message : String(err);
+          errorEntries.push({ file: fileName, error: message });
+          if (!isJson) console.error(`  [ERROR] ${fileName}: ${message}`);
+        }
+      }
+
+      if (!isDryRun) {
+        saveImportHashes(stateFile, importedHashes);
+      }
+
+      if (isJson) {
+        console.log(
+          JSON.stringify(
+            {
+              success: stats.errors === 0,
+              data: {
+                ...stats,
+                dryRun: isDryRun,
+                imported: importedEntries,
+                skipped: skippedEntries,
+                errors: errorEntries,
+              },
+              meta: {
+                operation: 'memory.import',
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ),
+        );
+      } else {
+        console.log('');
+        console.log('=== Import Complete ===');
+        console.log(`Total:   ${stats.total}`);
+        console.log(`Imported: ${stats.imported}`);
+        console.log(`Skipped:  ${stats.skipped}`);
+        console.log(`Errors:   ${stats.errors}`);
+      }
+
+      if (stats.errors > 0) process.exit(1);
     });
 }
