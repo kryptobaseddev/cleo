@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import type { BrainConsolidationObservationRow } from './brain-row-types.js';
+import { EDGE_TYPES } from './edge-types.js';
 
 /** Result from applying temporal decay. */
 export interface DecayResult {
@@ -592,6 +593,13 @@ export interface RunConsolidationResult {
   summariesGenerated: number;
   /** Code↔memory graph links created. */
   graphLinksCreated?: number;
+  /** STDP plasticity result from step 9. */
+  stdpPlasticity?: {
+    ltpEvents: number;
+    ltdEvents: number;
+    edgesCreated: number;
+    pairsExamined: number;
+  };
 }
 
 /**
@@ -693,6 +701,17 @@ export async function runConsolidation(projectRoot: string): Promise<RunConsolid
     result.graphLinksCreated = bridgeResult.linked;
   } catch (err) {
     console.warn('[consolidation] Step 8 graph memory bridge failed:', err);
+  }
+
+  // Step 9: STDP timing-dependent plasticity (T626 phase 5)
+  // Refines co_retrieved edge weights using retrieval temporal order.
+  // Runs after Hebbian strengthening (step 6) so it builds on existing edges.
+  try {
+    const { applyStdpPlasticity } = await import('./brain-stdp.js');
+    const stdpResult = await applyStdpPlasticity(projectRoot);
+    result.stdpPlasticity = stdpResult;
+  } catch (err) {
+    console.warn('[consolidation] Step 9 STDP plasticity failed:', err);
   }
 
   return result;
@@ -979,9 +998,9 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
       const updateStmt = nativeDb.prepare(`
         UPDATE brain_page_edges
         SET weight = MIN(1.0, weight + 0.1)
-        WHERE from_id = ? AND to_id = ? AND edge_type = 'relates_to'
+        WHERE from_id = ? AND to_id = ? AND edge_type = ?
       `);
-      const updateResult = updateStmt.run(nodeFrom, nodeTo);
+      const updateResult = updateStmt.run(nodeFrom, nodeTo, EDGE_TYPES.CO_RETRIEVED);
       const changes = typeof updateResult.changes === 'number' ? updateResult.changes : 0;
 
       if (changes === 0) {
@@ -990,9 +1009,9 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
           .prepare(`
             INSERT OR IGNORE INTO brain_page_edges
               (from_id, to_id, edge_type, weight, provenance, created_at)
-            VALUES (?, ?, 'relates_to', 0.3, 'consolidation:co-retrieval', ?)
+            VALUES (?, ?, ?, 0.3, 'consolidation:co-retrieval', ?)
           `)
-          .run(nodeFrom, nodeTo, now);
+          .run(nodeFrom, nodeTo, EDGE_TYPES.CO_RETRIEVED, now);
       }
       strengthened++;
     } catch {
