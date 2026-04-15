@@ -19,7 +19,7 @@ import {
 } from '@cleocode/adapters';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-describe('ClaudeCodeAdapter', () => {
+describe('ClaudeCodeAdapter — integration', () => {
   let adapter: ClaudeCodeAdapter;
 
   beforeEach(() => {
@@ -79,7 +79,7 @@ describe('ClaudeCodeAdapter', () => {
   });
 });
 
-describe('ClaudeCodeHookProvider', () => {
+describe('ClaudeCodeHookProvider — integration', () => {
   let hooks: ClaudeCodeHookProvider;
 
   beforeEach(() => {
@@ -125,7 +125,7 @@ describe('ClaudeCodeHookProvider', () => {
   });
 });
 
-describe('ClaudeCodeSpawnProvider', () => {
+describe('ClaudeCodeSpawnProvider — integration', () => {
   let spawn: ClaudeCodeSpawnProvider;
 
   beforeEach(() => {
@@ -147,7 +147,7 @@ describe('ClaudeCodeSpawnProvider', () => {
   });
 });
 
-describe('ClaudeCodeInstallProvider', () => {
+describe('ClaudeCodeInstallProvider — integration', () => {
   let install: ClaudeCodeInstallProvider;
   let testDir: string;
 
@@ -213,7 +213,7 @@ describe('ClaudeCodeInstallProvider', () => {
   });
 });
 
-describe('createAdapter factory', () => {
+describe('createClaudeCodeAdapter factory', () => {
   it('returns a ClaudeCodeAdapter instance', () => {
     const adapter = createAdapter();
     expect(adapter).toBeInstanceOf(ClaudeCodeAdapter);

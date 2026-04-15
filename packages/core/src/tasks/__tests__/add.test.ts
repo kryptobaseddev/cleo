@@ -25,7 +25,7 @@ import {
   validateTitle,
 } from '../add.js';
 
-describe('validateTitle', () => {
+describe('validateTitle — tasks/add', () => {
   it('accepts valid titles', () => {
     expect(() => validateTitle('Implement auth')).not.toThrow();
     expect(() => validateTitle('Fix bug #123')).not.toThrow();

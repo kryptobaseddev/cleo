@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateProjectHash } from '../../nexus/hash.js';
 
-describe('generateProjectHash', () => {
+describe('generateProjectHash — hash.ts canonical', () => {
   it('should generate a 12-character hex hash', () => {
     const hash = generateProjectHash('/home/user/project');
     expect(hash).toMatch(/^[a-f0-9]{12}$/);

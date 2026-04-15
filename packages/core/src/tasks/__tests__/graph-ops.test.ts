@@ -86,7 +86,7 @@ describe('computeDependencyWaves', () => {
   });
 });
 
-describe('getNextTask', () => {
+describe('getNextTask — tasks/graph-ops', () => {
   it('returns active task first', () => {
     const tasks = [
       makeTask({ id: 'T001', status: 'pending', priority: 'critical' }),
@@ -134,7 +134,7 @@ describe('getNextTask', () => {
   });
 });
 
-describe('getCriticalPath', () => {
+describe('getCriticalPath — tasks/graph-ops', () => {
   it('finds longest dependency chain', () => {
     const tasks = [
       makeTask({ id: 'T001' }),

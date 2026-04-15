@@ -46,7 +46,7 @@
  * initial STDP-derived weight (potentiation pairs only — LTD does not create
  * new edges, only weakens existing ones).
  *
- * ## Two-Window Architecture (T679 BUG-1 fix)
+ * ## Two-Window Architecture (T679 BUG-1 fix, T688 expansion)
  *
  * Prior code used `sessionWindowMs=5min` as BOTH the SQL lookback cutoff AND the
  * spike-pair Δt gate, causing all live rows (>5min old) to produce zero plasticity
@@ -55,12 +55,39 @@
  * | Parameter         | Default    | Purpose                                  |
  * |-------------------|------------|------------------------------------------|
  * | `lookbackDays`    | 30 days    | SQL cutoff for fetching retrieval rows   |
- * | `pairingWindowMs` | 5 min      | Max Δt between two spikes for pairing    |
+ * | `pairingWindowMs` | 24 h       | Max Δt between two spikes for pairing    |
  *
- * Wave 2 (T688) will expand `pairingWindowMs` to 24 h for cross-session pairs.
+ * T688: `pairingWindowMs` raised to 24 h — cross-session pairs now eligible.
+ * Session boundary is NOT a hard cutoff; τ tier determines decay magnitude.
+ *
+ * ## Tiered τ (T689)
+ *
+ * `computeTau(deltaT)` selects the decay time constant based on Δt:
+ *
+ * | Gap class     | Δt range       | τ       |
+ * |---------------|----------------|---------|
+ * | Intra-batch   | 0 — 30 s       | 20 s    |
+ * | Intra-session | 30 s — 2 h     | 30 min  |
+ * | Cross-session | 2 h — 24 h     | 12 h    |
+ *
+ * ## R-STDP reward modulation (T692)
+ *
+ * `reward_signal r` (from Step 9a backfill) gates Δw per spike:
+ *   Δw_ltp_effective = clamp(Δw_ltp × (1+r), 0, 2×A_pre)
+ *   Δw_ltd_effective = clamp(Δw_ltd × (1-r), -2×A_post, 0)
+ * null reward → no modulation (r treated as 0).
+ *
+ * ## Novelty boost (T691)
+ *
+ * On INSERT (first co-retrieval), initial_weight = clamp(Δw × 1.5, 0, A_pre×1.5).
+ * UPDATE path uses un-boosted Δw.
  *
  * @task T626
  * @task T679
+ * @task T688
+ * @task T689
+ * @task T691
+ * @task T692
  * @epic T673
  * @see packages/core/src/memory/brain-lifecycle.ts#strengthenCoRetrievedEdges
  * @see docs/specs/stdp-wire-up-spec.md §3.2 Two-Window Architecture
@@ -70,7 +97,7 @@ import { typedAll } from '../store/typed-query.js';
 import { computeStabilityScore, upgradePlasticityClass } from './brain-plasticity-class.js';
 
 // ============================================================================
-// STDP defaults (T679)
+// STDP defaults (T679, T688)
 // ============================================================================
 
 /** Default SQL lookback window: fetch retrieval rows from the last N days. */
@@ -78,10 +105,11 @@ const DEFAULT_LOOKBACK_DAYS = 30;
 
 /**
  * Default spike-pair matching window in milliseconds.
- * Spikes more than this apart are NOT paired.
- * Wave 2 (T688) will expand to 24 h for cross-session pairs.
+ * T688: raised from 5 min to 24 h — cross-session pairs are now eligible.
+ * Session boundary is NOT a hard cutoff; tiered τ provides smaller Δw for
+ * cross-session pairs (τ_episodic=12h vs τ_near=20s).
  */
-const DEFAULT_PAIRING_WINDOW_MS = 5 * 60 * 1000; // 5 min
+const DEFAULT_PAIRING_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 h
 
 // ============================================================================
 // Reward backfill types
@@ -121,20 +149,58 @@ export interface StdpPlasticityOptions {
   lookbackDays?: number;
   /**
    * Maximum Δt (ms) between two spikes for them to form a STDP pair.
-   * Default: 5 min (300,000 ms). Wave 2 (T688) expands to 24 h.
+   * T688 default: 24 h (86,400,000 ms) — cross-session pairs are eligible.
+   * Tiered τ (T689) applies different decay constants based on session
+   * relationship and Δt magnitude, so cross-session pairs still get
+   * significantly smaller Δw than intra-batch pairs.
    */
   pairingWindowMs?: number;
 }
 
 // ============================================================================
-// STDP constants
+// STDP constants (T689: tiered τ replaces single TAU_PRE_MS/TAU_POST_MS)
 // ============================================================================
 
-/** Time constant (ms) for pre→post potentiation window. */
-const TAU_PRE_MS = 20_000; // 20 s
+/**
+ * Intra-batch time constant (ms).
+ * Used when Δt ≤ 30 s — both spikes are in the same retrieval batch.
+ * Biological analogue: classical STDP window (~20 ms–100 ms in neurons;
+ * scaled to 20 s for CLEO memory retrieval granularity).
+ *
+ * @task T689
+ */
+const TAU_NEAR_MS = 20_000; // 20 s
 
-/** Time constant (ms) for post→pre depression window. */
-const TAU_POST_MS = 20_000; // 20 s
+/**
+ * Intra-session time constant (ms).
+ * Used when 30 s < Δt ≤ 2 h — spikes are in the same session but not same batch.
+ * Biological analogue: working-memory consolidation window.
+ *
+ * @task T689
+ */
+const TAU_SESSION_MS = 30 * 60 * 1000; // 30 min
+
+/**
+ * Cross-session (episodic) time constant (ms).
+ * Used when Δt > 2 h — spikes span different sessions.
+ * Biological analogue: episodic reconsolidation (~12 h per Walker & Stickgold 2004).
+ * Pairs 12 h apart contribute A × exp(-1) ≈ 0.37×A; pairs 36 h apart ≈ 0.05×A.
+ *
+ * @task T689
+ */
+const TAU_EPISODIC_MS = 12 * 60 * 60 * 1000; // 12 h
+
+/**
+ * Δt boundary (ms) between intra-batch and intra-session τ tiers.
+ * Spikes within 30 s of each other use τ_near.
+ */
+const TAU_NEAR_THRESHOLD_MS = 30_000; // 30 s
+
+/**
+ * Δt boundary (ms) between intra-session and cross-session τ tiers.
+ * Spikes more than 2 h apart use τ_episodic.
+ */
+const TAU_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 h
 
 /** Peak potentiation amplitude (dimensionless weight delta). */
 const A_PRE = 0.05;
@@ -142,11 +208,43 @@ const A_PRE = 0.05;
 /** Peak depression amplitude (slightly larger than A_pre — asymmetric STDP). */
 const A_POST = 0.06;
 
+/**
+ * Novelty boost multiplier for first-ever co-retrieval pair (INSERT path).
+ * Models dopamine-novelty literature: new associations are strengthened more.
+ * Applied only on INSERT; UPDATE path uses standard Δw.
+ *
+ * @task T691
+ */
+const K_NOVELTY = 1.5;
+
 /** Minimum edge weight (floor). */
 const WEIGHT_MIN = 0.0;
 
 /** Maximum edge weight (ceiling). */
 const WEIGHT_MAX = 1.0;
+
+// ============================================================================
+// Tiered τ computation (T689)
+// ============================================================================
+
+/**
+ * Select the decay time constant τ based on spike-pair temporal gap.
+ *
+ * Three tiers (per spec §3.3):
+ * - τ_near = 20 s   — Δt ≤ 30 s  (intra-batch, classical STDP window)
+ * - τ_session = 30 min — 30 s < Δt ≤ 2 h (intra-session, working memory)
+ * - τ_episodic = 12 h — Δt > 2 h  (cross-session, episodic reconsolidation)
+ *
+ * @param deltaT - Time gap between spikes in milliseconds (non-negative).
+ * @returns τ in milliseconds for use in exp(-Δt / τ).
+ *
+ * @task T689
+ */
+export function computeTau(deltaT: number): number {
+  if (deltaT <= TAU_NEAR_THRESHOLD_MS) return TAU_NEAR_MS;
+  if (deltaT <= TAU_SESSION_THRESHOLD_MS) return TAU_SESSION_MS;
+  return TAU_EPISODIC_MS;
+}
 
 // ============================================================================
 // Public types
@@ -162,6 +260,13 @@ export interface StdpPlasticityResult {
   edgesCreated: number;
   /** Number of retrieval pairs examined. */
   pairsExamined: number;
+  /**
+   * Number of pairs where reward_signal was non-null and modulated Δw.
+   * Incremented for both LTP and LTD events that had a non-null reward.
+   *
+   * @task T692
+   */
+  rewardModulatedEvents: number;
 }
 
 /** Summary row from `getPlasticityStats`. */
@@ -228,6 +333,181 @@ interface Spike {
 }
 
 // ============================================================================
+// Idempotency and minimum-pair guards (T713, T714)
+// ============================================================================
+
+/**
+ * Check if a recent plasticity event exists for the given source→target pair
+ * within the last `withinHours` (default 1 hour).
+ *
+ * Used by T713 idempotency guard to prevent duplicate event insertion when
+ * consolidation runs multiple times against the same session.
+ *
+ * @param nativeDb - SQLite native database connection
+ * @param sourceNode - Source node ID (entry ID)
+ * @param targetNode - Target node ID (entry ID)
+ * @param kind - Event kind ('ltp' or 'ltd')
+ * @param sessionId - Session ID to match (null = all sessions)
+ * @param withinHours - Dedup window in hours. Default: 1
+ * @returns True if a matching recent event exists; false otherwise.
+ */
+function isPlasticityEventDuplicate(
+  nativeDb: unknown,
+  sourceNode: string,
+  targetNode: string,
+  kind: 'ltp' | 'ltd',
+  sessionId: string | null,
+  withinHours = 1,
+): boolean {
+  try {
+    const cutoffIso = new Date(Date.now() - withinHours * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
+
+    const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+    const stmt = db.prepare(
+      `SELECT 1 FROM brain_plasticity_events
+       WHERE source_node = ? AND target_node = ? AND kind = ?
+         AND session_id = ?
+         AND timestamp > ?
+       LIMIT 1`,
+    );
+
+    const result = stmt.get(sourceNode, targetNode, kind, sessionId, cutoffIso);
+    return result !== undefined;
+  } catch {
+    // If table doesn't exist yet or query fails, assume no duplicate
+    return false;
+  }
+}
+
+/**
+ * Check if there are at least `minCount` retrieval log rows since the last
+ * plasticity event in the given session.
+ *
+ * Used by T714 minimum-pair gate to skip Step 9b when a session has too few
+ * retrievals to warrant plasticity processing.
+ *
+ * @param nativeDb - SQLite native database connection
+ * @param minCount - Minimum number of new retrievals required. Default: 2
+ * @param sessionId - Session ID to check (null = all sessions)
+ * @returns True if minCount or more new retrievals exist; false otherwise.
+ */
+function hasMinimumRetrievalsSinceLastPlasticity(
+  nativeDb: unknown,
+  minCount = 2,
+  sessionId: string | null = null,
+): boolean {
+  try {
+    // Query: latest plasticity event timestamp for this session
+    const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+    const lastPlasticityStmt = db.prepare(
+      `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events
+       WHERE session_id = ?`,
+    );
+    const lastPlasticityRow = lastPlasticityStmt.get(sessionId) as
+      | { last_time: string | null }
+      | undefined;
+    const lastTime = lastPlasticityRow?.last_time ?? null;
+
+    // Count retrievals since that timestamp (or all if no prior events)
+    let newRetrievalCount: number;
+
+    if (lastTime === null) {
+      // No prior plasticity events — count all retrievals in this session
+      const countRow = db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM brain_retrieval_log
+           WHERE session_id = ?`,
+        )
+        .get(sessionId) as { cnt: number } | undefined;
+      newRetrievalCount = countRow?.cnt ?? 0;
+    } else {
+      // Count only retrievals *after* the last plasticity event
+      const countRow = db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM brain_retrieval_log
+           WHERE session_id = ? AND created_at > ?`,
+        )
+        .get(sessionId, lastTime) as { cnt: number } | undefined;
+      newRetrievalCount = countRow?.cnt ?? 0;
+    }
+
+    return newRetrievalCount >= minCount;
+  } catch {
+    // If tables don't exist yet or query fails, assume no minimum requirement
+    return true;
+  }
+}
+
+/**
+ * T714: Check whether Step 9b (STDP plasticity) should run based on retrieval volume.
+ *
+ * Per spec §4.2, skip plasticity processing if fewer than `minRetrievalsForPlasticity`
+ * new retrieval rows exist since the last `brain_plasticity_events` timestamp.
+ * This prevents wasted compute on early-session edge cases where no meaningful pairs exist.
+ *
+ * @param projectRoot - Project root for brain.db resolution
+ * @param sessionId - Session ID to check (null = all sessions)
+ * @param minRetrievalsForPlasticity - Minimum row count required. Default: 2.
+ * @returns True if plasticity should run; false if gate blocks it.
+ */
+export async function shouldRunPlasticity(
+  projectRoot: string,
+  sessionId: string | null = null,
+  minRetrievalsForPlasticity = 2,
+): Promise<boolean> {
+  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) return true; // Err on the side of running
+
+  const hasMinimum = hasMinimumRetrievalsSinceLastPlasticity(
+    nativeDb,
+    minRetrievalsForPlasticity,
+    sessionId,
+  );
+
+  if (!hasMinimum) {
+    const count = (() => {
+      try {
+        const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+        const lastPlasticityStmt = db.prepare(
+          `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events WHERE session_id = ?`,
+        );
+        const lastPlasticityRow = lastPlasticityStmt.get(sessionId) as
+          | { last_time: string | null }
+          | undefined;
+        const lastTime = lastPlasticityRow?.last_time ?? null;
+
+        if (lastTime === null) {
+          const countStmt = db.prepare(
+            `SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ?`,
+          );
+          const countRow = countStmt.get(sessionId) as { cnt: number } | undefined;
+          return countRow?.cnt ?? 0;
+        } else {
+          const countStmt = db.prepare(
+            `SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ? AND created_at > ?`,
+          );
+          const countRow = countStmt.get(sessionId, lastTime) as { cnt: number } | undefined;
+          return countRow?.cnt ?? 0;
+        }
+      } catch {
+        return 0;
+      }
+    })();
+    console.warn(
+      `[plasticity] Minimum-pair gate: skipped STDP Step 9b (${count} retrievals, need >=${minRetrievalsForPlasticity})`,
+    );
+  }
+
+  return hasMinimum;
+}
+
+// ============================================================================
 // Core STDP function
 // ============================================================================
 
@@ -236,7 +516,7 @@ interface Spike {
  *
  * Reads `brain_retrieval_log` for rows within the past `lookbackDays` days
  * (default 30), reconstructs the temporal spike sequence, and applies the
- * STDP rule to every ordered pair within `pairingWindowMs` (default 5 min).
+ * STDP rule to every ordered pair within `pairingWindowMs` (default 24 h).
  *
  * All weight changes are logged to `brain_plasticity_events` (with
  * `session_id`, `retrieval_log_id`, `weight_before`, `weight_after`,
@@ -293,6 +573,7 @@ export async function applyStdpPlasticity(
     ltdEvents: 0,
     edgesCreated: 0,
     pairsExamined: 0,
+    rewardModulatedEvents: 0,
   };
 
   if (!nativeDb) return result;
@@ -452,14 +733,37 @@ export async function applyStdpPlasticity(
 
       result.pairsExamined++;
 
+      // T689: Select tiered τ based on Δt magnitude.
+      // Intra-batch (≤30s) → τ_near=20s; intra-session (≤2h) → τ_session=30min;
+      // cross-session (>2h) → τ_episodic=12h.
+      const tau = computeTau(deltaT);
+
       // A fired before B → LTP on edge A→B
-      const deltaW = A_PRE * Math.exp(-deltaT / TAU_PRE_MS);
+      let deltaW = A_PRE * Math.exp(-deltaT / tau);
 
       if (deltaW < 1e-6) continue; // negligible change — skip
 
       // Use session_id from the pre-spike's retrieval row (spikeA) — causal attribution.
       const eventSessionId = spikeA.sessionId ?? null;
       const eventRewardSignal = spikeA.rewardSignal ?? null;
+
+      // T692: R-STDP reward modulation.
+      // Δw_ltp_effective = clamp(Δw_ltp × (1+r), 0, 2×A_pre)
+      // null reward → no modulation (r treated as 0 per spec §3.6).
+      let wasRewardModulated = false;
+      if (eventRewardSignal !== null) {
+        const r = eventRewardSignal;
+        deltaW = Math.min(deltaW * (1 + r), 2 * A_PRE);
+        // Clamp to non-negative: r=-1 zeroes out LTP per spec table
+        deltaW = Math.max(deltaW, 0);
+        wasRewardModulated = true;
+      }
+
+      if (deltaW < 1e-6) {
+        // Reward modulation may have zeroed Δw — count as modulated but skip writes
+        if (wasRewardModulated) result.rewardModulatedEvents++;
+        continue;
+      }
 
       // Check whether an existing co_retrieved edge A→B exists
       type EdgeRow = {
@@ -479,6 +783,7 @@ export async function applyStdpPlasticity(
 
       try {
         if (existingEdge !== undefined) {
+          // UPDATE path: standard deltaW (no novelty boost — only on INSERT)
           const currentWeight = existingEdge.weight;
           const newWeight = Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, currentWeight + deltaW));
           // LTP UPDATE: Set plasticity_class='stdp' (upgrades from 'hebbian'), compute stability (T693)
@@ -496,6 +801,22 @@ export async function applyStdpPlasticity(
             spikeA.entryId,
             spikeB.entryId,
           );
+
+          // T713: Idempotency guard — skip INSERT if recent event exists for this pair+session
+          const isDuplicate = isPlasticityEventDuplicate(
+            nativeDb,
+            spikeA.entryId,
+            spikeB.entryId,
+            'ltp',
+            eventSessionId,
+            1, // within 1 hour
+          );
+          if (isDuplicate) {
+            // Edge was updated above; skip event logging to prevent duplicate record
+            result.ltpEvents++;
+            if (wasRewardModulated) result.rewardModulatedEvents++;
+            continue;
+          }
 
           // T679: include session_id, retrieval_log_id, weight_before, weight_after, delta_t_ms
           const evtStmt = prepareLogEvent.run(
@@ -530,9 +851,16 @@ export async function applyStdpPlasticity(
             );
           }
         } else {
+          // INSERT path: apply T691 novelty boost (k_novelty=1.5) — first co-retrieval.
+          // initial_weight = clamp(deltaW × k_novelty, 0, A_pre × k_novelty)
+          const noveltyBoostedWeight = deltaW * K_NOVELTY;
+          const initialWeight = Math.min(
+            WEIGHT_MAX,
+            Math.min(A_PRE * K_NOVELTY, noveltyBoostedWeight),
+          );
+
           // INSERT: Set plasticity_class='stdp', reinforcement_count=1, compute stability (T693)
           const stability = computeStabilityScore(1, nowIso, now);
-          const initialWeight = Math.min(WEIGHT_MAX, deltaW);
           prepareInsertEdge.run(
             spikeA.entryId,
             spikeB.entryId,
@@ -578,13 +906,24 @@ export async function applyStdpPlasticity(
         }
 
         result.ltpEvents++;
+        if (wasRewardModulated) result.rewardModulatedEvents++;
       } catch {
         /* best-effort */
       }
 
       // B fired after A → LTD on reverse edge B→A (depression)
       // LTD only weakens existing edges; it does not create new ones.
-      const deltaWNeg = -(A_POST * Math.exp(-deltaT / TAU_POST_MS));
+      // T689: same tiered τ used for LTD magnitude.
+      // T692: R-STDP modulation for LTD — Δw_ltd × (1-r), capped at -2×A_post.
+      let deltaWNeg = -(A_POST * Math.exp(-deltaT / tau));
+      let ltdWasRewardModulated = false;
+      if (eventRewardSignal !== null) {
+        const r = eventRewardSignal;
+        // Δw_ltd_effective = clamp(Δw_ltd × (1-r), -2×A_post, 0)
+        // deltaWNeg is already negative; multiply by (1-r) and clamp.
+        deltaWNeg = Math.max(deltaWNeg * (1 - r), -2 * A_POST);
+        ltdWasRewardModulated = true;
+      }
 
       const existingReverseEdge = prepareGetEdge.get(spikeB.entryId, spikeA.entryId) as
         | EdgeRow
@@ -620,6 +959,22 @@ export async function applyStdpPlasticity(
             spikeA.entryId,
           );
 
+          // T713: Idempotency guard — skip INSERT if recent event exists for this pair+session
+          const isLtdDuplicate = isPlasticityEventDuplicate(
+            nativeDb,
+            spikeB.entryId,
+            spikeA.entryId,
+            'ltd',
+            eventSessionId,
+            1, // within 1 hour
+          );
+          if (isLtdDuplicate) {
+            // Edge was updated above; skip event logging to prevent duplicate record
+            result.ltdEvents++;
+            if (ltdWasRewardModulated) result.rewardModulatedEvents++;
+            continue;
+          }
+
           // T679: include session_id, retrieval_log_id (post-synaptic), weight_before, weight_after
           const ltdEvtStmt = prepareLogEvent.run(
             spikeB.entryId,
@@ -654,6 +1009,7 @@ export async function applyStdpPlasticity(
           }
 
           result.ltdEvents++;
+          if (ltdWasRewardModulated) result.rewardModulatedEvents++;
         } catch {
           /* best-effort */
         }

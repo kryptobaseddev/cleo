@@ -731,10 +731,22 @@ export async function runConsolidation(
   // Step 9b: STDP timing-dependent plasticity (T626 phase 5)
   // Refines co_retrieved edge weights using retrieval temporal order.
   // Runs after Hebbian strengthening (step 6) and reward backfill (step 9a).
+  // T714: Minimum-pair gate — skip if fewer than 2 new retrievals since last event.
   try {
-    const { applyStdpPlasticity } = await import('./brain-stdp.js');
-    const stdpResult = await applyStdpPlasticity(projectRoot);
-    result.stdpPlasticity = stdpResult;
+    const { applyStdpPlasticity, shouldRunPlasticity } = await import('./brain-stdp.js');
+    const shouldRun = await shouldRunPlasticity(projectRoot, sessionId ?? null, 2);
+    if (shouldRun) {
+      const stdpResult = await applyStdpPlasticity(projectRoot);
+      result.stdpPlasticity = stdpResult;
+    } else {
+      // Gate blocked execution — default result
+      result.stdpPlasticity = {
+        ltpEvents: 0,
+        ltdEvents: 0,
+        edgesCreated: 0,
+        pairsExamined: 0,
+      };
+    }
   } catch (err) {
     console.warn('[consolidation] Step 9b STDP plasticity failed:', err);
   }

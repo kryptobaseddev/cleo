@@ -18,7 +18,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-describe('autoDispatch', () => {
+describe('autoDispatch — skills/dispatch', () => {
   it('should fallback to ct-task-executor for generic tasks', () => {
     const task = makeTask({ title: 'Do something' });
     const result = autoDispatch(task);

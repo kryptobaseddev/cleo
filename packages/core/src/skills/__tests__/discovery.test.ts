@@ -46,7 +46,7 @@ afterEach(() => {
   }
 });
 
-describe('parseFrontmatter', () => {
+describe('parseFrontmatter — skills/discovery', () => {
   it('should parse basic key-value pairs', () => {
     const content =
       '---\nname: test-skill\ndescription: A test skill\nversion: 1.0.0\n---\nBody content';
