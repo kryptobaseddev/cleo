@@ -1,5 +1,5 @@
-import "./environment.js";
 import { _ as text_decoder, b as parse, d as coalesce_to_error, f as get_message, p as get_status } from "./shared.js";
+import "./environment.js";
 import { json, text } from "@sveltejs/kit";
 import { HttpError, SvelteKitError } from "@sveltejs/kit/internal";
 import { with_request_store } from "@sveltejs/kit/internal/server";
