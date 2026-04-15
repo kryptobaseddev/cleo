@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import { existsSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
 import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { homedir as getHomedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1836,7 +1837,158 @@ export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
   };
 }
 
+/**
+ * Resolve the source location of CLEOOS-IDENTITY.md from the cleo-os starter bundle.
+ *
+ * Search order:
+ * 1. Monorepo development: `packages/cleo-os/starter-bundle/CLEOOS-IDENTITY.md`
+ * 2. Installed package: `node_modules/@cleocode/cleo-os/starter-bundle/CLEOOS-IDENTITY.md`
+ *
+ * @returns Absolute path to the source identity file, or null if not found.
+ * @internal Used by ensureGlobalIdentity.
+ */
+function resolveIdentitySourcePath(): string | null {
+  // Prefer monorepo source (development)
+  const monorepoPath = join(
+    process.cwd(),
+    'packages',
+    'cleo-os',
+    'starter-bundle',
+    'CLEOOS-IDENTITY.md',
+  );
+  if (existsSync(monorepoPath)) return monorepoPath;
+
+  // Fall back to installed package via require resolution
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgJson = require.resolve('@cleocode/cleo-os/package.json');
+    const pkgDir = pkgJson.replace(/\/package\.json$/, '');
+    const installedPath = join(pkgDir, 'starter-bundle', 'CLEOOS-IDENTITY.md');
+    if (existsSync(installedPath)) return installedPath;
+  } catch {
+    // Not installed — fall through
+  }
+
+  return null;
+}
+
+/**
+ * Ensure the Cleo Prime identity file is deployed to the global XDG path.
+ *
+ * SSoT architecture (T631): CLEOOS-IDENTITY.md lives ONCE at the global path
+ * (`~/.local/share/cleo/CLEOOS-IDENTITY.md`). Per-project override is OPTIONAL —
+ * a project may place a customized copy at `.cleo/CLEOOS-IDENTITY.md` and the
+ * loader (`cant-context.ts readIdentityFile`) reads project-first then global.
+ *
+ * Called by both `cleo init` (init.ts deployStarterBundle) and `cleo upgrade`
+ * (upgrade.ts) so existing projects self-heal on upgrade if the file is missing
+ * or out of date.
+ *
+ * Idempotent. Always overwrites if `forceRefresh` is true (used by `upgrade
+ * --refresh-identity`); otherwise only writes when missing.
+ *
+ * @param forceRefresh - Overwrite even if the file exists. Default false.
+ * @returns ScaffoldResult describing what happened.
+ */
+export async function ensureGlobalIdentity(forceRefresh = false): Promise<ScaffoldResult> {
+  const sourcePath = resolveIdentitySourcePath();
+  if (!sourcePath) {
+    return {
+      action: 'skipped',
+      path: '',
+      details: 'CLEOOS-IDENTITY.md source not found in monorepo or installed package',
+    };
+  }
+
+  const cleoHome = getCleoHome();
+  const dst = join(cleoHome, 'CLEOOS-IDENTITY.md');
+
+  try {
+    await mkdir(cleoHome, { recursive: true });
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: dst,
+      details: `Failed to create global cleo home: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (existsSync(dst) && !forceRefresh) {
+    return { action: 'skipped', path: dst, details: 'identity already present' };
+  }
+
+  const existedBefore = existsSync(dst);
+  try {
+    const content = readFileSync(sourcePath, 'utf-8');
+    await writeFile(dst, content);
+    return {
+      action: existedBefore ? 'repaired' : 'created',
+      path: dst,
+      details: `from ${sourcePath}`,
+    };
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: dst,
+      details: `Failed to write identity: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 // ── Global check* functions (read-only diagnostics) ──────────────────
+
+/**
+ * Check that the global CLEOOS-IDENTITY.md file is present and non-empty.
+ * Read-only diagnostic for `cleo doctor`.
+ *
+ * @returns Check result with status, path details, and self-heal command.
+ *
+ * @remarks
+ * Used by `cleo doctor` to verify the orchestrator persona is installed.
+ * Self-heal: `cleo upgrade --refresh-identity` re-deploys from source.
+ */
+export function checkGlobalIdentity(): CheckResult {
+  const cleoHome = getCleoHome();
+  const identityPath = join(cleoHome, 'CLEOOS-IDENTITY.md');
+
+  if (!existsSync(identityPath)) {
+    return {
+      id: 'global_identity',
+      category: 'global',
+      status: 'failed',
+      message: 'Global CLEOOS-IDENTITY.md not found — orchestrator persona missing',
+      details: { path: identityPath, exists: false },
+      fix: 'cleo upgrade (auto-deploys identity)',
+    };
+  }
+
+  let size = 0;
+  try {
+    size = statSync(identityPath).size;
+  } catch {
+    /* ignore */
+  }
+
+  if (size === 0) {
+    return {
+      id: 'global_identity',
+      category: 'global',
+      status: 'failed',
+      message: 'Global CLEOOS-IDENTITY.md exists but is empty',
+      details: { path: identityPath, exists: true, size: 0 },
+      fix: 'cleo upgrade --refresh-identity',
+    };
+  }
+
+  return {
+    id: 'global_identity',
+    category: 'global',
+    status: 'passed',
+    message: 'Global CLEOOS-IDENTITY.md present',
+    details: { path: identityPath, exists: true, size },
+    fix: '',
+  };
+}
 
 /**
  * Check that the global ~/.cleo/ home and its required subdirectories exist.

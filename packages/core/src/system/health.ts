@@ -18,6 +18,7 @@ import {
   checkCleoStructure,
   checkConfig,
   checkGlobalHome,
+  checkGlobalIdentity,
   checkGlobalTemplates,
   checkLogDir,
   checkMemoryBridge,
@@ -842,6 +843,7 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   // 5c. Global scaffold checks: home, templates, schemas
   checks.push(mapCheckResult(checkGlobalHome()));
   checks.push(mapCheckResult(checkGlobalTemplates()));
+  checks.push(mapCheckResult(checkGlobalIdentity()));
   checks.push(mapSchemaCheckResult(checkGlobalSchemas()));
 
   // 5d. Project scaffold checks: log dir, structure, git hooks, project-info, injection

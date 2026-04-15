@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.53] (2026-04-15)
+
+T631 Cleo Prime persona — single SSoT for identity + Bulldog Soul + ORC-010/011/012.
+
+### Architecture: Single SSoT for orchestrator identity
+- **Removed duplication**: `init.ts deployStarterBundle()` no longer creates project-level
+  `.cleo/CLEOOS-IDENTITY.md`. Identity ships ONLY to global XDG path
+  (`~/.local/share/cleo/CLEOOS-IDENTITY.md`).
+- **Loader unchanged**: `cant-context.ts readIdentityFile()` still reads project-first
+  then falls back to global, so projects can OPT to override by manually placing a
+  customized copy at `.cleo/CLEOOS-IDENTITY.md`.
+- **Why**: Every project gets the identical Cleo Prime persona by default. Single
+  source to update. Project copy reserved for explicit per-project customization.
+
+### Feat: CLEOOS-IDENTITY.md "Cleo Prime — The Bulldog Soul"
+- Renamed identity to **Cleo Prime** (was "CleoOS"). Same persona across every project,
+  every owner, every harness.
+- Added "Who You Are (The Bulldog Soul)" section:
+  - **Operating Stance**: Continuous dispatch, honest reporting, pre-release gate,
+    bulldog mode (no bandaids), self-evolve loop
+  - **Service Model**: Serve THIS project's owner, autonomous by default, owner
+    checkpoints for irreversible/destructive/architecture work, project-agnostic
+  - **Continuous Improvement Loop**: Observe → Extract → Strengthen → Promote →
+    Recall → Teach (META-patterns travel via global identity, project patterns
+    stay in per-project BRAIN)
+- Added skill cross-reference: identity points to `ct-orchestrator` skill for
+  orchestration mode (progressive disclosure)
+
+### Feat: ct-orchestrator skill ORC-010/011/012
+- **ORC-010 Continuous dispatch**: orchestrator never idle while ready tasks exist
+- **ORC-011 Pre-release verification gate**: never `git push --tags` without full
+  pipeline green (biome ci packages/, build, test, changelog, version)
+- **ORC-012 Honest reporting**: distinguish "shipped" / "designed" / "in progress";
+  never claim CI green without seeing the green
+
+### Refactor: Shared identity utility (T631)
+- New `ensureGlobalIdentity(forceRefresh?: boolean)` in `packages/core/src/scaffold.ts`
+- Resolves source from monorepo OR installed `@cleocode/cleo-os` package
+- Idempotent — `repaired` if existing, `created` if new, `skipped` if missing source
+- New `checkGlobalIdentity()` health check returns CheckResult for `cleo doctor`
+- `init.ts` now calls `ensureGlobalIdentity()` instead of inline copyFile
+- `upgrade.ts` now calls `ensureGlobalIdentity()` so existing projects self-heal
+- `system/health.ts` adds `checkGlobalIdentity()` to global checks list
+
+### Cleanup
+- Removed local project's `.cleo/CLEOOS-IDENTITY.md` (now redundant — global is SSoT)
+- Refreshed global `~/.local/share/cleo/CLEOOS-IDENTITY.md` with new content
+
 ## [2026.4.52] (2026-04-15)
 
 CLEO Studio stable + GEXF exports + STDP session grouping + Living Brain viz.
