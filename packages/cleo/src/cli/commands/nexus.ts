@@ -61,6 +61,197 @@ const NODE_KIND_PRIORITY: Record<string, number> = {
 };
 
 /**
+ * Generate GEXF (Gephi Graph Exchange XML Format) from nodes and relations.
+ *
+ * GEXF is a standard format for graph visualization. Supports node attributes,
+ * edge weights (confidence), and color coding by node kind.
+ *
+ * @param nodes - Array of nexus nodes
+ * @param relations - Array of nexus relations
+ * @returns GEXF XML string
+ */
+function generateGexf(
+  nodes: Array<Record<string, unknown>>,
+  relations: Array<Record<string, unknown>>,
+): string {
+  // Build node by ID map for edge resolution
+  const nodeById = new Map<string, Record<string, unknown>>();
+  for (const n of nodes) {
+    nodeById.set(String(n['id']), n);
+  }
+
+  // Color map for node kinds (hex colors for visualization)
+  const kindColors: Record<string, string> = {
+    function: '#3498db', // blue
+    method: '#2980b9', // darker blue
+    class: '#e74c3c', // red
+    interface: '#e67e22', // orange
+    file: '#95a5a6', // gray
+    folder: '#34495e', // dark gray
+    community: '#9b59b6', // purple
+    process: '#1abc9c', // teal
+    import: '#f39c12', // amber
+    default: '#7f8c8d', // medium gray
+  };
+
+  const getNodeColor = (kind: string): string => {
+    return kindColors[kind] ?? kindColors['default'];
+  };
+
+  // GEXF XML header
+  let gexf = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  gexf +=
+    '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.2draft/viz" version="1.2">\n';
+  gexf += '  <meta lastmodifieddate="' + new Date().toISOString().split('T')[0] + '">\n';
+  gexf += '    <creator>CLEO nexus export</creator>\n';
+  gexf += '    <description>Code intelligence graph from CLEO nexus</description>\n';
+  gexf += '  </meta>\n';
+  gexf += '  <graph mode="static" defaultedgetype="directed">\n';
+
+  // Attributes
+  gexf += '    <attributes class="node">\n';
+  gexf += '      <attribute id="kind" title="Node Kind" type="string" />\n';
+  gexf += '      <attribute id="filePath" title="File Path" type="string" />\n';
+  gexf += '      <attribute id="language" title="Language" type="string" />\n';
+  gexf += '      <attribute id="startLine" title="Start Line" type="integer" />\n';
+  gexf += '      <attribute id="endLine" title="End Line" type="integer" />\n';
+  gexf += '      <attribute id="isExported" title="Is Exported" type="boolean" />\n';
+  gexf += '      <attribute id="projectId" title="Project ID" type="string" />\n';
+  gexf += '    </attributes>\n';
+  gexf += '    <attributes class="edge">\n';
+  gexf += '      <attribute id="relationType" title="Relation Type" type="string" />\n';
+  gexf += '      <attribute id="confidence" title="Confidence" type="double" />\n';
+  gexf += '      <attribute id="reason" title="Reason" type="string" />\n';
+  gexf += '    </attributes>\n';
+
+  // Nodes
+  gexf += '    <nodes>\n';
+  for (const node of nodes) {
+    const nodeId = String(node['id']).replace(/[<>"'&]/g, (c) => {
+      const map: Record<string, string> = {
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;',
+        '&': '&amp;',
+      };
+      return map[c];
+    });
+    const label = String(node['label'] ?? node['id']);
+    const kind = String(node['kind'] ?? 'unknown');
+    const color = getNodeColor(kind);
+
+    gexf += `      <node id="${nodeId}" label="${escapeXml(label)}">\n`;
+    gexf += `        <viz:color r="${hexToRgb(color).r}" g="${hexToRgb(color).g}" b="${hexToRgb(color).b}" />\n`;
+    gexf += '        <attvalues>\n';
+    gexf += `          <attvalue id="kind" value="${escapeXml(kind)}" />\n`;
+    if (node['filePath']) {
+      gexf += `          <attvalue id="filePath" value="${escapeXml(String(node['filePath']))}" />\n`;
+    }
+    if (node['language']) {
+      gexf += `          <attvalue id="language" value="${escapeXml(String(node['language']))}" />\n`;
+    }
+    if (node['startLine'] != null) {
+      gexf += `          <attvalue id="startLine" value="${node['startLine']}" />\n`;
+    }
+    if (node['endLine'] != null) {
+      gexf += `          <attvalue id="endLine" value="${node['endLine']}" />\n`;
+    }
+    if (node['isExported'] != null) {
+      gexf += `          <attvalue id="isExported" value="${node['isExported'] ? 'true' : 'false'}" />\n`;
+    }
+    if (node['projectId']) {
+      gexf += `          <attvalue id="projectId" value="${escapeXml(String(node['projectId']))}" />\n`;
+    }
+    gexf += '        </attvalues>\n';
+    gexf += '      </node>\n';
+  }
+  gexf += '    </nodes>\n';
+
+  // Edges
+  gexf += '    <edges>\n';
+  for (let i = 0; i < relations.length; i++) {
+    const rel = relations[i];
+    const sourceId = String(rel['sourceId']).replace(/[<>"'&]/g, (c) => {
+      const map: Record<string, string> = {
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;',
+        '&': '&amp;',
+      };
+      return map[c];
+    });
+    const targetId = String(rel['targetId']).replace(/[<>"'&]/g, (c) => {
+      const map: Record<string, string> = {
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;',
+        '&': '&amp;',
+      };
+      return map[c];
+    });
+
+    // Skip edges where source or target don't exist in our node set
+    // (external references or unresolved imports)
+    if (!nodeById.has(String(rel['sourceId'])) || !nodeById.has(String(rel['targetId']))) {
+      continue;
+    }
+
+    const confidence = typeof rel['confidence'] === 'number' ? rel['confidence'] : 1.0;
+    const relationType = String(rel['type'] ?? 'unknown');
+    const reason = rel['reason'] ? String(rel['reason']) : '';
+
+    gexf += `      <edge id="e${i}" source="${sourceId}" target="${targetId}" weight="${confidence}">\n`;
+    gexf += '        <attvalues>\n';
+    gexf += `          <attvalue id="relationType" value="${escapeXml(relationType)}" />\n`;
+    gexf += `          <attvalue id="confidence" value="${confidence}" />\n`;
+    if (reason) {
+      gexf += `          <attvalue id="reason" value="${escapeXml(reason)}" />\n`;
+    }
+    gexf += '        </attvalues>\n';
+    gexf += '      </edge>\n';
+  }
+  gexf += '    </edges>\n';
+
+  gexf += '  </graph>\n';
+  gexf += '</gexf>\n';
+
+  return gexf;
+}
+
+/**
+ * Escape XML special characters.
+ */
+function escapeXml(str: string): string {
+  return String(str).replace(/[<>"'&]/g, (c) => {
+    const map: Record<string, string> = {
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&apos;',
+      '&': '&amp;',
+    };
+    return map[c];
+  });
+}
+
+/**
+ * Convert hex color to RGB object.
+ */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : { r: 127, g: 140, b: 141 };
+}
+
+/**
  * Sort symbol search results so that callable nodes (function, method, class)
  * appear before structural nodes (file, folder). Within the same kind, prefer
  * exact name matches over partial matches.
@@ -1720,6 +1911,118 @@ export function registerNexusCommand(program: Command): void {
         } else {
           process.stderr.write(`[nexus] Error refreshing bridge: ${msg}\n`);
         }
+        process.exitCode = 1;
+      }
+    });
+
+  // ── nexus export ──────────────────────────────────────────────────────────
+
+  /**
+   * Export nexus graph to GEXF (Gephi) or JSON format.
+   *
+   * Queries graph_nodes and graph_edges from nexus.db and emits GEXF format
+   * suitable for visualization in Gephi. Supports optional project filtering.
+   *
+   * @task T626-M7
+   */
+  nexus
+    .command('export')
+    .description('Export nexus graph to GEXF (Gephi) or JSON format')
+    .option('--format <format>', 'Output format: gexf, json', 'gexf')
+    .option('--output <file>', 'Output file path (stdout if omitted)')
+    .option('--project <id>', 'Filter by project ID (exports all projects if omitted)')
+    .action(async (opts: Record<string, unknown>) => {
+      const startTime = Date.now();
+      const format = (opts['format'] as string) ?? 'gexf';
+      const outputFile = opts['output'] as string | undefined;
+      const projectFilter = opts['project'] as string | undefined;
+
+      try {
+        const { getNexusDb, nexusSchema } = await import(
+          '@cleocode/core/store/nexus-sqlite' as string
+        );
+        const db = await getNexusDb();
+
+        // Load all nodes and relations
+        let allNodes: Array<Record<string, unknown>> = [];
+        let allRelations: Array<Record<string, unknown>> = [];
+        try {
+          allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<
+            Record<string, unknown>
+          >;
+          allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+            Record<string, unknown>
+          >;
+        } catch {
+          // DB may be empty
+        }
+
+        // Filter by project if specified
+        const nodes = projectFilter
+          ? allNodes.filter((n) => n['projectId'] === projectFilter)
+          : allNodes;
+        const relations = projectFilter
+          ? allRelations.filter((r) => r['projectId'] === projectFilter)
+          : allRelations;
+
+        let output = '';
+
+        if (format === 'json') {
+          output = JSON.stringify(
+            {
+              nodes: nodes.map((n) => ({
+                id: n['id'],
+                kind: n['kind'],
+                label: n['label'],
+                name: n['name'],
+                filePath: n['filePath'],
+                language: n['language'],
+                isExported: n['isExported'],
+                startLine: n['startLine'],
+                endLine: n['endLine'],
+                projectId: n['projectId'],
+              })),
+              edges: relations.map((r) => ({
+                id: r['id'],
+                source: r['sourceId'],
+                target: r['targetId'],
+                type: r['type'],
+                confidence: r['confidence'],
+                reason: r['reason'],
+              })),
+            },
+            null,
+            2,
+          );
+        } else if (format === 'gexf') {
+          // GEXF format (Gephi standard)
+          output = generateGexf(nodes, relations);
+        } else {
+          process.stderr.write(
+            `[nexus] Error: Unknown format '${format}'. Supported: gexf, json\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        if (outputFile) {
+          const { writeFileSync } = await import('node:fs');
+          writeFileSync(outputFile, output, 'utf-8');
+          process.stdout.write(
+            `[nexus] Exported to ${outputFile} (${nodes.length} nodes, ${relations.length} edges)\n`,
+          );
+        } else {
+          process.stdout.write(output);
+          if (!output.endsWith('\n')) process.stdout.write('\n');
+        }
+
+        const durationMs = Date.now() - startTime;
+        if (outputFile) {
+          process.stderr.write(`[nexus] Export completed in ${durationMs}ms\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
         process.exitCode = 1;
       }
     });

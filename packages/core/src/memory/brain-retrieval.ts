@@ -259,9 +259,18 @@ export async function searchBrainCompact(
       const returnedIds = results.map((r) => r.id);
       setImmediate(() => {
         incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
-        logRetrieval(projectRoot, query, returnedIds, 'find-rrf', results.length * 50).catch(
-          () => {},
-        );
+        getCurrentSessionId(projectRoot)
+          .then((sessionId) => {
+            return logRetrieval(
+              projectRoot,
+              query,
+              returnedIds,
+              'find-rrf',
+              results.length * 50,
+              sessionId,
+            );
+          })
+          .catch(() => {});
       });
     }
 
@@ -345,7 +354,18 @@ export async function searchBrainCompact(
     const returnedIds = results.map((r) => r.id);
     setImmediate(() => {
       incrementCitationCounts(projectRoot, returnedIds).catch(() => {});
-      logRetrieval(projectRoot, query, returnedIds, 'find', results.length * 50).catch(() => {});
+      getCurrentSessionId(projectRoot)
+        .then((sessionId) => {
+          return logRetrieval(
+            projectRoot,
+            query,
+            returnedIds,
+            'find',
+            results.length * 50,
+            sessionId,
+          );
+        })
+        .catch(() => {});
     });
   }
 
@@ -604,13 +624,18 @@ export async function fetchBrainEntries(
     const fetchedIds = results.map((r) => r.id);
     setImmediate(() => {
       incrementCitationCounts(projectRoot, fetchedIds).catch(() => {});
-      logRetrieval(
-        projectRoot,
-        fetchedIds.join(','),
-        fetchedIds,
-        'fetch',
-        results.length * 500,
-      ).catch(() => {});
+      getCurrentSessionId(projectRoot)
+        .then((sessionId) => {
+          return logRetrieval(
+            projectRoot,
+            fetchedIds.join(','),
+            fetchedIds,
+            'fetch',
+            results.length * 500,
+            sessionId,
+          );
+        })
+        .catch(() => {});
     });
   }
 
@@ -1365,6 +1390,31 @@ export async function retrieveWithBudget(
 }
 
 // ============================================================================
+// Session ID Retrieval (for logRetrieval)
+// ============================================================================
+
+/**
+ * Get the current session ID from the session manager.
+ *
+ * This is a best-effort operation — if no session is active or session
+ * manager is unavailable, returns null. Used by logRetrieval to group
+ * retrievals by session for STDP analysis.
+ *
+ * @param projectRoot - Project root directory
+ * @returns Current session ID or null if unavailable
+ */
+async function getCurrentSessionId(projectRoot: string): Promise<string | undefined> {
+  try {
+    const { sessionStatus } = await import('../sessions/index.js');
+    const session = await sessionStatus(projectRoot);
+    return session?.id;
+  } catch {
+    // Session manager unavailable or other error — log retrievals without session
+    return undefined;
+  }
+}
+
+// ============================================================================
 // Citation Count Increment (non-blocking helper)
 // ============================================================================
 
@@ -1416,6 +1466,13 @@ async function incrementCitationCounts(projectRoot: string, ids: string[]): Prom
  *
  * Creates the table on first use if it doesn't exist (self-healing).
  * Best-effort: errors are silently swallowed.
+ *
+ * @param projectRoot - Project root directory
+ * @param query - The search query or fetch IDs
+ * @param entryIds - Array of entry IDs returned in this retrieval
+ * @param source - Retrieval source ('find', 'fetch', 'hybrid', 'timeline', 'budget')
+ * @param tokensUsed - Estimated tokens consumed (optional)
+ * @param sessionId - Session ID for grouping retrievals by session (optional, soft FK to tasks.db)
  */
 async function logRetrieval(
   projectRoot: string,
@@ -1423,6 +1480,7 @@ async function logRetrieval(
   entryIds: string[],
   source: string,
   tokensUsed?: number,
+  sessionId?: string,
 ): Promise<void> {
   if (entryIds.length === 0) return;
 
@@ -1431,7 +1489,7 @@ async function logRetrieval(
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;
 
-  // Self-healing: create table if not exists
+  // Self-healing: create table if not exists (includes session_id column)
   const createSql =
     'CREATE TABLE IF NOT EXISTS brain_retrieval_log (' +
     'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
@@ -1440,6 +1498,7 @@ async function logRetrieval(
     'entry_count INTEGER NOT NULL,' +
     'source TEXT NOT NULL,' +
     'tokens_used INTEGER,' +
+    'session_id TEXT,' +
     "created_at TEXT NOT NULL DEFAULT (datetime('now'))" +
     ')';
   try {
@@ -1451,9 +1510,16 @@ async function logRetrieval(
   try {
     nativeDb
       .prepare(
-        'INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source, tokens_used) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source, tokens_used, session_id) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(query, entryIds.join(','), entryIds.length, source, tokensUsed ?? null);
+      .run(
+        query,
+        entryIds.join(','),
+        entryIds.length,
+        source,
+        tokensUsed ?? null,
+        sessionId ?? null,
+      );
   } catch {
     /* best-effort */
   }

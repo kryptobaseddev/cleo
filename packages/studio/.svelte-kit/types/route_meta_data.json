@@ -17,6 +17,15 @@
 	"/api/health": [
 		"src/routes/api/health/+server.ts"
 	],
+	"/api/living-brain": [
+		"src/routes/api/living-brain/+server.ts"
+	],
+	"/api/living-brain/node/[id]": [
+		"src/routes/api/living-brain/node/[id]/+server.ts"
+	],
+	"/api/living-brain/substrate/[name]": [
+		"src/routes/api/living-brain/substrate/[name]/+server.ts"
+	],
 	"/api/nexus": [
 		"src/routes/api/nexus/+server.ts"
 	],
@@ -57,6 +66,9 @@
 	"/brain/graph": [],
 	"/brain/observations": [],
 	"/brain/quality": [],
+	"/living-brain": [
+		"src/routes/living-brain/+page.server.ts"
+	],
 	"/nexus": [
 		"src/routes/nexus/+page.server.ts"
 	],

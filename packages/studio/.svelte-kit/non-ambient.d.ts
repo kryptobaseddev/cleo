@@ -29,8 +29,10 @@ declare module "$app/types" {
 	type MatcherParam<M> = M extends (param : string) => param is (infer U extends string) ? U : string;
 
 	export interface AppTypes {
-		RouteId(): "/" | "/api" | "/api/brain" | "/api/brain/decisions" | "/api/brain/graph" | "/api/brain/observations" | "/api/brain/quality" | "/api/health" | "/api/nexus" | "/api/nexus/community" | "/api/nexus/community/[id]" | "/api/nexus/search" | "/api/nexus/symbol" | "/api/nexus/symbol/[name]" | "/api/search" | "/api/tasks" | "/api/tasks/events" | "/api/tasks/pipeline" | "/api/tasks/sessions" | "/api/tasks/tree" | "/api/tasks/tree/[epicId]" | "/api/tasks/[id]" | "/brain" | "/brain/decisions" | "/brain/graph" | "/brain/observations" | "/brain/quality" | "/nexus" | "/nexus/community" | "/nexus/community/[id]" | "/nexus/symbol" | "/nexus/symbol/[name]" | "/projects" | "/tasks" | "/tasks/pipeline" | "/tasks/sessions" | "/tasks/tree" | "/tasks/tree/[epicId]" | "/tasks/[id]";
+		RouteId(): "/" | "/api" | "/api/brain" | "/api/brain/decisions" | "/api/brain/graph" | "/api/brain/observations" | "/api/brain/quality" | "/api/health" | "/api/living-brain" | "/api/living-brain/node" | "/api/living-brain/node/[id]" | "/api/living-brain/substrate" | "/api/living-brain/substrate/[name]" | "/api/nexus" | "/api/nexus/community" | "/api/nexus/community/[id]" | "/api/nexus/search" | "/api/nexus/symbol" | "/api/nexus/symbol/[name]" | "/api/search" | "/api/tasks" | "/api/tasks/events" | "/api/tasks/pipeline" | "/api/tasks/sessions" | "/api/tasks/tree" | "/api/tasks/tree/[epicId]" | "/api/tasks/[id]" | "/brain" | "/brain/decisions" | "/brain/graph" | "/brain/observations" | "/brain/quality" | "/living-brain" | "/nexus" | "/nexus/community" | "/nexus/community/[id]" | "/nexus/symbol" | "/nexus/symbol/[name]" | "/projects" | "/tasks" | "/tasks/pipeline" | "/tasks/sessions" | "/tasks/tree" | "/tasks/tree/[epicId]" | "/tasks/[id]";
 		RouteParams(): {
+			"/api/living-brain/node/[id]": { id: string };
+			"/api/living-brain/substrate/[name]": { name: string };
 			"/api/nexus/community/[id]": { id: string };
 			"/api/nexus/symbol/[name]": { name: string };
 			"/api/tasks/tree/[epicId]": { epicId: string };
@@ -49,6 +51,11 @@ declare module "$app/types" {
 			"/api/brain/observations": Record<string, never>;
 			"/api/brain/quality": Record<string, never>;
 			"/api/health": Record<string, never>;
+			"/api/living-brain": { id?: string; name?: string };
+			"/api/living-brain/node": { id?: string };
+			"/api/living-brain/node/[id]": { id: string };
+			"/api/living-brain/substrate": { name?: string };
+			"/api/living-brain/substrate/[name]": { name: string };
 			"/api/nexus": { id?: string; name?: string };
 			"/api/nexus/community": { id?: string };
 			"/api/nexus/community/[id]": { id: string };
@@ -68,6 +75,7 @@ declare module "$app/types" {
 			"/brain/graph": Record<string, never>;
 			"/brain/observations": Record<string, never>;
 			"/brain/quality": Record<string, never>;
+			"/living-brain": Record<string, never>;
 			"/nexus": { id?: string; name?: string };
 			"/nexus/community": { id?: string };
 			"/nexus/community/[id]": { id: string };
@@ -81,7 +89,7 @@ declare module "$app/types" {
 			"/tasks/tree/[epicId]": { epicId: string };
 			"/tasks/[id]": { id: string }
 		};
-		Pathname(): "/" | "/api/brain/decisions" | "/api/brain/graph" | "/api/brain/observations" | "/api/brain/quality" | "/api/health" | "/api/nexus" | `/api/nexus/community/${string}` & {} | "/api/nexus/search" | `/api/nexus/symbol/${string}` & {} | "/api/search" | "/api/tasks" | "/api/tasks/events" | "/api/tasks/pipeline" | "/api/tasks/sessions" | `/api/tasks/tree/${string}` & {} | `/api/tasks/${string}` & {} | "/brain" | "/brain/decisions" | "/brain/graph" | "/brain/observations" | "/brain/quality" | "/nexus" | `/nexus/community/${string}` & {} | `/nexus/symbol/${string}` & {} | "/projects" | "/tasks" | "/tasks/pipeline" | "/tasks/sessions" | `/tasks/tree/${string}` & {} | `/tasks/${string}` & {};
+		Pathname(): "/" | "/api/brain/decisions" | "/api/brain/graph" | "/api/brain/observations" | "/api/brain/quality" | "/api/health" | "/api/living-brain" | `/api/living-brain/node/${string}` & {} | `/api/living-brain/substrate/${string}` & {} | "/api/nexus" | `/api/nexus/community/${string}` & {} | "/api/nexus/search" | `/api/nexus/symbol/${string}` & {} | "/api/search" | "/api/tasks" | "/api/tasks/events" | "/api/tasks/pipeline" | "/api/tasks/sessions" | `/api/tasks/tree/${string}` & {} | `/api/tasks/${string}` & {} | "/brain" | "/brain/decisions" | "/brain/graph" | "/brain/observations" | "/brain/quality" | "/living-brain" | "/nexus" | `/nexus/community/${string}` & {} | `/nexus/symbol/${string}` & {} | "/projects" | "/tasks" | "/tasks/pipeline" | "/tasks/sessions" | `/tasks/tree/${string}` & {} | `/tasks/${string}` & {};
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): "/favicon.png" | string & {};
 	}

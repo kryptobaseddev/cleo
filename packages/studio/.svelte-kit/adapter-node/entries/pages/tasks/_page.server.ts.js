@@ -1,4 +1,4 @@
-import { i as getTasksDb } from "../../../chunks/connections.js";
+import { o as getTasksDb } from "../../../chunks/connections.js";
 //#region src/routes/tasks/+page.server.ts
 /**
 * Tasks dashboard server load — status/priority/type counts, epic progress, recent activity.

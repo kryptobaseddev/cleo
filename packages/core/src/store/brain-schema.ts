@@ -707,11 +707,15 @@ export const brainRetrievalLog = sqliteTable(
     /** Estimated tokens consumed by this retrieval. */
     tokensUsed: integer('tokens_used'),
 
+    /** Session ID (soft FK to tasks.db sessions). Enables grouping retrievals by session for STDP analysis. */
+    sessionId: text('session_id'),
+
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
     index('idx_retrieval_log_created').on(table.createdAt),
     index('idx_retrieval_log_source').on(table.source),
+    index('idx_retrieval_log_session').on(table.sessionId),
   ],
 );
 
