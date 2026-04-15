@@ -1,7 +1,7 @@
 # ADR-014: RCASD Rename and Protocol Output Validation Architecture
 
 **Date**: 2026-02-25
-**Status**: proposed
+**Status**: accepted
 **Related ADRs**: ADR-006, ADR-008, ADR-012
 **Related Tasks**: T4855, T4856, T4857, T4858, T4859
 **Summary**: Renames the RCSD pipeline to RCASD (Research→Consensus→ADR→Spec→Decompose) to make the ADR stage explicit in the lifecycle. Adds protocol output validation to ensure pipeline stage artifacts meet format requirements.

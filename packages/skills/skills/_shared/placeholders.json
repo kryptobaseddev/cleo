@@ -64,16 +64,16 @@
     {
       "token": "OUTPUT_DIR",
       "type": "path",
-      "example": "claudedocs/agent-outputs",
+      "example": ".cleo/agent-outputs",
       "description": "Output directory path for agent artifacts",
-      "default": "claudedocs/agent-outputs"
+      "default": ".cleo/agent-outputs"
     },
     {
       "token": "MANIFEST_PATH",
       "type": "path",
-      "example": "claudedocs/agent-outputs/MANIFEST.jsonl",
+      "example": ".cleo/agent-outputs/MANIFEST.jsonl",
       "description": "Path to MANIFEST.jsonl file",
-      "default": "claudedocs/agent-outputs/MANIFEST.jsonl"
+      "default": ".cleo/agent-outputs/MANIFEST.jsonl"
     }
   ],
   "taskCommands": {
