@@ -31,6 +31,31 @@
   function tierColor(tier: string): string {
     return TIER_COLORS[tier] ?? '#475569';
   }
+
+  // T748: Tier distribution bar chart helpers
+  function tableShortName(tbl: string): string {
+    return tbl.replace('brain_', '');
+  }
+
+  function barMaxCount(dist: typeof data.tierDistribution): number {
+    let max = 1;
+    for (const d of dist) {
+      const total = d.short + d.medium + d.long;
+      if (total > max) max = total;
+    }
+    return max;
+  }
+
+  function pct(value: number, max: number): number {
+    if (max === 0) return 0;
+    return Math.round((value / max) * 100);
+  }
+
+  function formatDays(days: number): string {
+    if (days < 0.1) return 'eligible now';
+    if (days < 1) return `${Math.round(days * 24)}h`;
+    return `${days.toFixed(1)}d`;
+  }
 </script>
 
 <svelte:head>
@@ -115,6 +140,84 @@
         </div>
       {/if}
     </div>
+
+    <!-- T748: Per-table tier distribution bar chart -->
+    {#if data.tierDistribution && data.tierDistribution.length > 0}
+      {@const maxCount = barMaxCount(data.tierDistribution)}
+      <div class="tier-chart-panel">
+        <h2 class="panel-title">Tier Distribution by Table</h2>
+        <div class="tier-chart-legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:#64748b"></span>Short</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6"></span>Medium</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span>Long</span>
+        </div>
+        <div class="tier-chart-rows">
+          {#each data.tierDistribution as dist}
+            <div class="chart-row">
+              <span class="chart-label">{tableShortName(dist.table)}</span>
+              <div class="chart-bars">
+                {#if dist.short > 0}
+                  <div
+                    class="chart-bar chart-bar--short"
+                    style="width:{pct(dist.short, maxCount)}%"
+                    title="short: {dist.short}"
+                  >
+                    {#if pct(dist.short, maxCount) > 12}<span class="bar-label">{dist.short}</span>{/if}
+                  </div>
+                {/if}
+                {#if dist.medium > 0}
+                  <div
+                    class="chart-bar chart-bar--medium"
+                    style="width:{pct(dist.medium, maxCount)}%"
+                    title="medium: {dist.medium}"
+                  >
+                    {#if pct(dist.medium, maxCount) > 12}<span class="bar-label">{dist.medium}</span>{/if}
+                  </div>
+                {/if}
+                {#if dist.long > 0}
+                  <div
+                    class="chart-bar chart-bar--long"
+                    style="width:{pct(dist.long, maxCount)}%"
+                    title="long: {dist.long}"
+                  >
+                    {#if pct(dist.long, maxCount) > 12}<span class="bar-label">{dist.long}</span>{/if}
+                  </div>
+                {/if}
+                {#if dist.short === 0 && dist.medium === 0 && dist.long === 0}
+                  <span class="chart-empty">empty</span>
+                {/if}
+              </div>
+              <span class="chart-total">{dist.short + dist.medium + dist.long}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- T748: Long-tier promotion countdown -->
+    {#if data.upcomingPromotions && data.upcomingPromotions.length > 0}
+      <div class="promo-panel">
+        <h2 class="panel-title">Upcoming Long-Tier Promotions</h2>
+        <p class="promo-subtitle">Medium entries eligible for long-tier after 7-day gate</p>
+        <div class="promo-list">
+          {#each data.upcomingPromotions as promo}
+            <div class="promo-row">
+              <span class="promo-table">{tableShortName(promo.table)}</span>
+              <span class="promo-id">{promo.id}</span>
+              <span class="promo-track">{promo.track}</span>
+              <span class="promo-countdown" class:promo-ready={promo.daysUntil < 0.1}>
+                {formatDays(promo.daysUntil)}
+              </span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {:else if data.stats}
+      <div class="promo-panel promo-panel--empty">
+        <h2 class="panel-title">Long-Tier Promotions</h2>
+        <p class="promo-empty-msg">No entries currently qualify for long-tier promotion. Entries need 7 days age + citation&nbsp;&ge;&nbsp;5 or owner-verified.</p>
+      </div>
+    {/if}
 
     <div class="action-cards">
       <a href="/brain/graph" class="action-card">
@@ -389,6 +492,193 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 0.75rem;
+  }
+
+  /* T748: Tier distribution bar chart */
+  .tier-chart-panel {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+
+  .tier-chart-legend {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    color: #94a3b8;
+  }
+
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .tier-chart-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .chart-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .chart-label {
+    width: 90px;
+    flex-shrink: 0;
+    color: #94a3b8;
+    font-size: 0.75rem;
+  }
+
+  .chart-bars {
+    flex: 1;
+    display: flex;
+    gap: 2px;
+    height: 22px;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .chart-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    min-width: 4px;
+    transition: width 0.2s;
+    overflow: hidden;
+  }
+
+  .chart-bar--short {
+    background: #64748b;
+  }
+
+  .chart-bar--medium {
+    background: #3b82f6;
+  }
+
+  .chart-bar--long {
+    background: #22c55e;
+  }
+
+  .bar-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    padding: 0 4px;
+    white-space: nowrap;
+  }
+
+  .chart-empty {
+    color: #475569;
+    font-size: 0.75rem;
+    align-self: center;
+  }
+
+  .chart-total {
+    width: 40px;
+    text-align: right;
+    color: #475569;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  /* T748: Promotion countdown */
+  .promo-panel {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+
+  .promo-panel--empty {
+    border-style: dashed;
+  }
+
+  .promo-subtitle {
+    font-size: 0.75rem;
+    color: #475569;
+    margin-bottom: 0.75rem;
+  }
+
+  .promo-empty-msg {
+    font-size: 0.8125rem;
+    color: #475569;
+  }
+
+  .promo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .promo-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #1e2535;
+  }
+
+  .promo-row:last-child {
+    border-bottom: none;
+  }
+
+  .promo-table {
+    width: 80px;
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .promo-id {
+    flex: 1;
+    color: #94a3b8;
+    font-family: monospace;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .promo-track {
+    color: #64748b;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .promo-countdown {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #3b82f6;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  .promo-countdown.promo-ready {
+    color: #22c55e;
   }
 
   .action-card {

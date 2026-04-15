@@ -17,7 +17,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getProjectRoot, runConsolidation, triggerManualDream } from '@cleocode/core/internal';
+import {
+  getBrainDb,
+  getBrainNativeDb,
+  getProjectRoot,
+  runConsolidation,
+  triggerManualDream,
+} from '@cleocode/core/internal';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
@@ -815,6 +821,263 @@ export function registerMemoryBrainCommand(program: Command): void {
       }
     });
 
+  // -- reflect (T745: manual trigger of Observer + Reflector pipeline) --
+  memory
+    .command('reflect')
+    .description(
+      'Manually trigger the LLM Observer + Reflector pipeline for the most recent session. ' +
+        'Observer compresses session observations; Reflector synthesizes patterns and learnings. ' +
+        'Requires ANTHROPIC_API_KEY to be set.',
+    )
+    .option('--session <id>', 'Run against a specific session ID (default: most recent session)')
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { session?: string; json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Running Observer + Reflector pipeline...');
+      }
+
+      try {
+        const { runObserver, runReflector } = await import('@cleocode/core/internal');
+
+        const observerResult = await runObserver(root, opts.session, { thresholdOverride: 1 });
+        const reflectorResult = await runReflector(root, opts.session);
+
+        const data = {
+          observer: {
+            ran: observerResult.ran,
+            stored: observerResult.stored,
+            compressedIds: observerResult.compressedIds,
+          },
+          reflector: {
+            ran: reflectorResult.ran,
+            patternsStored: reflectorResult.patternsStored,
+            learningsStored: reflectorResult.learningsStored,
+            supersededIds: reflectorResult.supersededIds,
+          },
+        };
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data,
+                meta: {
+                  operation: 'memory.reflect',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        console.log('\nReflection complete.');
+        if (!observerResult.ran) {
+          console.log('  Observer: skipped (no API key, disabled in config, or no observations)');
+        } else {
+          console.log(`  Observer: compressed ${observerResult.stored} notes`);
+          console.log(`    Source IDs: ${observerResult.compressedIds.length} observations`);
+        }
+        if (!reflectorResult.ran) {
+          console.log('  Reflector: skipped (no API key, disabled in config, or < 3 observations)');
+        } else {
+          console.log(
+            `  Reflector: ${reflectorResult.patternsStored} patterns, ${reflectorResult.learningsStored} learnings`,
+          );
+          if (reflectorResult.supersededIds.length > 0) {
+            console.log(`    Superseded: ${reflectorResult.supersededIds.length} observations`);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Reflect failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  // -- dedup-scan (T745: report potential duplicates by table) --
+  memory
+    .command('dedup-scan')
+    .description(
+      'Scan brain.db for potential duplicate entries by content-hash and keyword similarity. ' +
+        'Reports duplicates per table without modifying any data. ' +
+        'Use --apply to merge confirmed duplicates via the consolidation pipeline.',
+    )
+    .option(
+      '--apply',
+      'Run full consolidation to merge duplicates (calls cleo memory consolidate internally)',
+    )
+    .option('--json', 'Output results as JSON')
+    .action(async (opts: { apply?: boolean; json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      if (!isJson) {
+        console.log('Scanning brain.db for duplicate entries...');
+      }
+
+      try {
+        const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
+        await getBrainDb(root);
+        const nativeDb = getBrainNativeDb();
+
+        if (!nativeDb) {
+          const msg = 'brain.db is unavailable';
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: msg }));
+          } else {
+            console.error(msg);
+          }
+          process.exit(1);
+          return;
+        }
+
+        // Scan each table for content-hash duplicates
+        const tables = [
+          { name: 'brain_observations', hashCol: 'content_hash', labelCol: 'title' },
+          { name: 'brain_decisions', hashCol: 'content_hash', labelCol: 'decision' },
+          { name: 'brain_patterns', hashCol: 'content_hash', labelCol: 'pattern' },
+          { name: 'brain_learnings', hashCol: 'content_hash', labelCol: 'insight' },
+        ] as const;
+
+        interface DupGroup {
+          table: string;
+          hash: string;
+          count: number;
+          samples: string[];
+        }
+        const groups: DupGroup[] = [];
+
+        for (const t of tables) {
+          let dupRows: Array<{ hash: string; cnt: number }>;
+          try {
+            dupRows = nativeDb
+              .prepare(
+                `SELECT ${t.hashCol} AS hash, COUNT(*) AS cnt
+                 FROM ${t.name}
+                 WHERE ${t.hashCol} IS NOT NULL
+                   AND invalid_at IS NULL
+                 GROUP BY ${t.hashCol}
+                 HAVING cnt > 1
+                 ORDER BY cnt DESC
+                 LIMIT 20`,
+              )
+              .all() as Array<{ hash: string; cnt: number }>;
+          } catch {
+            dupRows = [];
+          }
+
+          for (const row of dupRows) {
+            let sampleRows: Array<{ id: string; label: string }>;
+            try {
+              sampleRows = nativeDb
+                .prepare(
+                  `SELECT id, COALESCE(${t.labelCol}, id) AS label
+                   FROM ${t.name}
+                   WHERE ${t.hashCol} = ?
+                     AND invalid_at IS NULL
+                   LIMIT 3`,
+                )
+                .all(row.hash) as Array<{ id: string; label: string }>;
+            } catch {
+              sampleRows = [];
+            }
+
+            groups.push({
+              table: t.name,
+              hash: row.hash,
+              count: row.cnt,
+              samples: sampleRows.map((r) => `${r.id}: ${String(r.label).slice(0, 80)}`),
+            });
+          }
+        }
+
+        const totalDups = groups.reduce((sum, g) => sum + (g.count - 1), 0);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  totalDuplicateRows: totalDups,
+                  groups,
+                  applied: false,
+                },
+                meta: {
+                  operation: 'memory.dedup-scan',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+        } else {
+          if (groups.length === 0) {
+            console.log('No hash-duplicate entries found.');
+          } else {
+            console.log(`\nFound ${totalDups} duplicate rows across ${groups.length} groups:`);
+            for (const g of groups) {
+              console.log(`\n  [${g.table}] hash=${g.hash.slice(0, 12)}... (${g.count} copies)`);
+              for (const s of g.samples) {
+                console.log(`    - ${s}`);
+              }
+            }
+          }
+        }
+
+        // Optionally merge duplicates via the consolidation pipeline
+        if (opts.apply) {
+          if (!isJson) console.log('\nApplying — running consolidation to merge duplicates...');
+          const { runConsolidation } = await import('@cleocode/core/internal');
+          const result = await runConsolidation(root);
+          if (isJson) {
+            // Reprint with applied=true
+            console.log(
+              JSON.stringify(
+                {
+                  success: true,
+                  data: {
+                    totalDuplicateRows: totalDups,
+                    groups,
+                    applied: true,
+                    consolidation: { deduplicated: result.deduplicated },
+                  },
+                  meta: {
+                    operation: 'memory.dedup-scan',
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ),
+            );
+          } else {
+            console.log(`Consolidation merged ${result.deduplicated} duplicate entries.`);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Dedup scan failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
   // -- import (migrate MEMORY.md files to brain.db — T629 provider-agnostic) --
   memory
     .command('import')
@@ -991,4 +1254,461 @@ export function registerMemoryBrainCommand(program: Command): void {
 
       if (stats.errors > 0) process.exit(1);
     });
+
+  // -------------------------------------------------------------------------
+  // T744 — cleo memory tier <stats|promote|demote>
+  // Provides tier observability and manual override for the 3-tier memory model.
+  // -------------------------------------------------------------------------
+
+  const tier = memory.command('tier').description('Memory tier management: stats, promote, demote');
+
+  // -- tier stats --
+  tier
+    .command('stats')
+    .description(
+      'Show tier distribution across all brain tables + countdown to next long-tier promotions (top-10)',
+    )
+    .option('--json', 'Output as JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+
+      try {
+        await getBrainDb(root);
+        const nativeDb = getBrainNativeDb();
+        if (!nativeDb) {
+          const msg = 'brain.db not available';
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: msg }));
+          } else {
+            console.error(msg);
+          }
+          process.exit(1);
+        }
+
+        // Per-table tier distributions
+        const tables = [
+          'brain_observations',
+          'brain_learnings',
+          'brain_patterns',
+          'brain_decisions',
+        ];
+        const distribution: Record<string, Record<string, number>> = {};
+        for (const tbl of tables) {
+          try {
+            const rows = nativeDb
+              .prepare(
+                `SELECT COALESCE(memory_tier, 'short') as tier, COUNT(*) as cnt
+                 FROM ${tbl}
+                 WHERE invalid_at IS NULL
+                 GROUP BY memory_tier`,
+              )
+              .all() as Array<{ tier: string; cnt: number }>;
+            distribution[tbl] = { short: 0, medium: 0, long: 0 };
+            for (const r of rows) {
+              distribution[tbl]![r.tier] = r.cnt;
+            }
+          } catch {
+            distribution[tbl] = { short: 0, medium: 0, long: 0 };
+          }
+        }
+
+        // Countdown: top-10 medium entries closest to 7-day long-tier gate
+        // (citation_count >= 5 OR verified=1) AND created_at > (now - 7d) — approaching gate
+        const age7dMs = 7 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        interface CountdownRow {
+          id: string;
+          tbl: string;
+          created_at: string;
+          citation_count: number;
+          verified: number;
+          quality_score: number | null;
+        }
+        const countdown: Array<{
+          id: string;
+          table: string;
+          daysUntil: number;
+          track: string;
+        }> = [];
+
+        for (const tbl of tables) {
+          const dateCol = tbl === 'brain_patterns' ? 'extracted_at' : 'created_at';
+          try {
+            const rows = nativeDb
+              .prepare(
+                `SELECT id, ${dateCol} as created_at, citation_count, verified, quality_score
+                 FROM ${tbl}
+                 WHERE memory_tier = 'medium'
+                   AND invalid_at IS NULL
+                   AND (citation_count >= 5 OR verified = 1)
+                 ORDER BY ${dateCol} ASC
+                 LIMIT 20`,
+              )
+              .all() as CountdownRow[];
+
+            for (const r of rows) {
+              const entryMs = new Date(r.created_at.replace(' ', 'T')).getTime();
+              const promotionMs = entryMs + age7dMs;
+              const daysUntil = Math.max(0, (promotionMs - now) / (24 * 60 * 60 * 1000));
+              const track = r.citation_count >= 5 ? `citation (${r.citation_count})` : 'verified';
+              countdown.push({ id: r.id, table: tbl, daysUntil, track });
+            }
+          } catch {
+            // Table may not have memory_tier column
+          }
+        }
+        countdown.sort((a, b) => a.daysUntil - b.daysUntil);
+        const top10 = countdown.slice(0, 10);
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: { distribution, upcomingLongPromotions: top10 },
+                meta: {
+                  operation: 'memory.tier.stats',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        // Human-readable output
+        console.log('\nMemory Tier Distribution');
+        console.log('========================');
+        for (const [tbl, counts] of Object.entries(distribution)) {
+          const shortName = tbl.replace('brain_', '');
+          console.log(
+            `  ${shortName.padEnd(14)} short=${counts['short']}  medium=${counts['medium']}  long=${counts['long']}`,
+          );
+        }
+
+        if (top10.length > 0) {
+          console.log('\nTop-10 Upcoming Long-Tier Promotions (medium → long):');
+          console.log('-----------------------------------------------------');
+          for (const entry of top10) {
+            const days = entry.daysUntil.toFixed(1);
+            const table = entry.table.replace('brain_', '');
+            console.log(`  [${table}] ${entry.id}  in ${days}d  via ${entry.track}`);
+          }
+        } else {
+          console.log('\nNo entries currently qualifying for long-tier promotion.');
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Tier stats failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  // -- tier promote --
+  tier
+    .command('promote <id>')
+    .description('Manually promote a memory entry to a higher tier (bypasses age gate)')
+    .requiredOption('--to <tier>', 'Target tier: medium or long')
+    .requiredOption('--reason <text>', 'Reason for manual promotion (required)')
+    .option('--json', 'Output as JSON')
+    .action(async (id: string, opts: { to: string; reason: string; json?: boolean }) => {
+      const root = getProjectRoot();
+      const isJson = !!opts.json;
+      const targetTier = opts.to;
+      const reason = opts.reason;
+
+      const validTiers = ['medium', 'long'];
+      if (!validTiers.includes(targetTier)) {
+        const msg = `Invalid target tier: ${targetTier}. Must be one of: ${validTiers.join(', ')}`;
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: msg }));
+        } else {
+          console.error(msg);
+        }
+        process.exit(1);
+      }
+
+      try {
+        await getBrainDb(root);
+        const nativeDb = getBrainNativeDb();
+        if (!nativeDb) {
+          const msg = 'brain.db not available';
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: msg }));
+          } else {
+            console.error(msg);
+          }
+          process.exit(1);
+        }
+
+        const tables = [
+          'brain_observations',
+          'brain_learnings',
+          'brain_patterns',
+          'brain_decisions',
+        ];
+        const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        let found = false;
+        let fromTier = '';
+        let foundTable = '';
+
+        for (const tbl of tables) {
+          try {
+            const row = nativeDb
+              .prepare(
+                `SELECT id, memory_tier FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`,
+              )
+              .get(id) as { id: string; memory_tier: string } | undefined;
+
+            if (row) {
+              found = true;
+              fromTier = row.memory_tier ?? 'short';
+              foundTable = tbl;
+
+              if (fromTier === targetTier) {
+                const msg = `Entry ${id} is already at tier '${targetTier}'`;
+                if (isJson) {
+                  console.log(JSON.stringify({ success: false, error: msg }));
+                } else {
+                  console.error(msg);
+                }
+                process.exit(1);
+              }
+
+              const tierOrder: Record<string, number> = { short: 0, medium: 1, long: 2 };
+              const fromOrd = tierOrder[fromTier] ?? 0;
+              const toOrd = tierOrder[targetTier] ?? 0;
+              if (toOrd <= fromOrd) {
+                const msg = `Cannot promote: '${targetTier}' is not higher than current tier '${fromTier}'. Use 'demote' to lower tiers.`;
+                if (isJson) {
+                  console.log(JSON.stringify({ success: false, error: msg }));
+                } else {
+                  console.error(msg);
+                }
+                process.exit(1);
+              }
+
+              nativeDb
+                .prepare(`UPDATE ${tbl} SET memory_tier = ?, updated_at = ? WHERE id = ?`)
+                .run(targetTier, now, id);
+
+              break;
+            }
+          } catch {
+            // Try next table
+          }
+        }
+
+        if (!found) {
+          const msg = `Entry '${id}' not found in any brain table (or is invalidated)`;
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: msg }));
+          } else {
+            console.error(msg);
+          }
+          process.exit(1);
+        }
+
+        if (isJson) {
+          console.log(
+            JSON.stringify(
+              {
+                success: true,
+                data: {
+                  id,
+                  table: foundTable,
+                  fromTier,
+                  toTier: targetTier,
+                  reason,
+                  promotedAt: now,
+                },
+                meta: {
+                  operation: 'memory.tier.promote',
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+        } else {
+          const shortTable = foundTable.replace('brain_', '');
+          console.log(
+            `Promoted [${shortTable}] ${id}: ${fromTier} → ${targetTier} (reason: ${reason})`,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isJson) {
+          console.log(JSON.stringify({ success: false, error: message }));
+        } else {
+          console.error(`Tier promote failed: ${message}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  // -- tier demote --
+  tier
+    .command('demote <id>')
+    .description('Manually demote a memory entry to a lower tier')
+    .requiredOption('--to <tier>', 'Target tier: short or medium')
+    .requiredOption('--reason <text>', 'Reason for manual demotion (required)')
+    .option('--force', 'Required when demoting from long tier')
+    .option('--json', 'Output as JSON')
+    .action(
+      async (id: string, opts: { to: string; reason: string; force?: boolean; json?: boolean }) => {
+        const root = getProjectRoot();
+        const isJson = !!opts.json;
+        const targetTier = opts.to;
+        const reason = opts.reason;
+
+        const validTiers = ['short', 'medium'];
+        if (!validTiers.includes(targetTier)) {
+          const msg = `Invalid target tier for demotion: ${targetTier}. Must be one of: ${validTiers.join(', ')}`;
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: msg }));
+          } else {
+            console.error(msg);
+          }
+          process.exit(1);
+        }
+
+        try {
+          await getBrainDb(root);
+          const nativeDb = getBrainNativeDb();
+          if (!nativeDb) {
+            const msg = 'brain.db not available';
+            if (isJson) {
+              console.log(JSON.stringify({ success: false, error: msg }));
+            } else {
+              console.error(msg);
+            }
+            process.exit(1);
+          }
+
+          const tables = [
+            'brain_observations',
+            'brain_learnings',
+            'brain_patterns',
+            'brain_decisions',
+          ];
+          const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+          let found = false;
+          let fromTier = '';
+          let foundTable = '';
+
+          for (const tbl of tables) {
+            try {
+              const row = nativeDb
+                .prepare(
+                  `SELECT id, memory_tier FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`,
+                )
+                .get(id) as { id: string; memory_tier: string } | undefined;
+
+              if (row) {
+                found = true;
+                fromTier = row.memory_tier ?? 'short';
+                foundTable = tbl;
+
+                if (fromTier === 'long' && !opts.force) {
+                  const msg = `Entry ${id} is in long tier. Long-tier entries are permanent. Use --force to override.`;
+                  if (isJson) {
+                    console.log(JSON.stringify({ success: false, error: msg }));
+                  } else {
+                    console.error(msg);
+                  }
+                  process.exit(1);
+                }
+
+                if (fromTier === targetTier) {
+                  const msg = `Entry ${id} is already at tier '${targetTier}'`;
+                  if (isJson) {
+                    console.log(JSON.stringify({ success: false, error: msg }));
+                  } else {
+                    console.error(msg);
+                  }
+                  process.exit(1);
+                }
+
+                const tierOrder: Record<string, number> = { short: 0, medium: 1, long: 2 };
+                const fromOrd = tierOrder[fromTier] ?? 0;
+                const toOrd = tierOrder[targetTier] ?? 0;
+                if (toOrd >= fromOrd) {
+                  const msg = `Cannot demote: '${targetTier}' is not lower than current tier '${fromTier}'. Use 'promote' to raise tiers.`;
+                  if (isJson) {
+                    console.log(JSON.stringify({ success: false, error: msg }));
+                  } else {
+                    console.error(msg);
+                  }
+                  process.exit(1);
+                }
+
+                nativeDb
+                  .prepare(`UPDATE ${tbl} SET memory_tier = ?, updated_at = ? WHERE id = ?`)
+                  .run(targetTier, now, id);
+
+                break;
+              }
+            } catch {
+              // Try next table
+            }
+          }
+
+          if (!found) {
+            const msg = `Entry '${id}' not found in any brain table (or is invalidated)`;
+            if (isJson) {
+              console.log(JSON.stringify({ success: false, error: msg }));
+            } else {
+              console.error(msg);
+            }
+            process.exit(1);
+          }
+
+          if (isJson) {
+            console.log(
+              JSON.stringify(
+                {
+                  success: true,
+                  data: {
+                    id,
+                    table: foundTable,
+                    fromTier,
+                    toTier: targetTier,
+                    reason,
+                    demotedAt: now,
+                  },
+                  meta: {
+                    operation: 'memory.tier.demote',
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                null,
+                2,
+              ),
+            );
+          } else {
+            const shortTable = foundTable.replace('brain_', '');
+            console.log(
+              `Demoted [${shortTable}] ${id}: ${fromTier} → ${targetTier} (reason: ${reason})`,
+            );
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (isJson) {
+            console.log(JSON.stringify({ success: false, error: message }));
+          } else {
+            console.error(`Tier demote failed: ${message}`);
+          }
+          process.exit(1);
+        }
+      },
+    );
 }
