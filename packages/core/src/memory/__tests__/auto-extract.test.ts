@@ -62,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('extractFromTranscript (wrapper)', () => {
+describe('extractFromTranscript (wrapper) — auto-extract unit', () => {
   it('delegates to the LLM extraction gate for non-empty input', async () => {
     await extractFromTranscript('/mock/root', 'S-100', 'some transcript content');
 

@@ -1,6 +1,11 @@
 /**
  * Final coverage push tests - targeting all remaining uncovered lines and branches.
  *
+ * TODO(T659): T659 acceptance criteria listed this file for deletion as "coverage-debt".
+ * However it contains 297 real assertions testing actual parser, lock, catalog, recommendation,
+ * marketplace, and command branch logic. Deletion was deemed debatable — keeping with this note.
+ * If coverage infra is refactored, these tests should migrate to their per-module test files.
+ *
  * This file covers:
  * - src/core/sources/parser.ts (lines 102-103, 125-126, 165-166 + branch gaps)
  * - src/core/lock-utils.ts (sleep, lock error rethrow, timeout)
