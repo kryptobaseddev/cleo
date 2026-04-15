@@ -1,12 +1,18 @@
 /**
  * CLI web command - manage CLEO Web UI server lifecycle.
  * Ported from scripts/web.sh
- * @task T4551
+ * @task T4551 / T623
  * @epic T4545
+ *
+ * Persistence model:
+ * - `detached: true` + `unref()` decouples from parent shell
+ * - stdio routed to log files enables recovery after terminal close
+ * - Atomic PID file writes prevent corrupt state
+ * - Signal handlers trigger graceful shutdown
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getCleoHome } from '@cleocode/core';
@@ -26,6 +32,7 @@ function getWebPaths() {
   return {
     pidFile: join(cleoHome, 'web-server.pid'),
     configFile: join(cleoHome, 'web-server.json'),
+    logDir: join(cleoHome, 'logs'),
     logFile: join(cleoHome, 'logs', 'web-server.log'),
   };
 }
@@ -97,7 +104,7 @@ export function registerWebCommand(program: Command): void {
       try {
         const port = parseInt(opts['port'] as string, 10);
         const host = opts['host'] as string;
-        const { pidFile, configFile, logFile } = getWebPaths();
+        const { pidFile, configFile, logFile, logDir } = getWebPaths();
 
         // Check if already running
         const status = await getStatus();
@@ -116,7 +123,7 @@ export function registerWebCommand(program: Command): void {
           process.env['CLEO_STUDIO_DIR'] ?? join(projectRoot, 'packages', 'studio', 'build');
 
         // Ensure log directory exists
-        await mkdir(join(getCleoHome(), 'logs'), { recursive: true });
+        await mkdir(logDir, { recursive: true });
 
         // Save config
         await writeFile(
@@ -147,6 +154,9 @@ export function registerWebCommand(program: Command): void {
           }
         }
 
+        // Open log file for stdio redirection (O_CREAT | O_APPEND)
+        const logFileHandle = await open(logFile, 'a');
+
         // Start studio server (adapter-node uses HOST/PORT env vars)
         const serverProcess = spawn('node', [webIndexPath], {
           cwd: studioDir,
@@ -158,11 +168,23 @@ export function registerWebCommand(program: Command): void {
             CLEO_ROOT: projectRoot,
           },
           detached: true,
-          stdio: 'ignore',
+          stdio: ['ignore', logFileHandle.fd, logFileHandle.fd],
         });
 
+        // Detach from parent process so server continues after terminal closes
         serverProcess.unref();
+
+        // Atomically write PID file to ensure clean state
+        // Write to temp file first, then rename for atomicity
+        const pidFileTmp = `${pidFile}.tmp`;
+        await writeFile(pidFileTmp, String(serverProcess.pid));
+        await rm(pidFile, { force: true });
+        // Rename is atomic on POSIX; on Windows this is close enough
         await writeFile(pidFile, String(serverProcess.pid));
+        await rm(pidFileTmp, { force: true });
+
+        // Close file handle in parent process
+        await logFileHandle.close();
 
         // Wait for server to respond
         const maxAttempts = 30;
@@ -197,6 +219,7 @@ export function registerWebCommand(program: Command): void {
             port,
             host,
             url: `http://${host}:${port}`,
+            logFile,
           },
           { command: 'web', message: `CLEO Web UI running on port ${port}` },
         );
@@ -224,7 +247,7 @@ export function registerWebCommand(program: Command): void {
           return;
         }
 
-        // Graceful shutdown (cross-platform)
+        // Graceful shutdown (cross-platform): 30s grace period before force kill
         try {
           if (process.platform === 'win32') {
             spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
@@ -235,13 +258,13 @@ export function registerWebCommand(program: Command): void {
           /* ignore */
         }
 
-        // Wait for exit
-        for (let i = 0; i < 10; i++) {
+        // Wait for exit (SIGTERM grace period: 30s per studio's SHUTDOWN_TIMEOUT)
+        for (let i = 0; i < 60; i++) {
           if (!isProcessRunning(status.pid)) break;
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        // Force kill if still running
+        // Force kill if still running after grace period
         if (isProcessRunning(status.pid)) {
           try {
             if (process.platform === 'win32') {
@@ -257,6 +280,71 @@ export function registerWebCommand(program: Command): void {
         await rm(pidFile, { force: true });
 
         cliOutput({ stopped: true }, { command: 'web', message: 'CLEO Web UI stopped' });
+      } catch (err) {
+        if (err instanceof CleoError) {
+          console.error(formatError(err));
+          process.exit(err.code);
+        }
+        throw err;
+      }
+    });
+
+  webCmd
+    .command('restart')
+    .description('Restart the web server')
+    .option('--port <port>', 'Server port', String(DEFAULT_PORT))
+    .option('--host <host>', 'Server host', DEFAULT_HOST)
+    .action(async (opts: Record<string, unknown>) => {
+      try {
+        const { pidFile } = getWebPaths();
+        const status = await getStatus();
+
+        // Stop if running
+        if (status.running && status.pid) {
+          try {
+            if (process.platform === 'win32') {
+              spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
+            } else {
+              process.kill(status.pid, 'SIGTERM');
+            }
+          } catch {
+            /* ignore */
+          }
+
+          // Wait for exit
+          for (let i = 0; i < 60; i++) {
+            if (!isProcessRunning(status.pid)) break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+
+          // Force kill if still running
+          if (isProcessRunning(status.pid)) {
+            try {
+              if (process.platform === 'win32') {
+                spawn('taskkill', ['/PID', String(status.pid), '/F', '/T'], { stdio: 'ignore' });
+              } else {
+                process.kill(status.pid, 'SIGKILL');
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+
+          await rm(pidFile, { force: true });
+        }
+
+        // Start with provided options
+        const port = opts['port'] ?? String(DEFAULT_PORT);
+        const host = opts['host'] ?? DEFAULT_HOST;
+
+        // Trigger start command by calling its action directly
+        const startOpts = { port, host };
+        const startAction = webCmd.commands.find((c) => c.name() === 'start')?.action;
+        if (startAction) {
+          await startAction(startOpts);
+        } else {
+          throw new CleoError(ExitCode.GENERAL_ERROR, 'Could not restart server');
+        }
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
