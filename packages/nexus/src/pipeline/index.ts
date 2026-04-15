@@ -59,16 +59,18 @@ export {
   isTestFile,
   isUtilityFile,
 } from './entry-point-scoring.js';
-// TypeScript extractor (T534, T536)
+// TypeScript extractor (T534, T536, T617)
 export type {
   ExtractedCall,
   ExtractedHeritage,
+  ExtractedReExport,
   TypeScriptExtractionResult,
 } from './extractors/typescript-extractor.js';
 export {
   extractCalls,
   extractHeritage,
   extractImports,
+  extractReExports,
   extractTypeScript,
 } from './extractors/typescript-extractor.js';
 export type { ScannedFile } from './filesystem-walker.js';
@@ -76,9 +78,12 @@ export { walkRepositoryPaths } from './filesystem-walker.js';
 // Heritage processor (T536)
 export type { HeritageMap, HeritageProcessingResult } from './heritage-processor.js';
 export { buildHeritageMap, processHeritage } from './heritage-processor.js';
-// Import processor (T533)
+// Import processor (T533, T617)
 export type {
+  BarrelExportEntry,
+  BarrelExportMap,
   ExtractedImport,
+  ExtractedReExportRecord,
   ImportResolutionContext,
   ModuleAliasMap,
   NamedImportBinding,
@@ -88,11 +93,14 @@ export type {
   TsconfigPaths,
 } from './import-processor.js';
 export {
+  buildBarrelExportMap,
   buildImportResolutionContext,
   isFileInPackageDir,
   loadTsconfigPaths,
   processExtractedImports,
+  resolveBarrelBinding,
   resolveTypescriptImport,
+  WILDCARD_EXPORT_KEY_PREFIX,
 } from './import-processor.js';
 export type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 export { createKnowledgeGraph } from './knowledge-graph.js';
