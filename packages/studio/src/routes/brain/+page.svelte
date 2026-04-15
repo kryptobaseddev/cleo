@@ -471,13 +471,13 @@
         </div>
       {/if}
 
-      <!-- Full graph button -->
-      {#if !isFullGraph}
-        <button class="full-graph-btn" onclick={fetchFullGraph} disabled={loading}>
-          {loading ? 'Loading…' : 'Full graph'}
-        </button>
-      {:else}
-        <span class="full-graph-label">Full graph loaded</span>
+      <!--
+        "Full graph" button removed 2026-04-15 — the canvas now loads the
+        full payload by default (server-side limit=5000).  Owner mandate:
+        the brain should always look complete on first paint.
+      -->
+      {#if loading}
+        <span class="full-graph-label">Loading…</span>
       {/if}
 
       <!-- GPU renderer toggle -->
