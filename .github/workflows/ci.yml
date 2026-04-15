@@ -47,6 +47,36 @@ jobs:
           version: '2.4.8'
       - run: biome ci .
 
+  migration-integrity:
+    # Guards against the gitignore-silent-block bug that caused the CI
+    # regression fixed in c6ae85a3. Before that, a too-broad "migrations/"
+    # rule in .gitignore silently excluded new drizzle migration.sql files,
+    # leaving CI to run against pre-migration schema. This job fails if any
+    # migration.sql on disk is not tracked in git. Uses only static shell
+    # commands — no user input flows into run:.
+    name: Migration Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every migration.sql on disk is tracked in git
+        run: |
+          set -e
+          missing=0
+          while IFS= read -r f; do
+            if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::Untracked migration file. Run: git add -f $f"
+              missing=$((missing + 1))
+            fi
+          done < <(find packages crates -name 'migration.sql' -not -path '*/node_modules/*' 2>/dev/null)
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing migration file(s) on disk are untracked in git."
+            echo "::error::The .gitignore rule 'migrations/' used to be too broad — fixed to '/migrations/' in same commit as this check."
+            echo "::error::Fix with: git add -f <path>   (one command per untracked file)"
+            exit 1
+          fi
+          echo "All migration.sql files are properly tracked."
+
   typecheck:
     name: Type Check
     needs: [biome, changes]
