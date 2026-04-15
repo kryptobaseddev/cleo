@@ -605,6 +605,14 @@ export interface RunConsolidationResult {
     edgesCreated: number;
     pairsExamined: number;
   };
+  /**
+   * Homeostatic decay result from step 9c (T690).
+   * Counts edges that had their weight reduced (decayed) and edges deleted (pruned).
+   */
+  homeostaticDecay?: {
+    edgesDecayed: number;
+    edgesPruned: number;
+  };
 }
 
 /**
@@ -623,19 +631,26 @@ export interface RunConsolidationResult {
  *   7. Summary generation — existing consolidateMemories() for large clusters
  *   8. Code↔memory graph linking
  *   9a. R-STDP reward backfill — assign reward_signal from task outcomes (T681)
- *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal
+ *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal (T679)
+ *   9c. Homeostatic decay — synaptic scaling + pruning (T690)
+ *   9e. Consolidation event log — INSERT into brain_consolidation_events (T694)
  *
  * All steps are BEST-EFFORT — any step failure is caught and logged to console.warn.
  *
  * @param projectRoot - Project root directory for brain.db resolution
  * @param sessionId - Active session ID, passed to backfillRewardSignals (Step 9a).
  *   If null/undefined, Step 9a is a no-op (no task correlation available).
+ * @param trigger - What triggered this consolidation run (for observability).
+ *   Defaults to 'session_end'. Written to brain_consolidation_events.
  * @returns Aggregated counts from each consolidation step
  */
 export async function runConsolidation(
   projectRoot: string,
   sessionId?: string | null,
+  trigger: 'session_end' | 'maintenance' | 'scheduled' | 'manual' = 'session_end',
 ): Promise<RunConsolidationResult> {
+  const consolidationStartMs = Date.now();
+
   const result: RunConsolidationResult = {
     deduplicated: 0,
     qualityRecomputed: 0,
@@ -749,6 +764,53 @@ export async function runConsolidation(
     }
   } catch (err) {
     console.warn('[consolidation] Step 9b STDP plasticity failed:', err);
+  }
+
+  // Step 9c: Homeostatic decay — synaptic scaling + pruning (T690)
+  // Applies exponential weight decay to hebbian/stdp edges idle beyond grace period.
+  // Prunes edges whose post-decay weight falls below min_weight=0.05.
+  // Runs AFTER Step 9b so that fresh LTP events are never immediately decayed.
+  try {
+    const { applyHomeostaticDecay } = await import('./brain-stdp.js');
+    const decayResult = await applyHomeostaticDecay(projectRoot);
+    result.homeostaticDecay = decayResult;
+  } catch (err) {
+    console.warn('[consolidation] Step 9c homeostatic decay failed:', err);
+  }
+
+  // Step 9e: Log this consolidation run to brain_consolidation_events (T694)
+  // Captures trigger, session_id, per-step stats, duration for pipeline observability.
+  // Best-effort — a logging failure MUST NOT abort the pipeline or throw.
+  try {
+    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    await getBrainDb(projectRoot);
+    const nativeDb = getBrainNativeDb();
+
+    if (nativeDb) {
+      // Guard: brain_consolidation_events must exist (M4 migration)
+      let consolidationEventsExist = false;
+      try {
+        nativeDb.prepare('SELECT 1 FROM brain_consolidation_events LIMIT 1').get();
+        consolidationEventsExist = true;
+      } catch {
+        // table not yet created — skip
+      }
+
+      if (consolidationEventsExist) {
+        const durationMs = Date.now() - consolidationStartMs;
+        const stepResultsJson = JSON.stringify(result);
+
+        nativeDb
+          .prepare(
+            `INSERT INTO brain_consolidation_events
+               (trigger, session_id, step_results_json, duration_ms, succeeded)
+             VALUES (?, ?, ?, ?, 1)`,
+          )
+          .run(trigger, sessionId ?? null, stepResultsJson, durationMs);
+      }
+    }
+  } catch (err) {
+    console.warn('[consolidation] Step 9e consolidation event log failed:', err);
   }
 
   return result;

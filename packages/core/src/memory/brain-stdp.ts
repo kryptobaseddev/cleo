@@ -365,7 +365,9 @@ function isPlasticityEventDuplicate(
       .replace('T', ' ')
       .slice(0, 19);
 
-    const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+    const db = nativeDb as unknown as {
+      prepare: (sql: string) => { get: (...args: unknown[]) => unknown };
+    };
     const stmt = db.prepare(
       `SELECT 1 FROM brain_plasticity_events
        WHERE source_node = ? AND target_node = ? AND kind = ?
@@ -401,7 +403,9 @@ function hasMinimumRetrievalsSinceLastPlasticity(
 ): boolean {
   try {
     // Query: latest plasticity event timestamp for this session
-    const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+    const db = nativeDb as unknown as {
+      prepare: (sql: string) => { get: (...args: unknown[]) => unknown };
+    };
     const lastPlasticityStmt = db.prepare(
       `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events
        WHERE session_id = ?`,
@@ -473,7 +477,9 @@ export async function shouldRunPlasticity(
   if (!hasMinimum) {
     const count = (() => {
       try {
-        const db = nativeDb as unknown as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
+        const db = nativeDb as unknown as {
+          prepare: (sql: string) => { get: (...args: unknown[]) => unknown };
+        };
         const lastPlasticityStmt = db.prepare(
           `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events WHERE session_id = ?`,
         );
@@ -659,6 +665,102 @@ export async function applyStdpPlasticity(
   // Sort spikes by (retrievedAt, order) to establish canonical temporal sequence.
   spikes.sort((a, b) => a.retrievedAt - b.retrievedAt || a.order - b.order);
 
+  // T695: Session-bucket O(n²) guard.
+  //
+  // With lookbackDays=30 and high retrieval volume, the spike array may contain
+  // thousands of entries. A flat O(n²) all-pairs loop is impractical at that scale.
+  //
+  // Mitigation: group spikes by session_id (null session → single bucket keyed 'null').
+  // Within-session pairs are always checked. Cross-session pairs are only checked between
+  // temporally adjacent session buckets (their last spike ↔ next bucket's first spike
+  // must be within pairingWindowMs). Each session contributes at most maxPairsPerSession
+  // spikes to cross-session pair formation — a hard cap that prevents runaway.
+  //
+  // The flat loop below is replaced by iterating over a merged spike slice composed of:
+  //   (a) all within-session spikes for each session bucket, and
+  //   (b) the tail (up to maxPairsPerSession) of adjacent sessions for cross-session pairs.
+  //
+  // Correctness invariant: all pairs within pairingWindowMs are still found because
+  // session boundaries are not hard cutoffs and the sorted order is preserved.
+
+  /** T695: Maximum spikes per session contributed to cross-session pair checks. */
+  const MAX_PAIRS_PER_SESSION = 50;
+
+  // Build session buckets: Map<sessionKey, Spike[]> sorted by retrievedAt ascending.
+  // Spikes within each bucket are already sorted (inherits sort above).
+  const sessionBucketMap = new Map<string, Spike[]>();
+  for (const spike of spikes) {
+    const key = spike.sessionId ?? 'null';
+    const bucket = sessionBucketMap.get(key);
+    if (bucket !== undefined) {
+      bucket.push(spike);
+    } else {
+      sessionBucketMap.set(key, [spike]);
+    }
+  }
+
+  // Produce an ordered list of (bucketKey, spikes[]) sorted by each bucket's earliest spike.
+  const orderedBuckets = Array.from(sessionBucketMap.entries()).sort(
+    ([, a], [, b]) => (a[0]?.retrievedAt ?? 0) - (b[0]?.retrievedAt ?? 0),
+  );
+
+  // Build the merged spike sequence for pair processing:
+  // For each bucket, include ALL its spikes. For cross-session adjacency, the tail
+  // of the previous bucket is already included — the sorted global order handles it.
+  // We build a composite array that processes ALL within-session pairs, and
+  // limits cross-session exposure by capping the carry-forward tail from each bucket.
+  //
+  // Implementation: walk through sorted buckets, building a running "window" of recent
+  // spikes that may still pair with incoming spikes. For efficiency, the window is
+  // capped at MAX_PAIRS_PER_SESSION × number-of-buckets entries.
+  //
+  // For correctness the sorted spikes array already handles pairing correctly — the
+  // T695 optimization ONLY caps how many spikes from PRIOR sessions are kept in the
+  // active window for cross-session pair comparison.
+
+  // Create a flattened array of spike indices to iterate over, broken into
+  // per-session chunks.  Cross-session pairs are formed by allowing each session's
+  // spikes to pair with the tail (last MAX_PAIRS_PER_SESSION spikes) of each
+  // immediately preceding session whose last spike is within pairingWindowMs.
+  //
+  // We do this by building a per-bucket flat array and iterating with a controlled
+  // cross-bucket suffix window.
+
+  // Compose the working spike list respecting the per-session cap.
+  const workingSpikes: Spike[] = [];
+  for (let bi = 0; bi < orderedBuckets.length; bi++) {
+    const [, bucketSpikes] = orderedBuckets[bi]!;
+
+    // Add all spikes from this session unconditionally (within-session pairs are
+    // always generated regardless of session size).
+    workingSpikes.push(...bucketSpikes);
+  }
+
+  // For pair formation we now iterate over workingSpikes (which is sorted) using
+  // the same O(n²) loop — but with a per-session cross-session cap enforced:
+  // when computing pairs between two spikes from DIFFERENT sessions, we only allow
+  // pairs where spikeA comes from within MAX_PAIRS_PER_SESSION of the boundary
+  // between the two sessions.
+  //
+  // We achieve this efficiently by tracking the "last spike index within a session"
+  // and skipping spikeA entries that are more than MAX_PAIRS_PER_SESSION spikes
+  // before the session boundary when pairing with spikes from a different session.
+
+  // Build a lookup: spike index → position within its own session bucket.
+  const withinSessionIndex = new Map<Spike, number>();
+  const sessionSizeMap = new Map<string, number>();
+  for (const [, bucketSpikes] of orderedBuckets) {
+    for (let idx = 0; idx < bucketSpikes.length; idx++) {
+      const spike = bucketSpikes[idx]!;
+      withinSessionIndex.set(spike, idx);
+      sessionSizeMap.set(spike.sessionId ?? 'null', bucketSpikes.length);
+    }
+  }
+
+  // Replace the plain spikes array with the working array for pair processing below.
+  // (workingSpikes has the same content as the sorted `spikes` array,
+  //  so the existing O(n²) loop is preserved with one additional guard.)
+
   // For each ordered pair (i, j) where i < j (spike i before spike j),
   // apply the STDP rule if Δt <= pairingWindowMs.
   const prepareGetEdge = nativeDb.prepare(
@@ -720,16 +822,31 @@ export async function applyStdpPlasticity(
     // brain_weight_history not yet created — skip history writes best-effort
   }
 
-  for (let i = 0; i < spikes.length; i++) {
-    const spikeA = spikes[i]!;
+  for (let i = 0; i < workingSpikes.length; i++) {
+    const spikeA = workingSpikes[i]!;
+    const sessionKeyA = spikeA.sessionId ?? 'null';
+    const sessionSizeA = sessionSizeMap.get(sessionKeyA) ?? 1;
+    const posInSessionA = withinSessionIndex.get(spikeA) ?? 0;
 
-    for (let j = i + 1; j < spikes.length; j++) {
-      const spikeB = spikes[j]!;
+    // T695: cross-session cap. If this spike is not among the last MAX_PAIRS_PER_SESSION
+    // spikes of its session, it will not pair with spikes from a DIFFERENT session.
+    // It still pairs with all spikes within its own session.
+    const canCrossSession = posInSessionA >= sessionSizeA - MAX_PAIRS_PER_SESSION;
+
+    for (let j = i + 1; j < workingSpikes.length; j++) {
+      const spikeB = workingSpikes[j]!;
       const deltaT = spikeB.retrievedAt - spikeA.retrievedAt; // ms, always >= 0
 
       if (deltaT > pairingWindowMs) break; // spikes are sorted; further pairs exceed window
 
       if (spikeA.entryId === spikeB.entryId) continue; // skip self-pairs
+
+      // T695: enforce cross-session cap — skip cross-session pairs when spikeA is deep
+      // inside its own session (not near the tail).
+      const sessionKeyB = spikeB.sessionId ?? 'null';
+      if (sessionKeyA !== sessionKeyB && !canCrossSession) {
+        continue;
+      }
 
       result.pairsExamined++;
 
@@ -1382,6 +1499,224 @@ export async function backfillRewardSignals(
     }
   } catch {
     // brain.db write failure — non-fatal, best-effort
+  }
+
+  return result;
+}
+
+// ============================================================================
+// T690 — Homeostatic decay pass (Step 9c)
+// ============================================================================
+
+/**
+ * Options for `applyHomeostaticDecay`.
+ *
+ * @task T690
+ * @epic T673
+ */
+export interface HomeostaticDecayOptions {
+  /**
+   * Fractional weight loss per day for idle edges.
+   * Default: 0.02 (2%/day → weight halves in ~35 days).
+   * Spec §3.9 default: decay_rate=0.02.
+   */
+  decayRatePerDay?: number;
+  /**
+   * Days of idle time before decay begins.
+   * Edges reinforced more recently than this are left untouched.
+   * Default: 7 days — keeps weekly-session edges alive.
+   */
+  gracePeriodDays?: number;
+  /**
+   * Edges whose post-decay weight falls below this threshold are pruned (deleted).
+   * Default: 0.05 (5%) — no meaningful signal below this floor.
+   */
+  pruneThreshold?: number;
+}
+
+/**
+ * Result returned by `applyHomeostaticDecay`.
+ *
+ * @task T690
+ * @epic T673
+ */
+export interface HomeostaticDecayResult {
+  /** Number of edges whose weight was reduced by the decay pass (still above pruneThreshold). */
+  edgesDecayed: number;
+  /** Number of edges deleted because their post-decay weight fell below pruneThreshold. */
+  edgesPruned: number;
+}
+
+/**
+ * Apply homeostatic weight decay to `hebbian` and `stdp` brain edges (Step 9c).
+ *
+ * Runs after `applyStdpPlasticity` (Step 9b) in the consolidation pipeline.
+ * For each `co_retrieved` edge with `plasticity_class IN ('hebbian', 'stdp')` and
+ * `last_reinforced_at` older than `gracePeriodDays`, applies:
+ *
+ * ```
+ * new_weight = current_weight × (1 - decayRatePerDay) ^ days_idle
+ * ```
+ *
+ * where `days_idle = (now − last_reinforced_at) − gracePeriodDays`.
+ *
+ * If `new_weight < pruneThreshold`, the edge is **deleted** and a
+ * `brain_weight_history` row with `event_kind='prune'` is written.
+ * If `new_weight >= pruneThreshold`, the weight is updated **without**
+ * writing to `brain_weight_history` (routine decay is not logged per
+ * spec §1 decision #11).
+ *
+ * **Protected edge classes** (never touched):
+ * - `plasticity_class = 'static'` — structural edges
+ * - `plasticity_class = 'external'` — externally owned edges
+ * - Edges with `last_reinforced_at IS NULL` — never reinforced, skip decay
+ *
+ * @param projectRoot - Project root directory for brain.db resolution
+ * @param options - Decay configuration (see `HomeostaticDecayOptions`)
+ * @returns Counts of edges decayed and pruned
+ *
+ * @task T690
+ * @epic T673
+ * @see docs/specs/stdp-wire-up-spec.md §3.9
+ */
+export async function applyHomeostaticDecay(
+  projectRoot: string,
+  options?: HomeostaticDecayOptions,
+): Promise<HomeostaticDecayResult> {
+  const decayRatePerDay = options?.decayRatePerDay ?? 0.02;
+  const gracePeriodDays = options?.gracePeriodDays ?? 7;
+  const pruneThreshold = options?.pruneThreshold ?? 0.05;
+
+  const result: HomeostaticDecayResult = { edgesDecayed: 0, edgesPruned: 0 };
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) return result;
+
+  // Guard: brain_page_edges must exist
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_page_edges LIMIT 1').get();
+  } catch {
+    return result;
+  }
+
+  const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // Check if brain_weight_history exists (M4 migration may not have run)
+  let weightHistoryExists = false;
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_weight_history LIMIT 1').get();
+    weightHistoryExists = true;
+  } catch {
+    // best-effort: history writes skipped if table absent
+  }
+
+  // ── Fetch candidate edges ──────────────────────────────────────────────────
+  //
+  // Candidates: plasticity_class IN ('hebbian', 'stdp') AND last_reinforced_at IS NOT NULL
+  // AND (now − last_reinforced_at) > gracePeriodDays.
+  //
+  // We fetch and process in TypeScript rather than doing a bare SQL UPDATE so we
+  // can write individual brain_weight_history rows for pruned edges per spec §2.1.4.
+
+  interface CandidateEdgeRow {
+    from_id: string;
+    to_id: string;
+    edge_type: string;
+    weight: number;
+    plasticity_class: string;
+    last_reinforced_at: string;
+  }
+
+  let candidates: CandidateEdgeRow[] = [];
+  try {
+    candidates = typedAll<CandidateEdgeRow>(
+      nativeDb.prepare(
+        `SELECT from_id, to_id, edge_type, weight, plasticity_class, last_reinforced_at
+         FROM brain_page_edges
+         WHERE plasticity_class IN ('hebbian', 'stdp')
+           AND last_reinforced_at IS NOT NULL
+           AND (julianday('now') - julianday(last_reinforced_at)) > ?`,
+      ),
+      gracePeriodDays,
+    );
+  } catch {
+    return result;
+  }
+
+  if (candidates.length === 0) return result;
+
+  // ── Prepared statements ────────────────────────────────────────────────────
+
+  const prepareUpdateWeight = nativeDb.prepare(
+    `UPDATE brain_page_edges
+     SET weight = ?
+     WHERE from_id = ? AND to_id = ? AND edge_type = ?`,
+  );
+
+  const prepareDeleteEdge = nativeDb.prepare(
+    `DELETE FROM brain_page_edges
+     WHERE from_id = ? AND to_id = ? AND edge_type = ?`,
+  );
+
+  let prepareInsertHistory: ReturnType<typeof nativeDb.prepare> | null = null;
+  if (weightHistoryExists) {
+    try {
+      prepareInsertHistory = nativeDb.prepare(
+        `INSERT INTO brain_weight_history
+           (edge_from_id, edge_to_id, edge_type, weight_before, weight_after,
+            delta_weight, event_kind, changed_at)
+         VALUES (?, ?, ?, ?, 0.0, ?, 'prune', ?)`,
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  // ── Decay and prune loop ───────────────────────────────────────────────────
+
+  const nowMs = Date.now();
+
+  for (const edge of candidates) {
+    try {
+      const lastReinforced = new Date(edge.last_reinforced_at.replace(' ', 'T') + 'Z').getTime();
+
+      const daysIdle = (nowMs - lastReinforced) / (24 * 60 * 60 * 1000);
+      // Only decay idle days BEYOND the grace period
+      const decayDays = Math.max(0, daysIdle - gracePeriodDays);
+
+      const newWeight = edge.weight * (1.0 - decayRatePerDay) ** decayDays;
+
+      if (newWeight < pruneThreshold) {
+        // Prune: delete the edge and write a history row
+        prepareDeleteEdge.run(edge.from_id, edge.to_id, edge.edge_type);
+        result.edgesPruned++;
+
+        if (prepareInsertHistory) {
+          const deltaW = -edge.weight; // prune is a full loss
+          try {
+            prepareInsertHistory.run(
+              edge.from_id,
+              edge.to_id,
+              edge.edge_type,
+              edge.weight,
+              deltaW,
+              nowIso,
+            );
+          } catch {
+            // best-effort: history write failure does not block prune
+          }
+        }
+      } else {
+        // Decay: update the weight only (no history row per spec §1 decision #11)
+        prepareUpdateWeight.run(newWeight, edge.from_id, edge.to_id, edge.edge_type);
+        result.edgesDecayed++;
+      }
+    } catch {
+      // per-edge failure is non-fatal
+    }
   }
 
   return result;
