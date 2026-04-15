@@ -1,7 +1,7 @@
 /**
  * CLI web command - manage CLEO Web UI server lifecycle.
  * Ported from scripts/web.sh
- * @task T4551 / T623
+ * @task T4551 / T623 / T717
  * @epic T4545
  *
  * Persistence model:
@@ -89,6 +89,132 @@ async function getStatus(): Promise<{
 }
 
 /**
+ * Start the web server with the given port and host.
+ * Extracted as a standalone function so both the `start` and `restart`
+ * subcommands can call it directly without the brittle pattern of
+ * looking up the sibling command's action handler at runtime.
+ * @task T4551 / T717
+ */
+async function startWebServer(port: number, host: string): Promise<void> {
+  const { pidFile, configFile, logFile, logDir } = getWebPaths();
+
+  // Check if already running
+  const status = await getStatus();
+  if (status.running) {
+    throw new CleoError(ExitCode.GENERAL_ERROR, `Server already running (PID: ${status.pid})`);
+  }
+
+  // Resolve CLEO Studio server location.
+  // The studio package builds to packages/studio/build/index.js (adapter-node output).
+  // CLEO_STUDIO_DIR env var allows overriding for testing / custom installs.
+  const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
+  const studioDir =
+    process.env['CLEO_STUDIO_DIR'] ?? join(projectRoot, 'packages', 'studio', 'build');
+
+  // Ensure log directory exists
+  await mkdir(logDir, { recursive: true });
+
+  // Save config
+  await writeFile(
+    configFile,
+    JSON.stringify({
+      port,
+      host,
+      startedAt: new Date().toISOString(),
+    }),
+  );
+
+  // Check if studio server is built
+  const webIndexPath = join(studioDir, 'index.js');
+  try {
+    await stat(webIndexPath);
+  } catch {
+    // Need to build the studio package
+    try {
+      execFileSync('pnpm', ['--filter', '@cleocode/studio', 'run', 'build'], {
+        cwd: projectRoot,
+        stdio: 'ignore',
+      });
+    } catch {
+      throw new CleoError(
+        ExitCode.GENERAL_ERROR,
+        `Studio build failed. Run: pnpm --filter @cleocode/studio run build\nLogs: ${logFile}`,
+      );
+    }
+  }
+
+  // Open log file for stdio redirection (O_CREAT | O_APPEND)
+  const logFileHandle = await open(logFile, 'a');
+
+  // Start studio server (adapter-node uses HOST/PORT env vars)
+  const serverProcess = spawn('node', [webIndexPath], {
+    cwd: studioDir,
+    env: {
+      ...process.env,
+      HOST: host,
+      PORT: String(port),
+      // Pass CLEO paths through to the studio server
+      CLEO_ROOT: projectRoot,
+    },
+    detached: true,
+    stdio: ['ignore', logFileHandle.fd, logFileHandle.fd],
+  });
+
+  // Detach from parent process so server continues after terminal closes
+  serverProcess.unref();
+
+  // Atomically write PID file to ensure clean state
+  // Write to temp file first, then rename for atomicity
+  const pidFileTmp = `${pidFile}.tmp`;
+  await writeFile(pidFileTmp, String(serverProcess.pid));
+  await rm(pidFile, { force: true });
+  // Rename is atomic on POSIX; on Windows this is close enough
+  await writeFile(pidFile, String(serverProcess.pid));
+  await rm(pidFileTmp, { force: true });
+
+  // Close file handle in parent process
+  await logFileHandle.close();
+
+  // Wait for server to respond
+  const maxAttempts = 30;
+  let started = false;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const response = await fetch(`http://${host}:${port}/api/health`);
+      if (response.ok) {
+        started = true;
+        break;
+      }
+    } catch {
+      // Not ready yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (!started) {
+    try {
+      process.kill(serverProcess.pid!);
+    } catch {
+      /* ignore */
+    }
+    await rm(pidFile, { force: true });
+    throw new CleoError(ExitCode.GENERAL_ERROR, 'Server failed to start within 15 seconds');
+  }
+
+  cliOutput(
+    {
+      pid: serverProcess.pid,
+      port,
+      host,
+      url: `http://${host}:${port}`,
+      logFile,
+    },
+    { command: 'web', message: `CLEO Web UI running on port ${port}` },
+  );
+}
+
+/**
  * Register the web command.
  * @task T4551
  */
@@ -104,125 +230,7 @@ export function registerWebCommand(program: Command): void {
       try {
         const port = parseInt(opts['port'] as string, 10);
         const host = opts['host'] as string;
-        const { pidFile, configFile, logFile, logDir } = getWebPaths();
-
-        // Check if already running
-        const status = await getStatus();
-        if (status.running) {
-          throw new CleoError(
-            ExitCode.GENERAL_ERROR,
-            `Server already running (PID: ${status.pid})`,
-          );
-        }
-
-        // Resolve CLEO Studio server location.
-        // The studio package builds to packages/studio/build/index.js (adapter-node output).
-        // CLEO_STUDIO_DIR env var allows overriding for testing / custom installs.
-        const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
-        const studioDir =
-          process.env['CLEO_STUDIO_DIR'] ?? join(projectRoot, 'packages', 'studio', 'build');
-
-        // Ensure log directory exists
-        await mkdir(logDir, { recursive: true });
-
-        // Save config
-        await writeFile(
-          configFile,
-          JSON.stringify({
-            port,
-            host,
-            startedAt: new Date().toISOString(),
-          }),
-        );
-
-        // Check if studio server is built
-        const webIndexPath = join(studioDir, 'index.js');
-        try {
-          await stat(webIndexPath);
-        } catch {
-          // Need to build the studio package
-          try {
-            execFileSync('pnpm', ['--filter', '@cleocode/studio', 'run', 'build'], {
-              cwd: projectRoot,
-              stdio: 'ignore',
-            });
-          } catch {
-            throw new CleoError(
-              ExitCode.GENERAL_ERROR,
-              `Studio build failed. Run: pnpm --filter @cleocode/studio run build\nLogs: ${logFile}`,
-            );
-          }
-        }
-
-        // Open log file for stdio redirection (O_CREAT | O_APPEND)
-        const logFileHandle = await open(logFile, 'a');
-
-        // Start studio server (adapter-node uses HOST/PORT env vars)
-        const serverProcess = spawn('node', [webIndexPath], {
-          cwd: studioDir,
-          env: {
-            ...process.env,
-            HOST: host,
-            PORT: String(port),
-            // Pass CLEO paths through to the studio server
-            CLEO_ROOT: projectRoot,
-          },
-          detached: true,
-          stdio: ['ignore', logFileHandle.fd, logFileHandle.fd],
-        });
-
-        // Detach from parent process so server continues after terminal closes
-        serverProcess.unref();
-
-        // Atomically write PID file to ensure clean state
-        // Write to temp file first, then rename for atomicity
-        const pidFileTmp = `${pidFile}.tmp`;
-        await writeFile(pidFileTmp, String(serverProcess.pid));
-        await rm(pidFile, { force: true });
-        // Rename is atomic on POSIX; on Windows this is close enough
-        await writeFile(pidFile, String(serverProcess.pid));
-        await rm(pidFileTmp, { force: true });
-
-        // Close file handle in parent process
-        await logFileHandle.close();
-
-        // Wait for server to respond
-        const maxAttempts = 30;
-        let started = false;
-
-        for (let i = 0; i < maxAttempts; i++) {
-          try {
-            const response = await fetch(`http://${host}:${port}/api/health`);
-            if (response.ok) {
-              started = true;
-              break;
-            }
-          } catch {
-            // Not ready yet
-          }
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-
-        if (!started) {
-          try {
-            process.kill(serverProcess.pid!);
-          } catch {
-            /* ignore */
-          }
-          await rm(pidFile, { force: true });
-          throw new CleoError(ExitCode.GENERAL_ERROR, 'Server failed to start within 15 seconds');
-        }
-
-        cliOutput(
-          {
-            pid: serverProcess.pid,
-            port,
-            host,
-            url: `http://${host}:${port}`,
-            logFile,
-          },
-          { command: 'web', message: `CLEO Web UI running on port ${port}` },
-        );
+        await startWebServer(port, host);
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -333,22 +341,15 @@ export function registerWebCommand(program: Command): void {
           await rm(pidFile, { force: true });
         }
 
-        // Start with provided options
-        const port = opts['port'] ?? String(DEFAULT_PORT);
-        const host = opts['host'] ?? DEFAULT_HOST;
-
-        // Trigger start command by calling its action directly.
-        // Cast: commander shim's action handler accepts the registered options object.
-        const startOpts = { port, host };
-        const startCmd = webCmd.commands.find((c) => c.name() === 'start');
-        const startAction = startCmd?.action as
-          | ((opts: Record<string, unknown>) => void | Promise<void>)
-          | undefined;
-        if (startAction) {
-          await startAction(startOpts);
-        } else {
-          throw new CleoError(ExitCode.GENERAL_ERROR, 'Could not restart server');
-        }
+        // Start fresh — call the shared startWebServer helper directly.
+        // This avoids the broken pattern of looking up the sibling command's
+        // action handler at runtime (which resolved to the ShimCommand.action
+        // setter method, not the registered handler, causing:
+        //   TypeError: Cannot set properties of undefined (setting '_action')
+        // — T717 root cause fix).
+        const port = parseInt((opts['port'] as string | undefined) ?? String(DEFAULT_PORT), 10);
+        const host = (opts['host'] as string | undefined) ?? DEFAULT_HOST;
+        await startWebServer(port, host);
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
