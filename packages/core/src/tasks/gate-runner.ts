@@ -587,7 +587,7 @@ async function runLintGate(
     );
   }
 
-  if (toolDef.errorPattern && toolDef.errorPattern.test(combined)) {
+  if (toolDef.errorPattern?.test(combined)) {
     return makeResult(
       index,
       gate,
