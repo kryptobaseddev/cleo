@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.67] — 2026-04-16
+
+### Fixed — CI biome format
+
+- `packages/cleo-os/src/cli.ts` — biome ci on main caught a `console.log` argument line (added in v2026.4.66) that exceeded the formatter's line width. Auto-fixed by `pnpm biome check --write`. My pre-commit local check ran on scoped paths and missed the repo-wide ci pass.
+- Cleaned up orphan `.claude/worktrees/agent-ac5f6c49/` which had its own `biome.json` that broke `pnpm biome ci .` locally (CI unaffected — gitignored).
+
 ## [2026.4.66] — 2026-04-16
 
 ### T636 epic — 5 plan deliverables I missed in v2026.4.65
