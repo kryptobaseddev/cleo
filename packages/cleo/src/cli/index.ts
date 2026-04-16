@@ -70,6 +70,7 @@ import { registerConfigCommand } from './commands/config.js';
 import { registerContextCommand } from './commands/context.js';
 // DEPRECATED: registerContributionCommand removed — use `cleo check protocol contribution`
 import { registerCurrentCommand } from './commands/current.js';
+import { registerDaemonCommand } from './commands/daemon.js';
 import { registerDashCommand } from './commands/dash.js';
 // DEPRECATED: registerDecompositionCommand removed — use `cleo check protocol decomposition`
 import { registerDeleteCommand } from './commands/delete.js';
@@ -83,6 +84,7 @@ import { registerExistsCommand } from './commands/exists.js';
 import { registerExportCommand } from './commands/export.js';
 import { registerExportTasksCommand } from './commands/export-tasks.js';
 import { registerFindCommand } from './commands/find.js';
+import { registerGCCommand } from './commands/gc.js';
 import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
 import { registerGradeCommand } from './commands/grade.js';
 import { registerHistoryCommand } from './commands/history.js';
@@ -137,14 +139,12 @@ import { registerStopCommand } from './commands/stop.js';
 import { registerSyncCommand } from './commands/sync.js';
 import { registerTestingCommand } from './commands/testing.js';
 import { registerTokenCommand } from './commands/token.js';
+import { registerTranscriptCommand } from './commands/transcript.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
 // DEPRECATED: registerValidateCommand removed — use `cleo check schema todo`
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerWebCommand } from './commands/web.js';
-import { registerDaemonCommand } from './commands/daemon.js';
-import { registerGCCommand } from './commands/gc.js';
-import { registerTranscriptCommand } from './commands/transcript.js';
 
 // Register all commands against the shim
 registerAgentCommand(rootShim);
