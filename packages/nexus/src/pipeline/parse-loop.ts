@@ -53,7 +53,12 @@ import type {
   NamedImportMap,
   TsconfigPaths,
 } from './import-processor.js';
-import { buildBarrelExportMap, processExtractedImports } from './import-processor.js';
+import {
+  buildBarrelExportMap,
+  extractImportsViaRegex,
+  extractReExportsViaRegex,
+  processExtractedImports,
+} from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import type { SymbolTable } from './symbol-table.js';
@@ -163,6 +168,35 @@ function loadGrammar(langKey: string): unknown | null {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Content sanitization
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize source content for tree-sitter parsing.
+ *
+ * tree-sitter 0.21.x Node.js bindings throw `Error: Invalid argument`
+ * when source strings contain non-ASCII Unicode characters (e.g. em-dash
+ * `—`, curly quotes, etc.) in comments. Since all structural elements that
+ * nexus cares about (function names, export specifiers, import paths) are
+ * ASCII, replacing non-ASCII characters with spaces is safe and preserves
+ * line/column positions for line number reporting.
+ *
+ * @param content - Raw file content read from disk
+ * @returns Content with non-ASCII characters replaced by spaces
+ */
+function sanitizeForParsing(content: string): string {
+  // eslint-disable-next-line no-control-regex
+  return content.replace(/[^\x00-\x7F]/g, ' ');
+}
+
+/**
+ * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
+ * counter that overflows at 32768 characters. Files larger than this use
+ * regex-based fallback extraction.
+ */
+const TREE_SITTER_MAX_CHARS = 32_767;
 
 // ---------------------------------------------------------------------------
 // Language key mapping
@@ -659,11 +693,33 @@ export async function runParseLoop(
       continue;
     }
 
+    // tree-sitter 0.21.x has a hard limit of 32767 chars per file (15-bit offset counter).
+    // Files larger than this use a regex fallback for imports and re-exports only.
+    const sanitized = sanitizeForParsing(source);
+    if (sanitized.length > TREE_SITTER_MAX_CHARS) {
+      // Regex-based fallback: extract re-exports and imports for barrel tracing.
+      // Symbol definitions, heritage, and calls are skipped for oversized files.
+      try {
+        const regexReExports = extractReExportsViaRegex(source, file.path);
+        for (const re of regexReExports) {
+          allReExports.push(re);
+        }
+        const regexImports = extractImportsViaRegex(source, file.path);
+        for (const imp of regexImports) {
+          allExtractedImports.push(imp);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[nexus] SKIP regex fallback error: ${file.path}: ${msg}\n`);
+      }
+      continue;
+    }
+
     // Parse with tree-sitter
     let rootNode: unknown;
     try {
       parser.setLanguage(grammar);
-      const tree = parser.parse(source);
+      const tree = parser.parse(sanitized);
       rootNode = tree.rootNode;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
