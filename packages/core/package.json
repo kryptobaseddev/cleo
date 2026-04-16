@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.4.63",
+  "version": "2026.4.64",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
