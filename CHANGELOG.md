@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.72] — 2026-04-16
+
+### Fixed
+
+- **Hotfix for v2026.4.71 CI failure**: `packages/contracts/scripts/emit-schemas.mjs` was referenced in the contracts build script but the script file itself was never committed (T803 ship gap). CI build failed on fresh checkout with `MODULE_NOT_FOUND`. Script now committed; release pipeline restored. v2026.4.71 git tag exists but was never published to npm — effectively skipped.
+
+All v2026.4.71 content below applies to v2026.4.72.
+
 ## [2026.4.71] — 2026-04-16
 
 ### T760 RCASD — Wave 5 + Wave 6 landing (all 16 remaining RCASD tasks)
