@@ -31,6 +31,16 @@
       "import": "./dist/conduit/*.js",
       "require": "./dist/conduit/*.js"
     },
+    "./memory/transcript-scanner.js": {
+      "types": "./dist/memory/transcript-scanner.d.ts",
+      "import": "./dist/memory/transcript-scanner.js",
+      "require": "./dist/memory/transcript-scanner.js"
+    },
+    "./memory/transcript-extractor.js": {
+      "types": "./dist/memory/transcript-extractor.d.ts",
+      "import": "./dist/memory/transcript-extractor.js",
+      "require": "./dist/memory/transcript-extractor.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",

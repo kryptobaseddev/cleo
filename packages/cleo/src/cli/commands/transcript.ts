@@ -343,7 +343,7 @@ export function registerTranscriptCommand(program: Command): void {
                 sessionId: entry.sessionId,
               });
 
-              if (result.warnings.some((w) => w.includes('Already extracted'))) {
+              if (result.warnings.some((w: string) => w.includes('Already extracted'))) {
                 skipped += 1;
               } else {
                 processed += 1;
