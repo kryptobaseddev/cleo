@@ -14,6 +14,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AgentRegistry } from './registry/agent-registry.js';
+import { ProviderMatrix } from './registry/provider-matrix.js';
 import { resolveCleoOsPaths } from './xdg.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,6 +69,63 @@ function handleVersionFlags(args: string[]): boolean {
       // fallback: already 'unknown'
     }
     console.log(`CLEO CLI v${cleoVersion}`);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Handle CleoOS sovereignty-surface diagnostic flags before delegating to Pi.
+ *
+ * These flags surface the harness sovereignty modules (ADR-050) without
+ * requiring a full Pi startup — useful for scripts, CI probes, and the
+ * future `cleo-os doctor` command.
+ *
+ * - `--providers` / `cleoos providers`: prints the provider matrix (which of
+ *   the 9 adapters are installed, have spawn implementations, and their
+ *   hook-event counts).
+ * - `--agents` / `cleoos agents`: prints the agent registry (seed agents
+ *   bundled with CleoOS + user agents discovered in provider paths).
+ *
+ * @param args - User-supplied CLI arguments.
+ * @returns `true` if a diagnostic flag was handled, `false` otherwise.
+ */
+async function handleDiagnosticsFlags(args: string[]): Promise<boolean> {
+  const wantProviders = args.includes('--providers') || args[0] === 'providers';
+  const wantAgents = args.includes('--agents') || args[0] === 'agents';
+
+  if (wantProviders) {
+    const matrix = new ProviderMatrix();
+    const rows = await matrix.getMatrix();
+    console.log('CleoOS Provider Matrix (ADR-050)');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log(
+      `  ${'provider'.padEnd(18)} ${'installed'.padEnd(10)} ${'spawn'.padEnd(7)} ${'hooks'.padEnd(5)} adapter`,
+    );
+    console.log('  ─────────────────────────────────────────────────────────');
+    for (const r of rows) {
+      const installed = r.installed ? 'yes' : 'no';
+      const spawn = r.spawnImplemented ? 'yes' : 'stub';
+      console.log(
+        `  ${r.providerId.padEnd(18)} ${installed.padEnd(10)} ${spawn.padEnd(7)} ${String(r.hookSupport).padEnd(5)} ${r.adapterClass}`,
+      );
+    }
+    return true;
+  }
+
+  if (wantAgents) {
+    const registry = new AgentRegistry();
+    const agents = await registry.listAll();
+    console.log('CleoOS Agent Registry (ADR-050)');
+    console.log('═══════════════════════════════════════════════════════════');
+    if (agents.length === 0) {
+      console.log('  (no agents found — run `cleo admin install-global` to seed)');
+      return true;
+    }
+    for (const a of agents) {
+      console.log(`  [${a.source.padEnd(4)}] ${a.id.padEnd(28)} ${a.provider.padEnd(14)} ${a.name}`);
+    }
     return true;
   }
 
@@ -146,6 +205,12 @@ async function main(): Promise<void> {
   // its own version (e.g. 0.67.1) when the user asks for CleoOS's version.
   const userArgs = process.argv.slice(2);
   if (handleVersionFlags(userArgs)) {
+    return;
+  }
+
+  // Intercept sovereignty diagnostic flags (ADR-050) before touching Pi.
+  // These surface the CleoOS-specific harness layer without a Pi startup.
+  if (await handleDiagnosticsFlags(userArgs)) {
     return;
   }
 
