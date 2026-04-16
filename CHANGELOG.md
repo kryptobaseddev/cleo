@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.74] — 2026-04-16
+
+### Clean-release enforcement + structural CI gates
+
+Owner caught v2026.4.73 shipping to main/npm while the separate `ci.yml` biome-ci check was failing. Root-caused two structural bandaids that made this happen; fixed both permanently.
+
+### Fixed
+
+- **Biome errors across 4 files** (that ci.yml was flagging):
+  - `packages/core/src/store/attachment-store.ts:447` — removed useless catch-and-rethrow around blob file write (catch added no value; error propagates naturally).
+  - `packages/core/src/tasks/gate-runner.ts:590` — `toolDef.errorPattern && toolDef.errorPattern.test(...)` → `toolDef.errorPattern?.test(...)` (optional chain).
+  - `packages/cleo/src/dispatch/engines/__tests__/loom-integration.test.ts:15` — removed unused `TaskLifecycle` import.
+  - `packages/core/src/tasks/__tests__/gate-runner.test.ts:12` — removed unused `writeFile` import.
+
+### Structural CI hardening (prevents recurrence)
+
+- **`.github/workflows/release.yml`** — added `Biome CI (format + lint gate)` step running `pnpm biome ci .` BEFORE the build/publish steps. Release workflow now fails fast on format/lint drift instead of publishing and letting the parallel ci.yml fail silently after-the-fact.
+- **`.git/hooks/pre-commit`** — added biome ci block that runs `pnpm biome ci .` on every commit (runs before existing lockfile-drift + cargo-clippy guards). Blocks commit on any biome error with a clear `pnpm biome check --write .` fix hint.
+- **`packages/cleo-os/package.json` scripts** — removed the `|| true` bandaid from `build` + `build:extensions` scripts. Before: `tsc -p tsconfig.extensions.json || true` literally swallowed TypeScript errors silently. After: errors propagate and block the build.
+- **`build.mjs`** — cleo-os now uses full `pnpm run build` (not `build:src`-only shortcut that skipped extensions). Extension type errors now block the monorepo build, which blocks the release.
+- **`packages/cleo-os/extensions/cleo-cant-bridge.ts:908-926`** — rewrote briefing-data-parsing block with proper `BriefingPayload` interface + `{data?} & BriefingPayload` union type so narrowing succeeds without shortcuts. Resolves the 6 `currentTask/handoff does not exist on union` TS errors that persisted silently since before v2026.4.66.
+
+### Policy task logged (T828 child)
+
+- **Never delete code.** If discovered non-shipping, plan an epic + build it. If shipping, types must be correct. No `|| true` in any build script. All TS errors block release. Biome gates pre-commit + release.yml.
+
+### Verification
+
+- `pnpm -r run build` — **clean** across contracts + core + lafs + cant + caamp + cleo + cleo-os (including extensions + postinstall).
+- `pnpm biome ci .` — **clean** (1 warning for broken symlink in `.archive/` historical folder, 1 info; no errors).
+- Contracts 148/148 ✅ · Core 4137/4169 ✅ (32 todo, 0 fail) · Cleo 1405/1407 ✅ (2 skipped, 0 fail).
+- **5,690 passing, 0 failures.**
+
 ## [2026.4.73] — 2026-04-16
 
 ### T788 (LOOM-04) — parent-epic lifecycle gate on child `cleo complete`

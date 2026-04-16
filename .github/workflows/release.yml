@@ -125,6 +125,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Hard gate — biome ci must pass BEFORE any build/publish step runs.
+      # No untrusted user input used here; "pnpm biome ci ." is a static command.
+      # Prevents ship-to-npm while the parallel ci.yml workflow fails on format
+      # or lint drift (observed v2026.4.68-73 consistently).
+      - name: Biome CI (format + lint gate)
+        run: pnpm biome ci .
+
       # Wipe all dist directories before building to prevent stale incremental
       # tsbuildinfo cache from producing incomplete tarballs (T721 / T633).
       # Without this, `tsc --composite` reuses cached .d.ts-only outputs when

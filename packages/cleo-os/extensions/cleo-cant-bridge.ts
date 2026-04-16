@@ -905,22 +905,31 @@ export default function (pi: ExtensionAPI): void {
             identityFileContent.trim(),
           ];
 
-          // Append briefing data if available
+          // Append briefing data if available.
+          //
+          // `cleo briefing` may return either `{data: {...}}` (LAFS envelope) or
+          // the payload directly at top-level (legacy shape). Type the union
+          // explicitly so both shapes are narrowed safely.
           if (briefingResult.status === "fulfilled") {
             try {
-              const briefing = JSON.parse(briefingResult.value.stdout) as {
-                data?: { currentTask?: { id: string; title: string; status: string }; handoff?: { note: string } };
-              };
-              const data = briefing?.data ?? briefing;
-              if (data?.currentTask) {
+              interface BriefingPayload {
+                currentTask?: { id: string; title: string; status: string };
+                handoff?: { note: string };
+              }
+              type BriefingResponse = { data?: BriefingPayload } & BriefingPayload;
+
+              const briefing = JSON.parse(briefingResult.value.stdout) as BriefingResponse;
+              const payload: BriefingPayload = briefing.data ?? briefing;
+
+              if (payload.currentTask) {
                 identityLines.push("");
                 identityLines.push(`## Current Task`);
-                identityLines.push(`- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`);
+                identityLines.push(`- **${payload.currentTask.id}**: ${payload.currentTask.title} (${payload.currentTask.status})`);
               }
-              if (data?.handoff?.note) {
+              if (payload.handoff?.note) {
                 identityLines.push("");
                 identityLines.push(`## Last Session Handoff`);
-                identityLines.push(data.handoff.note);
+                identityLines.push(payload.handoff.note);
               }
             } catch { /* parse failure — skip briefing data */ }
           }
