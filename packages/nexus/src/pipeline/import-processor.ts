@@ -132,22 +132,86 @@ export function buildImportResolutionContext(allPaths: string[]): ImportResoluti
 }
 
 /**
- * Scan all `packages/*\/package.json` files under `repoRoot` and build a map
- * from package name to its entry file path (relative to repo root).
+ * Shape of a package.json `exports` sub-path entry.
  *
- * Resolution priority for the entry file:
+ * Supports the conditional-export object form as well as bare string form.
+ * e.g. `"./internal": { "types": "./dist/internal.d.ts", "import": "./dist/internal.js" }`
+ */
+type PackageExportsEntry =
+  | string
+  | {
+      types?: string;
+      import?: string;
+      require?: string;
+      default?: string;
+    };
+
+/**
+ * Derive the TypeScript source file path from a dist output path.
+ *
+ * Performs the inverse of the TypeScript build transform:
+ * - `./dist/internal.js`       → `<pkgDir>/src/internal.ts`
+ * - `./dist/conduit/index.js`  → `<pkgDir>/src/conduit/index.ts`
+ * - `./dist/index.d.ts`        → `<pkgDir>/src/index.ts`
+ *
+ * Returns null when the path does not follow the `dist/` layout convention.
+ *
+ * @param distPath - dist-relative path from the exports field (e.g. `"./dist/internal.js"`)
+ * @param pkgDir - Package directory prefix relative to repo root (e.g. `"packages/core"`)
+ * @param allFilePaths - Set of all known repo-relative file paths (for existence check)
+ */
+function distPathToSourcePath(
+  distPath: string,
+  pkgDir: string,
+  allFilePaths: Set<string>,
+): string | null {
+  // Strip leading "./"
+  const normalized = distPath.startsWith('./') ? distPath.slice(2) : distPath;
+
+  // Only handle dist/ paths
+  if (!normalized.startsWith('dist/')) return null;
+
+  const relativeToDist = normalized.slice('dist/'.length); // e.g. "internal.js"
+
+  // Try TypeScript source extension variants in priority order
+  const base = relativeToDist.replace(/\.(js|d\.ts)$/, '');
+  const candidates = [`${pkgDir}/src/${base}.ts`, `${pkgDir}/src/${base}.tsx`];
+
+  for (const candidate of candidates) {
+    if (allFilePaths.has(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * Scan all `packages/*\/package.json` files under `repoRoot` and build a map
+ * from package name (and sub-path specifiers) to source file paths.
+ *
+ * **Root entry resolution** (priority order):
  * 1. `<pkgDir>/src/index.ts`  — TypeScript source (preferred for nexus analysis)
  * 2. `<pkgDir>/index.ts`      — flat-layout TypeScript source
  * 3. `<pkgDir>/src/index.js`  — JavaScript source fallback
  * 4. `<pkgDir>/index.js`      — flat-layout JavaScript fallback
  *
+ * **Sub-path export resolution** (T617 barrel fix):
+ * Reads the `exports` field and registers each non-root sub-path like
+ * `./internal` as `@scope/pkg/internal` → the corresponding TypeScript
+ * source file (derived from the dist output path in the exports entry).
+ *
+ * This enables correct resolution of imports like:
+ * ```ts
+ * import { findTasks } from '@cleocode/core/internal';
+ * ```
+ * which previously resolved to `null`, causing all callers to be missed.
+ *
  * The resulting map is stored in `ImportResolutionContext.workspacePackageMap`
- * so that `resolveTypescriptImport` can resolve `@scope/package` imports to
- * their source files instead of returning null.
+ * so that `resolveTypescriptImport` can resolve `@scope/package` and
+ * `@scope/package/sub-path` imports to their source files.
  *
  * @param repoRoot - Absolute path to the repository root
  * @param allFilePaths - Set of all known file paths (relative to repo root)
- * @returns Map of package name → relative entry file path
+ * @returns Map of package name/sub-path → relative entry file path
  */
 export async function loadWorkspacePackages(
   repoRoot: string,
@@ -163,25 +227,74 @@ export async function loadWorkspacePackages(
   }
 
   for (const pkgName of packagesDir) {
-    const pkgJsonPath = path.join(repoRoot, 'packages', pkgName, 'package.json');
+    const pkgDir = `packages/${pkgName}`;
+    const pkgJsonPath = path.join(repoRoot, pkgDir, 'package.json');
     try {
       const raw = await fs.readFile(pkgJsonPath, 'utf-8');
-      const parsed = JSON.parse(raw) as { name?: string };
+      const parsed = JSON.parse(raw) as {
+        name?: string;
+        exports?: Record<string, PackageExportsEntry>;
+      };
       const packageName = parsed.name;
       if (typeof packageName !== 'string' || !packageName) continue;
 
+      // --- Root entry point ---
       // Candidate entry files in priority order (source files preferred)
-      const candidates = [
-        `packages/${pkgName}/src/index.ts`,
-        `packages/${pkgName}/index.ts`,
-        `packages/${pkgName}/src/index.js`,
-        `packages/${pkgName}/index.js`,
+      const rootCandidates = [
+        `${pkgDir}/src/index.ts`,
+        `${pkgDir}/index.ts`,
+        `${pkgDir}/src/index.js`,
+        `${pkgDir}/index.js`,
       ];
 
-      for (const candidate of candidates) {
+      for (const candidate of rootCandidates) {
         if (allFilePaths.has(candidate)) {
           result.set(packageName, candidate);
           break;
+        }
+      }
+
+      // --- Sub-path exports (T617 barrel fix) ---
+      // Register each `./subpath` export entry as `@scope/pkg/subpath`.
+      // This ensures that `import X from '@scope/pkg/internal'` resolves
+      // to the TypeScript source rather than returning null.
+      if (parsed.exports && typeof parsed.exports === 'object') {
+        for (const [subPath, entry] of Object.entries(parsed.exports)) {
+          // Skip root export (already handled above)
+          if (subPath === '.') continue;
+          // Only handle `./subpath` style entries (skip patterns with `*`)
+          if (!subPath.startsWith('./') || subPath.includes('*')) continue;
+
+          // Derive the sub-path specifier: "./internal" → "@scope/pkg/internal"
+          const subPathKey = subPath.slice(2); // strip leading "./"
+          const specifier = `${packageName}/${subPathKey}`;
+
+          // Skip if already registered (shouldn't happen, but be defensive)
+          if (result.has(specifier)) continue;
+
+          // Extract a dist path from the entry (prefer types > import > require > default)
+          let distPath: string | null = null;
+          if (typeof entry === 'string') {
+            distPath = entry;
+          } else if (entry && typeof entry === 'object') {
+            distPath =
+              (entry as { types?: string; import?: string; require?: string; default?: string })
+                .types ??
+              (entry as { types?: string; import?: string; require?: string; default?: string })
+                .import ??
+              (entry as { types?: string; import?: string; require?: string; default?: string })
+                .require ??
+              (entry as { types?: string; import?: string; require?: string; default?: string })
+                .default ??
+              null;
+          }
+
+          if (!distPath) continue;
+
+          const sourcePath = distPathToSourcePath(distPath, pkgDir, allFilePaths);
+          if (sourcePath) {
+            result.set(specifier, sourcePath);
+          }
         }
       }
     } catch {
@@ -848,4 +961,172 @@ export function resolveBarrelBinding(
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Regex-based fallback extractors for oversized files (T617)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
+ * counter that overflows at 32768 characters. Files larger than this threshold
+ * cannot be parsed by tree-sitter and should use the regex fallback.
+ *
+ * Exported for use in parse-loop.ts and parse-worker.ts.
+ */
+export const TREE_SITTER_MAX_CHARS = 32_767;
+
+/**
+ * Regex-based re-export extractor for files that exceed the tree-sitter 32K limit.
+ *
+ * Handles:
+ * - `export { Foo, Bar as Baz } from './source'`  — named re-export
+ * - `export * from './source'`                     — wildcard re-export
+ * - `export type { ... } from '...'`               — type-only re-exports (skipped)
+ *
+ * This is intentionally conservative: it only extracts clearly-formed re-export
+ * statements. False negatives are acceptable (they result in missing CALLS edges,
+ * not incorrect ones). Dynamic or computed re-exports are not handled.
+ *
+ * Used as a fallback when tree-sitter cannot parse a file due to its 32K limit.
+ *
+ * @param content - Raw file content (non-ASCII chars are ignored by regex patterns)
+ * @param filePath - File path relative to repo root
+ * @returns Array of extracted re-export records
+ */
+export function extractReExportsViaRegex(
+  content: string,
+  filePath: string,
+): ExtractedReExportRecord[] {
+  const results: ExtractedReExportRecord[] = [];
+  const lines = content.split('\n');
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    // Wildcard re-export: `export * from '...'`
+    const wildcardMatch = /^export\s+\*\s+from\s+['"]([^'"]+)['"]/m.exec(line);
+    if (wildcardMatch) {
+      results.push({
+        filePath,
+        rawSourcePath: wildcardMatch[1]!,
+        exportedName: null,
+        localName: null,
+      });
+      i++;
+      continue;
+    }
+
+    // Named re-export: `export { Foo, Bar as Baz } from '...'`
+    // Skip `export type { ... }` — type-only re-exports are not call targets
+    if (/^export\s*\{/.test(line) && !/^export\s+type\s*\{/.test(line)) {
+      // Gather continuation lines until we have the closing `}` and `from`
+      let block = line;
+      let j = i + 1;
+      while ((!block.includes('}') || !block.includes('from')) && j < lines.length) {
+        block += ' ' + lines[j].trim();
+        j++;
+      }
+
+      const fromMatch = /from\s+['"]([^'"]+)['"]/m.exec(block);
+      if (fromMatch) {
+        const rawSourcePath = fromMatch[1]!;
+        const innerMatch = /\{([^}]+)\}/.exec(block);
+        if (innerMatch) {
+          const specifiers = innerMatch[1]!
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const spec of specifiers) {
+            const cleanSpec = spec.replace(/^type\s+/, '').trim();
+            const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(cleanSpec);
+            if (asMatch) {
+              results.push({
+                filePath,
+                rawSourcePath,
+                exportedName: asMatch[2]!,
+                localName: asMatch[1]!,
+              });
+            } else if (/^\w+$/.test(cleanSpec)) {
+              results.push({
+                filePath,
+                rawSourcePath,
+                exportedName: cleanSpec,
+                localName: cleanSpec,
+              });
+            }
+          }
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    i++;
+  }
+
+  return results;
+}
+
+/**
+ * Regex-based import extractor for files that exceed the tree-sitter 32K limit.
+ *
+ * Extracts named import bindings from `import { ... } from '...'` statements.
+ * Used to populate the namedImportMap so barrel tracing can fire for callers
+ * in oversized files (e.g. large barrel consumers like `@cleocode/core/internal`).
+ *
+ * @param content - Raw file content
+ * @param filePath - File path relative to repo root
+ * @returns Array of extracted import records with named bindings
+ */
+export function extractImportsViaRegex(content: string, filePath: string): ExtractedImport[] {
+  const results: ExtractedImport[] = [];
+  const lines = content.split('\n');
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    // Named import: `import { ... } from '...'` (also handles `import type { ... }`)
+    if (/^import(\s+type)?\s*\{/.test(line)) {
+      let block = line;
+      let j = i + 1;
+      while ((!block.includes('}') || !block.includes('from')) && j < lines.length) {
+        block += ' ' + lines[j].trim();
+        j++;
+      }
+
+      const fromMatch = /from\s+['"]([^'"]+)['"]/m.exec(block);
+      if (fromMatch) {
+        const rawImportPath = fromMatch[1]!;
+        const namedBindings: NamedImportBinding[] = [];
+        const innerMatch = /\{([^}]+)\}/.exec(block);
+        if (innerMatch) {
+          const specifiers = innerMatch[1]!
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const spec of specifiers) {
+            const cleanSpec = spec.replace(/^type\s+/, '').trim();
+            const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(cleanSpec);
+            if (asMatch) {
+              namedBindings.push({ local: asMatch[2]!, exported: asMatch[1]! });
+            } else if (/^\w+$/.test(cleanSpec)) {
+              namedBindings.push({ local: cleanSpec, exported: cleanSpec });
+            }
+          }
+        }
+        if (namedBindings.length > 0) {
+          results.push({ filePath, rawImportPath, namedBindings });
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    i++;
+  }
+
+  return results;
 }
