@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.64] — 2026-04-16
+
+### Fixed (T755 — CI deep fix)
+- node-cron v4 ESM bundling: added to esbuild sharedExternals so `require('events')` is not inlined; fixes `Dynamic require of events is not supported` crash at CLI startup (Class B)
+- @cleocode/core: add `.js`-keyed subpath exports for `memory/transcript-scanner` + `memory/transcript-extractor` (NodeNext exact-key resolution); add esbuild entry points emitting to `dist/memory/`; add files to tarball verify gate
+- transcript.ts:346: explicit `: string` annotation on parameter `w`
+- memory-brain.ts:1338: typed `.map()` replacing unsafe `CountdownRow` cast
+- check-disk-space TypeScript 6 + NodeNext default import: add `packages/cleo/src/types/check-disk-space.d.ts` module declaration shim
+
 ## [2026.4.63] — 2026-04-15
 
 ### Memory architecture (T726 epic — Wave 1)
