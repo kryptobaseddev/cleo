@@ -18,6 +18,8 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    // T753: Force-kill worker forks that fail to exit after teardown.
+    teardownTimeout: 10_000,
     // Include both unit tests and integration tests when running in this package.
     include: [
       'src/**/*.test.ts',

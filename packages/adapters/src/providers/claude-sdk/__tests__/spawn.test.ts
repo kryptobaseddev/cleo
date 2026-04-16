@@ -61,7 +61,7 @@ describe('ClaudeSDKSpawnProvider', () => {
   });
 
   // -------------------------------------------------------------------------
-  // canSpawn
+  // canSpawn — 3-tier key resolution (T752)
   // -------------------------------------------------------------------------
 
   describe('canSpawn()', () => {
@@ -70,12 +70,61 @@ describe('ClaudeSDKSpawnProvider', () => {
       expect(await provider.canSpawn()).toBe(true);
     });
 
-    it('returns false when ANTHROPIC_API_KEY is absent', async () => {
+    it('returns false when no credentials are available', async () => {
+      // Mock fs.existsSync to return false for all key paths so no tier
+      // resolves (env var, stored key file, or OAuth credentials file).
+      const { existsSync } = await import('node:fs');
+      const saved = process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      vi.spyOn({ existsSync }, 'existsSync').mockReturnValue(false);
+      // Use vi.mock for node:fs to prevent reading real ~/.claude/.credentials.json
+      vi.doMock('node:fs', () => ({
+        existsSync: vi.fn().mockReturnValue(false),
+        readFileSync: vi.fn().mockImplementation(() => {
+          throw new Error('mocked: file not found');
+        }),
+      }));
+      try {
+        // Re-import spawn module with mocked fs to get fresh resolver state
+        vi.resetModules();
+        const { ClaudeSDKSpawnProvider: FreshProvider } = await import('../spawn.js');
+        const freshProvider = new FreshProvider();
+        expect(await freshProvider.canSpawn()).toBe(false);
+      } finally {
+        vi.resetModules();
+        vi.doUnmock('node:fs');
+        if (saved !== undefined) {
+          process.env.ANTHROPIC_API_KEY = saved;
+        }
+      }
+    });
+
+    it('returns true when OAuth credentials file exists (no API key env var)', async () => {
+      const validCreds = JSON.stringify({
+        claudeAiOauth: {
+          accessToken: 'oauth-token',
+          expiresAt: Date.now() + 3_600_000, // 1 hour from now
+        },
+      });
+      vi.doMock('node:fs', () => ({
+        existsSync: vi.fn().mockImplementation((p: string) =>
+          String(p).endsWith('.credentials.json'),
+        ),
+        readFileSync: vi.fn().mockImplementation((p: string) => {
+          if (String(p).endsWith('.credentials.json')) return validCreds;
+          throw new Error('mocked: file not found');
+        }),
+      }));
       const saved = process.env.ANTHROPIC_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
       try {
-        expect(await provider.canSpawn()).toBe(false);
+        vi.resetModules();
+        const { ClaudeSDKSpawnProvider: FreshProvider } = await import('../spawn.js');
+        const freshProvider = new FreshProvider();
+        expect(await freshProvider.canSpawn()).toBe(true);
       } finally {
+        vi.resetModules();
+        vi.doUnmock('node:fs');
         if (saved !== undefined) {
           process.env.ANTHROPIC_API_KEY = saved;
         }

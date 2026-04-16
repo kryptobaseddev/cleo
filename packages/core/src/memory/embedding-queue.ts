@@ -273,14 +273,22 @@ export function getEmbeddingQueue(): EmbeddingQueue {
         // exit handler — cannot await
       });
     });
-    // For SIGTERM/SIGINT give the queue time to flush
+    // For SIGTERM/SIGINT give the queue time to flush with a 2s hard deadline.
     const gracefulShutdown = (): void => {
-      if (_instance) {
-        _instance
+      // Enforce a hard 2s deadline so tests/CI are never blocked by a stuck drain.
+      const deadline = setTimeout(() => process.exit(0), 2_000);
+      deadline.unref();
+      const instance = _instance;
+      if (instance) {
+        instance
           .shutdown()
           .catch(() => {})
-          .finally(() => process.exit(0));
+          .finally(() => {
+            clearTimeout(deadline);
+            process.exit(0);
+          });
       } else {
+        clearTimeout(deadline);
         process.exit(0);
       }
     };

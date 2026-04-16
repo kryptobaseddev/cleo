@@ -15,10 +15,17 @@
  *
  * Supported tables: brain_decisions, brain_patterns, brain_learnings, brain_observations.
  *
+ * T739: detectSupersession now uses sqlite-vec ANN query as the primary similarity
+ *   path when embeddings are available (isEmbeddingAvailable() + isBrainVecLoaded()).
+ *   Falls back to Jaccard keyword overlap when vectors are absent. The final
+ *   candidate score is the max of the embedding cosine similarity and the keyword
+ *   Jaccard ratio, so the most informative signal wins.
+ *
  * @epic T523
+ * @task T739
  */
 
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../store/brain-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
 
 // ============================================================================
@@ -391,6 +398,43 @@ export async function detectSupersession(
 
     if (existing.length === 0) return [];
 
+    // T739: Build an embedding-similarity map (existingId → cosine similarity)
+    // when sqlite-vec is loaded. This is the primary signal; keyword Jaccard
+    // is the fallback and tie-breaker.
+    const embeddingScores = new Map<string, number>();
+    if (isBrainVecLoaded()) {
+      try {
+        const { isEmbeddingAvailable, embedText } = await import('./brain-embedding.js');
+        if (isEmbeddingAvailable()) {
+          const queryVector = await embedText(newEntry.text);
+          if (queryVector) {
+            // KNN query: returns (id, distance) where distance is L2/cosine depending on vec0 metric.
+            // brain_embeddings stores observations, decisions, patterns, learnings as typed IDs.
+            // distance = 0.0 means identical; we convert to similarity as (1 - distance/2).
+            interface KnnRow {
+              id: string;
+              distance: number;
+            }
+            const knnRows = typedAll<KnnRow>(
+              nativeDb.prepare(
+                'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT 50',
+              ),
+              new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
+            );
+            for (const kr of knnRows) {
+              // Cosine distance range: [0, 2]. Convert to similarity [0, 1].
+              const cosineSimilarity = Math.max(0, 1 - kr.distance / 2);
+              // Strip type prefix to get the bare entry ID for map keying
+              const bareId = kr.id.includes(':') ? kr.id.split(':').slice(1).join(':') : kr.id;
+              embeddingScores.set(bareId, cosineSimilarity);
+            }
+          }
+        }
+      } catch {
+        // Embedding path is best-effort — fall through to keyword-only
+      }
+    }
+
     const candidates: SupersessionCandidate[] = [];
 
     for (const row of existing) {
@@ -398,11 +442,19 @@ export async function detectSupersession(
       // For freshly-written entries this is always true, but we guard anyway.
       if (row.created_at >= newEntry.createdAt) continue;
 
-      const { similarity, shared } = keywordSimilarity(newEntry.text, row.text);
-      if (similarity >= KEYWORD_OVERLAP_THRESHOLD) {
+      // Keyword Jaccard similarity (always computed — cheap, no I/O).
+      const { similarity: keywordSim, shared } = keywordSimilarity(newEntry.text, row.text);
+
+      // T739: Combine embedding similarity (primary) with keyword Jaccard (fallback).
+      // Use max so the most informative signal wins. When embeddings are absent,
+      // embeddingScore is 0.0 and the keyword path takes over.
+      const embeddingScore = embeddingScores.get(row.id) ?? 0;
+      const combinedSimilarity = Math.max(embeddingScore, keywordSim);
+
+      if (combinedSimilarity >= KEYWORD_OVERLAP_THRESHOLD) {
         candidates.push({
           existingId: row.id,
-          similarity,
+          similarity: combinedSimilarity,
           table: tableConfig.table,
           sharedKeywords: shared.slice(0, 10),
         });

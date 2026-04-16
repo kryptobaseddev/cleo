@@ -27,7 +27,11 @@ import {
   type MentalModelObservation,
   VALIDATE_ON_LOAD_PREAMBLE,
 } from '../mental-model-injection.js';
-import { isMentalModelObservation, mentalModelQueue } from '../mental-model-queue.js';
+import {
+  _resetMentalModelQueueForTests,
+  isMentalModelObservation,
+  mentalModelQueue,
+} from '../mental-model-queue.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,13 +102,23 @@ describe('Wave 8 empirical — per-agent mental models', () => {
   });
 
   afterEach(async () => {
+    // Flush and reset the queue before closing the DB so no pending writes
+    // hit a closed connection and the flush timer doesn't keep the process alive.
+    try {
+      await Promise.race([
+        mentalModelQueue.flush(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+    } catch {
+      /* best-effort */
+    }
+    _resetMentalModelQueueForTests();
     await resetBrainDb();
     await resetTasksDb();
     delete process.env['CLEO_DIR'];
-    await Promise.race([
-      rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {}),
-      new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
-    ]);
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(
+      () => {},
+    );
   });
 
   // --------------------------------------------------------------------------

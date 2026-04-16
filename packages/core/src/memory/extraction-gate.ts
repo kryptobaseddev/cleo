@@ -233,19 +233,37 @@ async function incrementCitationCount(projectRoot: string, entryId: string): Pro
 }
 
 /**
- * Check A (degraded): SHA-256 content-hash deduplication only.
+ * Tables that support SHA-256 content-hash deduplication (T726 T737).
  *
- * Queries brain_observations for a matching content_hash within the last
- * 24 hours. When a match is found, returns 'merged' so the caller avoids
- * a duplicate insert.
+ * All four typed tables now have a `content_hash` column (added in migration
+ * T726 Wave 1A). The table searched is selected by the caller based on the
+ * memory type being stored.
+ */
+export type HashDedupTable =
+  | 'brain_observations'
+  | 'brain_decisions'
+  | 'brain_patterns'
+  | 'brain_learnings';
+
+/**
+ * Check A: SHA-256 content-hash deduplication for any of the four brain tables.
  *
- * Only checks brain_observations because it is the only table that stores
- * a content_hash column. For other memory types, hash dedup is not supported
- * and this returns null.
+ * Queries the specified table for a row with a matching content_hash that is
+ * still valid (invalid_at IS NULL). When a match is found, returns 'merged'
+ * so the caller avoids a duplicate insert and instead increments citation_count
+ * on the existing row.
+ *
+ * T737: Extended from observations-only to all four typed tables. Each table
+ * now has the content_hash column (migration 20260416000005_t726-dedup-tier-columns).
+ *
+ * @param projectRoot - Project root for brain.db access
+ * @param table - Which typed table to search
+ * @param text - Candidate content text (hashed internally)
  */
 async function hashDedupCheck(
   projectRoot: string,
   text: string,
+  table: HashDedupTable = 'brain_observations',
 ): Promise<{ matched: true; id: string } | { matched: false }> {
   try {
     const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
@@ -254,11 +272,9 @@ async function hashDedupCheck(
     if (!nativeDb) return { matched: false };
 
     const hash = contentHashPrefix(text);
-    // Search across all observations (no time window — permanent dedup)
+    // Permanent dedup — no time window. A hash match means exact duplicate regardless of age.
     const rows = nativeDb
-      .prepare(
-        'SELECT id FROM brain_observations WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1',
-      )
+      .prepare(`SELECT id FROM ${table} WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1`)
       .all(hash) as Array<{ id: string }>;
 
     if (rows.length > 0) {
@@ -284,6 +300,25 @@ function isTrustedSource(candidate: MemoryCandidate): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Public SHA-256 content-hash deduplication check.
+ *
+ * Exported for use by write paths (llm-extraction.ts, decisions.ts, patterns.ts)
+ * that need to run hash dedup before an INSERT without going through the full
+ * verifyCandidate gate (T736, T737).
+ *
+ * @param projectRoot - Project root for brain.db access
+ * @param text - Candidate content text (hashed internally)
+ * @param table - Which typed table to probe
+ */
+export async function checkHashDedup(
+  projectRoot: string,
+  text: string,
+  table: HashDedupTable,
+): Promise<{ matched: true; id: string } | { matched: false }> {
+  return hashDedupCheck(projectRoot, text, table);
 }
 
 // ============================================================================
@@ -315,8 +350,19 @@ export async function verifyCandidate(
   try {
     // -----------------------------------------------------------------------
     // Check A: Content-hash dedup (always, fast)
+    // T737: Route to the correct typed table based on the candidate's memory type.
     // -----------------------------------------------------------------------
-    const hashCheck = await hashDedupCheck(projectRoot, candidate.text);
+    const dedupTable: HashDedupTable =
+      candidate.memoryType === 'semantic'
+        ? // semantic defaults to learnings unless the caller routes to decisions
+          // (decisions bypass verifyCandidate and call storeDecision directly via
+          //  llm-extraction storeExtracted — this branch covers learnings path)
+          'brain_learnings'
+        : candidate.memoryType === 'procedural'
+          ? 'brain_patterns'
+          : 'brain_observations'; // episodic → observations
+
+    const hashCheck = await hashDedupCheck(projectRoot, candidate.text, dedupTable);
     if (hashCheck.matched) {
       // Bump citation count on the existing entry (fire-and-forget)
       incrementCitationCount(projectRoot, hashCheck.id).catch(() => undefined);

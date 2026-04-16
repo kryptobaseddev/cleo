@@ -17,6 +17,9 @@
  *       Runs after backup (priority 5) so brain.db snapshot is captured first.
  * T554: Fire-and-forget LLM reflector on session end. Runs at priority 4
  *       (after consolidation at priority 5) to synthesize final session knowledge.
+ * T732: Write `transcript_pending_extraction` tombstone on session end (priority 3).
+ *       Runs after reflector so it is the last scheduled operation. Records the
+ *       session JSONL path so `cleo transcript scan --pending` can list queued work.
  */
 
 import { hooks } from '../registry.js';
@@ -144,6 +147,37 @@ export async function handleSessionEndConsolidation(
 }
 
 /**
+ * Handle SessionEnd — fire-and-forget LLM Observer compression.
+ *
+ * T740: GAP-6 fix — Observer was only triggered on task completion when
+ * observation count >= threshold (default 10). Sessions with < 10 observations
+ * never got compression. This hook runs Observer unconditionally at session end
+ * with a threshold override of 1, ensuring even short sessions get compressed.
+ *
+ * Priority 4.5 (between consolidation at 5 and reflector at 4) so Observer
+ * compresses the raw observations before Reflector synthesizes patterns/learnings
+ * from them. This matches the intended pipeline order.
+ *
+ * Uses setImmediate to yield control before the LLM call. Errors are caught
+ * and logged — they MUST NOT block session end or throw to callers.
+ */
+export async function handleSessionEndObserver(
+  projectRoot: string,
+  payload: SessionEndPayload,
+): Promise<void> {
+  setImmediate(async () => {
+    try {
+      const { runObserver } = await import('../../memory/observer-reflector.js');
+      // thresholdOverride: 1 ensures Observer always fires at session end
+      // regardless of observation count (bypassing the default threshold of 10).
+      await runObserver(projectRoot, payload.sessionId, { thresholdOverride: 1 });
+    } catch (err) {
+      console.warn('[observer] Session-end observer failed:', err);
+    }
+  });
+}
+
+/**
  * Handle SessionEnd — fire-and-forget LLM reflector synthesis.
  *
  * T554: Runs the Reflector after the consolidation pass (priority 5) to
@@ -164,6 +198,49 @@ export async function handleSessionEndReflector(
       await runReflector(projectRoot, payload.sessionId);
     } catch (err) {
       console.warn('[reflector] Session-end reflector failed:', err);
+    }
+  });
+}
+
+/**
+ * Handle SessionEnd — write a `transcript_pending_extraction` record to brain_observations.
+ *
+ * T732: Records the session JSONL path so the warm-tier extractor and
+ * `cleo transcript scan --pending` can locate queued sessions.
+ *
+ * The record is idempotent: re-running session end for the same session_id
+ * updates the timestamp but does not create a duplicate (content-hash dedup
+ * in observeBrain handles this automatically).
+ *
+ * Priority 3 — runs after reflector (priority 4) so it is the last step in
+ * the session-end pipeline.
+ *
+ * Uses setImmediate to yield so the session-end response reaches the CLI
+ * before the brain write occurs.
+ */
+export async function handleSessionEndTranscriptSchedule(
+  projectRoot: string,
+  payload: SessionEndPayload,
+): Promise<void> {
+  setImmediate(async () => {
+    try {
+      const { findSessionTranscriptPath } = await import('../../memory/transcript-scanner.js');
+      const filePath = await findSessionTranscriptPath(payload.sessionId);
+
+      // If we can't locate the JSONL path, skip — extractor will handle it in migration
+      if (!filePath) return;
+
+      const { observeBrain } = await import('../../memory/brain-retrieval.js');
+      await observeBrain(projectRoot, {
+        title: `transcript_pending_extraction:${payload.sessionId}`,
+        text: `Session ${payload.sessionId} transcript queued for warm-tier extraction. File: ${filePath}`,
+        type: 'discovery',
+        sourceType: 'agent',
+        sourceSessionId: payload.sessionId,
+      });
+    } catch (err) {
+      // Best-effort — never block session end
+      console.warn('[transcript-schedule] Failed to queue transcript:', err);
     }
   });
 }
@@ -202,12 +279,33 @@ hooks.register({
   priority: 5,
 });
 
-// Priority 4 runs AFTER consolidation (priority 5) — reflector synthesizes
-// the final session knowledge using observations that consolidation may have
-// updated (tier promotions, dedup).
+// T740: Priority 4.5 runs AFTER consolidation (priority 5) and BEFORE
+// reflector (priority 4). Observer compresses raw observations so Reflector
+// sees the compressed form, matching the intended pipeline order.
+// Threshold override = 1: Observer fires unconditionally (even < 10 obs).
+hooks.register({
+  id: 'observer-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndObserver,
+  priority: 4.5,
+});
+
+// Priority 4 runs AFTER observer (priority 4.5) — reflector synthesizes
+// the final session knowledge using observations that observer may have
+// already compressed.
 hooks.register({
   id: 'reflector-session-end',
   event: 'SessionEnd',
   handler: handleSessionEndReflector,
   priority: 4,
+});
+
+// Priority 3 — T732: queue transcript for warm-tier extraction. Runs last so
+// the tombstone captures the completed session state (after backup + consolidation
+// + reflector have all run).
+hooks.register({
+  id: 'transcript-schedule-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndTranscriptSchedule,
+  priority: 3,
 });
