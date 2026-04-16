@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.68] — 2026-04-16
+
+### T636 epic FULLY CLOSED — all 4 remaining deliverables shipped
+
+Plan `precious-cooking-moonbeam` reaches 100% of originally-scoped deliverables. Nothing deferred. Four parallel workers completed across T646–T649.
+
+### T646 — `cleo check canon` CI gate
+- `packages/cleo/src/dispatch/domains/check/canon.ts` (new) — drift-detection engine. Reads `CANONICAL_DOMAINS` + operations count from code. Scans concept/spec docs for structural claims + forbidden phrases ("Four Great Systems", "Circle of Ten", "exactly 10 domains"). Historical narratives excluded per ADR-044.
+- Registered `check.canon` in dispatch registry.
+- CLI: `cleo check canon` returns exit 0 when clean, non-zero on drift.
+- `.github/workflows/ci.yml` — new CI step invokes the gate; PRs with canon drift fail before merge.
+
+### T647 — `cleo admin smoke --provider <name>`
+- `packages/cleo/src/dispatch/domains/admin/smoke-provider.ts` (new) — ADR-049 invariant probe with 5 checks per provider:
+  1. Adapter loads + exports `CLEOProviderAdapter` shape (id, name, version)
+  2. brain.db / nexus.db / conduit.db / tasks.db all resolve to paths owned by CLEO (not provider-specific)
+  3. Hook count from `hooks.ts` against CAAMP canonical event list
+  4. Spawn implementation status (yes / stub / no)
+  5. `getProviderAgentFolder(id)` returns a valid path
+- CLI: `cleo admin smoke --provider <id>` — verified end-to-end on claude-code (PASS).
+
+### T648 — codex / gemini-cli / kimi `spawn.ts` implementations
+- `packages/adapters/src/providers/codex/spawn.ts` (new) — `CodexSpawnProvider`: CLI-based (`codex --full-auto <tmpfile>`) with graceful `canSpawn()` fallback when binary absent.
+- `packages/adapters/src/providers/gemini-cli/spawn.ts` (new) — `GeminiCliSpawnProvider`: CLI-based (`gemini --yolo --model <model>`) via stdin.
+- `packages/adapters/src/providers/kimi/spawn.ts` (new) — `KimiSpawnProvider`: API-based (Moonshot `/v1/chat/completions`) using `MOONSHOT_API_KEY`, with forward-compatible `kimi` CLI detection.
+- **All 9 adapters now report `spawn=yes`** (was 6 before). `cleoos doctor` sovereignty scan: 0 issues.
+
+### T649 — `cleoos doctor` aggregated sovereignty report
+- `packages/cleo-os/src/commands/doctor.ts` (new) — single-command sovereignty diagnostics. Aggregates `ProviderMatrix` + `AgentRegistry` + `MemoryPolicy` + per-provider smoke via shell-out to `cleo admin smoke`.
+- Extended `packages/cleo-os/src/cli.ts` to handle `--doctor` / `doctor` flag.
+- Output: human-readable report across 4 sections; exit 0 on clean, 1 on any FAIL.
+
+### Plan completion audit
+
+| Original plan deliverable | Status |
+|---|---|
+| Epic 1 — ADR-044 + canon doc rewrites + `check:canon` CI gate | ✅ ALL SHIPPED |
+| Epic 2 — Orphan triage | ✅ WIRED (cant-lsp/cant-router/integration-tests) + SEED-AGENTS RELOCATED |
+| Epic 3 — ADR-049 + per-provider folders + 3 spawns + smoke + DurableJobStore | ✅ ALL SHIPPED |
+| Epic 4 — ADR-050 + 3 modules + cli.ts wiring + cleoos doctor | ✅ ALL SHIPPED |
+
+Zero outstanding plan deliverables. Zero theater.
+
 ## [2026.4.67] — 2026-04-16
 
 ### Fixed — CI biome format

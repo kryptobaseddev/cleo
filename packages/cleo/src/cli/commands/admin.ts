@@ -68,9 +68,26 @@ export function registerAdminCommand(program: Command): void {
 
   admin
     .command('smoke')
-    .description('Run operational smoke tests across all domains')
-    .action(async () => {
-      await dispatchFromCli('query', 'admin', 'smoke', {}, { command: 'admin' });
+    .description(
+      'Run operational smoke tests across all domains, or probe ADR-049 invariants for a named provider (--provider)',
+    )
+    .option(
+      '--provider <id>',
+      'Probe harness sovereignty invariants for a specific provider adapter (ADR-049)',
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      const provider = opts['provider'] as string | undefined;
+      if (provider) {
+        await dispatchFromCli(
+          'query',
+          'admin',
+          'smoke.provider',
+          { provider },
+          { command: 'admin smoke', operation: 'admin.smoke.provider' },
+        );
+      } else {
+        await dispatchFromCli('query', 'admin', 'smoke', {}, { command: 'admin' });
+      }
     });
 
   admin

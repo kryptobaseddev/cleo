@@ -13,6 +13,7 @@ import { GeminiCliAdapter } from './adapter.js';
 export { GeminiCliAdapter } from './adapter.js';
 export { GeminiCliHookProvider } from './hooks.js';
 export { GeminiCliInstallProvider } from './install.js';
+export { GeminiCliSpawnProvider } from './spawn.js';
 
 export default GeminiCliAdapter;
 

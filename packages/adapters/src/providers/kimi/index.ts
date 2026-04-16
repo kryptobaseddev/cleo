@@ -13,6 +13,7 @@ import { KimiAdapter } from './adapter.js';
 export { KimiAdapter } from './adapter.js';
 export { KimiHookProvider } from './hooks.js';
 export { KimiInstallProvider } from './install.js';
+export { KimiSpawnProvider } from './spawn.js';
 
 export default KimiAdapter;
 

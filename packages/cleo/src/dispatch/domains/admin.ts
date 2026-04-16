@@ -641,6 +641,23 @@ export class AdminHandler implements DomainHandler {
           return wrapResult(result, 'query', 'admin', operation, startTime);
         }
 
+        case 'smoke.provider': {
+          const providerIdParam = params?.provider as string | undefined;
+          if (!providerIdParam || typeof providerIdParam !== 'string') {
+            return errorResult(
+              'query',
+              'admin',
+              operation,
+              'E_INVALID_INPUT',
+              'provider is required (e.g. claude-code, pi, opencode)',
+              startTime,
+            );
+          }
+          const { smokeProvider } = await import('./admin/smoke-provider.js');
+          const result = await smokeProvider(providerIdParam);
+          return wrapResult(result, 'query', 'admin', operation, startTime);
+        }
+
         case 'hooks.matrix': {
           const result = await systemHooksMatrix({
             providerIds: params?.providerIds as string[] | undefined,
@@ -1207,6 +1224,7 @@ export class AdminHandler implements DomainHandler {
         'map',
         'roadmap',
         'smoke',
+        'smoke.provider',
         'hooks.matrix',
       ],
       mutate: [
