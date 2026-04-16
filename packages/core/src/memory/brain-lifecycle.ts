@@ -1094,13 +1094,14 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
 
   interface LogRow {
     entry_ids: string;
+    query: string;
   }
 
   let logRows: LogRow[] = [];
   try {
     logRows = typedAll<LogRow>(
       nativeDb.prepare(
-        `SELECT entry_ids FROM brain_retrieval_log WHERE created_at >= ? LIMIT 1000`,
+        `SELECT entry_ids, query FROM brain_retrieval_log WHERE created_at >= ? LIMIT 1000`,
       ),
       age30d,
     );
@@ -1108,8 +1109,8 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
     return 0;
   }
 
-  // Build co-occurrence counts from JSON entry_ids arrays
-  const coOccurrence = new Map<string, number>();
+  // Build co-occurrence tracking: Map<pair, Set<distinct queries>>
+  const coOccurrence = new Map<string, Set<string>>();
   for (const row of logRows) {
     let ids: string[];
     try {
@@ -1124,14 +1125,16 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
         const b = ids[j]!;
         // Normalize pair key to canonical order
         const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-        coOccurrence.set(key, (coOccurrence.get(key) ?? 0) + 1);
+        const querySet = coOccurrence.get(key) ?? new Set<string>();
+        querySet.add(row.query);
+        coOccurrence.set(key, querySet);
       }
     }
   }
 
   let strengthened = 0;
-  for (const [pair, count] of coOccurrence) {
-    if (count < 3) continue;
+  for (const [pair, querySet] of coOccurrence) {
+    if (querySet.size < 3) continue;
     const [fromId, toId] = pair.split('|');
     if (!fromId || !toId) continue;
 
@@ -1167,3 +1170,9 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
 
   return strengthened;
 }
+
+/**
+ * Test export of strengthenCoRetrievedEdges for vitest (T790).
+ * @internal for testing only
+ */
+export const strengthenCoRetrievedEdgesForTest = strengthenCoRetrievedEdges;

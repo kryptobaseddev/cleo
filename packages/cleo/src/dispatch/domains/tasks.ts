@@ -44,6 +44,7 @@ import {
   taskReparent,
   taskRestore,
   taskShow,
+  taskShowWithHistory,
   taskStart,
   taskStop,
   taskSyncLinks,
@@ -74,6 +75,11 @@ export class TasksHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'show': {
+          const historyFlag = params?.history === true;
+          if (historyFlag) {
+            const result = await taskShowWithHistory(projectRoot, params!.taskId as string, true);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
+          }
           const result = await taskShow(projectRoot, params!.taskId as string);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }

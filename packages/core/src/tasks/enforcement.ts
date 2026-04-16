@@ -1,4 +1,4 @@
-import { ExitCode, type Task } from '@cleocode/contracts';
+import { type AcceptanceItem, ExitCode, type Task } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 
 export interface ValidationResult {
@@ -9,22 +9,22 @@ export interface ValidationResult {
 }
 
 export interface AddTaskEnforcementOptions {
-  acceptance?: string[];
+  acceptance?: AcceptanceItem[];
   priority?: string;
 }
 
 export interface UpdateTaskEnforcementOptions {
-  acceptance?: string[];
+  acceptance?: AcceptanceItem[];
 }
 
 export interface AcceptanceEnforcement {
   validateCreation(options: AddTaskEnforcementOptions): ValidationResult;
   validateUpdate(task: Task, updates: UpdateTaskEnforcementOptions): ValidationResult;
   validateCompletion(task: Task): ValidationResult;
-  checkMinimumCriteria(criteria: string[], minCriteria: number): boolean;
+  checkMinimumCriteria(criteria: AcceptanceItem[], minCriteria: number): boolean;
 }
 
-function checkMin(criteria: string[], min: number): boolean {
+function checkMin(criteria: AcceptanceItem[], min: number): boolean {
   return Array.isArray(criteria) && criteria.length >= min;
 }
 

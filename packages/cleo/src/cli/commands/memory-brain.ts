@@ -1256,6 +1256,86 @@ export function registerMemoryBrainCommand(program: Command): void {
     });
 
   // -------------------------------------------------------------------------
+  // T791 — cleo memory llm-status
+  // Reports LLM backend resolution status and extraction readiness.
+  // -------------------------------------------------------------------------
+
+  memory
+    .command('llm-status')
+    .description(
+      'Report LLM backend resolution status and extraction readiness. ' +
+        'Shows which source resolved the Anthropic API key (env/config/oauth/none), ' +
+        'whether LLM extraction is enabled, and when extraction last ran.',
+    )
+    .option('--json', 'Output as JSON')
+    .action(async () => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'llm-status',
+        {},
+        { command: 'memory-llm-status', operation: 'memory.llm-status' },
+      );
+    });
+
+  // -------------------------------------------------------------------------
+  // T792 — cleo memory verify <id> + cleo memory pending-verify
+  // Promotes agent observations to verified=true; surfaces pending queue.
+  // -------------------------------------------------------------------------
+
+  // -- verify (flip verified=1 on a brain entry) --
+  memory
+    .command('verify <id>')
+    .description(
+      'Promote a brain memory entry to verified=true. ' +
+        'Requires caller identity of cleo-prime or owner. ' +
+        'Flips the verified flag in brain_observations (or typed table), ' +
+        'enabling long-tier promotion and ground-truth retrieval weighting.',
+    )
+    .option(
+      '--agent <name>',
+      "Caller identity ('cleo-prime' or 'owner'). " +
+        'Omit when calling from the owner terminal (no identity required).',
+    )
+    .option('--json', 'Output as JSON')
+    .action(async (id: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'mutate',
+        'memory',
+        'verify',
+        {
+          id,
+          ...(opts['agent'] !== undefined && { agent: opts['agent'] }),
+        },
+        { command: 'memory-verify', operation: 'memory.verify' },
+      );
+    });
+
+  // -- pending-verify (list unverified but highly cited entries) --
+  memory
+    .command('pending-verify')
+    .description(
+      'List brain memory entries that are unverified (verified=false) but highly cited ' +
+        '(citation_count >= threshold). These are strong candidates for manual verification ' +
+        "via 'cleo memory verify <id>'.",
+    )
+    .option('--min-citations <n>', 'Minimum citation count threshold (default: 5)', parseInt)
+    .option('--limit <n>', 'Maximum entries to return (default: 50)', parseInt)
+    .option('--json', 'Output as JSON')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'pending-verify',
+        {
+          ...(opts['minCitations'] !== undefined && { minCitations: opts['minCitations'] }),
+          ...(opts['limit'] !== undefined && { limit: opts['limit'] }),
+        },
+        { command: 'memory-pending-verify', operation: 'memory.pending-verify' },
+      );
+    });
+
+  // -------------------------------------------------------------------------
   // T744 — cleo memory tier <stats|promote|demote>
   // Provides tier observability and manual override for the 3-tier memory model.
   // -------------------------------------------------------------------------

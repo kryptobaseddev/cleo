@@ -361,6 +361,57 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // T811 — IVTR multi-agent enforcement
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'ivtr.status',
+    description: 'orchestrate.ivtr.status (query) — current IVTR phase + history',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'ivtr.start',
+    description: 'orchestrate.ivtr.start (mutate) — begin Implement phase',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'ivtr.next',
+    description: 'orchestrate.ivtr.next (mutate) — advance to next phase (requires prior evidence)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'ivtr.release',
+    description: 'orchestrate.ivtr.release (mutate) — final gate, requires I+V+T evidence',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'ivtr.loop-back',
+    description: 'orchestrate.ivtr.loop-back (mutate) — rewind to phase on failure',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId', 'phase', 'reason'],
+  },
   {
     gateway: 'query',
     domain: 'orchestrate',
@@ -1964,6 +2015,65 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+  // T791 — LLM extraction backend status
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'llm-status',
+    description:
+      'memory.llm-status (query) — report LLM backend resolution status and extraction readiness',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  // T792 — pending verification queue
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'pending-verify',
+    description:
+      'memory.pending-verify (query) — list unverified brain entries with citation_count >= threshold',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'minCitations',
+        type: 'number',
+        required: false,
+        description: 'Minimum citation count threshold (default: 5)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum entries to return (default: 50)',
+      },
+    ],
+  },
+  // T792 — promote entry to verified=true (owner/cleo-prime only)
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'verify',
+    description:
+      'memory.verify (mutate) — flip verified=1 on a brain entry; requires cleo-prime or owner identity',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      { name: 'id', type: 'string', required: true, description: 'Brain entry ID to verify' },
+      {
+        name: 'agent',
+        type: 'string',
+        required: false,
+        description: "Caller identity ('cleo-prime' or 'owner'). Omit for terminal invocation.",
+      },
+    ],
   },
   {
     gateway: 'mutate',
@@ -3593,6 +3703,132 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+
+  // ── docs (T797) ────────────────────────────────────────────────────────────
+
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'add',
+    description:
+      'docs.add (mutate) — attach a local file or URL to a CLEO owner entity (task, session, observation)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['ownerId'],
+    params: [
+      {
+        name: 'ownerId',
+        type: 'string' as const,
+        required: true,
+        description: 'Owner entity ID (e.g. T123, ses_*, O-abc)',
+      },
+      {
+        name: 'file',
+        type: 'string' as const,
+        required: false,
+        description: 'Path to local file to attach',
+      },
+      {
+        name: 'url',
+        type: 'string' as const,
+        required: false,
+        description: 'Remote URL to attach',
+      },
+      {
+        name: 'desc',
+        type: 'string' as const,
+        required: false,
+        description: 'Free-text description',
+      },
+      {
+        name: 'labels',
+        type: 'string' as const,
+        required: false,
+        description: 'Comma-separated labels',
+      },
+      {
+        name: 'attachedBy',
+        type: 'string' as const,
+        required: false,
+        description: 'Agent identity (defaults to "human")',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'list',
+    description: 'docs.list (query) — list attachments associated with a CLEO owner entity',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'task',
+        type: 'string' as const,
+        required: false,
+        description: 'Filter by task ID (e.g. T123)',
+      },
+      {
+        name: 'session',
+        type: 'string' as const,
+        required: false,
+        description: 'Filter by session ID (e.g. ses_*)',
+      },
+      {
+        name: 'observation',
+        type: 'string' as const,
+        required: false,
+        description: 'Filter by observation ID (e.g. O-abc)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'fetch',
+    description:
+      'docs.fetch (query) — retrieve attachment bytes and metadata by attachment ID or SHA-256',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['attachmentRef'],
+    params: [
+      {
+        name: 'attachmentRef',
+        type: 'string' as const,
+        required: true,
+        description: 'Attachment ID (att_*) or SHA-256 hex',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'remove',
+    description:
+      'docs.remove (mutate) — remove an attachment ref from an owner; purges blob when refCount reaches zero',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['attachmentRef', 'from'],
+    params: [
+      {
+        name: 'attachmentRef',
+        type: 'string' as const,
+        required: true,
+        description: 'Attachment ID (att_*) or SHA-256 hex',
+      },
+      {
+        name: 'from',
+        type: 'string' as const,
+        required: true,
+        description: 'Owner entity ID to remove the ref from',
+      },
+    ],
   },
 ];
 

@@ -1,13 +1,24 @@
 /**
- * CLI docs command - documentation management with drift detection and gap checking.
- * Ported from scripts/docs.sh
- * @task T4551
- * @epic T4545
+ * CLI docs command - attachment management + documentation drift detection.
+ *
+ * Subcommands (T797):
+ *   cleo docs add <ownerId> <file|--url <url>> [--desc "..."] [--labels tag1,tag2]
+ *   cleo docs list [--task T###] [--session ses_*] [--observation O###]
+ *   cleo docs fetch <attachmentId|sha256>
+ *   cleo docs remove <attachmentId|sha256> --from <ownerId>
+ *
+ * Legacy subcommands (T4551):
+ *   cleo docs sync       — drift detection between scripts and docs index
+ *   cleo docs gap-check  — validate knowledge transfer from review docs
+ *
+ * @task T4551 (sync/gap-check), T797 (add/list/fetch/remove)
+ * @epic T4545 (legacy), T760 (attachments)
  */
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CleoError, formatError, getAgentOutputsAbsolute, readJson } from '@cleocode/core/internal';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -130,13 +141,128 @@ async function runGapCheck(_projectRoot: string, filterId?: string): Promise<Gap
 
 /**
  * Register the docs command.
- * @task T4551
+ * @task T4551 (sync/gap-check), T797 (add/list/fetch/remove)
  */
 export function registerDocsCommand(program: Command): void {
   const docsCmd = program
     .command('docs')
-    .description('Documentation management: drift detection and gap validation');
+    .description(
+      'Documentation attachment management (add/list/fetch/remove) and drift detection (sync/gap-check)',
+    );
 
+  // ── cleo docs add <ownerId> [<file>] [--url <url>] ────────────────────────
+  docsCmd
+    .command('add <owner-id> [file]')
+    .description(
+      'Attach a local file or remote URL to a CLEO entity (task, session, observation). ' +
+        'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation.',
+    )
+    .option('--url <url>', 'Remote URL to attach (instead of a local file)')
+    .option('--desc <text>', 'Free-text description of this attachment')
+    .option('--labels <tags>', 'Comma-separated labels (e.g. rfc,spec)')
+    .option(
+      '--attached-by <agent>',
+      'Agent identity that created the attachment (default: "human")',
+    )
+    .action(async (ownerId: string, file: string | undefined, opts: Record<string, unknown>) => {
+      const url = opts['url'] as string | undefined;
+      const fileArg = file ?? (opts['file'] as string | undefined);
+
+      if (!fileArg && !url) {
+        process.stderr.write(
+          'Error: provide a file path (positional argument) or --url <url>\n' +
+            'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft"\n' +
+            '         cleo docs add T123 --url https://example.com/spec\n',
+        );
+        process.exit(6);
+      }
+
+      await dispatchFromCli(
+        'mutate',
+        'docs',
+        'add',
+        {
+          ownerId,
+          ...(fileArg ? { file: fileArg } : {}),
+          ...(url ? { url } : {}),
+          ...(opts['desc'] ? { desc: opts['desc'] } : {}),
+          ...(opts['labels'] ? { labels: opts['labels'] } : {}),
+          ...(opts['attachedBy'] ? { attachedBy: opts['attachedBy'] } : {}),
+        },
+        { command: 'docs add' },
+      );
+    });
+
+  // ── cleo docs list [--task T###] [--session ses_*] [--observation O###] ───
+  docsCmd
+    .command('list')
+    .description(
+      'List attachments for a CLEO entity. Provide exactly one of --task, --session, or --observation.',
+    )
+    .option('--task <id>', 'Filter by task ID (e.g. T123)')
+    .option('--session <id>', 'Filter by session ID (e.g. ses_abc123)')
+    .option('--observation <id>', 'Filter by observation ID (e.g. O-abc123)')
+    .action(async (opts: Record<string, unknown>) => {
+      const task = opts['task'] as string | undefined;
+      const session = opts['session'] as string | undefined;
+      const observation = opts['observation'] as string | undefined;
+
+      if (!task && !session && !observation) {
+        process.stderr.write(
+          'Error: provide one of --task <id>, --session <id>, or --observation <id>\n',
+        );
+        process.exit(6);
+      }
+
+      await dispatchFromCli(
+        'query',
+        'docs',
+        'list',
+        {
+          ...(task ? { task } : {}),
+          ...(session ? { session } : {}),
+          ...(observation ? { observation } : {}),
+        },
+        { command: 'docs list' },
+      );
+    });
+
+  // ── cleo docs fetch <attachmentId|sha256> ─────────────────────────────────
+  docsCmd
+    .command('fetch <attachment-ref>')
+    .description(
+      'Retrieve attachment metadata and bytes by attachment ID (att_*) or SHA-256 hex. ' +
+        'Files <= 1 MB are returned base64-encoded inline; larger files report the storage path only.',
+    )
+    .action(async (attachmentRef: string) => {
+      await dispatchFromCli('query', 'docs', 'fetch', { attachmentRef }, { command: 'docs fetch' });
+    });
+
+  // ── cleo docs remove <attachmentId|sha256> --from <ownerId> ───────────────
+  docsCmd
+    .command('remove <attachment-ref>')
+    .description(
+      'Remove an attachment ref from an owner entity. ' +
+        'When refCount reaches zero the blob file is purged from disk.',
+    )
+    .option('--from <owner-id>', 'Owner entity ID to remove the attachment ref from (required)')
+    .action(async (attachmentRef: string, opts: Record<string, unknown>) => {
+      const from = opts['from'] as string | undefined;
+      if (!from) {
+        process.stderr.write('Error: --from <ownerId> is required\n');
+        process.exit(6);
+      }
+
+      await dispatchFromCli(
+        'mutate',
+        'docs',
+        'remove',
+        { attachmentRef, from },
+        { command: 'docs remove' },
+      );
+    });
+
+  // ── Legacy: cleo docs sync ────────────────────────────────────────────────
   docsCmd
     .command('sync')
     .description('Run drift detection between scripts and docs index')
@@ -175,6 +301,7 @@ export function registerDocsCommand(program: Command): void {
       }
     });
 
+  // ── Legacy: cleo docs gap-check ───────────────────────────────────────────
   docsCmd
     .command('gap-check')
     .description('Validate knowledge transfer from review docs to canonical docs')

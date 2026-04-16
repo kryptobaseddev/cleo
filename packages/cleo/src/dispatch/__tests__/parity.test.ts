@@ -138,9 +138,12 @@ describe('Parity Group 1: Registry completeness', () => {
     // T624: diagnostics domain — 3 query (status, analyze, export) + 2 mutate (enable, disable).
     // T646: check.canon (query) — CI-gate canon drift detector.
     // T647: admin.smoke.provider (query) — ADR-049 harness sovereignty probe. +1 query / +1 total.
-    expect(queryCount).toBe(152);
-    expect(mutateCount).toBe(103);
-    expect(OPERATIONS.length).toBe(255);
+    // T781/T782: req.list (query), req.add (mutate), req.migrate (query+mutate), gate.run (mutate) — +2 query / +3 mutate / +5 total.
+    // T797: docs domain — docs.add (mutate), docs.list (query), docs.fetch (query), docs.remove (mutate) — +2 query / +2 mutate / +4 total.
+    // T811: orchestrate.ivtr.{status,start,next,release,loop-back} — +1 query / +4 mutate / +5 total.
+    expect(queryCount).toBe(157);
+    expect(mutateCount).toBe(110);
+    expect(OPERATIONS.length).toBe(267);
   });
 
   it('all operations have valid gateway values', () => {

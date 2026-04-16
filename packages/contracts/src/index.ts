@@ -6,6 +6,42 @@
  * Implementation packages (@cleocode/core, @cleocode/cleo) import from here.
  */
 
+// === Acceptance Gate Types (machine-verifiable criteria) ===
+export type {
+  AcceptanceGate,
+  AcceptanceGateKind,
+  AcceptanceGateResult,
+  CommandGate,
+  FileAssertion,
+  FileGate,
+  GateBase,
+  HttpGate,
+  LintGate,
+  ManualGate,
+  TestGate,
+} from './acceptance-gate.js';
+export type {
+  AcceptanceArrayInput,
+  AcceptanceGateResultInput,
+  AcceptanceGateSchemaInput,
+  AcceptanceItemInput,
+  FileAssertionInput,
+} from './acceptance-gate-schema.js';
+// === Acceptance Gate Zod Schemas (runtime validation) ===
+export {
+  acceptanceArraySchema,
+  acceptanceGateResultSchema,
+  acceptanceGateSchema,
+  acceptanceItemSchema,
+  commandGateSchema,
+  fileAssertionSchema,
+  fileGateSchema,
+  gateBaseSchema,
+  httpGateSchema,
+  lintGateSchema,
+  manualGateSchema,
+  testGateSchema,
+} from './acceptance-gate-schema.js';
 // === Provider Adapter Contracts ===
 export type { AdapterHealthStatus, CLEOProviderAdapter } from './adapter.js';
 // === Agent Registry (credential management) ===
@@ -34,6 +70,18 @@ export type {
   CycleTimeDistribution,
   CycleTimePercentiles,
 } from './archive.js';
+// === Attachment Types ===
+export type {
+  Attachment,
+  AttachmentKind,
+  AttachmentMetadata,
+  AttachmentRef,
+  BlobAttachment,
+  LlmsTxtAttachment,
+  LlmtxtDocAttachment,
+  LocalFileAttachment,
+  UrlAttachment,
+} from './attachment.js';
 // === Backup Manifest Types ===
 export type {
   BackupDatabaseEntry,
@@ -323,6 +371,7 @@ export {
 } from './status-registry.js';
 // === Task Types ===
 export type {
+  AcceptanceItem,
   CancelledTask,
   CompletedTask,
   EpicLifecycle,
