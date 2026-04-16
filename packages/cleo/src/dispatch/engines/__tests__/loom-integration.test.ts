@@ -12,8 +12,8 @@
  * @epic T768
  */
 
-import { describe, expect, it } from 'vitest';
 import type { Task, TaskLifecycle } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Setup and Helpers
@@ -29,25 +29,15 @@ interface MockLoomState {
 }
 
 /** Simulate lifecycle phase progression */
-function transitionPhase(
-  current: MockLoomState,
-  nextPhase: string
-): MockLoomState {
-  const phases = [
-    'research',
-    'decomposition',
-    'implementation',
-    'validation',
-    'test',
-    'release',
-  ];
+function transitionPhase(current: MockLoomState, nextPhase: string): MockLoomState {
+  const phases = ['research', 'decomposition', 'implementation', 'validation', 'test', 'release'];
 
   const currentIndex = phases.indexOf(current.phase);
   const nextIndex = phases.indexOf(nextPhase);
 
   if (nextIndex <= currentIndex) {
     throw new Error(
-      `Cannot transition from ${current.phase} to ${nextPhase}: phases must be sequential`
+      `Cannot transition from ${current.phase} to ${nextPhase}: phases must be sequential`,
     );
   }
 
@@ -110,14 +100,7 @@ describe('LOOM — integration orchestrate-start → research → decomposition 
   });
 
   it('progresses through all RCASD-IVTR+C phases', () => {
-    const phases = [
-      'research',
-      'decomposition',
-      'implementation',
-      'validation',
-      'test',
-      'release',
-    ];
+    const phases = ['research', 'decomposition', 'implementation', 'validation', 'test', 'release'];
 
     let loomState: MockLoomState = {
       epicId: 'T999-epic',
@@ -136,7 +119,7 @@ describe('LOOM — integration orchestrate-start → research → decomposition 
   });
 
   it('validates phase cannot go backward', () => {
-    let loomState: MockLoomState = {
+    const loomState: MockLoomState = {
       epicId: 'T999-epic',
       phase: 'decomposition',
       status: 'in-progress',
@@ -145,9 +128,7 @@ describe('LOOM — integration orchestrate-start → research → decomposition 
     };
 
     // Attempt backward transition should fail
-    expect(() => transitionPhase(loomState, 'research')).toThrow(
-      /cannot transition.*backward/i
-    );
+    expect(() => transitionPhase(loomState, 'research')).toThrow(/cannot transition.*backward/i);
   });
 
   it('marks epic complete when all phases finished', () => {

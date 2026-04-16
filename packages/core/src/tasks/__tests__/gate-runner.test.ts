@@ -10,9 +10,8 @@
  */
 
 import { rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, describe, expect, it } from 'vitest';
 import type {
   CommandGate,
   FileGate,
@@ -21,7 +20,7 @@ import type {
   ManualGate,
   TestGate,
 } from '@cleocode/contracts';
-import { dirname, resolve } from 'node:path';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { getProjectRoot } from '../../paths.js';
 import { runGates } from '../gate-runner.js';
 
@@ -47,9 +46,10 @@ describe('gate-runner — test gate', () => {
     const gates: TestGate[] = [
       {
         kind: 'test',
-        name: 'sample-test',
-        command: 'echo hello',
-        expectedExitCode: 0,
+        description: 'sample-test — validates passing test gate',
+        command: 'echo',
+        args: ['hello'],
+        expect: 'exit0',
       },
     ];
 
@@ -58,7 +58,7 @@ describe('gate-runner — test gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'test',
-      result: 'passed',
+      result: 'pass',
     });
   });
 
@@ -66,9 +66,9 @@ describe('gate-runner — test gate', () => {
     const gates: TestGate[] = [
       {
         kind: 'test',
-        name: 'failing-test',
+        description: 'failing-test — validates failing test gate',
         command: 'false',
-        expectedExitCode: 0,
+        expect: 'exit0',
       },
     ];
 
@@ -77,9 +77,10 @@ describe('gate-runner — test gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'test',
-      result: 'failed',
+      result: 'fail',
     });
-    expect(results[0].failureReason).toBeDefined();
+    // Gate-runner emits `errorMessage` on fail (not free-text failureReason)
+    expect(results[0].errorMessage).toBeDefined();
   });
 });
 
@@ -91,7 +92,7 @@ describe('gate-runner — file gate', () => {
     const gates: FileGate[] = [
       {
         kind: 'file',
-        name: 'package-json-exists',
+        description: 'package-json-exists — validates file gate pass',
         path: existingFile,
         assertions: [{ type: 'exists' }],
       },
@@ -102,7 +103,7 @@ describe('gate-runner — file gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'file',
-      result: 'passed',
+      result: 'pass',
     });
   });
 
@@ -110,7 +111,7 @@ describe('gate-runner — file gate', () => {
     const gates: FileGate[] = [
       {
         kind: 'file',
-        name: 'nonexistent',
+        description: 'nonexistent — validates file gate fail',
         path: '/tmp/this-does-not-exist-12345.txt',
         assertions: [{ type: 'exists' }],
       },
@@ -121,7 +122,7 @@ describe('gate-runner — file gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'file',
-      result: 'failed',
+      result: 'fail',
     });
   });
 });
@@ -131,9 +132,10 @@ describe('gate-runner — command gate', () => {
     const gates: CommandGate[] = [
       {
         kind: 'command',
-        name: 'echo-test',
-        command: 'echo "test output"',
-        expectedExitCode: 0,
+        description: 'echo-test — validates command execution',
+        cmd: 'echo',
+        args: ['test output'],
+        exitCode: 0,
       },
     ];
 
@@ -142,7 +144,7 @@ describe('gate-runner — command gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'command',
-      result: 'passed',
+      result: 'pass',
     });
   });
 
@@ -150,9 +152,9 @@ describe('gate-runner — command gate', () => {
     const gates: CommandGate[] = [
       {
         kind: 'command',
-        name: 'false-command',
-        command: 'false',
-        expectedExitCode: 0,
+        description: 'false-command — validates exit-code rejection',
+        cmd: 'false',
+        exitCode: 0,
       },
     ];
 
@@ -161,7 +163,7 @@ describe('gate-runner — command gate', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: 'command',
-      result: 'failed',
+      result: 'fail',
     });
   });
 });
@@ -172,7 +174,7 @@ describe('gate-runner — lint gate', () => {
     const gates: LintGate[] = [
       {
         kind: 'lint',
-        name: 'biome-format',
+        description: 'biome-format — validates lint gate',
         linter: 'biome',
         paths: ['packages/core/src/tasks/gate-runner.ts'],
         mode: 'format',
@@ -186,7 +188,7 @@ describe('gate-runner — lint gate', () => {
       kind: 'lint',
     });
     // Should either pass or fail depending on whether biome is configured
-    expect(['passed', 'failed', 'skipped']).toContain(results[0].result);
+    expect(['pass', 'fail', 'warn', 'skipped', 'error']).toContain(results[0].result);
   });
 });
 
@@ -195,9 +197,9 @@ describe('gate-runner — http gate', () => {
     const gates: HttpGate[] = [
       {
         kind: 'http',
-        name: 'health-check',
+        description: 'health-check — validates http gate',
         url: 'http://127.0.0.1:99999/health',
-        expectedStatus: 200,
+        status: 200,
         timeoutMs: 1000,
       },
     ];
@@ -209,7 +211,7 @@ describe('gate-runner — http gate', () => {
       kind: 'http',
     });
     // Should fail or skip depending on network configuration
-    expect(['failed', 'skipped']).toContain(results[0].result);
+    expect(['fail', 'skipped', 'warn', 'error']).toContain(results[0].result);
   });
 });
 
@@ -218,7 +220,7 @@ describe('gate-runner — manual gate', () => {
     const gates: ManualGate[] = [
       {
         kind: 'manual',
-        name: 'manual-review',
+        description: 'manual-review — validates manual gate',
         prompt: 'Please review the implementation',
       },
     ];
@@ -236,7 +238,7 @@ describe('gate-runner — manual gate', () => {
     const gates: ManualGate[] = [
       {
         kind: 'manual',
-        name: 'manual-review-2',
+        description: 'manual-review-2 — validates manual gate with accept',
         prompt: 'Please review',
       },
     ];
@@ -256,28 +258,34 @@ describe('gate-runner — multi-gate execution', () => {
     const gates = [
       {
         kind: 'test' as const,
-        name: 'test-1',
-        command: 'echo test1',
-        expectedExitCode: 0,
+        description: 'test-1 — multi-gate test gate',
+        command: 'echo',
+        args: ['test1'],
+        expect: 'exit0' as const,
       },
       {
         kind: 'command' as const,
-        name: 'cmd-1',
-        command: 'echo cmd1',
-        expectedExitCode: 0,
+        description: 'cmd-1 — multi-gate command gate',
+        cmd: 'echo',
+        args: ['cmd1'],
+        exitCode: 0,
       },
       {
         kind: 'manual' as const,
-        name: 'manual-1',
+        description: 'manual-1 — multi-gate manual gate',
         prompt: 'Review test',
       },
     ] as const;
 
-    const results = await runGates(gates as any, { projectRoot }, { skipManual: true });
+    const results = await runGates(
+      gates as unknown as Parameters<typeof runGates>[0],
+      { projectRoot },
+      { skipManual: true },
+    );
 
     expect(results).toHaveLength(3);
-    expect(results[0].result).toBe('passed');
-    expect(results[1].result).toBe('passed');
+    expect(results[0].result).toBe('pass');
+    expect(results[1].result).toBe('pass');
     expect(results[2].result).toBe('skipped');
   });
 
@@ -285,9 +293,10 @@ describe('gate-runner — multi-gate execution', () => {
     const gates: TestGate[] = [
       {
         kind: 'test',
-        name: 'metadata-test',
-        command: 'echo hello',
-        expectedExitCode: 0,
+        description: 'metadata-test — validates result metadata shape',
+        command: 'echo',
+        args: ['hello'],
+        expect: 'exit0',
       },
     ];
 
@@ -296,11 +305,13 @@ describe('gate-runner — multi-gate execution', () => {
     expect(results).toHaveLength(1);
     const result = results[0];
 
+    // AcceptanceGateResult contract shape (v2026.4.72):
+    // index, req, kind, result, durationMs, details, checkedAt, checkedBy
     expect(result).toHaveProperty('kind');
-    expect(result).toHaveProperty('name');
+    expect(result).toHaveProperty('index');
     expect(result).toHaveProperty('result');
     expect(result).toHaveProperty('checkedAt');
-    expect(result).toHaveProperty('checkedBy');
+    expect(result).toHaveProperty('durationMs');
   });
 });
 
@@ -309,24 +320,30 @@ describe('gate-runner — integration with contract types', () => {
     const gates = [
       {
         kind: 'test' as const,
-        name: 'test-1',
-        command: 'echo "test"',
-        expectedExitCode: 0,
+        description: 'test-1 — integration test gate',
+        command: 'echo',
+        args: ['test'],
+        expect: 'exit0' as const,
       },
       {
         kind: 'command' as const,
-        name: 'cmd-1',
-        command: 'echo "cmd"',
-        expectedExitCode: 0,
+        description: 'cmd-1 — integration command gate',
+        cmd: 'echo',
+        args: ['cmd'],
+        exitCode: 0,
       },
       {
         kind: 'manual' as const,
-        name: 'manual-1',
+        description: 'manual-1 — integration manual gate',
         prompt: 'Review manual',
       },
     ] as const;
 
-    const results = await runGates(gates as any, { projectRoot }, { skipManual: true });
+    const results = await runGates(
+      gates as unknown as Parameters<typeof runGates>[0],
+      { projectRoot },
+      { skipManual: true },
+    );
 
     expect(results.length).toBeGreaterThanOrEqual(3);
     expect(results.every((r) => r.result)).toBe(true);

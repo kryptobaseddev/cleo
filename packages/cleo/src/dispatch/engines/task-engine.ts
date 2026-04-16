@@ -58,9 +58,11 @@ import {
   getActiveSession,
   getIvtrState,
   getLifecycleStatus,
+  getLogger,
   type ImpactReport,
   type IvtrPhase,
   type IvtrPhaseEntry,
+  loadConfig,
   predictImpact,
   toCompact,
 } from '@cleocode/core/internal';
@@ -775,11 +777,11 @@ export async function taskCompleteStrict(
     autoCompleted?: string[];
     unblockedTasks?: Array<{ id: string; title: string }>;
     ivtrBypassed?: boolean;
+    lifecycleGateBypassed?: boolean;
   }>
 > {
   try {
     // Load config to check lifecycle enforcement mode.
-    const { loadConfig } = await import('@cleocode/core/internal');
     const config = await loadConfig(projectRoot);
     const lifecycleMode = config.lifecycle?.mode ?? 'strict';
 
@@ -891,6 +893,117 @@ export async function taskCompleteStrict(
           success: true,
           data: { ...innerResult.data!, ivtrBypassed: true },
         };
+      }
+    }
+
+    // T788 LOOM-04: parent-epic lifecycle gate check on child complete.
+    // When child task has an epic parent whose pipelineStage is still in early
+    // planning stages (research/consensus/architecture_decision/specification/
+    // decomposition), reject completion unless --force. Prevents completing
+    // implementation before the epic has formally advanced past planning.
+    //
+    // Enforcement modes:
+    //   strict: reject with E_LIFECYCLE_GATE_FAILED (exit 80)
+    //   advisory: warn via logger but allow completion to proceed
+    //   off / other: no check
+    if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task?.parentId) {
+        const parent = await accessor.loadSingleTask(task.parentId);
+        if (parent?.type === 'epic') {
+          const earlyStages = new Set([
+            'research',
+            'consensus',
+            'architecture_decision',
+            'specification',
+            'decomposition',
+          ]);
+          const epicStage = parent.pipelineStage ?? null;
+          if (epicStage && earlyStages.has(epicStage)) {
+            const msg =
+              `Task ${taskId} cannot complete: parent epic ${task.parentId} is still in ` +
+              `'${epicStage}' stage. Advance the epic past decomposition before completing children.`;
+            if (lifecycleMode === 'strict' && !force) {
+              return engineError<{
+                task: TaskRecord;
+                autoCompleted?: string[];
+                unblockedTasks?: Array<{ id: string; title: string }>;
+                ivtrBypassed?: boolean;
+              }>('E_LIFECYCLE_GATE_FAILED', msg, {
+                details: {
+                  taskId,
+                  parentEpicId: task.parentId,
+                  epicStage,
+                  requiredStages: ['implementation', 'validation', 'testing', 'release'],
+                },
+                fix:
+                  `Advance the parent epic via 'cleo lifecycle complete ${task.parentId} ${epicStage}' ` +
+                  `and then the next stages, or use '--force' to bypass.`,
+              });
+            }
+            // advisory mode OR force=true: log warning but continue.
+            getLogger('engine:lifecycle').warn(
+              {
+                taskId,
+                parentEpicId: task.parentId,
+                epicStage,
+                mode: lifecycleMode,
+                forced: force === true,
+              },
+              lifecycleMode === 'advisory'
+                ? `[ADVISORY] parent-epic lifecycle gate: ${msg}`
+                : `[OWNER WARNING] cleo complete --force bypassed parent-epic lifecycle gate: ${msg}`,
+            );
+
+            // force=true in strict mode: record VerificationFailure for audit trail.
+            if (lifecycleMode === 'strict' && force === true) {
+              try {
+                const now = new Date().toISOString();
+                if (!task.verification) {
+                  task.verification = {
+                    round: 0,
+                    gates: {},
+                    passed: false,
+                    lastAgent: null,
+                    lastUpdated: null,
+                    failureLog: [],
+                  };
+                }
+                if (!task.verification.failureLog) {
+                  task.verification.failureLog = [];
+                }
+                task.verification.failureLog.push({
+                  round: task.verification.round,
+                  agent: 'owner-forced',
+                  reason:
+                    `OWNER FORCED cleo complete --force — parent-epic lifecycle gate bypass. ` +
+                    `Epic ${task.parentId} at stage='${epicStage}'.`,
+                  timestamp: now,
+                });
+                task.updatedAt = now;
+                await accessor.upsertSingleTask(task);
+              } catch {
+                // Best-effort — never block on audit trail write
+              }
+
+              // Return completed result with lifecycleGateBypassed marker.
+              const innerResult = await taskComplete(projectRoot, taskId, notes);
+              if (!innerResult.success)
+                return innerResult as EngineResult<{
+                  task: TaskRecord;
+                  autoCompleted?: string[];
+                  unblockedTasks?: Array<{ id: string; title: string }>;
+                  ivtrBypassed?: boolean;
+                  lifecycleGateBypassed?: boolean;
+                }>;
+              return {
+                success: true,
+                data: { ...innerResult.data!, lifecycleGateBypassed: true },
+              };
+            }
+          }
+        }
       }
     }
 
