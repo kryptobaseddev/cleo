@@ -124,7 +124,9 @@ async function handleDiagnosticsFlags(args: string[]): Promise<boolean> {
       return true;
     }
     for (const a of agents) {
-      console.log(`  [${a.source.padEnd(4)}] ${a.id.padEnd(28)} ${a.provider.padEnd(14)} ${a.name}`);
+      console.log(
+        `  [${a.source.padEnd(4)}] ${a.id.padEnd(28)} ${a.provider.padEnd(14)} ${a.name}`,
+      );
     }
     return true;
   }
