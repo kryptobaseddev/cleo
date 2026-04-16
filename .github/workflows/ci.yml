@@ -71,8 +71,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
-      - name: Build cleo package
-        run: pnpm --filter @cleocode/cleo run build
+      - name: Build monorepo (cleo + all workspace deps)
+        # Use root build script — pnpm --filter @cleocode/cleo run build alone
+        # does NOT build workspace dependencies first, so tsc cannot resolve
+        # @cleocode/contracts / @cleocode/core/internal / @cleocode/lafs.
+        run: pnpm run build
       - name: Run canon drift gate
         run: node packages/cleo/dist/cli/index.js check canon
 
