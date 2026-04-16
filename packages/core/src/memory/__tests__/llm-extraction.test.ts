@@ -88,7 +88,7 @@ vi.mock('../anthropic-key-resolver.js', () => ({
 // ---- imports after mocks --------------------------------------------------
 
 import { storeDecision } from '../decisions.js';
-import { checkHashDedup, verifyAndStore } from '../extraction-gate.js';
+import { verifyAndStore } from '../extraction-gate.js';
 import { storeLearning } from '../learnings.js';
 import type { ExtractedMemory } from '../llm-extraction.js';
 import { extractFromTranscript } from '../llm-extraction.js';

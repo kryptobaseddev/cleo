@@ -107,9 +107,9 @@ describe('ClaudeSDKSpawnProvider', () => {
         },
       });
       vi.doMock('node:fs', () => ({
-        existsSync: vi.fn().mockImplementation((p: string) =>
-          String(p).endsWith('.credentials.json'),
-        ),
+        existsSync: vi
+          .fn()
+          .mockImplementation((p: string) => String(p).endsWith('.credentials.json')),
         readFileSync: vi.fn().mockImplementation((p: string) => {
           if (String(p).endsWith('.credentials.json')) return validCreds;
           throw new Error('mocked: file not found');
