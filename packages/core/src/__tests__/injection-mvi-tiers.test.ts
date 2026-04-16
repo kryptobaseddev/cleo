@@ -30,8 +30,10 @@ describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
   });
 
   describe('Version and identity', () => {
-    it('has version 2.4.0', () => {
-      expect(content).toContain('Version: 2.4.0');
+    it('has version 2.4.1 (v2026.4.74 template update)', () => {
+      // Added: Triggers table, Orchestration + Docs cheat-sheets, Pre-Complete
+      // Gate Ritual, exit codes 80+83, and corrected `cleo observe` → `cleo memory observe`.
+      expect(content).toContain('Version: 2.4.1');
     });
 
     it('declares CLI-only dispatch', () => {
@@ -71,7 +73,8 @@ describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
       expect(content).toContain('cleo memory find');
       expect(content).toContain('cleo memory timeline');
       expect(content).toContain('cleo memory fetch');
-      expect(content).toContain('cleo observe');
+      // v2.4.1: corrected from bare `cleo observe` to actual CLI command
+      expect(content).toContain('cleo memory observe');
     });
 
     it('includes Error Handling', () => {
@@ -125,9 +128,9 @@ describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 100 lines (token-optimized)', () => {
+    it('is under 200 lines (token-optimized; v2.4.1 adds Triggers/Orchestration/Docs/Gate Ritual sections — ~140 lines still compact)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(100);
+      expect(lines).toBeLessThanOrEqual(200);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
