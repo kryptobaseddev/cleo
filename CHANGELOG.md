@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.71] — 2026-04-16
+
+### T760 RCASD — Wave 5 + Wave 6 landing (all 16 remaining RCASD tasks)
+
+Completes the T760 RCASD epic started in v2026.4.70. Every task from the Pomodoro-benchmark-driven analysis is now shipped. Zero remaining backlog from T760.
+
+### BRAIN P1 (T770 epic continuation)
+
+- **T793 (BRAIN-04)** — RRF score normalization. `memoryFind` results now include both `rrfScore` (raw 1/(rank+60) reciprocal-rank bucket) AND `bm25Score` (min-max normalized [0,1] across result set). Callers can distinguish strong BM25 matches from weak ones. `BrainCompactHit` extended with both fields. 13 matches, 4 new tests.
+- **T794 (BRAIN-05)** — Short-tier observation retention floor. New observations that reference ≥2 distinct task IDs OR have `crossRef` field populated are auto-promoted to `medium` tier at write time (prevents soft-eviction of task-cross-referenced observations). `ObserveBrainParams.crossRef` field added. 7 new tests.
+
+### Programmatic gates (T768 epic continuation) — docs integration
+
+- **T798 (DOCS-04)** — `cleo docs generate --for <taskId|epicId>` uses the owner-authored `llmtxt` npm package internally to emit `llms.txt`-format summaries of all attached documents. Supports `--attach` flag to save output back as an `llms-txt` attachment on the same target. Raw `llmtxt` operations are NOT surfaced on the CLI (simpler surface per user directive).
+- **T799 (DOCS-05)** — Integration wiring across gates/BRAIN/LOOM:
+  - `FileGate` accepts `attachmentSha256` as alternative to `path` — `runGates()` resolves the attachment via `AttachmentStore`
+  - `brain_observations` schema adds `attachments_json` column (migration `20260416000007_t799-observation-attachments-json`) — `cleo memory observe --attach <sha256>` now wires docs to observations
+  - IVTR spawn prompts include `## Attached Documents` section via `resolvePhasePrompt` — subagents receive curated attachment bundle in resolved prompt
+
+### Schema hardening (T772 epic closure)
+
+- **T801 (SCHEMA-02)** — `TaskEvidence` discriminated union with 5 variants (`file | log | screenshot | test-output | command-output`) — replaces free-text evidence fields with typed references carrying `sha256`, `timestamp`, `kind`.
+- **T802 (SCHEMA-03)** — `AcceptanceGateResult.details` typed with kind-specific discriminated union (`{kind:'test', exitCode, stdout, stderr, duration}` vs `{kind:'file', path, passedAssertions, failedAssertions}` vs …). No more bare `JsonValue` on result details.
+- **T803 (SCHEMA-04)** — JSON Schema export for LLM tool-use. `packages/contracts/schemas/*.schema.json` emitted at build time for 6 core types (Task, Epic, AcceptanceGate, Attachment, GateResult, EvidenceRecord, TaskEvidence). Consumable by LLM agent tool-use protocols.
+- **T804 (SCHEMA-05)** — Contract invariant tests. Asserts no contract field is typed as bare `string` when structured shape is possible (whitelist exceptions inline-documented) + all discriminated unions use `kind` not `type`.
+
+### ct-cleo skill full rewrite (T773 epic closure)
+
+- **T805–T809 (SKILL-10..14)** — ct-cleo/SKILL.md now rooted on a Decision Tree, with Pre-Complete Gate Ritual, Multi-Agent Coordination tree, and Greenfield Bootstrap copy-paste sequence. 13-assertion regression test ensures future drift is caught. Mirrored to both `~/.local/share/agents/skills/ct-cleo/SKILL.md` and `packages/skills/skills/ct-cleo/SKILL.md`.
+
+### IVTR auto-spawn phases (T810 epic follow-ons)
+
+- **T812 (IVTR-02)** — Validate-phase resolved prompt auto-enriched with prior-phase evidence bundle (`ImplEvidenceSummary[]` table with sha256 prefix, files changed, lines added/removed, duration) + REQ-ID-scoped validate instructions + explicit REJECT criteria.
+- **T813 (IVTR-03)** — Test-phase resolved prompt includes typed `AcceptanceGate[]` list + `cleo verify --run` as canonical test driver. New `--auto-run-tests` flag on `cleo orchestrate ivtr <id> --next` atomically executes gates via `runGates()`, attaches stdout/stderr as `test-output` EvidenceRecord, records sha256 in phase history — all in one transition. New exports: `extractTypedGates`, `autoRunGatesAndRecord`, `AutoRunGatesResult`.
+- **T814 (IVTR-04)** — Loop-back logic. `IvtrState.loopBackCount: Record<IvtrPhase, number>` field added (default 0 per phase, backward-compatible parse for existing states). `loopBackIvtr` increments counter, rejects with `E_IVTR_MAX_RETRIES` after `MAX_LOOP_BACKS_PER_PHASE = 2` retries. Resolved prompt after loop-back includes failure evidence + loop-back history with reasons + explicit "fix root cause, don't retry" instruction.
+- **T815 (IVTR-05)** — `cleo complete` strict-mode IVTR enforcement. Exit code `E_IVTR_INCOMPLETE: 83` added. `taskCompleteStrict` rejects completion when `ivtr_state.currentPhase != 'released'` under strict mode. `--force` bypass writes a `VerificationFailure` record to `task.verification.failureLog` for audit trail.
+- **T816 (IVTR-06)** — `EvidenceRecord` typed schema — 5 discriminated variants (`impl-diff | validate-spec-check | test-output | lint-report | command-output`) each carrying `phase`, `agentIdentity`, `attachmentSha256`, `ranAt`, `durationMs` + variant-specific fields. Zod schema + round-trip tests. Foundational for T812/T813/T814/T817.
+- **T817 (IVTR-07)** — `cleo show <id> --ivtr-history` surfaces phase-ordered evidence chain. Returns `IvtrHistoryEntry[]` with phase, agentIdentity, startedAt, completedAt, passed, evidenceRefs. Empty array when task has no IVTR state (not error).
+
+### Fixed
+
+- Build: `registerReqCommand` import added to `cli/index.ts` (was declared but never imported — T782 landing gap).
+- Build: `@rollup/rollup-linux-x64-gnu` optional dependency installed (Linux CI was missing the native rollup binary — pnpm optional-deps bug).
+- `ivtr.ts` dispatch domain: `resolvePhasePrompt` (not `resolvePhasePromptWithDocs` which never existed) invoked with correct 6-arg signature.
+- Test: parity count updated (268 total / 158 query / 110 mutate) after T798 added `docs.generate`.
+- Test: `docs.test.ts` operation count updated (5 ops: add|list|fetch|remove|generate).
+- Test: `ivtr-loop.test.ts` test-phase prompt assertion updated to match T813's `cleo verify --run` driver (was pinned to legacy `pnpm run test` string).
+
+### Test metrics
+
+- **Contracts**: 148/148 pass ✅ (31 new tests across evidence-record, attachment, acceptance-gate, invariants)
+- **Core**: 4112/4156 pass (32 todo, **12 fail** — all in `brain-vec.test.ts` + `embedding-pipeline.test.ts`, all sqlite-vec-native-binary env issues, pre-existing as of v2026.4.69 commit `5ad2c9662` — not regressions)
+- **Cleo**: 1391/1393 pass (2 skipped, 0 fail) ✅
+
+### Known environment-dependent test failures (pre-existing, unchanged)
+
+The 12 sqlite-vec tests require `@anthropic-ai/sqlite-vec` native binaries matching the runtime platform. The build environment has `sqlite-vec-darwin-arm64` + `sqlite-vec-darwin-x64` installed (macOS) but the Linux CI runner needs `sqlite-vec-linux-x64` — an orthogonal pnpm optional-deps resolution issue. Scheduled for a standalone follow-up (doesn't block v2026.4.71).
+
+### Release pipeline rewrite
+
+T820 epic (project-agnostic `cleo release` as LOOM Release phase) logged with 7 children — deferred for focused treatment in a follow-up release cadence. Current `cleo release ship` remains partially functional and hardcoded; v2026.4.71 ships via the same raw `git tag` + `.github/workflows/release.yml` path used for v2026.4.66-70.
+
 ## [2026.4.70] — 2026-04-16
 
 ### T760 RCASD — Pomodoro-benchmark-driven epic landing

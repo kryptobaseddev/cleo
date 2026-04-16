@@ -277,6 +277,10 @@ export function registerMemoryBrainCommand(program: Command): void {
       '--source-type <sourceType>',
       'How this observation was captured: manual (typed by human/agent), auto (lifecycle hook), transcript (extracted from session)',
     )
+    .option(
+      '--attach <sha256>',
+      'SHA-256 of an attachment to link to this observation (comma-separated for multiple)',
+    )
     .action(async (text: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
@@ -288,6 +292,8 @@ export function registerMemoryBrainCommand(program: Command): void {
           ...(opts['agent'] !== undefined && { agent: opts['agent'] }),
           ...(opts['type'] !== undefined && { type: opts['type'] }),
           sourceType: (opts['sourceType'] as string | undefined) ?? 'manual',
+          // T799: pass attachment refs
+          ...(opts['attach'] !== undefined && { attach: opts['attach'] }),
         },
         { command: 'memory', operation: 'memory.observe' },
       );

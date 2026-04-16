@@ -541,6 +541,11 @@ export async function memoryObserve(
     sourceType?: string;
     /** T417: agent provenance — name of the spawned agent producing this observation. */
     agent?: string;
+    /**
+     * T799: SHA-256 refs of attachments to link to this observation.
+     * Passed through to `observeBrain` and stored in `attachments_json`.
+     */
+    attachmentRefs?: string[];
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -554,6 +559,7 @@ export async function memoryObserve(
       sourceSessionId: params.sourceSessionId,
       sourceType: params.sourceType as ObserveBrainParams['sourceType'],
       agent: params.agent,
+      attachmentRefs: params.attachmentRefs,
     };
 
     // T419: route mental-model observations (agent-tagged, relevant type) through

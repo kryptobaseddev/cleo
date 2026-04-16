@@ -570,6 +570,18 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
+          // T799: parse optional attachment refs (comma-separated sha256 list or JSON array)
+          const rawAttach = params?.attach as string | string[] | undefined;
+          let attachmentRefs: string[] | undefined;
+          if (Array.isArray(rawAttach)) {
+            attachmentRefs = rawAttach.filter((r) => typeof r === 'string' && r.length > 0);
+          } else if (typeof rawAttach === 'string' && rawAttach.trim()) {
+            attachmentRefs = rawAttach
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean);
+          }
+
           const result = await memoryObserve(
             {
               text,
@@ -580,6 +592,8 @@ export class MemoryHandler implements DomainHandler {
               sourceType: params?.sourceType as string | undefined,
               // T417: optional agent provenance for mental model observations
               agent: params?.agent as string | undefined,
+              // T799: optional attachment refs
+              attachmentRefs,
             },
             projectRoot,
           );

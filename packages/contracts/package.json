@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/contracts",
-  "version": "2026.4.70",
+  "version": "2026.4.71",
   "description": "Domain types, interfaces, and contracts for the CLEO ecosystem",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -b --force",
+    "build": "tsc -b --force && node scripts/emit-schemas.mjs",
+    "build:ts": "tsc -b --force",
+    "build:schemas": "node scripts/emit-schemas.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -25,6 +27,7 @@
   },
   "files": [
     "dist",
+    "schemas",
     "src"
   ],
   "devDependencies": {
@@ -34,5 +37,8 @@
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
     "directory": "packages/contracts"
+  },
+  "dependencies": {
+    "zod-to-json-schema": "^3.25.2"
   }
 }

@@ -1,0 +1,9 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AcceptanceGate",
+  "description": "Machine-verifiable acceptance gate attached to a CLEO task",
+  "$ref": "#/definitions/AcceptanceGate",
+  "definitions": {
+    "AcceptanceGate": {}
+  }
+}

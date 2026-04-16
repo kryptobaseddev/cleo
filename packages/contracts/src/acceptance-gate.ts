@@ -82,14 +82,33 @@ export interface TestGate extends GateBase {
 /**
  * Assert properties of a file on disk. Multiple assertions are AND-ed:
  * all must hold for the gate to pass.
+ *
+ * Either `path` or `attachmentSha256` must be provided (not both).
+ * When `attachmentSha256` is set, the gate runner resolves the on-disk path
+ * via `AttachmentStore.get(sha256)` before running assertions.
  */
 export interface FileGate extends GateBase {
   kind: 'file';
   /**
    * Absolute or project-root-relative path. Globs are not supported here
    * — use one gate per path.
+   *
+   * Exactly one of `path` or `attachmentSha256` must be set.
    */
-  path: string;
+  path?: string;
+  /**
+   * SHA-256 hex digest of an attachment stored in the CLEO attachment store.
+   *
+   * When set, the gate runner resolves the attachment's on-disk blob path
+   * via `AttachmentStore.get(sha256)` and uses that path for all assertions.
+   * Mutually exclusive with `path`.
+   *
+   * @example
+   * ```json
+   * { "kind": "file", "attachmentSha256": "a1b2c3...", "assertions": [{ "type": "nonEmpty" }] }
+   * ```
+   */
+  attachmentSha256?: string;
   assertions: FileAssertion[];
 }
 
@@ -230,6 +249,74 @@ export type AcceptanceGate = TestGate | FileGate | CommandGate | LintGate | Http
 /** All valid `kind` discriminants for `AcceptanceGate`. */
 export type AcceptanceGateKind = AcceptanceGate['kind'];
 
+// ─── Result details (typed per-kind) ─────────────────────────────────────────
+
+/**
+ * Kind-specific detail payload for {@link AcceptanceGateResult}.
+ *
+ * Each variant is keyed by `kind` — the same discriminant used on
+ * {@link AcceptanceGate} — so callers can narrow `details` with a simple
+ * `if (result.details?.kind === 'test') { ... }` guard.
+ *
+ * @epic T760
+ * @task T802
+ */
+export type GateResultDetails =
+  | {
+      kind: 'test';
+      /** Exit code of the test process. */
+      exitCode: number;
+      /** Captured standard output (may be truncated). */
+      stdout: string;
+      /** Captured standard error (may be truncated). */
+      stderr: string;
+      /** Wall-clock duration in milliseconds. */
+      duration: number;
+    }
+  | {
+      kind: 'file';
+      /** The file path that was evaluated. */
+      path: string;
+      /** Assertions that passed. */
+      passedAssertions: string[];
+      /** Assertions that failed (empty on pass). */
+      failedAssertions: string[];
+    }
+  | {
+      kind: 'command';
+      /** The command that was run. */
+      cmd: string;
+      /** Exit code of the command process. */
+      exitCode: number;
+      /** Captured standard output (may be truncated). */
+      stdout: string;
+    }
+  | {
+      kind: 'lint';
+      /** Linting tool name (e.g. `"biome"`, `"tsc"`). */
+      tool: string;
+      /** Number of diagnostic warnings emitted. */
+      warnings: number;
+      /** Number of diagnostic errors emitted. */
+      errors: number;
+    }
+  | {
+      kind: 'http';
+      /** The URL that was probed. */
+      url: string;
+      /** HTTP status code returned by the server. */
+      status: number;
+      /** Response body (may be truncated). */
+      body: string;
+    }
+  | {
+      kind: 'manual';
+      /** The prompt shown to the reviewer. */
+      prompt: string;
+      /** Whether the reviewer accepted (`true`) or rejected (`false`) the gate. */
+      accepted: boolean;
+    };
+
 // ─── Result ──────────────────────────────────────────────────────────────────
 
 /**
@@ -253,7 +340,26 @@ export interface AcceptanceGateResult {
   result: 'pass' | 'fail' | 'warn' | 'skipped' | 'error';
   /** Wall-clock duration of the gate execution in milliseconds. */
   durationMs: number;
-  /** Truncated stdout/stderr or file snippet shown in failure messages. */
+  /**
+   * Typed kind-specific detail payload.
+   *
+   * Replaces the untyped `evidence?: string` pattern. The `kind` discriminant
+   * matches the gate's `kind` so callers can narrow safely:
+   *
+   * ```ts
+   * if (r.details?.kind === 'test') {
+   *   console.log(r.details.exitCode, r.details.stdout);
+   * }
+   * ```
+   */
+  details?: GateResultDetails;
+  /**
+   * Short plain-text evidence snippet shown in failure messages.
+   *
+   * Kept for backward compatibility with existing persisted records and
+   * display code that reads this field as a truncated summary.
+   * New code should prefer {@link details}.
+   */
   evidence?: string;
   /** Error message when `result` is `"error"` (the gate runner itself crashed). */
   errorMessage?: string;
