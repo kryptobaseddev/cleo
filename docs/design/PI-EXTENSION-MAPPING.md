@@ -109,7 +109,7 @@ CleoOS shell.
 | The Archive (Left) | File explorer + git | Pi's built-in file tools | Not applicable (Pi native) |
 | The Nexus Portal (Global) | Cross-project awareness | Not wired — Nexus API not yet available | Not wired |
 
-### 5. Circle of Ten UI Mapping
+### 5. Circle of Eleven UI Mapping
 
 | Aspect | Domain | Design Component | Pi Implementation | Data Source |
 |--------|--------|-----------------|-------------------|-------------|
@@ -163,13 +163,13 @@ CleoOS shell.
 - Slash commands for on-demand status panels
 - Toast notifications for system events
 - Agent activity tracking in below-editor widget
-- Circle of Ten status with live CLI data
+- Circle of Eleven status with live CLI data
 
 ### Partially Achievable
 - Typography hierarchy (bold/color only, no font/size control)
 - Component cards (text approximation, no interactivity)
 - Progress indicators (Unicode blocks, no animation)
-- Circle of Ten zones (data available for 6/10, 4 not wired)
+- Circle of Eleven zones (data available for 6/10, 4 not wired)
 
 ### Not Achievable (Pi API Limitation)
 - Three-panel layout

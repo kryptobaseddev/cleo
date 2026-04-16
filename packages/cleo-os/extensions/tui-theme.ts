@@ -113,7 +113,7 @@ export const CODE_BORDER_FOCUS = 240;
 
 /**
  * Blue accent for worker tier badges (not in the design palette but used
- * consistently in the Circle of Ten worker display).
+ * consistently in the Circle of Eleven worker display).
  * ANSI 256-color 75 (#5fafff).
  */
 export const CODE_TIER_WORKER = 75;
@@ -137,7 +137,7 @@ export function fg256(text: string, code: number): string {
  * Apply `accent-primary` (purple, #a855f7) foreground to text.
  *
  * Used for: Pi AI branding, active tab indicators, focus borders,
- * Circle of Ten header, banner chrome.
+ * Circle of Eleven header, banner chrome.
  *
  * @param text - The text to style.
  * @returns Purple ANSI text.
@@ -224,7 +224,7 @@ export function textTertiary(text: string): string {
 /**
  * Apply worker tier blue accent foreground to text.
  *
- * Used for: worker agent tier prefix `[W]` in the Circle of Ten display.
+ * Used for: worker agent tier prefix `[W]` in the Circle of Eleven display.
  *
  * @param text - The text to style.
  * @returns Blue ANSI text.

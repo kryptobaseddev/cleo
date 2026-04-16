@@ -62,7 +62,7 @@ The naming for this domain is intentionally layered:
 
 - **Protocol slug**: `sticky`
 - **Artifact type**: Sticky Note
-- **Circle of Ten house**: The Catchers
+- **Circle of Eleven house**: The Catchers
 - **Human-facing surface label**: Capture Shelf or Sticky Notes
 
 The stable contract is the slug `sticky`. The more formal surface language may evolve, but it MUST remain compatible with:
@@ -75,7 +75,7 @@ This means the canonical rule is:
 
 - keep `sticky` as the protocol/domain slug
 - keep Sticky Notes as the artifact type
-- use The Catchers for the Circle of Ten house
+- use The Catchers for the Circle of Eleven house
 - never confuse `sticky` with Conduit
 
 If a future alias such as "capture" is introduced, it MUST be additive and MUST NOT break the `sticky` contract.

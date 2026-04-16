@@ -851,6 +851,6 @@ These wireframes provide exact specifications for implementing the CleoOS Pi Cod
 1. **Information density** without clutter
 2. **Context awareness** - AI and code side by side
 3. **Extensibility** - Plugin-ready architecture
-4. **Lore integration** - Circle of Ten as UI roles
+4. **Lore integration** - Circle of Eleven as UI roles
 5. **Pi harness native** - First-class integration
-The Hearth becomes the workshop surface where the Circle of Ten aspects (domains) manifest as functional UI elements, creating a cohesive AI-first development environment.
+The Hearth becomes the workshop surface where the Circle of Eleven aspects (domains) manifest as functional UI elements, creating a cohesive AI-first development environment.

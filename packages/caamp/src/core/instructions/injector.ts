@@ -2,11 +2,13 @@
  * Marker-based instruction file injection
  *
  * Injects content blocks between CAAMP markers in instruction files
- * (CLAUDE.md, AGENTS.md, GEMINI.md).
+ * (CLAUDE.md, AGENTS.md, GEMINI.md) and agent-definition files
+ * (cleo-subagent.md, seed agent profiles) per provider's native folder.
  */
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
 import { getProvider } from '../registry/providers.js';
@@ -466,6 +468,194 @@ export async function ensureAllProviderInstructionFiles(
       action,
       providerId: provider.id,
     });
+  }
+
+  return results;
+}
+
+// ── Per-Provider Agent Folder API ─────────────────────────────────
+
+/**
+ * Known provider IDs that have a defined agent folder path.
+ *
+ * @public
+ */
+export type KnownProviderAgentFolderId =
+  | 'claude-code'
+  | 'claude-sdk'
+  | 'opencode'
+  | 'codex'
+  | 'cursor'
+  | 'pi'
+  | 'kimi'
+  | 'gemini-cli'
+  | 'openai-sdk';
+
+/**
+ * Resolve the native agent-definition folder path for a given provider.
+ *
+ * Each AI provider reads agent-definition files (e.g. `cleo-subagent.md`,
+ * seed agent profiles) from its own platform-specific directory. This
+ * function returns the correct path per provider so the CAAMP injector can
+ * write agent files to the right location for every enabled provider.
+ *
+ * Follows XDG conventions (`~/.config/<provider>/agents/`) for providers
+ * that do not have a pre-existing dotfolder convention. Claude Code and
+ * Claude SDK both share `~/.claude/agents/` to match the Claude Code
+ * native agent-loading path.
+ *
+ * Returns `null` for unknown provider IDs so callers can handle the gap
+ * without throwing.
+ *
+ * @param providerId - Provider ID from the CAAMP registry (e.g. `"claude-code"`, `"opencode"`)
+ * @returns Absolute path to the provider's agent folder, or `null` if the provider is unknown
+ *
+ * @example
+ * ```typescript
+ * const folder = getProviderAgentFolder("claude-code");
+ * // => "/home/user/.claude/agents"
+ *
+ * const folder2 = getProviderAgentFolder("opencode");
+ * // => "/home/user/.config/opencode/agents"
+ *
+ * const folder3 = getProviderAgentFolder("unknown-provider");
+ * // => null
+ * ```
+ *
+ * @public
+ */
+export function getProviderAgentFolder(providerId: string): string | null {
+  const home = homedir();
+
+  switch (providerId as KnownProviderAgentFolderId) {
+    case 'claude-code':
+    case 'claude-sdk':
+      return join(home, '.claude', 'agents');
+    case 'opencode':
+      return join(home, '.config', 'opencode', 'agents');
+    case 'codex':
+      return join(home, '.config', 'codex', 'agents');
+    case 'cursor':
+      return join(home, '.cursor', 'agents');
+    case 'pi':
+      return join(home, '.config', 'pi', 'agents');
+    case 'kimi':
+      return join(home, '.config', 'kimi', 'agents');
+    case 'gemini-cli':
+      return join(home, '.config', 'gemini', 'agents');
+    case 'openai-sdk':
+      return join(home, '.config', 'openai', 'agents');
+    default:
+      return null;
+  }
+}
+
+/**
+ * Result of writing an agent-definition file to a single provider's agent folder.
+ *
+ * @public
+ */
+export interface WriteAgentFileResult {
+  /** Provider ID the file was written for. */
+  providerId: string;
+  /** Absolute path to the written agent-definition file. */
+  filePath: string;
+  /** Action taken. */
+  action: 'created' | 'added' | 'consolidated' | 'updated' | 'intact';
+}
+
+/**
+ * Options for writing agent-definition files to provider agent folders.
+ *
+ * @public
+ */
+export interface WriteAgentFileOptions {
+  /**
+   * File name for the agent-definition file (e.g. `"cleo-subagent.md"`).
+   * This name is used as-is inside each provider's agent folder.
+   */
+  fileName: string;
+  /** Content to inject between CAAMP markers in the agent-definition file. */
+  content: string;
+  /**
+   * If `true`, skip writing to providers whose agent folder does not yet exist.
+   * If `false` (default), the folder is created automatically.
+   *
+   * @defaultValue false
+   */
+  skipMissingFolders?: boolean;
+}
+
+/**
+ * Write an agent-definition file to every enabled provider's native agent folder.
+ *
+ * For each provider ID supplied, the file is written to the provider's native
+ * agent-definition directory (resolved via {@link getProviderAgentFolder}).
+ * Writing is idempotent — if the file already exists with matching content the
+ * action is `"intact"` and the file is not modified. This ensures that existing
+ * `~/.claude/agents/cleo-subagent.md` installs from prior versions are preserved
+ * without clobbering.
+ *
+ * Providers whose folder cannot be resolved (unknown provider IDs) are silently
+ * skipped. Providers whose folder does not yet exist on disk are created
+ * automatically unless `skipMissingFolders` is set to `true`.
+ *
+ * @param providerIds - Array of provider IDs to write agent files for
+ * @param options - File name, content, and folder-creation behaviour
+ * @returns Array of write results, one per provider that was successfully processed
+ *
+ * @example
+ * ```typescript
+ * const results = await writeAgentFileToAllProviders(
+ *   ["claude-code", "opencode", "cursor"],
+ *   {
+ *     fileName: "cleo-subagent.md",
+ *     content: "## CLEO Subagent\nYou are a CLEO subagent...",
+ *   },
+ * );
+ * for (const r of results) {
+ *   console.log(`${r.providerId}: ${r.action} → ${r.filePath}`);
+ * }
+ * ```
+ *
+ * @public
+ */
+export async function writeAgentFileToAllProviders(
+  providerIds: string[],
+  options: WriteAgentFileOptions,
+): Promise<WriteAgentFileResult[]> {
+  const results: WriteAgentFileResult[] = [];
+  const processed = new Set<string>();
+
+  for (const providerId of providerIds) {
+    const folder = getProviderAgentFolder(providerId);
+    if (folder === null) {
+      // Unknown provider — skip silently; caller can detect by comparing
+      // providerIds.length to results.length.
+      continue;
+    }
+
+    const filePath = join(folder, options.fileName);
+
+    // Deduplicate by resolved file path — claude-code and claude-sdk share
+    // the same folder so we only write once.
+    if (processed.has(filePath)) {
+      // Still push a result so the caller sees all providers reflected.
+      const existingResult = results.find((r) => r.filePath === filePath);
+      if (existingResult) {
+        results.push({ providerId, filePath, action: existingResult.action });
+      }
+      continue;
+    }
+    processed.add(filePath);
+
+    if (options.skipMissingFolders === true && !existsSync(folder)) {
+      // Folder does not exist and caller requested we skip rather than create.
+      continue;
+    }
+
+    const action = await inject(filePath, options.content);
+    results.push({ providerId, filePath, action });
   }
 
   return results;

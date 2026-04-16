@@ -117,6 +117,9 @@ mod tests {
             permissions: vec![],
             context_refs: vec![],
             hooks: vec![],
+            context_sources: vec![],
+            mental_model: vec![],
+            file_permissions: None,
             span: Span::new(0, 50, 1, 1),
         })]);
         let loc = find_definition("ops-lead", &doc);
@@ -135,6 +138,9 @@ mod tests {
             permissions: vec![],
             context_refs: vec![],
             hooks: vec![],
+            context_sources: vec![],
+            mental_model: vec![],
+            file_permissions: None,
             span: Span::new(0, 40, 1, 1),
         })]);
         let loc = find_definition("@scanner", &doc);

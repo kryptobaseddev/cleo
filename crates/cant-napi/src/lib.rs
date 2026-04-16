@@ -418,6 +418,185 @@ fn format_duration_unit(unit: &cant_core::dsl::ast::DurationUnit) -> &'static st
     }
 }
 
+// ── Model Router (cant-router) ──────────────────────────────────────
+
+/// Prompt feature vector extracted from a raw prompt string, exposed to JavaScript.
+///
+/// Maps to [`cant_router::PromptFeatures`]. Fields follow napi-rs camelCase
+/// conversion from the snake_case Rust names.
+#[napi(object)]
+pub struct JsPromptFeatures {
+    /// Whitespace-delimited token count of the prompt.
+    pub token_count: u32,
+    /// Syntactic complexity in `[0.0, 1.0]` — proxied by nested bracket depth.
+    pub syntactic_complexity: f64,
+    /// Count of reasoning keywords (why / should / compare / decide / …).
+    pub reasoning_depth: u32,
+    /// Domain-specificity in `[0.0, 1.0]` — proxied by CamelCase identifier density.
+    pub domain_specificity: f64,
+    /// Number of file references detected in the prompt.
+    pub touches_files_count: u32,
+}
+
+/// Classification result produced by the model router classifier, exposed to JavaScript.
+///
+/// Maps to [`cant_router::Classification`].
+#[napi(object)]
+pub struct JsClassification {
+    /// Scalar complexity score in `[0.0, 1.0]`.
+    pub score: f64,
+    /// The tier chosen: `"low"`, `"mid"`, or `"high"`.
+    pub tier: String,
+    /// The feature vector that produced this classification.
+    pub features: JsPromptFeatures,
+}
+
+/// Final model selection from the router, exposed to JavaScript.
+///
+/// Maps to [`cant_router::ModelSelection`].
+#[napi(object)]
+pub struct JsModelSelection {
+    /// The tier that produced this selection: `"low"`, `"mid"`, or `"high"`.
+    pub tier: String,
+    /// The primary model identifier (e.g., `"claude-opus-4-6"`).
+    pub primary_model: String,
+    /// Ordered fallback chain invoked on primary failure.
+    pub fallback_models: Vec<String>,
+    /// Hard cost cap for the request, in USD.
+    pub cost_cap_usd: f64,
+    /// Soft latency budget for the request, in milliseconds.
+    pub latency_budget_ms: u32,
+    /// Human-readable reason string describing why this selection was made.
+    pub reason: String,
+}
+
+/// Convert a [`cant_router::Tier`] to its lowercase string representation.
+fn tier_to_string(tier: cant_router::Tier) -> String {
+    match tier {
+        cant_router::Tier::Low => "low".to_string(),
+        cant_router::Tier::Mid => "mid".to_string(),
+        cant_router::Tier::High => "high".to_string(),
+    }
+}
+
+/// Convert a [`cant_router::Tier`] string back to the Rust enum.
+fn string_to_tier(s: &str) -> cant_router::Tier {
+    match s {
+        "high" => cant_router::Tier::High,
+        "mid" => cant_router::Tier::Mid,
+        _ => cant_router::Tier::Low,
+    }
+}
+
+/// Convert a [`cant_router::PromptFeatures`] to its JavaScript-compatible form.
+fn features_to_js(f: cant_router::PromptFeatures) -> JsPromptFeatures {
+    JsPromptFeatures {
+        token_count: f.token_count as u32,
+        syntactic_complexity: f.syntactic_complexity,
+        reasoning_depth: f.reasoning_depth as u32,
+        domain_specificity: f.domain_specificity,
+        touches_files_count: f.touches_files_count as u32,
+    }
+}
+
+/// Convert a [`JsPromptFeatures`] back to the Rust [`cant_router::PromptFeatures`].
+fn js_to_features(f: JsPromptFeatures) -> cant_router::PromptFeatures {
+    cant_router::PromptFeatures {
+        token_count: f.token_count as usize,
+        syntactic_complexity: f.syntactic_complexity,
+        reasoning_depth: f.reasoning_depth as usize,
+        domain_specificity: f.domain_specificity,
+        touches_files_count: f.touches_files_count as usize,
+    }
+}
+
+/// Convert a [`cant_router::ModelSelection`] to its JavaScript-compatible form.
+fn selection_to_js(sel: cant_router::ModelSelection) -> JsModelSelection {
+    JsModelSelection {
+        tier: tier_to_string(sel.tier),
+        primary_model: sel.primary_model,
+        fallback_models: sel.fallback_models,
+        cost_cap_usd: sel.cost_cap_usd,
+        latency_budget_ms: sel.latency_budget_ms as u32,
+        reason: sel.reason,
+    }
+}
+
+/// Extract a prompt feature vector from a raw prompt string.
+///
+/// Delegates to [`cant_router::extract_features`]. Returns a [`JsPromptFeatures`]
+/// object suitable for passing directly to [`cant_router_classify`].
+///
+/// # Arguments
+///
+/// * `prompt` - The raw prompt text to extract features from.
+#[napi]
+pub fn cant_router_extract_features(prompt: String) -> JsPromptFeatures {
+    let f = cant_router::extract_features(&prompt);
+    features_to_js(f)
+}
+
+/// Classify a prompt feature vector into a tier.
+///
+/// Delegates to [`cant_router::classify`]. Returns a [`JsClassification`]
+/// object suitable for passing directly to [`cant_router_route`].
+///
+/// # Arguments
+///
+/// * `features` - The feature vector produced by [`cant_router_extract_features`].
+#[napi]
+pub fn cant_router_classify(features: JsPromptFeatures) -> JsClassification {
+    let rust_features = js_to_features(features);
+    let c = cant_router::classify(rust_features.clone());
+    JsClassification {
+        score: c.score,
+        tier: tier_to_string(c.tier),
+        features: features_to_js(rust_features),
+    }
+}
+
+/// Route a classification to a model selection.
+///
+/// Delegates to [`cant_router::route`]. Returns a [`JsModelSelection`]
+/// describing the primary model, fallback chain, cost cap, and latency budget.
+///
+/// # Arguments
+///
+/// * `classification` - The classification produced by [`cant_router_classify`].
+#[napi]
+pub fn cant_router_route(classification: JsClassification) -> JsModelSelection {
+    let rust_features = js_to_features(classification.features);
+    let rust_class = cant_router::Classification {
+        score: classification.score,
+        tier: string_to_tier(&classification.tier),
+        features: rust_features,
+    };
+    let sel = cant_router::route(rust_class);
+    selection_to_js(sel)
+}
+
+/// Downgrade a model selection by one tier in response to a cost-cap event.
+///
+/// Delegates to [`cant_router::downgrade_for_cost`]. Returns `null` if the
+/// selection is already at the lowest tier (`"low"`), or the downgraded
+/// [`JsModelSelection`] otherwise.
+///
+/// # Arguments
+///
+/// * `selection` - The current model selection to downgrade.
+#[napi]
+pub fn cant_router_downgrade(selection: JsModelSelection) -> Option<JsModelSelection> {
+    let rust_sel = cant_router::ModelSelection {
+        tier: string_to_tier(&selection.tier),
+        primary_model: selection.primary_model,
+        fallback_models: selection.fallback_models,
+        cost_cap_usd: selection.cost_cap_usd,
+        latency_budget_ms: selection.latency_budget_ms as u64,
+        reason: selection.reason,
+    };
+    cant_router::downgrade_for_cost(rust_sel).map(selection_to_js)
+}
+
 // ── Pipeline Execution (async) ──────────────────────────────────────
 
 /// A single step result returned to JavaScript from a pipeline run.

@@ -1262,7 +1262,7 @@ FUNCTION resolve_agent_spawn(agent_file: Path, tier: 0|1|2, tokens: TokenValues)
   6. POST-VALIDATION:
      - Verify all ${TOKEN} references resolved (no unresolved tokens)
      - Verify constraint IDs are unique
-     - Verify domain names are from canonical Circle of Ten
+     - Verify domain names are from canonical Circle of Eleven
      - Verify gateway names are query|mutate
 ```
 
@@ -1320,7 +1320,7 @@ Per T199 analysis:
 - **S-SPAWN-2**: Import resolution MUST be acyclic (no circular imports).
 - **S-SPAWN-3**: Tier guards MUST be evaluated before flattening (excluded blocks never reach the LLM).
 - **S-SPAWN-4**: Constraint IDs MUST be unique within an agent definition (including imported constraints).
-- **S-SPAWN-5**: Domain names MUST be from the canonical Circle of Ten.
+- **S-SPAWN-5**: Domain names MUST be from the canonical Circle of Eleven.
 - **S-SPAWN-6**: Gateway names MUST be `query` or `mutate`.
 - **S-SPAWN-7**: The `kind: protocol` document type MUST contain only `protocol` blocks and `@import` statements.
 

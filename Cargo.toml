@@ -17,6 +17,30 @@ members = [
     "crates/signaldock-payments",
     "crates/integration-tests",
 ]
+
+# Client-side / local CLEO crates — built and tested by default when you run
+# `cargo build --workspace` or `cargo test --workspace`. These power the local
+# CLEO install and do NOT require libpq / PostgreSQL client libraries.
+#
+# The signaldock-storage / signaldock-sdk / signaldock-transport /
+# signaldock-runtime / signaldock-payments crates are the **SignalDock cloud
+# server** implementation. They link libpq (PostgreSQL) for the cloud DB path.
+# If you are deploying or developing the cloud server, build them explicitly:
+#   cargo build -p signaldock-storage -p signaldock-sdk -p signaldock-runtime
+# Requires: libpq-dev / postgresql-client installed locally.
+default-members = [
+    "crates/cant-core",
+    "crates/cant-lsp",
+    "crates/cant-napi",
+    "crates/cant-router",
+    "crates/cant-runtime",
+    "crates/conduit-core",
+    "crates/lafs-core",
+    "crates/lafs-napi",
+    "crates/signaldock-core",
+    "crates/signaldock-protocol",
+    "crates/integration-tests",
+]
 resolver = "2"
 
 [workspace.package]

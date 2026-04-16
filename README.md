@@ -188,9 +188,9 @@ pnpm test
 - OpenCode, Cursor, Gemini, Codex, Kimi adapters
 - Extensible adapter architecture via CAAMP
 
-## The Circle of Ten
+## The Circle of Eleven
 
-CLEO organizes all work through 11 canonical domains — the houses where work gets done. The original Circle of Ten was joined by `intelligence` as the cognitive analytics layer.
+CLEO organizes all work through 11 canonical domains — the houses where work gets done. The original Circle of Eleven was joined by `intelligence` as the cognitive analytics layer.
 
 | Domain | House | What Happens Here | Key Commands |
 |--------|-------|-------------------|--------------|
