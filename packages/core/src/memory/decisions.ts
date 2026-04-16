@@ -9,6 +9,7 @@
  * @epic T5149
  */
 
+import { createHash } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/brain-schema.js';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
@@ -171,6 +172,12 @@ export async function storeDecision(
     memoryTier,
   });
 
+  // T737: compute content hash for hash-dedup gating (mirrors brain_observations pattern)
+  const contentHashValue = createHash('sha256')
+    .update((params.decision.trim() + '\n' + params.rationale.trim()).toLowerCase())
+    .digest('hex')
+    .slice(0, 16);
+
   const row: NewBrainDecisionRow = {
     id,
     type: params.type,
@@ -188,6 +195,8 @@ export async function storeDecision(
     memoryType,
     sourceConfidence,
     verified,
+    // T737: content hash for dedup gating
+    contentHash: contentHashValue,
   };
 
   const saved = await accessor.addDecision(row);

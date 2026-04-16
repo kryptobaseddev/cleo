@@ -402,40 +402,71 @@ function hasMinimumRetrievalsSinceLastPlasticity(
   sessionId: string | null = null,
 ): boolean {
   try {
-    // Query: latest plasticity event timestamp for this session
+    // Query: latest plasticity event timestamp for this session (or all sessions if null).
+    //
+    // NOTE: SQLite `WHERE session_id = NULL` never matches any rows (NULL != NULL).
+    // When sessionId is null we query ALL sessions by omitting the WHERE filter.
+    // This ensures maintenance/manual consolidation (no active session) counts all
+    // retrievals rather than silently returning 0 and blocking STDP every time.
     const db = nativeDb as unknown as {
       prepare: (sql: string) => { get: (...args: unknown[]) => unknown };
     };
-    const lastPlasticityStmt = db.prepare(
-      `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events
-       WHERE session_id = ?`,
-    );
-    const lastPlasticityRow = lastPlasticityStmt.get(sessionId) as
-      | { last_time: string | null }
-      | undefined;
-    const lastTime = lastPlasticityRow?.last_time ?? null;
+
+    const lastTime = (() => {
+      if (sessionId !== null) {
+        const row = db
+          .prepare(
+            `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events
+             WHERE session_id = ?`,
+          )
+          .get(sessionId) as { last_time: string | null } | undefined;
+        return row?.last_time ?? null;
+      }
+      // sessionId is null → check across all sessions
+      const row = db
+        .prepare(`SELECT MAX(timestamp) as last_time FROM brain_plasticity_events`)
+        .get() as { last_time: string | null } | undefined;
+      return row?.last_time ?? null;
+    })();
 
     // Count retrievals since that timestamp (or all if no prior events)
     let newRetrievalCount: number;
 
     if (lastTime === null) {
-      // No prior plasticity events — count all retrievals in this session
-      const countRow = db
-        .prepare(
-          `SELECT COUNT(*) as cnt FROM brain_retrieval_log
-           WHERE session_id = ?`,
-        )
-        .get(sessionId) as { cnt: number } | undefined;
-      newRetrievalCount = countRow?.cnt ?? 0;
+      // No prior plasticity events — count all retrievals
+      if (sessionId !== null) {
+        const countRow = db
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM brain_retrieval_log
+             WHERE session_id = ?`,
+          )
+          .get(sessionId) as { cnt: number } | undefined;
+        newRetrievalCount = countRow?.cnt ?? 0;
+      } else {
+        const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM brain_retrieval_log`).get() as
+          | { cnt: number }
+          | undefined;
+        newRetrievalCount = countRow?.cnt ?? 0;
+      }
     } else {
       // Count only retrievals *after* the last plasticity event
-      const countRow = db
-        .prepare(
-          `SELECT COUNT(*) as cnt FROM brain_retrieval_log
-           WHERE session_id = ? AND created_at > ?`,
-        )
-        .get(sessionId, lastTime) as { cnt: number } | undefined;
-      newRetrievalCount = countRow?.cnt ?? 0;
+      if (sessionId !== null) {
+        const countRow = db
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM brain_retrieval_log
+             WHERE session_id = ? AND created_at > ?`,
+          )
+          .get(sessionId, lastTime) as { cnt: number } | undefined;
+        newRetrievalCount = countRow?.cnt ?? 0;
+      } else {
+        const countRow = db
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM brain_retrieval_log
+             WHERE created_at > ?`,
+          )
+          .get(lastTime) as { cnt: number } | undefined;
+        newRetrievalCount = countRow?.cnt ?? 0;
+      }
     }
 
     return newRetrievalCount >= minCount;
@@ -475,30 +506,48 @@ export async function shouldRunPlasticity(
   );
 
   if (!hasMinimum) {
+    // Recount for the warning message using the same null-safe pattern
     const count = (() => {
       try {
         const db = nativeDb as unknown as {
           prepare: (sql: string) => { get: (...args: unknown[]) => unknown };
         };
-        const lastPlasticityStmt = db.prepare(
-          `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events WHERE session_id = ?`,
-        );
-        const lastPlasticityRow = lastPlasticityStmt.get(sessionId) as
-          | { last_time: string | null }
-          | undefined;
-        const lastTime = lastPlasticityRow?.last_time ?? null;
+        const lastTime = (() => {
+          if (sessionId !== null) {
+            const row = db
+              .prepare(
+                `SELECT MAX(timestamp) as last_time FROM brain_plasticity_events WHERE session_id = ?`,
+              )
+              .get(sessionId) as { last_time: string | null } | undefined;
+            return row?.last_time ?? null;
+          }
+          const row = db
+            .prepare(`SELECT MAX(timestamp) as last_time FROM brain_plasticity_events`)
+            .get() as { last_time: string | null } | undefined;
+          return row?.last_time ?? null;
+        })();
 
         if (lastTime === null) {
-          const countStmt = db.prepare(
-            `SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ?`,
-          );
-          const countRow = countStmt.get(sessionId) as { cnt: number } | undefined;
+          const countRow =
+            sessionId !== null
+              ? (db
+                  .prepare(`SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ?`)
+                  .get(sessionId) as { cnt: number } | undefined)
+              : (db.prepare(`SELECT COUNT(*) as cnt FROM brain_retrieval_log`).get() as
+                  | { cnt: number }
+                  | undefined);
           return countRow?.cnt ?? 0;
         } else {
-          const countStmt = db.prepare(
-            `SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ? AND created_at > ?`,
-          );
-          const countRow = countStmt.get(sessionId, lastTime) as { cnt: number } | undefined;
+          const countRow =
+            sessionId !== null
+              ? (db
+                  .prepare(
+                    `SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE session_id = ? AND created_at > ?`,
+                  )
+                  .get(sessionId, lastTime) as { cnt: number } | undefined)
+              : (db
+                  .prepare(`SELECT COUNT(*) as cnt FROM brain_retrieval_log WHERE created_at > ?`)
+                  .get(lastTime) as { cnt: number } | undefined);
           return countRow?.cnt ?? 0;
         }
       } catch {

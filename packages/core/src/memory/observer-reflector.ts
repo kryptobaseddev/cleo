@@ -549,9 +549,25 @@ Rules:
  * @param sessionId - Current CLEO session ID (used to scope observation query).
  * @returns ObserverResult with counts and note details.
  */
+/**
+ * Options for overriding Observer behaviour at call time.
+ *
+ * T740: Callers (e.g. session-end hook) may bypass the default threshold
+ * check by passing `thresholdOverride: 1` so Observer fires unconditionally
+ * even in short sessions with fewer than 10 observations.
+ */
+export interface RunObserverOptions {
+  /**
+   * When provided, replaces `cfg.threshold` for this call only.
+   * Pass `1` to fire unconditionally regardless of observation count.
+   */
+  thresholdOverride?: number;
+}
+
 export async function runObserver(
   projectRoot: string,
   sessionId?: string,
+  options?: RunObserverOptions,
 ): Promise<ObserverResult> {
   const empty: ObserverResult = { ran: false, stored: 0, compressedIds: [], notes: [] };
 
@@ -571,9 +587,11 @@ export async function runObserver(
     return empty;
   }
 
-  // Gate 4: Threshold check
+  // Gate 4: Threshold check — T740: allow override so session-end hook
+  // can force Observer to run regardless of observation count.
+  const effectiveThreshold = options?.thresholdOverride ?? cfg.threshold;
   const count = countSessionObservations(sessionId);
-  if (count < cfg.threshold) return empty;
+  if (count < effectiveThreshold) return empty;
 
   // Fetch input observations
   const observations = fetchSessionObservations(sessionId, OBSERVER_BATCH_LIMIT);
@@ -775,17 +793,22 @@ export async function runReflector(
   let patternsStored = 0;
   let learningsStored = 0;
 
+  // T742: Collect IDs of newly stored patterns/learnings so we can write
+  // supersedes graph edges from them to the superseded source observations.
+  const newEntryIds: string[] = [];
+
   // Store patterns
   if (Array.isArray(output.patterns)) {
     for (const p of output.patterns) {
       if (typeof p.pattern !== 'string' || !p.pattern) continue;
       try {
-        await storePattern(projectRoot, {
+        const stored = await storePattern(projectRoot, {
           type: 'workflow',
           pattern: p.pattern.slice(0, 500),
           context: (p.context ?? '').slice(0, 200),
           source: REFLECTOR_SOURCE,
         });
+        newEntryIds.push(`pattern:${stored.id}`);
         patternsStored++;
       } catch {
         /* best-effort */
@@ -800,12 +823,13 @@ export async function runReflector(
       const confidence =
         typeof l.confidence === 'number' ? Math.max(0.1, Math.min(1.0, l.confidence)) : 0.7;
       try {
-        await storeLearning(projectRoot, {
+        const stored = await storeLearning(projectRoot, {
           insight: l.insight.slice(0, 500),
           source: REFLECTOR_SOURCE,
           confidence,
           actionable: confidence >= 0.7,
         });
+        newEntryIds.push(`learning:${stored.id}`);
         learningsStored++;
       } catch {
         /* best-effort */
@@ -813,12 +837,33 @@ export async function runReflector(
     }
   }
 
-  // Mark superseded observations
+  // Mark superseded observations as invalid (soft-evict).
   const supersededIds = Array.isArray(output.superseded)
     ? output.superseded.filter((id): id is string => typeof id === 'string')
     : [];
 
   markSuperseded(supersededIds);
+
+  // T742: Write supersedes graph edges from each new entry to each superseded
+  // observation. This links the synthesized knowledge back to its source
+  // observations in brain_page_edges so the supersession chain is traversable.
+  // All edge writes are best-effort — never block the return.
+  if (newEntryIds.length > 0 && supersededIds.length > 0) {
+    for (const newNodeId of newEntryIds) {
+      for (const obsId of supersededIds) {
+        addGraphEdge(
+          projectRoot,
+          newNodeId,
+          `observation:${obsId}`,
+          'supersedes',
+          1.0,
+          'reflector-synthesized:session-end-reflection',
+        ).catch(() => {
+          /* best-effort */
+        });
+      }
+    }
+  }
 
   return {
     ran: true,

@@ -28,6 +28,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { resolveAnthropicApiKey } from './anthropic-key-resolver.js';
+import { checkHashDedup, type MemoryCandidate, verifyAndStore } from './extraction-gate.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,29 +162,51 @@ function clipTranscript(transcript: string, maxChars: number): string {
 }
 
 /**
- * Build a MemoryCandidate for the verify-and-store gate from an
- * ExtractedMemory plus session context.
+ * Store a single LLM-extracted memory, routing it through the full dedup gate.
+ *
+ * T736: All memory types now pass through the hash-dedup gate before reaching
+ * the underlying store function. For decisions (which have domain-specific fields
+ * that `verifyAndStore` cannot set), we run `checkHashDedup` first and call
+ * `storeDecision` only when no duplicate is found. For all other types, we
+ * build a `MemoryCandidate` and delegate to `verifyAndStore` which runs both
+ * hash-dedup (Check A) and the full embedding + confidence gate (Checks B, C).
  *
  * Routing:
- *   - decision    → semantic memory (downstream storeLearning is semantic,
- *     but decisions go through storeDecision via routing below)
- *   - pattern     → procedural (goes to brain_patterns via extraction gate)
- *   - learning    → semantic (brain_learnings)
- *   - constraint  → semantic (brain_learnings, with higher confidence)
- *   - correction  → procedural (brain_patterns with antiPattern flag)
+ *   - decision    → checkHashDedup(brain_decisions) → storeDecision (domain fields preserved)
+ *   - pattern     → verifyAndStore (procedural candidate → brain_patterns)
+ *   - learning    → verifyAndStore (semantic candidate → brain_learnings)
+ *   - constraint  → verifyAndStore (semantic candidate, higher confidence → brain_learnings)
+ *   - correction  → verifyAndStore (procedural candidate → brain_patterns)
  */
 async function storeExtracted(
   projectRoot: string,
   sessionId: string,
   memory: ExtractedMemory,
 ): Promise<'stored' | 'merged' | 'rejected'> {
-  const source = `agent-llm-extracted:${sessionId}`;
-
-  // Decisions use storeDecision directly so contextPhase + type flow through.
+  // ------------------------------------------------------------------
+  // Decisions — domain-specific fields require storeDecision directly.
+  // Use checkHashDedup as the gate instead of verifyAndStore (which
+  // would route semantic→brain_learnings and lose decision metadata).
+  // ------------------------------------------------------------------
   if (memory.type === 'decision') {
+    // T736 + T737: hash-dedup check on brain_decisions before storing.
+    const dedupResult = await checkHashDedup(projectRoot, memory.content, 'brain_decisions');
+    if (dedupResult.matched) {
+      // Already exists — bump citation count (fire-and-forget) and report merged.
+      const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
+      getBrainDb(projectRoot)
+        .then(() => {
+          const db = getBrainNativeDb();
+          db?.prepare(
+            'UPDATE brain_decisions SET citation_count = citation_count + 1 WHERE id = ?',
+          ).run(dedupResult.id);
+        })
+        .catch(() => undefined);
+      return 'merged';
+    }
+
     const { storeDecision } = await import('./decisions.js');
     try {
-      // decision text is the content before " because "; rationale follows.
       const { decisionText, rationale } = splitDecisionContent(memory.content);
       await storeDecision(projectRoot, {
         type: 'technical',
@@ -197,53 +220,47 @@ async function storeExtracted(
     }
   }
 
-  // Corrections map to patterns with antiPattern + mitigation fields.
-  if (memory.type === 'correction') {
-    const { storePattern } = await import('./patterns.js');
-    try {
-      await storePattern(projectRoot, {
-        type: 'failure',
-        pattern: memory.content,
-        context: `From session ${sessionId}. ${memory.justification}`,
-        antiPattern: memory.content,
-        mitigation: memory.justification,
-        impact: memory.importance >= 0.8 ? 'high' : memory.importance >= 0.6 ? 'medium' : 'low',
-        source,
-      });
-      return 'stored';
-    } catch {
-      return 'rejected';
-    }
+  // ------------------------------------------------------------------
+  // Patterns (workflow), Corrections (failure pattern), Learnings, Constraints.
+  // All routed through verifyAndStore so they get hash-dedup + embedding
+  // dedup + confidence gate (Checks A, B, C).
+  // ------------------------------------------------------------------
+  const confidence =
+    memory.type === 'constraint' ? Math.max(memory.importance, 0.8) : memory.importance;
+
+  let candidate: MemoryCandidate;
+
+  if (memory.type === 'correction' || memory.type === 'pattern') {
+    candidate = {
+      text: memory.content,
+      title: `${memory.type === 'correction' ? 'Correction' : 'Pattern'}: ${memory.content.slice(0, 80)}`,
+      memoryType: 'procedural',
+      tier: 'medium',
+      confidence,
+      source: 'transcript',
+      sourceSessionId: sessionId,
+      sourceConfidence: 'agent',
+    };
+  } else {
+    // learning | constraint
+    candidate = {
+      text: memory.content,
+      title: `${memory.type === 'constraint' ? 'Constraint' : 'Learning'}: ${memory.content.slice(0, 80)}`,
+      memoryType: 'semantic',
+      tier: 'medium',
+      confidence,
+      source: 'transcript',
+      sourceSessionId: sessionId,
+      sourceConfidence: 'agent',
+    };
   }
 
-  // Patterns map to brain_patterns.
-  if (memory.type === 'pattern') {
-    const { storePattern } = await import('./patterns.js');
-    try {
-      await storePattern(projectRoot, {
-        type: 'workflow',
-        pattern: memory.content,
-        context: `From session ${sessionId}. ${memory.justification}`,
-        impact: memory.importance >= 0.8 ? 'high' : memory.importance >= 0.6 ? 'medium' : 'low',
-        source,
-      });
-      return 'stored';
-    } catch {
-      return 'rejected';
-    }
-  }
-
-  // Learnings and constraints map to brain_learnings.
-  const { storeLearning } = await import('./learnings.js');
   try {
-    await storeLearning(projectRoot, {
-      insight: memory.content,
-      source,
-      confidence:
-        memory.type === 'constraint' ? Math.max(memory.importance, 0.8) : memory.importance,
-      actionable: memory.type === 'constraint',
-    });
-    return 'stored';
+    const result = await verifyAndStore(projectRoot, candidate);
+    if (result.action === 'stored') return 'stored';
+    if (result.action === 'merged') return 'merged';
+    // 'pending' and 'rejected' both count as rejected from caller's perspective
+    return 'rejected';
   } catch {
     return 'rejected';
   }

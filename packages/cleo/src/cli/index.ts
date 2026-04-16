@@ -142,6 +142,9 @@ import { registerUpgradeCommand } from './commands/upgrade.js';
 // DEPRECATED: registerValidateCommand removed — use `cleo check schema todo`
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerWebCommand } from './commands/web.js';
+import { registerDaemonCommand } from './commands/daemon.js';
+import { registerGCCommand } from './commands/gc.js';
+import { registerTranscriptCommand } from './commands/transcript.js';
 
 // Register all commands against the shim
 registerAgentCommand(rootShim);
@@ -247,6 +250,9 @@ registerStickyCommand(rootShim);
 registerReasonCommand(rootShim);
 registerRefreshMemoryCommand(rootShim);
 registerSchemaCommand(rootShim);
+registerDaemonCommand(rootShim);
+registerGCCommand(rootShim);
+registerTranscriptCommand(rootShim);
 
 function shimToCitty(shim: ShimCommand): CommandDef {
   const cittyArgs: Record<string, import('citty').ArgDef> = {};

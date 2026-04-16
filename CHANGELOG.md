@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.63] — 2026-04-15
+
+### Memory architecture (T726 epic — Wave 1)
+- T729+T734: dream cycle real wiring (was theater)
+- T730+T732+T733: TranscriptExtractor + Ollama auto-install + Sonnet cold (owner override)
+- T731+T728+T735: sidecar GC daemon + cleo daemon/transcript CLI + ADR-047
+- T744+T748+T747: cleo memory tier CLI + Studio chart + tests
+- T749+T745+T742+T740+T739+T738: extraction pipeline gates + ADR-048
+- T736+T737+T741+T743+T746: schema migrations + dedup gates + tier defaults
+- T752: gemma4:e4b-it (instruction-tuned) over base e2b; canSpawn() OAuth fix
+
+### Memory architecture spec
+- docs/specs/memory-architecture-spec.md locks Q4 (Ollama+Gemma4-e4b-it→Sonnet) + Q5 (sidecar daemon)
+
 ## [2026.4.62] (2026-04-15)
 ### Fixed
 - T721-FOLLOWUP: build.mjs missing store/* entry points caused v2026.4.61 release to ship without dist/store/nexus-sqlite.js. Added explicit esbuild entry points for store/nexus-sqlite, store/nexus-schema, store/brain-sqlite. Verify gate (added in v2026.4.61) caught the regression — now passes.

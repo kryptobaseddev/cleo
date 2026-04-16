@@ -34,6 +34,10 @@ export default defineConfig({
     // ---------------------------------------------------------------------------
     pool: 'forks',
     isolate: true,
+    // T753: Force-kill worker forks that fail to exit after teardown.
+    // Without this, workers with open SQLite handles or process.once('SIGTERM')
+    // handlers that call async code can block the runner indefinitely.
+    teardownTimeout: 10_000,
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.

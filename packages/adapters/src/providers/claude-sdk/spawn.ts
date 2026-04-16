@@ -9,19 +9,78 @@
  * - Awaits full completion before returning (synchronous output capture)
  * - Session IDs from the SDK enable future multi-turn resumption
  * - No temp files, no OS PIDs — tracking is purely in-memory session IDs
- * - `canSpawn()` checks for `ANTHROPIC_API_KEY` rather than CLI availability
+ * - `canSpawn()` uses 3-tier key resolution (env var → stored key → Claude Code OAuth)
  *
  * CANT enrichment is identical to the CLI provider: `buildCantEnrichedPrompt()`
  * is called before `query()` and the result is passed as the SDK prompt string.
  *
  * @task T581
+ * @see T752 — canSpawn() OAuth fix
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
 import { getServers } from './mcp-registry.js';
 import { SessionStore } from './session-store.js';
 import { resolveTools } from './tool-bridge.js';
+
+// ---------------------------------------------------------------------------
+// Inline 3-tier Anthropic key resolver
+// NOTE: Cannot import from @cleocode/core — circular dependency
+//       (@cleocode/core depends on @cleocode/adapters). This is a deliberate
+//       inline copy of the resolution logic from anthropic-key-resolver.ts.
+//       Keep in sync with packages/core/src/memory/anthropic-key-resolver.ts.
+//       T752 — OAuth fix for canSpawn()
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the Anthropic API key using a 3-tier priority chain:
+ * 1. `ANTHROPIC_API_KEY` environment variable
+ * 2. `~/.local/share/cleo/anthropic-key` (user-stored via cleo config)
+ * 3. `~/.claude/.credentials.json` → claudeAiOauth.accessToken (Claude Code OAuth)
+ *
+ * @returns The key/token string, or null if unavailable.
+ */
+function resolveAnthropicApiKey(): string | null {
+  // 1. Explicit env var
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  if (envKey?.trim()) return envKey;
+
+  // 2. CLEO global stored key
+  try {
+    const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
+    const keyFile = join(xdg, 'cleo', 'anthropic-key');
+    if (existsSync(keyFile)) {
+      const stored = readFileSync(keyFile, 'utf-8').trim();
+      if (stored) return stored;
+    }
+  } catch {
+    // Not available — continue
+  }
+
+  // 3. Claude Code OAuth token (free for Claude Code users)
+  try {
+    const credPath = join(homedir(), '.claude', '.credentials.json');
+    if (!existsSync(credPath)) return null;
+    const raw = readFileSync(credPath, 'utf-8');
+    const creds = JSON.parse(raw) as {
+      claudeAiOauth?: { accessToken?: string; expiresAt?: number };
+    };
+    const token = creds.claudeAiOauth?.accessToken;
+    if (token?.trim()) {
+      const expiresAt = creds.claudeAiOauth?.expiresAt;
+      if (expiresAt && Date.now() > expiresAt) return null;
+      return token;
+    }
+  } catch {
+    // Credentials file missing or unreadable — not an error
+  }
+
+  return null;
+}
 
 /** Model used when no model is specified in spawn options. */
 const DEFAULT_MODEL = 'claude-sonnet-4-5';
@@ -48,13 +107,18 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check whether the SDK can be used in the current environment.
    *
-   * Returns `true` if `ANTHROPIC_API_KEY` is set. No binary check is needed
-   * because the SDK manages the Claude Code subprocess internally.
+   * Uses 3-tier key resolution so the provider works with:
+   * - `ANTHROPIC_API_KEY` environment variable (explicit)
+   * - `~/.local/share/cleo/anthropic-key` (user-stored via cleo config)
+   * - Claude Code OAuth token (zero-config for Claude Code users)
    *
-   * @returns `true` when an API key is present
+   * No binary check is needed because the SDK manages the Claude Code
+   * subprocess internally.
+   *
+   * @returns `true` when any Anthropic credential is available
    */
   async canSpawn(): Promise<boolean> {
-    return !!process.env.ANTHROPIC_API_KEY;
+    return !!resolveAnthropicApiKey();
   }
 
   /**

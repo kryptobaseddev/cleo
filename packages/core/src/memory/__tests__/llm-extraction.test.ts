@@ -36,6 +36,22 @@ vi.mock('../decisions.js', () => ({
   storeDecision: vi.fn().mockResolvedValue({ id: 'D-mocked' }),
 }));
 
+// T736: learnings, patterns, constraints, and corrections now route through
+// the extraction gate (verifyAndStore) rather than calling store functions
+// directly. Mock it so tests remain unit tests without touching the real gate.
+vi.mock('../extraction-gate.js', () => ({
+  verifyAndStore: vi
+    .fn()
+    .mockResolvedValue({ action: 'stored', id: 'VAS-mock', reason: 'test-new' }),
+  checkHashDedup: vi.fn().mockResolvedValue({ matched: false }),
+  verifyCandidate: vi
+    .fn()
+    .mockResolvedValue({ action: 'stored', id: null, reason: 'verified-new' }),
+  verifyBatch: vi.fn().mockResolvedValue([]),
+  verifyAndStoreBatch: vi.fn().mockResolvedValue([]),
+  storeVerifiedCandidate: vi.fn().mockResolvedValue('VAS-mock'),
+}));
+
 // The zod helper is dynamically imported by the module; mock the subpath so
 // we can control whether structured output is available.
 vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({
@@ -72,6 +88,7 @@ vi.mock('../anthropic-key-resolver.js', () => ({
 // ---- imports after mocks --------------------------------------------------
 
 import { storeDecision } from '../decisions.js';
+import { checkHashDedup, verifyAndStore } from '../extraction-gate.js';
 import { storeLearning } from '../learnings.js';
 import type { ExtractedMemory } from '../llm-extraction.js';
 import { extractFromTranscript } from '../llm-extraction.js';
@@ -126,7 +143,7 @@ describe('extractFromTranscript (LLM gate)', () => {
     expect(storeLearning).not.toHaveBeenCalled();
   });
 
-  it('routes a learning extraction to storeLearning', async () => {
+  it('routes a learning extraction through verifyAndStore (T736)', async () => {
     const { client } = makeClient([
       {
         type: 'learning',
@@ -146,17 +163,19 @@ describe('extractFromTranscript (LLM gate)', () => {
 
     expect(report.extractedCount).toBe(1);
     expect(report.storedCount).toBe(1);
-    expect(storeLearning).toHaveBeenCalledTimes(1);
-    expect(storeLearning).toHaveBeenCalledWith(
+    // T736: learnings route through verifyAndStore, NOT directly to storeLearning
+    expect(verifyAndStore).toHaveBeenCalledTimes(1);
+    expect(verifyAndStore).toHaveBeenCalledWith(
       '/mock/root',
       expect.objectContaining({
-        source: 'agent-llm-extracted:S-learn',
-        insight: 'Brain.db uses SQLite WAL mode',
+        text: 'Brain.db uses SQLite WAL mode',
+        memoryType: 'semantic',
       }),
     );
+    expect(storeLearning).not.toHaveBeenCalled();
   });
 
-  it('routes a pattern extraction to storePattern', async () => {
+  it('routes a pattern extraction through verifyAndStore with procedural memoryType (T736)', async () => {
     const { client } = makeClient([
       {
         type: 'pattern',
@@ -175,16 +194,16 @@ describe('extractFromTranscript (LLM gate)', () => {
     });
 
     expect(report.storedCount).toBe(1);
-    expect(storePattern).toHaveBeenCalledTimes(1);
-    expect(storePattern).toHaveBeenCalledWith(
+    // T736: patterns route through verifyAndStore, NOT directly to storePattern
+    expect(verifyAndStore).toHaveBeenCalledTimes(1);
+    expect(verifyAndStore).toHaveBeenCalledWith(
       '/mock/root',
       expect.objectContaining({
-        type: 'workflow',
-        pattern: 'When writing migrations, add ensureColumns as safety net',
-        source: 'agent-llm-extracted:S-pat',
-        impact: 'high',
+        text: 'When writing migrations, add ensureColumns as safety net',
+        memoryType: 'procedural',
       }),
     );
+    expect(storePattern).not.toHaveBeenCalled();
   });
 
   it('routes a decision extraction to storeDecision with split rationale', async () => {
@@ -217,7 +236,7 @@ describe('extractFromTranscript (LLM gate)', () => {
     );
   });
 
-  it('routes a correction extraction to storePattern with antiPattern', async () => {
+  it('routes a correction extraction through verifyAndStore as procedural memory (T736)', async () => {
     const { client } = makeClient([
       {
         type: 'correction',
@@ -236,17 +255,19 @@ describe('extractFromTranscript (LLM gate)', () => {
     });
 
     expect(report.storedCount).toBe(1);
-    expect(storePattern).toHaveBeenCalledTimes(1);
-    expect(storePattern).toHaveBeenCalledWith(
+    // T736: corrections route through verifyAndStore as procedural memory
+    expect(verifyAndStore).toHaveBeenCalledTimes(1);
+    expect(verifyAndStore).toHaveBeenCalledWith(
       '/mock/root',
       expect.objectContaining({
-        type: 'failure',
-        antiPattern: expect.stringContaining('Avoid using any type'),
+        text: 'Avoid using any type; find root cause and wire proper types',
+        memoryType: 'procedural',
       }),
     );
+    expect(storePattern).not.toHaveBeenCalled();
   });
 
-  it('routes a constraint extraction to storeLearning with high confidence', async () => {
+  it('routes a constraint extraction through verifyAndStore with high confidence (T736)', async () => {
     const { client } = makeClient([
       {
         type: 'constraint',
@@ -265,11 +286,13 @@ describe('extractFromTranscript (LLM gate)', () => {
     });
 
     expect(report.storedCount).toBe(1);
-    expect(storeLearning).toHaveBeenCalledTimes(1);
-    const call = (storeLearning as ReturnType<typeof vi.fn>).mock.calls[0];
+    // T736: constraints route through verifyAndStore with semantic memory type
+    expect(verifyAndStore).toHaveBeenCalledTimes(1);
+    const call = (verifyAndStore as ReturnType<typeof vi.fn>).mock.calls[0];
     // Constraint confidence must be at least 0.8 even if importance is 0.7.
     expect(call[1].confidence).toBeGreaterThanOrEqual(0.8);
-    expect(call[1].actionable).toBe(true);
+    expect(call[1].memoryType).toBe('semantic');
+    expect(storeLearning).not.toHaveBeenCalled();
   });
 
   it('filters out extractions below minImportance', async () => {
@@ -300,7 +323,9 @@ describe('extractFromTranscript (LLM gate)', () => {
     expect(report.extractedCount).toBe(2);
     expect(report.storedCount).toBe(1);
     expect(report.rejectedCount).toBe(1);
-    expect(storeLearning).toHaveBeenCalledTimes(1);
+    // T736: high-importance learning routes through verifyAndStore, low-importance is filtered
+    expect(verifyAndStore).toHaveBeenCalledTimes(1);
+    expect(storeLearning).not.toHaveBeenCalled();
   });
 
   it('returns empty report when LLM returns no extractions', async () => {

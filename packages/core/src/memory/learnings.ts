@@ -10,7 +10,7 @@
  * @epic T4763
  */
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/brain-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computeLearningQuality } from './quality-scoring.js';
@@ -130,6 +130,12 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     memoryTier,
   });
 
+  // T737: compute content hash for hash-dedup gating
+  const contentHashValue = createHash('sha256')
+    .update(params.insight.trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 16);
+
   // Create new entry
   const entry = {
     id: generateLearningId(),
@@ -145,6 +151,8 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     memoryType,
     sourceConfidence,
     verified,
+    // T737: content hash for dedup gating
+    contentHash: contentHashValue,
   };
 
   const saved = await accessor.addLearning(entry);
@@ -162,28 +170,33 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     /* best-effort */
   });
 
-  // Detect supersession: check if this new learning supersedes any existing ones.
-  // Fire-and-forget — never block the primary return.
-  detectSupersession(projectRoot, {
-    id: saved.id,
-    text: saved.insight,
-    createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-  })
-    .then((candidates) => {
-      for (const candidate of candidates) {
-        supersedeMemory(
-          projectRoot,
-          candidate.existingId,
-          saved.id,
-          'auto:learning-supersedes — high overlap detected at store time',
-        ).catch(() => {
-          /* best-effort */
-        });
-      }
+  // T738: Auto-fire detectSupersession only for high-trust writes.
+  // Speculative/agent confidence learnings rely on sleep-consolidation dedup instead.
+  // Only 'owner' or 'task-outcome' sourceConfidence triggers write-time supersession.
+  // Cast needed: TS narrows sourceConfidence to 'agent'|'speculative' above, but the
+  // type is BrainSourceConfidence which includes 'owner'|'task-outcome' for other callers.
+  if ((sourceConfidence as string) === 'owner' || (sourceConfidence as string) === 'task-outcome') {
+    detectSupersession(projectRoot, {
+      id: saved.id,
+      text: saved.insight,
+      createdAt: saved.createdAt ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
     })
-    .catch(() => {
-      /* best-effort */
-    });
+      .then((candidates) => {
+        for (const candidate of candidates) {
+          supersedeMemory(
+            projectRoot,
+            candidate.existingId,
+            saved.id,
+            'auto:learning-supersedes — high overlap detected at store time',
+          ).catch(() => {
+            /* best-effort */
+          });
+        }
+      })
+      .catch(() => {
+        /* best-effort */
+      });
+  }
 
   return {
     ...saved,
