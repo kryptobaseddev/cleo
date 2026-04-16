@@ -64,6 +64,12 @@ CLEO uses better-sqlite3 with WAL mode. WAL gives us:
 | **T234 Agent Domain Unification** | 0 | ✅ CANCELLED — achieved organically via signaldock split |
 | **T631 Cleo Prime Persona** | 0 children | Deferred low priority — pragmatic behavior shipped |
 | **T569 CLEO Dogfood Attestation** | 1 (T617) | T617 barrel export bug deferred; high priority next sweep |
+| **T091 CLI Command Refactor** | 0 | ✅ CANCELLED — domain-prefixed ops shipped via T443 (T758 pass 2) |
+| **T605 Fresh Test Epic** | 0 | ✅ CANCELLED — test fixture artifact (T758 pass 2) |
+| **T046 Nexus Task Transfer** | 0 | ✅ COMPLETE — nexus.transfer implemented in core + CLI (T758 pass 2) |
+| **T505 CLI Remediation** | 0 | ✅ COMPLETE — 55+ bugs addressed in v2026.4.27-v2026.4.30 (T758 pass 2) |
+| **T578 NEXUS Web Portal** | 0 | ✅ COMPLETE — delivered via T619 + studio /code routes (T758 pass 2) |
+| **T487 Commander-Shim Removal** | n/a | Pending medium — 113 files still use ShimCommand; real work confirmed |
 
 ### Wave 2 — Memory Architecture remaining (T726)
 
@@ -166,12 +172,61 @@ T726 + T627 auto-completed after all children closed.
 | T513 | DEFERRED | Foundations shipped; full GitNexus absorption future work |
 | T631 | DEFERRED | Persona deferred; behavior shipped pragmatically |
 
-### Post-clean-house pending
+### Post-clean-house pending (T757)
 
 88 pending tasks (down from 114). Remaining work centers on:
 - T636 Canon Finalization (5 pending children)
 - T569 Dogfood Attestation (1 pending: T617 barrel export bug)
 - Remaining tasks in pipeline (T513, T631 deferred low)
+
+See §2.6 for T758 Pass 2 results: 88 → **84 pending**.
+
+---
+
+## §2.6 — Clean-House Pass 2 Results (2026-04-15 post T757, T758)
+
+**Before**: 88 pending (post T757)
+**After**: 84 pending
+**Reduction**: 4 tasks closed/cancelled + 2 deferred + 1 audited-kept
+
+### Owner-locked cancellations
+
+| ID | Action | Reason |
+|---|---|---|
+| T091 | CANCELLED | Domain-prefixed CLI ops shipped via T443 (commit 6a110e37f) + ongoing. Owner 2026-04-15 locked. |
+| T605 | CANCELLED | Test fixture epic — same pattern as T601/T606/T609 from T757. Owner 2026-04-15 locked. |
+
+### Owner-locked defers
+
+| ID | Action | Reason |
+|---|---|---|
+| T298 | DEFERRED LOW | Sitar Config Platform — not active development per owner 2026-04-15 |
+| T453 | DEFERRED LOW | CleoAgent Harness Testing — needed but separate, not now per owner 2026-04-15 |
+
+### T487 Commander-Shim Audit
+
+**KEEP PENDING at medium priority.** Owner said "commander-shim still heavily wired last I checked" — confirmed true. Evidence: 113 source `.ts` files import `ShimCommand`. `index.ts` TODO line 6 references native citty migration. 34 caamp files use commander directly. Only `code.ts` is native citty. Real future work, not blocking anything.
+
+### T505 CLI Remediation Audit
+
+**COMPLETED.** All 55+ bugs addressed via v2026.4.24-v2026.4.30. Evidence: v2026.4.27 (6 P0 fixes, commit 2f8a790a4), v2026.4.28 (all P1/P2/P3, 21 fixes, commit f3c927599), v2026.4.29 (45 total fixes + 8 duplicates removed, commit cc047cdeb). Memory/cli-removed-commands.md confirms 8 deprecated commands gone.
+
+### Ghost epics closed with evidence
+
+| ID | Closed | Evidence |
+|---|---|---|
+| T046 | COMPLETE | nexus.transfer implemented: CLI nexus.ts:627-680, core/nexus/transfer.ts, dispatch/registry.ts:2983-3026, transfer.test.ts |
+| T505 | COMPLETE | v2026.4.27-v2026.4.30 release series, 55+ bugs, 8 duplicates removed |
+| T578 | COMPLETE | Delivered via T619 (done): NexusGraph.svelte, /code/* routes, /api/nexus/* endpoints via cleo web studio |
+
+### Post-pass-2 epic landscape
+
+| Epic | Status | Note |
+|---|---|---|
+| T487 Commander-Shim | pending/medium | Real work — 113 files, keep |
+| T513 Code Intelligence | deferred/low | Foundations shipped; full absorption future |
+| T569 Dogfood Attestation | active/critical | T617 barrel export bug still pending |
+| T631 Cleo Prime Persona | deferred/low | Pragmatic behavior shipped |
 
 ---
 
