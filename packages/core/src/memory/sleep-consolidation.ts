@@ -202,6 +202,9 @@ async function callLlm(systemPrompt: string, userContent: string): Promise<strin
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      // 30-second hard deadline prevents open network handles from blocking
+      // test process teardown (T753: vitest hang root cause).
+      signal: AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
