@@ -561,4 +561,4 @@ All 43 namespaces exported from `@cleocode/core`:
 | 43 | `ui` | `ui/index.js` |
 | -- | `validation` | `validation/index.js` |
 
-Note: `validation` is the 44th namespace export but maps to the `check` domain in the Circle of Ten rather than being a distinct domain.
+Note: `validation` is the 44th namespace export but maps to the `check` domain in the Circle of Eleven rather than being a distinct domain.

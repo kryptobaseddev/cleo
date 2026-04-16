@@ -504,14 +504,14 @@ Background: subtle radial gradient from center
 ---
 ## The Hearth: Terminal Workshop Surface
 ### Purpose
-The Hearth is the terminal-facing workshop surface where the Circle of Ten aspects manifest as interactive UI elements, sessions are orchestrated, and the Pi Code Agent engages with the user.
+The Hearth is the terminal-facing workshop surface where the Circle of Eleven aspects manifest as interactive UI elements, sessions are orchestrated, and the Pi Code Agent engages with the user.
 ### Key Zones
 1. **The Forge** (Center): Where code is written and modified
 2. **The Impulse Stream** (Bottom): AI terminal with real-time streaming
 3. **The Loom Station** (Right): Session orchestration and recipe execution
 4. **The Archive** (Left): File tree with git integration
 5. **The Nexus Portal** (Global): Cross-project awareness
-### Circle of Ten UI Mapping
+### Circle of Eleven UI Mapping
 | Aspect | Domain | UI Element | Function |
 |--------|--------|------------|----------|
 | The Smiths | tasks | Task list, epic tree | Forge threads |
@@ -623,5 +623,5 @@ This design system provides a complete foundation for the CleoOS Pi Code Agent h
 2. **Speed**: Fast interactions with minimal latency
 3. **Context**: AI context always visible alongside code
 4. **Extensibility**: Plugin architecture for custom capabilities
-5. **Lore**: Circle of Ten aspects manifested in UI patterns
+5. **Lore**: Circle of Eleven aspects manifested in UI patterns
 The Hearth becomes the workshop where AI agents and humans collaborate, with the Pi harness as the primary conduit for agent capabilities.
