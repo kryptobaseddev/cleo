@@ -1,0 +1,28 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "t417-agent-field-20260408",
+  "prevIds": [
+    "t033-brain-indexes-20260321"
+  ],
+  "tables": {
+    "brain_observations": {
+      "name": "brain_observations",
+      "columns": {
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_brain_observations_agent": {
+          "name": "idx_brain_observations_agent",
+          "columns": ["agent"],
+          "isUnique": false
+        }
+      }
+    }
+  }
+}

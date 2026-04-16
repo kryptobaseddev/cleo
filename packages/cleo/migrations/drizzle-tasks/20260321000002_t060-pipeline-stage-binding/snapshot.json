@@ -1,0 +1,9 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "t060-pipeline-stage-binding-20260321",
+  "prevIds": [
+    "t033-connection-health-20260321"
+  ],
+  "ddl": []
+}

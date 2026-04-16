@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.69] — 2026-04-16
+
+### Fixed
+
+- **T759 (P0): E_BRAIN_OBSERVE: no such column: provenance** — `cleo memory observe` and `cleo session end` failed on every fresh install at v2026.4.65–v2026.4.68. Root cause: `@cleocode/cleo` package shipped only the initial brain migration (`20260318205549_initial`). The CLI resolved migrations relative to the `@cleocode/cleo` package directory, so 11 subsequent migrations (T417/T528/T531/T549/T626/T673/T726) never ran on a new install. On the initial schema, `brain_page_edges` has no `provenance` column. The post-migration T626 guard UPDATE ran `WHERE provenance LIKE 'consolidation:%'` before migrations had added the column, throwing `no such column: provenance`. This error propagated as `E_BRAIN_OBSERVE` to the user.
+
+  **Fix (two parts)**:
+  1. `build.mjs` now runs `syncMigrationsToCleoPackage()` before building `@cleocode/cleo`. This step copies all migration directories from `packages/core/migrations/` (brain, tasks, nexus) to `packages/cleo/migrations/` so every release ships the complete migration history.
+  2. `brain-sqlite.ts` T626 guard now calls `ensureColumns(nativeDb, 'brain_page_edges', [{name: 'provenance', ddl: 'text'}], 'brain')` before the UPDATE. This is defense-in-depth: if migrations somehow skip the T528 `provenance` column, `ensureColumns` adds it silently before the UPDATE runs.
+
+  **Backward compatible**: existing brain.db files are unaffected. The `ensureColumns` call is idempotent — it logs a WARN if it adds the column, no-ops if it already exists. New installs now run all 12 brain migrations and all 7 tasks migrations correctly.
+
+- **CI: canon-drift workflow build step** — v2026.4.68 shipped `cleo check canon` as a new CI gate, but the workflow used `pnpm --filter @cleocode/cleo run build` which does NOT build workspace dependencies first. `tsc` failed to resolve `@cleocode/contracts`, `@cleocode/core/internal`, `@cleocode/lafs`. Switched to `pnpm run build` (root → `build.mjs`) so all packages build in dep order before the canon gate runs.
+
 ## [2026.4.68] — 2026-04-16
 
 ### T636 epic FULLY CLOSED — all 4 remaining deliverables shipped
