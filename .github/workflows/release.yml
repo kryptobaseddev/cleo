@@ -149,6 +149,8 @@ jobs:
             "dist/store/brain-sqlite.js"
             "dist/index.js"
             "dist/internal.js"
+            "dist/memory/transcript-scanner.js"
+            "dist/memory/transcript-extractor.js"
           )
           MISSING=()
           for file in "${REQUIRED_FILES[@]}"; do

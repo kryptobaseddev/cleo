@@ -58,6 +58,10 @@ const sharedExternals = [
   'tree-sitter-c',
   'tree-sitter-cpp',
   'tree-sitter-ruby',
+  // node-cron v4 uses CJS-style require('events') internally which esbuild would
+  // bundle into the ESM output, causing "Dynamic require of events is not supported"
+  // at CLI startup. Keep it external so it loads at runtime from node_modules. (T755)
+  'node-cron',
 ];
 
 // ---------------------------------------------------------------------------
@@ -112,6 +116,11 @@ const coreBuildOptions = {
     { in: 'packages/core/src/store/nexus-sqlite.ts', out: 'store/nexus-sqlite' },
     { in: 'packages/core/src/store/nexus-schema.ts', out: 'store/nexus-schema' },
     { in: 'packages/core/src/store/brain-sqlite.ts', out: 'store/brain-sqlite' },
+    // Transcript subpath entry points — imported dynamically by packages/cleo/src/cli/commands/transcript.ts
+    // via `@cleocode/core/memory/transcript-scanner.js` and `@cleocode/core/memory/transcript-extractor.js`.
+    // Must exist as standalone .js files in dist/memory/ to match the package.json subpath exports. (T755)
+    { in: 'packages/core/src/memory/transcript-scanner.ts', out: 'memory/transcript-scanner' },
+    { in: 'packages/core/src/memory/transcript-extractor.ts', out: 'memory/transcript-extractor' },
   ],
   bundle: true,
   platform: 'node',

@@ -1335,7 +1335,7 @@ export function registerMemoryBrainCommand(program: Command): void {
         for (const tbl of tables) {
           const dateCol = tbl === 'brain_patterns' ? 'extracted_at' : 'created_at';
           try {
-            const rows = nativeDb
+            const rawRows = nativeDb
               .prepare(
                 `SELECT id, ${dateCol} as created_at, citation_count, verified, quality_score
                  FROM ${tbl}
@@ -1345,7 +1345,18 @@ export function registerMemoryBrainCommand(program: Command): void {
                  ORDER BY ${dateCol} ASC
                  LIMIT 20`,
               )
-              .all() as CountdownRow[];
+              .all();
+            const rows: CountdownRow[] = rawRows.map((raw) => {
+              const r = raw as Record<string, unknown>;
+              return {
+                id: String(r['id'] ?? ''),
+                tbl,
+                created_at: String(r['created_at'] ?? ''),
+                citation_count: Number(r['citation_count'] ?? 0),
+                verified: Number(r['verified'] ?? 0),
+                quality_score: r['quality_score'] == null ? null : Number(r['quality_score']),
+              };
+            });
 
             for (const r of rows) {
               const entryMs = new Date(r.created_at.replace(' ', 'T')).getTime();
