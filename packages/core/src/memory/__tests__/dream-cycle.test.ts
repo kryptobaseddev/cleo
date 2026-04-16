@@ -27,6 +27,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.setConfig({ testTimeout: 30_000 });
 
+// T753: mock sleep-consolidation so runConsolidation never makes real
+// Anthropic API calls — those network fetches have no timeout and hang the
+// vitest worker when OAuth credentials are present (auto-discovered by
+// resolveAnthropicApiKey from ~/.claude/.credentials.json).
+vi.mock('../sleep-consolidation.js', () => ({
+  runSleepConsolidation: vi.fn().mockResolvedValue({
+    ran: false,
+    mergeDuplicates: { merged: 0, llmDecisions: 0 },
+    pruneStale: { pruned: 0, preserved: 0 },
+    strengthenPatterns: { synthesized: 0, patternsGenerated: 0 },
+    generateInsights: { clustersProcessed: 0, insightsStored: 0 },
+  }),
+}));
+
 let tempDir: string;
 
 // ---------------------------------------------------------------------------
