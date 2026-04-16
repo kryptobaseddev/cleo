@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.66] — 2026-04-16
+
+### T636 epic — 5 plan deliverables I missed in v2026.4.65
+
+Gap-fill release after honest audit of plan `precious-cooking-moonbeam` against shipped state. Five Epic 1/3/4 deliverables slipped in v2026.4.65; this release closes them.
+
+### Canon
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §7 — added the "operation count is a living variable" note + pointer to ADR-044. Canon writers now have an explicit rule against hard-coding the op count.
+- `docs/concepts/CLEO-CANON-INDEX.md` — added the SSoT hierarchy block at the top (code > constitution > owner memory > vision > arch guide > atlas > design > narrative) per ADR-044.
+
+### Harness sovereignty
+- `packages/contracts/src/adapter.ts` — added full **Harness Sovereignty Invariants** TSDoc block (5 invariants, rationale, and ADR-049 pointer) at the `CLEOProviderAdapter` interface declaration. Every future adapter implementation has the contract inline.
+
+### CleoOS sovereignty surface
+- `packages/cleo-os/src/cli.ts` — wired the three new modules (`AgentRegistry`, `MemoryPolicy`, `ProviderMatrix`) into the CLI via `--providers` and `--agents` diagnostic flags. First real CLI surface for the sovereignty layer. Previously the modules existed but were unreachable from the binary.
+- `packages/cleo-os/src/registry/provider-matrix.ts` — fixed off-by-one path-traversal bug (5 `..` → 4 `..`) that made `installed: no` for all 9 providers. Live matrix now correctly shows 6 of 9 with real spawn implementations (claude-code, claude-sdk, cursor, openai-sdk, opencode, pi) and 3 stubbed (codex, gemini-cli, kimi — matches the deferred-work list).
+- `packages/cleo-os/seed-agents/` — populated with 7 bundled agent definitions (cleo-db-lead, cleo-dev, cleo-historian, cleo-prime, cleo-rust-lead, cleo-subagent, cleoos-opus-orchestrator) from `@cleocode/agents/seed-agents/`. Fulfills the plan's "RELOCATE" verdict while keeping `@cleocode/agents` intact for external consumers.
+
+### Verification
+- `cleoos --providers` — prints the live provider matrix (ADR-050, end-to-end working).
+- `cleoos --agents` — discovers 13+ user agents in `~/.claude/agents/` via AgentRegistry.
+- `@cleocode/cleo-os` build + 194 tests green.
+
+### Items NOT in this release (intentionally deferred — follow-up tasks in CLEO)
+- `cleo check:canon` CI gate
+- `cleo smoke --provider` invariant probe
+- codex / gemini-cli / kimi `spawn.ts` implementations
+- `cleo-os doctor` CLI (the `--providers` / `--agents` flags are the foundation)
+
+### Items where we INTENTIONALLY DIVERGED from the plan (owner-approved in v2026.4.65)
+- Plan said ARCHIVE `cant-lsp`, `cant-router`, `cant-runtime`, `signaldock-protocol`, `integration-tests`. Reality: all have real code and reverse-deps. We WIRED cant-lsp/cant-router, populated integration-tests (4→10 tests), left signaldock-protocol + cant-runtime in place (actively used).
+- Plan called `ct-codebase-mapper` + `ct-contribution` "empty directories" — they actually have real SKILL.md content. No delete.
+
 ## [2026.4.65] — 2026-04-16
 
 ### T636 epic — Canon Finalization + Orphan Triage + Harness Sovereignty + Durability

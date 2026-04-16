@@ -6,6 +6,23 @@ All core canon documents now live in this `concepts/` folder. This index gives a
 
 ---
 
+## Source-of-Truth Hierarchy (ADR-044)
+
+When canon documents conflict, resolve in this order (higher entry wins):
+
+1. **Code** — `packages/cleo/src/dispatch/types.ts` (`CANONICAL_DOMAINS`), `packages/cleo/src/dispatch/registry.ts` (`OPERATIONS`). Final arbiter for domain + operation lists.
+2. **Constitution** — `docs/specs/CLEO-OPERATION-CONSTITUTION.md`. Normative spec derived from the code.
+3. **Owner Memory** — `~/.claude/projects/-mnt-projects-cleocode/memory/MEMORY.md`. Owner corrections; wins over aged canon on identity.
+4. **Vision** — `CLEO-VISION.md`. Conceptual identity charter.
+5. **Architecture Guide** — `CLEO-ARCHITECTURE-GUIDE.md`. Plain-English reference; mirrors Vision + Constitution.
+6. **System Flow Atlas** — `CLEO-SYSTEM-FLOW-ATLAS.md`. Visual diagrams; mirrors Architecture Guide.
+7. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
+8. **Narrative stories** — Manifesto + Awakening + Founding. Historical voice; MAY preserve legacy terminology inline with editorial notes.
+
+Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
+
+---
+
 ## Read Order
 
 1. [CLEO-VISION.md](./CLEO-VISION.md)
