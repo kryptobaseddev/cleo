@@ -275,6 +275,13 @@ export type {
   RelatedNode,
   TraceNode,
 } from './memory/graph-queries.js';
+// Memory — Observer/Reflector (T745: needed by cleo memory reflect CLI)
+export type {
+  ObserverResult,
+  ReflectorResult,
+  RunObserverOptions,
+} from './memory/observer-reflector.js';
+export { runObserver, runReflector } from './memory/observer-reflector.js';
 // Memory — pipeline manifests
 export {
   pipelineManifestAppend,

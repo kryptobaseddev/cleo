@@ -24,6 +24,10 @@ coverage/
 .cleo/project-info.json
 .cleo/backups/
 .cleo/logs/
+# GC daemon runtime state — ephemeral, not restored from backup (ADR-047)
+.cleo/gc-state.json
+.cleo/logs/gc.log
+.cleo/logs/gc.err
 
 # ---------------------------------------------------------------------------
 # TypeScript compile artifacts — source dirs must ONLY contain .ts files.

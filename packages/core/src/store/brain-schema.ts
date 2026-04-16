@@ -156,8 +156,12 @@ export const brainDecisions = sqliteTable(
 
     // T549: Tiered + Typed Memory columns
 
-    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+    /**
+     * Memory retention tier. NULL on legacy rows → treat as 'medium' at query time.
+     * T746: decisions skip short-tier entirely — writers always assign 'medium' (see decisions.ts).
+     * The Drizzle DEFAULT is 'medium' to match the write-path behaviour.
+     */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('medium'),
 
     /** Cognitive type. Decisions are always 'semantic' (declarative architectural facts). */
     memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('semantic'),
@@ -193,6 +197,29 @@ export const brainDecisions = sqliteTable(
      * Used by the consolidator for citation-based medium→long promotion.
      */
     citationCount: integer('citation_count').notNull().default(0),
+
+    // T726 Wave 1A: tier promotion audit columns
+
+    /**
+     * ISO 8601 timestamp when this decision was last promoted to a higher tier.
+     * Null = never promoted (still at its initial tier).
+     * Set by runTierPromotion at the moment of promotion.
+     */
+    tierPromotedAt: text('tier_promoted_at'),
+
+    /**
+     * Human-readable reason for the most recent tier promotion.
+     * Examples: "citationCount=5 >= 5, age > 7d", "qualityScore=0.82 >= 0.70, age > 24h".
+     * Null = never promoted.
+     */
+    tierPromotionReason: text('tier_promotion_reason'),
+
+    /**
+     * SHA-256 prefix (first 16 hex chars) of the normalised decision content.
+     * Computed at insert time; used by hashDedupCheck to prevent exact-duplicate decisions.
+     * Null on legacy rows (pre-T726).
+     */
+    contentHash: text('content_hash'),
   },
   (table) => [
     index('idx_brain_decisions_type').on(table.type),
@@ -207,6 +234,9 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_verified').on(table.verified),
     index('idx_brain_decisions_valid_at').on(table.validAt),
     index('idx_brain_decisions_source_conf').on(table.sourceConfidence),
+    // T726 indexes
+    index('idx_brain_decisions_tier_promoted_at').on(table.tierPromotedAt),
+    index('idx_brain_decisions_content_hash').on(table.contentHash),
   ],
 );
 
@@ -236,8 +266,12 @@ export const brainPatterns = sqliteTable(
 
     // T549: Tiered + Typed Memory columns
 
-    /** Memory retention tier. NULL on legacy rows → treat as 'medium' at query time. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
+    /**
+     * Memory retention tier. NULL on legacy rows → treat as 'medium' at query time.
+     * T746: patterns skip short-tier entirely — writers always assign 'medium' (see patterns.ts).
+     * The Drizzle DEFAULT is 'medium' to match the write-path behaviour.
+     */
+    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('medium'),
 
     /** Cognitive type. Patterns are always 'procedural' (process/workflow knowledge). */
     memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('procedural'),
@@ -272,6 +306,27 @@ export const brainPatterns = sqliteTable(
      * Used by the consolidator for citation-based medium→long promotion.
      */
     citationCount: integer('citation_count').notNull().default(0),
+
+    // T726 Wave 1A: tier promotion audit columns
+
+    /**
+     * ISO 8601 timestamp when this pattern was last promoted to a higher tier.
+     * Null = never promoted.
+     */
+    tierPromotedAt: text('tier_promoted_at'),
+
+    /**
+     * Human-readable reason for the most recent tier promotion.
+     * Null = never promoted.
+     */
+    tierPromotionReason: text('tier_promotion_reason'),
+
+    /**
+     * SHA-256 prefix (first 16 hex chars) of the normalised pattern content.
+     * Computed at insert time; used by hashDedupCheck to prevent exact-duplicate patterns.
+     * Null on legacy rows (pre-T726).
+     */
+    contentHash: text('content_hash'),
   },
   (table) => [
     index('idx_brain_patterns_type').on(table.type),
@@ -284,6 +339,9 @@ export const brainPatterns = sqliteTable(
     index('idx_brain_patterns_verified').on(table.verified),
     index('idx_brain_patterns_valid_at').on(table.validAt),
     index('idx_brain_patterns_source_conf').on(table.sourceConfidence),
+    // T726 indexes
+    index('idx_brain_patterns_tier_promoted_at').on(table.tierPromotedAt),
+    index('idx_brain_patterns_content_hash').on(table.contentHash),
   ],
 );
 
@@ -349,6 +407,27 @@ export const brainLearnings = sqliteTable(
      * Used by the consolidator for citation-based medium→long promotion.
      */
     citationCount: integer('citation_count').notNull().default(0),
+
+    // T726 Wave 1A: tier promotion audit columns
+
+    /**
+     * ISO 8601 timestamp when this learning was last promoted to a higher tier.
+     * Null = never promoted.
+     */
+    tierPromotedAt: text('tier_promoted_at'),
+
+    /**
+     * Human-readable reason for the most recent tier promotion.
+     * Null = never promoted.
+     */
+    tierPromotionReason: text('tier_promotion_reason'),
+
+    /**
+     * SHA-256 prefix (first 16 hex chars) of the normalised learning content.
+     * Computed at insert time; used by hashDedupCheck to prevent exact-duplicate learnings.
+     * Null on legacy rows (pre-T726).
+     */
+    contentHash: text('content_hash'),
   },
   (table) => [
     index('idx_brain_learnings_confidence').on(table.confidence),
@@ -361,6 +440,9 @@ export const brainLearnings = sqliteTable(
     index('idx_brain_learnings_valid_at').on(table.validAt),
     index('idx_brain_learnings_invalid').on(table.invalidAt),
     index('idx_brain_learnings_source_conf').on(table.sourceConfidence),
+    // T726 indexes
+    index('idx_brain_learnings_tier_promoted_at').on(table.tierPromotedAt),
+    index('idx_brain_learnings_content_hash').on(table.contentHash),
   ],
 );
 
@@ -436,6 +518,20 @@ export const brainObservations = sqliteTable(
      * Used by the consolidator for citation-based medium→long promotion.
      */
     citationCount: integer('citation_count').notNull().default(0),
+
+    // T726 Wave 1A: tier promotion audit columns
+
+    /**
+     * ISO 8601 timestamp when this observation was last promoted to a higher tier.
+     * Null = never promoted.
+     */
+    tierPromotedAt: text('tier_promoted_at'),
+
+    /**
+     * Human-readable reason for the most recent tier promotion.
+     * Null = never promoted.
+     */
+    tierPromotionReason: text('tier_promotion_reason'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -458,6 +554,8 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_valid_at').on(table.validAt),
     index('idx_brain_observations_invalid').on(table.invalidAt),
     index('idx_brain_observations_source_conf').on(table.sourceConfidence),
+    // T726 indexes
+    index('idx_brain_observations_tier_promoted_at').on(table.tierPromotedAt),
   ],
 );
 

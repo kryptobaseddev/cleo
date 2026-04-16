@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.4.62",
+  "version": "2026.4.63",
   "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -25,10 +25,12 @@
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
     "@cleocode/runtime": "workspace:*",
+    "check-disk-space": "^3.4.0",
     "citty": "^0.2.1",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.8",
+    "node-cron": "^4.2.1",
     "tree-sitter": "0.21.1",
     "tree-sitter-c": "0.23.2",
     "tree-sitter-cpp": "^0.23.4",
@@ -55,6 +57,7 @@
     "templates"
   ],
   "devDependencies": {
+    "@types/node-cron": "^3.0.11",
     "vitest": "^4.1.4"
   },
   "repository": {

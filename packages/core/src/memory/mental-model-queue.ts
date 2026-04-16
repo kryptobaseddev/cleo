@@ -175,21 +175,29 @@ function registerExitHooks(): void {
   process.on('exit', exitFlush);
 
   process.once('SIGINT', () => {
+    // Enforce a 2s hard deadline so tests/CI are never blocked by a stuck drain.
+    const deadline = setTimeout(() => process.exit(130), 2_000);
+    deadline.unref();
     drainQueue()
       .catch(() => {
         /* best-effort */
       })
       .finally(() => {
+        clearTimeout(deadline);
         process.exit(130); // 128 + SIGINT
       });
   });
 
   process.once('SIGTERM', () => {
+    // Enforce a 2s hard deadline so tests/CI are never blocked by a stuck drain.
+    const deadline = setTimeout(() => process.exit(143), 2_000);
+    deadline.unref();
     drainQueue()
       .catch(() => {
         /* best-effort */
       })
       .finally(() => {
+        clearTimeout(deadline);
         process.exit(143); // 128 + SIGTERM
       });
   });
@@ -274,6 +282,33 @@ export const mentalModelQueue: MentalModelQueue = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Reset in-process queue state.
+ *
+ * Stops the flush timer, rejects any pending observations with a cancellation
+ * error, and clears internal flags. Intended for test teardown only — never
+ * call this in production code.
+ *
+ * @internal
+ */
+export function _resetMentalModelQueueForTests(): void {
+  // Stop the periodic flush timer.
+  if (_timer !== undefined) {
+    clearInterval(_timer);
+    _timer = undefined;
+  }
+
+  // Reject all pending observations so test assertions can proceed.
+  const pending = _queue.splice(0, _queue.length);
+  const cancelErr = new Error('[test teardown] mental-model queue reset');
+  for (const entry of pending) {
+    entry.reject(cancelErr);
+  }
+
+  _flushing = false;
+  _hooksRegistered = false;
+}
 
 /**
  * Determine whether an observation should be routed through the mental-model
