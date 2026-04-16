@@ -60,6 +60,10 @@ export default defineConfig({
     // Path aliases matching tsconfig — resolve workspace packages to source
     // TypeScript so Vitest can import them without a build step.
     alias: {
+      // SvelteKit $lib alias for studio package tests (run from root with --shard).
+      // The root vitest config does not have svelte-kit's vite plugin, so this
+      // explicit alias is required for CI to resolve $lib/server/* imports.
+      '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       '@cleocode/core/store/nexus-sqlite': new URL(
