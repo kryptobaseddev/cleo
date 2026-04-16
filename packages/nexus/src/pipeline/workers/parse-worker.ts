@@ -57,6 +57,336 @@ type ParserConstructor = new () => NativeParser;
 
 let _parser: NativeParser | null = null;
 
+/**
+ * Sanitize source content for tree-sitter parsing.
+ *
+ * tree-sitter 0.21.x Node.js bindings throw `Error: Invalid argument`
+ * when source strings contain non-ASCII Unicode characters (e.g. em-dash
+ * `—`, curly quotes, etc.) in comments. Since all structural elements that
+ * nexus cares about (function names, export specifiers, import paths) are
+ * ASCII, replacing non-ASCII characters with spaces is safe and preserves
+ * line/column positions for line number reporting.
+ *
+ * @param content - Raw file content read from disk
+ * @returns Content with non-ASCII characters replaced by spaces
+ */
+function sanitizeForParsing(content: string): string {
+  // eslint-disable-next-line no-control-regex
+  return content.replace(/[^\x00-\x7F]/g, ' ');
+}
+
+/**
+ * Hard limit for tree-sitter 0.21.x: native code uses a 15-bit byte-offset
+ * counter that overflows at 32768 characters, causing `Error: Invalid argument`.
+ * Files larger than this threshold use the regex-based fallback extractor.
+ */
+const TREE_SITTER_MAX_CHARS = 32_767;
+
+/**
+ * Regex-based import extractor for files that exceed the tree-sitter 32K char limit.
+ *
+ * Extracts named import bindings from `import { ... } from '...'` statements.
+ * Used to populate the namedImportMap so barrel tracing can fire for callers
+ * in large files (e.g. `@cleocode/core/internal` consumers).
+ *
+ * @param content - Raw file content
+ * @param filePath - File path relative to repo root
+ * @param language - Language key (for the language field)
+ * @param imports - Accumulator array to push results into
+ */
+function extractImportsRegex(
+  content: string,
+  filePath: string,
+  language: string,
+  imports: WorkerExtractedImport[],
+): void {
+  const lines = content.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    // Check for `import { ... } from '...'` (may span multiple lines)
+    if (/^import\s*\{/.test(line) || /^import\s+type\s*\{/.test(line)) {
+      let block = line;
+      let j = i + 1;
+      // Gather continuation lines until we have closing `}` and `from`
+      while ((!block.includes('}') || !block.includes('from')) && j < lines.length) {
+        block += ' ' + lines[j].trim();
+        j++;
+      }
+      const fromMatch = /from\s+['"]([^'"]+)['"]/m.exec(block);
+      if (fromMatch) {
+        const rawImportPath = fromMatch[1]!;
+        const namedBindings: WorkerNamedImportBinding[] = [];
+        const innerMatch = /\{([^}]+)\}/.exec(block);
+        if (innerMatch) {
+          const inner = innerMatch[1]!;
+          const specifiers = inner
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const spec of specifiers) {
+            // Remove `type ` prefix from `import { type Foo }`
+            const cleanSpec = spec.replace(/^type\s+/, '').trim();
+            const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(cleanSpec);
+            if (asMatch) {
+              namedBindings.push({ local: asMatch[2]!, exported: asMatch[1]! });
+            } else if (/^\w+$/.test(cleanSpec)) {
+              namedBindings.push({ local: cleanSpec, exported: cleanSpec });
+            }
+          }
+        }
+        if (namedBindings.length > 0) {
+          imports.push({
+            filePath,
+            rawImportPath,
+            language,
+            namedBindings,
+          });
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    i++;
+  }
+}
+
+/**
+ * Reserved words and common non-call identifiers that must never be emitted as
+ * call targets during the regex fallback.
+ *
+ * These appear in source with `identifier(` syntax (e.g. `if (cond)`, `for (let i`)
+ * but are control-flow keywords, not function calls.
+ *
+ * Note: JavaScript built-ins (Number, String, Boolean, etc.) and type guards
+ * (typeof, instanceof) are also excluded. This list is conservative — false
+ * negatives (missed calls) are preferred over false positives (spurious edges).
+ */
+const REGEX_CALL_RESERVED = new Set<string>([
+  // Control flow keywords
+  'if',
+  'else',
+  'for',
+  'while',
+  'do',
+  'switch',
+  'case',
+  'catch',
+  'try',
+  'return',
+  'throw',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'await',
+  'yield',
+  'async',
+  'function',
+  'class',
+  'const',
+  'let',
+  'var',
+  'import',
+  'export',
+  'from',
+  'as',
+  'type',
+  'interface',
+  'enum',
+  'default',
+  'break',
+  'continue',
+  'debugger',
+  'this',
+  'super',
+  'null',
+  'undefined',
+  'true',
+  'false',
+  'Infinity',
+  'NaN',
+  // JS built-ins commonly appearing with parens (kept narrow to avoid missing
+  // real user-defined calls with these names — shadowing is rare)
+  'Promise',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Boolean',
+  'Symbol',
+  'Map',
+  'Set',
+  'Date',
+  'RegExp',
+  'Error',
+  'Math',
+]);
+
+/**
+ * Regex-based free-call extractor for files that exceed the tree-sitter 32K char limit.
+ *
+ * Extracts bare identifier call sites of the form `<name>(` so that barrel-traced
+ * named imports (T617) can still be resolved to target CALLS edges. This enables
+ * callers from oversized files (engine files, large barrels) to register against
+ * functions like `findTasks`, `endSession`, etc.
+ *
+ * Limitations:
+ * - Only free calls are extracted; member calls (`x.foo(`) and constructor calls
+ *   (`new Foo(`) are skipped. Free calls are sufficient for named-import CALLS edges.
+ * - The enclosing function is unknown without an AST, so `sourceId` is set to
+ *   the file node (`file:<path>`). This produces file→function CALLS edges that
+ *   `cleo nexus context` renders correctly.
+ * - Identifiers in strings and comments may produce false positives; the guard
+ *   against common reserved words mitigates this.
+ * - Arguments are not counted; `argCount` is omitted so Tier 3 arity filtering
+ *   does not discard valid matches.
+ *
+ * @param content - Raw file content
+ * @param filePath - File path relative to repo root
+ * @param calls - Accumulator array to push results into
+ */
+function extractCallsRegex(content: string, filePath: string, calls: WorkerExtractedCall[]): void {
+  // Strip single-line comments to reduce false positives. We leave block
+  // comments alone because stripping them changes line numbers; free-call
+  // matches in block comments are rare and will fail resolution downstream.
+  const sanitized = content.replace(/\/\/.*$/gm, '');
+
+  // The enclosing function is unknown without an AST, so the source is the
+  // File node. Structure-processor emits File nodes with ID = relative path
+  // (no prefix) — match that format exactly so the CALLS edge resolves.
+  const sourceId = filePath;
+  const seen = new Set<string>();
+
+  // Match: word-boundary identifier followed by '('. The negative lookbehind
+  // for '.' rules out member calls (foo.bar(). We also skip if the preceding
+  // non-space char is a letter/digit (which would indicate a longer identifier
+  // or keyword already consumed).
+  const pattern = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g;
+  let match: RegExpExecArray | null = pattern.exec(sanitized);
+  while (match !== null) {
+    const name = match[1]!;
+    if (!REGEX_CALL_RESERVED.has(name)) {
+      // Deduplicate per-file: emit at most one call edge per (file, name)
+      // pair. The downstream resolver would emit duplicate edges otherwise
+      // since the file-level sourceId is shared.
+      if (!seen.has(name)) {
+        seen.add(name);
+        calls.push({
+          filePath,
+          sourceId,
+          calledName: name,
+          callForm: 'free',
+        });
+      }
+    }
+    match = pattern.exec(sanitized);
+  }
+}
+
+/**
+ * Regex-based re-export extractor for files that exceed the tree-sitter 32K char limit.
+ *
+ * Handles the three re-export forms we care about:
+ * - `export { Foo, Bar as Baz } from './source'`
+ * - `export * from './source'`
+ * - `export type { Foo } from './source'`  (types only — skipped for barrel tracing)
+ *
+ * This is intentionally simple: we only care about re-export path resolution,
+ * not full AST correctness. False negatives (missed exports) are acceptable
+ * since this is a fallback for unusually large barrel files.
+ *
+ * @param content - File content (may include non-ASCII chars — only used on lines)
+ * @param filePath - File path relative to repo root
+ * @param reExports - Accumulator array to push results into
+ */
+function extractReExportsRegex(
+  content: string,
+  filePath: string,
+  reExports: WorkerExtractedReExport[],
+): void {
+  // Matches: export { ... } from 'path'
+  // Also handles: export type { ... } from 'path'  (we skip these — types aren't call targets)
+  // Also handles: export * from 'path'
+  const lines = content.split('\n');
+
+  // We need to handle multi-line export { ... } from '...' blocks.
+  // Strategy: detect `export` lines and collect continuation lines until we see `from '...'`.
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    // Wildcard re-export: `export * from '...'`
+    const wildcardMatch = /^export\s+\*\s+from\s+['"]([^'"]+)['"]/m.exec(line);
+    if (wildcardMatch) {
+      reExports.push({
+        filePath,
+        rawSourcePath: wildcardMatch[1]!,
+        exportedName: null,
+        localName: null,
+      });
+      i++;
+      continue;
+    }
+
+    // Named re-export: `export { Foo, Bar as Baz } from '...'`
+    // May span multiple lines — collect until closing `}`
+    if (/^export\s*\{/.test(line) && !line.startsWith('export type')) {
+      let block = line;
+      let j = i + 1;
+      // If block doesn't have closing `}` yet, gather continuation lines
+      while (!block.includes('}') && j < lines.length) {
+        block += ' ' + lines[j].trim();
+        j++;
+      }
+      // Check if it has a `from '...'` clause
+      const fromMatch = /from\s+['"]([^'"]+)['"]/m.exec(block);
+      if (fromMatch) {
+        const rawSourcePath = fromMatch[1]!;
+        // Extract specifiers between { and }
+        const innerMatch = /\{([^}]+)\}/.exec(block);
+        if (innerMatch) {
+          const inner = innerMatch[1]!;
+          const specifiers = inner
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const spec of specifiers) {
+            // Handle `Foo as Bar` alias
+            const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(spec);
+            if (asMatch) {
+              reExports.push({
+                filePath,
+                rawSourcePath,
+                exportedName: asMatch[2]!,
+                localName: asMatch[1]!,
+              });
+            } else if (/^\w+$/.test(spec)) {
+              reExports.push({
+                filePath,
+                rawSourcePath,
+                exportedName: spec,
+                localName: spec,
+              });
+            }
+          }
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    i++;
+  }
+}
+
 function getParser(): NativeParser | null {
   if (_parser) return _parser;
   try {
@@ -852,10 +1182,52 @@ function processBatch(
       continue;
     }
 
+    // tree-sitter 0.21.x has a hard limit of 32767 chars per file (15-bit offset counter).
+    // Files larger than this threshold are handled with a regex fallback for imports
+    // and re-exports (the data structures we need for barrel tracing).
+    const sanitized = sanitizeForParsing(file.content);
+    const useTreeSitter = sanitized.length <= TREE_SITTER_MAX_CHARS;
+
+    if (!useTreeSitter) {
+      // Regex-based fallback: extract re-exports, imports, and free calls for
+      // barrel tracing (T617). Symbol definitions are still skipped — tree-sitter
+      // is required for accurate scope and parent tracking. Free calls use the
+      // file node as sourceId so CALLS edges can still be emitted against
+      // barrel-resolved named-import targets.
+      const reExportsBefore = result.reExports.length;
+      const importsBefore = result.imports.length;
+      const callsBefore = result.calls.length;
+      try {
+        extractReExportsRegex(file.content, file.path, result.reExports);
+        // Basic import extraction via regex for namedImportMap population
+        extractImportsRegex(file.content, file.path, grammarKey, result.imports);
+        // Free-call extraction so tier2a barrel-resolved calls emit CALLS edges
+        // even for oversized files (e.g. task-engine.ts @ 67K chars).
+        extractCallsRegex(file.content, file.path, result.calls);
+      } catch {
+        // Skip errors in regex fallback — continue to next file
+      }
+      if (process.env['CLEO_BARREL_DEBUG']) {
+        const reAdded = result.reExports.length - reExportsBefore;
+        const impAdded = result.imports.length - importsBefore;
+        const callsAdded = result.calls.length - callsBefore;
+        process.stderr.write(
+          `[worker-regex] ${file.path} bytes=${file.content.length} reExports=+${reAdded} imports=+${impAdded} calls=+${callsAdded}\n`,
+        );
+      }
+      result.fileCount++;
+      processed++;
+      if (onProgress && processed - lastReported >= PROGRESS_INTERVAL) {
+        lastReported = processed;
+        onProgress(processed);
+      }
+      continue;
+    }
+
     let rootNode: NativeSyntaxNode;
     try {
       parser.setLanguage(grammar);
-      const tree = parser.parse(file.content);
+      const tree = parser.parse(sanitized);
       rootNode = tree.rootNode;
     } catch {
       result.skippedCount++;

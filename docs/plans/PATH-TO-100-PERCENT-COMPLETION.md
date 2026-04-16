@@ -440,3 +440,273 @@ End of plan. Ship the dream.
 1. Canon Finalization T636 — dispatch Lead + 5 workers
 2. T617 barrel export fix — single worker
 3. Studio polish + docs when above complete
+
+---
+
+## §11 — Assessment After v2026.4.75 (2026-04-16, post orchestration marathon)
+
+**Version**: v2026.4.75 shipped
+**Branch**: main
+**Status**: Assessment-only pause — orchestrator recovered context, evaluated landscape, flagged misclassifications, deferred dispatch pending owner review
+
+### Releases shipped since §10 (v2026.4.65 → v2026.4.75)
+
+| Version | Commit | Summary |
+|---|---|---|
+| v2026.4.66 | 294064331 | plan moonbeam gap-fill (5 missed deliverables) |
+| v2026.4.67 | c391f7679 | CI biome format fix |
+| v2026.4.68 | d89785e94 | T636 epic FULLY CLOSED (4 deliverables) |
+| v2026.4.69 | 5ad2c9662 | **T759 brain-migrations fix** + CI canon-drift fix |
+| v2026.4.70 | 279bc1160 | IVTR foundation + programmatic gates + cleo docs + BRAIN P0 fixes |
+| v2026.4.71 | 2345bf024 | **T760 RCASD epic COMPLETE** (Wave 5 + Wave 6, 16 tasks) |
+| v2026.4.72 | fc72d080a | hotfix missing emit-schemas.mjs |
+| v2026.4.73 | cf26cecee | T788 parent-epic gate + sqlite-vec fix + gate-runner contract |
+| v2026.4.74 | acf9474c9 | clean release + structural CI gates (biome + cleo-os) |
+| v2026.4.75 | 3e7ab56e3 | hotfix injection template source-of-truth + portable test path |
+
+11 releases total. 3 major epics closed: **T636** (Canon/Harness/Durability), **T760** (RCASD/IVTR foundation), **T759** (BRAIN schema hotfix).
+
+### Current Pending Landscape (91 tasks)
+
+Raw counts — but the number is **misleading without reclassification**.
+
+| Breakdown | Count |
+|---|---|
+| **Total pending** | 91 (was 92; T603 test fixture CANCELLED in pass 3 start) |
+| Critical | 11 |
+| High | 27 |
+| Medium | 46 |
+| Low | 7 |
+| Epics | 6 (T487, T569, T673, T820, T828, +1) |
+| Tasks | 66 |
+| Subtasks | 19 |
+| Orphans (no parent) | 78 |
+
+### Critical Misclassifications Found (Clean-House Pass 3 Backlog)
+
+**Group 1 — T513 NEXUS pipeline children misclassified as critical/high** (6 subtasks):
+- T514, T515, T516, T517, T518, T519, T520, T521, T522 — all marked critical/high
+- Parent T513 was **DEFERRED LOW** per §2.5 (T757 clean-house)
+- **Action**: Reclassify to low, OR cancel + fold into future NEXUS v2 epic, OR resurrect T513 if owner wants full GitNexus absorption
+
+**Group 2 — T542 re-validation subtask orphaned** (1 subtask):
+- T548 "T542-6: Full re-validation — independent agent proves PASS" marked critical
+- Parent T542 was **CANCELLED** per §2.5 (superseded by T627/T726)
+- **Action**: CANCEL T548 (parent gone)
+
+**Group 3 — T555-T558 memory/CleoOS critical orphans** (4 tasks):
+- T555 LLM Extraction Gate ("Replace extractFromTranscript with LLM-based extraction")
+- T556 Reciprocal Rank Fusion
+- T557 Observer/Reflector pattern (two-agent compression)
+- T558 CleoOS firstclass experience (ASCII logo, last decisions, memory summary)
+- Unclear if superseded by T726 Memory Architecture v2026.4.63 or still outstanding
+- **Action**: Lead audit against T726/T627 shipped code — close any overlap, keep genuine gaps
+
+**Group 4 — T487 Commander-Shim children orphaned** (3 subtasks):
+- T488 "R: Shim removal research" (high)
+- T490 "A: Shim removal ADR — native citty command architecture" (high)
+- T491 "S: Shim removal spec — migration plan" (high)
+- These should be children of T487 (not orphans) and drive RCASD pipeline
+- **Action**: Re-parent T488/T490/T491 under T487, then spawn Lead on T488
+
+**Group 5 — T759 shipped but cannot close** (1 task):
+- Fix shipped in v2026.4.69 (commit 5ad2c9662); `cleo memory observe` verified working on v2026.4.75
+- `cleo complete T759` blocked: E_LIFECYCLE_GATE_FAILED (implemented, testsPassed, qaPassed never marked)
+- **Action**: Owner decision — either (a) mark gates via `cleo verify` workflow, (b) add "force-close shipped" CLI path for historical tasks, (c) accept this as a known gap in gate-verified completion
+
+**Group 6 — OpenProse + CANT DSL clusters** (~15 tasks):
+- T115-T122 OpenProse research/RFC (all high)
+- T315-T323 CANT DSL Waves 0-8 (all medium)
+- Deferred or actively planned? Plan doc §3 mentions CANT DSL "runtime bridge shipped; protocol files = design docs" — implies T315-T323 may be DONE or DEFERRED
+- **Action**: Audit against shipped CANT work, close or defer
+
+**Group 7 — Transfer epic remnants** (~7 tasks):
+- T046-T055 nexus.transfer tasks, parent T046 COMPLETE per §2.5
+- But T047-T055 still pending as orphans
+- **Action**: Verify against shipped nexus.transfer implementation, close shipped ones
+
+### Real Working Set (after reclassification)
+
+**Wave A (Dogfood close)**:
+- T617 NEXUS barrel export fix (1 worker, medium size, 1-3 files)
+- T759 close path (owner decision)
+
+**Wave B (Commander-Shim removal)**:
+- T487 pipeline init → T488 research → T490 ADR → T491 spec → decomposition → worker waves
+- Real work: 113 files, 20 tests
+
+**Wave C (Release pipeline — NEW epic T820, created 2026-04-16)**:
+- T820 project-agnostic cleo release (owner P0 per title, medium priority)
+- Children T821-T824 ready
+- Evidence: v2026.4.66-69 shipped via raw git tag + GitHub Actions (bypassed `cleo release`)
+
+**Wave D (CLI coverage)**:
+- T483 W3-final: 100% CLI coverage — build handlers for 19 agent-only ops (critical)
+
+**Wave E (Test infrastructure)**:
+- T566 Wire 76 unwired test files (high)
+
+**Wave F (STDP Phase 5 remnant)**:
+- T682 STDP-W5 functional test — end-to-end plasticity CLI verification (medium)
+- Other T673 children may be shipped and unclosed — audit needed
+
+### Anti-patterns re-confirmed this session
+
+| Anti-pattern | Evidence | Mitigation |
+|---|---|---|
+| Shipped-but-unclosed | T759, likely T673 children | Run close-audit after every release |
+| Gate-blocked close path | T759 cannot close despite proof it works | Owner decision: gate bypass CLI or accept drift |
+| Orphan creep | 78 of 91 pending are parentless | Every new task MUST have a parent (epic or task) |
+| Critical-priority sprawl | 11 critical, 6 are T513 deferred children | Reclassify on deferred-parent close |
+
+### Recommended orchestrator next session
+
+1. **Clean-house pass 3 first** (Wave A prep): Close T759, cancel T548/T603 (done), reclassify T513 children, audit T555-T558 vs T726, re-parent T488/T490/T491 under T487, audit T315-T323 CANT DSL, audit T047-T055 transfer remnants. Target: 91 → ≤50 pending.
+2. **Wave A**: T617 barrel export fix (single worker, 1-3 files, tests). Closes T569.
+3. **Wave B**: T487 RCASD pipeline — init, spawn Lead on T488 research.
+4. **Wave C**: T820 release pipeline decomposition if owner confirms P0.
+5. **Ship v2026.4.76** bundling Waves A + any B/C completions.
+
+### Open questions for owner review
+
+1. **T513 NEXUS v2 children** (T514-T522): reclassify to low, cancel, or resurrect?
+2. **T555-T558 memory critical**: superseded by T726 Memory Architecture or genuine gaps?
+3. **T759 close path**: add `cleo complete --shipped` bypass, mark gates manually, or leave drift?
+4. **T820 release epic priority**: owner-tagged P0 in title but stored as medium — which is canonical?
+5. **OpenProse (T115-T122)** and **CANT DSL (T315-T323)**: active, deferred, or cancel?
+6. **Wave execution order**: clean-house first (my recommendation) or dispatch T617 + T487 Lead in parallel with pass 3?
+7. **T828** (parent of T830 "never delete code" policy) not yet inspected — status unknown, 1 pending child.
+
+Orchestrator is **paused here** pending owner decisions. No workers dispatched. No code touched. Session `ses_20260416184154_59cbf3` active on epic T569.
+
+---
+
+## §12 — Wave A Execution Close-out (2026-04-16 session)
+
+**Directive from owner**: "Complete all of Wave A this conversation session then end and start new session for remaining waves."
+
+### Pending count movement
+
+| Checkpoint | Pending | Δ |
+|---|---|---|
+| Start of session (post v2026.4.75) | 92 | baseline |
+| After Wave A assessment (§11 written) | 91 | −1 (T603 test fixture cancelled) |
+| After Wave A clean-house pass 3 | **74** | **−17 from baseline, −18% reduction** |
+
+### Wave A closures + cancellations (14 closed + 3 cancelled)
+
+**Closed (shipped-but-unclosed, verified via file presence + test runs)**:
+
+| Task | Evidence |
+|---|---|
+| T759 (P0) | `cleo memory observe` verified OK on v2026.4.75 (obs `O-mo1tro2w-0`); shipped commit `5ad2c9662` v2026.4.69 |
+| T555 (critical) | `packages/core/src/memory/llm-extraction.ts` + `auto-extract.ts` + tests shipped (T726 Memory Architecture Wave 1) |
+| T556 (critical) | `reciprocalRankFusion` function exported in `brain-search.ts`, wired into `searchBrainCompact` |
+| T557 (critical) | `observer-reflector.ts` + tests, hooked into task/session hooks |
+| T047-T055 (9 tasks) | `packages/core/src/nexus/transfer.ts` + `__tests__/transfer.test.ts` + domain + CLI + `external_task_links` migration; 264 test files / 4137 tests pass in @cleocode/core |
+| T465 | Zero `clawmsgr`/`ClawMsgr` refs in non-test non-md code; zero `.cleo/clawmsgr-*.json` configs |
+| T179 | Same — ClawMsgr Wave 3 delete verified clean |
+
+**Cancelled (test fixtures or orphaned post-parent-close)**:
+
+| Task | Reason |
+|---|---|
+| T603 ("Sub 2") | Empty description + `AC1/AC2/AC3` placeholder — same pattern as T601/T605/T606 |
+| T548 | Parent T542 cancelled in T757 clean-house (superseded by T627/T726) |
+| T334 ("T310 test sanity check") | Generic placeholder AC — "Task is created/Returns valid ID/Exit code 0" |
+
+### Wave A reclassifications (18 tasks to low)
+
+**T513 NEXUS v2 children** (9 tasks, parent is deferred-low): T514, T515, T516, T517, T518, T519, T520, T521, T522 — all critical/high → **low**. Justification: parent T513 is DEFERRED LOW per §2.5; these subtasks should not outrank the parent.
+
+**OpenProse research cluster** (7 tasks, no active integration): T115, T117, T118, T119, T120, T121, T122 — all high → **low**. Justification: no OpenProse files anywhere in `packages/` or `docs/`; these are speculative research tasks with no work in flight.
+
+### Wave A re-parentings (3 tasks)
+
+T488 (research), T490 (ADR), T491 (spec) — orphan → parented to **T487** Commander-Shim Removal. These are RCASD artifacts for T487 that were never properly linked.
+
+### Wave A dispatched work
+
+**T617 NEXUS barrel export fix** — IN PROGRESS (background agent `a0b59ea2181febd77`).
+
+Surprise finding during assessment: barrel infrastructure is **SHIPPED** in `packages/nexus/src/pipeline/import-processor.ts` (`buildBarrelExportMap`, `resolveBarrelBinding`, 782-line `__tests__/barrel-tracing.test.ts` with 119 passing tests). Fresh `cleo nexus analyze` confirms: `Barrel map: 95 barrel files with re-export chains` and `Calls: tier1=8025, tier2a=10233, tier3=7387, unresolved=89390` — Tier 2a barrel resolution IS firing on 10k+ calls.
+
+**But accuracy is still below AC**: `findTasks` returns 3 callers (grep truth: 8); `endSession` returns 4 callers (grep truth: 11). Both below the `≥5 callers` acceptance threshold. The 89k unresolved calls indicate deeper gaps beyond barrel chains — call patterns (method on object, dynamic dispatch, test harness imports) not being caught by any tier.
+
+Background agent is investigating call-processor.ts for the remaining resolution gap. Worker will return with a PR-ready diff or a blocker report.
+
+---
+
+## §13 — Full Epic Priority Table (7 epics; 1 active + 6 pending)
+
+| ID | Status | Priority | Size | Title | Wave |
+|---|---|---|---|---|---|
+| **T569** | active | critical | large | CLEO Dogfood Attestation — Prove All 6 Systems Work | **A** — closes when T617 lands |
+| **T487** | pending | medium | large | Commander-Shim Removal — Native Citty CLI Migration (113 files) | **B** — next session |
+| **T820** | pending | medium (P0 in title) | medium | Project-agnostic `cleo release` pipeline — Release phase of LOOM/IVTR | **C** — next session, needs priority decision |
+| **T631** | pending | low | large | Cleo Prime Orchestrator Persona — Bulldog AGI for any project/owner/harness | **Deferred** — separate initiative, not RCASD |
+| **T513** | pending | low | large | Native Code Intelligence Pipeline — Full GitNexus Absorption | **Deferred** — foundations shipped, full absorption future |
+| **T298** | pending | low | large | Sitar-inspired Config Platform — review + implement | **Deferred** — review-then-design |
+| **T453** | pending | low | large | CleoAgent — Autonomous CleoOS Harness Testing (meta-agent + scenarios) | **Deferred** — T464/T466-T472 are children |
+
+### T820 expanded (7 children)
+
+Owner-created 2026-04-16 after v2026.4.66-69 shipped via raw `git tag` + GitHub Actions (bypassing `cleo release`). Evidence: `cleo release list` only shows v2026.4.25-26 rolled-back releases.
+
+| ID | Child |
+|---|---|
+| T821 | RELEASE-01: Project-agnostic release config (`.cleo/release-config.json`) |
+| T822 | RELEASE-02: Auto-CHANGELOG from commit-to-task association |
+| T823 | RELEASE-03: IVTR gate enforcement on release ship |
+| T824 | RELEASE-04: PR-first release mode |
+| T825 | RELEASE-05: Real rollback (not just record flip) |
+| T826 | RELEASE-06: Integration test on downstream project |
+| T827 | RELEASE-07: Wire release ship into IVTR pipeline |
+
+Priority decision needed: stored as `medium` but title says `EPIC P0`. Recommend owner confirm intended priority before Wave C dispatch.
+
+### T631 Bulldog AGI Persona (separate initiative, not RCASD)
+
+Owner explicitly noted: **not** a standard RCASD epic. Makes Cleo Prime persona portable across projects/owners/harnesses. SSoT chain: `CLEOOS-IDENTITY.md` (who) + `ct-orchestrator/SKILL.md` (how operational). Currently deferred low; execute when owner prioritizes.
+
+### T830 Never-delete policy task (child of T828 DONE)
+
+**Parent T828 is DONE** (platform binary reconciliation shipped), but child T830 policy task is still pending. T830 acceptance criteria encode structural rules:
+
+- No `|| true` bandaids in build scripts
+- All TS errors block `release.yml` (biome ci step enforces)
+- `cleo-os` extensions build clean under full `pnpm run build`
+- Pre-commit hook runs `biome ci` locally
+- Non-shipping code → file under a plan epic, do NOT delete
+
+T830 is the policy codification of rules already adopted this session.
+
+---
+
+## §14 — Structural Rules Enforced Going Forward (owner-locked 2026-04-16)
+
+These rules are **non-negotiable** and already wired into the codebase. They codify the lessons from v2026.4.66-v2026.4.75 patch cascade.
+
+| # | Rule | Enforcement location |
+|---|---|---|
+| 1 | `release.yml` runs `biome ci .` **BEFORE** build — no more publish-past-CI-fail | `.github/workflows/release.yml` |
+| 2 | `.git/hooks/pre-commit` runs `biome ci .` — drift can't enter main | Git hook, installed locally |
+| 3 | `build.mjs` uses full `pnpm run build` for `cleo-os` — extension TS errors block | `packages/cleo-os/build.mjs` |
+| 4 | **No `\|\| true`** in any build script — failure must surface | Enforced via code review + CI |
+| 5 | Templates live at `packages/core/templates/` — `cleo init` mirrors from there | Single source of truth for init templates |
+| 6 | Tests use `fileURLToPath(import.meta.url)` for paths — **no absolute dev-machine paths** | Enforced via T779+T789 hotfixes (v2026.4.75) |
+| 7 | **Policy T830: never delete code** — if not shipping → plan+build; if shipping → types correct | T830 task; policy enforced during review |
+
+### Why these rules now
+
+Two patch releases (v2026.4.67, v2026.4.69) and a hotfix (v2026.4.72) were all caused by CI-level failures that scoped checks missed. v2026.4.74 locked the structural gates. v2026.4.75 fixed the absolute-path test leak that broke portable test execution.
+
+### Session end
+
+Session `ses_20260416184154_59cbf3` will be ended with handoff note summarizing Wave A completion. Next session picks up:
+1. T617 worker return (if still in flight)
+2. Wave B: T487 Commander-Shim RCASD decomposition
+3. Wave C: T820 priority decision + decomposition dispatch
+4. Continued residual cleanup (~74 → ~50 pending target)
+
+Orchestrator has NOT touched production code this session. All closures are status-only updates on shipped artifacts. All reclassifications preserve the work; nothing was deleted.

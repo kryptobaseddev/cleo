@@ -10,7 +10,9 @@
  * @task T617
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveCalls } from '../pipeline/call-processor.js';
 import type { ExtractedCall } from '../pipeline/extractors/typescript-extractor.js';
 import type { NamedImportMap } from '../pipeline/import-processor.js';
@@ -19,6 +21,7 @@ import {
   buildBarrelExportMap,
   buildImportResolutionContext,
   type ExtractedReExportRecord,
+  loadWorkspacePackages,
   resolveBarrelBinding,
   resolveTypescriptImport,
 } from '../pipeline/import-processor.js';
@@ -564,5 +567,216 @@ describe('resolveTypescriptImport — workspace package resolution', () => {
 
     // The resolved path must match the barrel file so barrel tracing fires
     expect(resolved).toBe('packages/core/src/index.ts');
+  });
+
+  it('resolves @scope/pkg/subpath to the sub-path source file via workspacePackageMap', () => {
+    // T617: @cleocode/core/internal must resolve to packages/core/src/internal.ts
+    const filesWithInternal = [
+      ...allFiles,
+      'packages/core/src/internal.ts',
+      'packages/core/src/conduit/index.ts',
+    ];
+    const ctx = buildImportResolutionContext(filesWithInternal);
+    ctx.workspacePackageMap = new Map([
+      ['@cleocode/core', 'packages/core/src/index.ts'],
+      ['@cleocode/core/internal', 'packages/core/src/internal.ts'],
+      ['@cleocode/core/conduit', 'packages/core/src/conduit/index.ts'],
+    ]);
+
+    const resolvedInternal = resolveTypescriptImport(
+      'packages/cleo/src/dispatch/engines/task-engine.ts',
+      '@cleocode/core/internal',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      ctx.workspacePackageMap,
+    );
+    expect(resolvedInternal).toBe('packages/core/src/internal.ts');
+
+    const resolvedConduit = resolveTypescriptImport(
+      'packages/cleo/src/some-file.ts',
+      '@cleocode/core/conduit',
+      ctx.allFilePaths,
+      ctx.allFileList,
+      ctx.normalizedFileList,
+      ctx.resolveCache,
+      null,
+      ctx.index,
+      ctx.workspacePackageMap,
+    );
+    expect(resolvedConduit).toBe('packages/core/src/conduit/index.ts');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadWorkspacePackages sub-path export resolution (T617)
+// ---------------------------------------------------------------------------
+
+describe('loadWorkspacePackages — sub-path exports (T617)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp('/tmp/nexus-ws-test-');
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Write a minimal fake repo under tmpDir with a packages/<name>/ layout.
+   */
+  async function writePackage(name: string, pkgJson: object, sourceFiles: string[]): Promise<void> {
+    const pkgDir = join(tmpDir, 'packages', name);
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(pkgDir, 'src'), { recursive: true });
+    await writeFile(join(pkgDir, 'package.json'), JSON.stringify(pkgJson));
+    for (const file of sourceFiles) {
+      const abs = join(pkgDir, file);
+      await mkdir(join(abs, '..'), { recursive: true });
+      await writeFile(abs, '');
+    }
+  }
+
+  it('registers root entry point from package.json exports field', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+        },
+      },
+      ['src/index.ts'],
+    );
+
+    const allFilePaths = new Set(['packages/core/src/index.ts']);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    expect(map.get('@myorg/core')).toBe('packages/core/src/index.ts');
+  });
+
+  it('registers sub-path export ./internal as @pkg/internal (T617 fix)', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          './internal': { types: './dist/internal.d.ts', import: './dist/internal.js' },
+        },
+      },
+      ['src/index.ts', 'src/internal.ts'],
+    );
+
+    const allFilePaths = new Set(['packages/core/src/index.ts', 'packages/core/src/internal.ts']);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    expect(map.get('@myorg/core')).toBe('packages/core/src/index.ts');
+    expect(map.get('@myorg/core/internal')).toBe('packages/core/src/internal.ts');
+  });
+
+  it('registers nested sub-path export ./conduit/index as @pkg/conduit/index', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          './conduit': { types: './dist/conduit/index.d.ts', import: './dist/conduit/index.js' },
+        },
+      },
+      ['src/index.ts', 'src/conduit/index.ts'],
+    );
+
+    const allFilePaths = new Set([
+      'packages/core/src/index.ts',
+      'packages/core/src/conduit/index.ts',
+    ]);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    expect(map.get('@myorg/core/conduit')).toBe('packages/core/src/conduit/index.ts');
+  });
+
+  it('skips glob-pattern sub-path exports (e.g. "./store/*")', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          './store/*': { types: './dist/store/*.d.ts', import: './dist/store/*.js' },
+        },
+      },
+      ['src/index.ts'],
+    );
+
+    const allFilePaths = new Set(['packages/core/src/index.ts']);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    // Glob patterns must NOT be registered (they're dynamic and would be false mappings)
+    for (const key of map.keys()) {
+      expect(key).not.toContain('*');
+    }
+  });
+
+  it('skips sub-path export when source file does not exist in allFilePaths', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          './phantom': { types: './dist/phantom.d.ts', import: './dist/phantom.js' },
+        },
+      },
+      ['src/index.ts'], // phantom.ts NOT written
+    );
+
+    const allFilePaths = new Set(['packages/core/src/index.ts']);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    // phantom.ts doesn't exist in allFilePaths → must not be registered
+    expect(map.has('@myorg/core/phantom')).toBe(false);
+  });
+
+  it('registers multiple packages with sub-path exports correctly', async () => {
+    await writePackage(
+      'core',
+      {
+        name: '@myorg/core',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          './internal': { types: './dist/internal.d.ts', import: './dist/internal.js' },
+        },
+      },
+      ['src/index.ts', 'src/internal.ts'],
+    );
+    await writePackage(
+      'contracts',
+      {
+        name: '@myorg/contracts',
+        exports: {
+          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+        },
+      },
+      ['src/index.ts'],
+    );
+
+    const allFilePaths = new Set([
+      'packages/core/src/index.ts',
+      'packages/core/src/internal.ts',
+      'packages/contracts/src/index.ts',
+    ]);
+    const map = await loadWorkspacePackages(tmpDir, allFilePaths);
+
+    expect(map.get('@myorg/core')).toBe('packages/core/src/index.ts');
+    expect(map.get('@myorg/core/internal')).toBe('packages/core/src/internal.ts');
+    expect(map.get('@myorg/contracts')).toBe('packages/contracts/src/index.ts');
+    // No spurious @myorg/contracts/internal entry
+    expect(map.has('@myorg/contracts/internal')).toBe(false);
   });
 });
