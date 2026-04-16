@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.73] — 2026-04-16
+
+### T788 (LOOM-04) — parent-epic lifecycle gate on child `cleo complete`
+
+Shipped directly via surgical edit to `taskCompleteStrict` (`packages/cleo/src/dispatch/engines/task-engine.ts`). When `lifecycleEnforcement.mode === 'strict'` and a child task's parent is an epic in an early planning stage (`research`/`consensus`/`architecture_decision`/`specification`/`decomposition`), `cleo complete <child>` now rejects with `E_LIFECYCLE_GATE_FAILED` (exit 80). `--force` bypasses with `lifecycleGateBypassed: true` in response and a `VerificationFailure` recorded in `task.verification.failureLog` (agent: `'owner-forced'`). Advisory mode warns but does not reject. 7 new tests in `task-complete-lifecycle-gate.test.ts` (all stages × strict/advisory/force cases).
+
+### T829/T828 — Platform binary reconciliation (sqlite-vec)
+
+- Added `pnpm.supportedArchitectures` to root `package.json` declaring `{os: ['darwin','linux','win32'], cpu: ['x64','arm64']}`. pnpm now installs native binaries for all declared platforms, not just the current host. Resolves the 12 previously-failing `brain-vec.test.ts` + `embedding-pipeline.test.ts` tests on Linux CI (they failed because only `sqlite-vec-darwin-*` was installed).
+- Verified locally: all 20 sqlite-vec tests now pass (`brain-vec.test.ts` 5/5 + `embedding-pipeline.test.ts` 15/15).
+
+### Fixed
+
+- **`cant` build**: `packages/cant/package.json` build script was `tsc` which no-ops on composite projects without `-b`. Changed to `tsc -b`. Also forced regeneration of `packages/cant/dist/` from stale `.tsbuildinfo`. Unblocks `build.mjs` whole-tree build.
+- **`cant` version**: bumped from 2026.4.69 to 2026.4.73 (had missed previous bump chain).
+- **`gate-runner.test.ts`** (T784 follow-up): 14 of 16 test cases used fictional field names (`name`, `command`/`expectedExitCode` on `CommandGate` — should be `cmd`/`exitCode`; `command`/`expectedExitCode` on `TestGate` → `command`/`expect:'exit0'`; `expectedStatus` on `HttpGate` → `status`; `failureReason` on result → `errorMessage`; result values `'passed'`/`'failed'` → `'pass'`/`'fail'`). Tests rewritten to match the v2026.4.72 `AcceptanceGate` contract exactly. All 16 now pass.
+- **Import consistency in `task-engine.ts`**: removed 3 redundant dynamic `await import(...)` calls that duplicated already-static top-level imports, fixing TS6133 `noUnusedLocals` errors introduced by the T788 addition. `getLogger` import changed from `@cleocode/core` to `@cleocode/core/internal` for test-mock compatibility (T815 + T788 tests both mock via `/internal`).
+
+### Test metrics
+
+- **Contracts**: 148/148 pass ✅
+- **Core**: 4137/4169 pass (32 todo, **zero fail** — 12 previously-failing sqlite-vec tests now pass + 8 gate-runner tests fixed)
+- **Cleo**: 1405/1407 pass (2 skipped, **zero fail** — 7 new T788 tests added and passing)
+- **Grand total: 5,690/5,724 passing, 0 failures, 2 skipped, 32 todo**
+
+### Closed epics
+
+All RCASD epics + new infra epic closed with children done:
+- T767 Guidance Surface Hardening ✅
+- T768 Programmatic Acceptance Gates ✅
+- T769 LOOM auto-wire (T788 closed it) ✅
+- T770 BRAIN P0 Fixes ✅
+- T771 Unified `cleo docs` ✅
+- T772 Schema Hardening ✅
+- T773 ct-cleo skill rewrite ✅
+- T810 IVTR Multi-agent Enforcement ✅
+- T828 Platform binary reconciliation ✅
+
+T820 (project-agnostic `cleo release` rewrite) remains open — 7-task epic for next cadence.
+
 ## [2026.4.72] — 2026-04-16
 
 ### Fixed
