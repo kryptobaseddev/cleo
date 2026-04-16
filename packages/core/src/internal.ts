@@ -25,6 +25,7 @@ export * from './index.js';
 // Re-export attachment types from contracts for dispatch layer
 export type {
   AttachmentRef,
+  LlmsTxtAttachment,
   LocalFileAttachment,
   UrlAttachment,
 } from '@cleocode/contracts';
@@ -74,6 +75,9 @@ export type {
   ViolationSeverity,
 } from './compliance/protocol-rules.js';
 export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
+// Docs generator — llms.txt format generation (T798)
+export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
+export { generateDocsLlmsTxt } from './docs/docs-generator.js';
 export type { PayloadValidationResult } from './hooks/payload-schemas.js';
 export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks
@@ -172,12 +176,20 @@ export {
   skipStageWithReason,
   TIER_0_SKILLS,
 } from './lifecycle/index.js';
-// IVTR orchestration harness (T811)
-export type { IvtrPhase, IvtrPhaseEntry, IvtrState } from './lifecycle/ivtr-loop.js';
+// IVTR orchestration harness (T811 + T813 + T814)
+export type {
+  AutoRunGatesResult,
+  IvtrPhase,
+  IvtrPhaseEntry,
+  IvtrState,
+} from './lifecycle/ivtr-loop.js';
 export {
   advanceIvtr,
+  autoRunGatesAndRecord,
+  E_IVTR_MAX_RETRIES,
   getIvtrState,
   loopBackIvtr,
+  MAX_LOOP_BACKS_PER_PHASE,
   releaseIvtr,
   resolvePhasePrompt,
   startIvtr,
@@ -645,6 +657,9 @@ export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
+export type { RunGatesOptions } from './tasks/gate-runner.js';
+// Gate runner (T813)
+export { extractTypedGates, runGates } from './tasks/gate-runner.js';
 export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
 export type { CompactTask } from './tasks/list.js';

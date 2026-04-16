@@ -532,6 +532,19 @@ export const brainObservations = sqliteTable(
      * Null = never promoted.
      */
     tierPromotionReason: text('tier_promotion_reason'),
+
+    /**
+     * T799: JSON array of attachment SHA-256 refs linked to this observation.
+     *
+     * Stored as a JSON-encoded string (e.g. `["a1b2...","c3d4..."]`).
+     * Null means no attachment refs. Use `cleo memory observe --attach <sha256>`
+     * to populate this column.
+     *
+     * The referenced attachments are stored in the tasks.db attachment registry
+     * (same store used by `cleo docs`).  This column is a soft reference only —
+     * CLEO does not enforce referential integrity here.
+     */
+    attachmentsJson: text('attachments_json'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),

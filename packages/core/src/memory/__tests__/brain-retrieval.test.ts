@@ -734,6 +734,280 @@ describe('Brain Retrieval', () => {
   });
 
   // ==========================================================================
+  // T793: rrfScore + bm25Score on BrainCompactHit (RRF path)
+  // ==========================================================================
+
+  describe('T793 — rrfScore and bm25Score on compact hits', () => {
+    it('exposes rrfScore (number > 0) on each RRF-path hit', async () => {
+      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D-rrf1',
+        type: 'technical',
+        decision: 'RRF score normalization decision',
+        rationale: 'Expose rrfScore on compact hits',
+        confidence: 'high',
+      });
+
+      const result = await searchBrainCompact(tempDir, {
+        query: 'RRF score normalization',
+        useRRF: false, // FTS-only to ensure deterministic hit
+        tables: ['decisions'],
+      });
+
+      // FTS-only path does not populate rrfScore; use a separate RRF call.
+      const rrfResult = await searchBrainCompact(tempDir, {
+        query: 'RRF score normalization',
+        useRRF: true,
+        tables: ['decisions'],
+      });
+
+      expect(result.results.length).toBeGreaterThan(0);
+      // FTS-only path: no rrfScore field
+      expect(result.results[0]!.rrfScore).toBeUndefined();
+
+      // RRF path: rrfScore must be a positive number
+      if (rrfResult.results.length > 0) {
+        const hit = rrfResult.results[0]!;
+        expect(typeof hit.rrfScore).toBe('number');
+        expect(hit.rrfScore!).toBeGreaterThan(0);
+      }
+    });
+
+    it('exposes bm25Score in [0, 1] range on RRF hits', async () => {
+      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D-bm25-1',
+        type: 'technical',
+        decision: 'BM25 bm25Score test first entry bm25 normalization',
+        rationale: 'Testing bm25Score range',
+        confidence: 'high',
+      });
+      await accessor.addDecision({
+        id: 'D-bm25-2',
+        type: 'technical',
+        decision: 'BM25 bm25Score test second entry normalization',
+        rationale: 'Testing bm25Score range',
+        confidence: 'medium',
+      });
+
+      const result = await searchBrainCompact(tempDir, {
+        query: 'bm25Score normalization',
+        useRRF: true,
+        tables: ['decisions'],
+      });
+
+      for (const hit of result.results) {
+        expect(typeof hit.bm25Score).toBe('number');
+        expect(hit.bm25Score!).toBeGreaterThanOrEqual(0);
+        expect(hit.bm25Score!).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('top FTS hit gets bm25Score = 1.0 when only one FTS result', async () => {
+      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D-bm25-solo',
+        type: 'technical',
+        decision: 'Unique solitary bm25scoretoprank entry xyz987',
+        rationale: 'Test top rank',
+        confidence: 'high',
+      });
+
+      const result = await searchBrainCompact(tempDir, {
+        query: 'bm25scoretoprank xyz987',
+        useRRF: true,
+        tables: ['decisions'],
+      });
+
+      // When only one FTS result, maxFtsRank = 0 so bm25Score = 1 - (0/0 default) = 1
+      if (result.results.length === 1) {
+        expect(result.results[0]!.bm25Score).toBe(1);
+      }
+    });
+
+    it('rrfScore values are positive and in descending order', async () => {
+      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const accessor = await getBrainAccessor(tempDir);
+      for (let i = 1; i <= 3; i++) {
+        await accessor.addDecision({
+          id: `D-order${i}`,
+          type: 'technical',
+          decision: `RRF order test decision rrforderdesc entry ${i}`.repeat(Math.max(1, 4 - i)),
+          rationale: 'Ordering test',
+          confidence: 'high',
+        });
+      }
+
+      const result = await searchBrainCompact(tempDir, {
+        query: 'rrforderdesc order test',
+        useRRF: true,
+        tables: ['decisions'],
+      });
+
+      const scores = result.results.filter((r) => r.rrfScore !== undefined).map((r) => r.rrfScore!);
+
+      for (let i = 0; i < scores.length - 1; i++) {
+        expect(scores[i]!).toBeGreaterThanOrEqual(scores[i + 1]!);
+      }
+    });
+  });
+
+  // ==========================================================================
+  // T794: observation retention floor — auto-promote to medium tier
+  // ==========================================================================
+
+  describe('T794 — retention floor: auto-promote to medium tier', () => {
+    it('defaults to short tier for single-task-ref observations', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'Working on T123 only — single task reference here',
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('short');
+    });
+
+    it('auto-promotes to medium when text contains ≥2 distinct task IDs', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'T793 and T794 both landed in wave1 — cross-task observation',
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('medium');
+    });
+
+    it('auto-promotes to medium when text contains ≥2 distinct task IDs (3 unique)', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'Completed T100, T101, and T102 in same session',
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('medium');
+    });
+
+    it('does NOT promote when the same task ID appears multiple times', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'T999 was mentioned, then T999 was mentioned again — same task T999',
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('short');
+    });
+
+    it('auto-promotes to medium when crossRef has ≥1 entry', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'This observation has a cross-reference to another entry',
+        crossRef: ['D-rrf1'],
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('medium');
+    });
+
+    it('stays short when crossRef is empty array', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'Single observation with empty crossRef array',
+        crossRef: [],
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('short');
+    });
+
+    it('promotes via crossRef even with no task IDs in text', async () => {
+      const { observeBrain, fetchBrainEntries } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      const result = await observeBrain(tempDir, {
+        text: 'No task refs but has crossRef entry — should promote',
+        crossRef: ['O-some-other-obs'],
+      });
+
+      const fetched = await fetchBrainEntries(tempDir, { ids: [result.id] });
+      expect(fetched.results).toHaveLength(1);
+      const data = fetched.results[0]!.data as Record<string, unknown>;
+      expect(data['memoryTier']).toBe('medium');
+    });
+  });
+
+  // ==========================================================================
   // Integration: search -> timeline -> fetch
   // ==========================================================================
 

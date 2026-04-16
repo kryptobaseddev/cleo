@@ -50,13 +50,17 @@ export function registerShowCommand(program: Command): void {
   // --history flag: surface lifecycle_stages transition log alongside task data.
   cmd.option('--history', 'Include lifecycle stage history in the response');
 
-  cmd.action(async (taskId: string, opts: { history?: boolean }) => {
+  // --ivtr-history flag: surface IVTR phase chain (distinct from --history lifecycle stages).
+  cmd.option('--ivtr-history', 'Include IVTR phase chain history in the response');
+
+  cmd.action(async (taskId: string, opts: { history?: boolean; ivtrHistory?: boolean }) => {
     const historyFlag = opts?.history === true;
+    const ivtrHistoryFlag = opts?.ivtrHistory === true;
     await dispatchFromCli(
       'query',
       'tasks',
       'show',
-      { taskId, history: historyFlag },
+      { taskId, history: historyFlag, ivtrHistory: ivtrHistoryFlag },
       { command: 'show' },
     );
   });

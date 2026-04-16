@@ -52,6 +52,18 @@ export interface BrainCompactHit {
   title: string;
   date: string;
   relevance?: number;
+  /**
+   * RRF-fused score: sum of 1/(rank+60) across all retrieval sources.
+   * Present only when the RRF path is used (useRRF=true, default).
+   * Higher = stronger match. Comparable across results in the same query.
+   */
+  rrfScore?: number;
+  /**
+   * BM25-derived score, min-max normalized to [0, 1] across the result set.
+   * 1.0 = best BM25 rank in this query, 0.0 = worst (or not found via FTS).
+   * Present only when the RRF path is used and at least one FTS result exists.
+   */
+  bm25Score?: number;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
 }
@@ -144,6 +156,19 @@ export interface ObserveBrainParams {
    * - otherwise → 'agent'
    */
   sourceConfidence?: BrainSourceConfidence;
+  /**
+   * T794 BRAIN-05: cross-references to other memory entries or external IDs.
+   * When this array has ≥1 entry, the observation is auto-promoted from
+   * 'short' to 'medium' tier at write time to protect it from soft-eviction.
+   */
+  crossRef?: string[];
+  /**
+   * T799: SHA-256 refs of attachments to link to this observation.
+   *
+   * Stored as a JSON-encoded string in the `attachments_json` column.
+   * Each entry must be a 64-char hex SHA-256 from the tasks.db attachment store.
+   */
+  attachmentRefs?: string[];
 }
 
 /** Result from observeBrain. */
@@ -224,14 +249,35 @@ export async function searchBrainCompact(
       observation: 'observations',
     };
 
+    // Compute min-max normalization bounds for BM25 rank → bm25Score.
+    // ftsRank=0 is best; higher rank = worse. We convert to a 0..1 score:
+    //   bm25Score = 1 - (ftsRank / maxFtsRank)  when maxFtsRank > 0.
+    //   Items not in FTS results (ftsRank undefined) get bm25Score = 0.
+    const ftsRanks = rrfResults.map((r) => r.ftsRank ?? undefined).filter((v) => v !== undefined);
+    const maxFtsRank = ftsRanks.length > 0 ? Math.max(...ftsRanks) : 0;
+
+    // Compute min-max bounds for rrfScore normalization for `relevance` field.
+    const rrfScores = rrfResults.map((r) => r.score);
+    const minRrf = rrfScores.length > 0 ? Math.min(...rrfScores) : 0;
+    const maxRrf = rrfScores.length > 0 ? Math.max(...rrfScores) : 0;
+    const rrfRange = maxRrf - minRrf;
+
     let results: BrainCompactHit[] = rrfResults
-      .map((r) => ({
-        id: r.id,
-        type: r.type as 'decision' | 'pattern' | 'learning' | 'observation',
-        title: r.title.slice(0, 80),
-        date: dateMap.get(r.id) ?? '',
-        relevance: r.score,
-      }))
+      .map((r) => {
+        const bm25Score =
+          r.ftsRank !== undefined ? 1 - (maxFtsRank > 0 ? r.ftsRank / maxFtsRank : 0) : 0;
+        const rrfScore = r.score;
+        const relevance = rrfRange > 0 ? (r.score - minRrf) / rrfRange : r.score;
+        return {
+          id: r.id,
+          type: r.type as 'decision' | 'pattern' | 'learning' | 'observation',
+          title: r.title.slice(0, 80),
+          date: dateMap.get(r.id) ?? '',
+          relevance,
+          rrfScore,
+          bm25Score,
+        };
+      })
       .filter((r) => {
         // Only include items that the FTS scan returned (ensures quality gating is respected)
         return dateMap.has(r.id);
@@ -703,6 +749,8 @@ export async function observeBrain(
     sourceType,
     agent,
     sourceConfidence: sourceConfidenceParam,
+    crossRef,
+    attachmentRefs,
   } = params;
 
   if (!text?.trim()) {
@@ -732,7 +780,16 @@ export async function observeBrain(
       : sourceType === 'session-debrief'
         ? 'task-outcome'
         : 'agent');
-  const memoryTier: BrainMemoryTier = 'short';
+  // T794 BRAIN-05: retention floor — auto-promote to 'medium' when the observation
+  // references multiple tasks or has explicit cross-references.
+  // Two promotion criteria (either is sufficient):
+  //   A. text contains ≥2 distinct task ID patterns (/T\d+/)
+  //   B. crossRef param is present with ≥1 entry
+  const taskIdMatches = text.match(/T\d+/g) ?? [];
+  const distinctTaskIds = new Set(taskIdMatches);
+  const hasMultipleTaskRefs = distinctTaskIds.size >= 2;
+  const hasCrossRef = Array.isArray(crossRef) && crossRef.length >= 1;
+  const memoryTier: BrainMemoryTier = hasMultipleTaskRefs || hasCrossRef ? 'medium' : 'short';
   const memoryType = 'episodic' as const;
   const verified =
     resolvedSourceConfidence === 'owner' || resolvedSourceConfidence === 'task-outcome';
@@ -807,6 +864,10 @@ export async function observeBrain(
     memoryType,
     sourceConfidence: resolvedSourceConfidence,
     verified,
+    // T799: optional attachment refs stored as JSON array
+    ...(attachmentRefs && attachmentRefs.length > 0
+      ? { attachmentsJson: JSON.stringify(attachmentRefs) }
+      : {}),
   });
 
   // Populate embedding if provider is available (T5387).

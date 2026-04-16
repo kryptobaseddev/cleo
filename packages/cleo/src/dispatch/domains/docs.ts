@@ -20,10 +20,16 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { AttachmentRef, LocalFileAttachment, UrlAttachment } from '@cleocode/core/internal';
+import type {
+  AttachmentRef,
+  LlmsTxtAttachment,
+  LocalFileAttachment,
+  UrlAttachment,
+} from '@cleocode/core/internal';
 import {
   createAttachmentStore,
   type DerefResult,
+  generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
 } from '@cleocode/core/internal';
@@ -154,6 +160,74 @@ export class DocsHandler implements DomainHandler {
                 createdAt: m.createdAt,
                 refCount: m.refCount,
               })),
+            },
+          };
+        }
+
+        // ── docs.generate ────────────────────────────────────────────────
+        case 'generate': {
+          const forId = params?.for as string | undefined;
+          if (!forId) {
+            return errorResult(
+              'query',
+              'docs',
+              operation,
+              'E_INVALID_INPUT',
+              '--for <taskId|epicId> is required',
+              startTime,
+            );
+          }
+
+          const attach = params?.attach as boolean | undefined;
+          const cwd = getProjectRoot();
+
+          const result = await generateDocsLlmsTxt({
+            ownerId: forId,
+            cwd,
+          });
+
+          let attachmentId: string | undefined;
+          let attachmentSha256: string | undefined;
+
+          if (attach) {
+            // Store the generated content back as an llms-txt attachment
+            const store = createAttachmentStore();
+            const ownerType = inferOwnerType(forId);
+            const contentBytes = Buffer.from(result.content, 'utf-8');
+            const llmsTxtDescriptor: Omit<LlmsTxtAttachment, 'sha256'> = {
+              kind: 'llms-txt',
+              source: 'generated',
+              content: result.content,
+              description: `llms.txt for ${forId} (${result.attachmentCount} docs)`,
+              labels: ['llms-txt', 'generated'],
+            };
+            const meta = await store.put(
+              contentBytes,
+              llmsTxtDescriptor,
+              ownerType,
+              forId,
+              'cleo-docs-generate',
+              cwd,
+            );
+            attachmentId = meta.id;
+            attachmentSha256 = meta.sha256;
+          }
+
+          return {
+            meta: dispatchMeta('query', 'docs', operation, startTime),
+            success: true,
+            data: {
+              forId,
+              content: result.content,
+              attachmentCount: result.attachmentCount,
+              usedLlmtxtPackage: result.usedLlmtxtPackage,
+              ...(attachmentId !== undefined
+                ? {
+                    attached: true,
+                    attachmentId,
+                    attachmentSha256,
+                  }
+                : { attached: false }),
             },
           };
         }
@@ -464,7 +538,7 @@ export class DocsHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'fetch'],
+      query: ['list', 'fetch', 'generate'],
       mutate: ['add', 'remove'],
     };
   }

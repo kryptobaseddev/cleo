@@ -9,130 +9,6 @@ CLEO is the task management protocol for AI coding agents. It provides structure
 
 **Operation set**: 164 operations (97 query + 67 mutate) across 10 canonical domains.
 
-## CLI-First Workflow
-
-CLI (`cleo` / `ct`) is the **only** dispatch method. All operations use `cleo <command>` syntax.
-
-### Tier-0 Read Operations — Always Available
-
-| Domain | Operation | Description |
-|--------|-----------|-------------|
-| `tasks` | `show` | Get task details (`params: { taskId }`) |
-| `tasks` | `find` | Search tasks (`params: { query }` or `{ id }`) |
-| `tasks` | `next` | Auto-select highest-priority next task |
-| `tasks` | `plan` | Composite planning view: upcoming tasks, blockers, dependencies |
-| `tasks` | `current` | Show currently active (started) task |
-| `session` | `status` | Current session state — **mandatory first call** |
-| `session` | `handoff.show` | Resume prior context from last session |
-| `session` | `briefing.show` | Composite cold-start briefing (status + handoff combined) |
-| `memory` | `find` | Search brain for past observations, decisions, patterns (`params: { query }`) |
-| `admin` | `version` | CLEO version number |
-| `admin` | `health` | Installation health check |
-| `admin` | `dash` | Project dashboard — mandatory efficiency sequence step 2 |
-| `admin` | `help` | Discover available operations; use `{tier:2}` to reveal advanced ops |
-| `tools` | `skill.list` | List all installed agent skills |
-| `tools` | `provider.list` | List all known LLM/agent providers |
-| `tools` | `provider.detect` | Detect currently active provider |
-
-### Tier-1 Read Operations — After Session Init
-
-| Domain | Operation | Description |
-|--------|-----------|-------------|
-| `tasks` | `list` | List direct children (`--parent <id>`) — **requires parent filter; prefer `cleo find` for discovery** |
-| `tasks` | `tree` | Full subtask hierarchy (`params: { taskId }`) |
-| `tasks` | `analyze` | Leverage-sorted task discovery |
-| `tasks` | `blockers` | Tasks blocking a specific task (`params: { taskId }`) |
-| `tasks` | `depends` | Full dependency graph for a task (`params: { taskId }`) |
-| `session` | `list` | List sessions (prefer `session.find` for discovery) |
-| `session` | `decision.log` | Recorded decisions for the current session |
-| `session` | `find` | Search sessions (`params: { query }`) |
-| `session` | `show` | Full session record (`params: { sessionId }`) |
-| `session` | `context.drift` | Inspect context drift during long sessions |
-| `memory` | `timeline` | Context around an anchor entry (`params: { anchorId }`) |
-| `memory` | `fetch` | Batch-fetch brain entries (`params: { ids: [...] }`) |
-| `memory` | `decision.find` | Search stored decisions (`params: { query, taskId? }`) |
-| `memory` | `pattern.find` | Search stored patterns (`params: { query, type? }`) |
-| `memory` | `learning.find` | Search stored learnings (`params: { query, minConfidence? }`) |
-| `orchestrate` | `analyze` | Dependency wave analysis (`params: { epicId }`) |
-| `orchestrate` | `ready` | Tasks ready to spawn (`params: { epicId }`) |
-| `orchestrate` | `next` | Next task suggestion (`params: { epicId }`) |
-| `orchestrate` | `status` | Current orchestration state |
-| `check` | `schema` | Validate task data schema integrity |
-| `check` | `protocol` | Protocol compliance for a task (`params: { taskId, protocolType? }`) |
-| `check` | `task` | Validate task fields (`params: { taskId }`) |
-| `check` | `compliance.summary` | Overall compliance summary |
-| `check` | `test` | Test status or coverage (`params: { format: "status" | "coverage" }`) |
-| `check` | `gate.status` | Lifecycle gate status |
-| `pipeline` | `stage.status` | Pipeline stage for epic (`params: { epicId }`) |
-| `pipeline` | `stage.validate` | Validate gate before advancing |
-| `pipeline` | `manifest.show` | Read manifest entry (`params: { id }`) |
-| `pipeline` | `manifest.list` | List manifest entries (`params: { filter?: "pending" }`) |
-| `pipeline` | `manifest.find` | Search manifest entries (`params: { query }`) |
-| `nexus` | `status` | Check if nexus is initialized |
-| `nexus` | `list` | List registered projects |
-| `admin` | `config.show` | Inspect current configuration |
-| `admin` | `adr.find` | Search architecture decision records |
-| `tools` | `skill.show` | Skill details (`params: { skillId }`) |
-| `sticky` | `list` | List sticky notes (`params: { status?, tag? }`) |
-| `sticky` | `show` | Show sticky details (`params: { stickyId }`) |
-
-### Tier-0 Write Operations — Always Available
-
-| Domain | Operation | Description |
-|--------|-----------|-------------|
-| `tasks` | `add` | Create task (`params: { title, description, parentId?, status? }`) |
-| `tasks` | `update` | Update task (`params: { taskId, title?, status?, notes? }`) |
-| `tasks` | `complete` | Mark task done (`params: { taskId }`) |
-| `tasks` | `start` | Start working on a task (`params: { taskId }`) |
-| `tasks` | `stop` | Stop working on current task |
-| `session` | `start` | Start session (`params: { scope }`) — scope is **required** |
-| `session` | `end` | End session (`params: { note? }`) |
-| `memory` | `observe` | Save observation to brain (`params: { text, title? }`) |
-
-### Tier-1 Write Operations — After Session Init
-
-| Domain | Operation | Description |
-|--------|-----------|-------------|
-| `tasks` | `cancel` | Cancel task (`params: { taskId }`) |
-| `tasks` | `archive` | Archive completed task (`params: { taskId }`) |
-| `tasks` | `restore` | Restore from done/archive (`params: { taskId, from: "done" \| "archive" }`) |
-| `tasks` | `delete` | Hard delete — irreversible (`params: { taskId }`) |
-| `tasks` | `reparent` | Move to different parent (`params: { taskId, newParentId }`) |
-| `tasks` | `reorder` | Reorder tasks within their parent (`params: { taskId, position }`) |
-| `session` | `resume` | Resume a prior session (`params: { sessionId }`) |
-| `session` | `suspend` | Pause session without ending it |
-| `session` | `record.decision` | Record a session decision (`params: { text, rationale }`) |
-| `session` | `record.assumption` | Record a session assumption (`params: { text }`) |
-| `admin` | `context.inject` | Inject protocol content into context (`params: { protocolType }`) — **moved from session domain** |
-| `memory` | `link` | Link memory entry to task (`params: { memoryId, taskId }`) |
-| `memory` | `decision.store` | Store structured decision (`params: { decision, rationale, taskId, alternatives? }`) |
-| `memory` | `pattern.store` | Store recurring pattern (`params: { name, type, impact, success, antiPattern? }`) |
-| `memory` | `learning.store` | Store a learning (`params: { text, confidence, taskId? }`) |
-| `orchestrate` | `start` | Start orchestrating an epic (`params: { epicId }`) |
-| `orchestrate` | `spawn` | Spawn prep for a task (`params: { taskId, skillIds? }`) |
-| `orchestrate` | `spawn.execute` | Execute spawn via adapter registry (`params: { taskId }`) |
-| `orchestrate` | `handoff` | Hand off context to subagent (`params: { taskId, context }`) |
-| `orchestrate` | `validate` | Pre-spawn gate check (`params: { taskId }`) |
-| `orchestrate` | `parallel` | Run parallel agent wave (`params: { action: "start" \| "end", waveId? }`) |
-| `check` | `test.run` | Run tests |
-| `check` | `gate.set` | Set or reset a lifecycle gate |
-| `pipeline` | `stage.record` | Record pipeline stage progress |
-| `pipeline` | `stage.gate.pass` | Pass a pipeline gate (`params: { stageId, gateId }`) |
-| `pipeline` | `stage.gate.fail` | Fail a gate with reason (`params: { stageId, gateId, reason }`) |
-| `pipeline` | `manifest.append` | Append manifest entry (`params: { entry }`) — **MANDATORY per BASE protocol** |
-| `pipeline` | `phase.set` | Set pipeline phase (`params: { phaseId, action: "start" \| "complete" }`) |
-| `pipeline` | `release.ship` | Ship a release (`params: { step? }`) |
-| `admin` | `config.set` | Update configuration (`params: { key, value }`) |
-| `tools` | `skill.install` | Install a skill (`params: { skillId }`) |
-| `tools` | `skill.uninstall` | Uninstall a skill (`params: { skillId }`) |
-| `tools` | `skill.refresh` | Bulk update all installed skills |
-| `sticky` | `add` | Create sticky note (`params: { content, tags?, color?, priority? }`) |
-| `sticky` | `convert` | Convert to task/memory (`params: { stickyId, targetType }`) |
-| `sticky` | `archive` | Archive sticky (`params: { stickyId }`) |
-| `sticky` | `purge` | Permanently delete sticky notes (`params: { stickyId }`) |
-
----
-
 ## Canonical Decision Tree
 
 Every agent MUST use this tree to select the minimum-cost operation path.
@@ -159,6 +35,22 @@ Agent starts work
 ```
 
 **Anti-pattern blocked**: Never skip `session.status`. Resuming without `handoff.show` loses prior context and causes duplicate work.
+
+---
+
+### Phase Mapping (RCASD-IVTR+C)
+
+Each task lives in a lifecycle phase. Match your tooling to the current phase:
+
+| Phase | When | Key Commands |
+|-------|------|--------------|
+| `research` | Gathering information, reading docs, exploring codebase | `cleo memory find`, `cleo docs add`, `cleo show` |
+| `implement` | Writing code, making changes, building features | `cleo start`, `cleo verify`, code tools |
+| `validate` | Verifying correctness, running acceptance criteria | `cleo verify <id> --run`, `cleo check gate.status` |
+| `test` | Running test suites, asserting coverage | `pnpm run test`, `cleo check test` |
+| `release` | Versioning, changelog, publishing | `cleo release ship`, `cleo pipeline stage.record` |
+
+**Check current phase**: `cleo show <id>` → `pipelineStage` field.
 
 ---
 
@@ -200,7 +92,7 @@ I need to find what to work on
 I need to save or recall information across sessions
 │
 ├── Save an observation right now (free-form)
-│   └── cleo observe "text" --title "title"  [tier 0]
+│   └── cleo memory observe "text" --title "title"  [tier 0]
 │
 ├── Search for something I or a prior agent observed
 │   └── cleo memory find "..."  [tier 0]  ← ALWAYS start here (cheap)
@@ -217,28 +109,6 @@ I need to save or recall information across sessions
 ```
 
 **Anti-pattern blocked**: Never call `memory.fetch` without first calling `memory.find`. Fetching without filtering returns all entries (expensive).
-
----
-
-### Goal: Multi-Agent Coordination
-
-```
-I need to coordinate agent work (orchestrator role)
-│
-├── I am the orchestrator — start coordinating an epic
-│   └── cleo orchestrator start --epic {epicId}  [tier 1]
-│       └── cleo orchestrator status  [tier 1]  → current orchestration state
-│
-├── Spawn a subagent for a task
-│   └── (1) cleo orchestrator validate {taskId}  [tier 1]  → pre-spawn gate check
-│       (2) cleo orchestrator spawn {taskId}  [tier 1]  → spawn prep
-│
-└── I am a subagent — complete my work and report
-    └── cleo manifest append {entry}  [tier 1]  ← MANDATORY per BASE protocol
-        cleo complete {taskId}  [tier 0]
-```
-
-**Subagent BASE protocol**: Every subagent MUST append one entry to MANIFEST.jsonl via `pipeline.manifest.append` BEFORE calling `tasks.complete`. Omitting this is a protocol violation (exit code 62).
 
 ---
 
@@ -303,7 +173,215 @@ I need system or configuration info
 
 ---
 
-## CLI Reference (Primary)
+## Pre-Complete Gate Ritual
+
+MANDATORY before every `cleo complete <id>`:
+
+1. `cleo show <id>` — inspect gates
+2. Run each acceptance criterion verifiable (tests, lint, file checks)
+3. `cleo verify <id> --run` — executes programmatic gates
+4. `cleo memory observe "..." --title "..."` — capture learnings
+5. `cleo complete <id>` — should pass cleanly
+
+Anti-patterns:
+- `cleo complete` without `cleo verify --run`
+- `cleo verify --all` to bypass programmatic gates
+- Skipping memory observe on non-trivial work
+- Self-attesting without programmatic proof (IVTR validate phase exists to prevent this)
+
+---
+
+## Multi-Agent Coordination
+
+FIRST: do I have >= 5 tasks under one epic?
+
+```
+Do I have an epic with >= 5 tasks?
+│
+├── YES → cleo orchestrate start <epicId>  (auto-inits LOOM) — MANDATORY before touching any child task
+│   │
+│   └── For each wave:
+│       cleo orchestrate ready --epic <id>  → get parallel-safe task set
+│       │
+│       └── For each task in wave:
+│           cleo orchestrate spawn <taskId>  → get resolved prompt
+│           Dispatch subagent via Agent tool
+│           On return: cleo manifest show <id>  → read key_findings
+│
+└── NO → continue as solo executor
+    └── proceed through standard work loop (cleo next → cleo show → implement → cleo complete)
+```
+
+**Gate-failure loop (IVTR)**:
+
+```
+Task returns blocked
+│
+├── Read failure in manifest (cleo manifest show <id>)
+│
+└── cleo orchestrate ivtr <id> --loop-back --phase implement --reason "..."  → re-spawn
+    ├── Max 2 retries → escalate to HITL
+    └── Document blocker in manifest before escalating
+```
+
+---
+
+## Greenfield Bootstrap (new project)
+
+Copy-paste sequence:
+
+```bash
+cd /path/to/new-project
+cleo init                                # creates .cleo/, tasks.db, brain.db
+cleo session start --scope global
+cleo add "Epic: <your goal>" --type epic --lifecycle auto \
+  --description "..." \
+  --acceptance "REQ-1|REQ-2|REQ-3|REQ-4|REQ-5"
+EPIC_ID=$(cleo current | jq -r '.data.currentTask.id')
+
+# Attach research/spec documents
+cleo docs add $EPIC_ID ./spec.md --desc "initial spec" --labels spec
+
+# Decompose into atomic tasks with typed gates
+cleo add "Task A" --type task --parent $EPIC_ID
+cleo req add <taskA-id> IMPL-01 --gate '{"kind":"test","command":"npm test","expect":"pass","description":"..."}'
+
+# Start orchestrator — auto-inits LOOM
+cleo orchestrate start $EPIC_ID
+
+# Drive IVTR on first task
+cleo orchestrate ivtr <taskA-id> --start  # begins Implement phase
+```
+
+---
+
+## Reference
+
+### CLI-First Workflow
+
+CLI (`cleo` / `ct`) is the **only** dispatch method. All operations use `cleo <command>` syntax.
+
+#### Tier-0 Read Operations — Always Available
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `show` | Get task details (`params: { taskId }`) |
+| `tasks` | `find` | Search tasks (`params: { query }` or `{ id }`) |
+| `tasks` | `next` | Auto-select highest-priority next task |
+| `tasks` | `plan` | Composite planning view: upcoming tasks, blockers, dependencies |
+| `tasks` | `current` | Show currently active (started) task |
+| `session` | `status` | Current session state — **mandatory first call** |
+| `session` | `handoff.show` | Resume prior context from last session |
+| `session` | `briefing.show` | Composite cold-start briefing (status + handoff combined) |
+| `memory` | `find` | Search brain for past observations, decisions, patterns (`params: { query }`) |
+| `admin` | `version` | CLEO version number |
+| `admin` | `health` | Installation health check |
+| `admin` | `dash` | Project dashboard — mandatory efficiency sequence step 2 |
+| `admin` | `help` | Discover available operations; use `{tier:2}` to reveal advanced ops |
+| `tools` | `skill.list` | List all installed agent skills |
+| `tools` | `provider.list` | List all known LLM/agent providers |
+| `tools` | `provider.detect` | Detect currently active provider |
+
+#### Tier-1 Read Operations — After Session Init
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `list` | List direct children (`--parent <id>`) — **requires parent filter; prefer `cleo find` for discovery** |
+| `tasks` | `tree` | Full subtask hierarchy (`params: { taskId }`) |
+| `tasks` | `analyze` | Leverage-sorted task discovery |
+| `tasks` | `blockers` | Tasks blocking a specific task (`params: { taskId }`) |
+| `tasks` | `depends` | Full dependency graph for a task (`params: { taskId }`) |
+| `session` | `list` | List sessions (prefer `session.find` for discovery) |
+| `session` | `decision.log` | Recorded decisions for the current session |
+| `session` | `find` | Search sessions (`params: { query }`) |
+| `session` | `show` | Full session record (`params: { sessionId }`) |
+| `session` | `context.drift` | Inspect context drift during long sessions |
+| `memory` | `timeline` | Context around an anchor entry (`params: { anchorId }`) |
+| `memory` | `fetch` | Batch-fetch brain entries (`params: { ids: [...] }`) |
+| `memory` | `decision.find` | Search stored decisions (`params: { query, taskId? }`) |
+| `memory` | `pattern.find` | Search stored patterns (`params: { query, type? }`) |
+| `memory` | `learning.find` | Search stored learnings (`params: { query, minConfidence? }`) |
+| `orchestrate` | `analyze` | Dependency wave analysis (`params: { epicId }`) |
+| `orchestrate` | `ready` | Tasks ready to spawn (`params: { epicId }`) |
+| `orchestrate` | `next` | Next task suggestion (`params: { epicId }`) |
+| `orchestrate` | `status` | Current orchestration state |
+| `check` | `schema` | Validate task data schema integrity |
+| `check` | `protocol` | Protocol compliance for a task (`params: { taskId, protocolType? }`) |
+| `check` | `task` | Validate task fields (`params: { taskId }`) |
+| `check` | `compliance.summary` | Overall compliance summary |
+| `check` | `test` | Test status or coverage (`params: { format: "status" | "coverage" }`) |
+| `check` | `gate.status` | Lifecycle gate status |
+| `pipeline` | `stage.status` | Pipeline stage for epic (`params: { epicId }`) |
+| `pipeline` | `stage.validate` | Validate gate before advancing |
+| `pipeline` | `manifest.show` | Read manifest entry (`params: { id }`) |
+| `pipeline` | `manifest.list` | List manifest entries (`params: { filter?: "pending" }`) |
+| `pipeline` | `manifest.find` | Search manifest entries (`params: { query }`) |
+| `nexus` | `status` | Check if nexus is initialized |
+| `nexus` | `list` | List registered projects |
+| `admin` | `config.show` | Inspect current configuration |
+| `admin` | `adr.find` | Search architecture decision records |
+| `tools` | `skill.show` | Skill details (`params: { skillId }`) |
+| `sticky` | `list` | List sticky notes (`params: { status?, tag? }`) |
+| `sticky` | `show` | Show sticky details (`params: { stickyId }`) |
+
+#### Tier-0 Write Operations — Always Available
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `add` | Create task (`params: { title, description, parentId?, status? }`) |
+| `tasks` | `update` | Update task (`params: { taskId, title?, status?, notes? }`) |
+| `tasks` | `complete` | Mark task done (`params: { taskId }`) |
+| `tasks` | `start` | Start working on a task (`params: { taskId }`) |
+| `tasks` | `stop` | Stop working on current task |
+| `session` | `start` | Start session (`params: { scope }`) — scope is **required** |
+| `session` | `end` | End session (`params: { note? }`) |
+| `memory` | `observe` | Save observation to brain (`params: { text, title? }`) |
+
+#### Tier-1 Write Operations — After Session Init
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `cancel` | Cancel task (`params: { taskId }`) |
+| `tasks` | `archive` | Archive completed task (`params: { taskId }`) |
+| `tasks` | `restore` | Restore from done/archive (`params: { taskId, from: "done" \| "archive" }`) |
+| `tasks` | `delete` | Hard delete — irreversible (`params: { taskId }`) |
+| `tasks` | `reparent` | Move to different parent (`params: { taskId, newParentId }`) |
+| `tasks` | `reorder` | Reorder tasks within their parent (`params: { taskId, position }`) |
+| `session` | `resume` | Resume a prior session (`params: { sessionId }`) |
+| `session` | `suspend` | Pause session without ending it |
+| `session` | `record.decision` | Record a session decision (`params: { text, rationale }`) |
+| `session` | `record.assumption` | Record a session assumption (`params: { text }`) |
+| `admin` | `context.inject` | Inject protocol content into context (`params: { protocolType }`) — **moved from session domain** |
+| `memory` | `link` | Link memory entry to task (`params: { memoryId, taskId }`) |
+| `memory` | `decision.store` | Store structured decision (`params: { decision, rationale, taskId, alternatives? }`) |
+| `memory` | `pattern.store` | Store recurring pattern (`params: { name, type, impact, success, antiPattern? }`) |
+| `memory` | `learning.store` | Store a learning (`params: { text, confidence, taskId? }`) |
+| `orchestrate` | `start` | Start orchestrating an epic (`params: { epicId }`) |
+| `orchestrate` | `spawn` | Spawn prep for a task (`params: { taskId, skillIds? }`) |
+| `orchestrate` | `spawn.execute` | Execute spawn via adapter registry (`params: { taskId }`) |
+| `orchestrate` | `handoff` | Hand off context to subagent (`params: { taskId, context }`) |
+| `orchestrate` | `validate` | Pre-spawn gate check (`params: { taskId }`) |
+| `orchestrate` | `parallel` | Run parallel agent wave (`params: { action: "start" \| "end", waveId? }`) |
+| `check` | `test.run` | Run tests |
+| `check` | `gate.set` | Set or reset a lifecycle gate |
+| `pipeline` | `stage.record` | Record pipeline stage progress |
+| `pipeline` | `stage.gate.pass` | Pass a pipeline gate (`params: { stageId, gateId }`) |
+| `pipeline` | `stage.gate.fail` | Fail a gate with reason (`params: { stageId, gateId, reason }`) |
+| `pipeline` | `manifest.append` | Append manifest entry (`params: { entry }`) — **MANDATORY per BASE protocol** |
+| `pipeline` | `phase.set` | Set pipeline phase (`params: { phaseId, action: "start" \| "complete" }`) |
+| `pipeline` | `release.ship` | Ship a release (`params: { step? }`) |
+| `admin` | `config.set` | Update configuration (`params: { key, value }`) |
+| `tools` | `skill.install` | Install a skill (`params: { skillId }`) |
+| `tools` | `skill.uninstall` | Uninstall a skill (`params: { skillId }`) |
+| `tools` | `skill.refresh` | Bulk update all installed skills |
+| `sticky` | `add` | Create sticky note (`params: { content, tags?, color?, priority? }`) |
+| `sticky` | `convert` | Convert to task/memory (`params: { stickyId, targetType }`) |
+| `sticky` | `archive` | Archive sticky (`params: { stickyId }`) |
+| `sticky` | `purge` | Permanently delete sticky notes (`params: { stickyId }`) |
+
+---
+
+### CLI Reference (Primary)
 
 Use `ct` (alias for `cleo`) as the interface. CLI is the only dispatch method.
 
@@ -323,7 +401,7 @@ ct sticky show SN-001          # Show sticky details
 
 ---
 
-## Task Discovery (Context Efficiency)
+### Task Discovery (Context Efficiency)
 
 **MUST** use efficient commands — `find` for discovery, `show` for details:
 
@@ -331,7 +409,7 @@ ct sticky show SN-001          # Show sticky details
 - `find` returns minimal fields only (99% less context)
 - Use `show` only when you need full details for a specific task
 
-### Context Bloat Anti-Patterns
+#### Context Bloat Anti-Patterns
 
 | Anti-Pattern | Token Cost | Efficient Alternative | Savings |
 |-------------|-----------|----------------------|---------|
@@ -344,7 +422,7 @@ ct sticky show SN-001          # Show sticky details
 
 ---
 
-## Anti-Pattern Reference
+### Anti-Pattern Reference
 
 | Bad Pattern | Correct Pattern | Why |
 |-------------|----------------|-----|
@@ -365,10 +443,11 @@ ct sticky show SN-001          # Show sticky details
 | `memory.fetch` without `memory.find` | `memory.find` → filter → `memory.fetch` | fetch without filter returns everything |
 | Completing task without manifest append | `pipeline.manifest.append` then `tasks.complete` | BASE protocol violation (exit 62) |
 | Skipping `session.status` at start | Always check `session.status` first | loses prior context, causes duplicate work |
+| `cleo observe` | `cleo memory observe` | observe is not a top-level command |
 
 ---
 
-## Progressive Disclosure
+### Progressive Disclosure
 
 Load only what you need. Escalate tiers when the task demands it:
 
@@ -391,11 +470,11 @@ Load only what you need. Escalate tiers when the task demands it:
 
 ---
 
-## Session Protocol
+### Session Protocol
 
 Sessions track work context across agent interactions.
 
-### Quick Start
+#### Quick Start
 
 ```bash
 # 1. CHECK session state first (always)
@@ -416,7 +495,7 @@ ct session end
 
 ---
 
-## Error Handling
+### Error Handling
 
 **CRITICAL: NEVER ignore exit codes. Failed commands = tasks NOT created/updated.**
 
@@ -436,13 +515,13 @@ After EVERY command:
 
 ---
 
-## RCASD-IVTR+C Lifecycle (LOOM)
+### RCASD-IVTR+C Lifecycle (LOOM)
 
 **LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/CLEO-VISION.md` for the complete LOOM framework.
 
 **Lifecycle**: See `references/loom-lifecycle.md` for gate enforcement and subagent architecture.
 
-## Pipeline Awareness
+### Pipeline Awareness
 
 Epics follow the RCASD-IVTR+C lifecycle managed through pipeline stages. Use `pipeline.stage.status` to check where an epic is in its lifecycle:
 
@@ -461,7 +540,7 @@ Epics follow the RCASD-IVTR+C lifecycle managed through pipeline stages. Use `pi
 
 ---
 
-## Time Estimates Prohibited
+### Time Estimates Prohibited
 
 - **MUST NOT** estimate hours, days, weeks, or temporal duration
 - **MUST** use relative sizing: `small` / `medium` / `large`
@@ -469,7 +548,7 @@ Epics follow the RCASD-IVTR+C lifecycle managed through pipeline stages. Use `pi
 
 ---
 
-## References
+### Further Reading
 
 For detailed guidance on specific topics, see:
 

@@ -39,9 +39,10 @@ describe('Docs Domain Registry (T797)', () => {
     expect(CANONICAL_DOMAINS).toContain('docs');
   });
 
-  it('docs domain has 4 registered operations', () => {
+  it('docs domain has 5 registered operations', () => {
+    // add|list|fetch|remove (T797) + generate (T798)
     const docsOps = getByDomain('docs');
-    expect(docsOps).toHaveLength(4);
+    expect(docsOps).toHaveLength(5);
   });
 
   it('docs has expected query operations', () => {

@@ -3830,6 +3830,32 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.generate (T798) ─────────────────────────────────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'generate',
+    description:
+      'docs.generate (query) — generate llms.txt-format doc summarising all attachments on a CLEO entity',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['for'],
+    params: [
+      {
+        name: 'for',
+        type: 'string' as const,
+        required: true,
+        description: 'Target entity ID (e.g. T798, ses_*, O-abc)',
+      },
+      {
+        name: 'attach',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Save the generated output as an llms-txt attachment on the target entity',
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

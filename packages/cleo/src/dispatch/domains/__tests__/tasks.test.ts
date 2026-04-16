@@ -3,12 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
+  taskShowWithHistory: vi.fn(),
+  taskShowIvtrHistory: vi.fn(),
   taskList: vi.fn(),
   taskFind: vi.fn(),
   taskExists: vi.fn(),
   taskCreate: vi.fn(),
   taskUpdate: vi.fn(),
   taskComplete: vi.fn(),
+  taskCompleteStrict: vi.fn(),
   taskDelete: vi.fn(),
   taskArchive: vi.fn(),
   taskNext: vi.fn(),
@@ -29,6 +32,19 @@ vi.mock('../../lib/engine.js', () => ({
   taskSyncReconcile: vi.fn(),
   taskSyncLinks: vi.fn(),
   taskSyncLinksRemove: vi.fn(),
+  taskHistory: vi.fn(),
+  taskWorkHistory: vi.fn(),
+  taskLabelList: vi.fn(),
+  taskClaim: vi.fn(),
+  taskUnclaim: vi.fn(),
+  taskRelatesFind: vi.fn(),
+  taskCancel: vi.fn(),
+  taskReopen: vi.fn(),
+  taskUnarchive: vi.fn(),
+  taskImpact: vi.fn(),
+  taskPlan: vi.fn(),
+  taskDepsCycles: vi.fn(),
+  taskDepsOverview: vi.fn(),
 }));
 
 // Mock getProjectRoot
@@ -46,7 +62,7 @@ import {
   taskAnalyze,
   taskArchive,
   taskBlockers,
-  taskComplete,
+  taskCompleteStrict,
   taskComplexityEstimate,
   taskCreate,
   taskCurrentGet,
@@ -61,6 +77,7 @@ import {
   taskReparent,
   taskRestore,
   taskShow,
+  taskShowIvtrHistory,
   taskStart,
   taskStop,
   taskTree,
@@ -150,6 +167,49 @@ describe('TasksHandler', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual(mockData);
       expect(taskShow).toHaveBeenCalledWith('/mock/project', 'T001');
+    });
+
+    it('show --ivtr-history - delegates to taskShowIvtrHistory', async () => {
+      const mockData = {
+        ivtrHistory: [
+          {
+            phase: 'implement',
+            agent: 'agent-001',
+            startedAt: '2026-04-01T00:00:00Z',
+            completedAt: '2026-04-01T01:00:00Z',
+            passed: true,
+            evidenceRefs: ['sha256abc'],
+          },
+          {
+            phase: 'validate',
+            agent: 'agent-002',
+            startedAt: '2026-04-01T01:00:00Z',
+            completedAt: null,
+            passed: null,
+            evidenceRefs: [],
+          },
+        ],
+      };
+      vi.mocked(taskShowIvtrHistory).mockResolvedValue({ success: true, data: mockData });
+
+      const result = await handler.query('show', { taskId: 'T001', ivtrHistory: true });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockData);
+      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T001');
+    });
+
+    it('show --ivtr-history - returns empty ivtrHistory when task has no IVTR state', async () => {
+      vi.mocked(taskShowIvtrHistory).mockResolvedValue({
+        success: true,
+        data: { ivtrHistory: [] },
+      });
+
+      const result = await handler.query('show', { taskId: 'T999', ivtrHistory: true });
+
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>)?.ivtrHistory).toEqual([]);
+      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T999');
     });
 
     it('list - delegates to taskList', async () => {
@@ -605,8 +665,8 @@ describe('TasksHandler', () => {
       );
     });
 
-    it('complete - delegates to taskComplete', async () => {
-      vi.mocked(taskComplete).mockResolvedValue({
+    it('complete - delegates to taskCompleteStrict', async () => {
+      vi.mocked(taskCompleteStrict).mockResolvedValue({
         success: true,
         data: {
           task: {
@@ -624,7 +684,63 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('complete', { taskId: 'T001', notes: 'Done' });
 
       expect(result.success).toBe(true);
-      expect(taskComplete).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
+      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done', undefined);
+    });
+
+    it('complete - passes force flag to taskCompleteStrict', async () => {
+      vi.mocked(taskCompleteStrict).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T001',
+            title: 'Test',
+            description: 'test',
+            status: 'done',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+          ivtrBypassed: true,
+        },
+      });
+
+      const result = await handler.mutate('complete', {
+        taskId: 'T001',
+        notes: 'Forced',
+        force: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Forced', true);
+      expect((result.data as Record<string, unknown>)?.ivtrBypassed).toBe(true);
+    });
+
+    it('complete - returns E_IVTR_INCOMPLETE when strict enforcement rejects', async () => {
+      vi.mocked(taskCompleteStrict).mockResolvedValue({
+        success: false,
+        error: {
+          code: 'E_IVTR_INCOMPLETE',
+          message: "Task T001 IVTR loop is not complete — currentPhase='validate', not 'released'",
+          exitCode: 83,
+          details: {
+            taskId: 'T001',
+            currentPhase: 'validate',
+            failedPhases: ["Phase 'implement' has no passing entry"],
+          },
+          fix: "Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr T001 --next'",
+        },
+      });
+
+      const result = await handler.mutate('complete', { taskId: 'T001' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
+      expect(taskCompleteStrict).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        undefined,
+        undefined,
+      );
     });
 
     it('delete - delegates to taskDelete', async () => {

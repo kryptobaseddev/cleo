@@ -262,6 +262,36 @@ export function registerDocsCommand(program: Command): void {
       );
     });
 
+  // ── cleo docs generate --for <id> [--attach] ──────────────────────────────
+  docsCmd
+    .command('generate')
+    .description(
+      'Generate an llms.txt-format document summarising all attachments on a CLEO entity. ' +
+        'Internally uses the llmtxt npm package for structural section analysis; ' +
+        'falls back to a built-in generator when unavailable. ' +
+        'Use --attach to save the output back as an llms-txt attachment on the same entity.',
+    )
+    .requiredOption('--for <id>', 'Target entity ID (task, session, or observation)')
+    .option(
+      '--attach',
+      'Save the generated llms.txt content back as an attachment on the target entity',
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      const forId = opts['for'] as string;
+      const attach = opts['attach'] as boolean | undefined;
+
+      await dispatchFromCli(
+        'query',
+        'docs',
+        'generate',
+        {
+          for: forId,
+          ...(attach ? { attach: true } : {}),
+        },
+        { command: 'docs generate' },
+      );
+    });
+
   // ── Legacy: cleo docs sync ────────────────────────────────────────────────
   docsCmd
     .command('sync')
