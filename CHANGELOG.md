@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.76] — 2026-04-16
+
+### Wave A close-out release — T617 NEXUS fix + Dogfood epic T569 CLOSED
+
+Wraps up a full clean-house + bug-fix pass on the CLEO dogfood attestation epic (T569). Drops the globally-installed nexus gotcha from v2026.4.75 (barrel tracing only worked from local source build; npm-installed cleo vendored an older nexus without the oversized-file regex fallback).
+
+### Fixed (NEXUS barrel export tracing, T617)
+
+- **`packages/nexus/src/pipeline/workers/parse-worker.ts`** — added `extractCallsRegex()` to the oversized-file regex fallback branch (tree-sitter 0.21.x has a 32,767-char hard limit). Engine files like `task-engine.ts` (67,556 bytes) and `session-engine.ts` (36,814 bytes) previously fell through to a regex-only path that extracted imports + re-exports but NOT calls, so barrel-traced CALLS had nothing to resolve against. Added `REGEX_CALL_RESERVED` allowlist to keep false positives low.
+- **`packages/nexus/src/pipeline/parse-loop.ts`** — added `sanitizeForParsing()` helper + wired `extractImportsViaRegex` / `extractReExportsViaRegex` exports from the import processor into the oversized-file branch.
+- **`packages/nexus/src/pipeline/import-processor.ts`** — resolved `@scope/pkg/subpath` workspace imports (e.g. `@cleocode/core/internal`) to the real `packages/core/src/internal.ts` source file so its 636 re-exports feed the barrel map correctly.
+- **`packages/nexus/src/__tests__/barrel-tracing.test.ts`** — +216 lines of tests covering sub-path resolution and regex-fallback call extraction.
+
+### Impact (measured)
+
+| Metric | v2026.4.75 | v2026.4.76 | Δ |
+|---|---|---|---|
+| tier1 calls (same-file) | 8025 | 8025 | 0 |
+| **tier2a (barrel-traced)** | 10233 | **11023** | **+790** |
+| tier3 (heuristic) | 7387 | 7536 | +149 |
+| `findTasks` callers | 3 | 4 | +1 |
+| `suspendSession` callers | 1 | 2 | +1 |
+
+All 119 `barrel-tracing.test.ts` tests pass. Full repo: 8327 tests pass.
+
+### CLEO task management (clean-house pass 3)
+
+Shipped-but-unclosed sweep — closed 15 tasks verified against shipped artifacts, cancelled 3 fixtures, reclassified 18 orphans to match parent priority, re-parented 3 subtasks. **Pending: 92 → 73 (−21%)**.
+
+Closures:
+- **T569** — EPIC Dogfood Attestation **CLOSED**: all 6 systems (TASKS/LOOM/BRAIN/NEXUS/CANT/CONDUIT) attested
+- **T617** — NEXUS barrel export (this release)
+- **T759** — `cleo memory observe` schema fix verified working (shipped v2026.4.69)
+- **T555/T556/T557** — LLM extraction / RRF / Observer+Reflector (shipped T726 Memory Architecture)
+- **T047-T055** — nexus.transfer subtasks (9 tasks, shipped via `packages/core/src/nexus/transfer.ts`)
+- **T465/T179** — ClawMsgr removal verified (zero refs in non-test non-md code)
+
+Cancelled: T603, T548, T334 (test fixtures or orphaned post parent close).
+
+Follow-up created: **T831** — NEXUS dynamic `await import()` tracking (polish, not a dogfood blocker).
+
+### Documentation
+
+- **`docs/plans/PATH-TO-100-PERCENT-COMPLETION.md`** — added §11-§15 covering post-v2026.4.75 assessment, Wave A execution, full 7-epic priority table (1 active + 6 pending), owner-locked structural rules, and final Wave A close-out.
+
+### Known limitations
+
+- Dynamic `await import('./x.js')` call sites are not yet traced (T831). Static extractors don't catch them without dedicated dynamic-import tracking. Impact: ~1 caller per affected symbol. Deferred to NEXUS v2 scope.
+- Globally-installed CLEO from earlier versions still vendors older nexus dist. Fix takes effect system-wide after `npm install -g @cleocode/cleo-os@2026.4.76`.
+
 ## [2026.4.75] — 2026-04-16
 
 ### Hotfix for v2026.4.74 CI failure — injection template source-of-truth drift
