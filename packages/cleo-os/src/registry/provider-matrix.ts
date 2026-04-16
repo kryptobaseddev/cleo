@@ -137,8 +137,9 @@ const KNOWN_PROVIDERS: ReadonlyArray<{ id: string; displayName: string }> = [
  * @returns Absolute path to the providers directory.
  */
 function resolveProvidersDir(): string {
-  // dist/registry/ → dist/ → packages/cleo-os/ → packages/ → monorepo root
-  const monorepoRoot = join(__dirname, '..', '..', '..', '..', '..');
+  // __dirname = .../packages/cleo-os/dist/registry/ — 4 levels below monorepo root.
+  // dist/registry/ → dist/ → cleo-os/ → packages/ → monorepo root.
+  const monorepoRoot = join(__dirname, '..', '..', '..', '..');
   return join(monorepoRoot, 'packages', 'adapters', 'src', 'providers');
 }
 

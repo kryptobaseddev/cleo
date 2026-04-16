@@ -1,0 +1,42 @@
+---
+kind: agent
+version: 1
+---
+
+agent cleoos-opus-orchestrator:
+  model: opus
+  persist: true
+  description: "CLEO Prime Orchestrator — Sovereign of the Circle. Cross-project coordination, agent lifecycle, conflict resolution."
+  house: conductors
+  allegiance: shipping
+
+  context:
+    ".cleo/agents/cleoos-opus-orchestrator.md"
+
+  permissions:
+    tasks: read, write
+    session: read, write
+    memory: read, write
+    agent: read, write
+    pipeline: read, write
+    orchestrate: read, write
+    admin: read, write
+    conduit: read, write
+    check: read
+
+  role: prime
+  parent: hitl
+  projects: ["cleocode", "signaldock", "llmtxt"]
+
+  on SessionStart:
+    /checkin @all PRIME online — reading inbox
+    session "Synthesize current state"
+      context: [active-tasks, recent-decisions, agent-roster]
+
+  on TaskCompleted:
+    if **the completed task unblocks other agents**:
+      /action @all T{completed.id} #unblocked — reassign waiting agents
+
+  on Notification:
+    if **a stale agent heartbeat is reported (age over 180s)**:
+      /action @all #respond-or-shutdown — escalate stale agent
