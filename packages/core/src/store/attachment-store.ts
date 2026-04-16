@@ -436,16 +436,12 @@ export function createAttachmentStore(): AttachmentStore {
           nativeDb.prepare('COMMIT').run();
 
           // Write file AFTER transaction (only if blob was new).
+          // File write failure propagates naturally — this is bad but db is committed.
+          // The blob row exists with refCount but no file. Future get() will return null.
+          // This should rarely happen (permission issues, disk full, etc).
           if (wasNew) {
-            try {
-              await mkdir(join(filePath, '..'), { recursive: true });
-              await writeFile(filePath, buf);
-            } catch (err) {
-              // File write failed after commit — this is bad but db is committed.
-              // The blob row exists with refCount but no file. Future get() will return null.
-              // This should rarely happen (permission issues, disk full, etc).
-              throw err;
-            }
+            await mkdir(join(filePath, '..'), { recursive: true });
+            await writeFile(filePath, buf);
           }
 
           const finalRow = await db

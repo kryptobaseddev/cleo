@@ -348,11 +348,11 @@ async function build() {
   console.log('  -> packages/cleo/dist/cli/index.js');
 
   // CleoOS wraps @cleocode/cleo + Pi — depends on cleo and cant (both built above).
-  // Uses build:src (main tsc only) — extensions have their own tsconfig and are
-  // compiled separately via build:extensions when needed. This avoids blocking
-  // the monorepo build on optional extension type issues.
+  // Uses full `build` (src + extensions + postinstall) — no more `build:src`-only
+  // shortcut that hid extension type errors v2026.4.66-73. If extensions break,
+  // release blocks. No `|| true` bandaids in cleo-os scripts either.
   console.log('Building @cleocode/cleo-os...');
-  execFileSync('pnpm', ['--filter', '@cleocode/cleo-os', 'run', 'build:src'], {
+  execFileSync('pnpm', ['--filter', '@cleocode/cleo-os', 'run', 'build'], {
     stdio: 'inherit',
     cwd: __dirname,
   });

@@ -12,7 +12,7 @@
  * @epic T768
  */
 
-import type { Task, TaskLifecycle } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
