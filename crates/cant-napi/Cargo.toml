@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cant-core = { path = "../cant-core" }
+cant-router = { path = "../cant-router" }
 cant-runtime = { path = "../cant-runtime" }
 napi = { version = "3", features = ["napi4", "serde-json", "async"] }
 napi-derive = "3"

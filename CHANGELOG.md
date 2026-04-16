@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.65] — 2026-04-16
+
+### T636 epic — Canon Finalization + Orphan Triage + Harness Sovereignty + Durability
+
+Plan: `precious-cooking-moonbeam` (5-wave plan authored 2026-04-14, executed across 2 sessions). Parent epic T636 closed 5 of 6 child tasks; 1 follow-up (T642 scrub) closed in same release.
+
+### Canon reconciliation
+- **T637 + T642**: eliminated residual drift from bulk reconciliation `f336395a`.
+  - `CLEO-ARCHITECTURE-GUIDE.md` — 3 stale line refs fixed (Circle of Eleven, Six systems).
+  - 42 references to "Circle of Ten" / "Four Great Systems" scrubbed across 13 files (specs, design docs, code comments).
+  - Historical narratives preserved (`CLEO-CANT.md`, `CLEO-AWAKENING-STORY.md`, `CLEO-FOUNDING-STORY.md`) per ADR-044.
+- **ADR-044** — canon reconciliation: locks 6 systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT), 11 domains (Circle of Eleven), LAFS as envelope protocol (not a system), operation count as living variable, SSoT hierarchy (code > constitution > owner memory > vision > arch guide > atlas > design > narrative).
+
+### Harness sovereignty (T639)
+- **ADR-049** — codifies CLEO-owned memory invariants: `brain.db`, `nexus.db`, `conduit.db`, `tasks.db` are ALWAYS local under CLEO regardless of active provider.
+- `packages/caamp/src/core/instructions/injector.ts` — per-provider agent-folder abstraction. All 9 adapters (`claude-code`, `claude-sdk`, `codex`, `cursor`, `gemini-cli`, `kimi`, `openai-sdk`, `opencode`, `pi`) get their own agent-install path (e.g. `~/.claude/agents/`, `~/.config/opencode/agents/`). Existing installs are idempotent.
+- Deferred to follow-up tasks: codex/gemini-cli/kimi spawn implementations, `cleo smoke --provider` probe.
+
+### CleoOS sovereign harness skeleton (T640)
+- **ADR-050** — CleoOS charter fixed: distribution binding on top of Pi (NOT a Pi fork). Pi stays upstream.
+- `packages/cleo-os/src/registry/agent-registry.ts` — catalogs seed + user agents across all providers.
+- `packages/cleo-os/src/policies/memory-policy.ts` — enforces `[L-fe4ba2dc]` (chat logs are NOT memory; only structured observation/decision/pattern/learning gets written to brain.db).
+- `packages/cleo-os/src/registry/provider-matrix.ts` — read-only health view of the 9 adapters.
+- Deferred to follow-up: `cleo-os doctor` CLI.
+
+### Durability (T641) — Inngest rejected, SQLite chosen
+- `packages/core/src/store/tasks-schema.ts` — added `background_jobs` Drizzle table (id, operation, status, startedAt, completedAt, result, error, progress, heartbeatAt, claimedBy).
+- `drizzle/migrations/drizzle-tasks/20260416035743_complex_vampiro/migration.sql` — new migration.
+- `packages/cleo/src/dispatch/lib/background-jobs.ts` — replaced in-memory `Map` with `DurableJobStore`. Jobs survive process restart; orphans surface with explicit `orphaned` status (no silent retry).
+- Rationale: Inngest evaluation rejected in plan (no Rust SDK, vendor taxonomy overhead). SQLite + Drizzle already owned by CLEO.
+
+### Orphan triage (T638) — REVERSED: ARCHIVE → WIRE
+Prior audit misclassified 3 crates as orphans. Ground truth per cargo test:
+- `cant-lsp` — 1915 LOC `tower-lsp` Language Server (63 tests green after fixing 5 stale `AgentDef` test fixtures for fields `context_sources`, `mental_model`, `file_permissions`).
+- `cant-router` — 980 LOC CleoOS v2 model router (ULTRAPLAN §11); 38 tests green; now exposed to TS via cant-napi (`cantRouterExtractFeatures`, `cantRouterClassify`, `cantRouterRoute`, `cantRouterDowngrade`).
+- `integration-tests` — was reported empty, actually 4 real cross-crate tests. Expanded to 10.
+- New READMEs: `crates/cant-lsp/README.md`, `crates/cant-router/README.md`.
+- `CantMetadata` roundtrip test added in integration-tests (CANT parse → Conduit attach → extract) — proves lossless metadata handshake.
+
+### Rust workspace hygiene
+- `Cargo.toml` — added `default-members` excluding **cloud-server-only** crates (`signaldock-storage`, `signaldock-sdk`, `signaldock-transport`, `signaldock-runtime`, `signaldock-payments`) from default workspace operations. `cargo build --workspace` + `cargo test --workspace` now work on machines without `libpq`. Cloud server development requires explicit `-p <crate>`.
+
+### Testing
+- `cant-router`: 38 green. `cant-lsp`: 63 green. `integration-tests`: 10 green.
+- `@cleocode/cleo-os`: 194 green. `@cleocode/cleo`: 1300 green. `@cleocode/caamp`: 4048 green (258 files).
+- Full TS monorepo build green. Biome clean on all touched paths.
+
+### Deferred (follow-up tasks captured in CLEO)
+- T642 residual scrub completed in same session (was originally queued for follow-up).
+- codex/gemini-cli/kimi spawn implementations.
+- `cleo smoke --provider` invariant probe.
+- `cleo-os doctor` CLI.
+- `cleo check:canon` CI gate.
+
 ## [2026.4.64] — 2026-04-16
 
 ### Fixed (T755 — CI deep fix)

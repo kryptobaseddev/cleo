@@ -192,7 +192,7 @@ Conduit addresses are structured objects, not free-form strings.
 | Kind | Meaning | Example |
 |------|---------|---------|
 | `worker` | Direct worker delivery | `wrk_smith_01` |
-| `aspect` | Deliver to the active worker set for a Circle of Ten aspect | `smiths`, `scribes`, `catchers` |
+| `aspect` | Deliver to the active worker set for a Circle of Eleven aspect | `smiths`, `scribes`, `catchers` |
 | `session` | Deliver to a session-scoped inbox or surface | `S123` |
 | `thread` | Deliver to the runtime context for a specific Thread/task | `T5524` |
 | `runtime` | Deliver to a runtime service | `watchers`, `hearth`, `refinery` |

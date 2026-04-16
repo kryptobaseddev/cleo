@@ -97,6 +97,9 @@ export {
 export type {
   EnsureProviderInstructionFileOptions,
   EnsureProviderInstructionFileResult,
+  KnownProviderAgentFolderId,
+  WriteAgentFileOptions,
+  WriteAgentFileResult,
 } from './core/instructions/injector.js';
 // Instructions
 export {
@@ -104,9 +107,11 @@ export {
   checkInjection,
   ensureAllProviderInstructionFiles,
   ensureProviderInstructionFile,
+  getProviderAgentFolder,
   inject,
   injectAll,
   removeInjection,
+  writeAgentFileToAllProviders,
 } from './core/instructions/injector.js';
 export type { InjectionTemplate } from './core/instructions/templates.js';
 export {

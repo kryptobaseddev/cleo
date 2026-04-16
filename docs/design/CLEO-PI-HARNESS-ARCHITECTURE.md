@@ -1,10 +1,10 @@
 # CleoOS - Pi Harness UI Architecture
-## The Hearth: Where Pi Meets the Circle of Ten
-This document defines the architectural integration between the Pi Code Agent harness, the Circle of Ten role system, and the CleoOS TUI interface.
+## The Hearth: Where Pi Meets the Circle of Eleven
+This document defines the architectural integration between the Pi Code Agent harness, the Circle of Eleven role system, and the CleoOS TUI interface.
 ---
 ## Conceptual Foundation
 ### The Workshop Metaphor
-In Cleo's lore, the development environment is a **workshop** where different aspects (Circle of Ten) perform specialized roles. The Hearth is the terminal-facing workshop surface where:
+In Cleo's lore, the development environment is a **workshop** where different aspects (Circle of Eleven) perform specialized roles. The Hearth is the terminal-facing workshop surface where:
 - **Threads** (tasks) are forged by The Smiths
 - **Looms** (pipelines) are woven by The Weavers  
 - **Motion** (orchestration) is conducted by The Conductors
@@ -495,7 +495,7 @@ Available Themes:
 ## Summary
 The CleoOS Pi Harness UI architecture creates a cohesive development environment where:
 1. **The Pi Harness** provides first-class agent capabilities through extensions, instructions, and streaming
-2. **The Circle of Ten** manifests as functional UI aspects with clear responsibilities:
+2. **The Circle of Eleven** manifests as functional UI aspects with clear responsibilities:
    - **Left Panel** (Archive): Archivists + Wayfinders + Catchers
    - **Center** (Forge): Smiths + Scribes + Wardens
    - **Right Panel** (Loom Station): Weavers + Conductors + Artificers + Keepers

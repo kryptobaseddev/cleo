@@ -16,7 +16,7 @@ This specification defines CLEO's autonomous runtime as a canon-aligned executio
 It gives implementation meaning to the live workshop terms:
 
 - The Hearth
-- The Circle of Ten
+- The Circle of Eleven
 - The Impulse
 - Conduit
 - Watchers
@@ -42,7 +42,7 @@ The autonomous runtime MUST obey the following constraints:
 6. All autonomous work MUST remain governed by Warp chains and lifecycle gates.
 7. Tessera-driven decomposition remains the canonical way to generate repeatable work patterns.
 8. The autonomous runtime is layered on the existing hook substrate; it does not replace the dispatch-first shared core.
-9. `sticky` remains the stable protocol slug for provisional capture. The Catchers are the Circle of Ten house for that domain, and Conduit owns live relay.
+9. `sticky` remains the stable protocol slug for provisional capture. The Catchers are the Circle of Eleven house for that domain, and Conduit owns live relay.
 
 ---
 
@@ -138,7 +138,7 @@ The autonomous runtime follows this high-level motion:
 2. Looming Engine turns reusable Tesserae and direct intent into Looms, Threads, dependencies, and Warp-bound execution paths.
 3. `onWorkAvailable` fires when governed work becomes ready.
 4. The Impulse selects ready work and asks Agent-Runtime Core to allocate workers.
-5. Agent-Runtime Core emits `onAgentSpawn`, manages leases, and binds workers to Circle of Ten aspects.
+5. Agent-Runtime Core emits `onAgentSpawn`, manages leases, and binds workers to Circle of Eleven aspects.
 6. Conduit relays tasking, handoff, and completion messages using LAFS/A2A only. `sticky` may receive explicit drafts or promoted summaries, but it is never the live relay lane.
 7. Watchers patrol leases, gate health, retries, continuity, and backlog pressure through `onPatrol`.
 8. The Sweep performs review-fix-review quality loops.

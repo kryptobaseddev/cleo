@@ -3,7 +3,7 @@
 ### Visual Identity
 **Theme**: Dark forge aesthetic with purple AI accents
 **Density**: High information density, professional developer tooling
-**Metaphor**: Workshop surface (The Hearth) where Circle of Ten aspects collaborate
+**Metaphor**: Workshop surface (The Hearth) where Circle of Eleven aspects collaborate
 ---
 ## Color Tokens
 ```
@@ -53,7 +53,7 @@ Borders:
 └─────────────────────────────────────────────────────────────────┘
 ```
 ---
-## Circle of Ten UI Mapping
+## Circle of Eleven UI Mapping
 | Aspect | Domain | Workshop Role | UI Location | Key Component |
 |--------|--------|---------------|-------------|---------------|
 | **The Smiths** | tasks | Forge threads | Left + Center | File tree, Code editor |
@@ -272,7 +272,7 @@ docs/design/
 ## Summary
 **CleoOS** is an AI-first IDE where:
 - The **Pi Harness** provides agent capabilities
-- The **Circle of Ten** manifests as functional UI aspects
+- The **Circle of Eleven** manifests as functional UI aspects
 - **The Hearth** is the collaborative workshop surface
 - **Three-tier scope** ensures flexibility
 **Key Visual:**

@@ -1,5 +1,5 @@
 /**
- * CleoOS agent monitor — agent activity TUI + Circle of Ten status.
+ * CleoOS agent monitor — agent activity TUI + Circle of Eleven status.
  *
  * CANONICAL LOCATION: `packages/cleo-os/extensions/cleo-agent-monitor.ts`
  *
@@ -9,7 +9,7 @@
  * T442 deliverables:
  *   - `/cleo:agents` command: shows current agent activity in a TUI panel
  *   - `before_agent_start` hook: tracks agent spawns with tier-aware prefixes
- *   - `/cleo:circle` command: renders Circle of Ten status from CLEO CLI data
+ *   - `/cleo:circle` command: renders Circle of Eleven status from CLEO CLI data
  *
  * Requirements:
  *   - Pi coding agent runtime (`@mariozechner/pi-coding-agent`)
@@ -51,7 +51,7 @@ const execFileAsync = promisify(execFile);
 // ANSI color helpers — imported from shared tui-theme.ts
 // ============================================================================
 // All styling functions come from tui-theme.ts. The mapping to design tokens:
-//   accentPrimary  → #a855f7 (ANSI 135) — headers, Circle of Ten title
+//   accentPrimary  → #a855f7 (ANSI 135) — headers, Circle of Eleven title
 //   accentSuccess  → #22c55e (ANSI 35)  — active dots, orchestrator [O]
 //   accentWarning  → #f59e0b (ANSI 214) — paused dots, lead [L]
 //   accentError    → #ef4444 (ANSI 196) — error dots, failed states
@@ -168,7 +168,7 @@ function renderAgentWidget(ctx: ExtensionContext): void {
 }
 
 // ============================================================================
-// Circle of Ten status
+// Circle of Eleven status
 // ============================================================================
 
 /**
@@ -215,7 +215,7 @@ interface SessionData {
 }
 
 /**
- * Combined data for Circle of Ten rendering.
+ * Combined data for Circle of Eleven rendering.
  *
  * Merges dashboard data, session data, and any in-memory
  * extension state (e.g. CANT bundle counts from the bridge).
@@ -230,7 +230,7 @@ interface CircleData {
 }
 
 /**
- * Parse `cleo dash --json` output for Circle of Ten status data.
+ * Parse `cleo dash --json` output for Circle of Eleven status data.
  *
  * Extracts task summary counts, blocked/high-priority stats, and top labels.
  * Best-effort: returns empty object on any parse failure.
@@ -324,7 +324,7 @@ function parseSessionOutput(output: string): SessionData {
 }
 
 /**
- * Build the Circle of Ten status display lines.
+ * Build the Circle of Eleven status display lines.
  *
  * Each Circle aspect is shown with a filled (active) or hollow (inactive)
  * dot and a brief status summary. Data is wired from live CLI sources
@@ -411,7 +411,7 @@ export function buildCircleOfTenStatus(data: CircleData): string[] {
 
   const lines = [
     "",
-    bold(accentPrimary("  The Circle of Ten")),
+    bold(accentPrimary("  The Circle of Eleven")),
     textSecondary("  " + LINE_HORIZONTAL.repeat(36)),
     `  ${bold("Smiths")} ${textSecondary("(tasks)")}      ${smithsDot} ${smithsDetail}`,
     `  ${bold("Weavers")} ${textSecondary("(pipeline)")}  ${weaversDot} ${weaversDetail}`,
@@ -443,7 +443,7 @@ export function buildCircleOfTenStatus(data: CircleData): string[] {
  * Pi extension factory for the CleoOS agent monitor.
  *
  * Registers agent activity tracking, the `/cleo:agents` command, and the
- * `/cleo:circle` Circle of Ten status command.
+ * `/cleo:circle` Circle of Eleven status command.
  *
  * @param pi - The Pi extension API instance.
  */
@@ -498,7 +498,7 @@ export default function (pi: ExtensionAPI): void {
         action: "spawned",
       });
 
-      // Track unique agents seen for Circle of Ten Artificers zone
+      // Track unique agents seen for Circle of Eleven Artificers zone
       cachedCantAgents = activities.length;
 
       renderAgentWidget(ctx);
@@ -550,10 +550,10 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // -------------------------------------------------------------------------
-  // Command: /cleo:circle — Circle of Ten status
+  // Command: /cleo:circle — Circle of Eleven status
   // -------------------------------------------------------------------------
   pi.registerCommand("cleo:circle", {
-    description: "Show Circle of Ten operational status from CLEO CLI",
+    description: "Show Circle of Eleven operational status from CLEO CLI",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       let dashData: DashData = {};
       let sessionData: SessionData = {};
@@ -595,7 +595,7 @@ export default function (pi: ExtensionAPI): void {
       );
 
       if (ctx.hasUI) {
-        ctx.ui.notify("Circle of Ten status", "info");
+        ctx.ui.notify("Circle of Eleven status", "info");
       }
     },
   });

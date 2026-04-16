@@ -286,6 +286,7 @@ name = "cant-napi"
 version = "2026.4.13"
 dependencies = [
  "cant-core",
+ "cant-router",
  "cant-runtime",
  "napi",
  "napi-build 1.2.1",
@@ -1372,6 +1373,7 @@ name = "integration-tests"
 version = "2026.4.13"
 dependencies = [
  "cant-core",
+ "cant-router",
  "conduit-core",
  "lafs-core",
  "serde_json",

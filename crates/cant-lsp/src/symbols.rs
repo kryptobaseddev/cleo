@@ -185,6 +185,9 @@ mod tests {
             permissions: vec![],
             context_refs: vec![],
             hooks: vec![],
+            context_sources: vec![],
+            mental_model: vec![],
+            file_permissions: None,
             span: Span::new(0, 50, 1, 1),
         })]);
         let syms = document_symbols(&doc);
@@ -297,6 +300,9 @@ mod tests {
                 body: vec![],
                 span: Span::new(17, 60, 3, 1),
             }],
+            context_sources: vec![],
+            mental_model: vec![],
+            file_permissions: None,
             span: Span::new(0, 70, 1, 1),
         })]);
         let syms = document_symbols(&doc);
@@ -325,6 +331,9 @@ mod tests {
                 permissions: vec![],
                 context_refs: vec![],
                 hooks: vec![],
+                context_sources: vec![],
+                mental_model: vec![],
+                file_permissions: None,
                 span: Span::new(0, 20, 1, 1),
             }),
             Section::Skill(SkillDef {
