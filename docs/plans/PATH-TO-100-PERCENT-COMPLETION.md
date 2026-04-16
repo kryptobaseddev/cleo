@@ -786,3 +786,51 @@ All 6 systems (TASKS / LOOM / BRAIN / NEXUS / CANT / CONDUIT) now attested via s
 5. **T831 dynamic-import tracking** — low priority, defer until NEXUS v2 scope
 
 Session `ses_20260416184154_59cbf3` ending cleanly with handoff note.
+
+---
+
+## §16 — v2026.4.76 SHIPPED (2026-04-16 T22:59 UTC)
+
+**Release commit**: `27996d4a6` on main
+**Tag**: `v2026.4.76`
+**GitHub Actions run**: 24538272834 — **SUCCESS** (2m35s)
+**npm confirmed**: `@cleocode/cleo-os@2026.4.76`, `@cleocode/nexus@2026.4.76`, `@cleocode/core@2026.4.76`
+
+### Pre-release gates (all green)
+
+| Gate | Result |
+|---|---|
+| `pnpm biome ci .` (1432 files) | ✅ clean (1 pre-existing symlink warning) |
+| `pnpm run build` (14 packages + cleo-os extensions) | ✅ clean |
+| `pnpm run test` (466 files / 8370 tests) | ✅ 8328 pass, 10 skip, 32 todo, 0 fail |
+| `pnpm install --frozen-lockfile` | ✅ lockfile in sync |
+
+### GitHub Actions release.yml step log (all ✓)
+
+Set up job → Checkout → Setup pnpm → Setup Node → Get version → Validate CalVer → Sync package versions from tag → Install deps → **Biome CI (format + lint gate)** → Clean dist → **Build** → **Verify @cleocode/core tarball contents** → Validate build output → **Verify CHANGELOG section** → Build release tarball + checksums → Generate release notes → Create GitHub Release (idempotent) → **Publish packages to npm** → Post cleanup → Complete.
+
+### Gotchas resolved
+
+- ✅ **Global install T617 gap closed**: `npm install -g @cleocode/cleo-os@2026.4.76` now ships with the fixed nexus dist containing the oversized-file regex fallback + workspace sub-path resolution.
+- ✅ **Structural rule #4 enforced**: biome ci ran BEFORE build in release.yml — no publish-past-CI-fail.
+- ✅ **Structural rule #6 enforced**: `@cleocode/core/templates/CLEO-INJECTION.md` v2.4.1 ships as source of truth (v2026.4.75 fix preserved).
+
+### Commit chain this session
+
+| Commit | Purpose |
+|---|---|
+| `c1f525157` | T617 NEXUS barrel tracing fix (oversized files + workspace sub-path) |
+| `77e3a86b7` | Plan doc §15 Wave A final close-out |
+| `27996d4a6` | v2026.4.76 release: version bumps + CHANGELOG |
+| `v2026.4.76` | Git tag → triggered release.yml → npm publish |
+
+### Ready for Wave B / Wave C
+
+The system is now shipped and patched. Next session picks up from a clean npm v2026.4.76 baseline:
+
+1. **T487 Commander-Shim RCASD** — pipeline init, spawn Lead on T488 research
+2. **T820 Release Pipeline priority decision** — owner confirm P0 vs medium
+3. **Clean-house residual** — T464-T472 CleoAgent remnants, T315-T325 CANT waves, T182 napi-rs, T376 smoke test, etc.
+4. **T831 dynamic-import tracking** — low priority, defer to NEXUS v2
+
+**Pending count: 73** (entering Wave B).
