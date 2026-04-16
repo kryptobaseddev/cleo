@@ -17,16 +17,25 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
 
-/** Absolute path to CLEO-INJECTION.md template file */
+/**
+ * Resolve the CLEO-INJECTION.md template from the in-repo source of truth.
+ * The template is authored at `packages/core/templates/` and mirrored by
+ * `cleo init` into `~/.local/share/cleo/templates/` + `~/.cleo/templates/`.
+ * We test the in-repo source directly — portable across dev machines and
+ * CI runners without any filesystem provisioning.
+ */
+const thisDir = dirname(fileURLToPath(import.meta.url));
 const injectionPath = resolve(
-  '/home/keatonhoskins/.local/share/cleo/templates/CLEO-INJECTION.md'
+  thisDir,
+  '../../../../core/templates/CLEO-INJECTION.md',
 );
 
 /** Read once — all assertions operate on this string */

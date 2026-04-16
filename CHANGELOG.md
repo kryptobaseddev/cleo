@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.75] — 2026-04-16
+
+### Hotfix for v2026.4.74 CI failure — injection template source-of-truth drift
+
+v2026.4.74 release workflow PUBLISHED (biome ci passed in release.yml because release.yml runs biome-ci-only now), but the separate `ci.yml` unit-test job failed on `packages/skills/skills/ct-cleo/__tests__/injection-content.test.ts` because the T778 regression test hardcoded `/home/keatonhoskins/.local/share/cleo/templates/CLEO-INJECTION.md` (dev-machine path not present on CI runners). Underlying issue: Wave 1 workers updated the two user-local mirror copies (T774/T775/T776) but NEVER updated the in-repo source-of-truth at `packages/core/templates/CLEO-INJECTION.md`, so `cleo init` was still installing the old template on every fresh project.
+
+### Fixed (root cause, not workaround)
+
+- **`packages/core/templates/CLEO-INJECTION.md`** — rewrote to source-of-truth version 2.4.1 incorporating all Wave 1-7 corrections: `cleo memory observe` (not bare `cleo observe`), `cleo orchestrate start` in Session Start, Triggers table (6 IF/WHEN rules), Orchestration cheat-sheet, Docs cheat-sheet, Pre-Complete Gate Ritual, new exit codes 80 (`E_LIFECYCLE_GATE_FAILED`) and 83 (`E_IVTR_INCOMPLETE`).
+- **`packages/skills/skills/ct-cleo/__tests__/injection-content.test.ts`** — replaced hardcoded dev-machine path with in-repo relative path (`../../../../core/templates/CLEO-INJECTION.md`). Test now works on every dev machine AND every CI runner without filesystem provisioning.
+- **`packages/core/src/__tests__/injection-mvi-tiers.test.ts`** — updated expectations to match v2.4.1 template (version check, `cleo memory observe` substring, line-count limit raised from ≤100 to ≤200 to accommodate new Triggers/Orchestration/Docs/Gate Ritual sections that provide real agent discoverability value).
+
+### Policy
+
+- **In-repo template is the only source of truth.** Any future edits must land in `packages/core/templates/*` first; `cleo init` mirrors from there.
+- **No tests reference absolute dev-machine paths.** Always use `fileURLToPath(import.meta.url)` + relative resolution.
+
+### Verification
+
+- `pnpm -r run build` — clean across all 7 packages ✅
+- `pnpm biome ci .` — clean ✅
+- Contracts 148/148 ✅ · Core 4137/4169 ✅ (32 todo, 0 fail) · Cleo 1405/1407 ✅ (2 skipped, 0 fail)
+- **5,690 passing, 0 failures**
+
 ## [2026.4.74] — 2026-04-16
 
 ### Clean-release enforcement + structural CI gates
