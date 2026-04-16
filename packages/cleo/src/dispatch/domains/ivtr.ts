@@ -23,6 +23,9 @@
 import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
 import {
   advanceIvtr,
+  autoRunGatesAndRecord,
+  E_IVTR_MAX_RETRIES,
+  extractTypedGates,
   getIvtrState,
   getLogger,
   getProjectRoot,
@@ -125,6 +128,12 @@ export class IvtrHandler implements DomainHandler {
                 currentPhase: state.currentPhase,
                 startedAt: state.startedAt,
                 phaseHistory: state.phaseHistory,
+                loopBackCount: state.loopBackCount ?? {
+                  implement: 0,
+                  validate: 0,
+                  test: 0,
+                  released: 0,
+                },
                 evidenceCount: state.phaseHistory.reduce(
                   (acc: number, e: IvtrPhaseEntry) => acc + e.evidenceRefs.length,
                   0,
@@ -246,13 +255,45 @@ export class IvtrHandler implements DomainHandler {
           }
 
           const evidence = extractEvidence(params);
+          const autoRunTests = params?.['autoRunTests'] === true;
 
           const state = await advanceIvtr(taskId, evidence, { cwd, agentIdentity });
+
+          // --auto-run-tests: when the new phase is 'test', invoke runGates atomically.
+          let autoRunResult: Awaited<ReturnType<typeof autoRunGatesAndRecord>> | undefined;
+          if (autoRunTests && state.currentPhase === 'test') {
+            const acceptanceItems = (task.acceptance ?? []) as (string | object)[];
+            const typedGateEntries = extractTypedGates(
+              acceptanceItems as Parameters<typeof extractTypedGates>[0],
+            );
+            const gates = typedGateEntries.map((e) => e.gate);
+
+            autoRunResult = await autoRunGatesAndRecord(taskId, gates, agentIdentity, cwd);
+
+            // Record the auto-run evidence sha256 back into the phase entry.
+            // autoRunGatesAndRecord already mutates phaseHistory and persists,
+            // so we only need to include it in the evidence summary for the caller.
+          }
+
+          // Extract typed gates for test-phase prompt enrichment.
+          const acceptanceItems = (task.acceptance ?? []) as (string | object)[];
+          const typedGates =
+            state.currentPhase === 'test'
+              ? extractTypedGates(acceptanceItems as Parameters<typeof extractTypedGates>[0]).map(
+                  (e) => e.gate,
+                )
+              : undefined;
+
+          // T799: resolvePhasePrompt injects ## Attached Documents section via cleo docs
+          // Signature: (taskId, state, title, desc, acceptanceGates?, evidenceBundle=[])
+          // Note: sync function; evidence bundle is ImplEvidenceSummary[] (pre-fetched)
           const prompt = resolvePhasePrompt(
             taskId,
             state,
             task.title,
             task.description ?? '(no description)',
+            typedGates,
+            [],
           );
 
           return wrapResult(
@@ -264,7 +305,18 @@ export class IvtrHandler implements DomainHandler {
                 currentPhase: state.currentPhase,
                 evidenceRecorded: evidence.length,
                 resolvedPrompt: prompt,
-                message: `Phase advanced to '${state.currentPhase}' for task ${taskId}.`,
+                ...(autoRunResult
+                  ? {
+                      autoRunTests: {
+                        attachmentSha256: autoRunResult.attachmentSha256,
+                        testsPassed: autoRunResult.testsPassed,
+                        testsFailed: autoRunResult.testsFailed,
+                        exitCode: autoRunResult.exitCode,
+                        evidenceRecord: autoRunResult.evidenceRecord,
+                      },
+                    }
+                  : {}),
+                message: `Phase advanced to '${state.currentPhase}' for task ${taskId}.${autoRunResult ? ` Auto-run gates: ${autoRunResult.testsPassed} passed, ${autoRunResult.testsFailed} failed.` : ''}`,
               },
             },
             'mutate',
@@ -354,10 +406,42 @@ export class IvtrHandler implements DomainHandler {
           }
 
           const evidence = extractEvidence(params);
-          const state = await loopBackIvtr(taskId, phaseRaw, reason, evidence, {
-            cwd,
-            agentIdentity,
-          });
+
+          let state: Awaited<ReturnType<typeof loopBackIvtr>>;
+          try {
+            state = await loopBackIvtr(taskId, phaseRaw, reason, evidence, {
+              cwd,
+              agentIdentity,
+            });
+          } catch (loopBackErr) {
+            // Surface E_IVTR_MAX_RETRIES as a structured HITL escalation error.
+            const msg = loopBackErr instanceof Error ? loopBackErr.message : String(loopBackErr);
+            if (msg.startsWith(E_IVTR_MAX_RETRIES)) {
+              log.warn({ taskId, phase: phaseRaw }, 'IVTR max retries reached — HITL escalation');
+              return wrapResult(
+                {
+                  success: false,
+                  error: {
+                    code: E_IVTR_MAX_RETRIES,
+                    message: msg,
+                    details: {
+                      taskId,
+                      phase: phaseRaw,
+                      hitlEscalation: true,
+                      escalationNote:
+                        'Maximum loop-backs reached. A human must inspect the loop-back history and resolve the root cause before the IVTR loop can continue.',
+                    },
+                  },
+                },
+                'mutate',
+                'ivtr',
+                operation,
+                startTime,
+              );
+            }
+            throw loopBackErr;
+          }
+
           const prompt = resolvePhasePrompt(
             taskId,
             state,
@@ -373,6 +457,12 @@ export class IvtrHandler implements DomainHandler {
                 loopedBackTo: phaseRaw,
                 reason,
                 currentPhase: state.currentPhase,
+                loopBackCount: state.loopBackCount ?? {
+                  implement: 0,
+                  validate: 0,
+                  test: 0,
+                  released: 0,
+                },
                 resolvedPrompt: prompt,
                 message: `IVTR loop-back recorded. Phase rewound to '${phaseRaw}' for task ${taskId}.`,
               },

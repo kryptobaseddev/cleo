@@ -37,6 +37,7 @@ import type {
   TestGate,
 } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
+import { createAttachmentStore } from '../store/attachment-store.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -226,7 +227,62 @@ async function runFileGate(
   projectRoot: string,
 ): Promise<AcceptanceGateResult> {
   const startMs = Date.now();
-  const filePath = isAbsolute(gate.path) ? gate.path : join(projectRoot, gate.path);
+
+  // Resolve file path: either from gate.path or via AttachmentStore by sha256.
+  let filePath: string;
+  if (gate.attachmentSha256) {
+    // Resolve via AttachmentStore — fail fast if the attachment is missing.
+    const store = createAttachmentStore();
+    const result = await store.get(gate.attachmentSha256);
+    if (!result) {
+      const durationMs = Date.now() - startMs;
+      return makeResult(
+        index,
+        gate,
+        'fail',
+        durationMs,
+        `attachment sha256=${gate.attachmentSha256} not found`,
+        `Attachment not found: ${gate.attachmentSha256}`,
+      );
+    }
+    // Derive the on-disk path from AttachmentStore internals via the metadata.
+    const mime =
+      'mime' in result.metadata.attachment
+        ? (result.metadata.attachment.mime as string)
+        : 'application/octet-stream';
+    // Reconstruct path: .cleo/attachments/sha256/<prefix>/<rest>.<ext>
+    const { getCleoDirAbsolute } = await import('../paths.js');
+    const { join: pathJoin } = await import('node:path');
+    const cleoDir = getCleoDirAbsolute(projectRoot);
+    const sha256 = gate.attachmentSha256;
+    const extMap: Record<string, string> = {
+      'text/markdown': '.md',
+      'text/plain': '.txt',
+      'application/json': '.json',
+      'application/pdf': '.pdf',
+      'text/html': '.html',
+    };
+    const ext = extMap[mime] ?? '.bin';
+    filePath = pathJoin(
+      cleoDir,
+      'attachments',
+      'sha256',
+      sha256.slice(0, 2),
+      `${sha256.slice(2)}${ext}`,
+    );
+  } else if (gate.path) {
+    filePath = isAbsolute(gate.path) ? gate.path : join(projectRoot, gate.path);
+  } else {
+    const durationMs = Date.now() - startMs;
+    return makeResult(
+      index,
+      gate,
+      'fail',
+      durationMs,
+      'FileGate requires either path or attachmentSha256',
+      'FileGate missing path and attachmentSha256',
+    );
+  }
 
   const failures: string[] = [];
   const fileContent: string | null = null;

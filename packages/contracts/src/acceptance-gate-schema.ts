@@ -82,7 +82,16 @@ export const testGateSchema = gateBaseSchema.extend({
 /** Zod schema for {@link FileGate}. */
 export const fileGateSchema = gateBaseSchema.extend({
   kind: z.literal('file'),
-  path: z.string().min(1),
+  /** Absolute or project-root-relative file path. Mutually exclusive with `attachmentSha256`. */
+  path: z.string().min(1).optional(),
+  /**
+   * SHA-256 hex of an attachment blob. Gate runner resolves the on-disk path
+   * via AttachmentStore. Mutually exclusive with `path`.
+   */
+  attachmentSha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, 'attachmentSha256 must be a 64-char hex string')
+    .optional(),
   assertions: z.array(fileAssertionSchema).min(1),
 });
 
@@ -157,6 +166,59 @@ export const acceptanceGateSchema = z.discriminatedUnion('kind', [
 /** Inferred TypeScript type from {@link acceptanceGateSchema}. */
 export type AcceptanceGateSchemaInput = z.input<typeof acceptanceGateSchema>;
 
+// ─── GateResultDetails schema (T802) ─────────────────────────────────────────
+
+/**
+ * Zod discriminated-union schema for {@link GateResultDetails}.
+ *
+ * Each variant mirrors the corresponding {@link AcceptanceGate} kind so
+ * callers can narrow `details` using the `kind` discriminant.
+ *
+ * @epic T760
+ * @task T802
+ */
+export const gateResultDetailsSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('test'),
+    exitCode: z.number().int(),
+    stdout: z.string(),
+    stderr: z.string(),
+    duration: z.number().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('file'),
+    path: z.string().min(1),
+    passedAssertions: z.array(z.string()),
+    failedAssertions: z.array(z.string()),
+  }),
+  z.object({
+    kind: z.literal('command'),
+    cmd: z.string().min(1),
+    exitCode: z.number().int(),
+    stdout: z.string(),
+  }),
+  z.object({
+    kind: z.literal('lint'),
+    tool: z.string().min(1),
+    warnings: z.number().int().nonnegative(),
+    errors: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('http'),
+    url: z.string(),
+    status: z.number().int().min(100).max(599),
+    body: z.string(),
+  }),
+  z.object({
+    kind: z.literal('manual'),
+    prompt: z.string().min(1),
+    accepted: z.boolean(),
+  }),
+]);
+
+/** Inferred TypeScript type from {@link gateResultDetailsSchema}. */
+export type GateResultDetailsInput = z.input<typeof gateResultDetailsSchema>;
+
 // ─── Result schema ────────────────────────────────────────────────────────────
 
 /**
@@ -171,6 +233,8 @@ export const acceptanceGateResultSchema = z.object({
   kind: z.enum(['test', 'file', 'command', 'lint', 'http', 'manual']),
   result: z.enum(['pass', 'fail', 'warn', 'skipped', 'error']),
   durationMs: z.number().nonnegative(),
+  /** Typed kind-specific detail payload (T802). */
+  details: gateResultDetailsSchema.optional(),
   evidence: z.string().optional(),
   errorMessage: z.string().optional(),
   /** ISO 8601 timestamp. */

@@ -21,7 +21,7 @@ import {
   taskBlockers,
   taskCancel,
   taskClaim,
-  taskComplete,
+  taskCompleteStrict,
   taskComplexityEstimate,
   taskCreate,
   taskCurrentGet,
@@ -44,6 +44,7 @@ import {
   taskReparent,
   taskRestore,
   taskShow,
+  taskShowIvtrHistory,
   taskShowWithHistory,
   taskStart,
   taskStop,
@@ -76,6 +77,11 @@ export class TasksHandler implements DomainHandler {
       switch (operation) {
         case 'show': {
           const historyFlag = params?.history === true;
+          const ivtrHistoryFlag = params?.ivtrHistory === true;
+          if (ivtrHistoryFlag) {
+            const result = await taskShowIvtrHistory(projectRoot, params!.taskId as string);
+            return wrapResult(result, 'query', 'tasks', operation, startTime);
+          }
           if (historyFlag) {
             const result = await taskShowWithHistory(projectRoot, params!.taskId as string, true);
             return wrapResult(result, 'query', 'tasks', operation, startTime);
@@ -311,10 +317,11 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'complete': {
-          const result = await taskComplete(
+          const result = await taskCompleteStrict(
             projectRoot,
             params!.taskId as string,
             params?.notes as string | undefined,
+            params?.force as boolean | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

@@ -15,6 +15,7 @@ export type {
   FileAssertion,
   FileGate,
   GateBase,
+  GateResultDetails,
   HttpGate,
   LintGate,
   ManualGate,
@@ -26,6 +27,7 @@ export type {
   AcceptanceGateSchemaInput,
   AcceptanceItemInput,
   FileAssertionInput,
+  GateResultDetailsInput,
 } from './acceptance-gate-schema.js';
 // === Acceptance Gate Zod Schemas (runtime validation) ===
 export {
@@ -37,6 +39,7 @@ export {
   fileAssertionSchema,
   fileGateSchema,
   gateBaseSchema,
+  gateResultDetailsSchema,
   httpGateSchema,
   lintGateSchema,
   manualGateSchema,
@@ -82,6 +85,22 @@ export type {
   LocalFileAttachment,
   UrlAttachment,
 } from './attachment.js';
+// === Attachment Zod Schemas (runtime validation) ===
+export type {
+  AttachmentMetadataSchemaInput,
+  AttachmentRefSchemaInput,
+  AttachmentSchemaInput,
+} from './attachment-schema.js';
+export {
+  attachmentMetadataSchema,
+  attachmentRefSchema,
+  attachmentSchema,
+  blobAttachmentSchema,
+  llmsTxtAttachmentSchema,
+  llmtxtDocAttachmentSchema,
+  localFileAttachmentSchema,
+  urlAttachmentSchema,
+} from './attachment-schema.js';
 // === Backup Manifest Types ===
 export type {
   BackupDatabaseEntry,
@@ -182,6 +201,33 @@ export {
   isErrorType,
   normalizeError,
 } from './errors.js';
+// === Evidence Record Types (IVTR typed proof artifacts) ===
+export type {
+  CommandOutputRecord,
+  EvidenceRecord,
+  EvidenceRecordKind,
+  ImplDiffRecord,
+  LintReportRecord,
+  TestOutputRecord,
+  ValidateSpecCheckRecord,
+} from './evidence-record.js';
+export type {
+  CommandOutputRecordInput,
+  EvidenceRecordInput,
+  ImplDiffRecordInput,
+  LintReportRecordInput,
+  TestOutputRecordInput,
+  ValidateSpecCheckRecordInput,
+} from './evidence-record-schema.js';
+// === Evidence Record Zod Schemas (runtime validation) ===
+export {
+  commandOutputRecordSchema,
+  evidenceRecordSchema,
+  implDiffRecordSchema,
+  lintReportRecordSchema,
+  testOutputRecordSchema,
+  validateSpecCheckRecordSchema,
+} from './evidence-record-schema.js';
 // === Exit Codes ===
 export {
   ExitCode,
@@ -397,6 +443,25 @@ export type {
   VerificationFailure,
   VerificationGate,
 } from './task.js';
+// === Task Evidence Types (T801) ===
+export type {
+  CommandOutputEvidence,
+  FileEvidence,
+  LogEvidence,
+  ScreenshotEvidence,
+  TaskEvidence,
+  TaskEvidenceInput,
+  TaskEvidenceKind,
+  TestOutputEvidence,
+} from './task-evidence.js';
+export {
+  commandOutputEvidenceSchema,
+  fileEvidenceSchema,
+  logEvidenceSchema,
+  screenshotEvidenceSchema,
+  taskEvidenceSchema,
+  testOutputEvidenceSchema,
+} from './task-evidence.js';
 // === TaskRecord Types (string-widened for dispatch/LAFS) ===
 export type {
   MinimalTaskRecord,
@@ -445,5 +510,4 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
-
 // === WASM SDK (Rust crate bindings) ===

@@ -237,6 +237,7 @@ export {
 // Task engine (CRUD + non-CRUD operations)
 export {
   type CompactTask,
+  type IvtrHistoryEntry,
   type LifecycleStageEntry,
   type MinimalTaskRecord,
   type TaskRecord,
@@ -247,6 +248,7 @@ export {
   taskCancel,
   taskClaim,
   taskComplete,
+  taskCompleteStrict,
   taskComplexityEstimate,
   taskCreate,
   taskDelete,
@@ -275,6 +277,7 @@ export {
   taskReparent,
   taskRestore,
   taskShow,
+  taskShowIvtrHistory,
   taskShowWithHistory,
   taskStats,
   taskSyncLinks,

@@ -56,8 +56,11 @@ import {
   updateTask as coreUpdateTask,
   getAccessor,
   getActiveSession,
+  getIvtrState,
   getLifecycleStatus,
   type ImpactReport,
+  type IvtrPhase,
+  type IvtrPhaseEntry,
   predictImpact,
   toCompact,
 } from '@cleocode/core/internal';
@@ -688,6 +691,257 @@ export async function taskComplete(
     };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to complete task');
+  }
+}
+
+/**
+ * A single IVTR phase entry returned by taskCompleteStrict and taskShowIvtrHistory.
+ * Surface-safe projection of IvtrPhaseEntry with renamed agentIdentity → agent.
+ *
+ * @task T815
+ * @task T817
+ * @epic T810
+ */
+export interface IvtrHistoryEntry {
+  /** Phase name (implement | validate | test | released). */
+  phase: IvtrPhase;
+  /** Agent identity string, or null if unknown. */
+  agent: string | null;
+  /** ISO timestamp when this phase was started. */
+  startedAt: string;
+  /** ISO timestamp when this phase was completed, or null if still active. */
+  completedAt: string | null;
+  /** Whether this phase passed. null = in-progress. */
+  passed: boolean | null;
+  /** sha256 hashes of evidence attachments for this phase. */
+  evidenceRefs: string[];
+}
+
+/**
+ * Project IvtrPhaseEntry to the surface-safe IvtrHistoryEntry shape.
+ */
+function toHistoryEntry(e: IvtrPhaseEntry): IvtrHistoryEntry {
+  return {
+    phase: e.phase,
+    agent: e.agentIdentity,
+    startedAt: e.startedAt,
+    completedAt: e.completedAt,
+    passed: e.passed,
+    evidenceRefs: e.evidenceRefs,
+  };
+}
+
+/**
+ * Complete a task with strict IVTR enforcement when configured.
+ *
+ * @remarks
+ * When `lifecycle.mode === 'strict'` AND the task has an `ivtr_state` column
+ * populated AND `ivtr_state.currentPhase !== 'released'`, this function rejects
+ * with {@link E_IVTR_INCOMPLETE}, listing which phases have not passed and any
+ * gate failures.
+ *
+ * When `force` is true the IVTR check is bypassed. A loud owner warning is
+ * logged and the bypass is recorded in `failureLog` via the existing
+ * verification mechanism (best-effort, non-blocking).
+ *
+ * Delegates the actual task completion to {@link taskComplete}.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to complete
+ * @param notes - Optional completion notes
+ * @param force - When true, bypass IVTR check (logs warning)
+ * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
+ *
+ * @example
+ * ```typescript
+ * // Strict enforcement — rejects if IVTR not at 'released'
+ * const result = await taskCompleteStrict('/project', 'T42', 'All tests passing', false);
+ *
+ * // Force bypass — logs warning and completes anyway
+ * const result = await taskCompleteStrict('/project', 'T42', undefined, true);
+ * ```
+ *
+ * @task T815
+ * @epic T810
+ */
+export async function taskCompleteStrict(
+  projectRoot: string,
+  taskId: string,
+  notes?: string,
+  force?: boolean,
+): Promise<
+  EngineResult<{
+    task: TaskRecord;
+    autoCompleted?: string[];
+    unblockedTasks?: Array<{ id: string; title: string }>;
+    ivtrBypassed?: boolean;
+  }>
+> {
+  try {
+    // Load config to check lifecycle enforcement mode.
+    const { loadConfig } = await import('@cleocode/core/internal');
+    const config = await loadConfig(projectRoot);
+    const lifecycleMode = config.lifecycle?.mode ?? 'strict';
+
+    // IVTR enforcement only applies in strict mode.
+    if (lifecycleMode === 'strict') {
+      const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
+
+      if (ivtrState !== null && ivtrState.currentPhase !== 'released') {
+        // Identify which phases have not passed at all.
+        const requiredPhases: Array<Exclude<IvtrPhase, 'released'>> = [
+          'implement',
+          'validate',
+          'test',
+        ];
+        const failedPhases: string[] = [];
+        for (const phase of requiredPhases) {
+          const hasPassed = ivtrState.phaseHistory.some(
+            (e) => e.phase === phase && e.passed === true,
+          );
+          if (!hasPassed) {
+            failedPhases.push(`Phase '${phase}' has no passing entry`);
+          }
+        }
+
+        // Also note if a phase is currently active (in-progress).
+        const activeEntry = ivtrState.phaseHistory.findLast((e) => e.completedAt === null);
+        if (activeEntry) {
+          failedPhases.push(
+            `Phase '${activeEntry.phase}' is currently in-progress (not completed)`,
+          );
+        }
+
+        if (!force) {
+          // Reject with E_IVTR_INCOMPLETE.
+          return engineError<{
+            task: TaskRecord;
+            autoCompleted?: string[];
+            unblockedTasks?: Array<{ id: string; title: string }>;
+            ivtrBypassed?: boolean;
+          }>(
+            'E_IVTR_INCOMPLETE',
+            `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
+            {
+              details: {
+                taskId,
+                currentPhase: ivtrState.currentPhase,
+                failedPhases,
+              },
+              fix: `Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr ${taskId} --next', or use '--force' to bypass (logs warning)`,
+            },
+          );
+        }
+
+        // force=true: log loud owner warning and record in task failureLog (best-effort).
+        const { getLogger } = await import('@cleocode/core');
+        getLogger('engine:ivtr').warn(
+          {
+            taskId,
+            currentPhase: ivtrState.currentPhase,
+            failedPhases,
+            forced: true,
+          },
+          `[OWNER WARNING] cleo complete --force bypassed IVTR enforcement for ${taskId}. ` +
+            `IVTR currentPhase='${ivtrState.currentPhase}' — phases not passing: ${failedPhases.join('; ')}`,
+        );
+
+        // Record force-bypass in task verification failureLog (best-effort).
+        try {
+          const accessor = await getAccessor(projectRoot);
+          const task = await accessor.loadSingleTask(taskId);
+          if (task) {
+            const now = new Date().toISOString();
+            if (!task.verification) {
+              task.verification = {
+                round: 0,
+                gates: {},
+                passed: false,
+                lastAgent: null,
+                lastUpdated: null,
+                failureLog: [],
+              };
+            }
+            if (!task.verification.failureLog) {
+              task.verification.failureLog = [];
+            }
+            task.verification.failureLog.push({
+              round: task.verification.round,
+              agent: 'owner-forced',
+              reason: `OWNER FORCED cleo complete --force — IVTR bypass. currentPhase='${ivtrState.currentPhase}'. Incomplete: ${failedPhases.join('; ')}`,
+              timestamp: now,
+            });
+            task.updatedAt = now;
+            await accessor.upsertSingleTask(task);
+          }
+        } catch {
+          // Best-effort — never block task completion
+        }
+
+        // Complete with ivtrBypassed marker.
+        const innerResult = await taskComplete(projectRoot, taskId, notes);
+        if (!innerResult.success)
+          return innerResult as EngineResult<{
+            task: TaskRecord;
+            autoCompleted?: string[];
+            unblockedTasks?: Array<{ id: string; title: string }>;
+            ivtrBypassed?: boolean;
+          }>;
+        return {
+          success: true,
+          data: { ...innerResult.data!, ivtrBypassed: true },
+        };
+      }
+    }
+
+    // No IVTR state, or lifecycle not strict, or already released — delegate normally.
+    return taskComplete(projectRoot, taskId, notes) as Promise<
+      EngineResult<{
+        task: TaskRecord;
+        autoCompleted?: string[];
+        unblockedTasks?: Array<{ id: string; title: string }>;
+        ivtrBypassed?: boolean;
+      }>
+    >;
+  } catch (err: unknown) {
+    return cleoErrorToEngineError(err, 'E_INTERNAL', 'Failed to complete task (strict mode)');
+  }
+}
+
+/**
+ * Retrieve the IVTR phase history for a task.
+ *
+ * @remarks
+ * Reads `tasks.ivtr_state` JSON and extracts the `phaseHistory` array.
+ * Returns an empty `ivtrHistory` array when the task has no IVTR state —
+ * this is not an error condition.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier (e.g. "T042")
+ * @returns EngineResult with ivtrHistory array
+ *
+ * @example
+ * ```typescript
+ * const result = await taskShowIvtrHistory('/project', 'T42');
+ * if (result.success) console.log(result.data.ivtrHistory);
+ * ```
+ *
+ * @task T817
+ * @epic T810
+ */
+export async function taskShowIvtrHistory(
+  projectRoot: string,
+  taskId: string,
+): Promise<EngineResult<{ ivtrHistory: IvtrHistoryEntry[] }>> {
+  try {
+    const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
+    if (!ivtrState) {
+      return { success: true, data: { ivtrHistory: [] } };
+    }
+    const ivtrHistory: IvtrHistoryEntry[] = ivtrState.phaseHistory.map(toHistoryEntry);
+    return { success: true, data: { ivtrHistory } };
+  } catch (err: unknown) {
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to read IVTR state');
   }
 }
 
