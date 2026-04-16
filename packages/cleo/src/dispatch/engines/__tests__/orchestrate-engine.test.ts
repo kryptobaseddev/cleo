@@ -228,6 +228,29 @@ describe('Orchestrate Engine', () => {
       expect(data.initialized).toBe(true);
       expect(data.summary.totalTasks).toBe(4);
     });
+
+    it('auto-initializes lifecycle on first orchestrate start', async () => {
+      const result = await orchestrateStartup('T100', TEST_ROOT);
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      // First call: lifecycle was not initialized — must auto-init at research
+      expect(data.autoInitialized).toBe(true);
+      expect(data.currentStage).toBe('research');
+    });
+
+    it('idempotent — second call does not re-init', async () => {
+      // First call initializes the lifecycle
+      const first = await orchestrateStartup('T100', TEST_ROOT);
+      expect(first.success).toBe(true);
+      expect((first.data as any).autoInitialized).toBe(true);
+
+      // Second call must detect existing pipeline and skip re-initialization
+      const second = await orchestrateStartup('T100', TEST_ROOT);
+      expect(second.success).toBe(true);
+      const data = second.data as any;
+      expect(data.autoInitialized).toBe(false);
+      expect(data.currentStage).toBe('already-initialized');
+    });
   });
 
   describe('orchestrateContext', () => {

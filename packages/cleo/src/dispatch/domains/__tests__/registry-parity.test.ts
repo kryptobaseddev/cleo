@@ -59,6 +59,14 @@ vi.mock('../../lib/engine.js', () => {
     taskRelatesFind: mockFn(),
     taskLabelList: mockFn(),
     taskLabelShow: mockFn(),
+    // REQ-ID gate operations (T782)
+    taskReqAdd: mockFn(),
+    taskReqList: mockFn(),
+    taskReqMigrate: mockFn(),
+    // Gate runner (T781)
+    runGates: vi.fn().mockResolvedValue([]),
+    extractTypedGates: vi.fn().mockReturnValue([]),
+    showTask: mockFn(),
     // Session engine
     sessionStatus: mockFn(),
     sessionList: mockFn(),
@@ -241,6 +249,25 @@ vi.mock('../../../../../core/src/paths.js', async () => {
   return {
     ...actual,
     getProjectRoot: vi.fn(() => '/mock/project'),
+  };
+});
+
+// Core internal — for memory verify/pending-verify/llm-status (T791, T792)
+vi.mock('@cleocode/core/internal', async () => {
+  const actual =
+    await vi.importActual<typeof import('@cleocode/core/internal')>('@cleocode/core/internal');
+  return {
+    ...actual,
+    resolveAnthropicApiKeySource: vi.fn(() => 'none' as const),
+    resolveAnthropicApiKey: vi.fn(() => null),
+    getBrainDb: vi.fn().mockResolvedValue(undefined),
+    getBrainNativeDb: vi.fn(() => ({
+      prepare: vi.fn().mockReturnValue({
+        get: vi.fn(() => undefined),
+        all: vi.fn(() => []),
+        run: vi.fn(() => ({ changes: 1 })),
+      }),
+    })),
   };
 });
 
@@ -527,6 +554,12 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     reorder: { taskId: 'T001', position: 1 },
     'relates.add': { taskId: 'T001', relatedId: 'T002', type: 'blocks' },
     start: { taskId: 'T001' },
+    'req.list': { taskId: 'T001' },
+    'req.add': {
+      taskId: 'T001',
+      gate: '{"kind":"test","command":"pnpm test","expect":"pass","description":"Tests pass","req":"R-01"}',
+    },
+    'req.migrate': { taskId: 'T001' },
   },
   session: {
     show: { sessionId: 'sess1' },
@@ -542,6 +575,7 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     output: { filePath: '/mock/file.ts' },
     protocol: { taskId: 'T001' },
     'gate.status': { taskId: 'T001' },
+    'gate.run': { taskId: 'T001' },
     grade: { sessionId: 'sess1' },
     'chain.validate': { chain: { id: 'c1', stages: [] } },
     'compliance.record': { taskId: 'T001', result: 'pass' },
@@ -572,6 +606,11 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'reason.why': { taskId: 'T001' },
     'reason.similar': { entryId: 'obs_1' },
     'search.hybrid': { query: 'test' },
+    // T791 — LLM extraction backend status
+    'llm-status': {},
+    // T792 — verify and pending-verify
+    'pending-verify': {},
+    verify: { id: 'O-mock-0' },
   },
   pipeline: {
     'stage.validate': { epicId: 'T001', targetStage: 'research' },
@@ -694,7 +733,7 @@ describe('Registry-Handler Parity (T5671)', () => {
     });
   }
 
-  // Verify all 10 domains have handlers
+  // Verify all canonical domains have handlers
   it('should have handlers for all 10 canonical domains', () => {
     const expectedDomains = [
       'tasks',
@@ -707,6 +746,8 @@ describe('Registry-Handler Parity (T5671)', () => {
       'admin',
       'nexus',
       'sticky',
+      // T797: docs domain added (attachment management)
+      'docs',
     ];
     for (const domain of expectedDomains) {
       expect(handlers.has(domain), `Missing handler for domain: ${domain}`).toBe(true);

@@ -22,6 +22,12 @@ export * from './index.js';
 // Extended flat exports (required by @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
+// Re-export attachment types from contracts for dispatch layer
+export type {
+  AttachmentRef,
+  LocalFileAttachment,
+  UrlAttachment,
+} from '@cleocode/contracts';
 // Code analysis (Smart Explore) — canonical source: @cleocode/nexus
 export {
   batchParse,
@@ -166,6 +172,16 @@ export {
   skipStageWithReason,
   TIER_0_SKILLS,
 } from './lifecycle/index.js';
+// IVTR orchestration harness (T811)
+export type { IvtrPhase, IvtrPhaseEntry, IvtrState } from './lifecycle/ivtr-loop.js';
+export {
+  advanceIvtr,
+  getIvtrState,
+  loopBackIvtr,
+  releaseIvtr,
+  resolvePhasePrompt,
+  startIvtr,
+} from './lifecycle/ivtr-loop.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 export type { BrainBackfillResult } from './memory/brain-backfill.js';
@@ -509,6 +525,9 @@ export {
 } from './sticky/convert.js';
 export { listStickies, purgeSticky } from './sticky/index.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
+export type { DerefResult } from './store/attachment-store.js';
+// Attachment store (T760 docs domain)
+export { AttachmentIntegrityError, createAttachmentStore } from './store/attachment-store.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle packer (T311 / T347)
@@ -948,6 +967,13 @@ export type { BuildConfig } from './config/build-config.js';
 export { BUILD_CONFIG } from './config/build-config.js';
 // Init (additional)
 export { initCoreSkills } from './init.js';
+// Memory — anthropic key resolver (additional)
+export {
+  clearAnthropicKeyCache,
+  resolveAnthropicApiKey,
+  resolveAnthropicApiKeySource,
+  storeAnthropicApiKey,
+} from './memory/anthropic-key-resolver.js';
 // Memory — auto-extract (additional)
 export { extractFromTranscript } from './memory/auto-extract.js';
 // Memory — brain embedding (additional)
