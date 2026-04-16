@@ -928,6 +928,18 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['chain'],
   },
+  // T646: Canon drift detection — CI gate
+  {
+    gateway: 'query',
+    domain: 'check',
+    operation: 'canon',
+    description:
+      'check.canon (query) — CI gate: detects canon drift between docs and live code (CANONICAL_DOMAINS count, forbidden phrases, required assertions)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   // T065: Agent workflow compliance telemetry
   {
     gateway: 'query',
@@ -2686,6 +2698,26 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'smoke.provider',
+    description:
+      'admin.smoke.provider (query) — ADR-049 harness sovereignty probe: verify adapter shape, DB locality, hooks, spawn, and agent folder for a named provider',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description:
+          'Provider ID to probe (claude-code | claude-sdk | codex | cursor | gemini-cli | kimi | openai-sdk | opencode | pi)',
+      },
+    ],
   },
   {
     gateway: 'query' as const,

@@ -136,9 +136,11 @@ describe('Parity Group 1: Registry completeness', () => {
     // Intelligence domain: 5 query-only ops (predict, suggest, learn-errors, confidence, match).
     // T554: memory.quality (query), memory.code.* (4 query + 2 mutate = 6 ops).
     // T624: diagnostics domain — 3 query (status, analyze, export) + 2 mutate (enable, disable).
-    expect(queryCount).toBe(150);
+    // T646: check.canon (query) — CI-gate canon drift detector.
+    // T647: admin.smoke.provider (query) — ADR-049 harness sovereignty probe. +1 query / +1 total.
+    expect(queryCount).toBe(152);
     expect(mutateCount).toBe(103);
-    expect(OPERATIONS.length).toBe(253);
+    expect(OPERATIONS.length).toBe(255);
   });
 
   it('all operations have valid gateway values', () => {

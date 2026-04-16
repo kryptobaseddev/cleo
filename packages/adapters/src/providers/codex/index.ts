@@ -13,6 +13,7 @@ import { CodexAdapter } from './adapter.js';
 export { CodexAdapter } from './adapter.js';
 export { CodexHookProvider } from './hooks.js';
 export { CodexInstallProvider } from './install.js';
+export { CodexSpawnProvider } from './spawn.js';
 
 export default CodexAdapter;
 

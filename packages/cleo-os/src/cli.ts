@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderDoctorReport, runDoctor } from './commands/doctor.js';
 import { AgentRegistry } from './registry/agent-registry.js';
 import { ProviderMatrix } from './registry/provider-matrix.js';
 import { resolveCleoOsPaths } from './xdg.js';
@@ -82,6 +83,9 @@ function handleVersionFlags(args: string[]): boolean {
  * requiring a full Pi startup — useful for scripts, CI probes, and the
  * future `cleo-os doctor` command.
  *
+ * - `--doctor` / `cleoos doctor`: runs the full sovereignty probe — provider
+ *   matrix, agent registry, memory policy, and per-provider smoke checks.
+ *   Exits non-zero when issues are found. See {@link runDoctor}.
  * - `--providers` / `cleoos providers`: prints the provider matrix (which of
  *   the 9 adapters are installed, have spawn implementations, and their
  *   hook-event counts).
@@ -92,8 +96,16 @@ function handleVersionFlags(args: string[]): boolean {
  * @returns `true` if a diagnostic flag was handled, `false` otherwise.
  */
 async function handleDiagnosticsFlags(args: string[]): Promise<boolean> {
+  const wantDoctor = args.includes('--doctor') || args[0] === 'doctor';
   const wantProviders = args.includes('--providers') || args[0] === 'providers';
   const wantAgents = args.includes('--agents') || args[0] === 'agents';
+
+  if (wantDoctor) {
+    const report = await runDoctor();
+    console.log(renderDoctorReport(report));
+    process.exitCode = report.issueCount > 0 ? 1 : 0;
+    return true;
+  }
 
   if (wantProviders) {
     const matrix = new ProviderMatrix();

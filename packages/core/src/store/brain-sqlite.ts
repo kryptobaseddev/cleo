@@ -119,7 +119,14 @@ function runBrainMigrations(
   // semantic edges are affected. The Drizzle migration file does the same UPDATE;
   // this guard handles installs where the journal reconciler already marked
   // the migration applied before the SQL ran.
+  //
+  // T759: Guard provenance column existence before UPDATE. If T528 migration has
+  // not yet run (e.g. on a fresh install where only the initial migration is
+  // present), brain_page_edges will not have a provenance column and the UPDATE
+  // will throw "no such column: provenance". ensureColumns adds the column if
+  // missing so the UPDATE is always safe to execute.
   if (tableExists(nativeDb, 'brain_page_edges')) {
+    ensureColumns(nativeDb, 'brain_page_edges', [{ name: 'provenance', ddl: 'text' }], 'brain');
     nativeDb
       .prepare(
         `UPDATE brain_page_edges

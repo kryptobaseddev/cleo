@@ -436,6 +436,25 @@ export class CheckHandler implements DomainHandler {
           };
         }
 
+        // T646: Canon drift detection — compares docs to live code
+        case 'canon': {
+          const { runCanonCheck } = await import('./check/canon.js');
+          const result = runCanonCheck({ projectRoot });
+          return {
+            meta: dispatchMeta('query', 'check', operation, startTime),
+            success: result.passed,
+            data: result,
+            ...(!result.passed
+              ? {
+                  error: {
+                    code: 'E_CANON_DRIFT',
+                    message: `Canon drift detected: ${result.violations.length} forbidden phrase(s), ${result.assertions.filter((a) => !a.passed).length} failed assertion(s)`,
+                  },
+                }
+              : {}),
+          };
+        }
+
         // T065: Workflow compliance telemetry — WF-001 through WF-005
         case 'workflow.compliance': {
           const since = params?.since as string | undefined;
@@ -577,6 +596,7 @@ export class CheckHandler implements DomainHandler {
         'grade',
         'grade.list',
         'chain.validate',
+        'canon',
       ],
       mutate: ['compliance.record', 'compliance.sync', 'test.run', 'gate.set'],
     };
