@@ -199,6 +199,7 @@ describe('AdminHandler', () => {
         'map',
         'roadmap',
         'smoke',
+        'smoke.provider',
         'hooks.matrix',
       ]);
     });

@@ -109,6 +109,13 @@ export function registerCheckCommand(program: Command): void {
     });
 
   check
+    .command('canon')
+    .description('CI gate: detect canon drift between docs and live code')
+    .action(async () => {
+      await dispatchFromCli('query', 'check', 'canon', {}, { command: 'check' });
+    });
+
+  check
     .command('protocol <protocolType>')
     .description(
       `Validate any of the 12 RCASD-IVTR+C protocols: ${SUPPORTED_PROTOCOL_TYPES.join(', ')}`,
