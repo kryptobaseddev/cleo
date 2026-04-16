@@ -32,12 +32,14 @@ import {
   getAccessor,
   orchestrationGetCriticalPath as getCriticalPath,
   getEnrichedWaves,
+  getLifecycleStatus,
   orchestrationGetNextTask as getNextTask,
   getParallelStatus,
   orchestrationGetReadyTasks as getReadyTasks,
   getSkillContent,
   getUnblockOpportunities,
   prepareSpawn,
+  recordStageProgress,
   resolveProjectRoot,
   startParallelExecution,
   validateSpawnReadiness,
@@ -730,8 +732,18 @@ export async function orchestrateSpawn(
 }
 
 /**
- * orchestrate.startup - Initialize orchestration for an epic
+ * orchestrate.startup - Initialize orchestration for an epic.
+ *
+ * Auto-initializes the RCASD-IVTR lifecycle at the 'research' stage if the
+ * epic has not already been initialized. This is idempotent — a second call
+ * detects the existing pipeline and skips re-initialization.
+ *
+ * Result data includes:
+ * - `autoInitialized`  — true if this call created the lifecycle pipeline
+ * - `currentStage`     — 'research' when newly initialized, 'already-initialized' otherwise
+ *
  * @task T4478
+ * @task T785
  */
 export async function orchestrateStartup(
   epicId: string,
@@ -755,8 +767,24 @@ export async function orchestrateStartup(
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
+    // Auto-initialize lifecycle at 'research' stage if not already initialized.
+    // getLifecycleStatus returns initialized:false when no pipeline exists.
+    // recordStageProgress creates the pipeline + stage record idempotently via
+    // ensureLifecycleContext, so re-invoking orchestrateStartup is safe.
+    const lifecycleStatus = await getLifecycleStatus(epicId, root);
+    let autoInitialized = false;
+    let currentStage: string;
+
+    if (!lifecycleStatus.initialized) {
+      await recordStageProgress(epicId, 'research', 'in_progress', undefined, root);
+      autoInitialized = true;
+      currentStage = 'research';
+    } else {
+      currentStage = 'already-initialized';
+    }
+
     const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
-    return { success: true, data: summary };
+    return { success: true, data: { ...summary, autoInitialized, currentStage } };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);

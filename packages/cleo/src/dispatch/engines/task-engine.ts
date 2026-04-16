@@ -56,6 +56,7 @@ import {
   updateTask as coreUpdateTask,
   getAccessor,
   getActiveSession,
+  getLifecycleStatus,
   type ImpactReport,
   predictImpact,
   toCompact,
@@ -96,7 +97,7 @@ function taskToRecord(task: Task): TaskRecord {
     depends: task.depends,
     relates,
     files: task.files,
-    acceptance: task.acceptance,
+    acceptance: task.acceptance?.filter((a): a is string => typeof a === 'string'),
     notes: task.notes,
     labels: task.labels,
     size: task.size ?? null,
@@ -166,6 +167,94 @@ export async function taskShow(
     const accessor = await getAccessor(projectRoot);
     const detail = await coreShowTask(taskId, projectRoot, accessor);
     return { success: true, data: { task: taskToRecord(detail) } };
+  } catch (err: unknown) {
+    return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+// ===== History Support =====
+
+/**
+ * A single lifecycle stage transition entry returned by taskShowWithHistory.
+ * Maps the `getLifecycleStatus` stage shape into a stable, typed record.
+ *
+ * @task T787
+ * @epic T769
+ */
+export interface LifecycleStageEntry {
+  /** Canonical stage name (e.g. "research", "implementation"). */
+  stage: string;
+  /** Current status of this stage. */
+  status: 'not_started' | 'in_progress' | 'completed' | 'skipped' | 'failed';
+  /** ISO timestamp when the stage was started, or null. */
+  startedAt: string | null;
+  /** ISO timestamp when the stage was completed, or null. */
+  completedAt: string | null;
+  /** Output file path recorded for this stage, or null. */
+  outputFile: string | null;
+}
+
+/**
+ * Get a single task by ID, optionally including its lifecycle stage history.
+ *
+ * @remarks
+ * When `includeHistory` is `true`, appends a `history` array containing one
+ * {@link LifecycleStageEntry} per RCASD pipeline stage. If the task has no
+ * pipeline record the call never fails — it returns `history: []` instead.
+ *
+ * When `includeHistory` is `false` (or omitted) the return value is identical
+ * to {@link taskShow} and the `history` key is absent from `data`.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier (e.g. "T042")
+ * @param includeHistory - When true, append lifecycle stage array
+ * @returns EngineResult containing the task record and optional history
+ *
+ * @example
+ * ```typescript
+ * const result = await taskShowWithHistory('/project', 'T42', true);
+ * if (result.success) {
+ *   console.log(result.data.task.title);
+ *   console.log(result.data.history); // LifecycleStageEntry[]
+ * }
+ * ```
+ *
+ * @task T787
+ * @epic T769
+ */
+export async function taskShowWithHistory(
+  projectRoot: string,
+  taskId: string,
+  includeHistory: boolean,
+): Promise<EngineResult<{ task: TaskRecord; history?: LifecycleStageEntry[] }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const detail = await coreShowTask(taskId, projectRoot, accessor);
+    const task = taskToRecord(detail);
+
+    if (!includeHistory) {
+      return { success: true, data: { task } };
+    }
+
+    // Fetch lifecycle stages — empty array on any failure (task may have no pipeline).
+    let history: LifecycleStageEntry[] = [];
+    try {
+      const status = await getLifecycleStatus(taskId, projectRoot);
+      history = status.stages.map(
+        (s): LifecycleStageEntry => ({
+          stage: s.stage,
+          status: (s.status as LifecycleStageEntry['status']) ?? 'not_started',
+          startedAt: null,
+          completedAt: s.completedAt ?? null,
+          outputFile: s.outputFile ?? null,
+        }),
+      );
+    } catch {
+      // No pipeline for this task — return empty history (not an error).
+      history = [];
+    }
+
+    return { success: true, data: { task, history } };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }

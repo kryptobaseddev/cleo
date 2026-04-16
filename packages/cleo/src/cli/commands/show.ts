@@ -29,6 +29,7 @@ const SHOW_PARAMS: readonly ParamDef[] = [
  * Register the show command.
  * @task T4460
  * @task T4666
+ * @task T787
  */
 export function registerShowCommand(program: Command): void {
   const cmd = program
@@ -46,7 +47,17 @@ export function registerShowCommand(program: Command): void {
   // and surfaces the task-exists gate in --help output.
   applyParamDefsToCommand(cmd, SHOW_PARAMS, 'tasks.show');
 
-  cmd.action(async (taskId: string) => {
-    await dispatchFromCli('query', 'tasks', 'show', { taskId }, { command: 'show' });
+  // --history flag: surface lifecycle_stages transition log alongside task data.
+  cmd.option('--history', 'Include lifecycle stage history in the response');
+
+  cmd.action(async (taskId: string, opts: { history?: boolean }) => {
+    const historyFlag = opts?.history === true;
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'show',
+      { taskId, history: historyFlag },
+      { command: 'show' },
+    );
   });
 }

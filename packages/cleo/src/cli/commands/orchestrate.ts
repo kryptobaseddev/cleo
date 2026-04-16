@@ -153,6 +153,44 @@ export function registerOrchestrateCommand(program: Command): void {
       );
     });
 
+  // ── cleo orchestrate ivtr <taskId> [--start|--next|--status|--release|--loop-back] ──
+  // T811 — multi-agent IVTR enforcement harness
+  orch
+    .command('ivtr <taskId>')
+    .description('Drive an Implement→Validate→Test phased loop on a task with evidence-bound gates')
+    .option('--start', 'Begin Implement phase')
+    .option('--next', 'Advance to next phase (requires prior-phase evidence)')
+    .option('--status', 'Show current IVTR state + history')
+    .option('--release', 'Final gate — require I+V+T evidence, then release')
+    .option('--loop-back', 'Rewind to specified phase on failure')
+    .option('--phase <name>', 'Phase for --loop-back (implement|validate|test)')
+    .option('--reason <text>', 'Reason for loop-back')
+    .option('--evidence <sha256>', 'Attachment sha256 to attach (repeatable)')
+    .action(async (taskId: string, opts: Record<string, unknown>) => {
+      const action = opts['start']
+        ? 'start'
+        : opts['next']
+          ? 'next'
+          : opts['release']
+            ? 'release'
+            : opts['loopBack']
+              ? 'loop-back'
+              : 'status';
+      const kind = action === 'status' ? 'query' : 'mutate';
+      await dispatchFromCli(
+        kind,
+        'orchestrate',
+        `ivtr.${action}`,
+        {
+          taskId,
+          phase: opts['phase'],
+          reason: opts['reason'],
+          evidence: opts['evidence'],
+        },
+        { command: 'orchestrate' },
+      );
+    });
+
   orch
     .command('parallel <action> <epicId>')
     .description('Manage parallel wave execution (action: start | end)')

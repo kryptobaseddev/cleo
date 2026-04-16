@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.70] — 2026-04-16
+
+### T760 RCASD — Pomodoro-benchmark-driven epic landing
+
+**Epic T810 shipped (P0 foundational): `cleo orchestrate ivtr <taskId>` multi-agent enforcement.**
+Implementation → Validate → Test phases are now tracked as a first-class state machine in `tasks.ivtr_state`. Each phase produces a resolved prompt with prior-phase evidence, and `--release` BLOCKS with `E_IVTR_GATE_FAILED` until all three phases have evidence attached. Closes the user-named gap: *"agents should do the work then other agents MUST come in and Validate and Test against the original specs."*
+
+**What shipped (18+ tasks verified via PROOF discipline):**
+
+- **T767 Guidance Surface Hardening (P0)**: `CLEO-INJECTION.md` doc drift fixed (`cleo observe` → `cleo memory observe`), orchestrate command surfaced in Session Start, 6-row IF/WHEN trigger table, Pre-Complete Gate Ritual, `ct-cleo` decision tree preamble.
+- **T768 Programmatic Acceptance Gates (P0)**: `AcceptanceGate` discriminated union contract with 6 variants (test / file / command / lint / http / manual), each with optional `req` field for REQ-ID addressability. `Task.acceptance` widened to `(string | AcceptanceGate)[]` with zero schema migration. `cleo verify --run` executes gates via `runGates()`. `cleo req add|list|migrate` subcommands for REQ-ID management.
+- **T769 LOOM Auto-Wiring (P0)**: `cleo orchestrate start <epicId>` now auto-initializes lifecycle research stage. `cleo add --type epic --lifecycle auto` optionally bootstraps. `cleo show <id> --history` surfaces lifecycle-stage transition log.
+- **T770 BRAIN P0 fixes**: Hebbian `strengthenCoRetrievedEdges` now uses `Map<string, Set<string>>` distinct-query tracking (emits co_retrieved edge only when pair appears in ≥3 distinct queries, not raw count). Migration `20260416000006_t790-hebbian-prune` drops pre-fix noise edges. `cleo memory llm-status` reports resolver source (env / config / oauth / none). `cleo memory verify <id>` + `cleo memory pending-verify` close the agent-observation ground-truth-promotion loop.
+- **T771 Unified `cleo docs` (P1)**: `Attachment` discriminated union (5 variants: local-file / url / blob / llms-txt / llmtxt-doc), content-addressed storage at `.cleo/attachments/sha256/<prefix>/<hash>.<ext>` with `AttachmentStore` API (put / get / ref / deref / listByOwner / getMetadata). `cleo docs add|list|fetch|remove` CLI. SHA-256 integrity verification on get(). ACID hardening: `withWriteLock` mutex + `BEGIN IMMEDIATE` transactions + SQL `ref_count = ref_count + 1` arithmetic eliminates TOCTOU races. Discriminated `DerefResult: {status: 'not-found' | 'derefd' | 'removed'}`.
+- **T772 Schema Hardening (P1)**: `acceptanceItemSchema` rejects empty strings, whitespace-only, malformed gates; `acceptanceArraySchema` enforces `.min(1)` + duplicate REQ-ID detection via `.refine()`.
+- **T810 IVTR Foundational (P0)**: `cleo orchestrate ivtr <taskId>` with `--start|--next|--status|--release|--loop-back` flags. `IvtrState` typed schema persisted to `tasks.ivtr_state` column (migration `20260416000001_t811-ivtr-state`). Resolved prompts include task spec + prior-phase evidence + phase-specific instructions. Release gate blocks without complete I+V+T evidence.
+
+### Fixed
+
+- `cleo req` CLI-tree gap — `registerReqCommand` was imported but never called in `cli/index.ts` (now wired).
+- `cleo orchestrate ivtr` subcommand missing from `orchestrate.ts` CLI definitions (now present).
+- `writeIvtrState` used `.returning({id}).all()` which doesn't populate rows under the node:sqlite Drizzle driver — switched to pre-check SELECT + plain UPDATE.run().
+- Concurrent `AttachmentStore.put()` from multiple async workers caused SQLITE_BUSY — added promise-chain `withWriteLock` mutex so puts serialize.
+- `parity.test.ts` operation count assertions updated for the 5 new `orchestrate.ivtr.*` registry entries.
+
+### Test metrics
+
+- **Contracts**: 98/98 pass
+- **Core**: 4098/4130 pass (32 todo, 0 fail)
+- **Cleo**: 1386/1388 pass (2 skipped, 0 fail)
+- **Total**: 5,582 tests passing, zero failures.
+
+### Known follow-ups (next release)
+
+- T793 BRAIN-04 (RRF score normalization), T794 BRAIN-05 (short-tier retention floor)
+- T798 DOCS-04 (`cleo docs generate` via `llmtxt` npm)
+- T799 DOCS-05 (attachment ↔ gates / BRAIN / LOOM integration)
+- T801–T804 remaining schema hardening (TaskEvidence, typed GateResult details, JSON Schema export, invariant tests)
+- T805–T809 full `ct-cleo` skill rewrite
+- T812–T817 remaining IVTR epic (Validate-phase auto-spawn, Test-phase auto-spawn, loop-back logic, cleo complete strict-mode, EvidenceRecord schema, `--ivtr-history` surface)
+- `cleo-os` extension build errors in `cleo-cant-bridge.ts` (pre-existing, unrelated)
+- Trust-incident lessons: worker self-reports require programmatic PROOF blocks (grep counts + test output). Landed as the enforced pattern; future workers via `cleo orchestrate ivtr` get structural separation by default.
+
 ## [2026.4.69] — 2026-04-16
 
 ### Fixed

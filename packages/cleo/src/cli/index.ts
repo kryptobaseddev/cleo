@@ -120,6 +120,7 @@ import { registerReleaseCommand } from './commands/release.js';
 import { registerRemoteCommand } from './commands/remote.js';
 import { registerReorderCommand } from './commands/reorder.js';
 import { registerReparentCommand } from './commands/reparent.js';
+import { registerReqCommand } from './commands/req.js';
 import { registerResearchCommand } from './commands/research.js';
 import { registerRestoreCommand } from './commands/restore.js';
 import { registerRoadmapCommand } from './commands/roadmap.js';
@@ -173,6 +174,7 @@ registerReleaseCommand(rootShim);
 registerCheckpointCommand(rootShim);
 // DEPRECATED: registerCommandsCommand(rootShim) — removed, use `cleo ops`
 registerDocsCommand(rootShim);
+registerReqCommand(rootShim);
 registerExportTasksCommand(rootShim);
 registerImportTasksCommand(rootShim);
 registerSafestopCommand(rootShim);

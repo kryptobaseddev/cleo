@@ -111,3 +111,53 @@ export function storeAnthropicApiKey(apiKey: string): void {
 export function clearAnthropicKeyCache(): void {
   cachedKey = undefined;
 }
+
+/**
+ * Determine which source resolved the Anthropic API key without caching.
+ *
+ * Returns the highest-priority source that yields a non-empty key:
+ * - `'env'` — `ANTHROPIC_API_KEY` environment variable
+ * - `'config'` — `~/.local/share/cleo/anthropic-key` file
+ * - `'oauth'` — `~/.claude/.credentials.json` Claude Code OAuth token
+ * - `'none'` — no key found in any source
+ *
+ * Unlike `resolveAnthropicApiKey()`, this function does NOT cache — every
+ * call re-reads all sources so status checks are always fresh.
+ *
+ * @returns The resolved source identifier.
+ */
+export function resolveAnthropicApiKeySource(): 'env' | 'config' | 'oauth' | 'none' {
+  // 1. Explicit env var
+  if (process.env.ANTHROPIC_API_KEY?.trim()) return 'env';
+
+  // 2. CLEO global stored key
+  try {
+    const keyFile = join(globalCleoDir(), 'anthropic-key');
+    if (existsSync(keyFile)) {
+      const stored = readFileSync(keyFile, 'utf-8').trim();
+      if (stored) return 'config';
+    }
+  } catch {
+    // Not available — continue
+  }
+
+  // 3. Claude Code OAuth token
+  try {
+    const credPath = join(homedir(), '.claude', '.credentials.json');
+    if (existsSync(credPath)) {
+      const raw = readFileSync(credPath, 'utf-8');
+      const creds = JSON.parse(raw) as {
+        claudeAiOauth?: { accessToken?: string; expiresAt?: number };
+      };
+      const token = creds.claudeAiOauth?.accessToken;
+      if (token?.trim()) {
+        const expiresAt = creds.claudeAiOauth?.expiresAt;
+        if (!expiresAt || Date.now() <= expiresAt) return 'oauth';
+      }
+    }
+  } catch {
+    // Credentials file missing or unreadable
+  }
+
+  return 'none';
+}

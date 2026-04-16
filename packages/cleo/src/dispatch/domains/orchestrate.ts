@@ -45,9 +45,13 @@ import { errorResult, getListParams, handleErrorResult, wrapResult } from './_ba
 import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
 import { ConduitHandler } from './conduit.js';
+import { IvtrHandler } from './ivtr.js';
 
 /** Shared ConduitHandler instance for conduit.* sub-operations (ADR-042). */
 const conduitHandler = new ConduitHandler();
+
+/** Shared IvtrHandler instance for ivtr.* sub-operations (T811). */
+const ivtrHandler = new IvtrHandler();
 
 // ---------------------------------------------------------------------------
 // OrchestrateHandler
@@ -263,6 +267,10 @@ export class OrchestrateHandler implements DomainHandler {
           return conduitHandler.query('status', params);
         case 'conduit.peek':
           return conduitHandler.query('peek', params);
+
+        // T811: IVTR orchestration harness sub-operations
+        case 'ivtr.status':
+          return ivtrHandler.query('status', params);
 
         default:
           return errorResult(
@@ -545,6 +553,16 @@ export class OrchestrateHandler implements DomainHandler {
         case 'conduit.send':
           return conduitHandler.mutate('send', params);
 
+        // T811: IVTR orchestration harness sub-operations
+        case 'ivtr.start':
+          return ivtrHandler.mutate('start', params);
+        case 'ivtr.next':
+          return ivtrHandler.mutate('next', params);
+        case 'ivtr.release':
+          return ivtrHandler.mutate('release', params);
+        case 'ivtr.loop-back':
+          return ivtrHandler.mutate('loop-back', params);
+
         default:
           return errorResult(
             'mutate',
@@ -582,6 +600,8 @@ export class OrchestrateHandler implements DomainHandler {
         // ADR-042: conduit sub-operations
         'conduit.status',
         'conduit.peek',
+        // T811: IVTR orchestration harness
+        'ivtr.status',
       ],
       mutate: [
         'start',
@@ -597,6 +617,11 @@ export class OrchestrateHandler implements DomainHandler {
         'conduit.start',
         'conduit.stop',
         'conduit.send',
+        // T811: IVTR orchestration harness
+        'ivtr.start',
+        'ivtr.next',
+        'ivtr.release',
+        'ivtr.loop-back',
       ],
     };
   }

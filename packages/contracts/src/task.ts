@@ -21,9 +21,22 @@
  * @task T4456
  */
 
+import type { AcceptanceGate } from './acceptance-gate.js';
 import type { TaskStatus } from './status-registry.js';
 
 export type { TaskStatus };
+
+/**
+ * A single acceptance criterion — either a free-text string (legacy) or a
+ * structured {@link AcceptanceGate} (machine-verifiable).
+ *
+ * Mixed arrays of these are stored as JSON in the `acceptance_json` column.
+ *
+ * @epic T760
+ * @task T780
+ * @task T800
+ */
+export type AcceptanceItem = string | AcceptanceGate;
 
 /** Task priority levels. */
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
@@ -169,8 +182,15 @@ export interface Task {
   /** File paths associated with this task. @defaultValue undefined */
   files?: string[];
 
-  /** Acceptance criteria for completion. @defaultValue undefined */
-  acceptance?: string[];
+  /**
+   * Mixed acceptance criteria — free-text strings (legacy) and/or structured
+   * {@link AcceptanceGate} objects (machine-verifiable).
+   *
+   * @epic T760
+   * @task T780
+   * @defaultValue undefined
+   */
+  acceptance?: AcceptanceItem[];
 
   /** IDs of tasks this task depends on. @defaultValue undefined */
   depends?: string[];
@@ -296,8 +316,8 @@ export interface TaskCreate {
   /** File paths associated with this task. @defaultValue undefined */
   files?: string[];
 
-  /** Acceptance criteria. @defaultValue undefined */
-  acceptance?: string[];
+  /** Acceptance criteria (string or AcceptanceGate objects). @defaultValue undefined */
+  acceptance?: AcceptanceItem[];
 
   /** IDs of tasks this task depends on. @defaultValue undefined */
   depends?: string[];
