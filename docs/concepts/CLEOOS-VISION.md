@@ -1,8 +1,8 @@
 # CleoOS: The Agentic Development Environment
 
-**Version**: 2026.4.24
+**Version**: 2026.4.78
 **Status**: VISION
-**Date**: 2026-03-24
+**Date**: 2026-04-16
 
 ---
 
@@ -232,7 +232,7 @@ Each layer depends only on the layers below it. The kernel never reaches up into
 
 The kernel is shipped and operational:
 
-- `@cleocode/core` v2026.4.18 -- standalone business logic kernel with 45 domain modules
+- `@cleocode/core` v2026.4.78 -- standalone business logic kernel with 45 domain modules (11 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky, intelligence)
 - `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
 - `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
 - `@cleocode/cleo` -- full CLI product (registry-defined operations across 11 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
@@ -263,6 +263,13 @@ The kernel is shipped and operational:
 - Backup Portability (v2026.4.13): `.cleobundle` archive format for cross-machine backup export/import with `cleo backup export`, `cleo backup import`, and `cleo backup inspect` commands.
 - Mental Model Injection (v2026.4.8): Per-agent BRAIN namespace with validate-on-load preamble, async reinforcement writes, and bounded growth via `max_tokens` cap.
 - .cantz Packaging (in progress): Compressed CANT bundle format for distributing agent/team/tool definitions as portable archives.
+- **TS Monorepo** (v2026.4.6+): 12 TS packages (`@cleocode/{core, contracts, adapters, cleo, cleo-os, etc}`) managed via pnpm workspaces
+- **Rust Crates** (v2026.4.47+): 14 crates under `packages/cleos/` including nexus, brain, brain-gc, cant-dsl, conduit, injection, loom, pi-bridge, and others for cross-platform support
+- **Release Pipeline** (v2026.4.78+): Full CalVer YYYY.MM.patch automation via `cleo release` with structural CI gates (biome ci, full build verification, test coverage). Template source-of-truth at `packages/core/templates/`. Prevents release-past-red-CI.
+- **IVTR + Programmatic Gates** (v2026.4.75+): IVTR lifecycle model (Research/Consensus/Specification/Decomposition/Implementation/Validation/Testing). Programmatic AcceptanceGates via `cleo verify` with evidence tracking. Evidence-based task closure mandatory before `cleo complete`.
+- **CLEO Docs CLI** (v2026.4.77+): `cleo docs add`, `cleo docs list`, and `cleo docs generate` for task attachments and auto-generated API reference via Forge-TS TSDoc pipeline
+- **Commander-Shim** (v2026.4.77+): CAAMP-Commander unified dispatch bridge for cross-provider compatibility. Replaces legacy individual provider shims.
+- **CLI Perfection** (v2026.4.78+): 250+ command audit completed (T505). 55+ bugs fixed, 8 P0 severities addressed. Never-reuse-tag policy enforced; CalVer versioning mandatory.
 
 ### What Is Specified (Runtime, Conduit)
 

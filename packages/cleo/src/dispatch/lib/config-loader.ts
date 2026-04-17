@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { CLEO_DIR_NAME, CONFIG_JSON } from '../../cli/paths.js';
 import {
   CONFIG_SCHEMA,
   DEFAULT_CONFIG,
@@ -69,7 +70,7 @@ function parseEnvValue(key: string, value: string): unknown {
  */
 function loadFromFile(projectRoot?: string): Partial<DispatchConfig> {
   const root = projectRoot || process.cwd();
-  const configPath = join(root, '.cleo', 'config.json');
+  const configPath = join(root, CLEO_DIR_NAME, CONFIG_JSON);
 
   if (!existsSync(configPath)) {
     return {};

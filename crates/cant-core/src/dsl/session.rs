@@ -26,6 +26,10 @@ use super::span::Span;
 ///
 /// Returns the parsed [`SessionExpr`] wrapped in a [`Statement::Session`] and the
 /// number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the session header or properties are malformed.
 pub fn parse_session_stmt(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -123,11 +127,11 @@ mod tests {
             Statement::Session(s) => {
                 match &s.target {
                     SessionTarget::Prompt(p) => assert_eq!(p, "Analyze the code"),
-                    other => panic!("expected Prompt, got {:?}", other),
+                    other => panic!("expected Prompt, got {other:?}"),
                 }
                 assert!(s.properties.is_empty());
             }
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -140,9 +144,9 @@ mod tests {
         match stmt {
             Statement::Session(s) => match &s.target {
                 SessionTarget::Agent(name) => assert_eq!(name, "scanner"),
-                other => panic!("expected Agent, got {:?}", other),
+                other => panic!("expected Agent, got {other:?}"),
             },
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -158,7 +162,7 @@ mod tests {
                 assert_eq!(s.properties[0].key.value, "context");
                 assert_eq!(s.properties[1].key.value, "model");
             }
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -172,11 +176,11 @@ mod tests {
             Statement::Session(s) => {
                 match &s.target {
                     SessionTarget::Agent(name) => assert_eq!(name, "reviewer"),
-                    other => panic!("expected Agent, got {:?}", other),
+                    other => panic!("expected Agent, got {other:?}"),
                 }
                 assert_eq!(s.properties.len(), 2);
             }
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -204,7 +208,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match stmt {
             Statement::Session(s) => assert_eq!(s.properties.len(), 2),
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -216,9 +220,9 @@ mod tests {
         match stmt {
             Statement::Session(s) => match &s.target {
                 SessionTarget::Prompt(p) => assert_eq!(p, "analyze-code"),
-                other => panic!("expected Prompt, got {:?}", other),
+                other => panic!("expected Prompt, got {other:?}"),
             },
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -231,9 +235,9 @@ mod tests {
         match stmt {
             Statement::Session(s) => match &s.target {
                 SessionTarget::Prompt(p) => assert_eq!(p, "Inner task"),
-                other => panic!("expected Prompt, got {:?}", other),
+                other => panic!("expected Prompt, got {other:?}"),
             },
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -265,7 +269,7 @@ mod tests {
                 assert!(s.span.end > 0);
                 assert_eq!(s.span.line, 1);
             }
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 }

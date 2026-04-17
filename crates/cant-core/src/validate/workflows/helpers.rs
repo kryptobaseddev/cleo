@@ -21,10 +21,9 @@ pub(super) fn is_iterable_expr(expr: &Expression) -> bool {
 
 /// Returns true if the name is a valid CANT identifier.
 pub(super) fn is_valid_identifier(name: &str) -> bool {
-    if name.is_empty() {
+    let Some(first) = name.chars().next() else {
         return false;
-    }
-    let first = name.chars().next().unwrap();
+    };
     if !first.is_ascii_alphabetic() && first != '_' {
         return false;
     }

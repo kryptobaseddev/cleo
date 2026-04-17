@@ -12,6 +12,10 @@ use super::span::Span;
 /// Parses an `@import` statement from the given line.
 ///
 /// Returns the parsed [`ImportStatement`].
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the line is not a valid import statement.
 pub fn parse_import(line: &IndentedLine<'_>) -> Result<ImportStatement, ParseError> {
     let content = line.content;
     let base_offset = line.byte_offset + line.indent;

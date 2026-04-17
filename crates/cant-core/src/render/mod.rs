@@ -378,7 +378,7 @@ fn format_number(n: f64) -> String {
 pub fn render_prose_block(key: &str, block: &ProseBlock, key_indent_level: usize) -> String {
     let mut out = String::new();
     let key_indent = indent_str(key_indent_level);
-    out.push_str(&format!("{}{}: |\n", key_indent, key));
+    out.push_str(&format!("{key_indent}{key}: |\n"));
 
     let content_indent = indent_str(key_indent_level + 1);
     for line in &block.lines {
@@ -386,7 +386,7 @@ pub fn render_prose_block(key: &str, block: &ProseBlock, key_indent_level: usize
             // Preserve the blank line but do not emit trailing whitespace.
             out.push('\n');
         } else {
-            out.push_str(&format!("{}{}\n", content_indent, line));
+            out.push_str(&format!("{content_indent}{line}\n"));
         }
     }
     out
@@ -404,7 +404,7 @@ pub fn render_prose_block(key: &str, block: &ProseBlock, key_indent_level: usize
 pub fn render_permissions(perms: &[Permission], parent_indent_level: usize) -> String {
     let mut out = String::new();
     let parent_indent = indent_str(parent_indent_level);
-    out.push_str(&format!("{}permissions:\n", parent_indent));
+    out.push_str(&format!("{parent_indent}permissions:\n"));
 
     let child_indent = indent_str(parent_indent_level + 1);
     for perm in perms {
@@ -435,7 +435,7 @@ fn render_permission_line(perm: &Permission) -> String {
 fn render_context_refs(refs: &[ContextRef], parent_indent_level: usize) -> String {
     let mut out = String::new();
     let parent_indent = indent_str(parent_indent_level);
-    out.push_str(&format!("{}context:\n", parent_indent));
+    out.push_str(&format!("{parent_indent}context:\n"));
 
     let child_indent = indent_str(parent_indent_level + 1);
     for reference in refs {

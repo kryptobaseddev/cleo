@@ -16,6 +16,10 @@ use super::span::Span;
 ///
 /// Each child line should be in the format `domain: access1, access2`.
 /// The `lines` parameter should be the indented block under `permissions:`.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if any permission line is malformed.
 pub fn parse_permissions(lines: &[IndentedLine<'_>]) -> Result<Vec<Permission>, ParseError> {
     let mut permissions = Vec::new();
 

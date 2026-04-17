@@ -23,6 +23,7 @@ import {
   paginate,
   showTessera,
 } from '@cleocode/core/internal';
+import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '../../cli/paths.js';
 import {
   orchestrateAnalyze,
   orchestrateBootstrap,
@@ -708,7 +709,7 @@ async function orchestrateClassify(
     }
 
     // Also check project-local .cant files
-    const localCantDir = join(projectRoot, '.cleo', 'workflows');
+    const localCantDir = join(projectRoot, CLEO_DIR_NAME, WORKFLOWS_SUBDIR);
     if (existsSync(localCantDir)) {
       const files = readdirSync(localCantDir).filter((f: string) => f.endsWith('.cant'));
       for (const file of files) {

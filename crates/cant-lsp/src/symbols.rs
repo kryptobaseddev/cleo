@@ -152,6 +152,7 @@ fn hook_to_symbol(hook: &HookDef) -> DocumentSymbol {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use cant_core::dsl::ast::*;

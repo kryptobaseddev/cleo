@@ -2,6 +2,7 @@
 //!
 //! Tests the interaction between lafs-core, conduit-core, cant-core,
 //! cant-router, and signaldock-core to ensure they work together correctly.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 //! Canonical CANT grammar parser for the CLEO ecosystem.
 //!
 //! This crate parses CLEO Agent Notation Tongue (CANT) messages
@@ -42,6 +43,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod dsl;
+/// Generated types and constants produced by the `cant-core` build script from `hook-mappings.json`.
 pub mod generated;
 pub mod parser;
 pub mod render;
@@ -212,6 +214,10 @@ pub fn parse(content: &str) -> ParsedCANTMessage {
 /// # Returns
 ///
 /// `Ok(CantDocument)` on success, or `Err(Vec<ParseError>)` if parsing fails.
+///
+/// # Errors
+///
+/// Returns `Err(Vec<ParseError>)` when the input contains invalid CANT syntax.
 pub fn parse_document(
     content: &str,
 ) -> Result<dsl::ast::CantDocument, Vec<dsl::error::ParseError>> {
@@ -239,7 +245,7 @@ pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnost
 
 /// Renders a parsed [`dsl::ast::CantDocument`] back into a `.cant` source string.
 ///
-/// This is the top-level entry point for the CleoOS v2 Wave 1 render pipeline
+/// This is the top-level entry point for the `CleoOS` v2 Wave 1 render pipeline
 /// (`docs/plans/CLEO-ULTRAPLAN.md` §17). The renderer is the forward half of
 /// the byte-identical round-trip contract: any hand-authored fixture that
 /// matches the canonical formatting rules documented on

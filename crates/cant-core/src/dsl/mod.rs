@@ -68,6 +68,11 @@ use span::Span;
 ///
 /// `Ok(CantDocument)` on success, or `Err(Vec<ParseError>)` if parsing fails.
 ///
+/// # Errors
+///
+/// Returns `Err(Vec<ParseError>)` when indentation is invalid or any top-level
+/// block contains a parse error. Multiple errors may be collected before returning.
+///
 /// # Examples
 ///
 /// ```
@@ -225,7 +230,7 @@ fn parse_block(
             agent::parse_agent_block(lines, idx),
             sections,
             errors,
-            |s| Section::Agent(s),
+            Section::Agent,
         );
     }
     if content_str.starts_with("skill ") {
@@ -233,20 +238,23 @@ fn parse_block(
             skill::parse_skill_block(lines, idx),
             sections,
             errors,
-            |s| Section::Skill(s),
+            Section::Skill,
         );
     }
     if content_str.starts_with("on ") && content_str.ends_with(':') {
-        return parse_block_result(hook::parse_hook_block(lines, idx), sections, errors, |s| {
-            Section::Hook(s)
-        });
+        return parse_block_result(
+            hook::parse_hook_block(lines, idx),
+            sections,
+            errors,
+            Section::Hook,
+        );
     }
     if content_str.starts_with("workflow ") && content_str.ends_with(':') {
         return parse_block_result(
             workflow::parse_workflow_block(lines, idx),
             sections,
             errors,
-            |s| Section::Workflow(s),
+            Section::Workflow,
         );
     }
     if content_str.starts_with("pipeline ") && content_str.ends_with(':') {
@@ -254,7 +262,7 @@ fn parse_block(
             pipeline::parse_pipeline_block(lines, idx),
             sections,
             errors,
-            |s| Section::Pipeline(s),
+            Section::Pipeline,
         );
     }
     if content_str.starts_with("team ") && content_str.ends_with(':') {
@@ -330,7 +338,7 @@ mod tests {
         assert_eq!(doc.sections.len(), 1);
         match &doc.sections[0] {
             Section::Comment(c) => assert_eq!(c.text, "This is a comment"),
-            other => panic!("expected Comment, got {:?}", other),
+            other => panic!("expected Comment, got {other:?}"),
         }
     }
 
@@ -347,7 +355,7 @@ mod tests {
                 assert_eq!(a.name.value, "ops");
                 assert_eq!(a.properties.len(), 2);
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -361,7 +369,7 @@ mod tests {
                 assert_eq!(s.name.value, "ct-deploy");
                 assert_eq!(s.properties.len(), 2);
             }
-            other => panic!("expected Skill, got {:?}", other),
+            other => panic!("expected Skill, got {other:?}"),
         }
     }
 
@@ -372,7 +380,7 @@ mod tests {
         assert_eq!(doc.sections.len(), 1);
         match &doc.sections[0] {
             Section::Hook(h) => assert_eq!(h.event.value, "SessionStart"),
-            other => panic!("expected Hook, got {:?}", other),
+            other => panic!("expected Hook, got {other:?}"),
         }
     }
 
@@ -386,7 +394,7 @@ mod tests {
                 assert_eq!(i.path, "./agents/scanner.cant");
                 assert!(i.alias.is_none());
             }
-            other => panic!("expected Import, got {:?}", other),
+            other => panic!("expected Import, got {other:?}"),
         }
     }
 
@@ -399,7 +407,7 @@ mod tests {
                 assert_eq!(i.path, "./agents/scanner.cant");
                 assert_eq!(i.alias, Some("scanner".to_string()));
             }
-            other => panic!("expected Import, got {:?}", other),
+            other => panic!("expected Import, got {other:?}"),
         }
     }
 
@@ -410,7 +418,7 @@ mod tests {
         assert_eq!(doc.sections.len(), 1);
         match &doc.sections[0] {
             Section::Binding(b) => assert_eq!(b.name.value, "threshold"),
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
     }
 
@@ -420,7 +428,7 @@ mod tests {
         let doc = parse_document(input).unwrap();
         match &doc.sections[0] {
             Section::Binding(b) => assert_eq!(b.name.value, "name"),
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
     }
 
@@ -453,23 +461,23 @@ on SessionStart:
 
         match &doc.sections[0] {
             Section::Import(_) => {}
-            other => panic!("expected Import, got {:?}", other),
+            other => panic!("expected Import, got {other:?}"),
         }
         match &doc.sections[1] {
             Section::Binding(_) => {}
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
         match &doc.sections[2] {
             Section::Agent(a) => assert_eq!(a.name.value, "ops-lead"),
-            other => panic!("expected Agent ops-lead, got {:?}", other),
+            other => panic!("expected Agent ops-lead, got {other:?}"),
         }
         match &doc.sections[3] {
             Section::Agent(a) => assert_eq!(a.name.value, "scanner"),
-            other => panic!("expected Agent scanner, got {:?}", other),
+            other => panic!("expected Agent scanner, got {other:?}"),
         }
         match &doc.sections[4] {
             Section::Hook(h) => assert_eq!(h.event.value, "SessionStart"),
-            other => panic!("expected Hook, got {:?}", other),
+            other => panic!("expected Hook, got {other:?}"),
         }
     }
 
@@ -524,7 +532,7 @@ agent coordinator:
                 assert_eq!(a.hooks.len(), 1);
                 assert_eq!(a.hooks[0].event.value, "PreToolUse");
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -542,11 +550,11 @@ agent coordinator:
         assert_eq!(doc.sections.len(), 3);
         match &doc.sections[0] {
             Section::Comment(c) => assert_eq!(c.text, "Header comment"),
-            other => panic!("expected Comment, got {:?}", other),
+            other => panic!("expected Comment, got {other:?}"),
         }
         match &doc.sections[2] {
             Section::Comment(c) => assert_eq!(c.text, "Footer comment"),
-            other => panic!("expected Comment, got {:?}", other),
+            other => panic!("expected Comment, got {other:?}"),
         }
     }
 
@@ -601,7 +609,7 @@ skill ct-monitor:
                 assert_eq!(wf.name.value, "review");
                 assert_eq!(wf.body.len(), 1);
             }
-            other => panic!("expected Workflow, got {:?}", other),
+            other => panic!("expected Workflow, got {other:?}"),
         }
     }
 
@@ -615,7 +623,7 @@ skill ct-monitor:
                 assert_eq!(p.name.value, "deploy");
                 assert_eq!(p.steps.len(), 1);
             }
-            other => panic!("expected Pipeline, got {:?}", other),
+            other => panic!("expected Pipeline, got {other:?}"),
         }
     }
 
@@ -639,7 +647,7 @@ workflow ci(pr_url):
                 assert_eq!(wf.params.len(), 1);
                 assert_eq!(wf.body.len(), 2); // session + if
             }
-            other => panic!("expected Workflow, got {:?}", other),
+            other => panic!("expected Workflow, got {other:?}"),
         }
     }
 
@@ -662,7 +670,7 @@ pipeline build:
                 assert_eq!(p.steps.len(), 1);
                 assert_eq!(p.steps[0].properties.len(), 3);
             }
-            other => panic!("expected Pipeline, got {:?}", other),
+            other => panic!("expected Pipeline, got {other:?}"),
         }
     }
 
@@ -681,15 +689,15 @@ agent scanner:
         assert_eq!(doc.sections.len(), 3);
         match &doc.sections[0] {
             Section::Agent(a) => assert_eq!(a.name.value, "ops"),
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
         match &doc.sections[1] {
             Section::Workflow(wf) => assert_eq!(wf.name.value, "review"),
-            other => panic!("expected Workflow, got {:?}", other),
+            other => panic!("expected Workflow, got {other:?}"),
         }
         match &doc.sections[2] {
             Section::Agent(a) => assert_eq!(a.name.value, "scanner"),
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -709,7 +717,7 @@ workflow review(pr):
         assert_eq!(doc.sections.len(), 1);
         match &doc.sections[0] {
             Section::Workflow(wf) => assert_eq!(wf.body.len(), 2),
-            other => panic!("expected Workflow, got {:?}", other),
+            other => panic!("expected Workflow, got {other:?}"),
         }
     }
 
@@ -739,7 +747,7 @@ agent ops:
                 assert_eq!(a.context_refs[1].name, "recent-decisions");
                 assert_eq!(a.context_refs[2].name, "memory-bridge");
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -767,7 +775,7 @@ agent coordinator:
                 assert_eq!(a.permissions.len(), 1);
                 assert_eq!(a.hooks.len(), 1);
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 }

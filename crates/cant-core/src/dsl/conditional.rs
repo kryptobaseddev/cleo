@@ -21,6 +21,10 @@ use super::span::Span;
 use super::statement::parse_statement_block;
 
 /// Parses a condition string (either discretion or expression).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the condition is not a valid discretion or expression.
 pub fn parse_condition(
     input: &str,
     byte_offset: usize,
@@ -40,6 +44,10 @@ pub fn parse_condition(
 ///
 /// Returns the parsed [`Conditional`] wrapped in a [`Statement::Conditional`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the conditional header or any branch body is malformed.
 pub fn parse_conditional(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -217,13 +225,13 @@ mod tests {
             Statement::Conditional(c) => {
                 match &c.condition {
                     Condition::Expression(_) => {}
-                    other => panic!("expected Expression, got {:?}", other),
+                    other => panic!("expected Expression, got {other:?}"),
                 }
                 assert_eq!(c.then_body.len(), 1);
                 assert!(c.elif_branches.is_empty());
                 assert!(c.else_body.is_none());
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -235,9 +243,9 @@ mod tests {
         match stmt {
             Statement::Conditional(c) => match &c.condition {
                 Condition::Discretion(dc) => assert_eq!(dc.prose, "all reviews pass"),
-                other => panic!("expected Discretion, got {:?}", other),
+                other => panic!("expected Discretion, got {other:?}"),
             },
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -254,7 +262,7 @@ mod tests {
                 assert!(c.else_body.is_some());
                 assert_eq!(c.else_body.unwrap().len(), 1);
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -270,7 +278,7 @@ mod tests {
                 assert_eq!(c.elif_branches.len(), 1);
                 assert!(c.else_body.is_some());
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -285,7 +293,7 @@ mod tests {
                 assert_eq!(c.elif_branches.len(), 2);
                 assert!(c.else_body.is_none());
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -298,16 +306,16 @@ mod tests {
             Statement::Conditional(c) => {
                 match &c.condition {
                     Condition::Discretion(dc) => assert_eq!(dc.prose, "task looks good"),
-                    other => panic!("expected Discretion, got {:?}", other),
+                    other => panic!("expected Discretion, got {other:?}"),
                 }
                 assert_eq!(c.elif_branches.len(), 1);
                 match &c.elif_branches[0].condition {
                     Condition::Discretion(dc) => assert_eq!(dc.prose, "needs minor fixes"),
-                    other => panic!("expected Discretion, got {:?}", other),
+                    other => panic!("expected Discretion, got {other:?}"),
                 }
                 assert!(c.else_body.is_some());
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -335,7 +343,7 @@ mod tests {
         assert_eq!(consumed, 1);
         match stmt {
             Statement::Conditional(c) => assert!(c.then_body.is_empty()),
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -347,7 +355,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match stmt {
             Statement::Conditional(c) => assert_eq!(c.then_body.len(), 3),
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -356,7 +364,7 @@ mod tests {
         let cond = parse_condition("x == 1", 0, 1, 1).unwrap();
         match cond {
             Condition::Expression(_) => {}
-            other => panic!("expected Expression condition, got {:?}", other),
+            other => panic!("expected Expression condition, got {other:?}"),
         }
     }
 
@@ -365,7 +373,7 @@ mod tests {
         let cond = parse_condition("**all good**", 0, 1, 1).unwrap();
         match cond {
             Condition::Discretion(dc) => assert_eq!(dc.prose, "all good"),
-            other => panic!("expected Discretion condition, got {:?}", other),
+            other => panic!("expected Discretion condition, got {other:?}"),
         }
     }
 
@@ -387,7 +395,7 @@ mod tests {
                 assert_eq!(c.span.start, 0);
                 assert_eq!(c.span.line, 1);
             }
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 

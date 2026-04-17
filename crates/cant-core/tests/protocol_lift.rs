@@ -1,4 +1,5 @@
 //! Wave 4 integration tests: Protocol + Lifecycle `.cant` file parsing.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //!
 //! Verifies that all 12 protocol `.cant` files and the 1 lifecycle `.cant`
 //! file created during the Wave 4 protocol-to-CANT lift parse without error
@@ -201,7 +202,7 @@ fn protocol_frontmatter_preserves_id_field() {
         .expect("frontmatter should have 'id' property");
     match &id_prop.value {
         cant_core::dsl::ast::Value::Identifier(v) => assert_eq!(v, "RSCH"),
-        other => panic!("expected Identifier for id, got {:?}", other),
+        other => panic!("expected Identifier for id, got {other:?}"),
     }
 
     // Find the 'enforcement' property
@@ -212,7 +213,7 @@ fn protocol_frontmatter_preserves_id_field() {
         .expect("frontmatter should have 'enforcement' property");
     match &enforcement_prop.value {
         cant_core::dsl::ast::Value::Identifier(v) => assert_eq!(v, "strict"),
-        other => panic!("expected Identifier for enforcement, got {:?}", other),
+        other => panic!("expected Identifier for enforcement, got {other:?}"),
     }
 }
 

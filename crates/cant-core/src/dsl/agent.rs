@@ -23,6 +23,11 @@ use super::span::Span;
 /// Parses an `agent Name:` block starting at the given line index.
 ///
 /// Returns the parsed [`AgentDef`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the block header, properties, or nested blocks
+/// are malformed.
 pub fn parse_agent_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,

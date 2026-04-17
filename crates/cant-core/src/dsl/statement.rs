@@ -16,6 +16,10 @@ use super::span::Span;
 ///
 /// This is the primary entry point used by workflow, conditional, loop, and
 /// try/catch parsers to parse their body blocks.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if any statement in the block is malformed.
 pub fn parse_statement_block(lines: &[IndentedLine<'_>]) -> Result<Vec<Statement>, ParseError> {
     let mut stmts = Vec::new();
     let mut i = 0;
@@ -382,7 +386,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Directive(d) => assert_eq!(d.verb, "done"),
-            other => panic!("expected Directive, got {:?}", other),
+            other => panic!("expected Directive, got {other:?}"),
         }
     }
 
@@ -394,7 +398,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Binding(b) => assert_eq!(b.name.value, "x"),
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
     }
 
@@ -406,7 +410,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Comment(c) => assert_eq!(c.text, "a comment"),
-            other => panic!("expected Comment, got {:?}", other),
+            other => panic!("expected Comment, got {other:?}"),
         }
     }
 
@@ -418,7 +422,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Output(o) => assert_eq!(o.name.value, "verdict"),
-            other => panic!("expected Output, got {:?}", other),
+            other => panic!("expected Output, got {other:?}"),
         }
     }
 
@@ -430,7 +434,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Session(_) => {}
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -442,7 +446,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Property(p) => assert_eq!(p.key.value, "model"),
-            other => panic!("expected Property, got {:?}", other),
+            other => panic!("expected Property, got {other:?}"),
         }
     }
 
@@ -489,7 +493,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::ApprovalGate(_) => {}
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -501,7 +505,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::TryCatch(_) => {}
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -513,7 +517,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Parallel(_) => {}
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -525,7 +529,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Repeat(_) => {}
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -537,7 +541,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::ForLoop(_) => {}
-            other => panic!("expected ForLoop, got {:?}", other),
+            other => panic!("expected ForLoop, got {other:?}"),
         }
     }
 
@@ -549,7 +553,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Conditional(_) => {}
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -561,7 +565,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
             Statement::Pipeline(_) => {}
-            other => panic!("expected Pipeline, got {:?}", other),
+            other => panic!("expected Pipeline, got {other:?}"),
         }
     }
 }

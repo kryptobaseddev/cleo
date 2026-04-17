@@ -118,7 +118,7 @@ fn team002_leads_without_consult_when_fires() {
     let diags = run(Section::Team(team));
     let team002: Vec<_> = diags.iter().filter(|d| d.rule_id == "TEAM-002").collect();
     // Should fire for missing consult-when AND missing stages.
-    assert!(team002.len() >= 1);
+    assert!(!team002.is_empty());
     assert!(team002.iter().any(|d| d.message.contains("consult-when")));
 }
 

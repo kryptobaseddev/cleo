@@ -23,6 +23,10 @@ use super::span::Span;
 ///
 /// Returns the parsed [`ParallelBlock`] wrapped in a [`Statement::Parallel`] and
 /// the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the parallel block header or any arm body is malformed.
 pub fn parse_parallel_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -43,16 +47,10 @@ pub fn parse_parallel_block(
         .strip_prefix("parallel")
         .ok_or_else(|| ParseError::error("expected `parallel:` block", header_span))?;
 
-    let (modifier, after_mod) = if after_parallel.starts_with(" race") {
-        (
-            Some(ParallelModifier::Race),
-            after_parallel.strip_prefix(" race").unwrap(),
-        )
-    } else if after_parallel.starts_with(" settle") {
-        (
-            Some(ParallelModifier::Settle),
-            after_parallel.strip_prefix(" settle").unwrap(),
-        )
+    let (modifier, after_mod) = if let Some(rest) = after_parallel.strip_prefix(" race") {
+        (Some(ParallelModifier::Race), rest)
+    } else if let Some(rest) = after_parallel.strip_prefix(" settle") {
+        (Some(ParallelModifier::Settle), rest)
     } else {
         (None, after_parallel)
     };
@@ -219,7 +217,7 @@ mod tests {
                 assert_eq!(p.arms[0].name, "a");
                 assert_eq!(p.arms[1].name, "b");
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -232,7 +230,7 @@ mod tests {
             Statement::Parallel(p) => {
                 assert_eq!(p.modifier, Some(ParallelModifier::Race));
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -245,7 +243,7 @@ mod tests {
             Statement::Parallel(p) => {
                 assert_eq!(p.modifier, Some(ParallelModifier::Settle));
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -260,12 +258,12 @@ mod tests {
                 match &*p.arms[0].body {
                     Statement::Session(s) => match &s.target {
                         SessionTarget::Agent(name) => assert_eq!(name, "scanner"),
-                        other => panic!("expected Agent, got {:?}", other),
+                        other => panic!("expected Agent, got {other:?}"),
                     },
-                    other => panic!("expected Session, got {:?}", other),
+                    other => panic!("expected Session, got {other:?}"),
                 }
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -279,10 +277,10 @@ mod tests {
                 assert_eq!(p.arms.len(), 2);
                 match &*p.arms[1].body {
                     Statement::Expression(_) => {}
-                    other => panic!("expected Expression, got {:?}", other),
+                    other => panic!("expected Expression, got {other:?}"),
                 }
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -326,7 +324,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match stmt {
             Statement::Parallel(p) => assert_eq!(p.arms.len(), 2),
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -345,10 +343,10 @@ mod tests {
                         assert_eq!(s.properties.len(), 1);
                         assert_eq!(s.properties[0].key.value, "context");
                     }
-                    other => panic!("expected Session, got {:?}", other),
+                    other => panic!("expected Session, got {other:?}"),
                 }
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -371,7 +369,7 @@ mod tests {
                 assert_eq!(p.span.start, 0);
                 assert_eq!(p.span.line, 1);
             }
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Protocol-document rendering for the CANT renderer.
 //!
-//! CleoOS v2 `kind: protocol` documents describe RCASD/IVTR protocol contracts
+//! `CleoOS` v2 `kind: protocol` documents describe RCASD/IVTR protocol contracts
 //! (see `docs/plans/CLEO-ULTRAPLAN.md` §8). At the grammar level they are
 //! structurally identical to any other CANT document: frontmatter plus a
 //! sequence of top-level sections. Wave 1 therefore delegates layout to the

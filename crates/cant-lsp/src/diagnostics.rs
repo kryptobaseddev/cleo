@@ -99,6 +99,7 @@ pub fn fix_to_code_action(fix: &Fix, uri: &tower_lsp::lsp_types::Url) -> Option<
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use cant_core::dsl::span::Span;

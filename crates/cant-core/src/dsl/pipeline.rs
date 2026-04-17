@@ -25,6 +25,10 @@ use super::span::Span;
 /// Parses a `pipeline Name:` or `pipeline Name(params):` block starting at the given line index.
 ///
 /// Returns the parsed [`PipelineDef`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the pipeline header or any step body is malformed.
 pub fn parse_pipeline_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -127,6 +131,10 @@ pub fn parse_pipeline_block(
 /// Parses a `step Name:` block within a pipeline.
 ///
 /// Returns the parsed [`PipeStep`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the step header or properties are malformed.
 pub fn parse_pipe_step(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -200,6 +208,10 @@ pub fn parse_pipe_step(
 }
 
 /// Parses a name and optional parameter list from `"Name(p1, p2)"` or just `"Name"`.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the name or parameter syntax is invalid.
 pub fn parse_name_and_params<'a>(
     input: &'a str,
     base_offset: usize,
@@ -397,7 +409,7 @@ mod tests {
             .unwrap();
         match &timeout.value {
             Value::Duration(d) => assert_eq!(d.amount, 60),
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 

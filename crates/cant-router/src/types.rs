@@ -193,6 +193,7 @@ mod tests {
 
     #[test]
     fn tier_serializes_lowercase() {
+        #[allow(clippy::expect_used)]
         let json = serde_json::to_string(&Tier::High).expect("serialize");
         assert_eq!(json, "\"high\"");
     }
