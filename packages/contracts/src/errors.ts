@@ -7,6 +7,53 @@
  * @task T5702
  */
 
+import { ExitCode } from './exit-codes.js';
+
+/**
+ * Thrown when a non-orchestrator role attempts to spawn another agent,
+ * violating the thin-agent inversion-of-control rule (ORC-012).
+ *
+ * Only orchestrators may spawn subagents. Leads and workers must escalate
+ * via the playbook approval gate defined in T889 Orchestration Coherence v3.
+ *
+ * @remarks
+ * Emitted by the spawn-guard middleware when an agent's declared role does
+ * not satisfy the orchestrator precondition. Carries `exitCode` aligned with
+ * {@link ExitCode.THIN_AGENT_VIOLATION} so the CLI can surface exit 68 to
+ * callers without additional mapping.
+ *
+ * @example
+ * ```typescript
+ * throw new ThinAgentViolationError('worker-42', 'lead', 'orchestrate spawn');
+ * ```
+ *
+ * @task T889 Orchestration Coherence v3
+ * @task T907 Thin-agent enforcement
+ */
+export class ThinAgentViolationError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_THIN_AGENT_VIOLATION';
+  /** Numeric exit code aligned with {@link ExitCode.THIN_AGENT_VIOLATION}. */
+  readonly exitCode: ExitCode = ExitCode.THIN_AGENT_VIOLATION;
+
+  /**
+   * @param agentId - The offending agent's unique identifier.
+   * @param role - The offending agent's declared role (lead, worker, etc.).
+   * @param attemptedAction - The spawn action that was blocked.
+   */
+  constructor(
+    public readonly agentId: string,
+    public readonly role: string,
+    public readonly attemptedAction: string,
+  ) {
+    super(
+      `E_THIN_AGENT_VIOLATION: agent '${agentId}' (role=${role}) attempted '${attemptedAction}'. ` +
+        'Only orchestrators may spawn. Escalate via playbook approval gate.',
+    );
+    this.name = 'ThinAgentViolationError';
+  }
+}
+
 /**
  * Normalize any thrown value into a standardized error object.
  *

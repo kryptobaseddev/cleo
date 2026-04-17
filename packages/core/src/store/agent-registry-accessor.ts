@@ -30,8 +30,11 @@ import type {
   AgentCredential,
   AgentListFilter,
   AgentRegistryAPI,
+  AgentRegistryExtendedFields,
+  AgentTier,
   AgentWithProjectOverride,
   ProjectAgentRef,
+  ResolvedAgent,
   TransportConfig,
 } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
@@ -103,7 +106,20 @@ function readMachineKey(): Buffer {
 // Raw row shapes
 // ---------------------------------------------------------------------------
 
-/** Raw row shape from global signaldock.db:agents. */
+/**
+ * Raw row shape from global signaldock.db:agents.
+ *
+ * The T897 v3 columns (tier, can_spawn, orch_level, reports_to, cant_path,
+ * cant_sha256, installed_from, installed_at) are typed as OPTIONAL here so
+ * this interface can accept rows from databases where the v3 migration has
+ * not yet been applied (freshly-cloned projects, pre-upgrade snapshots).
+ *
+ * Callers that require v3 fields (e.g. `rowToResolvedAgent`) MUST check
+ * migration state or narrow the row through `hasV3Fields()` first.
+ *
+ * @task T897
+ * @epic T889
+ */
 interface AgentDbRow {
   id: string;
   agent_id: string;
@@ -122,6 +138,15 @@ interface AgentDbRow {
   last_used_at: number | null;
   created_at: number;
   updated_at: number;
+  // ---- T897 v3 extensions ----
+  tier?: string;
+  can_spawn?: number;
+  orch_level?: number;
+  reports_to?: string | null;
+  cant_path?: string | null;
+  cant_sha256?: string | null;
+  installed_from?: string | null;
+  installed_at?: string | null;
 }
 
 /** Raw row shape from conduit.db:project_agent_refs. */
@@ -187,6 +212,88 @@ function rowToCredential(row: AgentDbRow): AgentCredential {
     lastUsedAt: row.last_used_at ? new Date(row.last_used_at * 1000).toISOString() : undefined,
     createdAt: new Date(row.created_at * 1000).toISOString(),
     updatedAt: new Date(row.updated_at * 1000).toISOString(),
+  };
+}
+
+/**
+ * Narrow a value to the set of valid `AgentTier` literals.
+ *
+ * Returns `'fallback'` for any value the CHECK constraint would reject.
+ * Keeping this permissive (instead of throwing) preserves the behavior
+ * required by `rowToResolvedAgent` on pre-migration DBs, where callers
+ * expect a default rather than a crash.
+ *
+ * @task T897
+ * @epic T889
+ */
+function coerceTier(value: string | undefined): AgentTier {
+  return value === 'project' || value === 'global' || value === 'packaged' || value === 'fallback'
+    ? value
+    : 'fallback';
+}
+
+/**
+ * Extract the T897 v3 extended fields from a raw agents row. Populates safe
+ * defaults for any field the v3 migration has not yet provisioned (tier:
+ * 'fallback', canSpawn: false, orchLevel: 2). Callers that need strict
+ * migration presence MUST check `row.tier !== undefined` before invoking.
+ *
+ * @param row - Raw SQLite row from signaldock.db:agents
+ * @returns The extended field block, with safe fallbacks for absent columns
+ * @task T897
+ * @epic T889
+ */
+function rowToExtendedFields(row: AgentDbRow): AgentRegistryExtendedFields {
+  return {
+    tier: coerceTier(row.tier),
+    canSpawn: row.can_spawn === 1,
+    orchLevel: typeof row.orch_level === 'number' ? row.orch_level : 2,
+    reportsTo: row.reports_to ?? null,
+    cantPath: row.cant_path ?? null,
+    cantSha256: row.cant_sha256 ?? null,
+    installedFrom:
+      row.installed_from === 'seed' ||
+      row.installed_from === 'user' ||
+      row.installed_from === 'manual'
+        ? row.installed_from
+        : null,
+    installedAt: row.installed_at ?? null,
+  };
+}
+
+/**
+ * Build a `ResolvedAgent` envelope from a global agents row. This is
+ * scaffolding consumed by future `resolveAgent()` / `installAgentFromCant()`
+ * work (W2-3, W2-4). It does NOT perform tier-merging, alias lookup, or
+ * skill unioning — it simply projects a single row into the resolved shape.
+ *
+ * Returns `null` when the row lacks the hard-required `cant_path` /
+ * `cant_sha256` pair (a row from a pre-T897 DB, or an agents row that has
+ * never been bound to a `.cant`). Callers that need a synthesized fallback
+ * envelope MUST handle the null return explicitly.
+ *
+ * @param row - Raw agents row from signaldock.db
+ * @returns A ResolvedAgent envelope, or null when provenance is missing
+ * @task T897
+ * @epic T889
+ */
+export function rowToResolvedAgent(row: AgentDbRow): ResolvedAgent | null {
+  const extended = rowToExtendedFields(row);
+  if (!extended.cantPath || !extended.cantSha256) {
+    return null;
+  }
+  const skills = JSON.parse(row.skills) as string[];
+  return {
+    agentId: row.agent_id,
+    tier: extended.tier,
+    cantPath: extended.cantPath,
+    cantSha256: extended.cantSha256,
+    canSpawn: extended.canSpawn,
+    orchLevel: extended.orchLevel,
+    reportsTo: extended.reportsTo,
+    skills,
+    source: extended.tier,
+    aliasApplied: false,
   };
 }
 

@@ -123,7 +123,17 @@ export function getSignaldockDbPath(cwd?: string): string {
  * @task T346
  * @epic T310
  */
-const GLOBAL_EMBEDDED_MIGRATIONS: Array<{ name: string; sql: string }> = [
+const GLOBAL_EMBEDDED_MIGRATIONS: Array<{
+  name: string;
+  sql: string;
+  /**
+   * Optional pre-SQL hook that runs inside the migration transaction before
+   * the embedded SQL block. Used by T897 to filter `ADD COLUMN` statements
+   * through PRAGMA table_info() because SQLite lacks
+   * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+   */
+  preApply?: (db: DatabaseSync) => void;
+}> = [
   {
     name: '2026-04-12-000000_initial_global_signaldock',
     sql: `-- Global-tier signaldock.db initial migration (T310, ADR-037 §2.2).
@@ -334,7 +344,102 @@ CREATE TABLE IF NOT EXISTS org_agent_keys (
 CREATE INDEX IF NOT EXISTS org_agent_keys_org_idx ON org_agent_keys(organization_id);
 CREATE INDEX IF NOT EXISTS org_agent_keys_agent_idx ON org_agent_keys(agent_id);`,
   },
+  {
+    name: '2026-04-17-213120_T897_agent_registry_v3',
+    sql: `-- T889 / T897: agent_registry v3 — add tier, canSpawn, cantPath, checksum, orch fields.
+-- Column additions are filtered at application time by applyV3ColumnAlters()
+-- because SQLite does NOT support \`ADD COLUMN IF NOT EXISTS\`. Index creates
+-- use IF NOT EXISTS natively.
+
+CREATE INDEX IF NOT EXISTS idx_agents_tier ON agents(tier);
+CREATE INDEX IF NOT EXISTS idx_agents_cant_path ON agents(cant_path);
+CREATE INDEX IF NOT EXISTS idx_agent_skills_source ON agent_skills(source);`,
+    preApply: applyV3ColumnAlters,
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// T897 v3 column additions — SQLite lacks ADD COLUMN IF NOT EXISTS, so we
+// introspect PRAGMA table_info() and only emit ALTER statements for the
+// columns that are actually missing. This preserves both-sides idempotency
+// (fresh installs + upgraded installs) without needing SAVEPOINT/retry.
+// ---------------------------------------------------------------------------
+
+/**
+ * Column additions for the T897 v3 migration, keyed by table.
+ *
+ * @task T897
+ * @epic T889
+ */
+const V3_COLUMN_ADDITIONS: Record<string, ReadonlyArray<{ name: string; ddl: string }>> = {
+  agents: [
+    {
+      name: 'tier',
+      ddl: "ADD COLUMN tier TEXT NOT NULL DEFAULT 'global' CHECK (tier IN ('project','global','packaged','fallback'))",
+    },
+    {
+      name: 'can_spawn',
+      ddl: 'ADD COLUMN can_spawn INTEGER NOT NULL DEFAULT 0 CHECK (can_spawn IN (0,1))',
+    },
+    {
+      name: 'orch_level',
+      ddl: 'ADD COLUMN orch_level INTEGER NOT NULL DEFAULT 2 CHECK (orch_level BETWEEN 0 AND 2)',
+    },
+    { name: 'reports_to', ddl: 'ADD COLUMN reports_to TEXT' },
+    { name: 'cant_path', ddl: 'ADD COLUMN cant_path TEXT' },
+    { name: 'cant_sha256', ddl: 'ADD COLUMN cant_sha256 TEXT' },
+    {
+      name: 'installed_from',
+      ddl: "ADD COLUMN installed_from TEXT CHECK (installed_from IN ('seed','user','manual') OR installed_from IS NULL)",
+    },
+    { name: 'installed_at', ddl: 'ADD COLUMN installed_at TEXT' },
+  ],
+  agent_skills: [
+    {
+      name: 'source',
+      ddl: "ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('cant','manual','computed'))",
+    },
+    {
+      name: 'attached_at',
+      ddl: "ADD COLUMN attached_at TEXT NOT NULL DEFAULT (datetime('now'))",
+    },
+  ],
+};
+
+/**
+ * Read column names currently defined on `table`.
+ *
+ * @param db    - open DatabaseSync handle
+ * @param table - SQL table identifier
+ * @returns Set of column names present in the live schema
+ * @task T897
+ * @epic T889
+ */
+function readColumnSet(db: DatabaseSync, table: string): Set<string> {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return new Set(rows.map((r) => r.name));
+}
+
+/**
+ * Apply the T897 v3 column additions only for columns missing from the live
+ * schema. Invoked as the `preApply` hook for the v3 migration entry so the
+ * migration remains idempotent across fresh installs, partially-upgraded
+ * installs, and already-upgraded installs.
+ *
+ * @param db - open DatabaseSync handle inside the migration's transaction
+ * @task T897
+ * @epic T889
+ */
+function applyV3ColumnAlters(db: DatabaseSync): void {
+  for (const [table, additions] of Object.entries(V3_COLUMN_ADDITIONS)) {
+    const existing = readColumnSet(db, table);
+    for (const { name, ddl } of additions) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE ${table} ${ddl}`);
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Database lifecycle
@@ -376,6 +481,9 @@ function applyGlobalSignaldockSchema(db: DatabaseSync): void {
 
     db.exec('BEGIN TRANSACTION');
     try {
+      if (migration.preApply) {
+        migration.preApply(db);
+      }
       db.exec(migration.sql);
       db.prepare('INSERT INTO _signaldock_migrations (name) VALUES (?)').run(migration.name);
       db.exec('COMMIT');
