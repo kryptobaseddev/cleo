@@ -40,3 +40,11 @@
 {"id":"ADR-043","file":".cleo/adrs/ADR-043-native-citty-command-migration.md","title":"ADR-043 — Native Citty Command Architecture for Shim Removal","status":"PROPOSED","date":"2026-04-10"}
 {"id":"ADR-044","file":".cleo/adrs/ADR-044-canon-reconciliation.md","title":"ADR-044 — Canon Reconciliation: 6 Systems, 11 Domains, Moving Op Count, SSoT Hierarchy","status":"PROPOSED","date":"2026-04-15"}
 {"id":"ADR-045","file":".cleo/adrs/ADR-045-cleo-scaffolding-ssot.md","title":"T310/T311 orphan files","status":"unknown","date":""}
+{"id":"ADR-046","file":".cleo/adrs/ADR-046-stdp-phase-5-implementation.md","title":"Untitled","status":"unknown","date":""}
+{"id":"ADR-047","file":".cleo/adrs/ADR-047-autonomous-gc-and-disk-safety.md","title":"Untitled","status":"unknown","date":""}
+{"id":"ADR-048","file":".cleo/adrs/ADR-048-memory-extraction-pipeline.md","title":"Untitled","status":"unknown","date":""}
+{"id":"ADR-049","file":".cleo/adrs/ADR-049-harness-sovereignty.md","title":"ADR-049 — Harness Sovereignty: CLEO-Owned Memory + Per-Provider Agent Folder Abstraction","status":"PROPOSED","date":"2026-04-15","supersedes":"ADR-035 harness-boundary claims only (NOT the entire ADR — scope, session, model, and exclusivity decisions in ADR-035 remain in effect)"}
+{"id":"ADR-050","file":".cleo/adrs/ADR-050-cleoos-sovereign-harness.md","title":"ADR-050 — CleoOS Sovereign Harness: Distribution Binding Charter","status":"PROPOSED","date":"2026-04-15"}
+{"id":"ADR-051","file":".cleo/adrs/ADR-051-programmatic-gate-integrity.md","title":"ADR-051 — Programmatic Gate Integrity: Evidence-Based Verify + Removal of Silent Bypass","status":"ACCEPTED","date":"2026-04-17"}
+{"id":"ADR-052","file":".cleo/adrs/ADR-052-caamp-keeps-commander.md","title":"ADR-052 — caamp Retains commander: Monorepo CLI Framework Divergence Accepted","status":"ACCEPTED","date":"2026-04-17"}
+{"id":"ADR-053","file":".cleo/adrs/ADR-053-project-agnostic-release-pipeline.md","title":"ADR-053: Project-Agnostic Release Pipeline (T820)","status":"Accepted","date":"2026-04-17"}

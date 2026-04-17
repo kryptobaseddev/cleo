@@ -173,21 +173,59 @@ I need system or configuration info
 
 ---
 
-## Pre-Complete Gate Ritual
+## Pre-Complete Gate Ritual (ADR-051 — evidence required)
 
-MANDATORY before every `cleo complete <id>`:
+MANDATORY before every `cleo complete <id>`.  Every verification gate MUST be
+backed by programmatic evidence. CLEO validates commits against the git
+history, file sha256 against disk, tool exit codes against real runs, and
+vitest JSON against the reporter output. No evidence → no gate pass.
 
-1. `cleo show <id>` — inspect gates
-2. Run each acceptance criterion verifiable (tests, lint, file checks)
-3. `cleo verify <id> --run` — executes programmatic gates
-4. `cleo memory observe "..." --title "..."` — capture learnings
-5. `cleo complete <id>` — should pass cleanly
+### Capture evidence per gate
 
-Anti-patterns:
-- `cleo complete` without `cleo verify --run`
-- `cleo verify --all` to bypass programmatic gates
-- Skipping memory observe on non-trivial work
-- Self-attesting without programmatic proof (IVTR validate phase exists to prevent this)
+```bash
+# implemented gate: commit + file list
+cleo verify T### --gate implemented \
+  --evidence "commit:$(git rev-parse HEAD);files:packages/a/src/b.ts,packages/a/src/c.ts"
+
+# testsPassed gate: run tests and capture
+cleo verify T### --gate testsPassed --evidence "tool:pnpm-test"
+
+# qaPassed gate: biome + tsc both exit 0
+cleo verify T### --gate qaPassed --evidence "tool:biome;tool:tsc"
+
+# documented gate: docs/spec file
+cleo verify T### --gate documented --evidence "files:docs/specs/T###-spec.md"
+
+# cleanupDone gate: summary note
+cleo verify T### --gate cleanupDone --evidence "note:removed old helpers"
+
+# securityPassed gate: scan or waiver
+cleo verify T### --gate securityPassed --evidence "tool:security-scan"
+
+# Then complete — evidence is RE-VALIDATED at this step
+cleo memory observe "..." --title "..."
+cleo complete T###
+```
+
+### Anti-patterns (ADR-051)
+
+- ❌ `cleo verify --all` without `--evidence` — returns `E_EVIDENCE_MISSING`
+- ❌ `cleo complete --force` — flag REMOVED
+- ❌ Modifying source files between `verify` and `complete` — caught by
+     staleness check (`E_EVIDENCE_STALE`)
+- ❌ Passing `note:` as evidence for `implemented` or `testsPassed` —
+     fails `E_EVIDENCE_INSUFFICIENT`
+- ❌ Self-attesting without programmatic proof
+
+### Emergency override (audited)
+
+```bash
+CLEO_OWNER_OVERRIDE=1 CLEO_OWNER_OVERRIDE_REASON="<reason>" \
+  cleo verify T### --gate implemented --evidence "note:<justification>"
+```
+
+Writes to `.cleo/audit/force-bypass.jsonl` with PID, command, and reason. Do not
+normalize.
 
 ---
 

@@ -1,0 +1,6 @@
+{
+  "name": "release-test-project",
+  "version": "1.0.0",
+  "description": "Minimal CLEO-using downstream project for T820 RELEASE-06 integration test",
+  "private": true
+}

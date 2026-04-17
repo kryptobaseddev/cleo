@@ -29,6 +29,22 @@ export {
 export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
 export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+// Evidence-based verification (T832 / ADR-051)
+export {
+  type AtomValidation,
+  checkGateEvidenceMinimum,
+  composeGateEvidence,
+  type EvidenceTool,
+  GATE_EVIDENCE_MINIMUMS,
+  type ParsedAtom,
+  type ParsedEvidence,
+  parseEvidence,
+  type RevalidationResult,
+  revalidateEvidence,
+  TOOL_COMMANDS,
+  VALID_TOOLS,
+  validateAtom,
+} from './evidence.js';
 export {
   type FindResult,
   type FindTasksOptions,
@@ -36,6 +52,15 @@ export {
   findTasks,
   fuzzyScore,
 } from './find.js';
+// Gate audit trail (T832 / ADR-051)
+export {
+  appendForceBypassLine,
+  appendGateAuditLine,
+  type ForceBypassRecord,
+  type GateAuditRecord,
+  getForceBypassPath,
+  getGateAuditPath,
+} from './gate-audit.js';
 export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
 export { showTask, type TaskDetail } from './show.js';
 export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

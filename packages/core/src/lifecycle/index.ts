@@ -919,6 +919,19 @@ export async function recordStageProgress(
     }
   }
 
+  // T835 / ADR-051 Decision 5: keep tasks.pipeline_stage in sync with
+  // lifecycle_stages so the parent-epic gate in taskCompleteStrict sees the
+  // authoritative stage without lifting the lifecycle_stages table.
+  // Only advance on in_progress / completed — skipped and failed do not move
+  // the canonical stage.
+  if (status === 'in_progress' || status === 'completed') {
+    await db
+      .update(schema.tasks)
+      .set({ pipelineStage: stage })
+      .where(eq(schema.tasks.id, epicId))
+      .run();
+  }
+
   return { epicId, stage, status, timestamp: now };
 }
 
