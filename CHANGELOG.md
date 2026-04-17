@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.81] — 2026-04-17
+
+### T870 EPIC: Schema Integrity — status↔pipelineStage Sync + Studio Consistency
+
+Owner-flagged (2026-04-17): Studio Tasks dashboard + Pipeline view exposed a systemic data integrity issue — 28 tasks marked `status=done` via `cleo complete` had `pipelineStage` stuck at non-terminal values (research/implementation/release). The Pipeline Kanban rendered them in wrong columns; the DONE column showed 0 even though 28 tasks were done. Epic progress counts mixed direct-children numerators with descendant-inclusive denominators ("5/29 17%" for T487 when the real math is 5 done direct + 8 archived waves + 16 done grandchildren).
+
+#### Fix 1 (T871) — cleo complete/cancel sync pipelineStage to terminal
+- `PipelineStage` enum extended with `cancelled` (order 11). `TERMINAL_PIPELINE_STAGES` set added (`contribution`, `cancelled`). `isTerminalPipelineStage()` helper exposed.
+- `cleo complete` now dual-writes `status=done` AND `pipelineStage=contribution` in the same transaction.
+- `cleo cancel` now dual-writes `status=cancelled` AND `pipelineStage=cancelled`.
+- `cleo restore task` resets pipelineStage back to the epic's lifecycle stage default.
+
+#### Fix 2 (T872) — One-shot backfill migration
+- `packages/core/src/lifecycle/backfill-terminal-pipeline-stage.ts` (idempotent, guarded by schema_meta key `backfill:terminal-pipeline-stage`).
+- Scans all tasks with `status=done|cancelled` and non-terminal `pipelineStage`; sets to `contribution`/`cancelled` respectively.
+- Applied to local DB during release: 38 rows fixed.
+
+#### Fix 3 (T873) — Studio Pipeline view honors status
+- `resolveColumnId` in `/tasks/pipeline/+page.server.ts` routes `status=done` → DONE column and `status=cancelled` → CANCELLED column regardless of last `pipelineStage`.
+- New canonical column taxonomy including DONE + CANCELLED.
+
+#### Fix 4 (T874) — Epic progress consistency
+- `computeEpicProgress` in `/tasks/+page.server.ts` uses consistent direct-children basis for BOTH numerator and denominator.
+- No more mismatched counting (direct done / descendant total).
+
+### T863 Parent-run Regression Fix
+
+Discovered during T870 post-ship test run: T861/T863 added `async run({ cmd }) { await showUsage(cmd); }` to all parent commands with subCommands. **Citty unconditionally fires `cmd.run(context)` AFTER routing to a subcommand** (not what citty docs imply), so parent help printed AFTER every subcommand's output — breaking `--json` parsing in tests (T682-1, T682-2) and any automation consuming JSON stdout.
+
+**Fix applied to 44 parent command files**:
+```typescript
+async run({ cmd, rawArgs }) {
+  const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+  if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+  await showUsage(cmd);
+},
+```
+Guard short-circuits when rawArgs contains a subcommand token. Bare `cleo memory` still shows help (T861/T863 intent preserved). `cleo memory dream --json` now emits clean JSON only.
+
+### Tests
+
+- 8601 / 8643 pass, 0 failures, 10 skipped, 32 todo.
+- 53 new tests across pipeline-stage, complete, cancel-ops, backfill migration, Studio resolveColumnId, Studio epic-progress.
+
+### Important note for consumers
+
+This release requires `npm install -g @cleocode/cleo-os@2026.4.81` to propagate the parent-run fix to the globally-installed binary (CLI integration tests spawn the global binary). Local dist updates are automatic via `pnpm build`.
+
 ## [2026.4.80] — 2026-04-17
 
 ### Fixed

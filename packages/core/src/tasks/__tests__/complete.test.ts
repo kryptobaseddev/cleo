@@ -270,4 +270,76 @@ describe('completeTask', () => {
     expect(result.task.notes).toHaveLength(1);
     expect(result.task.notes![0]).toContain('Done with tests');
   });
+
+  // --------------------------------------------------------------------------
+  // T871 — status ↔ pipelineStage sync on completion
+  // --------------------------------------------------------------------------
+
+  it('T871: sets pipelineStage to contribution when completing from research', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T870',
+        title: 'Research task',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'T870' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+    expect(result.task.pipelineStage).toBe('contribution');
+  });
+
+  it('T871: sets pipelineStage to contribution when completing from implementation', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T871',
+        title: 'Implementation task',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'implementation',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'T871' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+    expect(result.task.pipelineStage).toBe('contribution');
+  });
+
+  it('T871: sets pipelineStage to contribution when completing from release', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T872',
+        title: 'Release task',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'release',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'T872' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+    expect(result.task.pipelineStage).toBe('contribution');
+  });
+
+  it('T871: leaves pipelineStage=contribution unchanged (idempotent)', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T873',
+        title: 'Already at contribution',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'contribution',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'T873' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+    expect(result.task.pipelineStage).toBe('contribution');
+  });
 });

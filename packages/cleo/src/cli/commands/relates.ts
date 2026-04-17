@@ -138,7 +138,9 @@ export const relatesCommand = defineCommand({
     discover: discoverCommand,
     list: listCommand,
   },
-  async run({ cmd }) {
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
     await showUsage(cmd);
   },
 });

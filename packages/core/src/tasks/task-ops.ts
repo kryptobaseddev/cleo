@@ -35,6 +35,7 @@ import {
   validateDependencies,
 } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
+import { isTerminalPipelineStage } from './pipeline-stage.js';
 
 // ============================================================================
 // Types (shared)
@@ -815,6 +816,13 @@ export async function coreTaskRestore(
     t.cancelledAt = undefined;
     t.cancellationReason = undefined;
     t.updatedAt = now;
+    // T871: when a task was cancelled, pipelineStage was advanced to the
+    // terminal `cancelled` marker. On restore we re-enter the active chain
+    // — reset to a sensible default so `updateTask`'s forward-only
+    // validator doesn't treat the task as permanently terminal.
+    if (t.pipelineStage === 'cancelled') {
+      t.pipelineStage = t.type === 'epic' ? 'research' : 'implementation';
+    }
 
     if (!t.notes) t.notes = [];
     t.notes.push(`[${now}] Restored from cancelled${params?.notes ? ': ' + params.notes : ''}`);
@@ -876,6 +884,13 @@ export async function coreTaskCancel(
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
   task.updatedAt = cancelledAt;
+  // T871: keep status and pipelineStage in lock-step. Cancelled tasks must
+  // leave the active RCASD-IVTR+C chain so Studio Pipeline routes them to
+  // the dedicated CANCELLED column instead of lingering in research/
+  // implementation/release.
+  if (!isTerminalPipelineStage(task.pipelineStage)) {
+    task.pipelineStage = 'cancelled';
+  }
   await accessor.upsertSingleTask(task);
 
   return { task: taskId, cancelled: true, reason: params?.reason, cancelledAt };
