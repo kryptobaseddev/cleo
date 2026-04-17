@@ -9,7 +9,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -21,7 +21,7 @@ export const updateCommand = defineCommand({
     taskId: {
       type: 'positional',
       description: 'Task ID to update',
-      required: true,
+      required: false,
     },
     title: {
       type: 'string',
@@ -112,7 +112,11 @@ export const updateCommand = defineCommand({
         'Set pipeline stage (forward-only: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution)',
     },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.taskId) {
+      await showUsage(cmd);
+      return;
+    }
     const params: Record<string, unknown> = { taskId: args.taskId };
 
     if (args.title !== undefined) params['title'] = args.title;

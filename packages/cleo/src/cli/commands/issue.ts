@@ -16,7 +16,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { type AddIssueResult, addIssue, BUILD_CONFIG } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -155,5 +155,8 @@ export const issueCommand = defineCommand({
     feature: featureCommand,
     help: helpCommand,
     diagnostics: diagnosticsCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

@@ -60,9 +60,11 @@ import {
   pipelineManifestShow,
   pipelineManifestStats,
   releaseCancel,
+  releaseChangelogSince,
   releaseList,
   // Release operations
   releaseRollback,
+  releaseRollbackFull,
   releaseShip,
   releaseShow,
 } from '../lib/engine.js';
@@ -189,6 +191,7 @@ export class PipelineHandler implements DomainHandler {
         'release.list',
         'release.show',
         'release.channel.show',
+        'release.changelog.since',
         'phase.show',
         'phase.list',
         'chain.show',
@@ -203,6 +206,7 @@ export class PipelineHandler implements DomainHandler {
         'release.ship',
         'release.cancel',
         'release.rollback',
+        'release.rollback.full',
         'manifest.append',
         'manifest.archive',
         'phase.set',
@@ -546,6 +550,22 @@ export class PipelineHandler implements DomainHandler {
         );
       }
 
+      case 'changelog.since': {
+        const sinceTag = params?.sinceTag as string;
+        if (!sinceTag) {
+          return errorResult(
+            'query',
+            'pipeline',
+            'release.changelog.since',
+            'E_INVALID_INPUT',
+            'sinceTag is required',
+            startTime,
+          );
+        }
+        const result = await releaseChangelogSince(sinceTag, this.projectRoot);
+        return wrapResult(result, 'query', 'pipeline', 'release.changelog.since', startTime);
+      }
+
       default:
         return errorResult(
           'query',
@@ -620,11 +640,36 @@ export class PipelineHandler implements DomainHandler {
         const remote = params?.remote as string | undefined;
         const dryRun = params?.dryRun as boolean | undefined;
         const bump = params?.bump as boolean | undefined;
+        const force = params?.force as boolean | undefined;
         const result = await releaseShip(
-          { version, epicId, remote, dryRun, bump },
+          { version, epicId, remote, dryRun, bump, force },
           this.projectRoot,
         );
         return wrapResult(result, 'mutate', 'pipeline', 'release.ship', startTime);
+      }
+
+      // T820 RELEASE-05: Real rollback — delete tag, revert commit, remove record
+      case 'rollback.full': {
+        const version = params?.version as string;
+        if (!version) {
+          return errorResult(
+            'mutate',
+            'pipeline',
+            'release.rollback.full',
+            'E_INVALID_INPUT',
+            'version is required',
+            startTime,
+          );
+        }
+        const reason = params?.reason as string | undefined;
+        const force = params?.force as boolean | undefined;
+        const unpublish = params?.unpublish as boolean | undefined;
+        const result = await releaseRollbackFull(
+          version,
+          { reason, force, unpublish },
+          this.projectRoot,
+        );
+        return wrapResult(result, 'mutate', 'pipeline', 'release.rollback.full', startTime);
       }
 
       default:

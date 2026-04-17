@@ -3,10 +3,16 @@
  *
  * Routes through the dispatch layer to check.gate.verify and check.gate.status.
  *
+ * As of v2026.4.78 (T832 / ADR-051), gate writes MUST be accompanied by
+ * structured `--evidence` backing the claim (commit SHAs, files, test runs,
+ * tool results).  `--all` alone is rejected with E_EVIDENCE_MISSING.
+ *
  * @task T4454
+ * @task T832
+ * @adr ADR-051
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo verify <task-id> — view or modify verification gates */
@@ -16,7 +22,7 @@ export const verifyCommand = defineCommand({
     taskId: {
       type: 'positional',
       description: 'Task ID to inspect or update',
-      required: true,
+      required: false,
     },
     gate: {
       type: 'string',
@@ -39,8 +45,17 @@ export const verifyCommand = defineCommand({
       type: 'boolean',
       description: 'Reset verification to initial state',
     },
+    evidence: {
+      type: 'string',
+      description:
+        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>', 'url:<url>', 'note:<text>'.",
+    },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.taskId) {
+      await showUsage(cmd);
+      return;
+    }
     const isWrite = !!(args.gate || args.all || args.reset);
     await dispatchFromCli(
       isWrite ? 'mutate' : 'query',
@@ -53,6 +68,7 @@ export const verifyCommand = defineCommand({
         agent: args.agent as string | undefined,
         all: args.all as boolean | undefined,
         reset: args.reset as boolean | undefined,
+        evidence: args.evidence as string | undefined,
       },
       { command: 'verify' },
     );

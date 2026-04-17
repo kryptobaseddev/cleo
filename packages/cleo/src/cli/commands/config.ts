@@ -17,7 +17,7 @@
  */
 
 import { CleoError, formatError, loadConfig } from '@cleocode/core';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -146,5 +146,8 @@ export const configCommand = defineCommand({
     'set-preset': setPresetCommand,
     presets: presetsCommand,
     list: listCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

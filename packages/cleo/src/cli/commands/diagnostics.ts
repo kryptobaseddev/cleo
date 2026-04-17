@@ -11,7 +11,7 @@
  * @task T624
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo diagnostics enable — opt in to anonymous command telemetry */
@@ -119,5 +119,8 @@ export const diagnosticsCommand = defineCommand({
     status: statusCommand,
     analyze: analyzeCommand,
     export: exportCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

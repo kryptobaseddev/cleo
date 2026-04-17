@@ -3,7 +3,15 @@
  *
  * Dispatches to the `tasks.complete` registry operation.
  *
+ * As of v2026.4.78 (T832 / ADR-051), the `--force` flag has been removed.
+ * Gates are satisfied by evidence-based `cleo verify --gate … --evidence …`
+ * and re-validated at complete time. For genuine emergencies, set
+ * `CLEO_OWNER_OVERRIDE=1` with `CLEO_OWNER_OVERRIDE_REASON=<reason>` on the
+ * `cleo verify` call — the override is audited.
+ *
  * @task T4461
+ * @task T832
+ * @adr ADR-051
  * @epic T4454
  */
 
@@ -35,10 +43,6 @@ export const completeCommand = defineCommand({
       type: 'string',
       description: 'Changeset reference',
     },
-    force: {
-      type: 'boolean',
-      description: 'Force completion even when children are not done or dependencies unresolved',
-    },
     'verification-note': {
       type: 'string',
       description: 'Evidence that acceptance criteria were met',
@@ -49,7 +53,6 @@ export const completeCommand = defineCommand({
       taskId: args.taskId,
       notes: args.notes as string | undefined,
       changeset: args.changeset as string | undefined,
-      force: args.force as boolean | undefined,
       verificationNote: args['verification-note'] as string | undefined,
     });
 

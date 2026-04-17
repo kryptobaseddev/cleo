@@ -17,7 +17,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 // ---------------------------------------------------------------------------
@@ -386,5 +386,8 @@ export const researchCommand = defineCommand({
     links: linksCommand,
     archive: archiveCommand,
     manifest: manifestCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

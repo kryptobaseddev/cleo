@@ -16,7 +16,7 @@
  * @task T469
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo conduit status — show conduit daemon health and queue depth */
@@ -171,5 +171,8 @@ export const conduitCommand = defineCommand({
     start: startCommand,
     stop: stopCommand,
     send: sendCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

@@ -557,6 +557,9 @@ export class CheckHandler implements DomainHandler {
             agent: params?.agent as string | undefined,
             all: params?.all as boolean | undefined,
             reset: params?.reset as boolean | undefined,
+            // T832 / ADR-051: evidence + sessionId for audit trail.
+            evidence: params?.evidence as string | undefined,
+            sessionId: params?.sessionId as string | undefined,
           };
           const result = await validateGateVerify(gateParams, projectRoot);
           return wrapResult(result, 'mutate', 'check', operation, startTime);

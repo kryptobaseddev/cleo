@@ -2,27 +2,31 @@
  * CLI release command group — release lifecycle management.
  *
  * Commands:
- *   cleo release ship <version>    — composite release: gates → changelog → commit → tag → push
- *   cleo release list              — list all releases
- *   cleo release show <version>    — show release details
- *   cleo release cancel <version>  — cancel a draft/prepared release
- *   cleo release rollback <version> — roll back a shipped release
- *   cleo release channel           — show current release channel
+ *   cleo release ship <version>         — composite release: gates → changelog → commit → tag → push
+ *   cleo release list                   — list all releases
+ *   cleo release show <version>         — show release details
+ *   cleo release cancel <version>       — cancel a draft/prepared release
+ *   cleo release changelog --since <tag> — generate CHANGELOG from git log (T820 RELEASE-02)
+ *   cleo release rollback <version>     — roll back a shipped release (metadata only)
+ *   cleo release rollback-full <version> — real rollback: delete tag, revert commit, remove record (T820 RELEASE-05)
+ *   cleo release channel                — show current release channel
  *
  * REMOVED: release add/plan commands were consolidated into release.ship as part
  * of the API rationalization (T5615). For preview/dry-run: cleo release ship <version> --epic <id> --dry-run
  *
  * @task T4467
+ * @task T820
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * cleo release ship — composite release: prepare → gates → changelog → commit → tag → push.
  *
  * Requires --epic <id>. Use --dry-run to preview without writing anything.
+ * Use --force to bypass IVTR gate check (T820 RELEASE-03).
  */
 const shipCommand = defineCommand({
   meta: {
@@ -58,6 +62,10 @@ const shipCommand = defineCommand({
       type: 'string',
       description: 'Git remote to push to (default: origin)',
     },
+    force: {
+      type: 'boolean',
+      description: 'Bypass IVTR gate check with owner warning (breaks accountability chain)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -71,6 +79,7 @@ const shipCommand = defineCommand({
         push: args.push !== false,
         bump: args.bump !== false,
         remote: args.remote as string | undefined,
+        force: args.force,
       },
       { command: 'release' },
     );
@@ -130,7 +139,38 @@ const cancelCommand = defineCommand({
   },
 });
 
-/** cleo release rollback — roll back a shipped release */
+/**
+ * cleo release changelog — generate CHANGELOG from git log since a given tag.
+ *
+ * Parses epic/task IDs from commit messages (T\d+ patterns),
+ * groups by epic, and produces a structured CHANGELOG entry.
+ *
+ * @task T820 RELEASE-02
+ */
+const changelogCommand = defineCommand({
+  meta: {
+    name: 'changelog',
+    description: 'Generate CHANGELOG from git log since a given tag, with task/epic grouping',
+  },
+  args: {
+    since: {
+      type: 'string',
+      description: 'Git tag or ref to generate changelog from (e.g. v2026.4.75)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'release.changelog.since',
+      { sinceTag: args.since },
+      { command: 'release' },
+    );
+  },
+});
+
+/** cleo release rollback — roll back a shipped release (metadata only, no git ops) */
 const rollbackCommand = defineCommand({
   meta: {
     name: 'rollback',
@@ -161,6 +201,49 @@ const rollbackCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release rollback-full — real rollback: delete git tag, revert commit, remove record.
+ *
+ * Unlike release.rollback (which only flips the status field in the DB),
+ * this performs actual git operations to undo the release.
+ *
+ * @task T820 RELEASE-05
+ */
+const rollbackFullCommand = defineCommand({
+  meta: {
+    name: 'rollback-full',
+    description: 'Full rollback: delete git tag, revert commit, remove release record',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version to fully roll back (e.g. 2026.4.77)',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Reason for rollback',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Continue even if some git operations fail',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'release.rollback.full',
+      {
+        version: args.version,
+        reason: args.reason as string | undefined,
+        force: args.force,
+      },
+      { command: 'release' },
+    );
+  },
+});
+
 /** cleo release channel — show the current release channel based on git branch */
 const channelCommand = defineCommand({
   meta: {
@@ -184,7 +267,12 @@ export const releaseCommand = defineCommand({
     list: listCommand,
     show: showCommand,
     cancel: cancelCommand,
+    changelog: changelogCommand,
     rollback: rollbackCommand,
+    'rollback-full': rollbackFullCommand,
     channel: channelCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

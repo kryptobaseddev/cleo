@@ -29,84 +29,16 @@ export type Tier = 0 | 1 | 2;
 // ---------------------------------------------------------------------------
 // ParamDef — per-operation parameter descriptor
 // ---------------------------------------------------------------------------
+// These types live in @cleocode/contracts (SSoT). Re-exported here so that
+// packages/cleo internal code can continue to import from './types.js'
+// without changing every import site in this package.
 
-/**
- * The concrete value types a parameter can carry at runtime.
- * Drives JSON Schema `type` and Commander argument/option parsing.
- */
-export type ParamType = 'string' | 'number' | 'boolean' | 'array';
-
-/**
- * CLI-specific decoration for a parameter.
- * All fields are optional — omit the entire `cli` key for params with no CLI surface.
- */
-export interface ParamCliDef {
-  /**
-   * When true, registers as `.argument('<name>')` (positional).
-   * When false or omitted, registers as `.option('--name <value>')`.
-   * @default false
-   */
-  positional?: boolean;
-
-  /**
-   * Short flag alias, e.g. `'-t'` for `--type`, `'-s'` for `--status`.
-   * Only meaningful when `positional` is false/omitted.
-   */
-  short?: string;
-
-  /**
-   * Override the CLI flag name when it differs from the param's `name`.
-   * e.g. `name: 'includeArchive'` but `flag: 'include-archive'`
-   * Defaults to kebab-case of `name`.
-   */
-  flag?: string;
-
-  /**
-   * For array-type params on the CLI: when true the option can be repeated.
-   * When false/omitted, the CLI accepts a single comma-separated string.
-   * @default false
-   */
-  variadic?: boolean;
-
-  /**
-   * Custom parse function applied by Commander (e.g. `parseInt`).
-   */
-  parse?: (value: string) => unknown;
-}
-
-/**
- * A fully-described parameter definition.
- *
- * One `ParamDef` entry drives Commander: `.argument()` (positional) or `.option()` (flag).
- */
-export interface ParamDef {
-  /** Canonical camelCase parameter name (matches the key in `params` dict). */
-  name: string;
-
-  /** Runtime value type. Drives JSON Schema `type` and Commander parsing. */
-  type: ParamType;
-
-  /**
-   * When true, Commander registers as a positional argument (`<name>` or `[name]`).
-   */
-  required: boolean;
-
-  /** Human-readable description used in Commander help text. */
-  description: string;
-
-  /** CLI-specific metadata. Omit entire key if this param has no CLI surface. */
-  cli?: ParamCliDef;
-
-  /** JSON Schema `enum` constraint for this parameter. */
-  enum?: readonly string[];
-
-  /**
-   * When true, the parameter is excluded from schema generation.
-   * Use for CLI-only params (e.g. `--dry-run`, `--offset`).
-   * @default false
-   */
-  hidden?: boolean;
-}
+export type {
+  OperationParams,
+  ParamCliDef,
+  ParamDef,
+  ParamType,
+} from '@cleocode/contracts';
 
 /**
  * The 13 canonical domain names.

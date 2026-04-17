@@ -41,7 +41,7 @@ import {
   getHealthReport,
   STALE_THRESHOLD_MS,
 } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
 
@@ -2630,6 +2630,9 @@ export const agentCommand = defineCommand({
     install: installCommand,
     pack: packCommand,
     create: createCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
 

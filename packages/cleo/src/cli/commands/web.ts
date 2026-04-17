@@ -24,7 +24,7 @@ import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getCleoHome } from '@cleocode/core';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
 const DEFAULT_PORT = 3456;
@@ -442,5 +442,8 @@ export const webCommand = defineCommand({
     restart: restartCommand,
     status: statusCommand,
     open: openCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

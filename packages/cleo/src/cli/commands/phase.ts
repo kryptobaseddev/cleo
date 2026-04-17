@@ -18,7 +18,7 @@
  * @epic T4454, T5323
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo phase show — show phase details (current phase if no slug given) */
@@ -224,5 +224,8 @@ export const phaseCommand = defineCommand({
     advance: advanceCommand,
     rename: renameCommand,
     delete: deleteCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

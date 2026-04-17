@@ -27,7 +27,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getProjectRoot } from '@cleocode/core';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { parseDurationMs, pruneTranscripts, scanTranscripts } from '../../gc/transcript.js';
 
 /** cleo transcript scan — inventory all session transcripts with hot/warm/cold tier breakdown */
@@ -541,5 +541,8 @@ export const transcriptCommand = defineCommand({
     extract: extractCommand,
     migrate: migrateCommand,
     prune: pruneCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

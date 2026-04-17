@@ -9,7 +9,7 @@
  * @task T4882, T5323, T5328
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 
 /** cleo snapshot export — export current task state to a portable JSON snapshot */
@@ -102,5 +102,8 @@ export const snapshotCommand = defineCommand({
   subCommands: {
     export: exportCommand,
     import: importCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
