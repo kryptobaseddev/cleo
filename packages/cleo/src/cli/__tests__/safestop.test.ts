@@ -1,44 +1,40 @@
 /**
- * Tests for safestop CLI command.
- * @task T4551
+ * Tests for safestop CLI command (native citty).
+ * @task T4551 / T4904
  * @epic T4545
- *  T4904
  */
 
-import { describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerSafestopCommand } from '../commands/safestop.js';
+import { describe, expect, it } from 'vitest';
+import { safestopCommand } from '../commands/safestop.js';
 
-vi.mock('../../dispatch/adapters/cli.js', () => ({
-  dispatchFromCli: vi.fn().mockResolvedValue(undefined),
-}));
-
-describe('registerSafestopCommand', () => {
-  it('registers a safestop command on the program', () => {
-    const program = new Command();
-    registerSafestopCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'safestop');
-    expect(cmd).toBeDefined();
-    expect(cmd!.description()).toContain('Graceful shutdown');
+describe('safestopCommand (native citty)', () => {
+  it('exports a command with the correct name', () => {
+    expect(safestopCommand).toBeDefined();
+    const meta =
+      typeof safestopCommand.meta === 'function' ? safestopCommand.meta() : safestopCommand.meta;
+    expect((meta as { name: string }).name).toBe('safestop');
   });
 
-  it('requires --reason option', () => {
-    const program = new Command();
-    registerSafestopCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'safestop')!;
-    const reasonOpt = cmd.options.find((o) => o.long === '--reason');
-    expect(reasonOpt).toBeDefined();
-    expect(reasonOpt!.required).toBe(true);
+  it('has a description containing "Graceful shutdown"', () => {
+    const meta =
+      typeof safestopCommand.meta === 'function' ? safestopCommand.meta() : safestopCommand.meta;
+    expect((meta as { description: string }).description).toContain('Graceful shutdown');
   });
 
-  it('has --commit, --handoff, --no-session-end, --dry-run options', () => {
-    const program = new Command();
-    registerSafestopCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'safestop')!;
-    const optionNames = cmd.options.map((o) => o.long);
-    expect(optionNames).toContain('--commit');
-    expect(optionNames).toContain('--handoff');
-    expect(optionNames).toContain('--no-session-end');
-    expect(optionNames).toContain('--dry-run');
+  it('requires --reason arg', () => {
+    const args = safestopCommand.args as
+      | Record<string, { type: string; required?: boolean }>
+      | undefined;
+    expect(args?.['reason']).toBeDefined();
+    expect(args?.['reason'].type).toBe('string');
+    expect(args?.['reason'].required).toBe(true);
+  });
+
+  it('has --commit, --handoff, --no-session-end, --dry-run args', () => {
+    const args = safestopCommand.args as Record<string, { type: string }> | undefined;
+    expect(args?.['commit']).toBeDefined();
+    expect(args?.['handoff']).toBeDefined();
+    expect(args?.['no-session-end']).toBeDefined();
+    expect(args?.['dry-run']).toBeDefined();
   });
 });

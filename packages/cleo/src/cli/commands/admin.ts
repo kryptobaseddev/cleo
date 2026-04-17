@@ -1,241 +1,362 @@
 /**
- * CLI admin command group — dispatches to the admin domain.
+ * CLI command group for system administration and diagnostics.
  *
  * Provides CLI access to admin.version, admin.health, admin.stats,
  * admin.runtime, admin.smoke, admin.paths, admin.scaffold-hub,
  * admin.cleanup, admin.job, admin.job.cancel, admin.install.global,
  * and admin.context.inject via `cleo admin <subcommand>`.
  *
+ * The `job` subgroup uses an explicit parent `run()` that delegates to
+ * `job list` when no subcommand is given (citty has no `isDefault` concept).
+ *
  * @task T132
  * @task T480 — add cleanup, job, job.cancel, install.global, context.inject subcommands.
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-/** Register the admin command group. */
-export function registerAdminCommand(program: Command): void {
-  const admin = program.command('admin').description('System administration and diagnostics');
+/** cleo admin version — show CLEO version */
+const versionCommand = defineCommand({
+  meta: { name: 'version', description: 'Show CLEO version' },
+  async run() {
+    await dispatchFromCli('query', 'admin', 'version', {}, { command: 'admin' });
+  },
+});
 
-  admin
-    .command('version')
-    .description('Show CLEO version')
-    .action(async () => {
-      await dispatchFromCli('query', 'admin', 'version', {}, { command: 'admin' });
-    });
+/** cleo admin health — run system health check */
+const healthCommand = defineCommand({
+  meta: { name: 'health', description: 'Run system health check' },
+  args: {
+    detailed: {
+      type: 'boolean',
+      description: 'Show detailed results',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'health',
+      { detailed: args.detailed },
+      { command: 'admin' },
+    );
+  },
+});
 
-  admin
-    .command('health')
-    .description('Run system health check')
-    .option('--detailed', 'Show detailed results')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'health',
-        { detailed: opts['detailed'] },
-        { command: 'admin' },
-      );
-    });
+/** cleo admin stats — show project statistics */
+const statsCommand = defineCommand({
+  meta: { name: 'stats', description: 'Show project statistics' },
+  args: {
+    period: {
+      type: 'string',
+      description: 'Time period in days',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'stats',
+      { period: args.period ? Number(args.period) : undefined },
+      { command: 'admin' },
+    );
+  },
+});
 
-  admin
-    .command('stats')
-    .description('Show project statistics')
-    .option('--period <days>', 'Time period in days')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'stats',
-        { period: opts['period'] ? Number(opts['period']) : undefined },
-        { command: 'admin' },
-      );
-    });
+/** cleo admin runtime — show runtime diagnostics */
+const runtimeCommand = defineCommand({
+  meta: { name: 'runtime', description: 'Show runtime diagnostics' },
+  args: {
+    detailed: {
+      type: 'boolean',
+      description: 'Show detailed runtime info',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'runtime',
+      { detailed: args.detailed },
+      { command: 'admin' },
+    );
+  },
+});
 
-  admin
-    .command('runtime')
-    .description('Show runtime diagnostics')
-    .option('--detailed', 'Show detailed runtime info')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'runtime',
-        { detailed: opts['detailed'] },
-        { command: 'admin' },
-      );
-    });
-
-  admin
-    .command('smoke')
-    .description(
+/** cleo admin smoke — run operational smoke tests or probe ADR-049 invariants */
+const smokeCommand = defineCommand({
+  meta: {
+    name: 'smoke',
+    description:
       'Run operational smoke tests across all domains, or probe ADR-049 invariants for a named provider (--provider)',
-    )
-    .option(
-      '--provider <id>',
-      'Probe harness sovereignty invariants for a specific provider adapter (ADR-049)',
-    )
-    .action(async (opts: Record<string, unknown>) => {
-      const provider = opts['provider'] as string | undefined;
-      if (provider) {
-        await dispatchFromCli(
-          'query',
-          'admin',
-          'smoke.provider',
-          { provider },
-          { command: 'admin smoke', operation: 'admin.smoke.provider' },
-        );
-      } else {
-        await dispatchFromCli('query', 'admin', 'smoke', {}, { command: 'admin' });
-      }
-    });
-
-  admin
-    .command('paths')
-    .description('Report all CleoOS paths (project + global hub) and scaffolding status')
-    .action(async () => {
-      await dispatchFromCli('query', 'admin', 'paths', {}, { command: 'admin' });
-    });
-
-  admin
-    .command('scaffold-hub')
-    .description(
-      'Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
-    )
-    .action(async () => {
-      await dispatchFromCli('mutate', 'admin', 'scaffold-hub', {}, { command: 'admin' });
-    });
-
-  // ---------------------------------------------------------------------------
-  // cleanup — wraps mutate admin cleanup (T480)
-  // ---------------------------------------------------------------------------
-
-  admin
-    .command('cleanup')
-    .description('Purge stale CLEO data (backups, logs, archive entries)')
-    .requiredOption('--target <target>', 'What to clean: backups | logs | archive | sessions')
-    .option('--older-than <age>', 'Remove entries older than this duration (e.g. 30d, 6m, 1y)')
-    .option('--dry-run', 'Preview what would be removed without making changes')
-    .action(async (opts: Record<string, unknown>) => {
+  },
+  args: {
+    provider: {
+      type: 'string',
+      description: 'Probe harness sovereignty invariants for a specific provider adapter (ADR-049)',
+    },
+  },
+  async run({ args }) {
+    const provider = args.provider as string | undefined;
+    if (provider) {
       await dispatchFromCli(
-        'mutate',
+        'query',
         'admin',
-        'cleanup',
-        {
-          target: opts['target'] as string,
-          olderThan: opts['olderThan'] as string | undefined,
-          dryRun: opts['dryRun'] === true,
-        },
-        { command: 'admin cleanup', operation: 'admin.cleanup' },
+        'smoke.provider',
+        { provider },
+        { command: 'admin smoke', operation: 'admin.smoke.provider' },
       );
-    });
+    } else {
+      await dispatchFromCli('query', 'admin', 'smoke', {}, { command: 'admin' });
+    }
+  },
+});
 
-  // ---------------------------------------------------------------------------
-  // job — wraps query admin job (list / status) (T480)
-  // ---------------------------------------------------------------------------
+/** cleo admin paths — report all CleoOS paths and scaffolding status */
+const pathsCommand = defineCommand({
+  meta: {
+    name: 'paths',
+    description: 'Report all CleoOS paths (project + global hub) and scaffolding status',
+  },
+  async run() {
+    await dispatchFromCli('query', 'admin', 'paths', {}, { command: 'admin' });
+  },
+});
 
-  const job = admin
-    .command('job')
-    .description('Inspect background jobs managed by the job manager');
+/** cleo admin scaffold-hub — create CleoOS Hub dirs and seed starter justfile */
+const scaffoldHubCommand = defineCommand({
+  meta: {
+    name: 'scaffold-hub',
+    description:
+      'Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
+  },
+  async run() {
+    await dispatchFromCli('mutate', 'admin', 'scaffold-hub', {}, { command: 'admin' });
+  },
+});
 
-  job
-    .command('list', { isDefault: true })
-    .description('List all background jobs (default)')
-    .option('--status <status>', 'Filter by job status (pending, running, done, failed, cancelled)')
-    .option('--limit <n>', 'Maximum jobs to return', '20')
-    .option('--offset <n>', 'Skip N jobs', '0')
-    .action(async (opts: Record<string, unknown>) => {
+/** cleo admin cleanup — purge stale CLEO data */
+const cleanupCommand = defineCommand({
+  meta: { name: 'cleanup', description: 'Purge stale CLEO data (backups, logs, archive entries)' },
+  args: {
+    target: {
+      type: 'string',
+      description: 'What to clean: backups | logs | archive | sessions',
+      required: true,
+    },
+    'older-than': {
+      type: 'string',
+      description: 'Remove entries older than this duration (e.g. 30d, 6m, 1y)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview what would be removed without making changes',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'cleanup',
+      {
+        target: args.target as string,
+        olderThan: args['older-than'] as string | undefined,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'admin cleanup', operation: 'admin.cleanup' },
+    );
+  },
+});
+
+/** cleo admin job list — list all background jobs */
+const jobListCommand = defineCommand({
+  meta: { name: 'list', description: 'List all background jobs (default)' },
+  args: {
+    status: {
+      type: 'string',
+      description: 'Filter by job status (pending, running, done, failed, cancelled)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum jobs to return',
+      default: '20',
+    },
+    offset: {
+      type: 'string',
+      description: 'Skip N jobs',
+      default: '0',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'job',
+      {
+        action: 'list',
+        status: args.status as string | undefined,
+        limit: args.limit ? Number(args.limit) : 20,
+        offset: args.offset ? Number(args.offset) : 0,
+      },
+      { command: 'admin job list', operation: 'admin.job' },
+    );
+  },
+});
+
+/** cleo admin job status — show status of a specific background job */
+const jobStatusCommand = defineCommand({
+  meta: { name: 'status', description: 'Show status of a specific background job' },
+  args: {
+    jobId: {
+      type: 'positional',
+      description: 'Job ID to inspect',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'job',
+      { action: 'status', jobId: args.jobId },
+      { command: 'admin job status', operation: 'admin.job' },
+    );
+  },
+});
+
+/** cleo admin job cancel — cancel a running background job */
+const jobCancelCommand = defineCommand({
+  meta: { name: 'cancel', description: 'Cancel a running background job' },
+  args: {
+    jobId: {
+      type: 'positional',
+      description: 'Job ID to cancel',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'job.cancel',
+      { jobId: args.jobId },
+      { command: 'admin job cancel', operation: 'admin.job.cancel' },
+    );
+  },
+});
+
+/**
+ * cleo admin job — inspect background jobs.
+ *
+ * Defaults to `job list` when no subcommand is provided (citty has no
+ * `isDefault` concept; the parent `run()` replicates that behaviour).
+ */
+const jobCommand = defineCommand({
+  meta: { name: 'job', description: 'Inspect background jobs managed by the job manager' },
+  subCommands: {
+    list: jobListCommand,
+    status: jobStatusCommand,
+    cancel: jobCancelCommand,
+  },
+  async run({ rawArgs }) {
+    // No subcommand given — delegate to job list (mirrors isDefault behaviour)
+    const hasSubCmd = rawArgs.some((a) => ['list', 'status', 'cancel'].includes(a));
+    if (!hasSubCmd) {
       await dispatchFromCli(
         'query',
         'admin',
         'job',
-        {
-          action: 'list',
-          status: opts['status'] as string | undefined,
-          limit: opts['limit'] ? Number(opts['limit']) : 20,
-          offset: opts['offset'] ? Number(opts['offset']) : 0,
-        },
+        { action: 'list', limit: 20, offset: 0 },
         { command: 'admin job list', operation: 'admin.job' },
       );
-    });
+    }
+  },
+});
 
-  job
-    .command('status <jobId>')
-    .description('Show status of a specific background job')
-    .action(async (jobId: string) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'job',
-        { action: 'status', jobId },
-        { command: 'admin job status', operation: 'admin.job' },
-      );
-    });
+/** cleo admin install-global — refresh global CLEO setup */
+const installGlobalCommand = defineCommand({
+  meta: {
+    name: 'install-global',
+    description: 'Refresh global CLEO setup (provider files, configs, ~/.agents/AGENTS.md)',
+  },
+  async run() {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'install.global',
+      {},
+      { command: 'admin install-global', operation: 'admin.install.global' },
+    );
+  },
+});
 
-  // ---------------------------------------------------------------------------
-  // job cancel — wraps mutate admin job.cancel (T480)
-  // ---------------------------------------------------------------------------
-
-  job
-    .command('cancel <jobId>')
-    .description('Cancel a running background job')
-    .action(async (jobId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'job.cancel',
-        { jobId },
-        { command: 'admin job cancel', operation: 'admin.job.cancel' },
-      );
-    });
-
-  // ---------------------------------------------------------------------------
-  // install-global — wraps mutate admin install.global (T480)
-  // ---------------------------------------------------------------------------
-
-  admin
-    .command('install-global')
-    .description('Refresh global CLEO setup (provider files, configs, ~/.agents/AGENTS.md)')
-    .action(async () => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'install.global',
-        {},
-        { command: 'admin install-global', operation: 'admin.install.global' },
-      );
-    });
-
-  // ---------------------------------------------------------------------------
-  // context-inject — wraps mutate admin context.inject (T480)
-  // Agent-facing but exposed via CLI for testing and manual use.
-  // ---------------------------------------------------------------------------
-
-  admin
-    .command('context-inject <protocolType>')
-    .description(
+/** cleo admin context-inject — inject protocol content into session context */
+const contextInjectCommand = defineCommand({
+  meta: {
+    name: 'context-inject',
+    description:
       'Inject protocol content into session context (e.g. cleo-base, ct-orchestrator, ct-cleo)',
-    )
-    .option('--task <id>', 'Scope injection to a specific task ID')
-    .option('--variant <variant>', 'Select a named protocol variant')
-    .action(async (protocolType: string, opts: Record<string, unknown>) => {
-      if (!protocolType || typeof protocolType !== 'string' || protocolType.trim() === '') {
-        console.error('Error: missing required argument <protocolType>');
-        console.error(
-          'Usage: cleo admin context-inject <protocolType> [--task <id>] [--variant <variant>]',
-        );
-        process.exit(1);
-      }
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'context.inject',
-        {
-          protocolType,
-          taskId: opts['task'] as string | undefined,
-          variant: opts['variant'] as string | undefined,
-        },
-        { command: 'admin context-inject', operation: 'admin.context.inject' },
+  },
+  args: {
+    protocolType: {
+      type: 'positional',
+      description: 'Protocol type to inject',
+      required: true,
+    },
+    task: {
+      type: 'string',
+      description: 'Scope injection to a specific task ID',
+    },
+    variant: {
+      type: 'string',
+      description: 'Select a named protocol variant',
+    },
+  },
+  async run({ args }) {
+    const protocolType = args.protocolType as string;
+    if (!protocolType || protocolType.trim() === '') {
+      console.error('Error: missing required argument <protocolType>');
+      console.error(
+        'Usage: cleo admin context-inject <protocolType> [--task <id>] [--variant <variant>]',
       );
-    });
-}
+      process.exit(1);
+    }
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'context.inject',
+      {
+        protocolType,
+        taskId: args.task as string | undefined,
+        variant: args.variant as string | undefined,
+      },
+      { command: 'admin context-inject', operation: 'admin.context.inject' },
+    );
+  },
+});
+
+/**
+ * Root admin command group — registers all admin subcommands.
+ *
+ * Dispatches to the `admin` domain registry operations.
+ *
+ * @task T132
+ * @task T480
+ */
+export const adminCommand = defineCommand({
+  meta: { name: 'admin', description: 'System administration and diagnostics' },
+  subCommands: {
+    version: versionCommand,
+    health: healthCommand,
+    stats: statsCommand,
+    runtime: runtimeCommand,
+    smoke: smokeCommand,
+    paths: pathsCommand,
+    'scaffold-hub': scaffoldHubCommand,
+    cleanup: cleanupCommand,
+    job: jobCommand,
+    'install-global': installGlobalCommand,
+    'context-inject': contextInjectCommand,
+  },
+});

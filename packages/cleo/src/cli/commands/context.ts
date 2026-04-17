@@ -1,9 +1,9 @@
 /**
- * CLI context command group - context window monitoring and JIT task context pull.
+ * CLI context command group — context window monitoring and JIT task context pull.
  *
  * Sub-commands:
- *   cleo context status   — context window state (default)
- *   cleo context check    — scripting exit-code variant
+ *   cleo context status    — context window state (default when no subcommand given)
+ *   cleo context check     — scripting exit-code variant
  *   cleo context pull <id> — JIT bundle: task + brain memories + last handoff (T549 Wave 5-A)
  *
  * @task T4535
@@ -13,9 +13,9 @@
 
 import { ExitCode } from '@cleocode/contracts';
 import { resolveProjectRoot } from '@cleocode/core/internal';
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { systemContext } from '../../dispatch/engines/system-engine.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /** Map context status strings to exit codes for scripting. */
@@ -28,65 +28,121 @@ const STATUS_EXIT_CODE: Record<string, ExitCode> = {
   stale: ExitCode.CONTEXT_STALE,
 };
 
-export function registerContextCommand(program: Command): void {
-  const context = program
-    .command('context')
-    .description('Monitor context window usage for agent safeguard system');
+/** cleo context status — show current context window state */
+const statusCommand = defineCommand({
+  meta: { name: 'status', description: 'Show current context state (default)' },
+  args: {
+    session: {
+      type: 'string',
+      description: 'Check specific CLEO session',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'context',
+      {
+        action: 'status',
+        session: args.session as string | undefined,
+      },
+      { command: 'context' },
+    );
+  },
+});
 
-  context
-    .command('status', { isDefault: true })
-    .description('Show current context state (default)')
-    .option('--session <id>', 'Check specific CLEO session')
-    .action(async (opts: Record<string, unknown>) => {
+/** cleo context check — exits non-zero when threshold exceeded (for scripting) */
+const checkCommand = defineCommand({
+  meta: {
+    name: 'check',
+    description:
+      'Check context window state — exits non-zero when threshold exceeded (for scripting)',
+  },
+  args: {
+    session: {
+      type: 'string',
+      description: 'Check specific CLEO session',
+    },
+  },
+  async run({ args }) {
+    const cwd = resolveProjectRoot();
+    const result = systemContext(cwd, {
+      session: args.session as string | undefined,
+    });
+    if (!result.success) {
+      console.error(result.error?.message ?? 'Context check failed');
+      process.exit(ExitCode.GENERAL_ERROR);
+      return;
+    }
+    const data = result.data;
+    if (!data) {
+      console.error('Context check returned no data');
+      process.exit(ExitCode.GENERAL_ERROR);
+      return;
+    }
+    cliOutput(data, { command: 'context', operation: 'admin.context' });
+    const exitCode = STATUS_EXIT_CODE[data.status] ?? ExitCode.SUCCESS;
+    if (exitCode !== ExitCode.SUCCESS) {
+      process.exit(exitCode);
+    }
+  },
+});
+
+/** cleo context pull <taskId> — JIT context bundle for a task */
+const pullCommand = defineCommand({
+  meta: {
+    name: 'pull',
+    description:
+      'JIT context bundle: task details + top-3 relevant brain memories + last handoff note (~400 tokens)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to pull context for',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'context.pull',
+      { taskId: args.taskId },
+      { command: 'context' },
+    );
+  },
+});
+
+/**
+ * Root context command group — registers status, check, and pull subcommands.
+ *
+ * When no subcommand is provided, falls back to running the `status` subcommand.
+ */
+export const contextCommand = defineCommand({
+  meta: {
+    name: 'context',
+    description: 'Monitor context window usage for agent safeguard system',
+  },
+  subCommands: {
+    status: statusCommand,
+    check: checkCommand,
+    pull: pullCommand,
+  },
+  async run({ rawArgs }) {
+    // Default to status when no subcommand is given
+    const hasSubcommand = rawArgs.some((a) => ['status', 'check', 'pull'].includes(a));
+    if (!hasSubcommand) {
       await dispatchFromCli(
         'query',
         'admin',
         'context',
-        {
-          action: 'status',
-          session: opts['session'],
-        },
+        { action: 'status' },
         { command: 'context' },
       );
-    });
-
-  context
-    .command('check')
-    .description(
-      'Check context window state — exits non-zero when threshold exceeded (for scripting)',
-    )
-    .option('--session <id>', 'Check specific CLEO session')
-    .action(async (opts: Record<string, unknown>) => {
-      const cwd = resolveProjectRoot();
-      const result = systemContext(cwd, {
-        session: opts['session'] as string | undefined,
-      });
-      if (!result.success) {
-        console.error(result.error?.message ?? 'Context check failed');
-        process.exit(ExitCode.GENERAL_ERROR);
-        return;
-      }
-      const data = result.data;
-      if (!data) {
-        console.error('Context check returned no data');
-        process.exit(ExitCode.GENERAL_ERROR);
-        return;
-      }
-      cliOutput(data, { command: 'context', operation: 'admin.context' });
-      const exitCode = STATUS_EXIT_CODE[data.status] ?? ExitCode.SUCCESS;
-      if (exitCode !== ExitCode.SUCCESS) {
-        process.exit(exitCode);
-      }
-    });
-
-  // -- pull (T549 Wave 5-A) --
-  context
-    .command('pull <taskId>')
-    .description(
-      'JIT context bundle: task details + top-3 relevant brain memories + last handoff note (~400 tokens)',
-    )
-    .option('--json', 'Output as JSON')
-    .action(async (taskId: string, _opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'context.pull', { taskId }, { command: 'context' });
-    });
-}
+    }
+  },
+});

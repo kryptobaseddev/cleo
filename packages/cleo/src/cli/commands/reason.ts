@@ -16,95 +16,110 @@
  * @epic T038
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-/**
- * Register the `cleo reason` command group and its subcommands.
- *
- * @remarks
- * Adds `impact` and `timeline` subcommands that dispatch to the tasks domain.
- * `why` and `similar` were removed as duplicates of `cleo memory reason-why`
- * and `cleo memory reason-similar`.
- *
- * @param program - Root CLI program instance (commander shim).
- *
- * @example
- * ```ts
- * registerReasonCommand(rootCommand);
- * // Adds: cleo reason impact|timeline
- * ```
- */
-export function registerReasonCommand(program: Command): void {
-  const reason = program
-    .command('reason')
-    .description('Reasoning and intelligence operations (impact, timeline)');
-
-  // -- impact --
-  // Two modes:
-  //   cleo reason impact --change "Modify X"   → free-text prediction (T043)
-  //   cleo reason impact <taskId>              → dependency graph impact for known task
-  reason
-    .command('impact [taskId]')
-    .description(
+/** cleo reason impact — predict impact of a change or analyse downstream deps */
+const impactCommand = defineCommand({
+  meta: {
+    name: 'impact',
+    description:
       'Predict impact of a change. Use --change for free-text prediction, or pass a taskId for graph-based analysis.',
-    )
-    .option('--change <description>', 'Free-text description of the proposed change (T043)')
-    .option('--limit <n>', 'Maximum seed tasks to match when using --change (default: 5)', '5')
-    .option('--depth <n>', 'Maximum traversal depth when using taskId (default: 10)', '10')
-    .option('--json', 'Output raw JSON envelope')
-    .action(async (taskId: string | undefined, opts: Record<string, unknown>) => {
-      const change = opts['change'] as string | undefined;
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID for graph-based dependency impact analysis',
+      required: false,
+    },
+    change: {
+      type: 'string',
+      description: 'Free-text description of the proposed change (T043)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum seed tasks to match when using --change (default: 5)',
+      default: '5',
+    },
+    depth: {
+      type: 'string',
+      description: 'Maximum traversal depth when using taskId (default: 10)',
+      default: '10',
+    },
+  },
+  async run({ args }) {
+    const change = args.change as string | undefined;
+    const taskId = args.taskId as string | undefined;
 
-      if (change) {
-        // Free-text impact prediction (T043): tasks.impact
-        await dispatchFromCli(
-          'query',
-          'tasks',
-          'impact',
-          {
-            change,
-            matchLimit: parseInt(opts['limit'] as string, 10),
-          },
-          { command: 'reason', operation: 'tasks.impact' },
-        );
-      } else if (taskId) {
-        // Graph-based impact for a specific known task: tasks.depends
-        await dispatchFromCli(
-          'query',
-          'tasks',
-          'depends',
-          {
-            taskId,
-            action: 'impact',
-            depth: parseInt(opts['depth'] as string, 10),
-          },
-          { command: 'reason', operation: 'tasks.depends' },
-        );
-      } else {
-        process.stderr.write(
-          'Error: reason impact requires either --change <description> or a <taskId>\n',
-        );
-        process.exit(1);
-      }
-    });
-
-  // -- timeline --
-  reason
-    .command('timeline <taskId>')
-    .description('Show history and audit trail for a task')
-    .option('--limit <n>', 'Maximum number of history entries', parseInt)
-    .option('--json', 'Output raw JSON envelope')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
+    if (change) {
       await dispatchFromCli(
         'query',
         'tasks',
-        'history',
+        'impact',
+        {
+          change,
+          matchLimit: Number.parseInt(args.limit, 10),
+        },
+        { command: 'reason', operation: 'tasks.impact' },
+      );
+    } else if (taskId) {
+      await dispatchFromCli(
+        'query',
+        'tasks',
+        'depends',
         {
           taskId,
-          limit: opts['limit'] as number | undefined,
+          action: 'impact',
+          depth: Number.parseInt(args.depth, 10),
         },
-        { command: 'reason', operation: 'tasks.history' },
+        { command: 'reason', operation: 'tasks.depends' },
       );
-    });
-}
+    } else {
+      process.stderr.write(
+        'Error: reason impact requires either --change <description> or a <taskId>\n',
+      );
+      process.exit(1);
+    }
+  },
+});
+
+/** cleo reason timeline — show history and audit trail for a task */
+const timelineCommand = defineCommand({
+  meta: { name: 'timeline', description: 'Show history and audit trail for a task' },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to fetch history for',
+      required: true,
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of history entries',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'history',
+      {
+        taskId: args.taskId,
+        limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
+      },
+      { command: 'reason', operation: 'tasks.history' },
+    );
+  },
+});
+
+/**
+ * Root reason command group — reasoning and intelligence operations.
+ *
+ * Dispatches to `tasks.impact`, `tasks.depends`, and `tasks.history` registry operations.
+ */
+export const reasonCommand = defineCommand({
+  meta: { name: 'reason', description: 'Reasoning and intelligence operations (impact, timeline)' },
+  subCommands: {
+    impact: impactCommand,
+    timeline: timelineCommand,
+  },
+});

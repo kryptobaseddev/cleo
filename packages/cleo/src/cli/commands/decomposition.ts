@@ -5,59 +5,98 @@
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo decomposition validate <taskId> — validate decomposition protocol for a task */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate decomposition protocol compliance for task',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to validate',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+    epic: {
+      type: 'string',
+      description: 'Specify parent epic ID',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'decomposition',
+        mode: 'task',
+        taskId: args.taskId,
+        strict: args.strict,
+        epicId: args.epic,
+      },
+      { command: 'decomposition' },
+    );
+  },
+});
+
+/** cleo decomposition check <manifestFile> — validate manifest entry directly */
+const checkCommand = defineCommand({
+  meta: {
+    name: 'check',
+    description: 'Validate manifest entry directly',
+  },
+  args: {
+    manifestFile: {
+      type: 'positional',
+      description: 'Manifest file to validate',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+    epic: {
+      type: 'string',
+      description: 'Specify parent epic ID',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'decomposition',
+        mode: 'manifest',
+        manifestFile: args.manifestFile,
+        strict: args.strict,
+        epicId: args.epic,
+      },
+      { command: 'decomposition' },
+    );
+  },
+});
 
 /**
- * Register the decomposition command group.
- * @task T4537
+ * Root decomposition command group — validates decomposition protocol compliance.
+ *
+ * Alias for `cleo check protocol decomposition`.
  */
-export function registerDecompositionCommand(program: Command): void {
-  const decomposition = program
-    .command('decomposition')
-    .description(
+export const decompositionCommand = defineCommand({
+  meta: {
+    name: 'decomposition',
+    description:
       'Validate decomposition protocol compliance (alias for `cleo check protocol decomposition`)',
-    );
-
-  decomposition
-    .command('validate <taskId>')
-    .description('Validate decomposition protocol compliance for task')
-    .option('--strict', 'Exit with error code on violations')
-    .option('--epic <id>', 'Specify parent epic ID')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'decomposition',
-          mode: 'task',
-          taskId,
-          strict: opts['strict'] as boolean | undefined,
-          epicId: opts['epic'] as string | undefined,
-        },
-        { command: 'decomposition' },
-      );
-    });
-
-  decomposition
-    .command('check <manifestFile>')
-    .description('Validate manifest entry directly')
-    .option('--strict', 'Exit with error code on violations')
-    .option('--epic <id>', 'Specify parent epic ID')
-    .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'decomposition',
-          mode: 'manifest',
-          manifestFile,
-          strict: opts['strict'] as boolean | undefined,
-          epicId: opts['epic'] as string | undefined,
-        },
-        { command: 'decomposition' },
-      );
-    });
-}
+  },
+  subCommands: {
+    validate: validateCommand,
+    check: checkCommand,
+  },
+});

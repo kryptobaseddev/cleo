@@ -13,82 +13,111 @@
  */
 
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
+/** cleo migrate storage — run CLEO internal storage and schema migrations */
+const storageCommand = defineCommand({
+  meta: {
+    name: 'storage',
+    description: 'Run CLEO internal storage and schema migrations',
+  },
+  args: {
+    target: {
+      type: 'string',
+      description: 'Target schema version to migrate to',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview migration steps without making changes',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'migrate',
+      {
+        target: args.target as string | undefined,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'migrate storage', operation: 'admin.migrate' },
+    );
+  },
+});
+
+/** cleo migrate claude-mem — import observations from claude-mem into brain.db */
+const claudeMemCommand = defineCommand({
+  meta: {
+    name: 'claude-mem',
+    description: 'Import observations from claude-mem into brain.db',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be imported without making changes',
+    },
+    source: {
+      type: 'string',
+      description: 'Path to claude-mem.db (default: ~/.claude-mem/claude-mem.db)',
+    },
+    project: {
+      type: 'string',
+      description: 'Project tag for imported entries',
+    },
+    'batch-size': {
+      type: 'string',
+      description: 'Rows per transaction batch (default: 100)',
+    },
+  },
+  async run({ args }) {
+    const root = getProjectRoot();
+
+    try {
+      const result = await migrateClaudeMem(root, {
+        sourcePath: args.source as string | undefined,
+        project: args.project as string | undefined,
+        dryRun: !!args['dry-run'],
+        batchSize: args['batch-size'] ? parseInt(args['batch-size'] as string, 10) : undefined,
+      });
+
+      cliOutput(
+        {
+          dryRun: result.dryRun,
+          observationsImported: result.observationsImported,
+          learningsImported: result.learningsImported,
+          decisionsImported: result.decisionsImported,
+          observationsSkipped: result.observationsSkipped,
+          errors: result.errors,
+        },
+        { command: 'migrate-claude-mem', operation: 'migrate.claude-mem' },
+      );
+
+      if (result.errors.length > 0) {
+        process.exitCode = 1;
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(message, 'E_MIGRATION_FAILED', undefined, {
+        operation: 'migrate.claude-mem',
+      });
+      process.exitCode = 1;
+    }
+  },
+});
+
 /**
- * Register the `migrate` parent command with its subcommands.
+ * Root migrate command group — registers migrate subcommands.
  *
  * Subcommands:
  *   cleo migrate claude-mem [--dry-run] [--source <path>] [--project <name>]
  *   cleo migrate storage    [--target <version>] [--dry-run]
  */
-export function registerMigrateClaudeMemCommand(program: Command): void {
-  // Find or create the 'migrate' parent command
-  let migrateCmd = program.commands.find((c) => c.name() === 'migrate');
-  if (!migrateCmd) {
-    migrateCmd = program.command('migrate').description('Data migration utilities');
-  }
-
-  // cleo migrate storage — wraps mutate admin migrate
-  migrateCmd
-    .command('storage')
-    .description('Run CLEO internal storage and schema migrations')
-    .option('--target <version>', 'Target schema version to migrate to')
-    .option('--dry-run', 'Preview migration steps without making changes')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'migrate',
-        {
-          target: opts['target'] as string | undefined,
-          dryRun: opts['dryRun'] === true,
-        },
-        { command: 'migrate storage', operation: 'admin.migrate' },
-      );
-    });
-
-  migrateCmd
-    .command('claude-mem')
-    .description('Import observations from claude-mem into brain.db')
-    .option('--dry-run', 'Show what would be imported without making changes')
-    .option('--source <path>', 'Path to claude-mem.db (default: ~/.claude-mem/claude-mem.db)')
-    .option('--project <name>', 'Project tag for imported entries')
-    .option('--batch-size <n>', 'Rows per transaction batch (default: 100)', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      const root = getProjectRoot();
-
-      try {
-        const result = await migrateClaudeMem(root, {
-          sourcePath: opts['source'] as string | undefined,
-          project: opts['project'] as string | undefined,
-          dryRun: !!opts['dryRun'],
-          batchSize: (opts['batchSize'] as number) || undefined,
-        });
-
-        cliOutput(
-          {
-            dryRun: result.dryRun,
-            observationsImported: result.observationsImported,
-            learningsImported: result.learningsImported,
-            decisionsImported: result.decisionsImported,
-            observationsSkipped: result.observationsSkipped,
-            errors: result.errors,
-          },
-          { command: 'migrate-claude-mem', operation: 'migrate.claude-mem' },
-        );
-
-        if (result.errors.length > 0) {
-          process.exitCode = 1;
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        cliError(message, 'E_MIGRATION_FAILED', undefined, {
-          operation: 'migrate.claude-mem',
-        });
-        process.exitCode = 1;
-      }
-    });
-}
+export const migrateClaudeMemCommand = defineCommand({
+  meta: { name: 'migrate', description: 'Data migration utilities' },
+  subCommands: {
+    'claude-mem': claudeMemCommand,
+    storage: storageCommand,
+  },
+});

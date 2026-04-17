@@ -1,29 +1,22 @@
 /**
- * Dynamic command registration — thin wrapper around the CLI adapter.
+ * Dynamic command registration stub.
  *
- * Provides registerDynamicCommands() so that src/cli/index.ts can import it
- * via the standard commands/ path. Currently a no-op stub; T4897+ will
- * populate this with auto-generated Commander commands derived from
- * OperationDef.params arrays in the registry.
- *
- * Usage in src/cli/index.ts:
- *   import { registerDynamicCommands } from './commands/dynamic.js';
- *   registerDynamicCommands(program);
+ * Currently a no-op; T4897+ will populate this with auto-generated citty
+ * subcommands derived from OperationDef.params arrays in the registry.
  *
  * @epic T4894
  * @task T4900
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 
 /**
- * Register dynamically-generated commands onto the Commander program.
- *
- * Stub implementation: no commands registered until T4897 populates
+ * Stub dynamic command — no operations registered until T4897 populates
  * OperationDef.params arrays for all operations.
  */
-export function registerDynamicCommands(_program: Command): void {
-  // No-op until T4897 populates OperationDef.params arrays.
-  // The dispatch layer (getCliDispatcher) handles routing for all operations
-  // that already have explicit command registrations in src/cli/commands/.
-}
+export const dynamicCommand = defineCommand({
+  meta: { name: 'dynamic', description: 'STUB — auto-generated commands (T4897)' },
+  async run() {
+    // No-op until T4897 populates OperationDef.params arrays.
+  },
+});

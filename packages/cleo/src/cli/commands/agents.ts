@@ -1,22 +1,23 @@
 /**
- * CLI agents command — alias for `cleo agent` (backward compatibility).
+ * CLI agents command — deprecated stub (backward compatibility).
  *
  * The `agents` (plural) command existed before the unified `agent` command.
- * It now redirects to `agent` to avoid citty routing conflicts.
- * The `health` subcommand is registered directly on the `agent` parent.
+ * All agent functionality now lives under `cleo agent`.
  *
- * @deprecated Use `cleo agent health` instead of `cleo agents health`.
+ * @deprecated Use `cleo agent` instead of `cleo agents`.
  * @task T039
  */
 
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 
 /**
- * Register `agents` as an alias that prints deprecation notice.
- * Health monitoring is now under `cleo agent health`.
+ * Deprecated agents command group — no-op stub preserved for backward
+ * compatibility. Health monitoring and all agent operations now live under
+ * `cleo agent`.
+ *
+ * @deprecated Use `cleo agent health` instead of `cleo agents health`.
  */
-export function registerAgentsCommand(_program: Command): void {
-  // No-op: the `agents` command is removed to avoid collision with `agent`.
-  // Health monitoring lives under `cleo agent health`.
-  // This function is kept to avoid breaking the import in index.ts.
-}
+export const agentsCommand = defineCommand({
+  meta: { name: 'agents', description: 'DEPRECATED — use `cleo agent` instead' },
+  async run() {},
+});

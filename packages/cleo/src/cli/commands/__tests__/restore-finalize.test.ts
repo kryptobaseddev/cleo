@@ -74,8 +74,7 @@ afterEach(() => {
 // Imports of the modules under test (after mocks are established)
 // ---------------------------------------------------------------------------
 
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { parseConflictReport, registerRestoreCommand } from '../restore.js';
+import { parseConflictReport, restoreCommand } from '../restore.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,27 +96,19 @@ function makeTmpProject(): { root: string; cleoDir: string; cleanup: () => void 
 }
 
 /**
- * Extract the `restore finalize` action from a freshly-registered command tree
- * and invoke it directly.  This mirrors the approach used in backup-inspect.test.ts
- * to avoid relying on parseAsync (which ShimCommand does not implement).
+ * Invoke the `restore finalize` subcommand run() directly via the citty
+ * defineCommand structure.
  */
-function getFinalizeAction(): () => Promise<void> {
-  const program = new Command();
-  registerRestoreCommand(program);
-
-  const restoreCmd = program._subcommands.find((c) => c._name === 'restore');
-  if (!restoreCmd) throw new Error('restore command not registered');
-
-  const finalizeCmd = restoreCmd._subcommands.find((c) => c._name === 'finalize');
-  if (!finalizeCmd) throw new Error('restore finalize subcommand not registered');
-
-  if (!finalizeCmd._action) throw new Error('restore finalize has no action registered');
-
-  return finalizeCmd._action as () => Promise<void>;
-}
-
 async function runFinalizeAction(): Promise<void> {
-  await getFinalizeAction()();
+  const finalizeCmd = restoreCommand.subCommands?.['finalize'];
+  if (!finalizeCmd || typeof finalizeCmd !== 'object' || !('run' in finalizeCmd)) {
+    throw new Error('restore finalize subcommand not found');
+  }
+  await (
+    finalizeCmd as {
+      run: (ctx: { args: Record<string, unknown>; rawArgs: string[] }) => Promise<void>;
+    }
+  ).run({ args: {}, rawArgs: [] });
 }
 
 // ---------------------------------------------------------------------------

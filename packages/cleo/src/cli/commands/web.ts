@@ -1,14 +1,22 @@
 /**
- * CLI web command - manage CLEO Web UI server lifecycle.
- * Ported from scripts/web.sh
- * @task T4551 / T623 / T717
- * @epic T4545
+ * CLI web command — manage CLEO Web UI server lifecycle.
+ *
+ * Ported from scripts/web.sh. Exposes five subcommands:
+ *
+ *   cleo web start    — launch the studio server detached
+ *   cleo web stop     — gracefully shut it down
+ *   cleo web restart  — stop then start with shared helper
+ *   cleo web status   — show PID / port / URL
+ *   cleo web open     — open the browser to the UI
  *
  * Persistence model:
  * - `detached: true` + `unref()` decouples from parent shell
  * - stdio routed to log files enables recovery after terminal close
  * - Atomic PID file writes prevent corrupt state
  * - Signal handlers trigger graceful shutdown
+ *
+ * @task T4551 / T623 / T717
+ * @epic T4545
  */
 
 import { execFileSync, spawn } from 'node:child_process';
@@ -16,8 +24,7 @@ import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getCleoHome } from '@cleocode/core';
-// CLI-only: web command requires process spawn/PID management not suitable for dispatch
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
 const DEFAULT_PORT = 3456;
@@ -65,7 +72,7 @@ async function getStatus(): Promise<{
 
   try {
     const pidStr = (await readFile(pidFile, 'utf-8')).trim();
-    const pid = parseInt(pidStr, 10);
+    const pid = Number.parseInt(pidStr, 10);
 
     if (Number.isNaN(pid) || !isProcessRunning(pid)) {
       return { running: false, pid: null, port: null, host: null, url: null };
@@ -90,9 +97,10 @@ async function getStatus(): Promise<{
 
 /**
  * Start the web server with the given port and host.
+ *
  * Extracted as a standalone function so both the `start` and `restart`
- * subcommands can call it directly without the brittle pattern of
- * looking up the sibling command's action handler at runtime.
+ * subcommands can call it directly without runtime sibling-command lookups.
+ *
  * @task T4551 / T717
  */
 async function startWebServer(port: number, host: string): Promise<void> {
@@ -164,7 +172,6 @@ async function startWebServer(port: number, host: string): Promise<void> {
   serverProcess.unref();
 
   // Atomically write PID file to ensure clean state
-  // Write to temp file first, then rename for atomicity
   const pidFileTmp = `${pidFile}.tmp`;
   await writeFile(pidFileTmp, String(serverProcess.pid));
   await rm(pidFile, { force: true });
@@ -214,48 +221,114 @@ async function startWebServer(port: number, host: string): Promise<void> {
   );
 }
 
-/**
- * Register the web command.
- * @task T4551
- */
-export function registerWebCommand(program: Command): void {
-  const webCmd = program.command('web').description('Manage CLEO Web UI server');
-
-  webCmd
-    .command('start')
-    .description('Start the web server')
-    .option('--port <port>', 'Server port', String(DEFAULT_PORT))
-    .option('--host <host>', 'Server host', DEFAULT_HOST)
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const port = parseInt(opts['port'] as string, 10);
-        const host = opts['host'] as string;
-        await startWebServer(port, host);
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+/** cleo web start — launch the CLEO Studio server detached */
+const startCommand = defineCommand({
+  meta: { name: 'start', description: 'Start the web server' },
+  args: {
+    port: {
+      type: 'string',
+      description: 'Server port',
+      default: String(DEFAULT_PORT),
+    },
+    host: {
+      type: 'string',
+      description: 'Server host',
+      default: DEFAULT_HOST,
+    },
+  },
+  async run({ args }) {
+    try {
+      await startWebServer(Number.parseInt(args.port, 10), args.host);
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
+      throw err;
+    }
+  },
+});
 
-  webCmd
-    .command('stop')
-    .description('Stop the web server')
-    .action(async () => {
+/** cleo web stop — gracefully shut down the running server */
+const stopCommand = defineCommand({
+  meta: { name: 'stop', description: 'Stop the web server' },
+  async run() {
+    try {
+      const { pidFile } = getWebPaths();
+      const status = await getStatus();
+
+      if (!status.running || !status.pid) {
+        // Clean up stale PID file
+        await rm(pidFile, { force: true });
+        cliOutput({ running: false }, { command: 'web', message: 'Server is not running' });
+        return;
+      }
+
+      // Graceful shutdown (cross-platform): 30s grace period before force kill
       try {
-        const { pidFile } = getWebPaths();
-        const status = await getStatus();
-
-        if (!status.running || !status.pid) {
-          // Clean up stale PID file
-          await rm(pidFile, { force: true });
-          cliOutput({ running: false }, { command: 'web', message: 'Server is not running' });
-          return;
+        if (process.platform === 'win32') {
+          spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
+        } else {
+          process.kill(status.pid, 'SIGTERM');
         }
+      } catch {
+        /* ignore */
+      }
 
-        // Graceful shutdown (cross-platform): 30s grace period before force kill
+      // Wait for exit (SIGTERM grace period: 30s per studio's SHUTDOWN_TIMEOUT)
+      for (let i = 0; i < 60; i++) {
+        if (!isProcessRunning(status.pid)) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      // Force kill if still running after grace period
+      if (isProcessRunning(status.pid)) {
+        try {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/PID', String(status.pid), '/F', '/T'], { stdio: 'ignore' });
+          } else {
+            process.kill(status.pid, 'SIGKILL');
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      await rm(pidFile, { force: true });
+
+      cliOutput({ stopped: true }, { command: 'web', message: 'CLEO Web UI stopped' });
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo web restart — stop then start the server */
+const restartCommand = defineCommand({
+  meta: { name: 'restart', description: 'Restart the web server' },
+  args: {
+    port: {
+      type: 'string',
+      description: 'Server port',
+      default: String(DEFAULT_PORT),
+    },
+    host: {
+      type: 'string',
+      description: 'Server host',
+      default: DEFAULT_HOST,
+    },
+  },
+  async run({ args }) {
+    try {
+      const { pidFile } = getWebPaths();
+      const status = await getStatus();
+
+      // Stop if running
+      if (status.running && status.pid) {
         try {
           if (process.platform === 'win32') {
             spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
@@ -266,13 +339,13 @@ export function registerWebCommand(program: Command): void {
           /* ignore */
         }
 
-        // Wait for exit (SIGTERM grace period: 30s per studio's SHUTDOWN_TIMEOUT)
+        // Wait for exit
         for (let i = 0; i < 60; i++) {
           if (!isProcessRunning(status.pid)) break;
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        // Force kill if still running after grace period
+        // Force kill if still running
         if (isProcessRunning(status.pid)) {
           try {
             if (process.platform === 'win32') {
@@ -286,131 +359,88 @@ export function registerWebCommand(program: Command): void {
         }
 
         await rm(pidFile, { force: true });
-
-        cliOutput({ stopped: true }, { command: 'web', message: 'CLEO Web UI stopped' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
       }
-    });
 
-  webCmd
-    .command('restart')
-    .description('Restart the web server')
-    .option('--port <port>', 'Server port', String(DEFAULT_PORT))
-    .option('--host <host>', 'Server host', DEFAULT_HOST)
-    .action(async (opts: Record<string, unknown>) => {
+      // Start fresh using the shared helper
+      await startWebServer(Number.parseInt(args.port, 10), args.host);
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo web status — show PID, port, host, and URL */
+const statusCommand = defineCommand({
+  meta: { name: 'status', description: 'Check server status' },
+  async run() {
+    try {
+      const status = await getStatus();
+      cliOutput(status, { command: 'web' });
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo web open — open the browser to the running UI */
+const openCommand = defineCommand({
+  meta: { name: 'open', description: 'Open browser to the UI' },
+  async run() {
+    try {
+      const status = await getStatus();
+      if (!status.running || !status.url) {
+        throw new CleoError(
+          ExitCode.GENERAL_ERROR,
+          'Web server is not running. Start with: cleo web start',
+        );
+      }
+
+      const url = status.url;
+      const platform = process.platform;
+
       try {
-        const { pidFile } = getWebPaths();
-        const status = await getStatus();
-
-        // Stop if running
-        if (status.running && status.pid) {
-          try {
-            if (process.platform === 'win32') {
-              spawn('taskkill', ['/PID', String(status.pid), '/T'], { stdio: 'ignore' });
-            } else {
-              process.kill(status.pid, 'SIGTERM');
-            }
-          } catch {
-            /* ignore */
-          }
-
-          // Wait for exit
-          for (let i = 0; i < 60; i++) {
-            if (!isProcessRunning(status.pid)) break;
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
-
-          // Force kill if still running
-          if (isProcessRunning(status.pid)) {
-            try {
-              if (process.platform === 'win32') {
-                spawn('taskkill', ['/PID', String(status.pid), '/F', '/T'], { stdio: 'ignore' });
-              } else {
-                process.kill(status.pid, 'SIGKILL');
-              }
-            } catch {
-              /* ignore */
-            }
-          }
-
-          await rm(pidFile, { force: true });
+        if (platform === 'linux') {
+          spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+        } else if (platform === 'darwin') {
+          spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+        } else if (platform === 'win32') {
+          spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
         }
-
-        // Start fresh — call the shared startWebServer helper directly.
-        // This avoids the broken pattern of looking up the sibling command's
-        // action handler at runtime (which resolved to the ShimCommand.action
-        // setter method, not the registered handler, causing:
-        //   TypeError: Cannot set properties of undefined (setting '_action')
-        // — T717 root cause fix).
-        const port = parseInt((opts['port'] as string | undefined) ?? String(DEFAULT_PORT), 10);
-        const host = (opts['host'] as string | undefined) ?? DEFAULT_HOST;
-        await startWebServer(port, host);
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      } catch {
+        // Can't open browser — user can open manually
       }
-    });
 
-  webCmd
-    .command('status')
-    .description('Check server status')
-    .action(async () => {
-      try {
-        const status = await getStatus();
-        cliOutput(status, { command: 'web' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      cliOutput({ url }, { command: 'web', message: `Open browser to: ${url}` });
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
+      throw err;
+    }
+  },
+});
 
-  webCmd
-    .command('open')
-    .description('Open browser to the UI')
-    .action(async () => {
-      try {
-        const status = await getStatus();
-        if (!status.running || !status.url) {
-          throw new CleoError(
-            ExitCode.GENERAL_ERROR,
-            'Web server is not running. Start with: cleo web start',
-          );
-        }
-
-        // Try to open browser
-        const url = status.url;
-        const platform = process.platform;
-
-        try {
-          if (platform === 'linux') {
-            spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
-          } else if (platform === 'darwin') {
-            spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
-          } else if (platform === 'win32') {
-            spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
-          }
-        } catch {
-          // Can't open browser — user can open manually
-        }
-
-        cliOutput({ url }, { command: 'web', message: `Open browser to: ${url}` });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
-    });
-}
+/**
+ * Native citty command group for CLEO Web UI server management.
+ *
+ * Subcommands: start, stop, restart, status, open.
+ */
+export const webCommand = defineCommand({
+  meta: { name: 'web', description: 'Manage CLEO Web UI server' },
+  subCommands: {
+    start: startCommand,
+    stop: stopCommand,
+    restart: restartCommand,
+    status: statusCommand,
+    open: openCommand,
+  },
+});

@@ -15,8 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerAgentCommand } from '../agent.js';
+import { agentCommand } from '../agent.js';
 
 // ---------------------------------------------------------------------------
 // Mock @cleocode/core/internal
@@ -60,18 +59,19 @@ vi.mock('../../renderers/index.js', () => ({
 // ---------------------------------------------------------------------------
 
 /**
- * Register the agent command tree and extract the `remove` subcommand action.
+ * Get the remove subcommand run function from the native citty agentCommand.
  *
- * @returns The action handler from the ShimCommand tree.
+ * @returns The run handler from the citty subcommand.
  */
-function getRemoveAction(): (...args: unknown[]) => Promise<void> {
-  const program = new Command();
-  registerAgentCommand(program);
-  const agentCmd = program.commands.find((c) => c.name() === 'agent');
-  if (!agentCmd) throw new Error('agent command not registered');
-  const sub = agentCmd.commands.find((c) => c.name() === 'remove');
-  if (!sub?._action) throw new Error('agent remove subcommand has no action registered');
-  return sub._action as (...args: unknown[]) => Promise<void>;
+function getRemoveRun(): (ctx: {
+  args: Record<string, unknown>;
+  rawArgs: string[];
+}) => Promise<void> {
+  const sub = agentCommand.subCommands?.remove;
+  if (!sub || typeof sub !== 'object' || !('run' in sub) || typeof sub.run !== 'function') {
+    throw new Error('agent remove subcommand has no run handler');
+  }
+  return sub.run as (ctx: { args: Record<string, unknown>; rawArgs: string[] }) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,8 +87,8 @@ describe('TC-085 cleo agent remove (default, no --global)', () => {
   it('calls detachAgentFromProject and outputs success when ref exists', async () => {
     mockGetProjectAgentRef.mockReturnValue({ agentId: 'agent-1', enabled: 1 });
 
-    const action = getRemoveAction();
-    await action('agent-1', {});
+    const run = getRemoveRun();
+    await run({ args: { agentId: 'agent-1', global: false, 'force-global': false }, rawArgs: [] });
 
     expect(mockDetachAgentFromProject).toHaveBeenCalledWith(expect.any(String), 'agent-1');
     expect(mockRemoveGlobal).not.toHaveBeenCalled();
@@ -105,8 +105,11 @@ describe('TC-085 cleo agent remove (default, no --global)', () => {
   it('sets exitCode=4 and does NOT call detach when agent is not attached to project', async () => {
     mockGetProjectAgentRef.mockReturnValue(null);
 
-    const action = getRemoveAction();
-    await action('ghost-agent', {});
+    const run = getRemoveRun();
+    await run({
+      args: { agentId: 'ghost-agent', global: false, 'force-global': false },
+      rawArgs: [],
+    });
 
     expect(mockDetachAgentFromProject).not.toHaveBeenCalled();
     expect(mockRemoveGlobal).not.toHaveBeenCalled();
@@ -126,8 +129,11 @@ describe('TC-085 cleo agent remove (default, no --global)', () => {
       throw new Error('disk full');
     });
 
-    const action = getRemoveAction();
-    await action('agent-err', {});
+    const run = getRemoveRun();
+    await run({
+      args: { agentId: 'agent-err', global: false, 'force-global': false },
+      rawArgs: [],
+    });
 
     expect(mockCliOutput).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -153,8 +159,8 @@ describe('TC-086 cleo agent remove --global (safety gate)', () => {
   it('aborts with E_VALIDATION (exitCode=6) when active ref exists and --force-global not given', async () => {
     mockGetProjectAgentRef.mockReturnValue({ agentId: 'agent-2', enabled: 1 });
 
-    const action = getRemoveAction();
-    await action('agent-2', { global: true });
+    const run = getRemoveRun();
+    await run({ args: { agentId: 'agent-2', global: true, 'force-global': false }, rawArgs: [] });
 
     expect(mockRemoveGlobal).not.toHaveBeenCalled();
     expect(mockCliOutput).toHaveBeenCalledWith(
@@ -170,8 +176,8 @@ describe('TC-086 cleo agent remove --global (safety gate)', () => {
   it('does NOT abort when active ref exists but --force-global is supplied', async () => {
     mockGetProjectAgentRef.mockReturnValue({ agentId: 'agent-3', enabled: 1 });
 
-    const action = getRemoveAction();
-    await action('agent-3', { global: true, forceGlobal: true });
+    const run = getRemoveRun();
+    await run({ args: { agentId: 'agent-3', global: true, 'force-global': true }, rawArgs: [] });
 
     expect(mockRemoveGlobal).toHaveBeenCalledWith('agent-3', { force: true });
     expect(mockCliOutput).toHaveBeenCalledWith(
@@ -198,8 +204,8 @@ describe('TC-087 cleo agent remove --global (no active project ref)', () => {
   it('calls removeGlobal and outputs success when no active project ref exists', async () => {
     mockGetProjectAgentRef.mockReturnValue(null);
 
-    const action = getRemoveAction();
-    await action('agent-4', { global: true });
+    const run = getRemoveRun();
+    await run({ args: { agentId: 'agent-4', global: true, 'force-global': false }, rawArgs: [] });
 
     expect(mockRemoveGlobal).toHaveBeenCalledWith('agent-4', { force: false });
     expect(mockDetachAgentFromProject).not.toHaveBeenCalled();
@@ -217,8 +223,11 @@ describe('TC-087 cleo agent remove --global (no active project ref)', () => {
     mockGetProjectAgentRef.mockReturnValue(null);
     mockRemoveGlobal.mockRejectedValue(new Error('Agent not found globally: agent-missing'));
 
-    const action = getRemoveAction();
-    await action('agent-missing', { global: true });
+    const run = getRemoveRun();
+    await run({
+      args: { agentId: 'agent-missing', global: true, 'force-global': false },
+      rawArgs: [],
+    });
 
     expect(mockCliOutput).toHaveBeenCalledWith(
       expect.objectContaining({

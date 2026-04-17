@@ -1,146 +1,60 @@
 /**
- * CLI find command.
+ * CLI find command
  * @task T4460
  * @task T4668
- * @epic T4454
+ * @task T487
  */
-
 import { ExitCode } from '@cleocode/contracts';
 import { createPage } from '@cleocode/core';
+import { defineCommand } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import type { ParamDef } from '../../dispatch/types.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
-import { applyParamDefsToCommand, buildOperationHelp } from '../help-generator.js';
 import { cliOutput } from '../renderers/index.js';
-
-// ---------------------------------------------------------------------------
-// ParamDef array for tasks.find
-//
-// The registry entry for tasks.find lacks a params array (T4897 migration
-// pending).  This local definition is the CLI-visible source of truth until
-// the upstream migration completes.
-// ---------------------------------------------------------------------------
-const FIND_PARAMS: readonly ParamDef[] = [
-  {
-    name: 'query',
-    type: 'string',
-    required: false,
-    description: 'Search text (required unless --id is provided)',
-    cli: { positional: true },
+/** Native citty command for `cleo find [query]`. */
+export const findCommand = defineCommand({
+  meta: { name: 'find', description: 'Fuzzy search tasks by title/description' },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Search text (required unless --id is provided)',
+      required: false,
+    },
+    id: { type: 'string', description: 'Search by ID prefix' },
+    exact: { type: 'boolean', description: 'Exact title match' },
+    status: {
+      type: 'string',
+      description: 'Filter by status (pending|active|blocked|done|cancelled)',
+    },
+    in: { type: 'string', description: 'Field to search in (title|description|notes|id)' },
+    'include-archive': { type: 'boolean', description: 'Include archived tasks' },
+    limit: { type: 'string', description: 'Max results (default: 20)' },
+    offset: { type: 'string', description: 'Skip first N results' },
+    fields: { type: 'string', description: 'Comma-separated additional fields to include' },
+    verbose: { type: 'boolean', description: 'Include all task fields', alias: 'v' },
   },
-  {
-    name: 'id',
-    type: 'string',
-    required: false,
-    description: 'Search by ID prefix',
-    cli: { flag: 'id' },
-  },
-  {
-    name: 'exact',
-    type: 'boolean',
-    required: false,
-    description: 'Exact title match',
-    cli: { flag: 'exact' },
-  },
-  {
-    name: 'status',
-    type: 'string',
-    required: false,
-    description: 'Filter by status',
-    enum: ['pending', 'active', 'blocked', 'done', 'cancelled'] as const,
-    cli: { flag: 'status' },
-  },
-  {
-    name: 'field',
-    type: 'string',
-    required: false,
-    description: 'Field to search in (title|description|notes|id)',
-    cli: { flag: 'in' },
-  },
-  {
-    name: 'includeArchive',
-    type: 'boolean',
-    required: false,
-    description: 'Include archived tasks',
-    cli: { flag: 'include-archive' },
-  },
-  {
-    name: 'limit',
-    type: 'number',
-    required: false,
-    description: 'Max results (default: 20)',
-    cli: { flag: 'limit', parse: parseInt as (val: string) => unknown },
-  },
-  {
-    name: 'offset',
-    type: 'number',
-    required: false,
-    description: 'Skip first N results',
-    cli: { flag: 'offset', parse: parseInt as (val: string) => unknown },
-  },
-  {
-    name: 'fields',
-    type: 'string',
-    required: false,
-    description:
-      'Comma-separated additional fields to include (e.g. labels,acceptance,notes,description)',
-    cli: { flag: 'fields' },
-  },
-  {
-    name: 'verbose',
-    type: 'boolean',
-    required: false,
-    description: 'Include all task fields (same as cleo list output)',
-    cli: { flag: 'verbose', short: '-v' },
-  },
-];
-
-/**
- * Register the find command.
- * @task T4460
- * @task T4668
- */
-export function registerFindCommand(program: Command): void {
-  const cmd = program
-    .command('find')
-    .description(
-      buildOperationHelp('tasks.find', 'Fuzzy search tasks by title/description', FIND_PARAMS),
-    );
-
-  // Auto-generate [query] positional arg and flag options from the ParamDef
-  // registry.  Replaces the previous hand-written .option() chain and surfaces
-  // enum values (e.g. status) in --help output.
-  applyParamDefsToCommand(cmd, FIND_PARAMS, 'tasks.find');
-
-  cmd.action(async (query: string | undefined, opts: Record<string, unknown>) => {
-    const limit = opts['limit'] as number | undefined;
-    const offset = opts['offset'] as number | undefined;
-
+  async run({ args }) {
+    const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
+    const offset = args.offset !== undefined ? Number.parseInt(args.offset, 10) : undefined;
     const params: Record<string, unknown> = {};
-    if (query !== undefined) params['query'] = query;
-    if (opts['id'] !== undefined) params['id'] = opts['id'];
-    if (opts['exact'] !== undefined) params['exact'] = opts['exact'];
-    if (opts['status'] !== undefined) params['status'] = opts['status'];
-    if (opts['in'] !== undefined) params['field'] = opts['in'];
-    if (opts['includeArchive'] !== undefined) params['includeArchive'] = opts['includeArchive'];
+    if (args.query !== undefined) params['query'] = args.query;
+    if (args.id !== undefined) params['id'] = args.id;
+    if (args.exact !== undefined) params['exact'] = args.exact;
+    if (args.status !== undefined) params['status'] = args.status;
+    if (args.in !== undefined) params['field'] = args.in;
+    if (args['include-archive'] !== undefined) params['includeArchive'] = args['include-archive'];
     if (limit !== undefined) params['limit'] = limit;
     if (offset !== undefined) params['offset'] = offset;
-    if (opts['fields'] !== undefined) params['fields'] = opts['fields'];
-    if (opts['verbose'] !== undefined) params['verbose'] = opts['verbose'];
-
+    if (args.fields !== undefined) params['fields'] = args.fields;
+    if (args.verbose !== undefined) params['verbose'] = args.verbose;
     const response = await dispatchRaw('query', 'tasks', 'find', params);
-
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });
     }
-
     const rawData = response.data;
     const data =
       (Array.isArray(rawData)
         ? { results: rawData, total: rawData.length }
         : (rawData as Record<string, unknown>)) ?? {};
     const results = Array.isArray(data?.results) ? data.results : [];
-
     if (results.length === 0) {
       cliOutput(data, {
         command: 'find',
@@ -150,9 +64,8 @@ export function registerFindCommand(program: Command): void {
       process.exit(ExitCode.NO_DATA);
       return;
     }
-
     const total = (data?.total as number) ?? results.length;
     const page = createPage({ total, limit, offset });
     cliOutput(data, { command: 'find', operation: 'tasks.find', page });
-  });
-}
+  },
+});

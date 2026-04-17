@@ -1,63 +1,110 @@
 /**
- * CLI consensus command - consensus protocol validation.
- * Routes through dispatch layer to check.protocol.consensus.
+ * CLI command group: cleo consensus — consensus protocol validation.
+ *
+ * Alias for `cleo check protocol consensus`. Routes through the dispatch
+ * layer to the `check.protocol` operation with `protocolType:'consensus'`.
+ *
+ * Subcommands:
+ *   cleo consensus validate <taskId>    — validate task protocol compliance
+ *   cleo consensus check <manifestFile> — validate a manifest entry directly
+ *
  * @task T4537
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo consensus validate — validate consensus protocol compliance for a task */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate consensus protocol compliance for task',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to validate',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+    'voting-matrix': {
+      type: 'string',
+      description: 'Path to voting matrix JSON file',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'consensus',
+        mode: 'task',
+        taskId: args.taskId,
+        strict: args.strict,
+        votingMatrixFile: args['voting-matrix'] as string | undefined,
+      },
+      { command: 'consensus' },
+    );
+  },
+});
+
+/** cleo consensus check — validate a manifest entry directly */
+const checkCommand = defineCommand({
+  meta: {
+    name: 'check',
+    description: 'Validate manifest entry directly',
+  },
+  args: {
+    manifestFile: {
+      type: 'positional',
+      description: 'Path to manifest file',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+    'voting-matrix': {
+      type: 'string',
+      description: 'Path to voting matrix JSON file',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'consensus',
+        mode: 'manifest',
+        manifestFile: args.manifestFile,
+        strict: args.strict,
+        votingMatrixFile: args['voting-matrix'] as string | undefined,
+      },
+      { command: 'consensus' },
+    );
+  },
+});
 
 /**
- * Register the consensus command group.
- * @task T4537
+ * Root consensus command group.
+ *
+ * Alias for `cleo check protocol consensus`. Validates consensus protocol
+ * compliance for tasks or manifest entries.
  */
-export function registerConsensusCommand(program: Command): void {
-  const consensus = program
-    .command('consensus')
-    .description(
+export const consensusCommand = defineCommand({
+  meta: {
+    name: 'consensus',
+    description:
       'Validate consensus protocol compliance (alias for `cleo check protocol consensus`)',
-    );
-
-  consensus
-    .command('validate <taskId>')
-    .description('Validate consensus protocol compliance for task')
-    .option('--strict', 'Exit with error code on violations')
-    .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'consensus',
-          mode: 'task',
-          taskId,
-          strict: opts['strict'] as boolean | undefined,
-          votingMatrixFile: opts['votingMatrix'] as string | undefined,
-        },
-        { command: 'consensus' },
-      );
-    });
-
-  consensus
-    .command('check <manifestFile>')
-    .description('Validate manifest entry directly')
-    .option('--strict', 'Exit with error code on violations')
-    .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
-    .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'consensus',
-          mode: 'manifest',
-          manifestFile,
-          strict: opts['strict'] as boolean | undefined,
-          votingMatrixFile: opts['votingMatrix'] as string | undefined,
-        },
-        { command: 'consensus' },
-      );
-    });
-}
+  },
+  subCommands: {
+    validate: validateCommand,
+    check: checkCommand,
+  },
+});

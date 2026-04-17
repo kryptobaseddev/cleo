@@ -1,9 +1,7 @@
 /**
  * CLEO CLI - Main entry point
  *
- * Bridges commander-shim commands to citty for execution.
- *
- * TODO: Migrate all 89 commands to native citty pattern (epic T5730)
+ * Native citty command dispatch — all commands use defineCommand.
  */
 
 import { readFileSync } from 'node:fs';
@@ -21,8 +19,7 @@ import {
   needsSignaldockToConduitMigration,
   validateGlobalSalt,
 } from '@cleocode/core/internal';
-import { type CommandDef, defineCommand, runMain, showUsage } from 'citty';
-import { ShimCommand } from './commander-shim.js';
+import { type CommandDef, defineCommand, runMain } from 'citty';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
@@ -36,335 +33,110 @@ function getPackageVersion(): string {
 
 const CLI_VERSION = getPackageVersion();
 
-// Create root shim to collect all commands
-const rootShim = new ShimCommand();
-
-import { registerAdapterCommand } from './commands/adapter.js';
-import { registerAddCommand } from './commands/add.js';
-import { registerAddBatchCommand } from './commands/add-batch.js';
-import { registerAdminCommand } from './commands/admin.js';
-import { registerAdrCommand } from './commands/adr.js';
-// Import all command registration functions
-import { registerAgentCommand } from './commands/agent.js';
-import { registerAnalyzeCommand } from './commands/analyze.js';
-import { registerArchiveCommand } from './commands/archive.js';
-import { registerArchiveStatsCommand } from './commands/archive-stats.js';
-import { registerBackfillCommand } from './commands/backfill.js';
-import { registerBackupCommand } from './commands/backup.js';
-import { registerBlockersCommand } from './commands/blockers.js';
-import { registerBrainCommand } from './commands/brain.js';
-import { registerBriefingCommand } from './commands/briefing.js';
-import { registerBugCommand } from './commands/bug.js';
-import { registerCancelCommand } from './commands/cancel.js';
-import { registerCantCommand } from './commands/cant.js';
-import { registerChainCommand } from './commands/chain.js';
-import { registerCheckCommand } from './commands/check.js';
-import { registerCheckpointCommand } from './commands/checkpoint.js';
-import { registerClaimCommand, registerUnclaimCommand } from './commands/claim.js';
-// DEPRECATED: registerCommandsCommand removed — use `cleo ops` instead
-import { registerCompleteCommand } from './commands/complete.js';
-import { registerComplexityCommand } from './commands/complexity.js';
-import { registerComplianceCommand } from './commands/compliance.js';
-import { registerConfigCommand } from './commands/config.js';
-// DEPRECATED: registerConsensusCommand removed — use `cleo check protocol consensus`
-import { registerContextCommand } from './commands/context.js';
-// DEPRECATED: registerContributionCommand removed — use `cleo check protocol contribution`
-import { registerCurrentCommand } from './commands/current.js';
-import { registerDaemonCommand } from './commands/daemon.js';
-import { registerDashCommand } from './commands/dash.js';
-// DEPRECATED: registerDecompositionCommand removed — use `cleo check protocol decomposition`
-import { registerDeleteCommand } from './commands/delete.js';
-import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
-import { registerDetectCommand } from './commands/detect.js';
-import { registerDetectDriftCommand } from './commands/detect-drift.js';
-import { registerDiagnosticsCommand } from './commands/diagnostics.js';
-import { registerDocsCommand } from './commands/docs.js';
-import { registerDoctorCommand } from './commands/doctor.js';
-import { registerExistsCommand } from './commands/exists.js';
-import { registerExportCommand } from './commands/export.js';
-import { registerExportTasksCommand } from './commands/export-tasks.js';
-import { registerFindCommand } from './commands/find.js';
-import { registerGCCommand } from './commands/gc.js';
-import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
-import { registerGradeCommand } from './commands/grade.js';
-import { registerHistoryCommand } from './commands/history.js';
-// DEPRECATED: registerImplementationCommand removed — use `cleo check protocol implementation`
-import { registerImportCommand } from './commands/import.js';
-import { registerImportTasksCommand } from './commands/import-tasks.js';
-import { registerInitCommand } from './commands/init.js';
-import { registerInjectCommand } from './commands/inject.js';
-import { registerIntelligenceCommand } from './commands/intelligence.js';
-import { registerIssueCommand } from './commands/issue.js';
-import { registerLabelsCommand } from './commands/labels.js';
-import { registerLifecycleCommand } from './commands/lifecycle.js';
-import { registerListCommand } from './commands/list.js';
-import { registerLogCommand } from './commands/log.js';
-import { registerMapCommand } from './commands/map.js';
-import { registerMemoryBrainCommand } from './commands/memory-brain.js';
-import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
-import { registerNextCommand } from './commands/next.js';
-import { registerNexusCommand } from './commands/nexus.js';
-// DEPRECATED: registerObserveCommand removed — use `cleo memory observe` instead
-import { registerOpsCommand } from './commands/ops.js';
-import { registerOrchestrateCommand } from './commands/orchestrate.js';
-import { registerOtelCommand } from './commands/otel.js';
-import { registerPhaseCommand } from './commands/phase.js';
-// DEPRECATED: registerPhasesCommand removed — use `cleo phase` instead
-import { registerPlanCommand } from './commands/plan.js';
-import { registerPromoteCommand } from './commands/promote.js';
-import { registerProviderCommand } from './commands/provider.js';
-import { registerReasonCommand } from './commands/reason.js';
-import { registerRefreshMemoryCommand } from './commands/refresh-memory.js';
-import { registerRelatesCommand } from './commands/relates.js';
-import { registerReleaseCommand } from './commands/release.js';
-import { registerRemoteCommand } from './commands/remote.js';
-import { registerReorderCommand } from './commands/reorder.js';
-import { registerReparentCommand } from './commands/reparent.js';
-import { registerReqCommand } from './commands/req.js';
-import { registerResearchCommand } from './commands/research.js';
-import { registerRestoreCommand } from './commands/restore.js';
-import { registerRoadmapCommand } from './commands/roadmap.js';
-import { registerSafestopCommand } from './commands/safestop.js';
-import { registerSchemaCommand } from './commands/schema.js';
-import { registerSelfUpdateCommand } from './commands/self-update.js';
-import { registerSequenceCommand } from './commands/sequence.js';
-import { registerSessionCommand } from './commands/session.js';
-import { registerShowCommand } from './commands/show.js';
-import { registerSkillsCommand } from './commands/skills.js';
-import { registerSnapshotCommand } from './commands/snapshot.js';
-// DEPRECATED: registerSpecificationCommand removed — use `cleo check protocol specification`
-import { registerStartCommand } from './commands/start.js';
-import { registerStatsCommand } from './commands/stats.js';
-import { registerStickyCommand } from './commands/sticky.js';
-import { registerStopCommand } from './commands/stop.js';
-import { registerSyncCommand } from './commands/sync.js';
-import { registerTestingCommand } from './commands/testing.js';
-import { registerTokenCommand } from './commands/token.js';
-import { registerTranscriptCommand } from './commands/transcript.js';
-import { registerUpdateCommand } from './commands/update.js';
-import { registerUpgradeCommand } from './commands/upgrade.js';
-// DEPRECATED: registerValidateCommand removed — use `cleo check schema todo`
-import { registerVerifyCommand } from './commands/verify.js';
-import { registerWebCommand } from './commands/web.js';
-
-// Register all commands against the shim
-registerAgentCommand(rootShim);
-registerAddCommand(rootShim);
-registerAddBatchCommand(rootShim);
-registerListCommand(rootShim);
-registerShowCommand(rootShim);
-registerFindCommand(rootShim);
-registerCompleteCommand(rootShim);
-registerUpdateCommand(rootShim);
-registerDeleteCommand(rootShim);
-registerArchiveCommand(rootShim);
-registerStartCommand(rootShim);
-registerStopCommand(rootShim);
-registerCurrentCommand(rootShim);
-registerBriefingCommand(rootShim);
-registerSessionCommand(rootShim);
-registerPhaseCommand(rootShim);
-registerDepsCommand(rootShim);
-registerTreeCommand(rootShim);
-registerResearchCommand(rootShim);
-registerOrchestrateCommand(rootShim);
-registerChainCommand(rootShim);
-registerLifecycleCommand(rootShim);
-registerReleaseCommand(rootShim);
-registerCheckpointCommand(rootShim);
-// DEPRECATED: registerCommandsCommand(rootShim) — removed, use `cleo ops`
-registerDocsCommand(rootShim);
-registerReqCommand(rootShim);
-registerExportTasksCommand(rootShim);
-registerImportTasksCommand(rootShim);
-registerSafestopCommand(rootShim);
-registerTestingCommand(rootShim);
-registerWebCommand(rootShim);
-registerNexusCommand(rootShim);
-registerArchiveStatsCommand(rootShim);
-registerGenerateChangelogCommand(rootShim);
-registerIssueCommand(rootShim);
-registerSkillsCommand(rootShim);
-registerProviderCommand(rootShim);
-registerAdapterCommand(rootShim);
-registerExistsCommand(rootShim);
-registerBugCommand(rootShim);
-registerCancelCommand(rootShim);
-registerClaimCommand(rootShim);
-registerUnclaimCommand(rootShim);
-registerComplexityCommand(rootShim);
-registerSyncCommand(rootShim);
-registerAnalyzeCommand(rootShim);
-registerMapCommand(rootShim);
-registerBackupCommand(rootShim);
-registerBlockersCommand(rootShim);
-registerCheckCommand(rootShim);
-registerComplianceCommand(rootShim);
-registerConfigCommand(rootShim);
-// DEPRECATED: registerConsensusCommand(rootShim) — removed
-registerContextCommand(rootShim);
-// DEPRECATED: registerContributionCommand(rootShim) — removed
-registerDashCommand(rootShim);
-// DEPRECATED: registerDecompositionCommand(rootShim) — removed
-registerDoctorCommand(rootShim);
-registerExportCommand(rootShim);
-registerHistoryCommand(rootShim);
-// DEPRECATED: registerImplementationCommand(rootShim) — removed
-registerImportCommand(rootShim);
-registerInitCommand(rootShim);
-registerInjectCommand(rootShim);
-registerIntelligenceCommand(rootShim);
-registerLabelsCommand(rootShim);
-registerLogCommand(rootShim);
-registerNextCommand(rootShim);
-registerPlanCommand(rootShim);
-registerOtelCommand(rootShim);
-registerTokenCommand(rootShim);
-// DEPRECATED: registerPhasesCommand(rootShim) — removed, use `cleo phase`
-registerPromoteCommand(rootShim);
-registerRelatesCommand(rootShim);
-registerReorderCommand(rootShim);
-registerReparentCommand(rootShim);
-registerRestoreCommand(rootShim);
-registerRoadmapCommand(rootShim);
-registerSelfUpdateCommand(rootShim);
-registerSequenceCommand(rootShim);
-// DEPRECATED: registerSpecificationCommand(rootShim) — removed
-registerStatsCommand(rootShim);
-registerUpgradeCommand(rootShim);
-// DEPRECATED: registerValidateCommand(rootShim) — removed, use `cleo check schema todo`
-registerVerifyCommand(rootShim);
-registerDetectCommand(rootShim);
-registerDetectDriftCommand(rootShim);
-registerDiagnosticsCommand(rootShim);
-registerOpsCommand(rootShim);
-registerSnapshotCommand(rootShim);
-registerRemoteCommand(rootShim);
-registerGradeCommand(rootShim);
-registerAdminCommand(rootShim);
-registerAdrCommand(rootShim);
-registerBackfillCommand(rootShim);
-registerBrainCommand(rootShim);
-registerCantCommand(rootShim);
-registerMemoryBrainCommand(rootShim);
-registerMigrateClaudeMemCommand(rootShim);
-registerStickyCommand(rootShim);
-registerReasonCommand(rootShim);
-registerRefreshMemoryCommand(rootShim);
-registerSchemaCommand(rootShim);
-registerDaemonCommand(rootShim);
-registerGCCommand(rootShim);
-registerTranscriptCommand(rootShim);
-
-function shimToCitty(shim: ShimCommand): CommandDef {
-  const cittyArgs: Record<string, import('citty').ArgDef> = {};
-
-  for (const arg of shim._args) {
-    cittyArgs[arg.name] = {
-      type: 'positional',
-      description: arg.name,
-      required: arg.required,
-    } as import('citty').ArgDef;
-  }
-
-  for (const opt of shim._options) {
-    const argDef: import('citty').ArgDef = {
-      type: opt.takesValue ? 'string' : 'boolean',
-      description: opt.description,
-      required: opt.required,
-    } as import('citty').ArgDef;
-
-    if (opt.shortName) {
-      (argDef as Record<string, unknown>).alias = opt.shortName;
-    }
-    if (opt.defaultValue !== undefined) {
-      // Citty requires that string-type arg defaults are actual strings.
-      // When a shim option has `parseFn=parseInt` and a numeric `defaultValue`
-      // (e.g. `--limit <n>` with default 20), the stored default is a number.
-      // Passing a number default for a `type:'string'` arg causes citty's arg
-      // parser to malfunction and lump all remaining args (including boolean
-      // flags like `--json`) into `_` instead of parsing them individually.
-      // Convert numeric defaults to strings to keep citty's parser happy.
-      const defaultVal =
-        opt.takesValue && typeof opt.defaultValue === 'number'
-          ? String(opt.defaultValue)
-          : opt.defaultValue;
-      (argDef as Record<string, unknown>).default = defaultVal;
-    }
-
-    cittyArgs[opt.longName] = argDef;
-  }
-
-  const subCommands: Record<string, CommandDef> = {};
-  for (const sub of shim._subcommands) {
-    subCommands[sub._name] = shimToCitty(sub);
-    for (const alias of sub._aliases) {
-      subCommands[alias] = shimToCitty(sub);
-    }
-  }
-
-  // Build the run function. For parent commands that only have subcommands
-  // (no action of their own), we handle two cases:
-  // 1. A default subcommand is marked (isDefault) → invoke it
-  // 2. No default → show help text
-  // But ONLY when no subcommand was specified — citty calls the parent run()
-  // even when a subcommand is resolved, so we detect this via rawArgs.
-  const hasSubCommands = Object.keys(subCommands).length > 0;
-  const subCommandNames = new Set(
-    shim._subcommands.flatMap((s) => [s._name, ...s._aliases].filter(Boolean)),
-  );
-
-  const runFn = async (context: {
-    args: Record<string, unknown>;
-    rawArgs: string[];
-    cmd: CommandDef;
-  }) => {
-    const { args } = context;
-    // If a subcommand was invoked, citty handles it — don't double-fire.
-    if (hasSubCommands && context.rawArgs.some((a) => subCommandNames.has(a))) {
-      return;
-    }
-
-    if (shim._action) {
-      const positionalValues: unknown[] = [];
-      for (const arg of shim._args) {
-        positionalValues.push(args[arg.name]);
-      }
-
-      const opts: Record<string, unknown> = {};
-      for (const opt of shim._options) {
-        const val = args[opt.longName];
-        if (val !== undefined && val !== false) {
-          if (opt.parseFn && typeof val === 'string') {
-            opts[opt.longName] = opt.parseFn(val);
-          } else {
-            opts[opt.longName] = val;
-          }
-        }
-      }
-
-      await shim._action(...positionalValues, opts, shim);
-    } else if (shim._subcommands.length > 0) {
-      const defaultSub = shim._subcommands.find((s) => s._isDefault);
-      if (defaultSub?._action) {
-        await defaultSub._action({} as Record<string, unknown>, defaultSub);
-      } else {
-        await showUsage(context.cmd);
-      }
-    }
-  };
-
-  const cittyDef: CommandDef = defineCommand({
-    meta: {
-      name: shim._name,
-      description: shim._description,
-    },
-    args: cittyArgs,
-    ...(hasSubCommands ? { subCommands } : {}),
-    run: runFn as CommandDef['run'],
-  });
-  return cittyDef;
-}
+// ---------------------------------------------------------------------------
+// Native citty command imports
+// ---------------------------------------------------------------------------
+import { adapterCommand } from './commands/adapter.js';
+import { addCommand } from './commands/add.js';
+import { addBatchCommand } from './commands/add-batch.js';
+import { adminCommand } from './commands/admin.js';
+import { adrCommand } from './commands/adr.js';
+import { agentCommand } from './commands/agent.js';
+import { analyzeCommand } from './commands/analyze.js';
+import { archiveCommand } from './commands/archive.js';
+import { archiveStatsCommand } from './commands/archive-stats.js';
+import { backfillCommand } from './commands/backfill.js';
+import { backupCommand } from './commands/backup.js';
+import { blockersCommand } from './commands/blockers.js';
+import { brainCommand } from './commands/brain.js';
+import { briefingCommand } from './commands/briefing.js';
+import { bugCommand } from './commands/bug.js';
+import { cancelCommand } from './commands/cancel.js';
+import { cantCommand } from './commands/cant.js';
+import { chainCommand } from './commands/chain.js';
+import { checkCommand } from './commands/check.js';
+import { checkpointCommand } from './commands/checkpoint.js';
+import { claimCommand, unclaimCommand } from './commands/claim.js';
+import { codeCommand } from './commands/code.js';
+import { completeCommand } from './commands/complete.js';
+import { complexityCommand } from './commands/complexity.js';
+import { complianceCommand } from './commands/compliance.js';
+import { configCommand } from './commands/config.js';
+import { consensusCommand } from './commands/consensus.js';
+import { contextCommand } from './commands/context.js';
+import { contributionCommand } from './commands/contribution.js';
+import { currentCommand } from './commands/current.js';
+import { daemonCommand } from './commands/daemon.js';
+import { dashCommand } from './commands/dash.js';
+import { decompositionCommand } from './commands/decomposition.js';
+import { deleteCommand } from './commands/delete.js';
+import { depsCommand, treeCommand } from './commands/deps.js';
+import { detectCommand } from './commands/detect.js';
+import { detectDriftCommand } from './commands/detect-drift.js';
+import { diagnosticsCommand } from './commands/diagnostics.js';
+import { docsCommand } from './commands/docs.js';
+import { doctorCommand } from './commands/doctor.js';
+import { existsCommand } from './commands/exists.js';
+import { exportCommand } from './commands/export.js';
+import { exportTasksCommand } from './commands/export-tasks.js';
+import { findCommand } from './commands/find.js';
+import { gcCommand } from './commands/gc.js';
+import { generateChangelogCommand } from './commands/generate-changelog.js';
+import { gradeCommand } from './commands/grade.js';
+import { historyCommand } from './commands/history.js';
+import { importCommand } from './commands/import.js';
+import { importTasksCommand } from './commands/import-tasks.js';
+import { initCommand } from './commands/init.js';
+import { injectCommand } from './commands/inject.js';
+import { intelligenceCommand } from './commands/intelligence.js';
+import { issueCommand } from './commands/issue.js';
+import { labelsCommand } from './commands/labels.js';
+import { lifecycleCommand } from './commands/lifecycle.js';
+import { listCommand } from './commands/list.js';
+import { logCommand } from './commands/log.js';
+import { mapCommand } from './commands/map.js';
+import { memoryBrainCommand } from './commands/memory-brain.js';
+import { migrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
+import { nextCommand } from './commands/next.js';
+import { nexusCommand } from './commands/nexus.js';
+import { opsCommand } from './commands/ops.js';
+import { orchestrateCommand } from './commands/orchestrate.js';
+import { otelCommand } from './commands/otel.js';
+import { phaseCommand } from './commands/phase.js';
+import { planCommand } from './commands/plan.js';
+import { promoteCommand } from './commands/promote.js';
+import { providerCommand } from './commands/provider.js';
+import { reasonCommand } from './commands/reason.js';
+import { refreshMemoryCommand } from './commands/refresh-memory.js';
+import { relatesCommand } from './commands/relates.js';
+import { releaseCommand } from './commands/release.js';
+import { pullCommand, pushCommand, remoteCommand } from './commands/remote.js';
+import { reorderCommand } from './commands/reorder.js';
+import { reparentCommand } from './commands/reparent.js';
+import { reqCommand } from './commands/req.js';
+import { researchCommand } from './commands/research.js';
+import { restoreCommand } from './commands/restore.js';
+import { roadmapCommand } from './commands/roadmap.js';
+import { safestopCommand } from './commands/safestop.js';
+import { schemaCommand } from './commands/schema.js';
+import { selfUpdateCommand } from './commands/self-update.js';
+import { sequenceCommand } from './commands/sequence.js';
+import { sessionCommand } from './commands/session.js';
+import { showCommand } from './commands/show.js';
+import { skillsCommand } from './commands/skills.js';
+import { snapshotCommand } from './commands/snapshot.js';
+import { startCommand } from './commands/start.js';
+import { statsCommand } from './commands/stats.js';
+import { stickyCommand } from './commands/sticky.js';
+import { stopCommand } from './commands/stop.js';
+import { syncCommand } from './commands/sync.js';
+import { testingCommand } from './commands/testing.js';
+import { tokenCommand } from './commands/token.js';
+import { transcriptCommand } from './commands/transcript.js';
+import { updateCommand } from './commands/update.js';
+import { upgradeCommand } from './commands/upgrade.js';
+import { verifyCommand } from './commands/verify.js';
+import { webCommand } from './commands/web.js';
 
 const subCommands: Record<string, CommandDef> = {};
 
@@ -376,17 +148,123 @@ subCommands['version'] = defineCommand({
   },
 });
 
-// Native citty command groups (not shimmed from Commander)
-import { codeCommand } from './commands/code.js';
+// ---------------------------------------------------------------------------
+// Wire all native commands
+// ---------------------------------------------------------------------------
+subCommands['adapter'] = adapterCommand as CommandDef;
+subCommands['add'] = addCommand as CommandDef;
+subCommands['add-batch'] = addBatchCommand as CommandDef;
+subCommands['admin'] = adminCommand as CommandDef;
+subCommands['adr'] = adrCommand as CommandDef;
+subCommands['agent'] = agentCommand as CommandDef;
+subCommands['analyze'] = analyzeCommand as CommandDef;
+subCommands['archive'] = archiveCommand as CommandDef;
+subCommands['archive-stats'] = archiveStatsCommand as CommandDef;
+subCommands['backfill'] = backfillCommand as CommandDef;
+subCommands['backup'] = backupCommand as CommandDef;
+subCommands['blockers'] = blockersCommand as CommandDef;
+subCommands['brain'] = brainCommand as CommandDef;
+subCommands['briefing'] = briefingCommand as CommandDef;
+subCommands['bug'] = bugCommand as CommandDef;
+subCommands['cancel'] = cancelCommand as CommandDef;
+subCommands['cant'] = cantCommand as CommandDef;
+subCommands['chain'] = chainCommand as CommandDef;
+subCommands['check'] = checkCommand as CommandDef;
+subCommands['checkpoint'] = checkpointCommand as CommandDef;
+subCommands['claim'] = claimCommand as CommandDef;
+subCommands['unclaim'] = unclaimCommand as CommandDef;
+subCommands['code'] = codeCommand as CommandDef;
+subCommands['complete'] = completeCommand as CommandDef;
+subCommands['complexity'] = complexityCommand as CommandDef;
+subCommands['compliance'] = complianceCommand as CommandDef;
+subCommands['config'] = configCommand as CommandDef;
+subCommands['consensus'] = consensusCommand as CommandDef;
+subCommands['context'] = contextCommand as CommandDef;
+subCommands['contribution'] = contributionCommand as CommandDef;
+subCommands['current'] = currentCommand as CommandDef;
+subCommands['daemon'] = daemonCommand as CommandDef;
+subCommands['dash'] = dashCommand as CommandDef;
+subCommands['decomposition'] = decompositionCommand as CommandDef;
+subCommands['delete'] = deleteCommand as CommandDef;
+subCommands['deps'] = depsCommand as CommandDef;
+subCommands['tree'] = treeCommand as CommandDef;
+subCommands['detect'] = detectCommand as CommandDef;
+subCommands['detect-drift'] = detectDriftCommand as CommandDef;
+subCommands['diagnostics'] = diagnosticsCommand as CommandDef;
+subCommands['docs'] = docsCommand as CommandDef;
+subCommands['doctor'] = doctorCommand as CommandDef;
+subCommands['exists'] = existsCommand as CommandDef;
+subCommands['export'] = exportCommand as CommandDef;
+subCommands['export-tasks'] = exportTasksCommand as CommandDef;
+subCommands['find'] = findCommand as CommandDef;
+subCommands['gc'] = gcCommand as CommandDef;
+subCommands['generate-changelog'] = generateChangelogCommand as CommandDef;
+subCommands['grade'] = gradeCommand as CommandDef;
+subCommands['history'] = historyCommand as CommandDef;
+subCommands['import'] = importCommand as CommandDef;
+subCommands['import-tasks'] = importTasksCommand as CommandDef;
+subCommands['init'] = initCommand as CommandDef;
+subCommands['inject'] = injectCommand as CommandDef;
+subCommands['intelligence'] = intelligenceCommand as CommandDef;
+subCommands['issue'] = issueCommand as CommandDef;
+subCommands['labels'] = labelsCommand as CommandDef;
+subCommands['lifecycle'] = lifecycleCommand as CommandDef;
+subCommands['list'] = listCommand as CommandDef;
+subCommands['log'] = logCommand as CommandDef;
+subCommands['map'] = mapCommand as CommandDef;
+subCommands['memory'] = memoryBrainCommand as CommandDef;
+subCommands['migrate'] = migrateClaudeMemCommand as CommandDef;
+subCommands['next'] = nextCommand as CommandDef;
+subCommands['nexus'] = nexusCommand as CommandDef;
+subCommands['ops'] = opsCommand as CommandDef;
+subCommands['orchestrate'] = orchestrateCommand as CommandDef;
+subCommands['otel'] = otelCommand as CommandDef;
+subCommands['phase'] = phaseCommand as CommandDef;
+subCommands['plan'] = planCommand as CommandDef;
+subCommands['promote'] = promoteCommand as CommandDef;
+subCommands['provider'] = providerCommand as CommandDef;
+subCommands['reason'] = reasonCommand as CommandDef;
+subCommands['refresh-memory'] = refreshMemoryCommand as CommandDef;
+subCommands['relates'] = relatesCommand as CommandDef;
+subCommands['release'] = releaseCommand as CommandDef;
+subCommands['remote'] = remoteCommand as CommandDef;
+subCommands['push'] = pushCommand as CommandDef;
+subCommands['pull'] = pullCommand as CommandDef;
+subCommands['reorder'] = reorderCommand as CommandDef;
+subCommands['reparent'] = reparentCommand as CommandDef;
+subCommands['req'] = reqCommand as CommandDef;
+subCommands['research'] = researchCommand as CommandDef;
+subCommands['restore'] = restoreCommand as CommandDef;
+subCommands['roadmap'] = roadmapCommand as CommandDef;
+subCommands['safestop'] = safestopCommand as CommandDef;
+subCommands['schema'] = schemaCommand as CommandDef;
+subCommands['self-update'] = selfUpdateCommand as CommandDef;
+subCommands['sequence'] = sequenceCommand as CommandDef;
+subCommands['session'] = sessionCommand as CommandDef;
+subCommands['show'] = showCommand as CommandDef;
+subCommands['skills'] = skillsCommand as CommandDef;
+subCommands['snapshot'] = snapshotCommand as CommandDef;
+subCommands['start'] = startCommand as CommandDef;
+subCommands['stats'] = statsCommand as CommandDef;
+subCommands['sticky'] = stickyCommand as CommandDef;
+subCommands['stop'] = stopCommand as CommandDef;
+subCommands['sync'] = syncCommand as CommandDef;
+subCommands['testing'] = testingCommand as CommandDef;
+subCommands['token'] = tokenCommand as CommandDef;
+subCommands['transcript'] = transcriptCommand as CommandDef;
+subCommands['update'] = updateCommand as CommandDef;
+subCommands['upgrade'] = upgradeCommand as CommandDef;
+subCommands['verify'] = verifyCommand as CommandDef;
+subCommands['web'] = webCommand as CommandDef;
 
-subCommands['code'] = codeCommand;
-
-for (const shim of rootShim._subcommands) {
-  subCommands[shim._name] = shimToCitty(shim);
-  for (const alias of shim._aliases) {
-    subCommands[alias] = shimToCitty(shim);
-  }
-}
+// ---------------------------------------------------------------------------
+// Root aliases
+// ---------------------------------------------------------------------------
+subCommands['done'] = completeCommand as CommandDef;
+subCommands['rm'] = deleteCommand as CommandDef;
+subCommands['ls'] = listCommand as CommandDef;
+subCommands['tags'] = labelsCommand as CommandDef;
+subCommands['pipeline'] = phaseCommand as CommandDef;
 
 // ---------------------------------------------------------------------------
 // Global flag resolution (replaces Commander.js preAction hook)
@@ -531,8 +409,9 @@ const main = defineCommand({
 });
 
 // Build alias map for help rendering (alias name → primary command name)
-const aliasMap = buildAliasMap(rootShim._subcommands);
+// Detects duplicate-value entries in subCommands (alias slots) automatically.
+const aliasMap = buildAliasMap(subCommands);
 
 // Use custom grouped help renderer for root --help; sub-commands use citty's default
-const customShowUsage = createCustomShowUsage(CLI_VERSION, rootShim._subcommands, aliasMap);
+const customShowUsage = createCustomShowUsage(CLI_VERSION, subCommands, aliasMap);
 runMain(main, { showUsage: customShowUsage });

@@ -1,7 +1,9 @@
 /**
  * detect-drift command - Documentation drift detection for LLM agents
+ *
  * @epic T4698
  * @task T4705
+ * @task T487 — migrated to native citty pattern
  *
  * Exit codes:
  *   0 - No drift detected (all checks pass)
@@ -15,7 +17,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getErrorMessage } from '@cleocode/contracts';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {
@@ -63,439 +65,439 @@ interface DriftResult {
   recommendations: string[];
 }
 
-export function registerDetectDriftCommand(program: Command): void {
-  program
-    .command('detect-drift')
-    .description('Detect documentation drift against TypeScript source of truth')
-    .action(async () => {
-      const projectRoot = findProjectRoot();
+/**
+ * Native citty command for `cleo detect-drift`.
+ *
+ * Runs static documentation drift analysis against the TypeScript source of
+ * truth. In user projects only the injection-template check applies; in the
+ * CLEO monorepo all 8 checks are executed.
+ */
+export const detectDriftCommand = defineCommand({
+  meta: {
+    name: 'detect-drift',
+    description: 'Detect documentation drift against TypeScript source of truth',
+  },
+  async run() {
+    const projectRoot = findProjectRoot();
 
-      // Detect if we're running inside the CLEO source repo vs a user project.
-      // The source-level checks only apply to the CLEO monorepo itself — skip
-      // them in user projects (#78).
-      const isCleoRepo = existsSync(join(projectRoot, 'packages', 'cleo', 'src'));
+    // Detect if we're running inside the CLEO source repo vs a user project.
+    // The source-level checks only apply to the CLEO monorepo itself — skip
+    // them in user projects (#78).
+    const isCleoRepo = existsSync(join(projectRoot, 'packages', 'cleo', 'src'));
 
-      // In the CLEO monorepo, source lives under packages/cleo/src/ not src/.
-      const cleoSrcRoot = isCleoRepo
-        ? join(projectRoot, 'packages', 'cleo', 'src')
-        : join(projectRoot, 'src');
+    // In the CLEO monorepo, source lives under packages/cleo/src/ not src/.
+    const cleoSrcRoot = isCleoRepo
+      ? join(projectRoot, 'packages', 'cleo', 'src')
+      : join(projectRoot, 'src');
 
-      const safeRead = (filePath: string): string => {
-        try {
-          return readFileSync(filePath, 'utf-8');
-        } catch {
-          return '';
-        }
-      };
-
-      if (!isCleoRepo) {
-        // In user projects, only run applicable checks (injection template, config)
-        const userResult: DriftResult = {
-          summary: { totalChecks: 1, passed: 0, warnings: 0, errors: 0, exitCode: 0 },
-          checks: [],
-          recommendations: [],
-        };
-
-        // Check: agent injection template
-        const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
-        if (existsSync(injPath)) {
-          const content = safeRead(injPath);
-          userResult.checks.push({
-            name: 'Agent injection',
-            status: content.length > 100 ? 'pass' : 'warn',
-            message:
-              content.length > 100
-                ? 'Agent injection template exists'
-                : 'Template appears incomplete',
-            issues: [],
-          });
-          userResult.summary.passed = content.length > 100 ? 1 : 0;
-          userResult.summary.warnings = content.length > 100 ? 0 : 1;
-        } else {
-          userResult.checks.push({
-            name: 'Agent injection',
-            status: 'warn',
-            message: 'No injection template found — run `cleo init` to create one',
-            issues: [],
-          });
-          userResult.summary.warnings = 1;
-        }
-
-        userResult.summary.exitCode =
-          userResult.summary.errors > 0 ? 2 : userResult.summary.warnings > 0 ? 1 : 0;
-        userResult.recommendations.push(
-          'detect-drift source checks only apply to the CLEO monorepo. Run from the cleo source tree for full analysis.',
-        );
-        cliOutput(userResult, { command: 'detect-drift' });
-        process.exit(userResult.summary.exitCode);
+    const safeRead = (filePath: string): string => {
+      try {
+        return readFileSync(filePath, 'utf-8');
+      } catch {
+        return '';
       }
+    };
 
-      const result: DriftResult = {
-        summary: {
-          totalChecks: 0,
-          passed: 0,
-          warnings: 0,
-          errors: 0,
-          exitCode: 0,
-        },
+    if (!isCleoRepo) {
+      // In user projects, only run applicable checks (injection template, config)
+      const userResult: DriftResult = {
+        summary: { totalChecks: 1, passed: 0, warnings: 0, errors: 0, exitCode: 0 },
         checks: [],
         recommendations: [],
       };
 
-      const addCheck = (
-        name: string,
-        status: 'pass' | 'fail' | 'warn',
-        message: string,
-        issues: DriftIssue[] = [],
-      ) => {
-        result.checks.push({ name, status, message, issues });
-        result.summary.totalChecks++;
-        if (status === 'pass') result.summary.passed++;
-        if (status === 'warn') {
-          result.summary.warnings++;
-          result.summary.exitCode = Math.max(result.summary.exitCode, 1);
-        }
-        if (status === 'fail') {
-          result.summary.errors++;
-          result.summary.exitCode = 2;
-        }
-      };
+      // Check: agent injection template
+      const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
+      if (existsSync(injPath)) {
+        const content = safeRead(injPath);
+        userResult.checks.push({
+          name: 'Agent injection',
+          status: content.length > 100 ? 'pass' : 'warn',
+          message:
+            content.length > 100
+              ? 'Agent injection template exists'
+              : 'Template appears incomplete',
+          issues: [],
+        });
+        userResult.summary.passed = content.length > 100 ? 1 : 0;
+        userResult.summary.warnings = content.length > 100 ? 0 : 1;
+      } else {
+        userResult.checks.push({
+          name: 'Agent injection',
+          status: 'warn',
+          message: 'No injection template found — run `cleo init` to create one',
+          issues: [],
+        });
+        userResult.summary.warnings = 1;
+      }
 
-      // Check 1: Gateway-to-spec sync
-      try {
-        const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATION-CONSTITUTION.md');
-        const registryPath = join(cleoSrcRoot, 'dispatch', 'registry.ts');
-        const dispatchDomainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
+      userResult.summary.exitCode =
+        userResult.summary.errors > 0 ? 2 : userResult.summary.warnings > 0 ? 1 : 0;
+      userResult.recommendations.push(
+        'detect-drift source checks only apply to the CLEO monorepo. Run from the cleo source tree for full analysis.',
+      );
+      cliOutput(userResult, { command: 'detect-drift' });
+      process.exit(userResult.summary.exitCode);
+    }
 
-        if (!existsSync(specPath)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATION-CONSTITUTION.md missing', [
-            {
-              severity: 'error',
-              category: 'spec',
-              message: 'Operations reference specification not found',
-              file: specPath,
-              recommendation:
-                'Create docs/specs/CLEO-OPERATION-CONSTITUTION.md with canonical operation definitions',
-            },
-          ]);
-        } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
-          addCheck('Gateway-to-spec sync', 'fail', 'Dispatch registry or domains missing', [
-            {
-              severity: 'error',
-              category: 'implementation',
-              message: 'Dispatch registry or domains directory not found',
-              file: registryPath,
-              recommendation:
-                'Verify packages/cleo/src/dispatch/registry.ts and packages/cleo/src/dispatch/domains/ exist',
-            },
-          ]);
-        } else {
-          const specContent = safeRead(specPath);
-          const registryContent = safeRead(registryPath);
+    const result: DriftResult = {
+      summary: {
+        totalChecks: 0,
+        passed: 0,
+        warnings: 0,
+        errors: 0,
+        exitCode: 0,
+      },
+      checks: [],
+      recommendations: [],
+    };
 
-          // Extract operations from spec
-          const specOpsMatch = specContent.match(/## `([a-z_]+)`/g) || [];
-          const specOps = specOpsMatch.map((m: string) => m.replace(/## `|`/g, ''));
+    const addCheck = (
+      name: string,
+      status: 'pass' | 'fail' | 'warn',
+      message: string,
+      issues: DriftIssue[] = [],
+    ) => {
+      result.checks.push({ name, status, message, issues });
+      result.summary.totalChecks++;
+      if (status === 'pass') result.summary.passed++;
+      if (status === 'warn') {
+        result.summary.warnings++;
+        result.summary.exitCode = Math.max(result.summary.exitCode, 1);
+      }
+      if (status === 'fail') {
+        result.summary.errors++;
+        result.summary.exitCode = 2;
+      }
+    };
 
-          // Extract operations from registry
-          const registryOpsMatch = registryContent.match(/operation:\s*'([a-z_.]+)'/g) || [];
-          const registryOps = registryOpsMatch.map((m: string) =>
-            m.replace(/operation:\s*'|'/g, ''),
-          );
+    // Check 1: Gateway-to-spec sync
+    try {
+      const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATION-CONSTITUTION.md');
+      const registryPath = join(cleoSrcRoot, 'dispatch', 'registry.ts');
+      const dispatchDomainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
 
-          // Find mismatches
-          const specOnly = specOps.filter((op: string) => !registryOps.includes(op));
-          const gatewayOnly = registryOps.filter((op: string) => !specOps.includes(op));
-
-          if (specOnly.length === 0 && gatewayOnly.length === 0) {
-            addCheck(
-              'Gateway-to-spec sync',
-              'pass',
-              `All ${specOps.length} operations synchronized`,
-            );
-          } else {
-            const issues: DriftIssue[] = [];
-            if (specOnly.length > 0) {
-              issues.push({
-                severity: 'warning',
-                category: 'spec-coverage',
-                message: `${specOnly.length} operations in spec but not in gateways: ${specOnly.join(', ')}`,
-                recommendation:
-                  'Add missing operation handlers to dispatch domains or remove from spec',
-              });
-            }
-            if (gatewayOnly.length > 0) {
-              issues.push({
-                severity: 'warning',
-                category: 'implementation-coverage',
-                message: `${gatewayOnly.length} operations in gateways but not in spec: ${gatewayOnly.join(', ')}`,
-                recommendation: 'Document missing operations in CLEO-OPERATIONS-REFERENCE.md',
-              });
-            }
-            addCheck(
-              'Gateway-to-spec sync',
-              'warn',
-              `Found ${specOnly.length + gatewayOnly.length} operation mismatches`,
-              issues,
-            );
-          }
-        }
-      } catch (e: unknown) {
-        addCheck('Gateway-to-spec sync', 'fail', `Error: ${getErrorMessage(e)}`, [
+      if (!existsSync(specPath)) {
+        addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATION-CONSTITUTION.md missing', [
           {
             severity: 'error',
-            category: 'system',
-            message: getErrorMessage(e),
-            recommendation: 'Check file permissions and paths',
-          },
-        ]);
-      }
-
-      // Check 2: CLI-to-core sync
-      try {
-        const cliDir = join(cleoSrcRoot, 'cli', 'commands');
-        const coreDir = isCleoRepo
-          ? join(projectRoot, 'packages', 'core', 'src')
-          : join(projectRoot, 'src', 'core');
-
-        if (!existsSync(cliDir)) {
-          addCheck('CLI-to-core sync', 'fail', 'CLI commands directory missing', [
-            {
-              severity: 'error',
-              category: 'structure',
-              message: `${cliDir} directory not found`,
-              recommendation: 'Verify TypeScript source structure is intact',
-            },
-          ]);
-        } else if (!existsSync(coreDir)) {
-          addCheck('CLI-to-core sync', 'fail', 'Core directory missing', [
-            {
-              severity: 'error',
-              category: 'structure',
-              message: `${coreDir} directory not found`,
-              recommendation: 'Verify TypeScript source structure is intact',
-            },
-          ]);
-        } else {
-          const files = readdirSync(cliDir).filter(
-            (f) => f.endsWith('.ts') && !f.includes('.test.'),
-          );
-          addCheck('CLI-to-core sync', 'pass', `Found ${files.length} CLI command implementations`);
-        }
-      } catch (e: unknown) {
-        addCheck('CLI-to-core sync', 'fail', `Error: ${getErrorMessage(e)}`);
-      }
-
-      // Check 3: Domain handler coverage
-      try {
-        const domainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
-        if (!existsSync(domainsDir)) {
-          addCheck('Domain handler coverage', 'fail', 'Dispatch domains directory missing', [
-            {
-              severity: 'error',
-              category: 'structure',
-              message: `${domainsDir} not found`,
-              recommendation: 'Verify dispatch domain handlers are in place',
-            },
-          ]);
-        } else {
-          const files = readdirSync(domainsDir).filter((f) => f.endsWith('.ts'));
-          addCheck('Domain handler coverage', 'pass', `Found ${files.length} domain handlers`);
-        }
-      } catch (e: unknown) {
-        addCheck('Domain handler coverage', 'fail', `Error: ${getErrorMessage(e)}`);
-      }
-
-      // Check 4: Capability matrix
-      try {
-        const matrixPath = join(cleoSrcRoot, 'dispatch', 'lib', 'capability-matrix.ts');
-        if (!existsSync(matrixPath)) {
-          addCheck('Capability matrix', 'fail', 'Capability matrix missing', [
-            {
-              severity: 'error',
-              category: 'configuration',
-              message: `${matrixPath} not found`,
-              recommendation: 'Create capability matrix to document supported operations',
-            },
-          ]);
-        } else {
-          addCheck('Capability matrix', 'pass', 'Capability matrix exists');
-        }
-      } catch (e: unknown) {
-        addCheck('Capability matrix', 'fail', `Error: ${getErrorMessage(e)}`);
-      }
-
-      // Check 5: Schema validation
-      try {
-        const schemaPath = join(projectRoot, 'src', 'store', 'schema.ts');
-        if (!existsSync(schemaPath)) {
-          addCheck('Schema validation', 'fail', 'Schema definition missing', [
-            {
-              severity: 'error',
-              category: 'data-model',
-              message: 'src/store/schema.ts not found',
-              recommendation: 'Create schema definition for database tables',
-            },
-          ]);
-        } else {
-          const content = safeRead(schemaPath);
-          const tableCount = (content.match(/CREATE TABLE/g) || []).length;
-          if (tableCount === 0) {
-            addCheck(
-              'Schema validation',
-              'warn',
-              'Schema file exists but no CREATE TABLE statements',
-              [
-                {
-                  severity: 'warning',
-                  category: 'data-model',
-                  message: 'No SQL table definitions found in schema.ts',
-                  recommendation: 'Add CREATE TABLE statements for all database entities',
-                },
-              ],
-            );
-          } else {
-            addCheck('Schema validation', 'pass', `Schema defines ${tableCount} tables`);
-          }
-        }
-      } catch (e: unknown) {
-        addCheck('Schema validation', 'fail', `Error: ${getErrorMessage(e)}`);
-      }
-
-      // Check 6: Canonical identity
-      try {
-        const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
-        const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md');
-
-        const issues: DriftIssue[] = [];
-
-        if (!existsSync(visionPath)) {
-          issues.push({
-            severity: 'error',
-            category: 'vision',
-            message: 'Vision document missing',
-            file: visionPath,
-            recommendation: 'Create docs/concepts/CLEO-VISION.md with project vision',
-          });
-        }
-
-        if (!existsSync(specPath)) {
-          issues.push({
-            severity: 'error',
             category: 'spec',
-            message: 'Portable Brain spec missing',
+            message: 'Operations reference specification not found',
             file: specPath,
             recommendation:
-              'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
-          });
-        }
+              'Create docs/specs/CLEO-OPERATION-CONSTITUTION.md with canonical operation definitions',
+          },
+        ]);
+      } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
+        addCheck('Gateway-to-spec sync', 'fail', 'Dispatch registry or domains missing', [
+          {
+            severity: 'error',
+            category: 'implementation',
+            message: 'Dispatch registry or domains directory not found',
+            file: registryPath,
+            recommendation:
+              'Verify packages/cleo/src/dispatch/registry.ts and packages/cleo/src/dispatch/domains/ exist',
+          },
+        ]);
+      } else {
+        const specContent = safeRead(specPath);
+        const registryContent = safeRead(registryPath);
 
-        if (issues.length > 0) {
-          addCheck('Canonical identity', 'fail', 'Canonical documents missing', issues);
+        // Extract operations from spec
+        const specOpsMatch = specContent.match(/## `([a-z_]+)`/g) || [];
+        const specOps = specOpsMatch.map((m: string) => m.replace(/## `|`/g, ''));
+
+        // Extract operations from registry
+        const registryOpsMatch = registryContent.match(/operation:\s*'([a-z_.]+)'/g) || [];
+        const registryOps = registryOpsMatch.map((m: string) => m.replace(/operation:\s*'|'/g, ''));
+
+        // Find mismatches
+        const specOnly = specOps.filter((op: string) => !registryOps.includes(op));
+        const gatewayOnly = registryOps.filter((op: string) => !specOps.includes(op));
+
+        if (specOnly.length === 0 && gatewayOnly.length === 0) {
+          addCheck('Gateway-to-spec sync', 'pass', `All ${specOps.length} operations synchronized`);
         } else {
-          const specContent = safeRead(specPath);
-          const requiredPillars = [
-            'Portable Memory',
-            'Provenance by Default',
-            'Interoperable Interfaces',
-            'Deterministic Safety',
-            'Cognitive Retrieval',
-          ];
-
-          const missingPillars = requiredPillars.filter((p) => !specContent.includes(p));
-
-          if (missingPillars.length > 0) {
-            addCheck(
-              'Canonical identity',
-              'fail',
-              `Missing ${missingPillars.length} canonical pillars`,
-              [
-                {
-                  severity: 'error',
-                  category: 'vision',
-                  message: `Missing pillars: ${missingPillars.join(', ')}`,
-                  file: specPath,
-                  recommendation:
-                    'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
-                },
-              ],
-            );
-          } else {
-            addCheck('Canonical identity', 'pass', 'All canonical pillars documented');
+          const issues: DriftIssue[] = [];
+          if (specOnly.length > 0) {
+            issues.push({
+              severity: 'warning',
+              category: 'spec-coverage',
+              message: `${specOnly.length} operations in spec but not in gateways: ${specOnly.join(', ')}`,
+              recommendation:
+                'Add missing operation handlers to dispatch domains or remove from spec',
+            });
           }
+          if (gatewayOnly.length > 0) {
+            issues.push({
+              severity: 'warning',
+              category: 'implementation-coverage',
+              message: `${gatewayOnly.length} operations in gateways but not in spec: ${gatewayOnly.join(', ')}`,
+              recommendation: 'Document missing operations in CLEO-OPERATIONS-REFERENCE.md',
+            });
+          }
+          addCheck(
+            'Gateway-to-spec sync',
+            'warn',
+            `Found ${specOnly.length + gatewayOnly.length} operation mismatches`,
+            issues,
+          );
         }
-      } catch (e: unknown) {
-        addCheck('Canonical identity', 'fail', `Error: ${getErrorMessage(e)}`);
       }
+    } catch (e: unknown) {
+      addCheck('Gateway-to-spec sync', 'fail', `Error: ${getErrorMessage(e)}`, [
+        {
+          severity: 'error',
+          category: 'system',
+          message: getErrorMessage(e),
+          recommendation: 'Check file permissions and paths',
+        },
+      ]);
+    }
 
-      // Check 7: Agent injection template
-      try {
-        const injectionPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
-        if (!existsSync(injectionPath)) {
-          addCheck('Agent injection', 'fail', 'Agent injection template missing', [
-            {
-              severity: 'error',
-              category: 'agent-support',
-              message: 'CLEO-INJECTION.md not found',
-              file: injectionPath,
-              recommendation: 'Create agent injection template or run cleo init',
-            },
-          ]);
-        } else {
-          const content = safeRead(injectionPath);
-          if (content.length < 100) {
-            addCheck('Agent injection', 'warn', 'Agent injection template appears incomplete', [
+    // Check 2: CLI-to-core sync
+    try {
+      const cliDir = join(cleoSrcRoot, 'cli', 'commands');
+      const coreDir = isCleoRepo
+        ? join(projectRoot, 'packages', 'core', 'src')
+        : join(projectRoot, 'src', 'core');
+
+      if (!existsSync(cliDir)) {
+        addCheck('CLI-to-core sync', 'fail', 'CLI commands directory missing', [
+          {
+            severity: 'error',
+            category: 'structure',
+            message: `${cliDir} directory not found`,
+            recommendation: 'Verify TypeScript source structure is intact',
+          },
+        ]);
+      } else if (!existsSync(coreDir)) {
+        addCheck('CLI-to-core sync', 'fail', 'Core directory missing', [
+          {
+            severity: 'error',
+            category: 'structure',
+            message: `${coreDir} directory not found`,
+            recommendation: 'Verify TypeScript source structure is intact',
+          },
+        ]);
+      } else {
+        const files = readdirSync(cliDir).filter((f) => f.endsWith('.ts') && !f.includes('.test.'));
+        addCheck('CLI-to-core sync', 'pass', `Found ${files.length} CLI command implementations`);
+      }
+    } catch (e: unknown) {
+      addCheck('CLI-to-core sync', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
+
+    // Check 3: Domain handler coverage
+    try {
+      const domainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
+      if (!existsSync(domainsDir)) {
+        addCheck('Domain handler coverage', 'fail', 'Dispatch domains directory missing', [
+          {
+            severity: 'error',
+            category: 'structure',
+            message: `${domainsDir} not found`,
+            recommendation: 'Verify dispatch domain handlers are in place',
+          },
+        ]);
+      } else {
+        const files = readdirSync(domainsDir).filter((f) => f.endsWith('.ts'));
+        addCheck('Domain handler coverage', 'pass', `Found ${files.length} domain handlers`);
+      }
+    } catch (e: unknown) {
+      addCheck('Domain handler coverage', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
+
+    // Check 4: Capability matrix
+    try {
+      const matrixPath = join(cleoSrcRoot, 'dispatch', 'lib', 'capability-matrix.ts');
+      if (!existsSync(matrixPath)) {
+        addCheck('Capability matrix', 'fail', 'Capability matrix missing', [
+          {
+            severity: 'error',
+            category: 'configuration',
+            message: `${matrixPath} not found`,
+            recommendation: 'Create capability matrix to document supported operations',
+          },
+        ]);
+      } else {
+        addCheck('Capability matrix', 'pass', 'Capability matrix exists');
+      }
+    } catch (e: unknown) {
+      addCheck('Capability matrix', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
+
+    // Check 5: Schema validation
+    try {
+      const schemaPath = join(projectRoot, 'src', 'store', 'schema.ts');
+      if (!existsSync(schemaPath)) {
+        addCheck('Schema validation', 'fail', 'Schema definition missing', [
+          {
+            severity: 'error',
+            category: 'data-model',
+            message: 'src/store/schema.ts not found',
+            recommendation: 'Create schema definition for database tables',
+          },
+        ]);
+      } else {
+        const content = safeRead(schemaPath);
+        const tableCount = (content.match(/CREATE TABLE/g) || []).length;
+        if (tableCount === 0) {
+          addCheck(
+            'Schema validation',
+            'warn',
+            'Schema file exists but no CREATE TABLE statements',
+            [
               {
                 severity: 'warning',
-                category: 'agent-support',
-                message: 'Template file is unusually short',
-                recommendation: 'Verify template contains required agent instructions',
+                category: 'data-model',
+                message: 'No SQL table definitions found in schema.ts',
+                recommendation: 'Add CREATE TABLE statements for all database entities',
               },
-            ]);
-          } else {
-            addCheck('Agent injection', 'pass', 'Agent injection template exists');
-          }
+            ],
+          );
+        } else {
+          addCheck('Schema validation', 'pass', `Schema defines ${tableCount} tables`);
         }
-      } catch (e: unknown) {
-        addCheck('Agent injection', 'fail', `Error: ${getErrorMessage(e)}`);
+      }
+    } catch (e: unknown) {
+      addCheck('Schema validation', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
+
+    // Check 6: Canonical identity
+    try {
+      const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
+      const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md');
+
+      const issues: DriftIssue[] = [];
+
+      if (!existsSync(visionPath)) {
+        issues.push({
+          severity: 'error',
+          category: 'vision',
+          message: 'Vision document missing',
+          file: visionPath,
+          recommendation: 'Create docs/concepts/CLEO-VISION.md with project vision',
+        });
       }
 
-      // Check 8: Exit codes
-      try {
-        const exitCodesPath = join(cleoSrcRoot, 'dispatch', 'lib', 'exit-codes.ts');
-        if (!existsSync(exitCodesPath)) {
-          addCheck('Exit codes', 'fail', 'Exit codes definition missing', [
+      if (!existsSync(specPath)) {
+        issues.push({
+          severity: 'error',
+          category: 'spec',
+          message: 'Portable Brain spec missing',
+          file: specPath,
+          recommendation:
+            'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
+        });
+      }
+
+      if (issues.length > 0) {
+        addCheck('Canonical identity', 'fail', 'Canonical documents missing', issues);
+      } else {
+        const specContent = safeRead(specPath);
+        const requiredPillars = [
+          'Portable Memory',
+          'Provenance by Default',
+          'Interoperable Interfaces',
+          'Deterministic Safety',
+          'Cognitive Retrieval',
+        ];
+
+        const missingPillars = requiredPillars.filter((p) => !specContent.includes(p));
+
+        if (missingPillars.length > 0) {
+          addCheck(
+            'Canonical identity',
+            'fail',
+            `Missing ${missingPillars.length} canonical pillars`,
+            [
+              {
+                severity: 'error',
+                category: 'vision',
+                message: `Missing pillars: ${missingPillars.join(', ')}`,
+                file: specPath,
+                recommendation:
+                  'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
+              },
+            ],
+          );
+        } else {
+          addCheck('Canonical identity', 'pass', 'All canonical pillars documented');
+        }
+      }
+    } catch (e: unknown) {
+      addCheck('Canonical identity', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
+
+    // Check 7: Agent injection template
+    try {
+      const injectionPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
+      if (!existsSync(injectionPath)) {
+        addCheck('Agent injection', 'fail', 'Agent injection template missing', [
+          {
+            severity: 'error',
+            category: 'agent-support',
+            message: 'CLEO-INJECTION.md not found',
+            file: injectionPath,
+            recommendation: 'Create agent injection template or run cleo init',
+          },
+        ]);
+      } else {
+        const content = safeRead(injectionPath);
+        if (content.length < 100) {
+          addCheck('Agent injection', 'warn', 'Agent injection template appears incomplete', [
             {
-              severity: 'error',
-              category: 'protocol',
-              message: `${exitCodesPath} not found`,
-              recommendation: 'Create exit codes definition for CLI protocol compliance',
+              severity: 'warning',
+              category: 'agent-support',
+              message: 'Template file is unusually short',
+              recommendation: 'Verify template contains required agent instructions',
             },
           ]);
         } else {
-          const content = safeRead(exitCodesPath);
-          const codeCount = (content.match(/= \d+/g) || []).length;
-          addCheck('Exit codes', 'pass', `${codeCount} exit codes defined`);
+          addCheck('Agent injection', 'pass', 'Agent injection template exists');
         }
-      } catch (e: unknown) {
-        addCheck('Exit codes', 'fail', `Error: ${getErrorMessage(e)}`);
       }
+    } catch (e: unknown) {
+      addCheck('Agent injection', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
 
-      // Generate top-level recommendations based on findings
-      if (result.summary.errors > 0) {
-        result.recommendations.push('Address all ERROR-level issues before proceeding');
+    // Check 8: Exit codes
+    try {
+      const exitCodesPath = join(cleoSrcRoot, 'dispatch', 'lib', 'exit-codes.ts');
+      if (!existsSync(exitCodesPath)) {
+        addCheck('Exit codes', 'fail', 'Exit codes definition missing', [
+          {
+            severity: 'error',
+            category: 'protocol',
+            message: `${exitCodesPath} not found`,
+            recommendation: 'Create exit codes definition for CLI protocol compliance',
+          },
+        ]);
+      } else {
+        const content = safeRead(exitCodesPath);
+        const codeCount = (content.match(/= \d+/g) || []).length;
+        addCheck('Exit codes', 'pass', `${codeCount} exit codes defined`);
       }
-      if (result.summary.warnings > 0) {
-        result.recommendations.push('Review WARNING-level issues for documentation improvements');
-      }
-      if (result.summary.errors === 0 && result.summary.warnings === 0) {
-        result.recommendations.push('Documentation is synchronized with implementation');
-      }
+    } catch (e: unknown) {
+      addCheck('Exit codes', 'fail', `Error: ${getErrorMessage(e)}`);
+    }
 
-      // Output via LAFS-compliant cliOutput
-      cliOutput(result, { command: 'detect-drift' });
+    // Generate top-level recommendations based on findings
+    if (result.summary.errors > 0) {
+      result.recommendations.push('Address all ERROR-level issues before proceeding');
+    }
+    if (result.summary.warnings > 0) {
+      result.recommendations.push('Review WARNING-level issues for documentation improvements');
+    }
+    if (result.summary.errors === 0 && result.summary.warnings === 0) {
+      result.recommendations.push('Documentation is synchronized with implementation');
+    }
 
-      // Exit with appropriate code for scripting
-      process.exit(result.summary.exitCode);
-    });
-}
+    // Output via LAFS-compliant cliOutput
+    cliOutput(result, { command: 'detect-drift' });
+
+    // Exit with appropriate code for scripting
+    process.exit(result.summary.exitCode);
+  },
+});

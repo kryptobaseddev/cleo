@@ -10,27 +10,42 @@
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerRoadmapCommand(program: Command): void {
-  program
-    .command('roadmap')
-    .description(
+/**
+ * Native citty command for `cleo roadmap` — generates a project roadmap
+ * from task provenance with epics grouped by status and progress.
+ *
+ * @task T4538
+ * @epic T487
+ */
+export const roadmapCommand = defineCommand({
+  meta: {
+    name: 'roadmap',
+    description:
       'Generate project roadmap from task provenance — epics grouped by status with progress',
-    )
-    .option('--include-history', 'Include release history from CHANGELOG.md')
-    .option('--upcoming-only', 'Only show pending/upcoming epics (exclude completed)')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'roadmap',
-        {
-          includeHistory: opts['includeHistory'] as boolean | undefined,
-          upcomingOnly: opts['upcomingOnly'] as boolean | undefined,
-        },
-        { command: 'roadmap', operation: 'admin.roadmap' },
-      );
-    });
-}
+  },
+  args: {
+    'include-history': {
+      type: 'boolean',
+      description: 'Include release history from CHANGELOG.md',
+    },
+    'upcoming-only': {
+      type: 'boolean',
+      description: 'Only show pending/upcoming epics (exclude completed)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'roadmap',
+      {
+        includeHistory: args['include-history'],
+        upcomingOnly: args['upcoming-only'],
+      },
+      { command: 'roadmap', operation: 'admin.roadmap' },
+    );
+  },
+});

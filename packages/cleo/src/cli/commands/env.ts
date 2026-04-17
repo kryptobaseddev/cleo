@@ -1,50 +1,62 @@
 /**
- * CLI env command for environment/mode inspection.
+ * CLI command group for environment and mode inspection.
+ *
+ * Exposes two subcommands:
+ *
+ *   cleo env status  — show current environment mode and runtime info (default)
+ *   cleo env info    — show detailed environment info including binary paths
+ *
+ * The parent `run()` falls through to `status` when no subcommand is provided,
+ * replicating the Commander `isDefault: true` behaviour.
+ *
  * @task T4581
  * @epic T4577
  */
-// CLI-only: no dispatch equivalent for environment diagnostics
 
 import { getRuntimeDiagnostics } from '@cleocode/core/internal';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
-/**
- * Build the env status response.
- * @task T4581
- */
-async function getEnvStatus(): Promise<unknown> {
-  return getRuntimeDiagnostics({ detailed: false });
-}
+/** cleo env status — show current environment mode and runtime info */
+const statusCommand = defineCommand({
+  meta: { name: 'status', description: 'Show current environment mode and runtime info' },
+  async run() {
+    const result = await getRuntimeDiagnostics({ detailed: false });
+    cliOutput(result, { command: 'env' });
+  },
+});
+
+/** cleo env info — show detailed environment info including binary paths and compilation status */
+const infoCommand = defineCommand({
+  meta: {
+    name: 'info',
+    description: 'Show detailed environment info including binary paths and compilation status',
+  },
+  async run() {
+    const result = await getRuntimeDiagnostics({ detailed: true });
+    cliOutput(result, { command: 'env' });
+  },
+});
 
 /**
- * Build the detailed env info response.
- * @task T4581
+ * Root env command group — registers status (default) and info subcommands.
+ *
+ * When invoked with no subcommand (`cleo env`), the `run` handler falls
+ * through to `status` to match the original Commander `isDefault: true`
+ * behaviour.
  */
-async function getEnvInfo(): Promise<unknown> {
-  return getRuntimeDiagnostics({ detailed: true });
-}
-
-/**
- * Register the env command group.
- * @task T4581
- */
-export function registerEnvCommand(program: Command): void {
-  const env = program.command('env').description('Environment and mode inspection');
-
-  env
-    .command('status', { isDefault: true })
-    .description('Show current environment mode and runtime info')
-    .action(async () => {
-      const result = await getEnvStatus();
+export const envCommand = defineCommand({
+  meta: { name: 'env', description: 'Environment and mode inspection' },
+  subCommands: {
+    status: statusCommand,
+    info: infoCommand,
+  },
+  async run(ctx) {
+    // No subcommand supplied — invoke default (status).
+    const hasSubcommand = ctx.rawArgs.some((a) => ['status', 'info'].includes(a));
+    if (!hasSubcommand) {
+      const result = await getRuntimeDiagnostics({ detailed: false });
       cliOutput(result, { command: 'env' });
-    });
-
-  env
-    .command('info')
-    .description('Show detailed environment info including binary paths and compilation status')
-    .action(async () => {
-      const result = await getEnvInfo();
-      cliOutput(result, { command: 'env' });
-    });
-}
+    }
+  },
+});

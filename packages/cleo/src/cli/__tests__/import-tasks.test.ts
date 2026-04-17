@@ -1,76 +1,65 @@
 /**
- * Tests for import-tasks CLI command.
+ * Tests for import-tasks CLI command (native citty).
  * @task T4551
  * @epic T4545
  */
 
-import { describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerImportTasksCommand } from '../commands/import-tasks.js';
+import { describe, expect, it } from 'vitest';
+import { importTasksCommand } from '../commands/import-tasks.js';
 
-vi.mock('../../../../core/src/store/json.js', () => ({
-  readJson: vi.fn(),
-  saveJson: vi.fn(),
-  computeChecksum: vi.fn().mockReturnValue('0000000000000000'),
-}));
-
-vi.mock('../../../../core/src/paths.js', async () => {
-  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
-    '../../../../core/src/paths.js',
-  );
-  return {
-    ...actual,
-    getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
-    getBackupDir: vi.fn().mockReturnValue('.cleo/backups/operational'),
-  };
-});
-
-describe('registerImportTasksCommand', () => {
-  it('registers an import-tasks command on the program', () => {
-    const program = new Command();
-    registerImportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'import-tasks');
-    expect(cmd).toBeDefined();
-    expect(cmd!.description()).toContain('ID remapping');
+describe('importTasksCommand (native citty)', () => {
+  it('exports a command with the correct name', () => {
+    expect(importTasksCommand).toBeDefined();
+    const meta =
+      typeof importTasksCommand.meta === 'function'
+        ? importTasksCommand.meta()
+        : importTasksCommand.meta;
+    expect((meta as { name: string }).name).toBe('import-tasks');
   });
 
-  it('requires a file argument', () => {
-    const program = new Command();
-    registerImportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'import-tasks')!;
-    expect(cmd.registeredArguments.length).toBe(1);
-    expect(cmd.registeredArguments[0].required).toBe(true);
+  it('has a description containing "ID remapping"', () => {
+    const meta =
+      typeof importTasksCommand.meta === 'function'
+        ? importTasksCommand.meta()
+        : importTasksCommand.meta;
+    expect((meta as { description: string }).description).toContain('ID remapping');
   });
 
-  it('has all conflict resolution options', () => {
-    const program = new Command();
-    registerImportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'import-tasks')!;
-    const optionNames = cmd.options.map((o) => o.long);
-    expect(optionNames).toContain('--dry-run');
-    expect(optionNames).toContain('--parent');
-    expect(optionNames).toContain('--phase');
-    expect(optionNames).toContain('--add-label');
-    expect(optionNames).toContain('--no-provenance');
-    expect(optionNames).toContain('--reset-status');
-    expect(optionNames).toContain('--on-conflict');
-    expect(optionNames).toContain('--on-missing-dep');
-    expect(optionNames).toContain('--force');
+  it('requires a file positional argument', () => {
+    const args = importTasksCommand.args as
+      | Record<string, { type: string; required?: boolean }>
+      | undefined;
+    expect(args?.['file']).toBeDefined();
+    expect(args?.['file'].type).toBe('positional');
+    expect(args?.['file'].required).toBe(true);
+  });
+
+  it('defines all conflict resolution args', () => {
+    const args = importTasksCommand.args as
+      | Record<string, { type: string; default?: string }>
+      | undefined;
+    expect(args?.['dry-run']).toBeDefined();
+    expect(args?.['parent']).toBeDefined();
+    expect(args?.['phase']).toBeDefined();
+    expect(args?.['add-label']).toBeDefined();
+    expect(args?.['no-provenance']).toBeDefined();
+    expect(args?.['reset-status']).toBeDefined();
+    expect(args?.['on-conflict']).toBeDefined();
+    expect(args?.['on-missing-dep']).toBeDefined();
+    expect(args?.['force']).toBeDefined();
   });
 
   it('defaults on-conflict to fail', () => {
-    const program = new Command();
-    registerImportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'import-tasks')!;
-    const opt = cmd.options.find((o) => o.long === '--on-conflict');
-    expect(opt?.defaultValue).toBe('fail');
+    const args = importTasksCommand.args as
+      | Record<string, { type: string; default?: string }>
+      | undefined;
+    expect(args?.['on-conflict']?.default).toBe('fail');
   });
 
   it('defaults on-missing-dep to strip', () => {
-    const program = new Command();
-    registerImportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'import-tasks')!;
-    const opt = cmd.options.find((o) => o.long === '--on-missing-dep');
-    expect(opt?.defaultValue).toBe('strip');
+    const args = importTasksCommand.args as
+      | Record<string, { type: string; default?: string }>
+      | undefined;
+    expect(args?.['on-missing-dep']?.default).toBe('strip');
   });
 });

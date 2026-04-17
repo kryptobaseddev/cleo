@@ -1,6 +1,11 @@
 /**
- * CLI issue command - file bug reports, feature requests, or questions to CLEO GitHub.
- * Supports subcommands: bug, feature, help, diagnostics.
+ * CLI command group for filing bug reports, feature requests, and questions to the CLEO GitHub repo.
+ *
+ * Supports subcommands:
+ *   cleo issue bug         — file a bug report
+ *   cleo issue feature     — request a new feature
+ *   cleo issue help        — ask a question
+ *   cleo issue diagnostics — show system diagnostics (no issue filed)
  *
  * Fix #63: Calls addIssue() from core directly (the tools.issue.add.*
  * operations were removed from the registry in T5615).
@@ -11,77 +16,11 @@
 
 import { execFileSync } from 'node:child_process';
 import { type AddIssueResult, addIssue, BUILD_CONFIG } from '@cleocode/core/internal';
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;
-
-/**
- * Register the issue command with all subcommands.
- * @task T4555
- */
-export function registerIssueCommand(program: Command): void {
-  const issueCmd = program
-    .command('issue')
-    .description('File bug reports, feature requests, or questions to CLEO GitHub repo');
-
-  // Subcommand: bug
-  issueCmd
-    .command('bug')
-    .description('File a bug report')
-    .requiredOption('--title <title>', 'Issue title')
-    .requiredOption('--body <body>', 'Issue description')
-    .option('--severity <severity>', 'Severity level (Blocker, Major, Moderate, Minor)')
-    .option('--area <area>', 'Affected area (cli, dispatch, docs, tests, other)')
-    .option('--open', 'Open issue in browser after creation')
-    .option('--dry-run', 'Preview without filing')
-    .action(async (opts: Record<string, unknown>) => {
-      await handleIssueType('bug', opts);
-    });
-
-  // Subcommand: feature
-  issueCmd
-    .command('feature')
-    .description('Request a new feature')
-    .requiredOption('--title <title>', 'Issue title')
-    .requiredOption('--body <body>', 'Issue description')
-    .option('--area <area>', 'Affected area')
-    .option('--open', 'Open issue in browser after creation')
-    .option('--dry-run', 'Preview without filing')
-    .action(async (opts: Record<string, unknown>) => {
-      await handleIssueType('feature', opts);
-    });
-
-  // Subcommand: help
-  issueCmd
-    .command('help')
-    .description('Ask a question')
-    .requiredOption('--title <title>', 'Issue title')
-    .requiredOption('--body <body>', 'Issue description')
-    .option('--open', 'Open issue in browser after creation')
-    .option('--dry-run', 'Preview without filing')
-    .action(async (opts: Record<string, unknown>) => {
-      await handleIssueType('help', opts);
-    });
-
-  // Subcommand: diagnostics
-  issueCmd
-    .command('diagnostics')
-    .description('Show system diagnostics (no issue filed)')
-    .action(async () => {
-      await dispatchFromCli(
-        'query',
-        'tools',
-        'issue.diagnostics',
-        {},
-        {
-          command: 'issue',
-          operation: 'tools.issue.diagnostics',
-        },
-      );
-    });
-}
 
 /**
  * Handle issue creation for a subcommand type (bug, feature, help).
@@ -119,3 +58,102 @@ async function handleIssueType(issueType: string, opts: Record<string, unknown>)
 
   cliOutput(result, { command: 'issue', operation: `tools.issue.add.${issueType}` });
 }
+
+/** cleo issue bug — file a bug report */
+const bugCommand = defineCommand({
+  meta: { name: 'bug', description: 'File a bug report' },
+  args: {
+    title: { type: 'string', description: 'Issue title', required: true },
+    body: { type: 'string', description: 'Issue description', required: true },
+    severity: {
+      type: 'string',
+      description: 'Severity level (Blocker, Major, Moderate, Minor)',
+    },
+    area: { type: 'string', description: 'Affected area (cli, dispatch, docs, tests, other)' },
+    open: { type: 'boolean', description: 'Open issue in browser after creation' },
+    'dry-run': { type: 'boolean', description: 'Preview without filing' },
+  },
+  async run({ args }) {
+    await handleIssueType('bug', {
+      title: args.title,
+      body: args.body,
+      severity: args.severity,
+      area: args.area,
+      open: args.open,
+      dryRun: args['dry-run'],
+    });
+  },
+});
+
+/** cleo issue feature — request a new feature */
+const featureCommand = defineCommand({
+  meta: { name: 'feature', description: 'Request a new feature' },
+  args: {
+    title: { type: 'string', description: 'Issue title', required: true },
+    body: { type: 'string', description: 'Issue description', required: true },
+    area: { type: 'string', description: 'Affected area' },
+    open: { type: 'boolean', description: 'Open issue in browser after creation' },
+    'dry-run': { type: 'boolean', description: 'Preview without filing' },
+  },
+  async run({ args }) {
+    await handleIssueType('feature', {
+      title: args.title,
+      body: args.body,
+      area: args.area,
+      open: args.open,
+      dryRun: args['dry-run'],
+    });
+  },
+});
+
+/** cleo issue help — ask a question */
+const helpCommand = defineCommand({
+  meta: { name: 'help', description: 'Ask a question' },
+  args: {
+    title: { type: 'string', description: 'Issue title', required: true },
+    body: { type: 'string', description: 'Issue description', required: true },
+    open: { type: 'boolean', description: 'Open issue in browser after creation' },
+    'dry-run': { type: 'boolean', description: 'Preview without filing' },
+  },
+  async run({ args }) {
+    await handleIssueType('help', {
+      title: args.title,
+      body: args.body,
+      open: args.open,
+      dryRun: args['dry-run'],
+    });
+  },
+});
+
+/** cleo issue diagnostics — show system diagnostics without filing an issue */
+const diagnosticsCommand = defineCommand({
+  meta: { name: 'diagnostics', description: 'Show system diagnostics (no issue filed)' },
+  async run() {
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'issue.diagnostics',
+      {},
+      { command: 'issue', operation: 'tools.issue.diagnostics' },
+    );
+  },
+});
+
+/**
+ * Root issue command group — file bug reports, feature requests, or questions to the CLEO GitHub repo.
+ *
+ * Dispatches bug/feature/help subcommands via addIssue() from core (Fix #63).
+ * Diagnostics route through dispatchFromCli.
+ */
+export const issueCommand = defineCommand({
+  meta: {
+    name: 'issue',
+    description: 'File bug reports, feature requests, or questions to CLEO GitHub repo',
+  },
+  subCommands: {
+    bug: bugCommand,
+    feature: featureCommand,
+    help: helpCommand,
+    diagnostics: diagnosticsCommand,
+  },
+});

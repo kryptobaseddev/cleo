@@ -1,37 +1,42 @@
 /**
- * Tests for commands CLI command.
+ * Tests for commands CLI command (native citty).
  * @task T4551
  * @epic T4545
  */
 
 import { describe, expect, it } from 'vitest';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerCommandsCommand } from '../commands/commands.js';
+import { commandsCommand } from '../commands/commands.js';
 
-describe('registerCommandsCommand', () => {
-  it('registers a commands command on the program', () => {
-    const program = new Command();
-    registerCommandsCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'commands');
-    expect(cmd).toBeDefined();
-    expect(cmd!.description()).toContain('List and query');
+describe('commandsCommand (native citty)', () => {
+  it('exports a command with the correct name', () => {
+    expect(commandsCommand).toBeDefined();
+    const meta =
+      typeof commandsCommand.meta === 'function' ? commandsCommand.meta() : commandsCommand.meta;
+    expect((meta as { name: string }).name).toBe('commands');
   });
 
-  it('has --category, --relevance, --tier options', () => {
-    const program = new Command();
-    registerCommandsCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'commands')!;
-    const optionNames = cmd.options.map((o) => o.long);
-    expect(optionNames).toContain('--category');
-    expect(optionNames).toContain('--relevance');
-    expect(optionNames).toContain('--tier');
+  it('has a description mentioning DEPRECATED or ops', () => {
+    const meta =
+      typeof commandsCommand.meta === 'function' ? commandsCommand.meta() : commandsCommand.meta;
+    const desc = (meta as { description: string }).description;
+    expect(desc).toMatch(/DEPRECATED|ops|List and query/);
   });
 
-  it('accepts an optional command name argument', () => {
-    const program = new Command();
-    registerCommandsCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'commands')!;
-    // Commander uses _args for argument definitions
-    expect(cmd.registeredArguments.length).toBeGreaterThanOrEqual(0);
+  it('defines --category, --relevance, --tier args', () => {
+    const args = commandsCommand.args as Record<string, { type: string }> | undefined;
+    expect(args).toBeDefined();
+    expect(args?.['category']).toBeDefined();
+    expect(args?.['relevance']).toBeDefined();
+    expect(args?.['tier']).toBeDefined();
+  });
+
+  it('accepts an optional command name positional argument', () => {
+    const args = commandsCommand.args as
+      | Record<string, { type: string; required?: boolean }>
+      | undefined;
+    const commandArg = args?.['command'];
+    expect(commandArg).toBeDefined();
+    expect(commandArg?.type).toBe('positional');
+    expect(commandArg?.required).toBeFalsy();
   });
 });

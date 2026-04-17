@@ -1,137 +1,228 @@
 /**
- * CLI phase command with subcommands.
+ * CLI command group for project-level phase lifecycle management.
+ *
+ * Exposes phase operations as a native citty subcommand group:
+ *
+ *   cleo phase show [slug]        — show phase details
+ *   cleo phase list               — list all phases with status
+ *   cleo phase set <slug>         — set current phase
+ *   cleo phase start <slug>       — start a phase (pending → active)
+ *   cleo phase complete <slug>    — complete a phase (active → completed)
+ *   cleo phase advance            — complete current phase and start next
+ *   cleo phase rename <old> <new> — rename a phase
+ *   cleo phase delete <slug>      — delete a phase
+ *
+ * Alias `pipeline` is wired in index.ts.
+ *
  * @task T4464, T5326
  * @epic T4454, T5323
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo phase show — show phase details (current phase if no slug given) */
+const showCommand = defineCommand({
+  meta: { name: 'show', description: 'Show phase details (current phase if no slug given)' },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Phase slug (defaults to current phase)',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const params = args.slug ? { phaseId: args.slug } : {};
+    await dispatchFromCli('query', 'pipeline', 'phase.show', params, { command: 'phase' });
+  },
+});
+
+/** cleo phase list — list all phases with status */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'List all phases with status' },
+  async run() {
+    await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phase' });
+  },
+});
+
+/** cleo phase set — set current phase */
+const setCommand = defineCommand({
+  meta: { name: 'set', description: 'Set current phase' },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Phase slug to set as current',
+      required: true,
+    },
+    rollback: {
+      type: 'boolean',
+      description: 'Allow backward phase movement',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Skip confirmation prompt',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview changes without modifying files',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.set',
+      {
+        phaseId: args.slug,
+        rollback: args.rollback,
+        force: args.force,
+        dryRun: args['dry-run'],
+      },
+      { command: 'phase' },
+    );
+  },
+});
+
+/** cleo phase start — start a phase (pending → active) */
+const startCommand = defineCommand({
+  meta: { name: 'start', description: 'Start a phase (pending -> active)' },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Phase slug to start',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.set',
+      { phaseId: args.slug, action: 'start' },
+      { command: 'phase' },
+    );
+  },
+});
+
+/** cleo phase complete — complete a phase (active → completed) */
+const completeCommand = defineCommand({
+  meta: { name: 'complete', description: 'Complete a phase (active -> completed)' },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Phase slug to complete',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.set',
+      { phaseId: args.slug, action: 'complete' },
+      { command: 'phase' },
+    );
+  },
+});
+
+/** cleo phase advance — complete current phase and start next */
+const advanceCommand = defineCommand({
+  meta: { name: 'advance', description: 'Complete current phase and start next' },
+  args: {
+    force: {
+      type: 'boolean',
+      description: 'Skip validation and interactive prompt',
+      alias: 'f',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.advance',
+      { force: args.force },
+      { command: 'phase' },
+    );
+  },
+});
+
+/** cleo phase rename — rename a phase and update all task references */
+const renameCommand = defineCommand({
+  meta: { name: 'rename', description: 'Rename a phase and update all task references' },
+  args: {
+    oldName: {
+      type: 'positional',
+      description: 'Current phase name',
+      required: true,
+    },
+    newName: {
+      type: 'positional',
+      description: 'New phase name',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.rename',
+      { oldName: args.oldName, newName: args.newName },
+      { command: 'phase' },
+    );
+  },
+});
+
+/** cleo phase delete — delete a phase with task reassignment protection */
+const deleteCommand = defineCommand({
+  meta: { name: 'delete', description: 'Delete a phase with task reassignment protection' },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Phase slug to delete',
+      required: true,
+    },
+    'reassign-to': {
+      type: 'string',
+      description: 'Reassign tasks to another phase',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Required safety flag',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'phase.delete',
+      {
+        phaseId: args.slug,
+        reassignTo: args['reassign-to'],
+        force: args.force,
+      },
+      { command: 'phase' },
+    );
+  },
+});
 
 /**
- * Register the phase command group.
+ * Root phase command group — project-level phase lifecycle management.
+ *
+ * Dispatches to the `pipeline` domain. The `pipeline` alias is wired in index.ts.
+ *
  * @task T4464, T5326
+ * @epic T4454, T5323
  */
-export function registerPhaseCommand(program: Command): void {
-  const phase = program
-    .command('phase')
-    .alias('pipeline')
-    .description('Project-level phase lifecycle management');
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('show [slug]')
-    .description('Show phase details (current phase if no slug given)')
-    .action(async (slug?: string) => {
-      const params = slug ? { phaseId: slug } : {};
-      await dispatchFromCli('query', 'pipeline', 'phase.show', params, { command: 'phase' });
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('list')
-    .description('List all phases with status')
-    .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phase' });
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('set <slug>')
-    .description('Set current phase')
-    .option('--rollback', 'Allow backward phase movement')
-    .option('--force', 'Skip confirmation prompt')
-    .option('--dry-run', 'Preview changes without modifying files')
-    .action(async (slug: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.set',
-        {
-          phaseId: slug,
-          rollback: opts['rollback'],
-          force: opts['force'],
-          dryRun: opts['dryRun'],
-        },
-        { command: 'phase' },
-      );
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('start <slug>')
-    .description('Start a phase (pending -> active)')
-    .action(async (slug: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.set',
-        { phaseId: slug, action: 'start' },
-        { command: 'phase' },
-      );
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('complete <slug>')
-    .description('Complete a phase (active -> completed)')
-    .action(async (slug: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.set',
-        { phaseId: slug, action: 'complete' },
-        { command: 'phase' },
-      );
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('advance')
-    .description('Complete current phase and start next')
-    .option('-f, --force', 'Skip validation and interactive prompt')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.advance',
-        {
-          force: opts['force'],
-        },
-        { command: 'phase' },
-      );
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('rename <oldName> <newName>')
-    .description('Rename a phase and update all task references')
-    .action(async (oldName: string, newName: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.rename',
-        { oldName, newName },
-        { command: 'phase' },
-      );
-    });
-
-  // T5326: Migrated to dispatch
-  phase
-    .command('delete <slug>')
-    .description('Delete a phase with task reassignment protection')
-    .option('--reassign-to <phase>', 'Reassign tasks to another phase')
-    .option('--force', 'Required safety flag')
-    .action(async (slug: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'phase.delete',
-        {
-          phaseId: slug,
-          reassignTo: opts['reassignTo'],
-          force: opts['force'],
-        },
-        { command: 'phase' },
-      );
-    });
-}
+export const phaseCommand = defineCommand({
+  meta: { name: 'phase', description: 'Project-level phase lifecycle management' },
+  subCommands: {
+    show: showCommand,
+    list: listCommand,
+    set: setCommand,
+    start: startCommand,
+    complete: completeCommand,
+    advance: advanceCommand,
+    rename: renameCommand,
+    delete: deleteCommand,
+  },
+});

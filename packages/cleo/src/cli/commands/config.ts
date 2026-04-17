@@ -1,14 +1,24 @@
 /**
- * CLI config command - configuration management.
- * Delegates to core/config.ts for business logic.
+ * CLI command group: cleo config — configuration management.
+ *
+ * Delegates to core/config.ts for business logic. For the `list` subcommand
+ * the resolved config is read directly via `loadConfig()` (no dispatch op).
+ *
+ * Subcommands:
+ *   cleo config get <key>           — get a configuration value
+ *   cleo config set <key> <value>   — set a configuration value
+ *   cleo config set-preset <preset> — apply a strictness preset
+ *   cleo config presets             — list all available presets
+ *   cleo config list                — show all resolved configuration
+ *
  * @task T4454
  * @task T4795
  * @task T067
  */
 
 import { CleoError, formatError, loadConfig } from '@cleocode/core';
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 const PRESET_DESCRIPTIONS: Record<string, string> = {
@@ -17,68 +27,124 @@ const PRESET_DESCRIPTIONS: Record<string, string> = {
   minimal: 'No AC checking, no session requirement, lifecycle pipeline off.',
 };
 
-export function registerConfigCommand(program: Command): void {
-  const config = program.command('config').description('Configuration management');
+/** cleo config get — get a configuration value */
+const getCommand = defineCommand({
+  meta: { name: 'get', description: 'Get a configuration value' },
+  args: {
+    key: {
+      type: 'positional',
+      description: 'Configuration key to retrieve',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'config.show',
+      { key: args.key },
+      { command: 'config' },
+    );
+  },
+});
 
-  config
-    .command('get <key>')
-    .description('Get a configuration value')
-    .action(async (key: string) => {
-      await dispatchFromCli('query', 'admin', 'config.show', { key }, { command: 'config' });
-    });
+/** cleo config set — set a configuration value */
+const setCommand = defineCommand({
+  meta: { name: 'set', description: 'Set a configuration value' },
+  args: {
+    key: {
+      type: 'positional',
+      description: 'Configuration key to set',
+      required: true,
+    },
+    value: {
+      type: 'positional',
+      description: 'Value to assign',
+      required: true,
+    },
+    global: {
+      type: 'boolean',
+      description: 'Set in global config instead of project config',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'config.set',
+      { key: args.key, value: args.value },
+      { command: 'config' },
+    );
+  },
+});
 
-  config
-    .command('set <key> <value>')
-    .description('Set a configuration value')
-    .option('--global', 'Set in global config instead of project config')
-    .action(async (key: string, value: string) => {
-      await dispatchFromCli('mutate', 'admin', 'config.set', { key, value }, { command: 'config' });
-    });
+/** cleo config set-preset — apply a strictness preset to the project config */
+const setPresetCommand = defineCommand({
+  meta: {
+    name: 'set-preset',
+    description: [
+      'Apply a strictness preset to the project config (strict | standard | minimal)',
+      `  strict   — ${PRESET_DESCRIPTIONS['strict']}`,
+      `  standard — ${PRESET_DESCRIPTIONS['standard']}`,
+      `  minimal  — ${PRESET_DESCRIPTIONS['minimal']}`,
+    ].join('\n\n'),
+  },
+  args: {
+    preset: {
+      type: 'positional',
+      description: 'Preset name (strict | standard | minimal)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'config.set-preset',
+      { preset: args.preset },
+      { command: 'config' },
+    );
+  },
+});
 
-  config
-    .command('set-preset <preset>')
-    .description(
-      'Apply a strictness preset to the project config (strict | standard | minimal)\n\n' +
-        '  strict   — ' +
-        PRESET_DESCRIPTIONS['strict'] +
-        '\n' +
-        '  standard — ' +
-        PRESET_DESCRIPTIONS['standard'] +
-        '\n' +
-        '  minimal  — ' +
-        PRESET_DESCRIPTIONS['minimal'],
-    )
-    .action(async (preset: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'config.set-preset',
-        { preset },
-        { command: 'config' },
-      );
-    });
+/** cleo config presets — list all available strictness presets */
+const presetsCommand = defineCommand({
+  meta: { name: 'presets', description: 'List all available strictness presets' },
+  async run() {
+    await dispatchFromCli('query', 'admin', 'config.presets', {}, { command: 'config' });
+  },
+});
 
-  config
-    .command('presets')
-    .description('List all available strictness presets')
-    .action(async () => {
-      await dispatchFromCli('query', 'admin', 'config.presets', {}, { command: 'config' });
-    });
-
-  // CLI-only: config list uses core directly, no dispatch op for listing all resolved config
-  config
-    .command('list')
-    .description('Show all resolved configuration')
-    .action(async () => {
-      try {
-        const resolved = await loadConfig();
-        cliOutput({ config: resolved }, { command: 'config' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+/** cleo config list — show all resolved configuration (CLI-only, uses core directly) */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'Show all resolved configuration' },
+  async run() {
+    try {
+      const resolved = await loadConfig();
+      cliOutput({ config: resolved }, { command: 'config' });
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
-}
+      throw err;
+    }
+  },
+});
+
+/**
+ * Root config command group.
+ *
+ * Configuration management — read, write, and apply presets for project
+ * and global CLEO configuration.
+ */
+export const configCommand = defineCommand({
+  meta: { name: 'config', description: 'Configuration management' },
+  subCommands: {
+    get: getCommand,
+    set: setCommand,
+    'set-preset': setPresetCommand,
+    presets: presetsCommand,
+    list: listCommand,
+  },
+});

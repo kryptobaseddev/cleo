@@ -1,323 +1,536 @@
 /**
- * CLI session command group.
+ * CLI session command group — manage work sessions.
+ *
+ * Exposes all session operations as native citty subcommands:
+ *
+ *   cleo session start            — start a new session
+ *   cleo session end / stop       — end the current session
+ *   cleo session handoff          — show handoff data from most recent ended session
+ *   cleo session status           — show current session status
+ *   cleo session resume           — resume an existing session
+ *   cleo session find             — find sessions (lightweight discovery)
+ *   cleo session list             — list sessions
+ *   cleo session gc               — garbage collect old sessions
+ *   cleo session show             — show full details for a session
+ *   cleo session context-drift    — detect context drift in the current session
+ *   cleo session suspend          — suspend an active session
+ *   cleo session record-assumption— record an assumption made during the session
+ *   cleo session record-decision  — record a decision made during the session
+ *   cleo session decision-log     — show decisions recorded in a session
+ *
  * @task T4463
  * @epic T4454
  */
 
 import { ExitCode } from '@cleocode/contracts';
+import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
-/**
- * Register the session command group.
- * @task T4463
- */
-export function registerSessionCommand(program: Command): void {
-  const session = program.command('session').description('Manage work sessions');
+/** cleo session start — start a new session */
+const startCommand = defineCommand({
+  meta: { name: 'start', description: 'Start a new session' },
+  args: {
+    scope: {
+      type: 'string',
+      description: 'Session scope (epic:T### or global)',
+      required: true,
+    },
+    name: {
+      type: 'string',
+      description: 'Session name',
+      required: true,
+    },
+    'auto-start': {
+      type: 'boolean',
+      description: 'Auto-start on first available task',
+    },
+    'auto-focus': {
+      type: 'boolean',
+      description: 'Auto-focus on first available task (alias for --auto-start)',
+    },
+    focus: {
+      type: 'string',
+      description: 'Set initial task to work on',
+    },
+    agent: {
+      type: 'string',
+      description: 'Agent identifier',
+    },
+    grade: {
+      type: 'boolean',
+      description: 'Enable full query+mutation audit logging for behavioral grading',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'start',
+      {
+        scope: args.scope,
+        name: args.name,
+        autoStart: (args['auto-start'] || args['auto-focus']) as boolean | undefined,
+        focus: args.focus as string | undefined,
+        grade: args.grade as boolean | undefined,
+      },
+      { command: 'session', operation: 'session.start' },
+    );
+  },
+});
 
-  session
-    .command('start')
-    .description('Start a new session')
-    .requiredOption('--scope <scope>', 'Session scope (epic:T### or global)')
-    .requiredOption('--name <name>', 'Session name')
-    .option('--auto-start', 'Auto-start on first available task')
-    .option('--auto-focus', 'Auto-focus on first available task (alias for --auto-start)')
-    .option('--focus <taskId>', 'Set initial task to work on')
-    .option('--agent <agent>', 'Agent identifier')
-    .option('--grade', 'Enable full query+mutation audit logging for behavioral grading')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'start',
-        {
-          scope: opts['scope'] as string,
-          name: opts['name'] as string,
-          autoStart: (opts['autoStart'] || opts['autoFocus']) as boolean | undefined,
-          focus: opts['focus'] as string | undefined,
-          grade: opts['grade'] as boolean | undefined,
-        },
-        { command: 'session', operation: 'session.start' },
-      );
+/** cleo session end — end the current session */
+const endCommand = defineCommand({
+  meta: { name: 'end', description: 'End the current session' },
+  args: {
+    session: {
+      type: 'string',
+      description: 'Specific session ID to stop',
+    },
+    note: {
+      type: 'string',
+      description: 'Stop note',
+    },
+    'next-action': {
+      type: 'string',
+      description: 'Suggested next action',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'end',
+      {
+        note: args.note as string | undefined,
+        nextAction: args['next-action'] as string | undefined,
+      },
+      { command: 'session', operation: 'session.end' },
+    );
+  },
+});
+
+/** cleo session handoff — show handoff data from the most recent ended session */
+const handoffCommand = defineCommand({
+  meta: { name: 'handoff', description: 'Show handoff data from the most recent ended session' },
+  args: {
+    scope: {
+      type: 'string',
+      description: 'Filter by scope (epic:T### or global)',
+    },
+  },
+  async run({ args }) {
+    const scope = args.scope as string | undefined;
+
+    const response = await dispatchRaw('query', 'session', 'handoff.show', {
+      scope,
     });
 
-  session
-    .command('end')
-    .alias('stop')
-    .description('End the current session')
-    .option('--session <id>', 'Specific session ID to stop')
-    .option('--note <note>', 'Stop note')
-    .option('--next-action <action>', 'Suggested next action')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'end',
-        {
-          note: opts['note'] as string | undefined,
-          nextAction: opts['nextAction'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.end' },
-      );
-    });
+    if (!response.success) {
+      handleRawError(response, { command: 'session handoff', operation: 'session.handoff.show' });
+    }
 
-  session
-    .command('handoff')
-    .description('Show handoff data from the most recent ended session')
-    .option('--scope <scope>', 'Filter by scope (epic:T### or global)')
-    .action(async (opts: Record<string, unknown>) => {
-      const scope = opts['scope'] as string | undefined;
+    const data = response.data as { sessionId: string; handoff: Record<string, unknown> } | null;
 
-      const response = await dispatchRaw('query', 'session', 'handoff.show', {
-        scope,
-      });
-
-      if (!response.success) {
-        handleRawError(response, { command: 'session handoff', operation: 'session.handoff.show' });
-      }
-
-      const data = response.data as { sessionId: string; handoff: Record<string, unknown> } | null;
-
-      if (!data?.handoff) {
-        cliOutput(
-          { handoff: null },
-          {
-            command: 'session handoff',
-            message: 'No handoff data available',
-            operation: 'session.handoff.show',
-          },
-        );
-        process.exit(ExitCode.NO_DATA);
-        return;
-      }
-
-      const { sessionId, handoff } = data;
-
-      // Format the handoff data for display
-      const formattedHandoff = {
-        sessionId,
-        lastTask: handoff.lastTask ?? 'None',
-        tasksCompleted: handoff.tasksCompleted ?? [],
-        tasksCreated: handoff.tasksCreated ?? [],
-        decisionsRecorded: handoff.decisionsRecorded ?? 0,
-        nextSuggested: handoff.nextSuggested ?? [],
-        openBlockers: handoff.openBlockers ?? [],
-        openBugs: handoff.openBugs ?? [],
-        ...(handoff.note ? { note: handoff.note } : {}),
-        ...(handoff.nextAction ? { nextAction: handoff.nextAction } : {}),
-      };
-
+    if (!data?.handoff) {
       cliOutput(
-        { handoff: formattedHandoff },
-        { command: 'session handoff', operation: 'session.handoff.show' },
-      );
-    });
-
-  session
-    .command('status')
-    .description('Show current session status')
-    .action(async () => {
-      const response = await dispatchRaw('query', 'session', 'status');
-      if (!response.success) {
-        handleRawError(response, { command: 'session', operation: 'session.status' });
-      }
-      const data = response.data as Record<string, unknown> | null;
-      if (!data || data['session'] === null || (data['session'] === undefined && !data['id'])) {
-        cliOutput(
-          { session: null },
-          { command: 'session', message: 'No active session', operation: 'session.status' },
-        );
-        process.exit(ExitCode.NO_DATA);
-        return;
-      }
-      cliOutput({ session: data }, { command: 'session', operation: 'session.status' });
-    });
-
-  session
-    .command('resume <sessionId>')
-    .description('Resume an existing session')
-    .action(async (sessionId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'resume',
+        { handoff: null },
         {
-          sessionId,
+          command: 'session handoff',
+          message: 'No handoff data available',
+          operation: 'session.handoff.show',
         },
-        { command: 'session', operation: 'session.resume' },
       );
-    });
+      process.exit(ExitCode.NO_DATA);
+      return;
+    }
 
-  session
-    .command('find')
-    .description('Find sessions (lightweight discovery — minimal fields, low context cost)')
-    .option('--status <status>', 'Filter by status (active|ended|orphaned)')
-    .option('--scope <scope>', 'Filter by scope (e.g. "epic:T001" or "global")')
-    .option('--query <query>', 'Fuzzy match on session name or ID')
-    .option('--limit <n>', 'Max results', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'session',
-        'find',
-        {
-          status: opts['status'] as string | undefined,
-          scope: opts['scope'] as string | undefined,
-          query: opts['query'] as string | undefined,
-          limit: opts['limit'] as number | undefined,
-        },
-        { command: 'session', operation: 'session.find' },
-      );
-    });
+    const { sessionId, handoff } = data;
 
-  session
-    .command('list')
-    .description('List sessions')
-    .option('--status <status>', 'Filter by status (active|ended|orphaned)')
-    .option('--limit <n>', 'Max results', parseInt)
-    .option('--offset <n>', 'Skip first n results', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'session',
-        'list',
-        {
-          status: opts['status'] as string | undefined,
-          limit: opts['limit'] as number | undefined,
-          offset: opts['offset'] as number | undefined,
-        },
-        { command: 'session', operation: 'session.list' },
-      );
-    });
+    // Format the handoff data for display
+    const formattedHandoff = {
+      sessionId,
+      lastTask: handoff.lastTask ?? 'None',
+      tasksCompleted: handoff.tasksCompleted ?? [],
+      tasksCreated: handoff.tasksCreated ?? [],
+      decisionsRecorded: handoff.decisionsRecorded ?? 0,
+      nextSuggested: handoff.nextSuggested ?? [],
+      openBlockers: handoff.openBlockers ?? [],
+      openBugs: handoff.openBugs ?? [],
+      ...(handoff.note ? { note: handoff.note } : {}),
+      ...(handoff.nextAction ? { nextAction: handoff.nextAction } : {}),
+    };
 
-  session
-    .command('gc')
-    .description('Garbage collect old sessions')
-    .option('--max-age <days>', 'Max age in days for active sessions', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'gc',
-        {
-          maxAgeDays: opts['maxAge'] as number | undefined,
-        },
-        { command: 'session', operation: 'session.gc' },
-      );
-    });
+    cliOutput(
+      { handoff: formattedHandoff },
+      { command: 'session handoff', operation: 'session.handoff.show' },
+    );
+  },
+});
 
-  session
-    .command('show <sessionId>')
-    .description('Show full details for a session (absorbs debrief.show via --include debrief)')
-    .option('--include <include>', 'Include extra data (debrief)')
-    .action(async (sessionId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'session',
-        'show',
-        {
-          sessionId,
-          include: opts['include'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.show' },
+/** cleo session status — show current session status */
+const statusCommand = defineCommand({
+  meta: { name: 'status', description: 'Show current session status' },
+  async run() {
+    const response = await dispatchRaw('query', 'session', 'status');
+    if (!response.success) {
+      handleRawError(response, { command: 'session', operation: 'session.status' });
+    }
+    const data = response.data as Record<string, unknown> | null;
+    if (!data || data['session'] === null || (data['session'] === undefined && !data['id'])) {
+      cliOutput(
+        { session: null },
+        { command: 'session', message: 'No active session', operation: 'session.status' },
       );
-    });
+      process.exit(ExitCode.NO_DATA);
+      return;
+    }
+    cliOutput({ session: data }, { command: 'session', operation: 'session.status' });
+  },
+});
 
-  session
-    .command('context-drift')
-    .description('Detect context drift in the current or specified session')
-    .option('--session-id <sessionId>', 'Session ID to check (defaults to active session)')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'session',
-        'context.drift',
-        {
-          sessionId: opts['sessionId'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.context.drift' },
-      );
-    });
+/** cleo session resume — resume an existing session */
+const resumeCommand = defineCommand({
+  meta: { name: 'resume', description: 'Resume an existing session' },
+  args: {
+    sessionId: {
+      type: 'positional',
+      description: 'Session ID to resume',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'resume',
+      {
+        sessionId: args.sessionId,
+      },
+      { command: 'session', operation: 'session.resume' },
+    );
+  },
+});
 
-  session
-    .command('suspend <sessionId>')
-    .description('Suspend an active session (pause without ending)')
-    .option('--reason <reason>', 'Reason for suspension')
-    .action(async (sessionId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'suspend',
-        {
-          sessionId,
-          reason: opts['reason'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.suspend' },
-      );
-    });
+/** cleo session find — find sessions (lightweight discovery, minimal fields, low context cost) */
+const findCommand = defineCommand({
+  meta: {
+    name: 'find',
+    description: 'Find sessions (lightweight discovery — minimal fields, low context cost)',
+  },
+  args: {
+    status: {
+      type: 'string',
+      description: 'Filter by status (active|ended|orphaned)',
+    },
+    scope: {
+      type: 'string',
+      description: 'Filter by scope (e.g. "epic:T001" or "global")',
+    },
+    query: {
+      type: 'string',
+      description: 'Fuzzy match on session name or ID',
+    },
+    limit: {
+      type: 'string',
+      description: 'Max results',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'find',
+      {
+        status: args.status as string | undefined,
+        scope: args.scope as string | undefined,
+        query: args.query as string | undefined,
+        limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
+      },
+      { command: 'session', operation: 'session.find' },
+    );
+  },
+});
 
-  session
-    .command('record-assumption')
-    .description('Record an assumption made during the current session')
-    .requiredOption('--assumption <assumption>', 'Assumption text')
-    .requiredOption('--confidence <confidence>', 'Confidence level (high|medium|low)')
-    .option('--session-id <sessionId>', 'Session ID (defaults to active session)')
-    .option('--task-id <taskId>', 'Task ID the assumption relates to')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'record.assumption',
-        {
-          sessionId: opts['sessionId'] as string | undefined,
-          taskId: opts['taskId'] as string | undefined,
-          assumption: opts['assumption'] as string,
-          confidence: opts['confidence'] as string,
-        },
-        { command: 'session', operation: 'session.record.assumption' },
-      );
-    });
+/** cleo session list — list sessions */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'List sessions' },
+  args: {
+    status: {
+      type: 'string',
+      description: 'Filter by status (active|ended|orphaned)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Max results',
+    },
+    offset: {
+      type: 'string',
+      description: 'Skip first n results',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'list',
+      {
+        status: args.status as string | undefined,
+        limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
+        offset: args.offset ? Number.parseInt(args.offset, 10) : undefined,
+      },
+      { command: 'session', operation: 'session.list' },
+    );
+  },
+});
 
-  session
-    .command('record-decision')
-    .description('Record a decision made during the current session')
-    .option('--session-id <sessionId>', 'Session ID (defaults to active session)')
-    .requiredOption('--task-id <taskId>', 'Task ID the decision relates to')
-    .requiredOption('--decision <decision>', 'Decision text')
-    .requiredOption('--rationale <rationale>', 'Rationale for the decision')
-    .option('--alternatives <alternatives>', 'Alternatives considered')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'session',
-        'record.decision',
-        {
-          sessionId: opts['sessionId'] as string | undefined,
-          taskId: opts['taskId'] as string,
-          decision: opts['decision'] as string,
-          rationale: opts['rationale'] as string,
-          alternatives: opts['alternatives'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.record.decision' },
-      );
-    });
+/** cleo session gc — garbage collect old sessions */
+const gcCommand = defineCommand({
+  meta: { name: 'gc', description: 'Garbage collect old sessions' },
+  args: {
+    'max-age': {
+      type: 'string',
+      description: 'Max age in days for active sessions',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'gc',
+      {
+        maxAgeDays: args['max-age'] ? Number.parseInt(args['max-age'], 10) : undefined,
+      },
+      { command: 'session', operation: 'session.gc' },
+    );
+  },
+});
 
-  session
-    .command('decision-log')
-    .description('Show decisions recorded in a session')
-    .option('--session-id <sessionId>', 'Session ID to filter by')
-    .option('--task-id <taskId>', 'Task ID to filter by')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'session',
-        'decision.log',
-        {
-          sessionId: opts['sessionId'] as string | undefined,
-          taskId: opts['taskId'] as string | undefined,
-        },
-        { command: 'session', operation: 'session.decision.log' },
-      );
-    });
-}
+/** cleo session show — show full details for a session */
+const showCommand = defineCommand({
+  meta: {
+    name: 'show',
+    description: 'Show full details for a session (absorbs debrief.show via --include debrief)',
+  },
+  args: {
+    sessionId: {
+      type: 'positional',
+      description: 'Session ID to show',
+      required: true,
+    },
+    include: {
+      type: 'string',
+      description: 'Include extra data (debrief)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'show',
+      {
+        sessionId: args.sessionId,
+        include: args.include as string | undefined,
+      },
+      { command: 'session', operation: 'session.show' },
+    );
+  },
+});
+
+/** cleo session context-drift — detect context drift in the current or specified session */
+const contextDriftCommand = defineCommand({
+  meta: {
+    name: 'context-drift',
+    description: 'Detect context drift in the current or specified session',
+  },
+  args: {
+    'session-id': {
+      type: 'string',
+      description: 'Session ID to check (defaults to active session)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'context.drift',
+      {
+        sessionId: args['session-id'] as string | undefined,
+      },
+      { command: 'session', operation: 'session.context.drift' },
+    );
+  },
+});
+
+/** cleo session suspend — suspend an active session (pause without ending) */
+const suspendCommand = defineCommand({
+  meta: { name: 'suspend', description: 'Suspend an active session (pause without ending)' },
+  args: {
+    sessionId: {
+      type: 'positional',
+      description: 'Session ID to suspend',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Reason for suspension',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'suspend',
+      {
+        sessionId: args.sessionId,
+        reason: args.reason as string | undefined,
+      },
+      { command: 'session', operation: 'session.suspend' },
+    );
+  },
+});
+
+/** cleo session record-assumption — record an assumption made during the current session */
+const recordAssumptionCommand = defineCommand({
+  meta: {
+    name: 'record-assumption',
+    description: 'Record an assumption made during the current session',
+  },
+  args: {
+    assumption: {
+      type: 'string',
+      description: 'Assumption text',
+      required: true,
+    },
+    confidence: {
+      type: 'string',
+      description: 'Confidence level (high|medium|low)',
+      required: true,
+    },
+    'session-id': {
+      type: 'string',
+      description: 'Session ID (defaults to active session)',
+    },
+    'task-id': {
+      type: 'string',
+      description: 'Task ID the assumption relates to',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'record.assumption',
+      {
+        sessionId: args['session-id'] as string | undefined,
+        taskId: args['task-id'] as string | undefined,
+        assumption: args.assumption,
+        confidence: args.confidence,
+      },
+      { command: 'session', operation: 'session.record.assumption' },
+    );
+  },
+});
+
+/** cleo session record-decision — record a decision made during the current session */
+const recordDecisionCommand = defineCommand({
+  meta: {
+    name: 'record-decision',
+    description: 'Record a decision made during the current session',
+  },
+  args: {
+    'session-id': {
+      type: 'string',
+      description: 'Session ID (defaults to active session)',
+    },
+    'task-id': {
+      type: 'string',
+      description: 'Task ID the decision relates to',
+      required: true,
+    },
+    decision: {
+      type: 'string',
+      description: 'Decision text',
+      required: true,
+    },
+    rationale: {
+      type: 'string',
+      description: 'Rationale for the decision',
+      required: true,
+    },
+    alternatives: {
+      type: 'string',
+      description: 'Alternatives considered',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'session',
+      'record.decision',
+      {
+        sessionId: args['session-id'] as string | undefined,
+        taskId: args['task-id'],
+        decision: args.decision,
+        rationale: args.rationale,
+        alternatives: args.alternatives as string | undefined,
+      },
+      { command: 'session', operation: 'session.record.decision' },
+    );
+  },
+});
+
+/** cleo session decision-log — show decisions recorded in a session */
+const decisionLogCommand = defineCommand({
+  meta: { name: 'decision-log', description: 'Show decisions recorded in a session' },
+  args: {
+    'session-id': {
+      type: 'string',
+      description: 'Session ID to filter by',
+    },
+    'task-id': {
+      type: 'string',
+      description: 'Task ID to filter by',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'decision.log',
+      {
+        sessionId: args['session-id'] as string | undefined,
+        taskId: args['task-id'] as string | undefined,
+      },
+      { command: 'session', operation: 'session.decision.log' },
+    );
+  },
+});
+
+/**
+ * Root session command group — registers all session management subcommands.
+ *
+ * `stop` is an alias for `end` — both keys point to the same CommandDef.
+ * Default run() checks if no subcommand was given and falls through to status display.
+ * Dispatches to `session.*` registry operations.
+ */
+export const sessionCommand = defineCommand({
+  meta: { name: 'session', description: 'Manage work sessions' },
+  subCommands: {
+    start: startCommand,
+    end: endCommand,
+    stop: endCommand,
+    handoff: handoffCommand,
+    status: statusCommand,
+    resume: resumeCommand,
+    find: findCommand,
+    list: listCommand,
+    gc: gcCommand,
+    show: showCommand,
+    'context-drift': contextDriftCommand,
+    suspend: suspendCommand,
+    'record-assumption': recordAssumptionCommand,
+    'record-decision': recordDecisionCommand,
+    'decision-log': decisionLogCommand,
+  },
+});

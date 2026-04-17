@@ -25,8 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerBackupCommand } from '../backup.js';
+import { backupCommand } from '../backup.js';
 
 // ---------------------------------------------------------------------------
 // Mock @cleocode/core/internal — prevents tar / sqlite / lafs chain
@@ -149,22 +148,28 @@ const MOCK_UNPACK_RESULT = {
 };
 
 // ---------------------------------------------------------------------------
-// Helper — extract the `backup import` action handler
+// Helper — invoke the `backup import` subcommand run handler directly
 // ---------------------------------------------------------------------------
 
+type ImportArgs = {
+  bundle: string;
+  force?: boolean;
+};
+
 /**
- * Build the command tree and return the action registered on `backup import`.
+ * Invoke the citty import subcommand's run handler with the given args.
  *
- * @returns The async action handler for testing.
+ * @param args - Arguments to pass to the import run handler.
  */
-function getImportAction(): (bundle: string, opts: Record<string, unknown>) => Promise<void> {
-  const program = new Command();
-  registerBackupCommand(program);
-  const backupCmd = program.commands.find((c) => c.name() === 'backup');
-  if (!backupCmd) throw new Error('backup command not registered');
-  const sub = backupCmd.commands.find((c) => c.name() === 'import');
-  if (!sub?._action) throw new Error('backup import subcommand has no action registered');
-  return sub._action as (bundle: string, opts: Record<string, unknown>) => Promise<void>;
+async function runImport(args: ImportArgs): Promise<void> {
+  const importCmd = backupCommand.subCommands?.['import'];
+  if (!importCmd || typeof importCmd !== 'object' || !('run' in importCmd)) {
+    throw new Error('backup import subcommand not found');
+  }
+  const merged = { force: false, ...args };
+  await (
+    importCmd as { run: (ctx: { args: typeof merged; rawArgs: string[] }) => Promise<void> }
+  ).run({ args: merged, rawArgs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +259,7 @@ describe('T361 cleo backup import — pre-check (E_DATA_EXISTS)', () => {
     vi.restoreAllMocks();
     setupFsSpies(['.cleo/tasks.db']);
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(process.exitCode).toBe(78);
     expect(mockUnpackBundle).not.toHaveBeenCalled();
@@ -267,8 +271,7 @@ describe('T361 cleo backup import — pre-check (E_DATA_EXISTS)', () => {
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     const written = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(written).toContain('E_DATA_EXISTS');
@@ -280,16 +283,14 @@ describe('T361 cleo backup import — pre-check (E_DATA_EXISTS)', () => {
     vi.restoreAllMocks();
     setupFsSpies(['.cleo/tasks.db']);
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', { force: true });
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz', force: true });
 
     expect(process.exitCode).toBeUndefined();
     expect(mockUnpackBundle).toHaveBeenCalledOnce();
   });
 
   it('proceeds on a fresh target with no existing files', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockUnpackBundle).toHaveBeenCalledOnce();
     expect(process.exitCode).toBeUndefined();
@@ -302,8 +303,7 @@ describe('T361 cleo backup import — pre-check (E_DATA_EXISTS)', () => {
 
 describe('T361 cleo backup import — encryption detection', () => {
   it('calls unpackBundle WITHOUT passphrase for unencrypted bundle', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockUnpackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -323,8 +323,7 @@ describe('T361 cleo backup import — encryption detection', () => {
     );
     process.env['CLEO_BACKUP_PASSPHRASE'] = 'my-secret-pass';
 
-    const action = getImportAction();
-    await action('/some/bundle.enc.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.enc.cleobundle.tar.gz' });
 
     expect(mockUnpackBundle).toHaveBeenCalledWith(
       expect.objectContaining({ passphrase: 'my-secret-pass' }),
@@ -341,8 +340,7 @@ describe('T361 cleo backup import — encryption detection', () => {
     );
     // process.stdin.isTTY is falsy in Vitest
 
-    const action = getImportAction();
-    await action('/some/bundle.enc.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.enc.cleobundle.tar.gz' });
 
     expect(process.exitCode).toBe(6);
     expect(mockUnpackBundle).not.toHaveBeenCalled();
@@ -359,8 +357,7 @@ describe('T361 cleo backup import — unpackBundle error propagation', () => {
       new MockBundleError(70, 'E_BUNDLE_DECRYPT', 'bad passphrase'),
     );
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(process.exitCode).toBe(70);
   });
@@ -370,8 +367,7 @@ describe('T361 cleo backup import — unpackBundle error propagation', () => {
       new MockBundleError(72, 'E_CHECKSUM_MISMATCH', 'sha256 mismatch'),
     );
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(process.exitCode).toBe(72);
   });
@@ -379,8 +375,7 @@ describe('T361 cleo backup import — unpackBundle error propagation', () => {
   it('exits with code 1 on unexpected non-BundleError', async () => {
     mockUnpackBundle.mockRejectedValue(new Error('unexpected disk error'));
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(process.exitCode).toBe(1);
   });
@@ -392,8 +387,7 @@ describe('T361 cleo backup import — unpackBundle error propagation', () => {
 
 describe('T361 cleo backup import — DB atomic restore', () => {
   it('copies each DB from staging to a tmp path then renames to final destination', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     // copyFileSync called for the two DBs (src → tmp)
     const copySrcs = (spies.copyFileSync.mock.calls as Array<[string, string]>).map((c) => c[0]);
@@ -436,8 +430,7 @@ describe('T361 cleo backup import — DB atomic restore', () => {
     ]);
     spies.existsSync.mockImplementation((p) => staged.has(String(p)));
 
-    const action = getImportAction();
-    await action('/some/global.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/global.cleobundle.tar.gz' });
 
     const renameDsts = (spies.renameSync.mock.calls as Array<[string, string]>).map((c) => c[1]);
 
@@ -456,8 +449,7 @@ describe('T361 cleo backup import — DB atomic restore', () => {
 
 describe('T361 cleo backup import — A/B regenerate-and-compare', () => {
   it('calls regenerateAndCompare for each JSON file in the manifest', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockRegenerateAndCompare).toHaveBeenCalledTimes(3);
     const filenames = mockRegenerateAndCompare.mock.calls.map(
@@ -478,8 +470,7 @@ describe('T361 cleo backup import — A/B regenerate-and-compare', () => {
       conflictCount: 0,
     });
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     const writeCalls = spies.writeFileSync.mock.calls as Array<[string, string, string]>;
     expect(writeCalls.some((c) => String(c[0]).includes(path.join('.cleo', 'config.json')))).toBe(
@@ -494,8 +485,7 @@ describe('T361 cleo backup import — A/B regenerate-and-compare', () => {
 
 describe('T361 cleo backup import — conflict report', () => {
   it('calls buildConflictReport with correct machine fingerprints and schema warnings', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockBuildConflictReport).toHaveBeenCalledOnce();
     const arg = mockBuildConflictReport.mock.calls[0][0] as {
@@ -507,8 +497,7 @@ describe('T361 cleo backup import — conflict report', () => {
   });
 
   it('calls writeConflictReport to persist the report', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockWriteConflictReport).toHaveBeenCalledOnce();
     expect(mockWriteConflictReport).toHaveBeenCalledWith('/tmp/test-project', expect.any(String));
@@ -526,8 +515,7 @@ describe('T361 cleo backup import — conflict report', () => {
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     const written = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(written).toContain('cleo restore finalize');
@@ -541,8 +529,7 @@ describe('T361 cleo backup import — conflict report', () => {
 
 describe('T361 cleo backup import — .cleo/restore-imported', () => {
   it('copies raw imported JSON files to .cleo/restore-imported/', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     const importedDir = path.join('/tmp/test-project', '.cleo', 'restore-imported');
     const copyCalls = spies.copyFileSync.mock.calls as Array<[string, string]>;
@@ -564,8 +551,7 @@ describe('T361 cleo backup import — .cleo/restore-imported', () => {
 
 describe('T361 cleo backup import — staging cleanup', () => {
   it('calls cleanupStaging after a successful import', async () => {
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     expect(mockCleanupStaging).toHaveBeenCalledOnce();
     expect(mockCleanupStaging).toHaveBeenCalledWith(STAGING_DIR);
@@ -576,8 +562,7 @@ describe('T361 cleo backup import — staging cleanup', () => {
       throw new Error('disk full');
     });
 
-    const action = getImportAction();
-    await expect(action('/some/bundle.cleobundle.tar.gz', {})).resolves.not.toThrow();
+    await expect(runImport({ bundle: '/some/bundle.cleobundle.tar.gz' })).resolves.not.toThrow();
 
     expect(mockCleanupStaging).toHaveBeenCalledOnce();
     expect(mockCleanupStaging).toHaveBeenCalledWith(STAGING_DIR);
@@ -588,8 +573,7 @@ describe('T361 cleo backup import — staging cleanup', () => {
       new MockBundleError(74, 'E_MANIFEST_MISSING', 'no manifest'),
     );
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     // cleanupStaging should NOT be called — unpackBundle already cleaned up
     expect(mockCleanupStaging).not.toHaveBeenCalled();
@@ -604,8 +588,7 @@ describe('T361 cleo backup import — stdout output shape', () => {
   it('writes valid JSON to stdout on success', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    const action = getImportAction();
-    await action('/some/bundle.cleobundle.tar.gz', {});
+    await runImport({ bundle: '/some/bundle.cleobundle.tar.gz' });
 
     const written = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     const parsed = JSON.parse(written.trim()) as Record<string, unknown>;

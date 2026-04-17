@@ -1,5 +1,5 @@
 /**
- * Tests for checkpoint CLI command.
+ * Tests for checkpoint CLI command (native citty).
  * @task T4551
  * @epic T4545
  */
@@ -31,35 +31,36 @@ vi.mock('../../../../core/src/paths.js', async () => {
   };
 });
 
-import { execFileSync } from 'node:child_process';
-import { readJson } from '@cleocode/core/internal';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerCheckpointCommand } from '../commands/checkpoint.js';
+import { checkpointCommand } from '../commands/checkpoint.js';
 
-const mockExecFileSync = vi.mocked(execFileSync);
-const mockReadJson = vi.mocked(readJson);
-
-describe('registerCheckpointCommand', () => {
-  it('registers a checkpoint command on the program', () => {
-    const program = new Command();
-    registerCheckpointCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'checkpoint');
-    expect(cmd).toBeDefined();
-    expect(cmd!.description()).toContain('Git checkpoint');
-  });
-});
-
-describe('checkpoint command integration', () => {
+describe('checkpointCommand (native citty)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('command has --status and --dry-run options', () => {
-    const program = new Command();
-    registerCheckpointCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'checkpoint')!;
-    const optionNames = cmd.options.map((o) => o.long);
-    expect(optionNames).toContain('--status');
-    expect(optionNames).toContain('--dry-run');
+  it('exports a command with the correct name', () => {
+    expect(checkpointCommand).toBeDefined();
+    const meta =
+      typeof checkpointCommand.meta === 'function'
+        ? checkpointCommand.meta()
+        : checkpointCommand.meta;
+    expect((meta as { name: string }).name).toBe('checkpoint');
+  });
+
+  it('has a description containing "Git checkpoint"', () => {
+    const meta =
+      typeof checkpointCommand.meta === 'function'
+        ? checkpointCommand.meta()
+        : checkpointCommand.meta;
+    expect((meta as { description: string }).description).toContain('Git checkpoint');
+  });
+
+  it('defines --status and --dry-run args', () => {
+    const args = checkpointCommand.args as Record<string, { type: string }> | undefined;
+    expect(args).toBeDefined();
+    expect(args?.['status']).toBeDefined();
+    expect(args?.['status'].type).toBe('boolean');
+    expect(args?.['dry-run']).toBeDefined();
+    expect(args?.['dry-run'].type).toBe('boolean');
   });
 });

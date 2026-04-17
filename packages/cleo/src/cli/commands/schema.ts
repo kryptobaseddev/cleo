@@ -15,9 +15,9 @@
  */
 
 import { describeOperation, type OperationSchema } from '@cleocode/lafs';
+import { defineCommand } from 'citty';
 import type { OperationDef } from '../../dispatch/registry.js';
 import { OPERATIONS } from '../../dispatch/registry.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -114,73 +114,76 @@ function renderSchemaHuman(schema: OperationSchema): string {
 }
 
 // ---------------------------------------------------------------------------
-// Command registration
+// Command
 // ---------------------------------------------------------------------------
 
 /**
- * Register the `cleo schema <operation>` command.
+ * Native citty command for `cleo schema <operation>`.
  *
- * @param program - The root ShimCommand to register against.
- *
- * @remarks
  * Does NOT dispatch through the main dispatcher — schema introspection is
  * pure metadata over the registry and does not require a live session or DB.
  */
-export function registerSchemaCommand(program: Command): void {
-  program
-    .command('schema <operation>')
-    .description('Introspect a CLEO operation: show params, types, enums, and declared gates')
-    .option('--format <format>', 'Output format: json (default) or human (pretty table)', 'json')
-    .option('--include-gates', 'Include precondition gates in output (default: true)')
-    .option('--no-include-gates', 'Exclude precondition gates from output')
-    .option('--include-examples', 'Include usage examples in output (default: false)')
-    .action(
-      async (
-        operationArg: string,
-        opts: {
-          format?: string;
-          includeGates?: boolean;
-          includeExamples?: boolean;
+export const schemaCommand = defineCommand({
+  meta: {
+    name: 'schema',
+    description: 'Introspect a CLEO operation: show params, types, enums, and declared gates',
+  },
+  args: {
+    operation: {
+      type: 'positional',
+      description: 'Operation key in domain.operation format (e.g. tasks.add)',
+      required: true,
+    },
+    format: {
+      type: 'string',
+      description: 'Output format: json (default) or human (pretty table)',
+      default: 'json',
+    },
+    'include-gates': {
+      type: 'boolean',
+      description: 'Include precondition gates in output (default: true)',
+      default: true,
+    },
+    'include-examples': {
+      type: 'boolean',
+      description: 'Include usage examples in output (default: false)',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const format = args.format ?? 'json';
+    const includeGates = args['include-gates'] !== false;
+    const includeExamples = args['include-examples'] === true;
+
+    const def = resolveOperationDef(args.operation);
+
+    if (def === null) {
+      cliError(
+        `Unknown operation: "${args.operation}". Run \`cleo schema --list\` to see all operations.`,
+        4,
+        {
+          name: 'E_NOT_FOUND',
+          fix: 'cleo schema --list',
         },
-      ) => {
-        const format = opts.format ?? 'json';
-        // When --no-include-gates is passed, Commander sets includeGates=false
-        const includeGates = opts.includeGates !== false;
-        const includeExamples = opts.includeExamples === true;
+      );
+      process.exit(4);
+      return;
+    }
 
-        // Resolve operation from registry
-        const def = resolveOperationDef(operationArg);
+    const schema: OperationSchema = describeOperation(def, {
+      includeGates,
+      includeExamples,
+    });
 
-        if (def === null) {
-          cliError(
-            `Unknown operation: "${operationArg}". Run \`cleo schema --list\` to see all operations.`,
-            4,
-            {
-              name: 'E_NOT_FOUND',
-              fix: 'cleo schema --list',
-            },
-          );
-          process.exit(4);
-          return;
-        }
+    if (format === 'human') {
+      console.log(renderSchemaHuman(schema));
+      return;
+    }
 
-        // Build schema via LAFS discovery
-        const schema: OperationSchema = describeOperation(def, {
-          includeGates,
-          includeExamples,
-        });
-
-        if (format === 'human') {
-          console.log(renderSchemaHuman(schema));
-          return;
-        }
-
-        // JSON output — go through cliOutput for LAFS envelope compliance
-        cliOutput(schema, {
-          command: 'schema',
-          operation: `schema.${operationArg}`,
-          message: `Schema for ${schema.operation}`,
-        });
-      },
-    );
-}
+    cliOutput(schema, {
+      command: 'schema',
+      operation: `schema.${args.operation}`,
+      message: `Schema for ${schema.operation}`,
+    });
+  },
+});
