@@ -1,0 +1,51 @@
+{
+  "name": "@cleocode/playbooks",
+  "version": "2026.4.85",
+  "description": "Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
+    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "keywords": [
+    "cleo",
+    "playbook",
+    "orchestration",
+    "dsl",
+    "cantbook"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/playbooks"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -309,17 +309,37 @@ export function getProjectRoot(cwd?: string): string {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
 
+  // T889/T909 guard: snapshot $HOME and filesystem root sentinels.
+  //
+  // Historical bug: when `cleo` ran with `cwd=$HOME` and a stray
+  // `~/.cleo/` existed (from a prior buggy run or user mistake), the
+  // walk-up returned `$HOME` as the project root. This silently created
+  // `~/.cleo/conduit.db`, `~/.cleo/tasks.db`, etc. — diverging from the
+  // real project DBs and losing data on branch switch. See ADR-037
+  // (conduit.db is project-tier-only) and the orphan-conduit remediation.
+  //
+  // Contract: `getProjectRoot` MUST NEVER resolve to `$HOME` or `/`.
+  // If the walk would land there, treat it as "no project" rather than
+  // silently accepting a pathological root. Users who legitimately want
+  // `$HOME` as a project root must set `CLEO_ROOT=$HOME` explicitly — the
+  // env-var path above bypasses this guard, making the opt-in explicit.
+  const homeRoot = homedir();
+
   // 2. Walk ancestors toward filesystem root
   while (true) {
     const cleoDir = join(current, '.cleo');
     const gitDir = join(current, '.git');
 
-    if (existsSync(cleoDir)) {
+    // T889/T909: refuse to accept $HOME or / as a project root, even if a
+    // `.cleo/` sentinel exists there. This blocks the orphan-DB vector.
+    const isDangerousRoot = current === homeRoot || current === '/' || current === '';
+
+    if (existsSync(cleoDir) && !isDangerousRoot) {
       // .cleo/ found — this is the project root
       return current;
     }
 
-    if (existsSync(gitDir)) {
+    if (existsSync(gitDir) && !isDangerousRoot) {
       // .git/ found but no .cleo/ sibling — not initialised
       throw new CleoError(ExitCode.CONFIG_ERROR, `Run cleo init at ${current}`, {
         fix: `cd ${current} && cleo init`,

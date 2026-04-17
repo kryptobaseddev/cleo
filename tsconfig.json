@@ -19,6 +19,7 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/lafs/tsconfig.build.json" },
     { "path": "./packages/cant" },
+    { "path": "./packages/playbooks" },
     { "path": "./packages/caamp" },
     { "path": "./packages/core" },
     { "path": "./packages/runtime" },
