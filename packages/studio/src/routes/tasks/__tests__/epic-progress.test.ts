@@ -1,5 +1,5 @@
 /**
- * Tests for T874 — Studio dashboard `computeEpicProgress`.
+ * Tests for T874 — Studio dashboard `_computeEpicProgress`.
  *
  * Verifies that numerator (done) and denominator (total) both come from
  * the same basis — direct children of the epic with status != 'archived'
@@ -15,7 +15,7 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { computeEpicProgress, type EpicProgressDbLike } from '../+page.server.js';
+import { _computeEpicProgress, type EpicProgressDbLike } from '../+page.server.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -69,9 +69,9 @@ afterEach(() => {
   db.close();
 });
 
-describe('computeEpicProgress (T874)', () => {
+describe('_computeEpicProgress (T874)', () => {
   it('returns empty array when there are no epics', () => {
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
     expect(result).toEqual([]);
   });
 
@@ -88,7 +88,7 @@ describe('computeEpicProgress (T874)', () => {
       }
     }
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
@@ -109,7 +109,7 @@ describe('computeEpicProgress (T874)', () => {
     insertTask({ id: 'A3', status: 'archived', parent_id: 'E2' });
     insertTask({ id: 'A4', status: 'archived', parent_id: 'E2' });
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     expect(result[0]).toMatchObject({
       id: 'E2',
@@ -128,7 +128,7 @@ describe('computeEpicProgress (T874)', () => {
     insertTask({ id: 'M4', status: 'pending', parent_id: 'E3' });
     insertTask({ id: 'M5', status: 'cancelled', parent_id: 'E3' });
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     expect(result[0]).toMatchObject({
       id: 'E3',
@@ -148,7 +148,7 @@ describe('computeEpicProgress (T874)', () => {
     insertTask({ id: 'E4', status: 'archived', type: 'epic' });
     insertTask({ id: 'E5', status: 'pending', type: 'epic' });
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     expect(result.map((r) => r.id)).toEqual(['E5']);
   });
@@ -156,7 +156,7 @@ describe('computeEpicProgress (T874)', () => {
   it('handles epic with zero children', () => {
     insertTask({ id: 'E6', status: 'pending', type: 'epic' });
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     expect(result[0]).toMatchObject({
       id: 'E6',
@@ -181,7 +181,7 @@ describe('computeEpicProgress (T874)', () => {
       }
     }
 
-    const result = computeEpicProgress(db as EpicProgressDbLike);
+    const result = _computeEpicProgress(db as EpicProgressDbLike);
 
     for (const row of result) {
       const bucketSum = row.done + row.active + row.pending;

@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.83] — 2026-04-17
+
+### T876 EPIC: Tasks System Coherence — structural invariants + Studio surface
+
+Owner mandate: "stop creating backfills, fix at schema level, add relations graph, unify pipeline lifecycle."
+Five children shipped under this epic (owner-labelled T900).
+
+#### T877 — Backfills → drizzle migrations + SQLite triggers (structural invariants)
+- New migration `20260417000000_t877-pipeline-stage-invariants` REPLACES the two legacy one-shot TS backfills (`backfill-pipeline-stage.ts`, `backfill-terminal-pipeline-stage.ts` — deleted along with their tests).
+- Migration performs the same data fixes inline as SQL `UPDATE`s so drizzle's journal marks the repair done atomically. No more "did the backfill run?" ambiguity.
+- Installs two BEFORE INSERT/UPDATE triggers (`trg_tasks_status_pipeline_insert`, `trg_tasks_status_pipeline_update`) that `RAISE(ABORT, 'T877_INVARIANT_VIOLATION: ...')` on rows violating:
+  - `status='done'` ⇒ `pipeline_stage IN ('contribution','cancelled')`
+  - `status='cancelled'` ⇒ `pipeline_stage='cancelled'`
+- `converters.ts:taskToRow` now auto-derives a terminal `pipeline_stage` when the caller leaves it unset; JSON→SQLite import does the same. Production paths stay caller-friendly while the DB rejects illegal states at the structural level.
+- 12 new trigger tests in `packages/core/src/lifecycle/__tests__/t877-pipeline-stage-invariants.test.ts`.
+
+#### T878 — Studio dashboard deferred/archived filter toggles
+- `?deferred=1` and `?archived=1` URL params + on-page toggles.
+- Epic Progress panel hides cancelled/deferred epics by default; deferred epics render with a badge when shown.
+- Recent Activity can include archived rows on-demand.
+- New `cancelled` stat card on the top bar. Cancelled bucket surfaced per-epic.
+- 5 new filter tests.
+
+#### T879 — New `/tasks/graph` relations graph view
+- SVG force-directed 2D graph (d3-force) rendering EPIC → TASK → SUBTASK parent hierarchy + overlay edges for `blocked_by` and `task_dependencies`.
+- Hover tooltip (id, type, title, status, priority, stage). Click navigates to `/tasks/{id}`.
+- Query params: `?archived=1`, `?epic=TXXX` (subtree restriction).
+- Nav link added to Dashboard + Pipeline views.
+- 10 new tests.
+
+#### T880 — Canonical pipeline stage taxonomy
+- Studio Pipeline column label for `architecture_decision` changed from "Arch. Decision" to **"Design / ADR"** per owner directive. Internal enum unchanged.
+- 4 new label tests including regression guard against re-introducing the legacy label.
+
+#### T881 — Lifecycle API completeness audit + canonical flow doc
+- Full audit doc at `.cleo/agent-outputs/T900/lifecycle-api-coverage.md`.
+- Documents all 9 `cleo lifecycle` subcommands covering 10 canonical stages, the canonical advancement flow with CLI snippets, T877 invariants, and Studio surface parity.
+- Drag-drop stage advance in Studio explicitly deferred as future work.
+
+#### Test totals
+- 4322/4322 core tests pass (same count; new T877 tests replace deleted backfill tests).
+- 246/246 studio tests pass (+20 new).
+- 482/482 test files pass monorepo-wide.
+- Biome + build + test all green.
+
 ## [2026.4.82] — 2026-04-17
 
 ### Fixed
