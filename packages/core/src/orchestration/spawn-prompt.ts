@@ -158,6 +158,27 @@ export interface BuildSpawnPromptInput {
   sessionId?: string | null;
   /** Current date (ISO yyyy-mm-dd). Defaults to today. */
   date?: string;
+  /**
+   * Harness context the prompt is being rendered for.
+   *
+   * Purely informational inside this builder — the active
+   * {@link BuildSpawnPromptInput.skipCleoInjectionEmbed} flag is what
+   * actually gates the embed. The harness hint is recorded so callers can
+   * surface it in telemetry / manifest envelopes.
+   *
+   * @task T889 / T893 / W3-2
+   */
+  harnessHint?: 'claude-code' | 'generic' | 'bare';
+  /**
+   * When `true`, the tier-1 / tier-2 CLEO-INJECTION.md embed is replaced
+   * with a one-line pointer back to the canonical template path. Keeps the
+   * prompt self-contained for bare/generic harnesses while letting
+   * Claude-Code harnesses (which auto-load the injection via `AGENTS.md`)
+   * skip the ~9KB duplicate.
+   *
+   * @task T889 / T893 / W3-2
+   */
+  skipCleoInjectionEmbed?: boolean;
 }
 
 /**
@@ -648,6 +669,24 @@ function buildTier1InjectionEmbed(): string {
   ].join('\n');
 }
 
+/**
+ * Render a one-line pointer that replaces the tier-1 embed when the calling
+ * harness already has `CLEO-INJECTION.md` loaded (see
+ * {@link BuildSpawnPromptInput.skipCleoInjectionEmbed}).
+ *
+ * Saves ~9KB per spawn without losing traceability — the pointer names the
+ * canonical source and the AGENTS.md wrapper the harness used.
+ *
+ * @task T889 / T893 / W3-2
+ */
+function buildTier1InjectionPointer(): string {
+  return [
+    '## CLEO Protocol (tier 1 — dedup pointer)',
+    '',
+    '> Protocol: CLEO-INJECTION.md already loaded via AGENTS.md harness (v2.6.0). See https://github.com/kryptobaseddev/cleocode/blob/main/packages/cleo/AGENTS.md',
+  ].join('\n');
+}
+
 /** Build the tier 2 skill excerpts — ct-cleo + ct-orchestrator. */
 function buildTier2SkillExcerpts(projectRoot: string): string {
   const ctCleo = loadSkillExcerpt('ct-cleo', 6000, projectRoot);
@@ -775,13 +814,27 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
   // are verbatim and therefore land in `embeddedSections`.
+  //
+  // When the caller sets `skipCleoInjectionEmbed` (harness already has
+  // CLEO-INJECTION.md loaded), the ~9KB embed is replaced by a one-line
+  // pointer. The pointer is authored content (no risk of `{{TOKEN}}`
+  // false-positives), so it goes into `authoredSections`.
+  const shouldDedupInjection = input.skipCleoInjectionEmbed === true;
   if (tier === 0) {
     authoredSections.push(buildTier0ProtocolPointer());
   } else if (tier === 1) {
-    embeddedSections.push(buildTier1InjectionEmbed());
+    if (shouldDedupInjection) {
+      authoredSections.push(buildTier1InjectionPointer());
+    } else {
+      embeddedSections.push(buildTier1InjectionEmbed());
+    }
   } else {
     // tier 2
-    embeddedSections.push(buildTier1InjectionEmbed());
+    if (shouldDedupInjection) {
+      authoredSections.push(buildTier1InjectionPointer());
+    } else {
+      embeddedSections.push(buildTier1InjectionEmbed());
+    }
     embeddedSections.push(buildTier2SkillExcerpts(input.projectRoot));
     // The anti-patterns block is authored by us, so keep its tokens subject
     // to resolution (currently there are none — but structurally it belongs

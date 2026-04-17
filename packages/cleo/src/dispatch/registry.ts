@@ -607,6 +607,31 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'orchestrate',
+    operation: 'plan',
+    description: 'orchestrate.plan (query) — deterministic wave+worker plan (T889)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['epicId'],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic ID to emit a plan for',
+        cli: { positional: true },
+      },
+      {
+        name: 'preferTier',
+        type: 'number',
+        required: false,
+        description: 'Preferred resolver tier (0=project, 1=global, 2=packaged)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
     operation: 'bootstrap',
     description: 'orchestrate.bootstrap (query)',
     tier: 1,
