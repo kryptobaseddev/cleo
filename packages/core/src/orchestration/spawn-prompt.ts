@@ -280,16 +280,16 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
 // Section builders
 // ============================================================================
 
-/** Build the header block — identity banner + tier + protocol. */
+/** Build the header block — identity banner + tier + protocol. Kept short so
+ * the Task section lands in the first 500 chars of the prompt (W3-4 hoist).
+ */
 function buildHeader(task: Task, protocol: string, tier: SpawnTier): string {
   return [
     `# CLEO Subagent Spawn — ${task.id}`,
     '',
     `> **Task**: ${task.id} · **Protocol**: ${protocol} · **Tier**: ${tier} · **Generated**: ${new Date().toISOString()}`,
     '',
-    'You are a CLEO subagent. This prompt is fully self-contained. You do not need to re-resolve any protocol content — everything required to execute, verify, and close this task is embedded below.',
-    '',
-    'Return ONLY the one-line completion message specified in the **Return Format Contract** section. Do NOT summarize work in the response body.',
+    'Self-contained spawn prompt. Return ONLY the one-line message from **Return Format Contract**.',
     '',
   ].join('\n');
 }
@@ -749,16 +749,29 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   const authoredSections: string[] = [];
   const embeddedSections: string[] = [];
 
+  // ── Section order (W3-4 hoist, T894) ─────────────────────────────────
+  // The opening ~500 chars MUST carry the task identity + return-format
+  // contract — those are what the subagent looks at first. Protocol
+  // boilerplate (stage guidance, evidence ritual, quality gates) follows.
+  //
+  // 1. Header              — short banner (id / protocol / tier)
+  // 2. Task Identity       — id, title, description, size, AC
+  // 3. Return Format       — contract the subagent must honor on exit
+  // 4. Session Linkage     — orchestrator session id
+  // 5. File Paths          — absolute paths
+  // 6. Stage Guidance      — phase-specific directives
+  // 7. Evidence Gate       — ADR-051 ritual
+  // 8. Quality Gates       — biome / build / test
   authoredSections.push(buildHeader(input.task, protocol, tier));
   authoredSections.push(buildTaskIdentity(input.task));
+  authoredSections.push(buildReturnFormatBlock(protocol));
+  authoredSections.push(buildSessionBlock(input.sessionId));
   authoredSections.push(
     buildFilePathsBlock(taskId, outputDir, manifestPath, rcasdDir, testRunsDir),
   );
-  authoredSections.push(buildSessionBlock(input.sessionId));
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
   authoredSections.push(buildQualityGateBlock());
-  authoredSections.push(buildReturnFormatBlock(protocol));
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
   // are verbatim and therefore land in `embeddedSections`.

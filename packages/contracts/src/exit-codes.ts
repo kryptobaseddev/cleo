@@ -88,6 +88,19 @@ export enum ExitCode {
    */
   THIN_AGENT_VIOLATION = 68,
 
+  /**
+   * E_ATOMICITY_VIOLATION — A worker-role spawn was attempted for a task that
+   * exceeds the atomicity budget (more than {@link MAX_WORKER_FILES} files) or
+   * lacks an explicit file-scope declaration on its acceptance criteria.
+   *
+   * Workers MUST remain atomic (≤ 3 files with declared AC.files). Violations
+   * should be split into child tasks or promoted to a lead role.
+   *
+   * @task T889 Orchestration Coherence v3
+   * @task T894 Atomicity guard (W3-3)
+   */
+  ATOMICITY_VIOLATION = 69,
+
   // === NEXUS ERRORS (70-79) ===
   NEXUS_NOT_INITIALIZED = 70,
   NEXUS_PROJECT_NOT_FOUND = 71,

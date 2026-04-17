@@ -1962,41 +1962,74 @@ const healthCommand = defineCommand({
 });
 
 /**
- * cleo agent install <path> — install an agent from a .cantz archive or directory.
+ * cleo agent install <path> — install an agent from a `.cant` manifest or
+ * `.cantz` archive (ZIP) using the T889 / W2-3 {@link installAgentFromCant}
+ * pipeline.
  *
- * - If the path is a `.cantz` file, extracts the ZIP to a temp directory first.
- * - Validates that `persona.cant` exists in the source.
- * - Copies the agent directory to the target tier.
- * - Default: project tier (`.cleo/cant/agents/<name>/`).
- * - `--global`: global tier (`~/.local/share/cleo/cant/agents/`).
- * - Best-effort agent registration in signaldock.db.
+ * - `.cant` file: fed directly to the pipeline; copied to the tier directory
+ *   and the `agents` row + `agent_skills` junctions are written atomically.
+ * - `.cantz` archive: extracted to a temp dir, `persona.cant` is located and
+ *   renamed to `<agentId>.cant` before being passed to the pipeline.
+ * - Agent-directory (legacy): same path as `.cantz` — looks for
+ *   `persona.cant` inside and feeds a renamed copy to the pipeline.
  *
- * @task T438 @epic T250
+ * Flags:
+ * - `--global`: install to global tier ({@link getCleoGlobalAgentsDir}).
+ * - `--strict`: fail with `E_VALIDATION` when the pipeline reports warnings
+ *   (e.g. unknown skill slugs).
+ * - `--attach`: after install, also attach the agent to the current project
+ *   via {@link attachAgentToProject} (conduit.db:project_agent_refs).
+ * - `--force`: overwrite an existing row / file instead of throwing
+ *   `E_AGENT_ALREADY_INSTALLED`.
+ * - `--resync`: drop the existing `agents` row (keep the `.cant` on disk)
+ *   then re-install; combines `force: true` with a pre-flight row delete.
+ *
+ * On success, emits a LAFS envelope of shape `{ agentId, tier, cantPath,
+ * cantSha256, inserted, skillsAttached, warnings, attached }`.
+ *
+ * @task T889 / W2-6
+ * @epic T889
  * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
  */
 const installCommand = defineCommand({
   meta: {
     name: 'install',
-    description: 'Install an agent from a .cantz archive or agent directory',
+    description: 'Install an agent from a .cant file or .cantz archive',
   },
   args: {
     path: {
       type: 'positional',
-      description: 'Path to the .cantz archive or agent directory',
+      description: 'Path to the .cant file, .cantz archive, or agent directory',
       required: true,
     },
     global: {
       type: 'boolean',
       description: 'Install to global tier (~/.local/share/cleo/cant/agents/)',
     },
+    strict: {
+      type: 'boolean',
+      description: 'Fail on warnings (e.g. unknown skill slugs)',
+    },
+    attach: {
+      type: 'boolean',
+      description: 'Attach to the current project after install',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite existing agent row / file',
+    },
+    resync: {
+      type: 'boolean',
+      description: 'Drop + reinstall the agents row, keeping the on-disk .cant',
+    },
   },
   async run({ args }) {
+    let tempDir: string | null = null;
     try {
-      const { existsSync, mkdirSync, cpSync, readFileSync, rmSync, statSync } = await import(
+      const { existsSync, mkdirSync, statSync, readdirSync, copyFileSync } = await import(
         'node:fs'
       );
-      const { join, basename, resolve } = await import('node:path');
-      const { homedir } = await import('node:os');
+      const { join, basename, resolve, extname } = await import('node:path');
       const { tmpdir } = await import('node:os');
 
       const resolvedPath = resolve(args.path);
@@ -2016,25 +2049,28 @@ const installCommand = defineCommand({
         return;
       }
 
-      let agentDir: string;
-      let agentName: string;
-      let tempDir: string | null = null;
+      // Resolve the eventual `.cant` path that will be handed to the install
+      // pipeline. Three input shapes are accepted:
+      //   1. <id>.cant           — used as-is.
+      //   2. <pkg>.cantz         — extracted; persona.cant inside is renamed
+      //                            to `<agentId>.cant` in the temp tree.
+      //   3. <dir>/persona.cant  — same flow as .cantz; rename into tmp.
+      let cantPath: string;
+      const stat = statSync(resolvedPath);
+      const ext = extname(resolvedPath);
 
-      const isCantzArchive = resolvedPath.endsWith('.cantz') && statSync(resolvedPath).isFile();
-
-      if (isCantzArchive) {
-        // Extract ZIP to temp directory
+      if (stat.isFile() && ext === '.cant') {
+        cantPath = resolvedPath;
+      } else if (stat.isFile() && ext === '.cantz') {
         const { execFileSync } = await import('node:child_process');
         tempDir = join(tmpdir(), `cleo-agent-install-${Date.now()}`);
         mkdirSync(tempDir, { recursive: true });
-
         try {
           execFileSync('unzip', ['-o', '-q', resolvedPath, '-d', tempDir], {
             encoding: 'utf-8',
-            timeout: 30000,
+            timeout: 30_000,
           });
         } catch (unzipErr) {
-          if (tempDir) rmSync(tempDir, { recursive: true, force: true });
           cliOutput(
             {
               success: false,
@@ -2048,16 +2084,10 @@ const installCommand = defineCommand({
           process.exitCode = 6;
           return;
         }
-
-        // Find the top-level directory inside the extracted archive
-        const { readdirSync } = await import('node:fs');
-        const topLevel = readdirSync(tempDir).filter((entry) => {
-          const entryPath = join(tempDir as string, entry);
-          return statSync(entryPath).isDirectory();
-        });
-
+        const topLevel = readdirSync(tempDir).filter((entry) =>
+          statSync(join(tempDir as string, entry)).isDirectory(),
+        );
         if (topLevel.length !== 1) {
-          if (tempDir) rmSync(tempDir, { recursive: true, force: true });
           cliOutput(
             {
               success: false,
@@ -2071,119 +2101,173 @@ const installCommand = defineCommand({
           process.exitCode = 6;
           return;
         }
-
-        agentName = topLevel[0];
-        agentDir = join(tempDir, agentName);
-      } else if (statSync(resolvedPath).isDirectory()) {
-        agentDir = resolvedPath;
-        agentName = basename(resolvedPath);
-      } else {
-        cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_VALIDATION',
-              message: `Path must be a .cantz file or a directory: ${resolvedPath}`,
+        const agentName = topLevel[0];
+        const personaPath = join(tempDir, agentName, 'persona.cant');
+        if (!existsSync(personaPath)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Archive must contain persona.cant: ${personaPath}`,
+              },
             },
-          },
-          { command: 'agent install' },
-        );
-        process.exitCode = 6;
-        return;
-      }
-
-      // Validate persona.cant exists
-      const personaPath = join(agentDir, 'persona.cant');
-      if (!existsSync(personaPath)) {
-        if (tempDir) rmSync(tempDir, { recursive: true, force: true });
-        cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_VALIDATION',
-              message: `Agent directory must contain persona.cant: ${personaPath}`,
-            },
-          },
-          { command: 'agent install' },
-        );
-        process.exitCode = 6;
-        return;
-      }
-
-      // Determine target tier directory
-      const isGlobal = args.global === true;
-      let targetRoot: string;
-
-      if (isGlobal) {
-        const home = homedir();
-        const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-        targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
-      } else {
-        targetRoot = join(process.cwd(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
-      }
-
-      const targetDir = join(targetRoot, agentName);
-
-      // Copy agent directory to target
-      mkdirSync(targetRoot, { recursive: true });
-      cpSync(agentDir, targetDir, { recursive: true, force: true });
-
-      // Cleanup temp directory if we extracted from .cantz
-      if (tempDir) {
-        rmSync(tempDir, { recursive: true, force: true });
-      }
-
-      // Best-effort agent registration in signaldock.db
-      let registered = false;
-      try {
-        const persona = readFileSync(join(targetDir, 'persona.cant'), 'utf-8');
-        // Extract display name from persona.cant (best-effort parse)
-        const descMatch = persona.match(/description:\s*"([^"]+)"/);
-        const displayName = descMatch?.[1] ?? agentName;
-
-        const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
-        await getDb();
-        const registry = new AgentRegistryAccessor(process.cwd());
-        const existing = await registry.get(agentName);
-
-        if (!existing) {
-          await registry.register({
-            agentId: agentName,
-            displayName,
-            apiKey: 'local-installed',
-            apiBaseUrl: 'local',
-            classification: 'specialist',
-            privacyTier: 'private',
-            capabilities: [],
-            skills: [],
-            transportType: 'http',
-            transportConfig: {},
-            isActive: false,
-          });
-          registered = true;
+            { command: 'agent install' },
+          );
+          process.exitCode = 6;
+          return;
         }
-      } catch {
-        // Registration is best-effort — do not fail the install
+        // The pipeline requires filename base === agent name; materialize a
+        // renamed copy into the temp dir so the check passes.
+        cantPath = join(tempDir, `${agentName}.cant`);
+        copyFileSync(personaPath, cantPath);
+      } else if (stat.isDirectory()) {
+        const agentName = basename(resolvedPath);
+        const personaPath = join(resolvedPath, 'persona.cant');
+        if (!existsSync(personaPath)) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Agent directory must contain persona.cant: ${personaPath}`,
+              },
+            },
+            { command: 'agent install' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+        tempDir = join(tmpdir(), `cleo-agent-install-${Date.now()}`);
+        mkdirSync(tempDir, { recursive: true });
+        cantPath = join(tempDir, `${agentName}.cant`);
+        copyFileSync(personaPath, cantPath);
+      } else {
+        cliOutput(
+          {
+            success: false,
+            error: {
+              code: 'E_VALIDATION',
+              message: `Path must be a .cant, .cantz, or agent directory: ${resolvedPath}`,
+            },
+          },
+          { command: 'agent install' },
+        );
+        process.exitCode = 6;
+        return;
       }
 
-      cliOutput(
-        {
-          success: true,
-          data: {
-            agent: agentName,
-            tier: isGlobal ? 'global' : 'project',
-            path: targetDir,
-            registered,
+      // Lazy-import the core facade so test mocks can intercept these symbols.
+      const {
+        ensureGlobalSignaldockDb,
+        getGlobalSignaldockDbPath,
+        installAgentFromCant,
+        attachAgentToProject,
+      } = await import('@cleocode/core/internal');
+      const { DatabaseSync } = (await import('node:sqlite')) as typeof import('node:sqlite');
+
+      ensureGlobalSignaldockDb();
+      const dbPath = getGlobalSignaldockDbPath();
+      const db = new DatabaseSync(dbPath);
+      db.exec('PRAGMA foreign_keys = ON');
+      db.exec('PRAGMA journal_mode = WAL');
+
+      const isGlobal = args.global === true;
+      const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
+      const projectRoot = process.cwd();
+
+      try {
+        // `--resync`: drop+reinstall the registry row but preserve the
+        // on-disk `.cant`. Implementation: delete the existing row BEFORE
+        // calling the pipeline, then let the pipeline handle it as a fresh
+        // insert. The file copy over itself is still atomic.
+        if (args.resync) {
+          const parsedName = basename(cantPath, '.cant');
+          const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(parsedName) as
+            | { id: string }
+            | undefined;
+          if (row) {
+            db.exec('BEGIN IMMEDIATE TRANSACTION');
+            try {
+              db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(row.id);
+              db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
+              db.exec('COMMIT');
+            } catch (resyncErr) {
+              db.exec('ROLLBACK');
+              throw resyncErr;
+            }
+          }
+        }
+
+        const result = installAgentFromCant(db, {
+          cantSource: cantPath,
+          targetTier,
+          installedFrom: 'user',
+          projectRoot: targetTier === 'project' ? projectRoot : undefined,
+          force: args.force === true || args.resync === true,
+        });
+
+        if (args.strict && result.warnings.length > 0) {
+          cliOutput(
+            {
+              success: false,
+              error: {
+                code: 'E_VALIDATION',
+                message: `Install produced warnings in --strict mode: ${result.warnings.join('; ')}`,
+              },
+              data: {
+                agentId: result.agentId,
+                tier: result.tier,
+                warnings: result.warnings,
+              },
+            },
+            { command: 'agent install' },
+          );
+          process.exitCode = 6;
+          return;
+        }
+
+        let attached = false;
+        if (args.attach && targetTier === 'global') {
+          attachAgentToProject(projectRoot, result.agentId);
+          attached = true;
+        }
+
+        cliOutput(
+          {
+            success: true,
+            data: {
+              agentId: result.agentId,
+              tier: result.tier,
+              cantPath: result.cantPath,
+              cantSha256: result.cantSha256,
+              inserted: result.inserted,
+              skillsAttached: result.skillsAttached,
+              warnings: result.warnings,
+              attached,
+            },
           },
-        },
-        { command: 'agent install' },
-      );
+          { command: 'agent install' },
+        );
+      } finally {
+        db.close();
+      }
     } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_INSTALL', message: String(err) } },
-        { command: 'agent install' },
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = /E_AGENT_ALREADY_INSTALLED/.test(message)
+        ? 'E_AGENT_ALREADY_INSTALLED'
+        : 'E_INSTALL';
+      cliOutput({ success: false, error: { code, message } }, { command: 'agent install' });
       process.exitCode = 1;
+    } finally {
+      if (tempDir) {
+        try {
+          const { rmSync } = await import('node:fs');
+          rmSync(tempDir, { recursive: true, force: true });
+        } catch {
+          // best-effort cleanup — don't mask the primary error
+        }
+      }
     }
   },
 });
@@ -2594,6 +2678,133 @@ const createCommand = defineCommand({
 });
 
 /**
+ * cleo agent doctor — reconcile `.cant` files on disk vs the registry DB.
+ *
+ * Walks the tier filesystems (global + the current project, if any) against
+ * `signaldock.db:agents` and emits typed D-code findings. With `--repair`
+ * the doctor applies safe, idempotent remediations (delete orphan rows,
+ * refresh drifting SHA-256 digests). Exits non-zero when any
+ * error-severity finding is present so CI can gate on a clean report.
+ *
+ * @task T889 / T901 / W2-7
+ * @epic T889
+ */
+const doctorCommand = defineCommand({
+  meta: {
+    name: 'doctor',
+    description: 'Reconcile .cant files on disk against the registry and report drift',
+  },
+  args: {
+    repair: {
+      type: 'boolean',
+      description: 'Apply safe repairs (D-002 orphan-row delete, D-003 hash refresh)',
+    },
+    'import-legacy-json': {
+      type: 'boolean',
+      description: 'When used with --repair, import a discovered ~/.cleo/agent-registry.json',
+    },
+    'migrate-path': {
+      type: 'boolean',
+      description:
+        'When used with --repair, migrate legacy .cleo/agents/ rows to .cleo/cant/agents/',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit the raw DoctorReport envelope as JSON instead of a human table',
+    },
+  },
+  async run({ args }) {
+    try {
+      const {
+        buildDoctorReport,
+        reconcileDoctor,
+        ensureGlobalSignaldockDb,
+        getGlobalSignaldockDbPath,
+      } = await import('@cleocode/core/internal');
+      const { createRequire } = await import('node:module');
+      const nodeSqlite = createRequire(import.meta.url)(
+        'node:sqlite',
+      ) as typeof import('node:sqlite');
+      const { DatabaseSync } = nodeSqlite;
+
+      await ensureGlobalSignaldockDb();
+      const dbPath = getGlobalSignaldockDbPath();
+      const db = new DatabaseSync(dbPath);
+      db.exec('PRAGMA foreign_keys = ON');
+
+      try {
+        const report = await buildDoctorReport(db, { projectRoot: process.cwd() });
+        const repairFlag = args.repair === true;
+
+        let reconciled: Awaited<ReturnType<typeof reconcileDoctor>> | undefined;
+        if (repairFlag) {
+          reconciled = await reconcileDoctor(db, report.findings, {
+            importLegacyJson: args['import-legacy-json'] === true,
+            allowPathMigration: args['migrate-path'] === true,
+          });
+        }
+
+        if (args.json === true) {
+          cliOutput(
+            { success: true, data: { report, reconciled: reconciled ?? null } },
+            { command: 'agent doctor' },
+          );
+        } else {
+          const lines: string[] = [];
+          if (report.findings.length === 0) {
+            lines.push('No drift detected — registry and filesystem are in sync.');
+          } else {
+            lines.push(
+              `Findings: ${report.summary.error} error(s), ${report.summary.warn} warning(s), ${report.summary.info} info`,
+            );
+            lines.push('');
+            for (const f of report.findings) {
+              lines.push(`[${f.code}] ${f.severity.toUpperCase()} ${f.subject} — ${f.message}`);
+              if (f.fixCommand) lines.push(`  fix: ${f.fixCommand}`);
+            }
+            if (reconciled) {
+              lines.push('');
+              lines.push(
+                `Repaired: ${reconciled.repaired.length > 0 ? reconciled.repaired.join(', ') : '(none)'}`,
+              );
+              lines.push(
+                `Skipped:  ${reconciled.skipped.length > 0 ? reconciled.skipped.join(', ') : '(none)'}`,
+              );
+            }
+          }
+          cliOutput(
+            {
+              success: true,
+              data: {
+                message: lines.join('\n'),
+                summary: report.summary,
+                generatedAt: report.generatedAt,
+                findings: report.findings.length,
+                repaired: reconciled?.repaired.length ?? 0,
+                skipped: reconciled?.skipped.length ?? 0,
+              },
+            },
+            { command: 'agent doctor' },
+          );
+        }
+
+        if (report.summary.error > 0) {
+          process.exitCode = 1;
+        }
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      cliOutput(
+        { success: false, error: { code: 'E_DOCTOR', message: String(err) } },
+        { command: 'agent doctor' },
+      );
+      process.exitCode = 1;
+    }
+  },
+});
+
+/**
  * Root agent command group — agent lifecycle, credentials, and messaging.
  *
  * Registers all agent subcommands. See file-level TSDoc for the full
@@ -2606,6 +2817,7 @@ const createCommand = defineCommand({
 export const agentCommand = defineCommand({
   meta: { name: 'agent', description: 'Agent lifecycle, credentials, and messaging' },
   subCommands: {
+    doctor: doctorCommand,
     register: registerCommand,
     signin: signinCommand,
     start: startCommand,
