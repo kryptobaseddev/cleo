@@ -9,6 +9,12 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getExecutionWaves } from '../phases/deps.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import {
+  buildSpawnPrompt,
+  DEFAULT_SPAWN_TIER,
+  type SpawnProtocolPhase,
+  type SpawnTier,
+} from './spawn-prompt.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
@@ -21,6 +27,20 @@ export {
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
 export { OrchestrationHierarchyImpl } from './hierarchy.js';
+export type {
+  BuildSpawnPromptInput,
+  BuildSpawnPromptResult,
+  SpawnProtocolPhase,
+  SpawnTier,
+} from './spawn-prompt.js';
+export {
+  ALL_SPAWN_PROTOCOL_PHASES,
+  buildSpawnPrompt,
+  DEFAULT_SPAWN_TIER,
+  resetSpawnPromptCache,
+  resolvePromptTokens,
+  slugify as slugifyTaskTitle,
+} from './spawn-prompt.js';
 export type {
   EpicStatus,
   OverallStatus,
@@ -208,12 +228,20 @@ export async function getNextTask(
 
 /**
  * Prepare a spawn context for a subagent.
+ *
+ * Delegates prompt construction to the canonical
+ * {@link buildSpawnPrompt} in `./spawn-prompt.ts`. The prompt is fully
+ * self-contained (see {@link SpawnProtocolPhase}, {@link SpawnTier}).
+ *
  * @task T4466
+ * @task T882
+ * @task T883
  */
 export async function prepareSpawn(
   taskId: string,
-  _cwd?: string,
+  cwd?: string,
   accessor?: DataAccessor,
+  options?: { tier?: SpawnTier; sessionId?: string | null },
 ): Promise<SpawnContext> {
   const task = await accessor!.loadSingleTask(taskId);
 
@@ -222,18 +250,24 @@ export async function prepareSpawn(
   }
 
   const protocol = autoDispatch(task);
-  const prompt = buildSpawnPrompt(task, protocol);
+  const tier: SpawnTier = options?.tier ?? DEFAULT_SPAWN_TIER;
+  const projectRoot = cwd ?? process.cwd();
 
-  // Check for unresolved tokens
-  const unresolvedTokens = findUnresolvedTokens(prompt);
+  const result = buildSpawnPrompt({
+    task,
+    protocol: protocol as SpawnProtocolPhase | string,
+    tier,
+    projectRoot,
+    sessionId: options?.sessionId ?? null,
+  });
 
   return {
     taskId,
-    protocol,
-    prompt,
+    protocol: result.protocol,
+    prompt: result.prompt,
     tokenResolution: {
-      fullyResolved: unresolvedTokens.length === 0,
-      unresolvedTokens,
+      fullyResolved: result.unresolvedTokens.length === 0,
+      unresolvedTokens: result.unresolvedTokens,
     },
   };
 }
@@ -365,59 +399,14 @@ export function autoDispatch(task: Task): string {
 }
 
 /**
- * Build a spawn prompt for a subagent.
- * @task T4466
- */
-function buildSpawnPrompt(task: Task, protocol: string): string {
-  const epicId = task.parentId ?? 'none';
-  const date = new Date().toISOString().split('T')[0];
-
-  return [
-    `## Task: ${task.id}`,
-    `**Title**: ${task.title}`,
-    task.description ? `**Description**: ${task.description}` : '',
-    `**Protocol**: ${protocol}`,
-    `**Epic**: ${epicId}`,
-    `**Date**: ${date}`,
-    '',
-    `### Instructions`,
-    `1. Start task: \`cleo start ${task.id}\``,
-    `2. Execute the ${protocol} protocol`,
-    `3. Write output file`,
-    `4. Append manifest entry to MANIFEST.jsonl`,
-    `5. Complete: \`cleo complete ${task.id}\``,
-    '',
-    task.acceptance?.length
-      ? `### Acceptance Criteria\n${task.acceptance.map((a) => `- ${a}`).join('\n')}`
-      : '',
-    task.depends?.length ? `### Dependencies\n${task.depends.map((d) => `- ${d}`).join('\n')}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/**
- * Find unresolved tokens in a prompt.
- * @task T4466
- */
-function findUnresolvedTokens(prompt: string): string[] {
-  const tokens: string[] = [];
-  const tokenRegex = /\{\{([A-Z_]+)\}\}/g;
-  for (const match of prompt.matchAll(tokenRegex)) {
-    tokens.push(match[1]!);
-  }
-
-  const refRegex = /@([a-zA-Z0-9_./-]+\.md)/g;
-  for (const match of prompt.matchAll(refRegex)) {
-    tokens.push(`@${match[1]}`);
-  }
-
-  return tokens;
-}
-
-/**
  * Resolve tokens in a prompt string.
+ *
+ * Retained as a thin alias over the canonical {@link resolvePromptTokens} so
+ * existing callers (tests, CLI helpers) keep working. New code should import
+ * `resolvePromptTokens` from `./spawn-prompt.js` directly.
+ *
  * @task T4466
+ * @task T882
  */
 export function resolveTokens(
   prompt: string,
