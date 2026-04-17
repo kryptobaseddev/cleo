@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.82] — 2026-04-17
+
+### Fixed
+
+- **CI hotfix**: v2026.4.81 release CI failed because `packages/core/src/lifecycle/backfill-terminal-pipeline-stage.ts` + its test + several other new files (wave-10-vision.test.ts, studio/__tests__/*) were untracked when the v2026.4.81 commit was staged. esbuild could not resolve the import from `packages/core/src/internal.ts`. All missing files now staged + committed.
+- v2026.4.81 tag will remain (commit stays in history) but nothing published to npm under that tag. v2026.4.82 ships the complete bundle.
+
+### Preventive
+
+Orchestrator pattern reinforced: after agents create new files, always verify `git status --short` before commit. Add pre-commit check that flags untracked `*.ts` files inside `packages/*/src/`.
+
 ## [2026.4.81] — 2026-04-17
 
 ### T870 EPIC: Schema Integrity — status↔pipelineStage Sync + Studio Consistency
