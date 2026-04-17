@@ -1,5 +1,5 @@
 /**
- * CLI briefing command - show composite session-start context.
+ * CLI briefing command — show composite session-start context.
  *
  * Aggregates session-start context from multiple sources:
  * - Last session handoff
@@ -14,43 +14,64 @@
  * @epic T4914
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the briefing command.
+ * Root briefing command — show composite session-start context.
+ *
+ * Dispatches to `session.briefing.show` with optional scope and result-count
+ * limits. Use at session start to restore context quickly.
+ *
  * @task T4916
+ * @epic T4914
  */
-export function registerBriefingCommand(program: Command): void {
-  program
-    .command('briefing')
-    .description(
+export const briefingCommand = defineCommand({
+  meta: {
+    name: 'briefing',
+    description:
       'Session resume context: last handoff, current task, next tasks, bugs, blockers, epics, and memory. Use at session start to restore context.',
-    )
-    .option('-s, --scope <scope>', 'Scope filter (global or epic:T###)')
-    .option('--max-next <n>', 'Maximum next tasks to show', '5')
-    .option('--max-bugs <n>', 'Maximum bugs to show', '10')
-    .option('--max-blocked <n>', 'Maximum blocked tasks to show', '10')
-    .option('--max-epics <n>', 'Maximum active epics to show', '5')
-    .action(async (opts: Record<string, unknown>) => {
-      const scope = opts['scope'] as string | undefined;
-      const maxNextTasks = parseInt(opts['maxNext'] as string, 10);
-      const maxBugs = parseInt(opts['maxBugs'] as string, 10);
-      const maxBlocked = parseInt(opts['maxBlocked'] as string, 10);
-      const maxEpics = parseInt(opts['maxEpics'] as string, 10);
-
-      await dispatchFromCli(
-        'query',
-        'session',
-        'briefing.show',
-        {
-          scope,
-          maxNextTasks,
-          maxBugs,
-          maxBlocked,
-          maxEpics,
-        },
-        { command: 'briefing' },
-      );
-    });
-}
+  },
+  args: {
+    scope: {
+      type: 'string',
+      description: 'Scope filter (global or epic:T###)',
+      alias: 's',
+    },
+    'max-next': {
+      type: 'string',
+      description: 'Maximum next tasks to show',
+      default: '5',
+    },
+    'max-bugs': {
+      type: 'string',
+      description: 'Maximum bugs to show',
+      default: '10',
+    },
+    'max-blocked': {
+      type: 'string',
+      description: 'Maximum blocked tasks to show',
+      default: '10',
+    },
+    'max-epics': {
+      type: 'string',
+      description: 'Maximum active epics to show',
+      default: '5',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'briefing.show',
+      {
+        scope: args.scope as string | undefined,
+        maxNextTasks: parseInt(args['max-next'], 10),
+        maxBugs: parseInt(args['max-bugs'], 10),
+        maxBlocked: parseInt(args['max-blocked'], 10),
+        maxEpics: parseInt(args['max-epics'], 10),
+      },
+      { command: 'briefing' },
+    );
+  },
+});

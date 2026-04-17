@@ -4,19 +4,36 @@
  * @epic T4732
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the start command.
+ * Native citty command for `cleo start` — sets a task as the current active
+ * task in the active session.
+ *
  * @task T4756
  * @task T4666
+ * @epic T487
  */
-export function registerStartCommand(program: Command): void {
-  program
-    .command('start <taskId>')
-    .description('Start working on a task (sets it as the current task in the active session)')
-    .action(async (taskId: string) => {
-      await dispatchFromCli('mutate', 'tasks', 'start', { taskId }, { command: 'start' });
-    });
-}
+export const startCommand = defineCommand({
+  meta: {
+    name: 'start',
+    description: 'Start working on a task (sets it as the current task in the active session)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'ID of the task to start',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'start',
+      { taskId: args.taskId },
+      { command: 'start' },
+    );
+  },
+});

@@ -1,59 +1,100 @@
 /**
- * CLI contribution command - contribution protocol validation.
- * Routes through dispatch layer to check.protocol.contribution.
+ * CLI command group: cleo contribution — contribution protocol validation.
+ *
+ * Alias for `cleo check protocol contribution`. Routes through the dispatch
+ * layer to the `check.protocol` operation with `protocolType:'contribution'`.
+ *
+ * Subcommands:
+ *   cleo contribution validate <taskId>    — validate task protocol compliance
+ *   cleo contribution check <manifestFile> — validate a manifest entry directly
+ *
  * @task T4537
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo contribution validate — validate contribution protocol compliance for a task */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate contribution protocol compliance for task',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to validate',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'contribution',
+        mode: 'task',
+        taskId: args.taskId,
+        strict: args.strict,
+      },
+      { command: 'contribution' },
+    );
+  },
+});
+
+/** cleo contribution check — validate a manifest entry directly */
+const checkCommand = defineCommand({
+  meta: {
+    name: 'check',
+    description: 'Validate manifest entry directly',
+  },
+  args: {
+    manifestFile: {
+      type: 'positional',
+      description: 'Path to manifest file',
+      required: true,
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with error code on violations',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'protocol',
+      {
+        protocolType: 'contribution',
+        mode: 'manifest',
+        manifestFile: args.manifestFile,
+        strict: args.strict,
+      },
+      { command: 'contribution' },
+    );
+  },
+});
 
 /**
- * Register the contribution command group.
- * @task T4537
+ * Root contribution command group.
+ *
+ * Alias for `cleo check protocol contribution`. Validates contribution
+ * protocol compliance for tasks or manifest entries.
  */
-export function registerContributionCommand(program: Command): void {
-  const contribution = program
-    .command('contribution')
-    .description(
+export const contributionCommand = defineCommand({
+  meta: {
+    name: 'contribution',
+    description:
       'Validate contribution protocol compliance (alias for `cleo check protocol contribution`)',
-    );
-
-  contribution
-    .command('validate <taskId>')
-    .description('Validate contribution protocol compliance for task')
-    .option('--strict', 'Exit with error code on violations')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'contribution',
-          mode: 'task',
-          taskId,
-          strict: opts['strict'] as boolean | undefined,
-        },
-        { command: 'contribution' },
-      );
-    });
-
-  contribution
-    .command('check <manifestFile>')
-    .description('Validate manifest entry directly')
-    .option('--strict', 'Exit with error code on violations')
-    .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'check',
-        'protocol',
-        {
-          protocolType: 'contribution',
-          mode: 'manifest',
-          manifestFile,
-          strict: opts['strict'] as boolean | undefined,
-        },
-        { command: 'contribution' },
-      );
-    });
-}
+  },
+  subCommands: {
+    validate: validateCommand,
+    check: checkCommand,
+  },
+});

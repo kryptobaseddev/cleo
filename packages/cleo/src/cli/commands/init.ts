@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CleoError, formatError, type InitOptions, initProject } from '@cleocode/core';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -50,54 +50,79 @@ export function getGitignoreTemplate(): string {
 }
 
 /**
- * Register the init command.
+ * Root init command — initialize CLEO in a project directory.
+ *
+ * Dispatches to `initProject` from core.
  * @task T4681
  * @epic T4663
  */
-export function registerInitCommand(program: Command): void {
-  program
-    .command('init')
-    .description('Initialize CLEO in a project directory')
-    .option('--name <name>', 'Project name')
-    .option('--force', 'Overwrite existing files')
-    .option('--detect', 'Auto-detect project configuration')
-    .option('--map-codebase', 'Run codebase analysis and store findings to brain.db')
-    .option('--install-seed-agents', 'Install canonical CleoOS seed agent personas (.cant)')
-    .argument('[projectName]', 'Project name (alternative to --name)')
-    .action(async (projectName: string | undefined, opts: Record<string, unknown>) => {
-      try {
-        const initOpts: InitOptions = {
-          name: (opts['name'] as string) || projectName || undefined,
-          force: !!opts['force'],
-          detect: !!opts['detect'],
-          mapCodebase: !!opts['mapCodebase'],
-          installSeedAgents: !!opts['installSeedAgents'],
-        };
+export const initCommand = defineCommand({
+  meta: { name: 'init', description: 'Initialize CLEO in a project directory' },
+  args: {
+    projectName: {
+      type: 'positional',
+      description: 'Project name (alternative to --name)',
+      required: false,
+    },
+    name: {
+      type: 'string',
+      description: 'Project name',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite existing files',
+      default: false,
+    },
+    detect: {
+      type: 'boolean',
+      description: 'Auto-detect project configuration',
+      default: false,
+    },
+    'map-codebase': {
+      type: 'boolean',
+      description: 'Run codebase analysis and store findings to brain.db',
+      default: false,
+    },
+    'install-seed-agents': {
+      type: 'boolean',
+      description: 'Install canonical CleoOS seed agent personas (.cant)',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    try {
+      const initOpts: InitOptions = {
+        name: args.name || (args.projectName as string | undefined) || undefined,
+        force: !!args.force,
+        detect: !!args.detect,
+        mapCodebase: !!args['map-codebase'],
+        installSeedAgents: !!args['install-seed-agents'],
+      };
 
-        const result = await initProject(initOpts);
+      const result = await initProject(initOpts);
 
-        cliOutput(
-          {
-            initialized: result.initialized,
-            directory: result.directory,
-            created: result.created,
-            skipped: result.skipped,
-            ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
-            ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
-            // Phase 5 — greenfield/brownfield classification + LAFS nextSteps
-            ...(result.classification ? { classification: result.classification } : {}),
-            ...(result.nextSteps && result.nextSteps.length > 0
-              ? { nextSteps: result.nextSteps }
-              : {}),
-          },
-          { command: 'init' },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      cliOutput(
+        {
+          initialized: result.initialized,
+          directory: result.directory,
+          created: result.created,
+          skipped: result.skipped,
+          ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+          ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
+          // Phase 5 — greenfield/brownfield classification + LAFS nextSteps
+          ...(result.classification ? { classification: result.classification } : {}),
+          ...(result.nextSteps && result.nextSteps.length > 0
+            ? { nextSteps: result.nextSteps }
+            : {}),
+        },
+        { command: 'init' },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
-}
+      throw err;
+    }
+  },
+});

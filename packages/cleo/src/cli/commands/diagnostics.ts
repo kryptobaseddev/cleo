@@ -11,71 +11,113 @@
  * @task T624
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-/** Register the diagnostics command group. */
-export function registerDiagnosticsCommand(program: Command): void {
-  const diag = program
-    .command('diagnostics')
-    .description(
-      'Autonomous self-improvement telemetry — opt-in command analytics that feed BRAIN observations',
-    );
+/** cleo diagnostics enable — opt in to anonymous command telemetry */
+const enableCommand = defineCommand({
+  meta: {
+    name: 'enable',
+    description: 'Opt in to anonymous command telemetry for self-improvement analysis',
+  },
+  async run() {
+    await dispatchFromCli('mutate', 'diagnostics', 'enable', {}, { command: 'diagnostics' });
+  },
+});
 
-  diag
-    .command('enable')
-    .description('Opt in to anonymous command telemetry for self-improvement analysis')
-    .action(async () => {
-      await dispatchFromCli('mutate', 'diagnostics', 'enable', {}, { command: 'diagnostics' });
-    });
+/** cleo diagnostics disable — opt out of telemetry collection */
+const disableCommand = defineCommand({
+  meta: {
+    name: 'disable',
+    description: 'Opt out of telemetry collection (existing data is preserved)',
+  },
+  async run() {
+    await dispatchFromCli('mutate', 'diagnostics', 'disable', {}, { command: 'diagnostics' });
+  },
+});
 
-  diag
-    .command('disable')
-    .description('Opt out of telemetry collection (existing data is preserved)')
-    .action(async () => {
-      await dispatchFromCli('mutate', 'diagnostics', 'disable', {}, { command: 'diagnostics' });
-    });
+/** cleo diagnostics status — show telemetry opt-in state and database path */
+const statusCommand = defineCommand({
+  meta: { name: 'status', description: 'Show telemetry opt-in state and database path' },
+  async run() {
+    await dispatchFromCli('query', 'diagnostics', 'status', {}, { command: 'diagnostics' });
+  },
+});
 
-  diag
-    .command('status')
-    .description('Show telemetry opt-in state and database path')
-    .action(async () => {
-      await dispatchFromCli('query', 'diagnostics', 'status', {}, { command: 'diagnostics' });
-    });
-
-  diag
-    .command('analyze')
-    .description(
+/** cleo diagnostics analyze — aggregate telemetry patterns and push to BRAIN */
+const analyzeCommand = defineCommand({
+  meta: {
+    name: 'analyze',
+    description:
       'Aggregate telemetry patterns: top failing commands, slowest commands, BRAIN observations',
-    )
-    .option('-d, --days <number>', 'Analysis window in days (default: 30)', parseInt)
-    .option('--no-brain', 'Skip pushing high-signal patterns to BRAIN')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'diagnostics',
-        'analyze',
-        {
-          days: typeof opts['days'] === 'number' ? opts['days'] : 30,
-          noBrain: opts['brain'] === false,
-        },
-        { command: 'diagnostics' },
-      );
-    });
+  },
+  args: {
+    days: {
+      type: 'string',
+      description: 'Analysis window in days (default: 30)',
+      alias: 'd',
+    },
+    'no-brain': {
+      type: 'boolean',
+      description: 'Skip pushing high-signal patterns to BRAIN',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'diagnostics',
+      'analyze',
+      {
+        days: args.days !== undefined ? Number.parseInt(args.days, 10) : 30,
+        noBrain: args['no-brain'],
+      },
+      { command: 'diagnostics' },
+    );
+  },
+});
 
-  diag
-    .command('export')
-    .description('Export all telemetry events as a JSON array for external analysis')
-    .option('-d, --days <number>', 'Limit to last N days (default: all)', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'diagnostics',
-        'export',
-        {
-          days: typeof opts['days'] === 'number' ? opts['days'] : undefined,
-        },
-        { command: 'diagnostics' },
-      );
-    });
-}
+/** cleo diagnostics export — export all telemetry events as JSON array */
+const exportCommand = defineCommand({
+  meta: {
+    name: 'export',
+    description: 'Export all telemetry events as a JSON array for external analysis',
+  },
+  args: {
+    days: {
+      type: 'string',
+      description: 'Limit to last N days (default: all)',
+      alias: 'd',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'diagnostics',
+      'export',
+      {
+        days: args.days !== undefined ? Number.parseInt(args.days, 10) : undefined,
+      },
+      { command: 'diagnostics' },
+    );
+  },
+});
+
+/**
+ * Root diagnostics command group — autonomous self-improvement telemetry.
+ *
+ * Opt-in command analytics that feed BRAIN observations.
+ */
+export const diagnosticsCommand = defineCommand({
+  meta: {
+    name: 'diagnostics',
+    description:
+      'Autonomous self-improvement telemetry — opt-in command analytics that feed BRAIN observations',
+  },
+  subCommands: {
+    enable: enableCommand,
+    disable: disableCommand,
+    status: statusCommand,
+    analyze: analyzeCommand,
+    export: exportCommand,
+  },
+});

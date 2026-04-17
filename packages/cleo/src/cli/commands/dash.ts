@@ -1,30 +1,47 @@
 /**
- * CLI dash command - project dashboard.
+ * CLI command: cleo dash — project health dashboard.
+ *
+ * Dispatches to `admin.dash` to show status summary, phase progress,
+ * recent activity, and high-priority tasks. Use at session start for an
+ * overall project overview.
+ *
  * @task T4535
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the dash command.
- * @task T4535
+ * Project health dashboard command.
+ *
+ * Shows status summary, phase progress, recent activity, and high-priority
+ * tasks. Use for overall project status.
  */
-export function registerDashCommand(program: Command): void {
-  program
-    .command('dash')
-    .description(
+export const dashCommand = defineCommand({
+  meta: {
+    name: 'dash',
+    description:
       'Project health dashboard: status summary, phase progress, recent activity, high priority tasks. Use for overall project status.',
-    )
-    .option('--blocked-limit <n>', 'Max blocked tasks to show', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'dash',
-        { blockedTasksLimit: opts['blockedLimit'] as number | undefined },
-        { command: 'dash' },
-      );
-    });
-}
+  },
+  args: {
+    'blocked-limit': {
+      type: 'string',
+      description: 'Max blocked tasks to show',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'dash',
+      {
+        blockedTasksLimit:
+          args['blocked-limit'] !== undefined
+            ? Number.parseInt(args['blocked-limit'], 10)
+            : undefined,
+      },
+      { command: 'dash' },
+    );
+  },
+});

@@ -5,11 +5,11 @@
  * Core logic lives in src/core/adrs/.
  *
  * Commands:
- *   ct adr validate              — validate frontmatter on all .cleo/adrs/*.md
- *   ct adr list [--status]       — list ADRs with optional status filter
- *   ct adr show <id>             — show single ADR by ID (e.g., ADR-017)
- *   ct adr sync                  — sync .cleo/adrs/ into architecture_decisions DB
- *   ct adr find <query>          — fuzzy search ADRs by title, summary, keywords, topics
+ *   cleo adr validate              — validate frontmatter on all .cleo/adrs/*.md
+ *   cleo adr list [--status]       — list ADRs with optional status filter
+ *   cleo adr show <id>             — show single ADR by ID (e.g., ADR-017)
+ *   cleo adr sync                  — sync .cleo/adrs/ into architecture_decisions DB
+ *   cleo adr find <query>          — fuzzy search ADRs by title, summary, keywords, topics
  *
  * Dispatch equivalents:
  *   mutate({domain:'admin', operation:'adr.validate'})
@@ -23,94 +23,155 @@
  * @see schemas/adr-frontmatter.schema.json for validation schema
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerAdrCommand(program: Command): void {
-  const adr = program
-    .command('adr')
-    .description('Manage and validate Architecture Decision Records in .cleo/adrs/');
+/** cleo adr validate — validate frontmatter on all .cleo/adrs/*.md files */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate frontmatter on all .cleo/adrs/*.md files against ADR-017 schema',
+  },
+  async run() {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'adr.sync',
+      { validate: true },
+      { command: 'adr validate', operation: 'admin.adr.sync' },
+    );
+  },
+});
 
-  // ct adr validate
-  adr
-    .command('validate')
-    .description('Validate frontmatter on all .cleo/adrs/*.md files against ADR-017 schema')
-    .action(async () => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'adr.sync',
-        { validate: true },
-        { command: 'adr validate', operation: 'admin.adr.sync' },
-      );
-    });
+/** cleo adr list — list ADRs from .cleo/adrs/ with optional filtering */
+const listCommand = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List ADRs from .cleo/adrs/',
+  },
+  args: {
+    status: {
+      type: 'string',
+      description: 'Filter by status: proposed | accepted | superseded | deprecated',
+    },
+    since: {
+      type: 'string',
+      description: 'Filter to ADRs created on or after YYYY-MM-DD',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'adr.find',
+      {
+        status: args.status as string | undefined,
+        since: args.since as string | undefined,
+      },
+      { command: 'adr list', operation: 'admin.adr.find' },
+    );
+  },
+});
 
-  // ct adr list
-  adr
-    .command('list')
-    .description('List ADRs from .cleo/adrs/')
-    .option('--status <status>', 'Filter by status: proposed | accepted | superseded | deprecated')
-    .option('--since <date>', 'Filter to ADRs created on or after YYYY-MM-DD')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'adr.find',
-        {
-          status: opts['status'] as string | undefined,
-          since: opts['since'] as string | undefined,
-        },
-        { command: 'adr list', operation: 'admin.adr.find' },
-      );
-    });
+/** cleo adr show <adrId> — show full details for a single ADR */
+const showCommand = defineCommand({
+  meta: {
+    name: 'show',
+    description: 'Show full details for a single ADR (e.g., cleo adr show ADR-017)',
+  },
+  args: {
+    adrId: {
+      type: 'positional',
+      description: 'ADR identifier (e.g., ADR-017)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'adr.show',
+      { adrId: args.adrId },
+      { command: 'adr show', operation: 'admin.adr.show' },
+    );
+  },
+});
 
-  // ct adr show <id>
-  adr
-    .command('show <adrId>')
-    .description('Show full details for a single ADR (e.g., ct adr show ADR-017)')
-    .action(async (adrId: string) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'adr.show',
-        { adrId },
-        { command: 'adr show', operation: 'admin.adr.show' },
-      );
-    });
+/** cleo adr sync — sync .cleo/adrs/ markdown files into the DB */
+const syncCommand = defineCommand({
+  meta: {
+    name: 'sync',
+    description: 'Sync .cleo/adrs/ markdown files into the architecture_decisions DB table',
+  },
+  async run() {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'adr.sync',
+      {},
+      { command: 'adr sync', operation: 'admin.adr.sync' },
+    );
+  },
+});
 
-  // ct adr sync
-  adr
-    .command('sync')
-    .description('Sync .cleo/adrs/ markdown files into the architecture_decisions DB table')
-    .action(async () => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'adr.sync',
-        {},
-        { command: 'adr sync', operation: 'admin.adr.sync' },
-      );
-    });
+/** cleo adr find <query> — fuzzy search ADRs by title, summary, keywords, and topics */
+const findCommand = defineCommand({
+  meta: {
+    name: 'find',
+    description: 'Fuzzy search ADRs by title, summary, keywords, and topics',
+  },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Search query string',
+      required: true,
+    },
+    topics: {
+      type: 'string',
+      description: 'Filter by topics (comma-separated domain tags)',
+    },
+    keywords: {
+      type: 'string',
+      description: 'Filter by keywords (comma-separated tags)',
+    },
+    status: {
+      type: 'string',
+      description: 'Filter by status: proposed | accepted | superseded | deprecated',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'adr.find',
+      {
+        query: args.query,
+        topics: args.topics as string | undefined,
+        keywords: args.keywords as string | undefined,
+        status: args.status as string | undefined,
+      },
+      { command: 'adr find', operation: 'admin.adr.find' },
+    );
+  },
+});
 
-  // ct adr find <query>
-  adr
-    .command('find <query>')
-    .description('Fuzzy search ADRs by title, summary, keywords, and topics')
-    .option('--topics <topics>', 'Filter by topics (comma-separated domain tags)')
-    .option('--keywords <keywords>', 'Filter by keywords (comma-separated tags)')
-    .option('--status <status>', 'Filter by status: proposed | accepted | superseded | deprecated')
-    .action(async (query: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'adr.find',
-        {
-          query,
-          topics: opts['topics'] as string | undefined,
-          keywords: opts['keywords'] as string | undefined,
-          status: opts['status'] as string | undefined,
-        },
-        { command: 'adr find', operation: 'admin.adr.find' },
-      );
-    });
-}
+/**
+ * Root adr command group — ADR validation, listing, sync, and search.
+ *
+ * Dispatches to `admin.adr.*` registry operations.
+ *
+ * @see ADR-017 §5.1 for canonical frontmatter spec
+ */
+export const adrCommand = defineCommand({
+  meta: {
+    name: 'adr',
+    description: 'Manage and validate Architecture Decision Records in .cleo/adrs/',
+  },
+  subCommands: {
+    validate: validateCommand,
+    list: listCommand,
+    show: showCommand,
+    sync: syncCommand,
+    find: findCommand,
+  },
+});

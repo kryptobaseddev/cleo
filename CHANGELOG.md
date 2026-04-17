@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.77] — 2026-04-17
+
+### T487 EPIC: Commander-Shim Removal — Native Citty CLI Migration (COMPLETE)
+
+Removes the `commander-shim` bridge entirely. All 112 CLI command files now use native citty `defineCommand` instead of the Commander-style `register*Command(program)` pattern. The shim existed to bridge legacy Commander-API command authoring to citty's runtime — it's now obsolete.
+
+### Removed
+
+- **`packages/cleo/src/cli/commander-shim.ts`** — DELETED. 9,417 bytes of bridge code gone.
+- **`packages/cleo/src/cli/help-generator.ts`** — `applyParamDefsToCommand()` + `buildOperationHelp()` (dead code after migration). Replaced by native citty arg declarations inline in each command file.
+- **`packages/cleo/src/cli/__tests__/help-generator.test.ts`** — tested deleted helpers.
+- **`shimToCitty()` + `rootShim`** in `index.ts` — replaced by direct `subCommands['name'] = xxxCommand` wiring.
+- **Zero production references to `ShimCommand` or `commander-shim`** repo-wide.
+
+### Changed
+
+- **All 112 CLI command files** — every `export function registerXxxCommand(program: Command)` → `export const xxxCommand = defineCommand({ meta, args, subCommands?, async run({ args }) {...} })` with TSDoc.
+- **`packages/cleo/src/cli/index.ts`** rewired — 103+ `subCommands[name] = nativeCommand` entries. Root aliases wired as duplicate keys: `done`→complete, `rm`→delete, `ls`→list, `tags`→labels, `pipeline`→phase, `unclaim`→(from claim.ts).
+- **`packages/cleo/src/cli/help-renderer.ts`** — walks `CommandDef.subCommands` natively instead of `ShimCommand[]` tree. Descriptions resolved from each CommandDef's `meta.description`.
+- **Test suites** (`nexus.test.ts`, `backup-export/import/inspect.test.ts`, `agent-remove-global.test.ts`, `schema.test.ts`, `restore-finalize.test.ts`, `nexus-projects-clean.test.ts`) — rewritten to invoke native citty commands via `subCommands.X.run(ctx)` or `runCommand()` from `citty`.
+- **`isDefault` substitute pattern** — for `admin`, `env`, `context`, `phases`, `labels`: explicit parent `run(ctx)` that checks `ctx.rawArgs` for known subcommand names and falls back to the default subcommand's handler.
+- **`optsWithGlobals()` substitute** — for `doctor`, `self-update`, `upgrade`: declare `json`/`human`/`quiet` directly in the `args:` block and read from `args`. No `process.argv` re-parsing.
+- **Backward-compat aliases**: `complete done`, `delete rm`, `list ls`, `labels tags`, `phase pipeline`, `claim unclaim` all still resolve via duplicate-key citty subCommands.
+
+### Quality Metrics
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Biome errors (packages/cleo) | 16 | **0** | **-16** |
+| Biome ci (full repo) | - | 0 errors, 1 warning | ✅ |
+| Build exit code | 0 | 0 | ✅ |
+| `packages/cleo` tests | 1430 | 1408 | -22 (deleted dead-code tests, 0 regressions) |
+| Full monorepo tests | 8327 | **8331** | **+4** |
+| CLI command files using shim | 94 | **0** | **-94** |
+| Native citty command files | 1 (code.ts) | **112** | **+111** |
+| Production refs to ShimCommand | 99 | **0** | **-99** |
+| `commander-shim.ts` exists | yes | **NO** | ✅ DELETED |
+
+### Smoke Matrix
+
+57 commands tested across all 11 domains (tasks, session, check, memory, brain, orchestrate, nexus, admin, agent, skills, phase, pipeline, chain, docs). 53 pass, 4 warnings — all 4 are pre-existing deprecations (`validate`, `observe`, `phases`, `env` were removed as root commands before T487 in favor of `check schema todo`, `memory observe`, `phase`, respectively).
+
+### RCASD Chain
+
+- **T488** Research — codebase audit, tier classification, citty API gap analysis (`.cleo/agent-outputs/T488-shim-removal-research.md`)
+- **T489/T490** Architecture/Consensus — 4 canonical decisions, Pattern A (simple) + Pattern B (multi-sub), inline args over registry ParamDef (`.cleo/agent-outputs/T489-shim-consensus.md`)
+- **T491** Specification — 6-wave batch migration plan
+- **T837** Wave 1 cleanup (detect-drift, conduit wiring)
+- **T839–T843, Batches A–H** Wave 2 parallel batch migrations (24+ workers total)
+- **M1–M24** Source-only migration workers (3 files each, race-free pattern)
+- **Sync worker** — `index.ts` + `help-renderer.ts` + test-mocks rewire
+- **6 test-fix workers** — native citty assertion rewrites
+- **Final wave worker** — shim deletion + help-renderer rewrite + help-generator deletion
+
+### Dependencies
+
+- `citty@0.2.1` — already present; no new deps
+- `commander` — still listed but no longer used internally (can be removed in follow-up cleanup)
+
+### Filed Follow-ups
+
+- **T836**: `task.pipelineStage` field not synced when lifecycle service advances stages (independent CLEO engine bug discovered during this work; reparented to T569 tracking).
+
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
 ## [2026.4.76] — 2026-04-16
 
 ### Wave A close-out release — T617 NEXUS fix + Dogfood epic T569 CLOSED

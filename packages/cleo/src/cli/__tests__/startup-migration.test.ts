@@ -80,42 +80,6 @@ vi.mock('citty', () => ({
 }));
 
 // Stub out all command registrations to avoid loading the full CLI tree
-vi.mock('../commander-shim.js', () => {
-  class ShimCommand {
-    _subcommands: unknown[] = [];
-    _args: unknown[] = [];
-    _options: unknown[] = [];
-    _action = null;
-    _name = 'root';
-    _description = '';
-    _aliases: string[] = [];
-    _isDefault = false;
-    commands: unknown[] = [];
-    command() {
-      return this;
-    }
-    description() {
-      return this;
-    }
-    option() {
-      return this;
-    }
-    requiredOption() {
-      return this;
-    }
-    argument() {
-      return this;
-    }
-    action() {
-      return this;
-    }
-    alias() {
-      return this;
-    }
-  }
-  return { ShimCommand };
-});
-
 vi.mock('../field-context.js', () => ({
   resolveFieldContext: vi.fn().mockReturnValue({ mviSource: 'default', mvi: 'minimal' }),
   setFieldContext: vi.fn(),
@@ -129,105 +93,120 @@ vi.mock('../middleware/output-format.js', () => ({
   resolveFormat: vi.fn().mockReturnValue({ format: 'minimal' }),
 }));
 
-// Stub all command modules to no-ops
-vi.mock('../commands/add.js', () => ({ registerAddCommand: vi.fn() }));
-vi.mock('../commands/admin.js', () => ({ registerAdminCommand: vi.fn() }));
-vi.mock('../commands/adr.js', () => ({ registerAdrCommand: vi.fn() }));
-vi.mock('../commands/agent.js', () => ({ registerAgentCommand: vi.fn() }));
-vi.mock('../commands/analyze.js', () => ({ registerAnalyzeCommand: vi.fn() }));
-vi.mock('../commands/archive.js', () => ({ registerArchiveCommand: vi.fn() }));
-vi.mock('../commands/archive-stats.js', () => ({ registerArchiveStatsCommand: vi.fn() }));
-vi.mock('../commands/backfill.js', () => ({ registerBackfillCommand: vi.fn() }));
-vi.mock('../commands/backup.js', () => ({ registerBackupCommand: vi.fn() }));
-vi.mock('../commands/blockers.js', () => ({ registerBlockersCommand: vi.fn() }));
-vi.mock('../commands/brain.js', () => ({ registerBrainCommand: vi.fn() }));
-vi.mock('../commands/briefing.js', () => ({ registerBriefingCommand: vi.fn() }));
-vi.mock('../commands/bug.js', () => ({ registerBugCommand: vi.fn() }));
-vi.mock('../commands/cant.js', () => ({ registerCantCommand: vi.fn() }));
-vi.mock('../commands/check.js', () => ({ registerCheckCommand: vi.fn() }));
-vi.mock('../commands/checkpoint.js', () => ({ registerCheckpointCommand: vi.fn() }));
-vi.mock('../commands/commands.js', () => ({ registerCommandsCommand: vi.fn() }));
-vi.mock('../commands/complete.js', () => ({ registerCompleteCommand: vi.fn() }));
-vi.mock('../commands/compliance.js', () => ({ registerComplianceCommand: vi.fn() }));
-vi.mock('../commands/config.js', () => ({ registerConfigCommand: vi.fn() }));
-vi.mock('../commands/consensus.js', () => ({ registerConsensusCommand: vi.fn() }));
-vi.mock('../commands/context.js', () => ({ registerContextCommand: vi.fn() }));
-vi.mock('../commands/contribution.js', () => ({ registerContributionCommand: vi.fn() }));
-vi.mock('../commands/current.js', () => ({ registerCurrentCommand: vi.fn() }));
-vi.mock('../commands/dash.js', () => ({ registerDashCommand: vi.fn() }));
-vi.mock('../commands/decomposition.js', () => ({ registerDecompositionCommand: vi.fn() }));
-vi.mock('../commands/delete.js', () => ({ registerDeleteCommand: vi.fn() }));
-vi.mock('../commands/deps.js', () => ({
-  registerDepsCommand: vi.fn(),
-  registerTreeCommand: vi.fn(),
+// Stub all command modules to no-ops (native citty exports)
+vi.mock('../commands/add.js', () => ({ addCommand: {} }));
+vi.mock('../commands/admin.js', () => ({ adminCommand: {} }));
+vi.mock('../commands/adr.js', () => ({ adrCommand: {} }));
+vi.mock('../commands/agent.js', () => ({ agentCommand: {} }));
+vi.mock('../commands/analyze.js', () => ({ analyzeCommand: {} }));
+vi.mock('../commands/archive.js', () => ({ archiveCommand: {} }));
+vi.mock('../commands/archive-stats.js', () => ({ archiveStatsCommand: {} }));
+vi.mock('../commands/backfill.js', () => ({ backfillCommand: {} }));
+vi.mock('../commands/backup.js', () => ({ backupCommand: {} }));
+vi.mock('../commands/blockers.js', () => ({ blockersCommand: {} }));
+vi.mock('../commands/brain.js', () => ({ brainCommand: {} }));
+vi.mock('../commands/briefing.js', () => ({ briefingCommand: {} }));
+vi.mock('../commands/bug.js', () => ({ bugCommand: {} }));
+vi.mock('../commands/cant.js', () => ({ cantCommand: {} }));
+vi.mock('../commands/check.js', () => ({ checkCommand: {} }));
+vi.mock('../commands/checkpoint.js', () => ({ checkpointCommand: {} }));
+vi.mock('../commands/commands.js', () => ({ commandsCommand: {} }));
+vi.mock('../commands/complete.js', () => ({ completeCommand: {} }));
+vi.mock('../commands/compliance.js', () => ({ complianceCommand: {} }));
+vi.mock('../commands/config.js', () => ({ configCommand: {} }));
+vi.mock('../commands/consensus.js', () => ({ consensusCommand: {} }));
+vi.mock('../commands/context.js', () => ({ contextCommand: {} }));
+vi.mock('../commands/contribution.js', () => ({ contributionCommand: {} }));
+vi.mock('../commands/current.js', () => ({ currentCommand: {} }));
+vi.mock('../commands/dash.js', () => ({ dashCommand: {} }));
+vi.mock('../commands/decomposition.js', () => ({ decompositionCommand: {} }));
+vi.mock('../commands/delete.js', () => ({ deleteCommand: {} }));
+vi.mock('../commands/deps.js', () => ({ depsCommand: {}, treeCommand: {} }));
+vi.mock('../commands/detect.js', () => ({ detectCommand: {} }));
+vi.mock('../commands/detect-drift.js', () => ({ detectDriftCommand: {} }));
+vi.mock('../commands/docs.js', () => ({ docsCommand: {} }));
+vi.mock('../commands/doctor.js', () => ({ doctorCommand: {} }));
+vi.mock('../commands/env.js', () => ({ envCommand: {} }));
+vi.mock('../commands/exists.js', () => ({ existsCommand: {} }));
+vi.mock('../commands/export.js', () => ({ exportCommand: {} }));
+vi.mock('../commands/export-tasks.js', () => ({ exportTasksCommand: {} }));
+vi.mock('../commands/find.js', () => ({ findCommand: {} }));
+vi.mock('../commands/generate-changelog.js', () => ({ generateChangelogCommand: {} }));
+vi.mock('../commands/grade.js', () => ({ gradeCommand: {} }));
+vi.mock('../commands/history.js', () => ({ historyCommand: {} }));
+vi.mock('../commands/implementation.js', () => ({ implementationCommand: {} }));
+vi.mock('../commands/import.js', () => ({ importCommand: {} }));
+vi.mock('../commands/import-tasks.js', () => ({ importTasksCommand: {} }));
+vi.mock('../commands/init.js', () => ({ initCommand: {} }));
+vi.mock('../commands/inject.js', () => ({ injectCommand: {} }));
+vi.mock('../commands/issue.js', () => ({ issueCommand: {} }));
+vi.mock('../commands/labels.js', () => ({ labelsCommand: {} }));
+vi.mock('../commands/lifecycle.js', () => ({ lifecycleCommand: {} }));
+vi.mock('../commands/list.js', () => ({ listCommand: {} }));
+vi.mock('../commands/log.js', () => ({ logCommand: {} }));
+vi.mock('../commands/map.js', () => ({ mapCommand: {} }));
+vi.mock('../commands/memory-brain.js', () => ({ memoryBrainCommand: {} }));
+vi.mock('../commands/migrate-claude-mem.js', () => ({ migrateClaudeMemCommand: {} }));
+vi.mock('../commands/next.js', () => ({ nextCommand: {} }));
+vi.mock('../commands/nexus.js', () => ({ nexusCommand: {} }));
+vi.mock('../commands/observe.js', () => ({ observeCommand: {} }));
+vi.mock('../commands/ops.js', () => ({ opsCommand: {} }));
+vi.mock('../commands/orchestrate.js', () => ({ orchestrateCommand: {} }));
+vi.mock('../commands/otel.js', () => ({ otelCommand: {} }));
+vi.mock('../commands/phase.js', () => ({ phaseCommand: {} }));
+vi.mock('../commands/phases.js', () => ({ phasesCommand: {} }));
+vi.mock('../commands/plan.js', () => ({ planCommand: {} }));
+vi.mock('../commands/promote.js', () => ({ promoteCommand: {} }));
+vi.mock('../commands/reason.js', () => ({ reasonCommand: {} }));
+vi.mock('../commands/refresh-memory.js', () => ({ refreshMemoryCommand: {} }));
+vi.mock('../commands/relates.js', () => ({ relatesCommand: {} }));
+vi.mock('../commands/release.js', () => ({ releaseCommand: {} }));
+vi.mock('../commands/remote.js', () => ({
+  remoteCommand: {},
+  pushCommand: {},
+  pullCommand: {},
 }));
-vi.mock('../commands/detect.js', () => ({ registerDetectCommand: vi.fn() }));
-vi.mock('../commands/detect-drift.js', () => ({ registerDetectDriftCommand: vi.fn() }));
-vi.mock('../commands/docs.js', () => ({ registerDocsCommand: vi.fn() }));
-vi.mock('../commands/doctor.js', () => ({ registerDoctorCommand: vi.fn() }));
-vi.mock('../commands/env.js', () => ({ registerEnvCommand: vi.fn() }));
-vi.mock('../commands/exists.js', () => ({ registerExistsCommand: vi.fn() }));
-vi.mock('../commands/export.js', () => ({ registerExportCommand: vi.fn() }));
-vi.mock('../commands/export-tasks.js', () => ({ registerExportTasksCommand: vi.fn() }));
-vi.mock('../commands/find.js', () => ({ registerFindCommand: vi.fn() }));
-vi.mock('../commands/generate-changelog.js', () => ({ registerGenerateChangelogCommand: vi.fn() }));
-vi.mock('../commands/grade.js', () => ({ registerGradeCommand: vi.fn() }));
-vi.mock('../commands/history.js', () => ({ registerHistoryCommand: vi.fn() }));
-vi.mock('../commands/implementation.js', () => ({ registerImplementationCommand: vi.fn() }));
-vi.mock('../commands/import.js', () => ({ registerImportCommand: vi.fn() }));
-vi.mock('../commands/import-tasks.js', () => ({ registerImportTasksCommand: vi.fn() }));
-vi.mock('../commands/init.js', () => ({ registerInitCommand: vi.fn() }));
-vi.mock('../commands/inject.js', () => ({ registerInjectCommand: vi.fn() }));
-vi.mock('../commands/issue.js', () => ({ registerIssueCommand: vi.fn() }));
-vi.mock('../commands/labels.js', () => ({ registerLabelsCommand: vi.fn() }));
-vi.mock('../commands/lifecycle.js', () => ({ registerLifecycleCommand: vi.fn() }));
-vi.mock('../commands/list.js', () => ({ registerListCommand: vi.fn() }));
-vi.mock('../commands/log.js', () => ({ registerLogCommand: vi.fn() }));
-vi.mock('../commands/map.js', () => ({ registerMapCommand: vi.fn() }));
-vi.mock('../commands/memory-brain.js', () => ({ registerMemoryBrainCommand: vi.fn() }));
-vi.mock('../commands/migrate-claude-mem.js', () => ({ registerMigrateClaudeMemCommand: vi.fn() }));
-vi.mock('../commands/next.js', () => ({ registerNextCommand: vi.fn() }));
-vi.mock('../commands/nexus.js', () => ({ registerNexusCommand: vi.fn() }));
-vi.mock('../commands/observe.js', () => ({ registerObserveCommand: vi.fn() }));
-vi.mock('../commands/ops.js', () => ({ registerOpsCommand: vi.fn() }));
-vi.mock('../commands/orchestrate.js', () => ({ registerOrchestrateCommand: vi.fn() }));
-vi.mock('../commands/otel.js', () => ({ registerOtelCommand: vi.fn() }));
-vi.mock('../commands/phase.js', () => ({ registerPhaseCommand: vi.fn() }));
-vi.mock('../commands/phases.js', () => ({ registerPhasesCommand: vi.fn() }));
-vi.mock('../commands/plan.js', () => ({ registerPlanCommand: vi.fn() }));
-vi.mock('../commands/promote.js', () => ({ registerPromoteCommand: vi.fn() }));
-vi.mock('../commands/reason.js', () => ({ registerReasonCommand: vi.fn() }));
-vi.mock('../commands/refresh-memory.js', () => ({ registerRefreshMemoryCommand: vi.fn() }));
-vi.mock('../commands/relates.js', () => ({ registerRelatesCommand: vi.fn() }));
-vi.mock('../commands/release.js', () => ({ registerReleaseCommand: vi.fn() }));
-vi.mock('../commands/remote.js', () => ({ registerRemoteCommand: vi.fn() }));
-vi.mock('../commands/reorder.js', () => ({ registerReorderCommand: vi.fn() }));
-vi.mock('../commands/reparent.js', () => ({ registerReparentCommand: vi.fn() }));
-vi.mock('../commands/research.js', () => ({ registerResearchCommand: vi.fn() }));
-vi.mock('../commands/restore.js', () => ({ registerRestoreCommand: vi.fn() }));
-vi.mock('../commands/roadmap.js', () => ({ registerRoadmapCommand: vi.fn() }));
-vi.mock('../commands/safestop.js', () => ({ registerSafestopCommand: vi.fn() }));
-vi.mock('../commands/schema.js', () => ({ registerSchemaCommand: vi.fn() }));
-vi.mock('../commands/self-update.js', () => ({ registerSelfUpdateCommand: vi.fn() }));
-vi.mock('../commands/sequence.js', () => ({ registerSequenceCommand: vi.fn() }));
-vi.mock('../commands/session.js', () => ({ registerSessionCommand: vi.fn() }));
-vi.mock('../commands/show.js', () => ({ registerShowCommand: vi.fn() }));
-vi.mock('../commands/skills.js', () => ({ registerSkillsCommand: vi.fn() }));
-vi.mock('../commands/snapshot.js', () => ({ registerSnapshotCommand: vi.fn() }));
-vi.mock('../commands/specification.js', () => ({ registerSpecificationCommand: vi.fn() }));
-vi.mock('../commands/start.js', () => ({ registerStartCommand: vi.fn() }));
-vi.mock('../commands/stats.js', () => ({ registerStatsCommand: vi.fn() }));
-vi.mock('../commands/sticky.js', () => ({ registerStickyCommand: vi.fn() }));
-vi.mock('../commands/stop.js', () => ({ registerStopCommand: vi.fn() }));
-vi.mock('../commands/testing.js', () => ({ registerTestingCommand: vi.fn() }));
-vi.mock('../commands/token.js', () => ({ registerTokenCommand: vi.fn() }));
-vi.mock('../commands/update.js', () => ({ registerUpdateCommand: vi.fn() }));
-vi.mock('../commands/upgrade.js', () => ({ registerUpgradeCommand: vi.fn() }));
-vi.mock('../commands/validate.js', () => ({ registerValidateCommand: vi.fn() }));
-vi.mock('../commands/verify.js', () => ({ registerVerifyCommand: vi.fn() }));
-vi.mock('../commands/web.js', () => ({ registerWebCommand: vi.fn() }));
+vi.mock('../commands/reorder.js', () => ({ reorderCommand: {} }));
+vi.mock('../commands/reparent.js', () => ({ reparentCommand: {} }));
+vi.mock('../commands/req.js', () => ({ reqCommand: {} }));
+vi.mock('../commands/research.js', () => ({ researchCommand: {} }));
+vi.mock('../commands/restore.js', () => ({ restoreCommand: {} }));
+vi.mock('../commands/roadmap.js', () => ({ roadmapCommand: {} }));
+vi.mock('../commands/safestop.js', () => ({ safestopCommand: {} }));
+vi.mock('../commands/schema.js', () => ({ schemaCommand: {} }));
+vi.mock('../commands/self-update.js', () => ({ selfUpdateCommand: {} }));
+vi.mock('../commands/sequence.js', () => ({ sequenceCommand: {} }));
+vi.mock('../commands/session.js', () => ({ sessionCommand: {} }));
+vi.mock('../commands/show.js', () => ({ showCommand: {} }));
+vi.mock('../commands/skills.js', () => ({ skillsCommand: {} }));
+vi.mock('../commands/snapshot.js', () => ({ snapshotCommand: {} }));
+vi.mock('../commands/specification.js', () => ({ specificationCommand: {} }));
+vi.mock('../commands/start.js', () => ({ startCommand: {} }));
+vi.mock('../commands/stats.js', () => ({ statsCommand: {} }));
+vi.mock('../commands/sticky.js', () => ({ stickyCommand: {} }));
+vi.mock('../commands/stop.js', () => ({ stopCommand: {} }));
+vi.mock('../commands/testing.js', () => ({ testingCommand: {} }));
+vi.mock('../commands/token.js', () => ({ tokenCommand: {} }));
+vi.mock('../commands/update.js', () => ({ updateCommand: {} }));
+vi.mock('../commands/upgrade.js', () => ({ upgradeCommand: {} }));
+vi.mock('../commands/validate.js', () => ({ validateCommand: {} }));
+vi.mock('../commands/verify.js', () => ({ verifyCommand: {} }));
+vi.mock('../commands/web.js', () => ({ webCommand: {} }));
 vi.mock('../commands/code.js', () => ({ codeCommand: {} }));
 
+vi.mock('../commands/adapter.js', () => ({ adapterCommand: {} }));
+vi.mock('../commands/add-batch.js', () => ({ addBatchCommand: {} }));
+vi.mock('../commands/cancel.js', () => ({ cancelCommand: {} }));
+vi.mock('../commands/chain.js', () => ({ chainCommand: {} }));
+vi.mock('../commands/claim.js', () => ({ claimCommand: {}, unclaimCommand: {} }));
+vi.mock('../commands/complexity.js', () => ({ complexityCommand: {} }));
+vi.mock('../commands/daemon.js', () => ({ daemonCommand: {} }));
+vi.mock('../commands/diagnostics.js', () => ({ diagnosticsCommand: {} }));
+vi.mock('../commands/gc.js', () => ({ gcCommand: {} }));
+vi.mock('../commands/intelligence.js', () => ({ intelligenceCommand: {} }));
+vi.mock('../commands/provider.js', () => ({ providerCommand: {} }));
+vi.mock('../commands/sync.js', () => ({ syncCommand: {} }));
+vi.mock('../commands/transcript.js', () => ({ transcriptCommand: {} }));
 // ---------------------------------------------------------------------------
 
 describe('CLI startup: T310 migration hook (T360)', () => {
@@ -350,5 +329,43 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     const ensureIdx = callOrder.indexOf('ensureConduit');
     expect(migrateIdx).toBeGreaterThanOrEqual(0);
     expect(ensureIdx).toBeGreaterThan(migrateIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native citty wiring verification
+// ---------------------------------------------------------------------------
+
+describe('CLI subCommands wiring (native citty)', () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it('key commands are wired in subCommands', async () => {
+    const mod = await import('../index.js');
+    // The module exports nothing directly — but we can verify citty's defineCommand
+    // was called with a subCommands map containing known commands by checking
+    // that the mock received the expected structure.
+    const { defineCommand } = await import('citty');
+    const calls = (defineCommand as ReturnType<typeof vi.fn>).mock.calls;
+    // The root defineCommand call passes { meta, subCommands }
+    const rootCall = calls.find(
+      (args: unknown[]) =>
+        args[0] !== null &&
+        typeof args[0] === 'object' &&
+        'meta' in (args[0] as Record<string, unknown>) &&
+        'subCommands' in (args[0] as Record<string, unknown>),
+    );
+    expect(rootCall).toBeDefined();
+    const def = rootCall?.[0] as { subCommands: Record<string, unknown> };
+    expect(def.subCommands).toHaveProperty('show');
+    expect(def.subCommands).toHaveProperty('add');
+    expect(def.subCommands).toHaveProperty('complete');
+    expect(def.subCommands).toHaveProperty('find');
+    // Aliases are wired
+    expect(def.subCommands).toHaveProperty('done');
+    expect(def.subCommands).toHaveProperty('rm');
+    // unused symbol suppresses ts-unused-vars
+    void mod;
   });
 });

@@ -13,8 +13,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerSchemaCommand } from '../schema.js';
+import { schemaCommand } from '../schema.js';
 
 // ---------------------------------------------------------------------------
 // Mock cliOutput / cliError
@@ -54,19 +53,16 @@ async function invokeSchema(
     includeExamples?: boolean;
   } = {},
 ): Promise<void> {
-  const program = new Command();
-  registerSchemaCommand(program);
-
-  const schemaCmd = program.commands.find((c) => c.name() === 'schema');
-  if (!schemaCmd?._action) {
-    throw new Error('schema subcommand has no action registered');
-  }
-
-  await schemaCmd._action(operationArg, {
-    format: opts.format ?? 'json',
-    includeGates: opts.includeGates !== false,
-    includeExamples: opts.includeExamples ?? false,
-  });
+  await schemaCommand.run?.({
+    args: {
+      operation: operationArg,
+      format: opts.format ?? 'json',
+      'include-gates': opts.includeGates !== false,
+      'include-examples': opts.includeExamples ?? false,
+    },
+    rawArgs: [],
+    cmd: schemaCommand,
+  } as Parameters<NonNullable<typeof schemaCommand.run>>[0]);
 }
 
 // ---------------------------------------------------------------------------

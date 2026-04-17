@@ -1,24 +1,30 @@
 /**
- * CLI current command - show the current task being worked on.
+ * CLI current command — show the current task being worked on.
+ *
+ * Dispatches to `tasks.current` (query) and returns:
+ * `{ currentTask: string | null, currentPhase: string | null }`.
+ *
  * @task T4756
  * @epic T4732
- */
-
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
-
-/**
- * Register the current command.
- * @task T4756
  * @task T4666
  */
-export function registerCurrentCommand(program: Command): void {
-  program
-    .command('current')
-    .description(
+
+import { defineCommand } from 'citty';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+
+/**
+ * cleo current — show the current task being worked on.
+ *
+ * Returns: `{ currentTask: string | null, currentPhase: string | null }`.
+ * Dispatches to the `tasks.current` registry operation.
+ */
+export const currentCommand = defineCommand({
+  meta: {
+    name: 'current',
+    description:
       'Show the current task being worked on. Returns: {currentTask: string|null, currentPhase: string|null}',
-    )
-    .action(async () => {
-      await dispatchFromCli('query', 'tasks', 'current', {}, { command: 'current' });
-    });
-}
+  },
+  async run() {
+    await dispatchFromCli('query', 'tasks', 'current', {}, { command: 'current' });
+  },
+});

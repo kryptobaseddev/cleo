@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -478,22 +478,34 @@ async function inspectTarball(
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Export
 // ---------------------------------------------------------------------------
 
 /**
- * Registers the `backup inspect <bundle>` subcommand on the given `backup`
- * parent command.
+ * `cleo backup inspect <bundle>` subcommand definition for citty.
  *
- * @param backup - The `backup` ShimCommand instance.
+ * Stream-reads `manifest.json` from a `.cleobundle.tar.gz` (or encrypted
+ * `.enc.cleobundle.tar.gz`) and prints a structured report without extracting
+ * or modifying anything on disk.
+ *
+ * Imported by `backup.ts` and mounted under `subCommands.inspect`.
+ *
  * @task T363
  * @epic T311
  */
-export function registerBackupInspectSubcommand(backup: Command): void {
-  backup
-    .command('inspect <bundle>')
-    .description('Show bundle manifest without extracting or modifying anything')
-    .action(async (bundleArg: string) => {
-      await inspectAction(bundleArg);
-    });
-}
+export const backupInspectSubCommand = defineCommand({
+  meta: {
+    name: 'inspect',
+    description: 'Show bundle manifest without extracting or modifying anything',
+  },
+  args: {
+    bundle: {
+      type: 'positional',
+      description: 'Path to the .cleobundle.tar.gz file',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await inspectAction(args.bundle);
+  },
+});

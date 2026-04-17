@@ -12,17 +12,14 @@
  * core short-circuits the guard (`!options.description` → skip check).
  *
  * These tests mock the dispatcher layer so they never touch the real
- * SQLite database.  The add command action handler is invoked directly
- * via the ShimCommand's `_action` callback, avoiding the need for
- * Commander's `parseAsync` / `exitOverride` (not available on ShimCommand).
+ * SQLite database. The addCommand.run function is invoked directly.
  *
  * @task T337
  * @epic T335
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerAddCommand } from '../add.js';
+import { addCommand } from '../add.js';
 
 // ---------------------------------------------------------------------------
 // Mock the dispatch adapter so no real DB is touched
@@ -47,24 +44,14 @@ vi.mock('../../renderers/index.js', () => ({
 // ---------------------------------------------------------------------------
 
 /**
- * Build the ShimCommand tree, extract the `add` subcommand's action
- * handler, and invoke it with the given title and opts.
- *
- * This avoids needing Commander-specific helpers (`exitOverride`,
- * `parseAsync`) that are not part of the ShimCommand API.
+ * Invoke addCommand.run with the given title and optional arg overrides.
  */
-async function invokeAdd(title: string, opts: Record<string, unknown> = {}): Promise<void> {
-  const program = new Command();
-  registerAddCommand(program);
-
-  // registerAddCommand registers a 'add <title>' subcommand on `program`
-  const addCmd = program.commands.find((c) => c.name() === 'add');
-  if (!addCmd?._action) {
-    throw new Error('add subcommand has no action registered');
-  }
-
-  // The action signature is: (title: string, opts: Record<string, unknown>)
-  await addCmd._action(title, opts);
+async function invokeAdd(title: string, extraArgs: Record<string, unknown> = {}): Promise<void> {
+  const runFn = addCommand.run as (ctx: {
+    args: Record<string, unknown>;
+    rawArgs: string[];
+  }) => Promise<void>;
+  await runFn({ args: { title, ...extraArgs }, rawArgs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +117,7 @@ describe('add command — description=title fallback removal (T337)', () => {
   });
 
   it('--description takes priority over --desc when both are supplied', async () => {
-    // add.ts checks opts['description'] before opts['desc'], so --description wins.
+    // add.ts checks args['description'] before args['desc'], so --description wins.
     await invokeAdd('My task', { description: 'Long form', desc: 'Short form' });
 
     const [, , , params] = mockDispatchRaw.mock.calls[0] as [

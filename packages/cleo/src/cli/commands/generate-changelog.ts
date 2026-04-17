@@ -11,8 +11,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
+import { defineCommand } from 'citty';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -211,89 +211,105 @@ function generateDocusaurus(source: string, limit: number): string {
 }
 
 /**
- * Register the generate-changelog command.
+ * Native citty command for `cleo generate-changelog` — generates
+ * platform-specific changelog output from CHANGELOG.md source.
+ *
  * @task T4555
+ * @epic T487
  */
-export function registerGenerateChangelogCommand(program: Command): void {
-  program
-    .command('generate-changelog')
-    .description('Generate platform-specific changelog from CHANGELOG.md')
-    .option('--platform <platform>', 'Target platform (mintlify, docusaurus, plain, github)')
-    .option('--limit <n>', 'Max versions to include', '15')
-    .option('--dry-run', 'Show what would be generated without writing')
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const limit = Number(opts['limit'] ?? 15);
-        const targetPlatform = opts['platform'] as string | undefined;
-        const dryRun = !!opts['dryRun'];
+export const generateChangelogCommand = defineCommand({
+  meta: {
+    name: 'generate-changelog',
+    description: 'Generate platform-specific changelog from CHANGELOG.md',
+  },
+  args: {
+    platform: {
+      type: 'string',
+      description: 'Target platform (mintlify, docusaurus, plain, github)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Max versions to include',
+      default: '15',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be generated without writing',
+    },
+  },
+  async run({ args }) {
+    try {
+      const limit = Number(args.limit ?? 15);
+      const targetPlatform = args.platform as string | undefined;
+      const dryRun = args['dry-run'] === true;
 
-        const sourceFile = getChangelogSource();
-        const sourcePath = join(getProjectRoot(), sourceFile);
+      const sourceFile = getChangelogSource();
+      const sourcePath = join(getProjectRoot(), sourceFile);
 
-        if (!existsSync(sourcePath)) {
-          throw new CleoError(ExitCode.NOT_FOUND, `Changelog source not found: ${sourcePath}`);
+      if (!existsSync(sourcePath)) {
+        throw new CleoError(ExitCode.NOT_FOUND, `Changelog source not found: ${sourcePath}`);
+      }
+
+      const sourceContent = readFileSync(sourcePath, 'utf-8');
+      const repoSlug = getGitHubRepoSlug();
+      const results: Array<{ platform: string; path: string; written: boolean }> = [];
+
+      if (targetPlatform) {
+        const platforms = getEnabledPlatforms();
+        const platformConfig = platforms.find((p) => p.platform === targetPlatform);
+        const outputPath = platformConfig?.path ?? getDefaultOutputPath(targetPlatform);
+        const content = generateForPlatform(targetPlatform, sourceContent, repoSlug, limit);
+
+        if (!dryRun) {
+          const fullPath = join(getProjectRoot(), outputPath);
+          mkdirSync(dirname(fullPath), { recursive: true });
+          writeFileSync(fullPath, content, 'utf-8');
+        }
+        results.push({ platform: targetPlatform, path: outputPath, written: !dryRun });
+      } else {
+        const platforms = getEnabledPlatforms();
+        if (platforms.length === 0) {
+          throw new CleoError(
+            ExitCode.CONFIG_ERROR,
+            'No changelog output platforms configured. Configure in .cleo/config.json under release.changelog.outputs',
+          );
         }
 
-        const sourceContent = readFileSync(sourcePath, 'utf-8');
-        const repoSlug = getGitHubRepoSlug();
-        const results: Array<{ platform: string; path: string; written: boolean }> = [];
-
-        if (targetPlatform) {
-          const platforms = getEnabledPlatforms();
-          const platformConfig = platforms.find((p) => p.platform === targetPlatform);
-          const outputPath = platformConfig?.path ?? getDefaultOutputPath(targetPlatform);
-          const content = generateForPlatform(targetPlatform, sourceContent, repoSlug, limit);
-
+        for (const platformConfig of platforms) {
+          const content = generateForPlatform(
+            platformConfig.platform,
+            sourceContent,
+            repoSlug,
+            limit,
+          );
           if (!dryRun) {
-            const fullPath = join(getProjectRoot(), outputPath);
+            const fullPath = join(getProjectRoot(), platformConfig.path);
             mkdirSync(dirname(fullPath), { recursive: true });
             writeFileSync(fullPath, content, 'utf-8');
           }
-          results.push({ platform: targetPlatform, path: outputPath, written: !dryRun });
-        } else {
-          const platforms = getEnabledPlatforms();
-          if (platforms.length === 0) {
-            throw new CleoError(
-              ExitCode.CONFIG_ERROR,
-              'No changelog output platforms configured. Configure in .cleo/config.json under release.changelog.outputs',
-            );
-          }
-
-          for (const platformConfig of platforms) {
-            const content = generateForPlatform(
-              platformConfig.platform,
-              sourceContent,
-              repoSlug,
-              limit,
-            );
-            if (!dryRun) {
-              const fullPath = join(getProjectRoot(), platformConfig.path);
-              mkdirSync(dirname(fullPath), { recursive: true });
-              writeFileSync(fullPath, content, 'utf-8');
-            }
-            results.push({
-              platform: platformConfig.platform,
-              path: platformConfig.path,
-              written: !dryRun,
-            });
-          }
+          results.push({
+            platform: platformConfig.platform,
+            path: platformConfig.path,
+            written: !dryRun,
+          });
         }
-
-        cliOutput(
-          {
-            dryRun,
-            source: sourceFile,
-            repoSlug: repoSlug || null,
-            generated: results,
-          },
-          { command: 'generate-changelog' },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
       }
-    });
-}
+
+      cliOutput(
+        {
+          dryRun,
+          source: sourceFile,
+          repoSlug: repoSlug || null,
+          generated: results,
+        },
+        { command: 'generate-changelog' },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      throw err;
+    }
+  },
+});

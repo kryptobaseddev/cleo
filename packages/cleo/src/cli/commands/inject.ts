@@ -4,33 +4,60 @@
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerInjectCommand(program: Command): void {
-  program
-    .command('inject')
-    .description('Prepare tasks for external system injection')
-    .option('--max-tasks <n>', 'Maximum tasks to inject', '8')
-    .option('--focused-only', 'Only inject the focused task')
-    .option('--phase <slug>', 'Filter tasks to specific phase')
-    .option('--output <file>', 'Write to file instead of stdout')
-    .option('--save-state', 'Save session state for extraction', true)
-    .option('--dry-run', 'Preview without writing')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'admin',
-        'inject.generate',
-        {
-          maxTasks: opts['maxTasks'] ? Number(opts['maxTasks']) : 8,
-          focusedOnly: opts['focusedOnly'],
-          phase: opts['phase'],
-          output: opts['output'],
-          saveState: opts['saveState'],
-          dryRun: opts['dryRun'],
-        },
-        { command: 'inject' },
-      );
-    });
-}
+/**
+ * Root inject command — prepare tasks for external system injection.
+ *
+ * Dispatches to `admin.inject.generate`.
+ */
+export const injectCommand = defineCommand({
+  meta: { name: 'inject', description: 'Prepare tasks for external system injection' },
+  args: {
+    'max-tasks': {
+      type: 'string',
+      description: 'Maximum tasks to inject',
+      default: '8',
+    },
+    'focused-only': {
+      type: 'boolean',
+      description: 'Only inject the focused task',
+      default: false,
+    },
+    phase: {
+      type: 'string',
+      description: 'Filter tasks to specific phase',
+    },
+    output: {
+      type: 'string',
+      description: 'Write to file instead of stdout',
+    },
+    'save-state': {
+      type: 'boolean',
+      description: 'Save session state for extraction',
+      default: true,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview without writing',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'admin',
+      'inject.generate',
+      {
+        maxTasks: Number.parseInt(args['max-tasks'], 10),
+        focusedOnly: args['focused-only'],
+        phase: args.phase as string | undefined,
+        output: args.output as string | undefined,
+        saveState: args['save-state'],
+        dryRun: args['dry-run'],
+      },
+      { command: 'inject' },
+    );
+  },
+});

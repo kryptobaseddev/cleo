@@ -1,5 +1,15 @@
 /**
- * CLI remote command - .cleo/.git remote push/pull for shared state.
+ * CLI command group for .cleo/.git remote push/pull shared state management.
+ *
+ * Subcommands under `cleo remote`:
+ *   cleo remote add <url>    — add a git remote to .cleo/.git
+ *   cleo remote remove <name> — remove a git remote from .cleo/.git
+ *   cleo remote list         — list configured .cleo/.git remotes
+ *   cleo remote status       — show sync status between local and remote
+ *
+ * Top-level commands also provided:
+ *   cleo push  — push .cleo/ state to remote
+ *   cleo pull  — pull .cleo/ state from remote
  *
  * @task T4884
  */
@@ -15,229 +25,264 @@ import {
   push,
   removeRemote,
 } from '@cleocode/core/internal';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
+/** cleo remote add <url> — add a git remote to .cleo/.git */
+const addRemoteCommand = defineCommand({
+  meta: { name: 'add', description: 'Add a git remote to .cleo/.git for shared state syncing' },
+  args: {
+    url: {
+      type: 'positional',
+      description: 'Remote URL to add',
+      required: true,
+    },
+    name: {
+      type: 'string',
+      description: 'Remote name',
+      alias: 'n',
+      default: 'origin',
+    },
+  },
+  async run({ args }) {
+    try {
+      const name = args.name ?? 'origin';
+      await addRemote(args.url, name);
+      cliOutput(
+        { added: true, name, url: args.url },
+        { command: 'remote', message: `Remote '${name}' added: ${args.url}` },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo remote remove <name> — remove a git remote from .cleo/.git */
+const removeRemoteCommand = defineCommand({
+  meta: { name: 'remove', description: 'Remove a git remote from .cleo/.git' },
+  args: {
+    name: {
+      type: 'positional',
+      description: 'Remote name to remove',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    try {
+      await removeRemote(args.name);
+      cliOutput(
+        { removed: true, name: args.name },
+        { command: 'remote', message: `Remote '${args.name}' removed` },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo remote list — list configured .cleo/.git remotes */
+const listRemoteCommand = defineCommand({
+  meta: { name: 'list', description: 'List configured .cleo/.git remotes' },
+  async run() {
+    try {
+      const remotes = await listRemotes();
+      cliOutput(
+        { remotes, count: remotes.length },
+        {
+          command: 'remote',
+          message:
+            remotes.length === 0
+              ? 'No remotes configured. Add one with: cleo remote add <url>'
+              : `${remotes.length} remote(s) configured`,
+        },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      throw err;
+    }
+  },
+});
+
+/** cleo remote status — show sync status between local .cleo/.git and remote */
+const statusRemoteCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description: 'Show sync status between local .cleo/.git and remote',
+  },
+  args: {
+    remote: {
+      type: 'string',
+      description: 'Remote name',
+      alias: 'r',
+      default: 'origin',
+    },
+  },
+  async run({ args }) {
+    try {
+      const remoteName = args.remote ?? 'origin';
+      const status = await getRemoteGitStatus(remoteName);
+
+      let message: string;
+      if (status.ahead === 0 && status.behind === 0) {
+        message = `Up to date with ${remoteName}/${status.branch}`;
+      } else {
+        const parts: string[] = [];
+        if (status.ahead > 0) parts.push(`${status.ahead} ahead`);
+        if (status.behind > 0) parts.push(`${status.behind} behind`);
+        message = `${parts.join(', ')} ${remoteName}/${status.branch}`;
+      }
+
+      cliOutput({ ...status }, { command: 'remote', message });
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      throw err;
+    }
+  },
+});
+
 /**
- * Register the remote command with add/remove/list/push/pull subcommands.
- * @task T4884
+ * cleo remote — manage .cleo/.git remotes for multi-contributor state sharing.
+ *
+ * Dispatches add/remove/list/status subcommands against the .cleo/.git repository.
  */
-export function registerRemoteCommand(program: Command): void {
-  const remote = program
-    .command('remote')
-    .description('Manage .cleo/.git remotes for multi-contributor state sharing');
+export const remoteCommand = defineCommand({
+  meta: {
+    name: 'remote',
+    description: 'Manage .cleo/.git remotes for multi-contributor state sharing',
+  },
+  subCommands: {
+    add: addRemoteCommand,
+    remove: removeRemoteCommand,
+    list: listRemoteCommand,
+    status: statusRemoteCommand,
+  },
+});
 
-  remote
-    .command('add <url>')
-    .description('Add a git remote to .cleo/.git for shared state syncing')
-    .option('-n, --name <name>', 'Remote name (default: origin)', 'origin')
-    .action(async (url: string, opts: Record<string, unknown>) => {
-      try {
-        const name = opts['name'] as string;
-        await addRemote(url, name);
+/** cleo push — push .cleo/ state to remote */
+export const pushCommand = defineCommand({
+  meta: { name: 'push', description: 'Push .cleo/ state to remote (operates on .cleo/.git)' },
+  args: {
+    remote: {
+      type: 'string',
+      description: 'Remote name',
+      alias: 'r',
+      default: 'origin',
+    },
+    'set-upstream': {
+      type: 'boolean',
+      description: 'Set upstream tracking branch',
+      alias: 'u',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Force push (overwrite remote)',
+    },
+  },
+  async run({ args }) {
+    try {
+      const remoteName = args.remote ?? 'origin';
+      const result = await push(remoteName, {
+        force: args.force ?? false,
+        setUpstream: args['set-upstream'] ?? false,
+      });
 
-        cliOutput(
-          {
-            added: true,
-            name,
-            url,
-          },
-          { command: 'remote', message: `Remote '${name}' added: ${url}` },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+      if (!result.success) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, result.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
       }
-    });
 
-  remote
-    .command('remove <name>')
-    .description('Remove a git remote from .cleo/.git')
-    .action(async (name: string) => {
-      try {
-        await removeRemote(name);
-
-        cliOutput(
-          {
-            removed: true,
-            name,
-          },
-          { command: 'remote', message: `Remote '${name}' removed` },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+      cliOutput(
+        { pushed: true, branch: result.branch, remote: result.remote },
+        { command: 'push', message: result.message },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
-
-  remote
-    .command('list')
-    .description('List configured .cleo/.git remotes')
-    .action(async () => {
-      try {
-        const remotes = await listRemotes();
-
-        cliOutput(
-          {
-            remotes,
-            count: remotes.length,
-          },
-          {
-            command: 'remote',
-            message:
-              remotes.length === 0
-                ? 'No remotes configured. Add one with: cleo remote add <url>'
-                : `${remotes.length} remote(s) configured`,
-          },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
       }
-    });
+      throw err;
+    }
+  },
+});
 
-  // Top-level push command
-  program
-    .command('push')
-    .description('Push .cleo/ state to remote (operates on .cleo/.git)')
-    .option('-r, --remote <name>', 'Remote name (default: origin)', 'origin')
-    .option('-u, --set-upstream', 'Set upstream tracking branch')
-    .option('--force', 'Force push (overwrite remote)')
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const remoteName = opts['remote'] as string;
-        const result = await push(remoteName, {
-          force: (opts['force'] as boolean) ?? false,
-          setUpstream: (opts['setUpstream'] as boolean) ?? false,
-        });
+/** cleo pull — pull .cleo/ state from remote */
+export const pullCommand = defineCommand({
+  meta: { name: 'pull', description: 'Pull .cleo/ state from remote (operates on .cleo/.git)' },
+  args: {
+    remote: {
+      type: 'string',
+      description: 'Remote name',
+      alias: 'r',
+      default: 'origin',
+    },
+  },
+  async run({ args }) {
+    try {
+      const remoteName = args.remote ?? 'origin';
+      const result = await pull(remoteName);
 
-        if (!result.success) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, result.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
+      if (!result.success) {
+        const details: Record<string, unknown> = {
+          pulled: false,
+          branch: result.branch,
+          remote: result.remote,
+        };
+        if (result.hasConflicts) {
+          details['conflicts'] = result.conflictFiles;
         }
-
-        cliOutput(
-          {
-            pushed: true,
-            branch: result.branch,
-            remote: result.remote,
-          },
-          { command: 'push', message: result.message },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+        cliError(result.message, ExitCode.GENERAL_ERROR, { details });
+        process.exit(ExitCode.GENERAL_ERROR);
       }
-    });
 
-  // Top-level pull command
-  program
-    .command('pull')
-    .description('Pull .cleo/ state from remote (operates on .cleo/.git)')
-    .option('-r, --remote <name>', 'Remote name (default: origin)', 'origin')
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const remoteName = opts['remote'] as string;
-        const result = await pull(remoteName);
-
-        if (!result.success) {
-          const details: Record<string, unknown> = {
-            pulled: false,
-            branch: result.branch,
-            remote: result.remote,
-          };
-          if (result.hasConflicts) {
-            details['conflicts'] = result.conflictFiles;
-          }
-          cliError(result.message, ExitCode.GENERAL_ERROR, { details });
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-
-        cliOutput(
-          {
-            pulled: true,
-            branch: result.branch,
-            remote: result.remote,
-          },
-          { command: 'pull', message: result.message },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+      cliOutput(
+        { pulled: true, branch: result.branch, remote: result.remote },
+        { command: 'pull', message: result.message },
+      );
+    } catch (err) {
+      if (err instanceof CleoError) {
+        console.error(formatError(err));
+        process.exit(err.code);
       }
-    });
-
-  // Remote status subcommand
-  remote
-    .command('status')
-    .description('Show sync status between local .cleo/.git and remote')
-    .option('-r, --remote <name>', 'Remote name (default: origin)', 'origin')
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const remoteName = opts['remote'] as string;
-        const status = await getRemoteGitStatus(remoteName);
-
-        let message: string;
-        if (status.ahead === 0 && status.behind === 0) {
-          message = `Up to date with ${remoteName}/${status.branch}`;
-        } else {
-          const parts: string[] = [];
-          if (status.ahead > 0) parts.push(`${status.ahead} ahead`);
-          if (status.behind > 0) parts.push(`${status.behind} behind`);
-          message = `${parts.join(', ')} ${remoteName}/${status.branch}`;
-        }
-
-        cliOutput(
-          {
-            ...status,
-          },
-          { command: 'remote', message },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        if (err instanceof Error) {
-          console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
-          process.exit(ExitCode.GENERAL_ERROR);
-        }
-        throw err;
+      if (err instanceof Error) {
+        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        process.exit(ExitCode.GENERAL_ERROR);
       }
-    });
-}
+      throw err;
+    }
+  },
+});

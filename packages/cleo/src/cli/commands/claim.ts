@@ -4,57 +4,46 @@
  * @epic T443
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the claim command.
+ * Native citty command for claiming a task by assigning it to an agent.
  *
- * @remarks
- * Dispatches to `tasks.claim` (mutate). Claims a task by assigning it to
- * the specified agent. Requires an active session (sessionRequired: true).
- *
- * @param program - Root CLI program instance.
+ * Dispatches to tasks.claim (mutate). Requires an active session.
  */
-export function registerClaimCommand(program: Command): void {
-  program
-    .command('claim <taskId>')
-    .description('Claim a task by assigning it to an agent')
-    .requiredOption('--agent <agentId>', 'Agent ID to assign the task to')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'tasks',
-        'claim',
-        {
-          taskId,
-          agentId: opts['agent'] as string | undefined,
-        },
-        { command: 'claim', operation: 'tasks.claim' },
-      );
-    });
-}
+export const claimCommand = defineCommand({
+  meta: { name: 'claim', description: 'Claim a task by assigning it to an agent' },
+  args: {
+    taskId: { type: 'positional', description: 'Task ID to claim', required: true },
+    agent: { type: 'string', description: 'Agent ID to assign the task to', required: true },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'claim',
+      { taskId: args.taskId as string, agentId: args.agent as string },
+      { command: 'claim', operation: 'tasks.claim' },
+    );
+  },
+});
 
 /**
- * Register the unclaim command.
+ * Native citty command for unclaiming a task by removing its current assignee.
  *
- * @remarks
- * Dispatches to `tasks.unclaim` (mutate). Removes the current assignee from
- * a task, freeing it for other agents. Requires an active session.
- *
- * @param program - Root CLI program instance.
+ * Dispatches to tasks.unclaim (mutate). Requires an active session.
  */
-export function registerUnclaimCommand(program: Command): void {
-  program
-    .command('unclaim <taskId>')
-    .description('Unclaim a task by removing its current assignee')
-    .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'tasks',
-        'unclaim',
-        { taskId },
-        { command: 'unclaim', operation: 'tasks.unclaim' },
-      );
-    });
-}
+export const unclaimCommand = defineCommand({
+  meta: { name: 'unclaim', description: 'Unclaim a task by removing its current assignee' },
+  args: { taskId: { type: 'positional', description: 'Task ID to unclaim', required: true } },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'unclaim',
+      { taskId: args.taskId as string },
+      { command: 'unclaim', operation: 'tasks.unclaim' },
+    );
+  },
+});

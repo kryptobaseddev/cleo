@@ -26,8 +26,7 @@ import {
   getRuntimeDiagnostics,
   runUpgrade,
 } from '@cleocode/core/internal';
-// CLI-only: self-update requires file system ops and external process execution
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -105,138 +104,150 @@ async function writeRuntimeVersionMetadata(
   );
 }
 
-export function registerSelfUpdateCommand(program: Command): void {
-  program
-    .command('self-update')
-    .description('Check for and install CLEO updates, then run post-update diagnostics')
-    .option('--check', 'Only check if update is available')
-    .option('--status', 'Show current vs latest version')
-    .option('--version <ver>', 'Update to specific version')
-    .option('--channel <channel>', 'Update channel: stable|beta')
-    .option('--beta', 'Shortcut for --channel beta')
-    .option('--force', 'Force update even if same version')
-    .option('--post-update', 'Run post-update diagnostics and migration only')
-    .option('--no-auto-upgrade', 'Skip automatic upgrade after update')
-    .option('--auto-migrate', 'Automatically migrate storage without prompting')
-    .action(async (_opts: Record<string, unknown>, command: Command) => {
-      const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
-      const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
-      const progress = createSelfUpdateProgress(isHuman);
+/**
+ * Native citty command for `cleo self-update`.
+ *
+ * Global output flags (--json, --human, --quiet) are declared in args so
+ * citty parses them directly. This replaces the Commander.js optsWithGlobals()
+ * pattern that is unavailable in native citty commands.
+ */
+export const selfUpdateCommand = defineCommand({
+  meta: {
+    name: 'self-update',
+    description: 'Check for and install CLEO updates, then run post-update diagnostics',
+  },
+  args: {
+    check: {
+      type: 'boolean',
+      description: 'Only check if update is available',
+    },
+    status: {
+      type: 'boolean',
+      description: 'Show current vs latest version',
+    },
+    version: {
+      type: 'string',
+      description: 'Update to specific version',
+    },
+    channel: {
+      type: 'string',
+      description: 'Update channel: stable|beta',
+    },
+    beta: {
+      type: 'boolean',
+      description: 'Shortcut for --channel beta',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Force update even if same version',
+    },
+    'post-update': {
+      type: 'boolean',
+      description: 'Run post-update diagnostics and migration only',
+    },
+    'no-auto-upgrade': {
+      type: 'boolean',
+      description: 'Skip automatic upgrade after update',
+    },
+    'auto-migrate': {
+      type: 'boolean',
+      description: 'Automatically migrate storage without prompting',
+    },
+    // Global output format flags — read directly from args (no optsWithGlobals in citty)
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+    human: {
+      type: 'boolean',
+      description: 'Force human-readable output',
+    },
+    quiet: {
+      type: 'boolean',
+      description: 'Suppress non-essential output',
+    },
+  },
+  async run({ args }) {
+    const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
+    const progress = createSelfUpdateProgress(isHuman);
 
-      try {
-        const noAutoUpgrade = opts['autoUpgrade'] === false; // Commander normalizes --no-auto-upgrade to autoUpgrade=false
+    try {
+      const noAutoUpgrade = args['no-auto-upgrade'] === true;
 
-        // --post-update: skip version check, just run diagnostics + upgrade
-        if (opts['postUpdate']) {
-          progress.start();
-          progress.step(4, 'Running post-update diagnostics');
-          await runPostUpdateDiagnostics({
-            skipUpgrade: noAutoUpgrade,
-            autoMigrate: !!opts['autoMigrate'] || !!opts['force'],
-          });
-          progress.complete('Post-update diagnostics complete');
-          return;
-        }
-
+      // --post-update: skip version check, just run diagnostics + upgrade
+      if (args['post-update']) {
         progress.start();
-        progress.step(0, 'Detecting installation type');
-        const runtime = await getRuntimeDiagnostics();
-        const script = runtime.invocation.script;
-        const fromNodeModules =
-          script.includes('/node_modules/@cleocode/cleo/') ||
-          script.includes('\\node_modules\\@cleocode\\cleo\\');
-        const isDev = runtime.channel === 'dev' && !fromNodeModules;
+        progress.step(4, 'Running post-update diagnostics');
+        await runPostUpdateDiagnostics({
+          skipUpgrade: noAutoUpgrade,
+          autoMigrate: !!args['auto-migrate'] || !!args.force,
+        });
+        progress.complete('Post-update diagnostics complete');
+        return;
+      }
 
-        progress.step(1, 'Checking current version');
-        const currentVersion = isDev
-          ? await getCurrentVersion()
-          : ((await getNpmInstalledVersion()) ?? (await getCurrentVersion()));
+      progress.start();
+      progress.step(0, 'Detecting installation type');
+      const runtime = await getRuntimeDiagnostics();
+      const script = runtime.invocation.script;
+      const fromNodeModules =
+        script.includes('/node_modules/@cleocode/cleo/') ||
+        script.includes('\\node_modules\\@cleocode\\cleo\\');
+      const isDev = runtime.channel === 'dev' && !fromNodeModules;
 
-        const rawChannel = (opts['channel'] as string | undefined)?.toLowerCase();
-        if (rawChannel && rawChannel !== 'stable' && rawChannel !== 'beta') {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `Invalid --channel '${rawChannel}'. Expected stable|beta`,
-          );
-        }
+      progress.step(1, 'Checking current version');
+      const currentVersion = isDev
+        ? await getCurrentVersion()
+        : ((await getNpmInstalledVersion()) ?? (await getCurrentVersion()));
 
-        const requestedChannel: 'stable' | 'beta' = opts['beta']
-          ? 'beta'
-          : ((rawChannel as 'stable' | 'beta' | undefined) ??
-            (runtime.channel === 'beta' ? 'beta' : 'stable'));
+      const rawChannel = (args.channel as string | undefined)?.toLowerCase();
+      if (rawChannel && rawChannel !== 'stable' && rawChannel !== 'beta') {
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `Invalid --channel '${rawChannel}'. Expected stable|beta`,
+        );
+      }
 
-        if (isDev && !opts['force']) {
-          // For dev installs, still run post-update diagnostics
-          progress.step(4, 'Running post-update checks');
-          const preflight = checkStorageMigration();
-          cliOutput(
-            {
-              devMode: true,
-              channel: runtime.channel,
-              currentVersion,
-              message: 'Dev install detected. Use git pull to update.',
-              storagePreflight: {
-                migrationNeeded: preflight.migrationNeeded,
-                summary: preflight.summary,
-                fix: preflight.fix,
-              },
+      const requestedChannel: 'stable' | 'beta' = args.beta
+        ? 'beta'
+        : ((rawChannel as 'stable' | 'beta' | undefined) ??
+          (runtime.channel === 'beta' ? 'beta' : 'stable'));
+
+      if (isDev && !args.force) {
+        // For dev installs, still run post-update diagnostics
+        progress.step(4, 'Running post-update checks');
+        const preflight = checkStorageMigration();
+        cliOutput(
+          {
+            devMode: true,
+            channel: runtime.channel,
+            currentVersion,
+            message: 'Dev install detected. Use git pull to update.',
+            storagePreflight: {
+              migrationNeeded: preflight.migrationNeeded,
+              summary: preflight.summary,
+              fix: preflight.fix,
             },
-            { command: 'self-update' },
+          },
+          { command: 'self-update' },
+        );
+        if (preflight.migrationNeeded) {
+          progress.error(`Storage migration needed: ${preflight.summary}`);
+          process.stderr.write(
+            `\n⚠ Storage migration needed: ${preflight.summary}\n` +
+              `  Fix: ${preflight.fix}\n` +
+              `  Or run: cleo upgrade\n\n`,
           );
-          if (preflight.migrationNeeded) {
-            progress.error(`Storage migration needed: ${preflight.summary}`);
-            process.stderr.write(
-              `\n⚠ Storage migration needed: ${preflight.summary}\n` +
-                `  Fix: ${preflight.fix}\n` +
-                `  Or run: cleo upgrade\n\n`,
-            );
-          } else {
-            progress.complete('Dev environment check complete');
-          }
-          process.exit(ExitCode.NO_DATA);
-          return;
+        } else {
+          progress.complete('Dev environment check complete');
         }
+        process.exit(ExitCode.NO_DATA);
+        return;
+      }
 
-        if (opts['status'] || opts['check']) {
-          progress.step(2, 'Querying npm registry');
-          const latest = await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest');
-          if (!latest) {
-            throw new CleoError(
-              ExitCode.DEPENDENCY_ERROR,
-              'Failed to check latest version from GitHub',
-            );
-          }
-
-          progress.step(3, 'Comparing versions');
-          const updateAvailable = latest !== currentVersion;
-          const preflight = checkStorageMigration();
-
-          cliOutput(
-            {
-              currentVersion,
-              latestVersion: latest,
-              channel: requestedChannel,
-              updateAvailable,
-              storagePreflight: {
-                migrationNeeded: preflight.migrationNeeded,
-                summary: preflight.summary,
-                fix: preflight.fix,
-              },
-            },
-            { command: 'self-update' },
-          );
-
-          if (opts['check'] && updateAvailable) {
-            process.exit(1); // exit 1 means update available for scripting
-          }
-          return;
-        }
-
-        // Actual update - delegated to shell for file system operations
+      if (args.status || args.check) {
         progress.step(2, 'Querying npm registry');
-        const latest =
-          (opts['version'] as string) ??
-          (await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest'));
+        const latest = await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest');
         if (!latest) {
           throw new CleoError(
             ExitCode.DEPENDENCY_ERROR,
@@ -245,62 +256,99 @@ export function registerSelfUpdateCommand(program: Command): void {
         }
 
         progress.step(3, 'Comparing versions');
-        if (latest === currentVersion && !opts['force']) {
-          // Up to date - still run post-update diagnostics
-          progress.step(4, 'Running post-update checks');
-          await runPostUpdateDiagnostics({
-            skipUpgrade: noAutoUpgrade,
-            autoMigrate: !!opts['autoMigrate'] || !!opts['force'],
-          });
-          progress.complete('Already up to date');
-          cliOutput(
-            {
-              currentVersion,
-              upToDate: true,
-            },
-            { command: 'self-update', message: 'Already up to date' },
-          );
-          return;
-        }
+        const updateAvailable = latest !== currentVersion;
+        const preflight = checkStorageMigration();
 
-        const spec = opts['version']
-          ? `@cleocode/cleo@${latest}`
-          : requestedChannel === 'beta'
-            ? '@cleocode/cleo@beta'
-            : '@cleocode/cleo@latest';
-
-        progress.step(4, `Installing ${spec}`);
-        await execAsync('npm', ['install', '-g', spec], { maxBuffer: 10 * 1024 * 1024 });
-        await writeRuntimeVersionMetadata('prod-npm', 'npm', latest);
-
-        progress.step(5, 'Finalizing');
         cliOutput(
           {
             currentVersion,
-            targetVersion: latest,
+            latestVersion: latest,
             channel: requestedChannel,
-            updated: true,
-            command: `npm install -g ${spec}`,
+            updateAvailable,
+            storagePreflight: {
+              migrationNeeded: preflight.migrationNeeded,
+              summary: preflight.summary,
+              fix: preflight.fix,
+            },
           },
-          { command: 'self-update', message: `Updated to ${latest}` },
+          { command: 'self-update' },
         );
 
+        if (args.check && updateAvailable) {
+          process.exit(1); // exit 1 means update available for scripting
+        }
+        return;
+      }
+
+      // Actual update - delegated to shell for file system operations
+      progress.step(2, 'Querying npm registry');
+      const latest =
+        (args.version as string | undefined) ??
+        (await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest'));
+      if (!latest) {
+        throw new CleoError(
+          ExitCode.DEPENDENCY_ERROR,
+          'Failed to check latest version from GitHub',
+        );
+      }
+
+      progress.step(3, 'Comparing versions');
+      if (latest === currentVersion && !args.force) {
+        // Up to date - still run post-update diagnostics
+        progress.step(4, 'Running post-update checks');
         await runPostUpdateDiagnostics({
           skipUpgrade: noAutoUpgrade,
-          autoMigrate: !!opts['autoMigrate'] || !!opts['force'],
+          autoMigrate: !!args['auto-migrate'] || !!args.force,
         });
-        progress.complete(`Updated to ${latest}`);
-      } catch (err) {
-        if (err instanceof CleoError) {
-          progress.error(err.message);
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        progress.error('Unexpected error during update');
-        throw err;
+        progress.complete('Already up to date');
+        cliOutput(
+          {
+            currentVersion,
+            upToDate: true,
+          },
+          { command: 'self-update', message: 'Already up to date' },
+        );
+        return;
       }
-    });
-}
+
+      const spec = args.version
+        ? `@cleocode/cleo@${latest}`
+        : requestedChannel === 'beta'
+          ? '@cleocode/cleo@beta'
+          : '@cleocode/cleo@latest';
+
+      progress.step(4, `Installing ${spec}`);
+      await execAsync('npm', ['install', '-g', spec], { maxBuffer: 10 * 1024 * 1024 });
+      await writeRuntimeVersionMetadata('prod-npm', 'npm', latest);
+
+      progress.step(5, 'Finalizing');
+      cliOutput(
+        {
+          currentVersion,
+          targetVersion: latest,
+          channel: requestedChannel,
+          updated: true,
+          command: `npm install -g ${spec}`,
+        },
+        { command: 'self-update', message: `Updated to ${latest}` },
+      );
+
+      await runPostUpdateDiagnostics({
+        skipUpgrade: noAutoUpgrade,
+        autoMigrate: !!args['auto-migrate'] || !!args.force,
+      });
+      progress.complete(`Updated to ${latest}`);
+    } catch (err) {
+      if (err instanceof CleoError) {
+        progress.error(err.message);
+        console.error(formatError(err));
+        process.exit(err.code);
+      }
+      progress.error('Unexpected error during update');
+      throw err;
+    }
+  },
+});
 
 /**
  * Run post-update diagnostics and auto-upgrade.

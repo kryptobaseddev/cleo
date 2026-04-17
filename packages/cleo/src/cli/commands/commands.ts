@@ -1,42 +1,63 @@
 /**
- * CLI commands command - list and query available CLEO commands.
- * Delegates to admin.help via dispatch layer.
+ * CLI commands command — list and query available CLEO commands.
+ *
+ * DEPRECATED: Use `cleo ops` instead. This command delegates to
+ * `admin.help` via the dispatch layer for backwards compatibility.
+ *
  * @task T4551, T5671
  * @epic T4545
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the commands command.
- * @task T4551, T5671
+ * `cleo commands` — DEPRECATED alias that delegates to `admin.help`.
+ *
+ * Use `cleo ops` instead. Retained for backwards compatibility only.
  */
-export function registerCommandsCommand(program: Command): void {
-  program
-    .command('commands [command]')
-    .description(
-      'DEPRECATED: Use `cleo ops` instead. List and query available CLEO commands (delegates to admin help)',
-    )
-    .option('-c, --category <category>', 'Filter by category')
-    .option('-r, --relevance <level>', 'Filter by agent relevance')
-    .option('--tier <n>', 'Help tier level (0=basic, 1=extended, 2=full)', parseInt)
-    .action(async (commandName: string | undefined, opts: Record<string, unknown>) => {
-      console.error(
-        '[DEPRECATED] cleo commands now delegates to admin.help.\n' + 'Use: cleo help (CLI)\n',
-      );
+export const commandsCommand = defineCommand({
+  meta: {
+    name: 'commands',
+    description: 'DEPRECATED: Use `cleo ops` instead. List and query available CLEO commands',
+  },
+  args: {
+    command: {
+      type: 'positional',
+      description: 'Command name to look up (optional)',
+      required: false,
+    },
+    category: {
+      type: 'string',
+      description: 'Filter by category',
+      alias: 'c',
+    },
+    relevance: {
+      type: 'string',
+      description: 'Filter by agent relevance',
+      alias: 'r',
+    },
+    tier: {
+      type: 'string',
+      description: 'Help tier level (0=basic, 1=extended, 2=full)',
+    },
+  },
+  async run({ args }) {
+    console.error(
+      '[DEPRECATED] cleo commands now delegates to admin.help.\nUse: cleo help (CLI)\n',
+    );
 
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'help',
-        {
-          tier: (opts['tier'] as number) ?? 0,
-          domain: commandName,
-          category: opts['category'],
-          relevance: opts['relevance'],
-        },
-        { command: 'commands', operation: 'admin.help' },
-      );
-    });
-}
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'help',
+      {
+        tier: args.tier !== undefined ? Number.parseInt(args.tier, 10) : 0,
+        domain: args.command,
+        category: args.category,
+        relevance: args.relevance,
+      },
+      { command: 'commands', operation: 'admin.help' },
+    );
+  },
+});

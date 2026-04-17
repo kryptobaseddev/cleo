@@ -24,8 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerBackupCommand } from '../backup.js';
+import { backupCommand } from '../backup.js';
 
 // ---------------------------------------------------------------------------
 // Capture stdout/stderr written via console.log / console.error
@@ -179,23 +178,24 @@ function writeBundleFile(tmpDir: string, overrides: Record<string, unknown> = {}
 }
 
 // ---------------------------------------------------------------------------
-// Action extractor helper
+// Action invoker helper
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the ShimCommand tree for `backup` and returns the `inspect`
- * subcommand's action handler.
+ * Invoke the citty inspect subcommand's run handler with the given bundle path.
  *
- * @returns Action function `(bundlePath: string) => Promise<void>`.
+ * @param bundlePath - Path to the bundle file.
  */
-function getInspectAction(): (bundlePath: string) => Promise<void> {
-  const program = new Command();
-  registerBackupCommand(program);
-  const backupCmd = program.commands.find((c) => c.name() === 'backup');
-  if (!backupCmd) throw new Error('backup command not registered');
-  const inspectCmd = backupCmd.commands.find((c) => c.name() === 'inspect');
-  if (!inspectCmd?._action) throw new Error('backup inspect subcommand has no action registered');
-  return inspectCmd._action as (bundlePath: string) => Promise<void>;
+async function runInspect(bundlePath: string): Promise<void> {
+  const inspectCmd = backupCommand.subCommands?.['inspect'];
+  if (!inspectCmd || typeof inspectCmd !== 'object' || !('run' in inspectCmd)) {
+    throw new Error('backup inspect subcommand not found');
+  }
+  await (
+    inspectCmd as {
+      run: (ctx: { args: { bundle: string }; rawArgs: string[] }) => Promise<void>;
+    }
+  ).run({ args: { bundle: bundlePath }, rawArgs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +219,7 @@ describe('T363 cleo backup inspect', () => {
 
   describe('non-existent bundle', () => {
     it('sets exitCode=4 and outputs an error when bundle does not exist', async () => {
-      const action = getInspectAction();
-      await action('/tmp/does-not-exist-cleo-T363.cleobundle.tar.gz');
+      await runInspect('/tmp/does-not-exist-cleo-T363.cleobundle.tar.gz');
 
       expect(process.exitCode).toBe(4);
       expect(consoleErrors.join('\n')).toContain('"code":4');
@@ -234,8 +233,7 @@ describe('T363 cleo backup inspect', () => {
   describe('unencrypted bundle', () => {
     it('prints manifest contents including scope, databases, json files', async () => {
       const bundlePath = writeBundleFile(tmpDir);
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       const out = consoleOutput.join('\n');
       // Bundle header
@@ -264,8 +262,7 @@ describe('T363 cleo backup inspect', () => {
       const bundlePath = path.join(tmpDir, 'tampered.cleobundle.tar.gz');
       fs.writeFileSync(bundlePath, buf);
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       const out = consoleOutput.join('\n');
       expect(out).toContain('[TAMPERED]');
@@ -285,8 +282,7 @@ describe('T363 cleo backup inspect', () => {
       const bundlePath = path.join(tmpDir, 'nomanifest.cleobundle.tar.gz');
       fs.writeFileSync(bundlePath, gz);
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       expect(process.exitCode).toBe(74);
       expect(consoleErrors.join('\n')).toContain('manifest.json not found');
@@ -309,8 +305,7 @@ describe('T363 cleo backup inspect', () => {
 
       delete process.env['CLEO_BACKUP_PASSPHRASE'];
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       const out = consoleOutput.join('\n');
       expect(out).toContain('encrypted');
@@ -336,8 +331,7 @@ describe('T363 cleo backup inspect', () => {
 
       process.env['CLEO_BACKUP_PASSPHRASE'] = 'my-secret-T363';
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       const out = consoleOutput.join('\n');
       expect(out).toContain('tasks.db');
@@ -356,8 +350,7 @@ describe('T363 cleo backup inspect', () => {
 
       process.env['CLEO_BACKUP_PASSPHRASE'] = 'wrong-passphrase';
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       expect(process.exitCode).toBe(70);
       expect(consoleErrors.join('\n')).toContain('"code":70');
@@ -373,8 +366,7 @@ describe('T363 cleo backup inspect', () => {
       const bundlePath = writeBundleFile(tmpDir);
       const filesBefore = fs.readdirSync(tmpDir);
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       // The bundle file itself is present; no additional files should appear.
       const filesAfter = fs.readdirSync(tmpDir);
@@ -385,8 +377,7 @@ describe('T363 cleo backup inspect', () => {
       const bundlePath = writeBundleFile(tmpDir);
       const tmpBefore = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('cleo-inspect-'));
 
-      const action = getInspectAction();
-      await action(bundlePath);
+      await runInspect(bundlePath);
 
       const tmpAfter = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('cleo-inspect-'));
       expect(tmpAfter.length).toBe(tmpBefore.length);

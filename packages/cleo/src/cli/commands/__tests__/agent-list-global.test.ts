@@ -1,5 +1,5 @@
 /**
- * CLI integration tests for `cleo agent list` (T362 — Wave 3 of T310 epic).
+ * CLI integration tests for `cleo agent list` (T362 — native citty).
  *
  * Covers:
  *   TC-081: cleo agent list without --global returns only project-attached agents
@@ -12,22 +12,15 @@
  *   TC-089: cleo agent get <id> --global uses includeGlobal=true
  *   TC-090: cleo agent get <id> --global surfaces projectRef=null annotation when not attached
  *
- * These tests mock `listAgentsForProject`, `lookupAgent`, and `getDb` so no
- * real SQLite databases are needed.
- *
  * @task T362 @epic T310
- * @see packages/cleo/src/cli/commands/agent.ts
- * @see .cleo/rcasd/T310/specification/T310-specification.md §5.2
- * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md §4
  */
 
 import type { AgentWithProjectOverride, ProjectAgentRef } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerAgentCommand } from '../agent.js';
+import { agentCommand } from '../agent.js';
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — defined before any imports so vi can hoist correctly.
+// Hoisted mocks
 // ---------------------------------------------------------------------------
 
 const { mockListAgentsForProject, mockLookupAgent, mockGetDb, mockCliOutput } = vi.hoisted(() => ({
@@ -41,7 +34,6 @@ vi.mock('@cleocode/core/internal', () => ({
   listAgentsForProject: mockListAgentsForProject,
   lookupAgent: mockLookupAgent,
   getDb: mockGetDb,
-  // Other exports used elsewhere in agent.ts that need stubs
   AgentRegistryAccessor: vi.fn(),
   checkAgentHealth: vi.fn(),
   detectCrashedAgents: vi.fn(),
@@ -60,7 +52,6 @@ vi.mock('../../renderers/index.js', () => ({
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-/** Build a minimal ProjectAgentRef for testing. */
 function makeRef(enabled: 0 | 1 = 1): ProjectAgentRef {
   return {
     agentId: 'agent-alpha',
@@ -72,7 +63,6 @@ function makeRef(enabled: 0 | 1 = 1): ProjectAgentRef {
   };
 }
 
-/** Build a minimal AgentWithProjectOverride fixture. */
 function makeAgent(
   agentId: string,
   overrides: Partial<AgentWithProjectOverride> = {},
@@ -98,31 +88,17 @@ function makeAgent(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: invoke the action handler for a subcommand
+// Helper: invoke the run function for a subcommand
 // ---------------------------------------------------------------------------
 
-/**
- * Registers the agent command group on a fresh ShimCommand tree, then
- * invokes the named subcommand's `_action` with the provided arguments.
- *
- * For subcommands with positional args, those values are placed before `opts`
- * in the spread (mirrors Commander's handler calling convention).
- */
-async function invokeAgentSubcommand(
-  subcommandName: string,
-  positionalArgs: unknown[],
-  opts: Record<string, unknown> = {},
-): Promise<void> {
-  const program = new Command();
-  registerAgentCommand(program);
+type RunContext = { args: Record<string, unknown>; rawArgs: string[] };
+type RunFn = (ctx: RunContext) => Promise<void>;
 
-  const agentCmd = program.commands.find((c) => c.name() === 'agent');
-  if (!agentCmd) throw new Error('agent command not registered');
-
-  const sub = agentCmd.commands.find((c) => c.name() === subcommandName);
-  if (!sub?._action) throw new Error(`${subcommandName} subcommand has no action registered`);
-
-  await sub._action(...positionalArgs, opts);
+function getAgentSubRun(subName: string): RunFn {
+  const subs = agentCommand.subCommands as Record<string, { run?: RunFn }>;
+  const sub = subs[subName];
+  if (!sub?.run) throw new Error(`agent ${subName} subcommand has no run function`);
+  return sub.run;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +119,8 @@ describe('cleo agent list', () => {
     const attached = makeAgent('agent-alpha', { projectRef: makeRef(1) });
     mockListAgentsForProject.mockReturnValue([attached]);
 
-    await invokeAgentSubcommand('list', [], {});
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
 
     expect(mockListAgentsForProject).toHaveBeenCalledWith(expect.any(String), {
       includeGlobal: false,
@@ -159,7 +136,8 @@ describe('cleo agent list', () => {
   it('TC-082: project with no project_agent_refs returns empty array', async () => {
     mockListAgentsForProject.mockReturnValue([]);
 
-    await invokeAgentSubcommand('list', [], {});
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].success).toBe(true);
@@ -171,7 +149,8 @@ describe('cleo agent list', () => {
     const attached = makeAgent('agent-local', { projectRef: makeRef(1) });
     mockListAgentsForProject.mockReturnValue([globalOnly, attached]);
 
-    await invokeAgentSubcommand('list', [], { global: true });
+    const run = getAgentSubRun('list');
+    await run({ args: { global: true }, rawArgs: [] });
 
     expect(mockListAgentsForProject).toHaveBeenCalledWith(expect.any(String), {
       includeGlobal: true,
@@ -187,7 +166,8 @@ describe('cleo agent list', () => {
     const detached = makeAgent('agent-detached', { projectRef: makeRef(0) });
     mockListAgentsForProject.mockReturnValue([detached]);
 
-    await invokeAgentSubcommand('list', [], { includeDisabled: true });
+    const run = getAgentSubRun('list');
+    await run({ args: { 'include-disabled': true }, rawArgs: [] });
 
     expect(mockListAgentsForProject).toHaveBeenCalledWith(expect.any(String), {
       includeGlobal: false,
@@ -204,7 +184,8 @@ describe('cleo agent list', () => {
     const disabledAgent = makeAgent('agent-y', { projectRef: makeRef(0) });
     mockListAgentsForProject.mockReturnValue([globalAgent, disabledAgent]);
 
-    await invokeAgentSubcommand('list', [], { global: true, includeDisabled: true });
+    const run = getAgentSubRun('list');
+    await run({ args: { global: true, 'include-disabled': true }, rawArgs: [] });
 
     expect(mockListAgentsForProject).toHaveBeenCalledWith(expect.any(String), {
       includeGlobal: true,
@@ -219,7 +200,8 @@ describe('cleo agent list', () => {
     const agent = makeAgent('agent-alpha', { projectRef: makeRef(1) });
     mockListAgentsForProject.mockReturnValue([agent]);
 
-    await invokeAgentSubcommand('list', [], {});
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].data[0].attachment).toBe('[attached]');
@@ -229,7 +211,8 @@ describe('cleo agent list', () => {
     const agent = makeAgent('agent-beta', { projectRef: null });
     mockListAgentsForProject.mockReturnValue([agent]);
 
-    await invokeAgentSubcommand('list', [], { global: true });
+    const run = getAgentSubRun('list');
+    await run({ args: { global: true }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].data[0].attachment).toBe('[global]');
@@ -239,7 +222,8 @@ describe('cleo agent list', () => {
     const agent = makeAgent('agent-gamma', { projectRef: makeRef(0) });
     mockListAgentsForProject.mockReturnValue([agent]);
 
-    await invokeAgentSubcommand('list', [], { includeDisabled: true });
+    const run = getAgentSubRun('list');
+    await run({ args: { 'include-disabled': true }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].data[0].attachment).toBe('[disabled]');
@@ -249,7 +233,8 @@ describe('cleo agent list', () => {
     const agent = makeAgent('agent-cols', { projectRef: makeRef(1) });
     mockListAgentsForProject.mockReturnValue([agent]);
 
-    await invokeAgentSubcommand('list', [], {});
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     const row = outputCall[0].data[0] as Record<string, unknown>;
@@ -267,7 +252,8 @@ describe('cleo agent list', () => {
       throw new Error('DB unavailable');
     });
 
-    await invokeAgentSubcommand('list', [], {});
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].success).toBe(false);
@@ -284,7 +270,8 @@ describe('cleo agent get --global', () => {
     const agent = makeAgent('agent-alpha', { projectRef: makeRef(1) });
     mockLookupAgent.mockReturnValue(agent);
 
-    await invokeAgentSubcommand('get', ['agent-alpha'], {});
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'agent-alpha' }, rawArgs: [] });
 
     expect(mockLookupAgent).toHaveBeenCalledWith(expect.any(String), 'agent-alpha', {
       includeGlobal: false,
@@ -295,7 +282,8 @@ describe('cleo agent get --global', () => {
     const agent = makeAgent('agent-alpha', { projectRef: null });
     mockLookupAgent.mockReturnValue(agent);
 
-    await invokeAgentSubcommand('get', ['agent-alpha'], { global: true });
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'agent-alpha', global: true }, rawArgs: [] });
 
     expect(mockLookupAgent).toHaveBeenCalledWith(expect.any(String), 'agent-alpha', {
       includeGlobal: true,
@@ -306,7 +294,8 @@ describe('cleo agent get --global', () => {
     const agent = makeAgent('agent-globalonly', { projectRef: null });
     mockLookupAgent.mockReturnValue(agent);
 
-    await invokeAgentSubcommand('get', ['agent-globalonly'], { global: true });
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'agent-globalonly', global: true }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].success).toBe(true);
@@ -316,7 +305,8 @@ describe('cleo agent get --global', () => {
   it('returns E_NOT_FOUND exit code 4 when lookupAgent returns null', async () => {
     mockLookupAgent.mockReturnValue(null);
 
-    await invokeAgentSubcommand('get', ['nonexistent'], {});
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'nonexistent' }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].success).toBe(false);
@@ -330,7 +320,8 @@ describe('cleo agent get --global', () => {
     });
     mockLookupAgent.mockReturnValue(agent);
 
-    await invokeAgentSubcommand('get', ['agent-redact'], {});
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'agent-redact' }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].data.apiKey).toContain('...');
@@ -342,7 +333,8 @@ describe('cleo agent get --global', () => {
     const agent = makeAgent('agent-alpha', { projectRef: ref });
     mockLookupAgent.mockReturnValue(agent);
 
-    await invokeAgentSubcommand('get', ['agent-alpha'], {});
+    const run = getAgentSubRun('get');
+    await run({ args: { agentId: 'agent-alpha' }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
     expect(outputCall[0].data.projectRef).toBeTruthy();
