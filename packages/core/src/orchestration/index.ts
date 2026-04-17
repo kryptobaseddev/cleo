@@ -32,7 +32,25 @@ export type {
 export { AtomicityViolationError, checkAtomicity, MAX_WORKER_FILES } from './atomicity.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
+export type {
+  HarnessHint,
+  HarnessHintResult,
+  HarnessProfile,
+  ResolveHarnessHintOptions,
+} from './harness-hint.js';
+export {
+  DEDUP_EMBED_CHARS,
+  loadHarnessProfile,
+  persistHarnessProfile,
+  resolveHarnessHint,
+} from './harness-hint.js';
 export { OrchestrationHierarchyImpl } from './hierarchy.js';
+export type {
+  ComposeSpawnPayloadOptions,
+  SpawnPayload,
+  SpawnPayloadMeta,
+} from './spawn.js';
+export { composeSpawnPayload } from './spawn.js';
 export type {
   BuildSpawnPromptInput,
   BuildSpawnPromptResult,

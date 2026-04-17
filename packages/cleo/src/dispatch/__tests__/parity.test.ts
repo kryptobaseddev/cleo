@@ -143,9 +143,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T811: orchestrate.ivtr.{status,start,next,release,loop-back} — +1 query / +4 mutate / +5 total.
     // T798: docs.generate (query) — +1 query / +1 total.
     // T820: pipeline.release.changelog.since (query) + pipeline.release.rollback.full (mutate) — +1 query / +1 mutate / +2 total.
-    expect(queryCount).toBe(159);
+    // T889/W3-6: orchestrate.plan (query) — +1 query / +1 total.
+    expect(queryCount).toBe(160);
     expect(mutateCount).toBe(111);
-    expect(OPERATIONS.length).toBe(270);
+    expect(OPERATIONS.length).toBe(271);
   });
 
   it('all operations have valid gateway values', () => {

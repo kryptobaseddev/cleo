@@ -170,6 +170,36 @@ const wavesCommand = defineCommand({
   },
 });
 
+/** cleo orchestrate plan — emit a deterministic wave+worker plan for an epic (T889 / W3-6) */
+const planCommand = defineCommand({
+  meta: {
+    name: 'plan',
+    description: 'Emit a deterministic wave+worker plan for an epic (machine-readable)',
+  },
+  args: {
+    epicId: {
+      type: 'positional',
+      description: 'Epic ID to plan',
+      required: true,
+    },
+    tier: {
+      type: 'string',
+      description: 'Preferred resolver tier (0=project, 1=global, 2=packaged)',
+    },
+  },
+  async run({ args }) {
+    const preferTier =
+      args.tier !== undefined ? (Number.parseInt(args.tier, 10) as 0 | 1 | 2) : undefined;
+    await dispatchFromCli(
+      'query',
+      'orchestrate',
+      'plan',
+      { epicId: args.epicId, preferTier },
+      { command: 'orchestrate', operation: 'orchestrate.plan' },
+    );
+  },
+});
+
 /** cleo orchestrate spawn — prepare spawn context for a subagent */
 const spawnCommand = defineCommand({
   meta: { name: 'spawn', description: 'Prepare spawn context for a subagent' },
@@ -703,6 +733,7 @@ export const orchestrateCommand = defineCommand({
     ready: readyCommand,
     next: nextCommand,
     waves: wavesCommand,
+    plan: planCommand,
     spawn: spawnCommand,
     validate: validateCommand,
     context: contextCommand,
