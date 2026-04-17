@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.4.1 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.5.0 | CLI-only dispatch | `cleo <command> [args]`
 
 ## Session Start (cheapest-first)
 
@@ -91,24 +91,81 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | 4 | `E_NOT_FOUND` | `cleo find` to verify ID |
 | 6 | `E_VALIDATION` | Check field lengths |
 | 10 | `E_PARENT_NOT_FOUND` | `cleo exists <id>` |
-| 80 | `E_LIFECYCLE_GATE_FAILED` | Parent epic not in implementation stage yet — advance with `cleo lifecycle complete` |
+| 80 | `E_LIFECYCLE_GATE_FAILED` | Parent epic not in implementation stage yet — advance with `cleo lifecycle complete` (now auto-syncs `tasks.pipelineStage`) |
 | 83 | `E_IVTR_INCOMPLETE` | IVTR loop not released — run `cleo orchestrate ivtr <id> --next` |
+| — | `E_EVIDENCE_MISSING` | `cleo verify … --evidence <atoms>` — see "Pre-Complete Gate Ritual" |
+| — | `E_EVIDENCE_INSUFFICIENT` | Add missing atom kind for the gate (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
+| — | `E_EVIDENCE_TESTS_FAILED` | Fix failing tests before re-verifying with `tool:pnpm-test` or `test-run:<json>` |
+| — | `E_EVIDENCE_TOOL_FAILED` | Tool (biome/tsc/…) exited non-zero; fix source and re-run |
+| — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
+| — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
 
-## Pre-Complete Gate Ritual
+## Pre-Complete Gate Ritual (ADR-051 — evidence required)
 
-MANDATORY before every `cleo complete <id>`:
+MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by
+programmatic evidence that CLEO validates against git, the filesystem, or the
+toolchain. `cleo verify --all` alone is REJECTED with `E_EVIDENCE_MISSING`.
 
-1. `cleo show <id>` — inspect gates
-2. Run each acceptance criterion verifiable (tests, lint, file checks)
-3. `cleo verify <id> --run` — executes programmatic AcceptanceGates
-4. `cleo memory observe "..." --title "..."` — capture learnings
-5. `cleo complete <id>` — should pass cleanly
+### 1. Capture evidence for each gate
 
-Anti-patterns to avoid:
+```bash
+# implemented — commit + file list
+cleo verify T### --gate implemented \
+  --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
+
+# testsPassed — vitest JSON or direct tool
+cleo verify T### --gate testsPassed --evidence "tool:pnpm-test"
+#   OR
+cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
+
+# qaPassed — biome + tsc exit 0
+cleo verify T### --gate qaPassed --evidence "tool:biome;tool:tsc"
+
+# documented — docs files or URL
+cleo verify T### --gate documented --evidence "files:docs/spec.md"
+
+# securityPassed — scan or waiver
+cleo verify T### --gate securityPassed --evidence "tool:security-scan"
+#   OR with justification
+cleo verify T### --gate securityPassed --evidence "note:no network surface"
+
+# cleanupDone — summary
+cleo verify T### --gate cleanupDone --evidence "note:removed dead branches"
+```
+
+### 2. Then complete
+
+```bash
+cleo complete T###
+```
+
+On complete, CLEO re-validates every hard atom (commit reachable, file sha256
+match, test-run hash match). Tampering → `E_EVIDENCE_STALE`, re-verify required.
+
+### 3. Record learnings
+
+```bash
+cleo memory observe "..." --title "..."
+```
+
+### Emergency override (audited)
+
+```bash
+CLEO_OWNER_OVERRIDE=1 \
+CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \
+  cleo verify T### --all --evidence "note:owner-approved"
+```
+
+All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
+
+### Anti-patterns to avoid
+
 - ❌ Calling `cleo complete` without verifying tests actually ran
-- ❌ Marking all gates green on `cleo verify --all` when only some criteria were checked
+- ❌ `cleo verify --all` without `--evidence` (REJECTED post-ADR-051)
+- ❌ `cleo complete --force` (REMOVED post-ADR-051)
 - ❌ Skipping `cleo memory observe` on non-trivial tasks
-- ❌ Self-attesting without programmatic proof (IVTR validate phase exists to prevent this)
+- ❌ Self-attesting without programmatic proof
+- ❌ Modifying files after `cleo verify` but before `cleo complete` (caught by staleness check)
 
 ## Rules
 

@@ -206,8 +206,42 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo show T1234` | Full task details |
 | `cleo add "Task" --parent T1575` | Create child task |
 | `cleo start T1586` / `cleo complete T1586` | Task lifecycle |
+| `cleo verify T1586 --gate <g> --evidence <atoms>` | Evidence-based gate write (ADR-051) |
 | `cleo manifest list --filter pending` | Followup items |
 | `cleo session end --note "summary"` | End session with handoff context |
+
+## Evidence-Based Completion (ADR-051 / T832)
+
+As of v2026.4.78, every `cleo verify` gate write requires programmatic evidence.
+`--all` without `--evidence` is REJECTED. `--force` has been REMOVED from
+`cleo complete`. Gates are re-validated at complete time — tampering with
+files between `verify` and `complete` triggers `E_EVIDENCE_STALE`.
+
+### Evidence per gate (minimum)
+
+| Gate | Required atoms |
+|------|---------------|
+| `implemented` | `commit:<sha>` AND `files:<comma-separated>` |
+| `testsPassed` | `tool:pnpm-test` OR `test-run:<vitest-json>` |
+| `qaPassed` | `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
+| `documented` | `files:<docs-path>` OR `url:<doc-url>` |
+| `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
+| `cleanupDone` | `note:<summary>` |
+
+Orchestrator workflow for each completing task:
+
+```bash
+# 1. Worker reports done with evidence atoms in manifest key_findings
+# 2. Orchestrator runs:
+cleo verify <taskId> --gate implemented --evidence "commit:$(git rev-parse HEAD);files:<list>"
+cleo verify <taskId> --gate testsPassed --evidence "tool:pnpm-test"
+cleo verify <taskId> --gate qaPassed   --evidence "tool:biome;tool:tsc"
+# 3. Close:
+cleo complete <taskId>
+```
+
+Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
+before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.
 
 ## References
 

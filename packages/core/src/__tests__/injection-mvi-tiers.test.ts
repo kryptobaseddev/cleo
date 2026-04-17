@@ -1,5 +1,5 @@
 /**
- * Test CLEO-INJECTION.md v2.4.0 optimized CLI-only template.
+ * Test CLEO-INJECTION.md v2.5.0 CLI-only template with evidence-based gate protocol.
  *
  * Validates the trimmed template:
  * 1. Has version 2.4.0 with CLI-only dispatch
@@ -22,7 +22,7 @@ const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 
 const templateExists = existsSync(injectionPath);
 
-describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
+describe('CLEO-INJECTION v2.5.0 CLI-only template', () => {
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
@@ -30,10 +30,11 @@ describe('CLEO-INJECTION v2.4.0 CLI-only template', () => {
   });
 
   describe('Version and identity', () => {
-    it('has version 2.4.1 (v2026.4.74 template update)', () => {
-      // Added: Triggers table, Orchestration + Docs cheat-sheets, Pre-Complete
-      // Gate Ritual, exit codes 80+83, and corrected `cleo observe` → `cleo memory observe`.
-      expect(content).toContain('Version: 2.4.1');
+    it('has version 2.5.0 (T832/ADR-051 evidence-based gate protocol)', () => {
+      // v2.5.0 (T832/ADR-051): Evidence-based gate verification protocol — replaces
+      // rubber-stampable `cleo verify --all` with `cleo verify --gate <g> --evidence <atoms>`.
+      // --force removed from `cleo complete` (owner-approved env only).
+      expect(content).toContain('Version: 2.5.0');
     });
 
     it('declares CLI-only dispatch', () => {
