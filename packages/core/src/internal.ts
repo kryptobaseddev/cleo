@@ -145,6 +145,16 @@ export {
   type RetryOptions,
   withRetry as withRetryShared,
 } from './lib/retry.js';
+// Pipeline-stage backfill (T869: realign tasks.pipeline_stage with lifecycle_stages pre-T832)
+export type {
+  PipelineStageBackfillChange,
+  PipelineStageBackfillResult,
+} from './lifecycle/backfill-pipeline-stage.js';
+export {
+  BACKFILL_KEY as PIPELINE_STAGE_BACKFILL_KEY,
+  backfillPipelineStageFromLifecycle,
+  isPipelineStageBackfillDone,
+} from './lifecycle/backfill-pipeline-stage.js';
 export {
   addChain,
   advanceInstance,
@@ -657,6 +667,31 @@ export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
+// Evidence-based verification (T832 / ADR-051)
+export {
+  type AtomValidation,
+  checkGateEvidenceMinimum,
+  composeGateEvidence,
+  type EvidenceTool,
+  GATE_EVIDENCE_MINIMUMS,
+  type ParsedAtom,
+  type ParsedEvidence,
+  parseEvidence,
+  type RevalidationResult,
+  revalidateEvidence,
+  TOOL_COMMANDS,
+  VALID_TOOLS,
+  validateAtom,
+} from './tasks/evidence.js';
+// Gate audit trail (T832 / ADR-051)
+export {
+  appendForceBypassLine,
+  appendGateAuditLine,
+  type ForceBypassRecord,
+  type GateAuditRecord,
+  getForceBypassPath,
+  getGateAuditPath,
+} from './tasks/gate-audit.js';
 export type { RunGatesOptions } from './tasks/gate-runner.js';
 // Gate runner (T813)
 export { extractTypedGates, runGates } from './tasks/gate-runner.js';
