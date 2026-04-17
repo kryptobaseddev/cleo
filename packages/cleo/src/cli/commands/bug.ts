@@ -1,16 +1,21 @@
 /**
- * CLI bug command - shorthand for creating bug report tasks.
+ * CLI bug command — shorthand for creating bug-report tasks with severity mapping.
+ *
+ * Maps P0–P3 severity levels to task priority and labels, then dispatches
+ * to `tasks.add` via the CLI adapter.
+ *
+ *   cleo bug <title> --severity P1 [--epic <id>] [--description <desc>] [--dry-run]
+ *
  * @task T4913
  * @epic T4454
  */
 
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
-import { cliOutput } from '../renderers/index.js';
+import { defineCommand } from 'citty';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Severity mapping configuration.
- * Maps severity levels to priority and labels.
+ * Maps P0–P3 severity levels to task priority and label arrays.
  */
 const SEVERITY_MAP: Record<string, { priority: string; labels: string[] }> = {
   P0: { priority: 'critical', labels: ['bug', 'p0'] },
@@ -20,74 +25,78 @@ const SEVERITY_MAP: Record<string, { priority: string; labels: string[] }> = {
 };
 
 /**
- * Valid severity levels for error messages.
+ * Valid severity level keys for validation error messages.
  */
 const VALID_SEVERITIES = Object.keys(SEVERITY_MAP);
 
 /**
- * Register the bug command.
- * @task T4913
+ * `cleo bug` — create a bug-report task with automatic severity mapping.
+ *
+ * Dispatches to `tasks.add` with priority and labels derived from the
+ * --severity flag (P0 = critical … P3 = low).
  */
-export function registerBugCommand(program: Command): void {
-  program
-    .command('bug <title>')
-    .description('Create a bug report task with severity mapping (requires active session)')
-    .option('-s, --severity <level>', 'Severity level (P0, P1, P2, P3) - required', 'P2')
-    .option('-e, --epic <id>', 'Epic ID to link as parent (optional)')
-    .option('-d, --description <desc>', 'Bug description')
-    .option('--dry-run', 'Show what would be created without making changes')
-    .action(async (title: string, opts: Record<string, unknown>) => {
-      const severity = (opts['severity'] as string) || 'P2';
+export const bugCommand = defineCommand({
+  meta: {
+    name: 'bug',
+    description: 'Create a bug report task with severity mapping (requires active session)',
+  },
+  args: {
+    title: {
+      type: 'positional',
+      description: 'Bug report title',
+      required: true,
+    },
+    severity: {
+      type: 'string',
+      description: 'Severity level (P0, P1, P2, P3)',
+      alias: 's',
+      default: 'P2',
+    },
+    epic: {
+      type: 'string',
+      description: 'Epic ID to link as parent (optional)',
+      alias: 'e',
+    },
+    description: {
+      type: 'string',
+      description: 'Bug description',
+      alias: 'd',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be created without making changes',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const severity = args.severity ?? 'P2';
 
-      // Validate severity level
-      if (!VALID_SEVERITIES.includes(severity)) {
-        console.error(
-          `Error: Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`,
-        );
-        process.exit(1);
-      }
+    if (!VALID_SEVERITIES.includes(severity)) {
+      console.error(
+        `Error: Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`,
+      );
+      process.exit(1);
+    }
 
-      const mapping = SEVERITY_MAP[severity];
+    const mapping = SEVERITY_MAP[severity];
 
-      const params: Record<string, unknown> = {
-        title,
-        type: 'task',
-        priority: mapping.priority,
-        labels: mapping.labels,
-        origin: 'bug-report',
-        description: (opts['description'] as string) || title,
-      };
+    const params: Record<string, unknown> = {
+      title: args.title,
+      type: 'task',
+      priority: mapping.priority,
+      labels: mapping.labels,
+      origin: 'bug-report',
+      description: args.description ?? args.title,
+    };
 
-      // Link to epic if provided
-      if (opts['epic'] !== undefined) {
-        params['parent'] = opts['epic'];
-      }
+    if (args.epic !== undefined) {
+      params['parent'] = args.epic;
+    }
 
-      if (opts['dryRun'] !== undefined) {
-        params['dryRun'] = opts['dryRun'];
-      }
+    if (args['dry-run']) {
+      params['dryRun'] = true;
+    }
 
-      const response = await dispatchRaw('mutate', 'tasks', 'add', params);
-
-      if (!response.success) {
-        handleRawError(response, { command: 'bug', operation: 'tasks.add' });
-      }
-
-      const data = response.data as Record<string, unknown>;
-      if (data?.duplicate) {
-        cliOutput(data, {
-          command: 'add',
-          message: 'Task with identical title was created recently',
-          operation: 'tasks.add',
-        });
-      } else if (data?.dryRun) {
-        cliOutput(data, {
-          command: 'add',
-          message: 'Dry run - no changes made',
-          operation: 'tasks.add',
-        });
-      } else {
-        cliOutput(data, { command: 'add', operation: 'tasks.add' });
-      }
-    });
-}
+    await dispatchFromCli('mutate', 'tasks', 'add', params, { command: 'bug' });
+  },
+});

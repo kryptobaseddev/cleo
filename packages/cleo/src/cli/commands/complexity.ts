@@ -4,31 +4,31 @@
  * @epic T443
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo complexity estimate — estimate complexity of a single task */
+const complexityEstimateCommand = defineCommand({
+  meta: { name: 'estimate', description: 'Estimate complexity of a task (small / medium / large)' },
+  args: { taskId: { type: 'positional', description: 'Task ID to estimate', required: true } },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'complexity.estimate',
+      { taskId: args.taskId as string },
+      { command: 'complexity', operation: 'tasks.complexity.estimate' },
+    );
+  },
+});
 
 /**
- * Register the complexity command group and its subcommands.
+ * Native citty command group for task complexity analysis.
  *
- * @remarks
- * Exposes `tasks.complexity.estimate` as `cleo complexity estimate <taskId>`.
+ * Exposes tasks.complexity.estimate as cleo complexity estimate <taskId>.
  * Returns a complexity estimate (small/medium/large) with reasoning.
- *
- * @param program - Root CLI program instance.
  */
-export function registerComplexityCommand(program: Command): void {
-  const complexity = program.command('complexity').description('Task complexity analysis');
-
-  complexity
-    .command('estimate <taskId>')
-    .description('Estimate complexity of a task (small / medium / large)')
-    .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'query',
-        'tasks',
-        'complexity.estimate',
-        { taskId },
-        { command: 'complexity', operation: 'tasks.complexity.estimate' },
-      );
-    });
-}
+export const complexityCommand = defineCommand({
+  meta: { name: 'complexity', description: 'Task complexity analysis' },
+  subCommands: { estimate: complexityEstimateCommand },
+});

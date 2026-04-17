@@ -17,8 +17,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerBackupCommand } from '../backup.js';
+import { backupCommand } from '../backup.js';
 
 // ---------------------------------------------------------------------------
 // Mock @cleocode/core/internal — prevents tar / sqlite / lafs chain
@@ -41,22 +40,30 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Helper — extract the `backup export` action handler from the shim tree
+// Helper — invoke the `backup export` subcommand run handler directly
 // ---------------------------------------------------------------------------
 
+type ExportArgs = {
+  name: string;
+  scope?: string;
+  encrypt?: boolean;
+  out?: string;
+};
+
 /**
- * Build the command tree and return the action registered on `backup export`.
+ * Invoke the citty export subcommand's run handler with the given args.
  *
- * @returns The async action handler for testing.
+ * @param args - Arguments to pass to the export run handler.
  */
-function getExportAction(): (name: string, opts: Record<string, unknown>) => Promise<void> {
-  const program = new Command();
-  registerBackupCommand(program);
-  const backupCmd = program.commands.find((c) => c.name() === 'backup');
-  if (!backupCmd) throw new Error('backup command not registered');
-  const sub = backupCmd.commands.find((c) => c.name() === 'export');
-  if (!sub?._action) throw new Error('backup export subcommand has no action registered');
-  return sub._action as (name: string, opts: Record<string, unknown>) => Promise<void>;
+async function runExport(args: ExportArgs): Promise<void> {
+  const exportCmd = backupCommand.subCommands?.['export'];
+  if (!exportCmd || typeof exportCmd !== 'object' || !('run' in exportCmd)) {
+    throw new Error('backup export subcommand not found');
+  }
+  const merged = { scope: 'project', encrypt: false, out: undefined, ...args };
+  await (
+    exportCmd as { run: (ctx: { args: typeof merged; rawArgs: string[] }) => Promise<void> }
+  ).run({ args: merged, rawArgs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +91,7 @@ describe('T359 cleo backup export — scope=project (default)', () => {
   it('passes scope=project and projectRoot to packBundle', async () => {
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('myproject', { scope: 'project' });
+    await runExport({ name: 'myproject', scope: 'project' });
 
     expect(mockPackBundle).toHaveBeenCalledOnce();
     expect(mockPackBundle).toHaveBeenCalledWith(
@@ -102,8 +108,7 @@ describe('T359 cleo backup export — scope=project (default)', () => {
   it('defaults output path to ./<name>.cleobundle.tar.gz', async () => {
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('myproject', { scope: 'project' });
+    await runExport({ name: 'myproject', scope: 'project' });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -115,8 +120,7 @@ describe('T359 cleo backup export — scope=project (default)', () => {
   it('uses --out path when provided', async () => {
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('myproject', { scope: 'project', out: '/custom/path.cleobundle.tar.gz' });
+    await runExport({ name: 'myproject', scope: 'project', out: '/custom/path.cleobundle.tar.gz' });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -128,8 +132,7 @@ describe('T359 cleo backup export — scope=project (default)', () => {
   it('sets exitCode=1 when packBundle throws', async () => {
     mockPackBundle.mockRejectedValue(new Error('disk full'));
 
-    const action = getExportAction();
-    await action('myproject', { scope: 'project' });
+    await runExport({ name: 'myproject', scope: 'project' });
 
     expect(process.exitCode).toBe(1);
   });
@@ -145,8 +148,7 @@ describe('T359 cleo backup export — scope=global', () => {
   it('passes scope=global without projectRoot', async () => {
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('global-backup', { scope: 'global' });
+    await runExport({ name: 'global-backup', scope: 'global' });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -169,8 +171,7 @@ describe('T359 cleo backup export — scope=all', () => {
   it('passes scope=all and resolves projectRoot', async () => {
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('full', { scope: 'all' });
+    await runExport({ name: 'full', scope: 'all' });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -195,8 +196,7 @@ describe('T359 cleo backup export — encryption', () => {
       bundlePath: '/tmp/secure.enc.cleobundle.tar.gz',
     });
 
-    const action = getExportAction();
-    await action('secure', { scope: 'project', encrypt: true });
+    await runExport({ name: 'secure', scope: 'project', encrypt: true });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -211,8 +211,7 @@ describe('T359 cleo backup export — encryption', () => {
     process.env['CLEO_BACKUP_PASSPHRASE'] = 'pass';
     mockPackBundle.mockResolvedValue(MOCK_RESULT);
 
-    const action = getExportAction();
-    await action('secure', { scope: 'project', encrypt: true });
+    await runExport({ name: 'secure', scope: 'project', encrypt: true });
 
     expect(mockPackBundle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -223,8 +222,7 @@ describe('T359 cleo backup export — encryption', () => {
 
   it('sets exitCode=6 when --encrypt but no passphrase available and stdin is not a TTY', async () => {
     // stdin.isTTY is typically undefined/false in Vitest — no TTY
-    const action = getExportAction();
-    await action('secure', { scope: 'project', encrypt: true });
+    await runExport({ name: 'secure', scope: 'project', encrypt: true });
 
     // The handler should set exitCode=6 because no passphrase available
     expect(process.exitCode).toBe(6);

@@ -5,39 +5,64 @@
  * @task T5323
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerHistoryCommand(program: Command): void {
-  const history = program
-    .command('history')
-    .description('Completion timeline and productivity analytics');
+/** cleo history log — show operation audit log with optional date range */
+const logCommand = defineCommand({
+  meta: { name: 'log', description: 'Show operation audit log' },
+  args: {
+    days: {
+      type: 'string',
+      description: 'Show last N days',
+      default: '30',
+    },
+    since: {
+      type: 'string',
+      description: 'Show completions since date (YYYY-MM-DD)',
+    },
+    until: {
+      type: 'string',
+      description: 'Show completions until date (YYYY-MM-DD)',
+    },
+    'no-chart': {
+      type: 'boolean',
+      description: 'Disable bar charts',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'log',
+      {
+        days: Number.parseInt(args.days, 10),
+        since: args.since as string | undefined,
+        until: args.until as string | undefined,
+      },
+      { command: 'history' },
+    );
+  },
+});
 
-  history
-    .command('log')
-    .description('Show operation audit log')
-    .option('--days <n>', 'Show last N days', '30')
-    .option('--since <date>', 'Show completions since date (YYYY-MM-DD)')
-    .option('--until <date>', 'Show completions until date (YYYY-MM-DD)')
-    .option('--no-chart', 'Disable bar charts')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'log',
-        {
-          days: opts['days'] ? Number(opts['days']) : 30,
-          since: opts['since'],
-          until: opts['until'],
-        },
-        { command: 'history' },
-      );
-    });
+/** cleo history work — show time tracked per task */
+const workCommand = defineCommand({
+  meta: { name: 'work', description: 'Show task work history (time tracked per task)' },
+  async run() {
+    await dispatchFromCli('query', 'tasks', 'history', {}, { command: 'history' });
+  },
+});
 
-  history
-    .command('work')
-    .description('Show task work history (time tracked per task)')
-    .action(async () => {
-      await dispatchFromCli('query', 'tasks', 'history', {}, { command: 'history' });
-    });
-}
+/**
+ * Root history command group — completion timeline and productivity analytics.
+ *
+ * Dispatches to `admin.log` (audit log) and `tasks.history` (work history).
+ */
+export const historyCommand = defineCommand({
+  meta: { name: 'history', description: 'Completion timeline and productivity analytics' },
+  subCommands: {
+    log: logCommand,
+    work: workCommand,
+  },
+});

@@ -1,11 +1,28 @@
 /**
- * CLI research command with subcommands.
+ * CLI research command group for manifest operations.
+ *
+ * Subcommands:
+ *   cleo research add      — add a research entry to MANIFEST.jsonl
+ *   cleo research show     — show a single research entry
+ *   cleo research list     — list research entries with optional filters
+ *   cleo research pending  — list pending entries
+ *   cleo research link     — link a research entry to a task
+ *   cleo research update   — update findings on an existing entry
+ *   cleo research stats    — show research statistics
+ *   cleo research links    — show entries linked to a task
+ *   cleo research archive  — archive completed entries
+ *   cleo research manifest — query MANIFEST.jsonl directly
+ *
  * @task T4465
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Build a unique research manifest entry ID.
@@ -17,217 +34,357 @@ function generateResearchId(): string {
   return `res_${Date.now()}`;
 }
 
-export function registerResearchCommand(program: Command): void {
-  const research = program
-    .command('research')
-    .description('Research commands and manifest operations');
+// ---------------------------------------------------------------------------
+// Subcommands
+// ---------------------------------------------------------------------------
 
-  research
-    .command('add')
-    .description('Add a research entry')
-    .requiredOption('-t, --task <taskId>', 'Task ID to attach research to')
-    .requiredOption('--topic <topic>', 'Research topic')
-    .option('--findings <findings>', 'Comma-separated findings')
-    .option('--sources <sources>', 'Comma-separated sources')
-    .option('--agent-type <agentType>', 'Agent type that produced this entry', 'researcher')
-    .action(async (opts: Record<string, unknown>) => {
-      const topic = opts['topic'] as string;
-      const findings = opts['findings']
-        ? (opts['findings'] as string).split(',').map((s) => s.trim())
-        : [];
-      const taskId = opts['task'] as string;
-      const agentType = (opts['agentType'] as string | undefined) ?? 'researcher';
+/** cleo research add — add a new research entry to MANIFEST.jsonl */
+const addCommand = defineCommand({
+  meta: { name: 'add', description: 'Add a research entry' },
+  args: {
+    task: {
+      type: 'string',
+      description: 'Task ID to attach research to',
+      required: true,
+      alias: 't',
+    },
+    topic: {
+      type: 'string',
+      description: 'Research topic',
+      required: true,
+    },
+    findings: {
+      type: 'string',
+      description: 'Comma-separated findings',
+    },
+    sources: {
+      type: 'string',
+      description: 'Comma-separated sources',
+    },
+    'agent-type': {
+      type: 'string',
+      description: 'Agent type that produced this entry',
+      default: 'researcher',
+    },
+  },
+  async run({ args }) {
+    const topic = args.topic;
+    const findings = args.findings ? args.findings.split(',').map((s) => s.trim()) : [];
+    const taskId = args.task;
+    const agentType = args['agent-type'] ?? 'researcher';
 
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'manifest.append',
-        {
-          entry: {
-            id: generateResearchId(),
-            file: `research/${topic.replace(/\s+/g, '-').toLowerCase()}.md`,
-            title: topic,
-            date: new Date().toISOString().slice(0, 10),
-            status: 'partial',
-            agent_type: agentType,
-            topics: [topic],
-            key_findings: findings,
-            actionable: findings.length > 0,
-            needs_followup: [],
-            linked_tasks: [taskId],
-          },
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'manifest.append',
+      {
+        entry: {
+          id: generateResearchId(),
+          file: `research/${topic.replace(/\s+/g, '-').toLowerCase()}.md`,
+          title: topic,
+          date: new Date().toISOString().slice(0, 10),
+          status: 'partial',
+          agent_type: agentType,
+          topics: [topic],
+          key_findings: findings,
+          actionable: findings.length > 0,
+          needs_followup: [],
+          linked_tasks: [taskId],
         },
-        { command: 'research', operation: 'pipeline.manifest.append' },
-      );
-    });
+      },
+      { command: 'research', operation: 'pipeline.manifest.append' },
+    );
+  },
+});
 
-  research
-    .command('show <id>')
-    .description('Show a research entry')
-    .action(async (id: string) => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'manifest.show',
-        { entryId: id },
-        { command: 'research' },
-      );
-    });
+/** cleo research show — show a single research entry by ID */
+const showCommand = defineCommand({
+  meta: { name: 'show', description: 'Show a research entry' },
+  args: {
+    id: {
+      type: 'positional',
+      description: 'Research entry ID',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'manifest.show',
+      { entryId: args.id },
+      { command: 'research' },
+    );
+  },
+});
 
-  research
-    .command('list')
-    .description('List research entries')
-    .option('-t, --task <taskId>', 'Filter by task ID')
-    .option('-s, --status <status>', 'Filter by status')
-    .option('-l, --limit <n>', 'Limit results', parseInt)
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'manifest.list',
-        {
-          taskId: opts['task'],
-          status: opts['status'],
-          limit: opts['limit'],
+/** cleo research list — list research entries with optional filters */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'List research entries' },
+  args: {
+    task: {
+      type: 'string',
+      description: 'Filter by task ID',
+      alias: 't',
+    },
+    status: {
+      type: 'string',
+      description: 'Filter by status',
+      alias: 's',
+    },
+    limit: {
+      type: 'string',
+      description: 'Limit results',
+      alias: 'l',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'manifest.list',
+      {
+        taskId: args.task as string | undefined,
+        status: args.status as string | undefined,
+        limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
+      },
+      { command: 'research' },
+    );
+  },
+});
+
+/** cleo research pending — list all pending research entries */
+const pendingCommand = defineCommand({
+  meta: { name: 'pending', description: 'List pending research entries' },
+  async run() {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'manifest.list',
+      { status: 'pending' },
+      { command: 'research' },
+    );
+  },
+});
+
+/** cleo research link — link an existing research entry to a task */
+const linkCommand = defineCommand({
+  meta: { name: 'link', description: 'Link a research entry to a task' },
+  args: {
+    researchId: {
+      type: 'positional',
+      description: 'Research entry ID',
+      required: true,
+    },
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to link to',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const researchId = args.researchId;
+    const taskId = args.taskId;
+
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'manifest.append',
+      {
+        entry: {
+          id: researchId,
+          file: `research/link-${researchId}.md`,
+          title: `Link: ${researchId} -> ${taskId}`,
+          date: new Date().toISOString().slice(0, 10),
+          status: 'partial',
+          agent_type: 'researcher',
+          topics: [],
+          key_findings: [],
+          actionable: false,
+          needs_followup: [],
+          linked_tasks: [taskId],
         },
-        { command: 'research' },
-      );
-    });
+      },
+      { command: 'research', operation: 'pipeline.manifest.append' },
+    );
+  },
+});
 
-  research
-    .command('pending')
-    .description('List pending research entries')
-    .action(async () => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'manifest.list',
-        { status: 'pending' },
-        { command: 'research' },
-      );
-    });
+/** cleo research update — update findings on an existing research entry */
+const updateCommand = defineCommand({
+  meta: { name: 'update', description: 'Update research findings' },
+  args: {
+    id: {
+      type: 'positional',
+      description: 'Research entry ID',
+      required: true,
+    },
+    findings: {
+      type: 'string',
+      description: 'Comma-separated findings',
+    },
+    sources: {
+      type: 'string',
+      description: 'Comma-separated sources',
+    },
+    status: {
+      type: 'string',
+      description: 'Set status (completed, partial, blocked)',
+      alias: 's',
+    },
+    topic: {
+      type: 'string',
+      description: 'Research topic (used as title)',
+    },
+  },
+  async run({ args }) {
+    const id = args.id;
+    const findings = args.findings ? args.findings.split(',').map((s) => s.trim()) : [];
+    const status = args.status ?? 'partial';
+    const topic = args.topic ?? `Updated research: ${id}`;
 
-  research
-    .command('link <researchId> <taskId>')
-    .description('Link a research entry to a task')
-    .action(async (researchId: string, taskId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'manifest.append',
-        {
-          entry: {
-            id: researchId,
-            file: `research/link-${researchId}.md`,
-            title: `Link: ${researchId} -> ${taskId}`,
-            date: new Date().toISOString().slice(0, 10),
-            status: 'partial',
-            agent_type: 'researcher',
-            topics: [],
-            key_findings: [],
-            actionable: false,
-            needs_followup: [],
-            linked_tasks: [taskId],
-          },
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'manifest.append',
+      {
+        entry: {
+          id,
+          file: `research/${id}.md`,
+          title: topic,
+          date: new Date().toISOString().slice(0, 10),
+          status,
+          agent_type: 'researcher',
+          topics: topic !== `Updated research: ${id}` ? [topic] : [],
+          key_findings: findings,
+          actionable: findings.length > 0,
+          needs_followup: [],
+          linked_tasks: [],
         },
-        { command: 'research', operation: 'pipeline.manifest.append' },
-      );
-    });
+      },
+      { command: 'research', operation: 'pipeline.manifest.append' },
+    );
+  },
+});
 
-  research
-    .command('update <id>')
-    .description('Update research findings')
-    .option('--findings <findings>', 'Comma-separated findings')
-    .option('--sources <sources>', 'Comma-separated sources')
-    .option('-s, --status <status>', 'Set status (completed, partial, blocked)')
-    .option('--topic <topic>', 'Research topic (used as title)')
-    .action(async (id: string, opts: Record<string, unknown>) => {
-      const findings = opts['findings']
-        ? (opts['findings'] as string).split(',').map((s) => s.trim())
-        : [];
-      const status = (opts['status'] as string | undefined) ?? 'partial';
-      const topic = (opts['topic'] as string | undefined) ?? `Updated research: ${id}`;
+/** cleo research stats — show research statistics */
+const statsCommand = defineCommand({
+  meta: { name: 'stats', description: 'Show research statistics' },
+  async run() {
+    await dispatchFromCli('query', 'pipeline', 'manifest.stats', {}, { command: 'research' });
+  },
+});
 
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'manifest.append',
-        {
-          entry: {
-            id,
-            file: `research/${id}.md`,
-            title: topic,
-            date: new Date().toISOString().slice(0, 10),
-            status,
-            agent_type: 'researcher',
-            topics: topic !== `Updated research: ${id}` ? [topic] : [],
-            key_findings: findings,
-            actionable: findings.length > 0,
-            needs_followup: [],
-            linked_tasks: [],
-          },
-        },
-        { command: 'research', operation: 'pipeline.manifest.append' },
-      );
-    });
+/** cleo research links — show research entries linked to a task */
+const linksCommand = defineCommand({
+  meta: { name: 'links', description: 'Show research entries linked to a task' },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'manifest.find',
+      { taskId: args.taskId },
+      { command: 'research' },
+    );
+  },
+});
 
-  research
-    .command('stats')
-    .description('Show research statistics')
-    .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.stats', {}, { command: 'research' });
-    });
+/** cleo research archive — archive completed research entries */
+const archiveCommand = defineCommand({
+  meta: { name: 'archive', description: 'Archive completed research entries' },
+  args: {
+    'before-date': {
+      type: 'string',
+      description: 'Archive entries before this date (YYYY-MM-DD)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'manifest.archive',
+      {
+        beforeDate: args['before-date'] as string | undefined,
+      },
+      { command: 'research' },
+    );
+  },
+});
 
-  research
-    .command('links <taskId>')
-    .description('Show research entries linked to a task')
-    .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'manifest.find',
-        { taskId },
-        { command: 'research' },
-      );
-    });
+/** cleo research manifest — query MANIFEST.jsonl entries directly */
+const manifestCommand = defineCommand({
+  meta: { name: 'manifest', description: 'Query MANIFEST.jsonl entries' },
+  args: {
+    status: {
+      type: 'string',
+      description: 'Filter by status',
+      alias: 's',
+    },
+    'agent-type': {
+      type: 'string',
+      description: 'Filter by agent type',
+      alias: 'a',
+    },
+    topic: {
+      type: 'string',
+      description: 'Filter by topic',
+    },
+    task: {
+      type: 'string',
+      description: 'Filter by linked task',
+      alias: 't',
+    },
+    limit: {
+      type: 'string',
+      description: 'Limit results',
+      alias: 'l',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'manifest.list',
+      {
+        status: args.status as string | undefined,
+        agentType: args['agent-type'] as string | undefined,
+        topic: args.topic as string | undefined,
+        taskId: args.task as string | undefined,
+        limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
+      },
+      { command: 'research' },
+    );
+  },
+});
 
-  research
-    .command('archive')
-    .description('Archive completed research entries')
-    .option('--before-date <date>', 'Archive entries before this date (YYYY-MM-DD)')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'manifest.archive',
-        {
-          beforeDate: opts['beforeDate'] as string | undefined,
-        },
-        { command: 'research' },
-      );
-    });
+// ---------------------------------------------------------------------------
+// Root export
+// ---------------------------------------------------------------------------
 
-  research
-    .command('manifest')
-    .description('Query MANIFEST.jsonl entries')
-    .option('-s, --status <status>', 'Filter by status')
-    .option('-a, --agent-type <type>', 'Filter by agent type')
-    .option('--topic <topic>', 'Filter by topic')
-    .option('-t, --task <taskId>', 'Filter by linked task')
-    .option('-l, --limit <n>', 'Limit results')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'manifest.list',
-        {
-          status: opts['status'],
-          agentType: opts['agentType'],
-          topic: opts['topic'],
-          taskId: opts['task'],
-          limit: opts['limit'] ? parseInt(opts['limit'] as string, 10) : undefined,
-        },
-        { command: 'research' },
-      );
-    });
-}
+/**
+ * Root research command group — registers all research subcommands.
+ *
+ * Dispatches to `pipeline.manifest.*` registry operations.
+ */
+export const researchCommand = defineCommand({
+  meta: { name: 'research', description: 'Research commands and manifest operations' },
+  subCommands: {
+    add: addCommand,
+    show: showCommand,
+    list: listCommand,
+    pending: pendingCommand,
+    link: linkCommand,
+    update: updateCommand,
+    stats: statsCommand,
+    links: linksCommand,
+    archive: archiveCommand,
+    manifest: manifestCommand,
+  },
+});

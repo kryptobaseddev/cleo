@@ -11,9 +11,9 @@
  * @task T167
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import type { HookMatrixResult } from '../../dispatch/engines/hooks-engine.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 import { createDoctorProgress } from '../progress.js';
 
 /**
@@ -38,23 +38,18 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
     return;
   }
 
-  // Column widths
   const EVENT_COL = Math.max(...events.map((e) => e.length), 'Event'.length);
-  // Each provider column: max(providerId.length, 5) + padding
   const provCols = providers.map((p) => Math.max(p.length, 5));
 
-  // Header row
   const headerParts = [
     'Event'.padEnd(EVENT_COL),
     ...providers.map((p, i) => p.padEnd(provCols[i]!)),
   ];
   process.stdout.write(`  ${headerParts.join('  ')}\n`);
 
-  // Separator
   const sepParts = ['-'.repeat(EVENT_COL), ...provCols.map((w) => '-'.repeat(w))];
   process.stdout.write(`  ${sepParts.join('  ')}\n`);
 
-  // Event rows
   for (const event of events) {
     const cells = providers.map((p, i) => {
       const supported = matrix[event]?.[p] === true;
@@ -64,7 +59,6 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
     process.stdout.write(`  ${event.padEnd(EVENT_COL)}  ${cells.join('  ')}\n`);
   }
 
-  // Coverage summary
   process.stdout.write('\n');
   const coverageParts = summary.map(
     (s) => `${s.providerId} ${s.supportedCount}/${s.totalCanonical} (${s.coverage}%)`,
@@ -72,109 +66,140 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
   process.stdout.write(`Coverage: ${coverageParts.join(', ')}\n\n`);
 }
 
-export function registerDoctorCommand(program: Command): void {
-  program
-    .command('doctor')
-    .description('Run system diagnostics and health checks')
-    .option('--detailed', 'Show detailed health check results')
-    .option('--comprehensive', 'Run comprehensive doctor report')
-    .option('--full', 'Run operational smoke tests across all domains')
-    .option('--fix', 'Auto-fix failed checks')
-    .option('--coherence', 'Run coherence check across task data')
-    .option('--hooks', 'Show cross-provider hook support matrix (CAAMP canonical taxonomy)')
-    .action(async (opts: Record<string, unknown>, command: Command) => {
-      // Merge citty-parsed opts with global flags (--json, --human, etc.)
-      const globalOpts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
-      const mergedOpts = { ...globalOpts, ...opts };
-      const isHuman =
-        mergedOpts['human'] === true || (!!process.stdout.isTTY && mergedOpts['json'] !== true);
-      const progress = createDoctorProgress(isHuman);
+/**
+ * Root doctor command — run system diagnostics and health checks.
+ *
+ * Global output flags (--json, --human, --quiet) are declared in args so
+ * citty parses them directly. This replaces the Commander.js optsWithGlobals()
+ * pattern that is unavailable in native citty commands.
+ */
+export const doctorCommand = defineCommand({
+  meta: { name: 'doctor', description: 'Run system diagnostics and health checks' },
+  args: {
+    detailed: {
+      type: 'boolean',
+      description: 'Show detailed health check results',
+    },
+    comprehensive: {
+      type: 'boolean',
+      description: 'Run comprehensive doctor report',
+    },
+    full: {
+      type: 'boolean',
+      description: 'Run operational smoke tests across all domains',
+    },
+    fix: {
+      type: 'boolean',
+      description: 'Auto-fix failed checks',
+    },
+    coherence: {
+      type: 'boolean',
+      description: 'Run coherence check across task data',
+    },
+    hooks: {
+      type: 'boolean',
+      description: 'Show cross-provider hook support matrix (CAAMP canonical taxonomy)',
+    },
+    // Global output format flags — read directly from args (no optsWithGlobals in citty)
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+    human: {
+      type: 'boolean',
+      description: 'Force human-readable output',
+    },
+    quiet: {
+      type: 'boolean',
+      description: 'Suppress non-essential output',
+    },
+  },
+  async run({ args }) {
+    const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
+    const progress = createDoctorProgress(isHuman);
 
-      progress.start();
+    progress.start();
 
-      try {
-        if (mergedOpts['hooks']) {
-          progress.step(0, 'Building provider hook matrix');
-          if (isHuman) {
-            // Fetch raw result to render custom table output
-            const response = await dispatchRaw('query', 'admin', 'hooks.matrix', {
-              detectProvider: true,
-            });
-            progress.complete('Hook matrix complete');
-            if (response.success && response.data) {
-              renderHookMatrixHuman(response.data as HookMatrixResult);
-            } else {
-              process.stderr.write(
-                `Error: ${response.error?.message ?? 'Failed to build hook matrix'}\n`,
-              );
-              process.exitCode = 1;
-            }
+    try {
+      if (args.hooks) {
+        progress.step(0, 'Building provider hook matrix');
+        if (isHuman) {
+          const response = await dispatchRaw('query', 'admin', 'hooks.matrix', {
+            detectProvider: true,
+          });
+          progress.complete('Hook matrix complete');
+          if (response.success && response.data) {
+            renderHookMatrixHuman(response.data as HookMatrixResult);
           } else {
-            await dispatchFromCli(
-              'query',
-              'admin',
-              'hooks.matrix',
-              { detectProvider: true },
-              { command: 'doctor', operation: 'admin.hooks.matrix' },
+            process.stderr.write(
+              `Error: ${response.error?.message ?? 'Failed to build hook matrix'}\n`,
             );
-            progress.complete('Hook matrix complete');
+            process.exitCode = 1;
           }
-        } else if (mergedOpts['full']) {
-          progress.step(0, 'Running operational smoke tests');
-          await dispatchFromCli(
-            'query',
-            'admin',
-            'smoke',
-            {},
-            { command: 'doctor', operation: 'admin.smoke' },
-          );
-          progress.complete('Smoke tests complete');
-        } else if (mergedOpts['coherence']) {
-          progress.step(0, 'Running coherence check');
-          await dispatchFromCli(
-            'query',
-            'check',
-            'coherence',
-            {},
-            { command: 'doctor', operation: 'check.coherence' },
-          );
-          progress.complete('Coherence check complete');
-        } else if (mergedOpts['fix']) {
-          progress.step(4, 'Applying fixes');
-          await dispatchFromCli(
-            'mutate',
-            'admin',
-            'health',
-            { mode: 'repair' },
-            { command: 'doctor', operation: 'admin.health' },
-          );
-          progress.complete('Fixes applied');
-        } else if (mergedOpts['comprehensive']) {
-          progress.step(0, 'Checking CLEO directory');
-          await dispatchFromCli(
-            'query',
-            'admin',
-            'health',
-            { mode: 'diagnose' },
-            { command: 'doctor', operation: 'admin.health' },
-          );
-          progress.complete('Comprehensive diagnostics complete');
         } else {
-          progress.step(0, 'Checking CLEO directory');
           await dispatchFromCli(
             'query',
             'admin',
-            'health',
-            {
-              detailed: mergedOpts['detailed'] as boolean | undefined,
-            },
-            { command: 'doctor', operation: 'admin.health' },
+            'hooks.matrix',
+            { detectProvider: true },
+            { command: 'doctor', operation: 'admin.hooks.matrix' },
           );
-          progress.complete('Health check complete');
+          progress.complete('Hook matrix complete');
         }
-      } catch (err) {
-        progress.error('Health check failed');
-        throw err;
+      } else if (args.full) {
+        progress.step(0, 'Running operational smoke tests');
+        await dispatchFromCli(
+          'query',
+          'admin',
+          'smoke',
+          {},
+          { command: 'doctor', operation: 'admin.smoke' },
+        );
+        progress.complete('Smoke tests complete');
+      } else if (args.coherence) {
+        progress.step(0, 'Running coherence check');
+        await dispatchFromCli(
+          'query',
+          'check',
+          'coherence',
+          {},
+          { command: 'doctor', operation: 'check.coherence' },
+        );
+        progress.complete('Coherence check complete');
+      } else if (args.fix) {
+        progress.step(4, 'Applying fixes');
+        await dispatchFromCli(
+          'mutate',
+          'admin',
+          'health',
+          { mode: 'repair' },
+          { command: 'doctor', operation: 'admin.health' },
+        );
+        progress.complete('Fixes applied');
+      } else if (args.comprehensive) {
+        progress.step(0, 'Checking CLEO directory');
+        await dispatchFromCli(
+          'query',
+          'admin',
+          'health',
+          { mode: 'diagnose' },
+          { command: 'doctor', operation: 'admin.health' },
+        );
+        progress.complete('Comprehensive diagnostics complete');
+      } else {
+        progress.step(0, 'Checking CLEO directory');
+        await dispatchFromCli(
+          'query',
+          'admin',
+          'health',
+          { detailed: args.detailed },
+          { command: 'doctor', operation: 'admin.health' },
+        );
+        progress.complete('Health check complete');
       }
-    });
-}
+    } catch (err) {
+      progress.error('Health check failed');
+      throw err;
+    }
+  },
+});

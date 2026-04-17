@@ -1,121 +1,190 @@
 /**
- * CLI release command group.
+ * CLI release command group — release lifecycle management.
+ *
+ * Commands:
+ *   cleo release ship <version>    — composite release: gates → changelog → commit → tag → push
+ *   cleo release list              — list all releases
+ *   cleo release show <version>    — show release details
+ *   cleo release cancel <version>  — cancel a draft/prepared release
+ *   cleo release rollback <version> — roll back a shipped release
+ *   cleo release channel           — show current release channel
+ *
+ * REMOVED: release add/plan commands were consolidated into release.ship as part
+ * of the API rationalization (T5615). For preview/dry-run: cleo release ship <version> --epic <id> --dry-run
+ *
  * @task T4467
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerReleaseCommand(program: Command): void {
-  const release = program.command('release').description('Release lifecycle management');
+/**
+ * cleo release ship — composite release: prepare → gates → changelog → commit → tag → push.
+ *
+ * Requires --epic <id>. Use --dry-run to preview without writing anything.
+ */
+const shipCommand = defineCommand({
+  meta: {
+    name: 'ship',
+    description: 'Ship a release: gates → changelog → commit → tag → push',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Version string (e.g. 2026.4.77)',
+      required: true,
+    },
+    epic: {
+      type: 'string',
+      description: 'Epic task ID for commit message (e.g. T5576)',
+      required: true,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview all actions without writing anything',
+    },
+    push: {
+      type: 'boolean',
+      description: 'Push commit and tag (default: true)',
+      default: true,
+    },
+    bump: {
+      type: 'boolean',
+      description: 'Bump version files (default: true)',
+      default: true,
+    },
+    remote: {
+      type: 'string',
+      description: 'Git remote to push to (default: origin)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'release.ship',
+      {
+        version: args.version,
+        epicId: args.epic,
+        dryRun: args['dry-run'],
+        push: args.push !== false,
+        bump: args.bump !== false,
+        remote: args.remote as string | undefined,
+      },
+      { command: 'release' },
+    );
+  },
+});
 
-  /**
-   * REMOVED: release add/plan commands
-   *
-   * The release.prepare operation was consolidated into release.ship as part
-   * of the API rationalization (T5615). To add a release, use the full ship
-   * workflow which validates gates and records provenance.
-   *
-   * For preview/dry-run: cleo release ship <version> --epic <id> --dry-run
-   */
+/** cleo release list — list all releases */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'List all releases' },
+  async run() {
+    await dispatchFromCli('query', 'pipeline', 'release.list', {}, { command: 'release' });
+  },
+});
 
-  /**
-   * Composite release: prepare → gates → changelog → commit → tag → push.
-   * Requires --epic <id>. Use --dry-run to preview without writing anything.
-   *
-   * Flags:
-   *   --epic <id>       Epic task ID referenced in commit message (required)
-   *   --dry-run         Preview all actions without writing anything
-   *   --no-push         Skip git push (commit and tag only)
-   *   --no-bump         Skip version file bumping (default: bump if configured)
-   *   --remote <r>      Override git remote (default: origin)
-   */
-  release
-    .command('ship <version>')
-    .description('Ship a release: gates → changelog → commit → tag → push')
-    .requiredOption('--epic <id>', 'Epic task ID for commit message (e.g. T5576)')
-    .option('--dry-run', 'Preview all actions without writing anything')
-    .option('--no-push', 'Commit and tag but skip git push')
-    .option('--no-bump', 'Skip version file bumping (default: bump if configured)')
-    .option('--remote <remote>', 'Git remote to push to (default: origin)')
-    .action(async (version: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'release.ship',
-        {
-          version,
-          epicId: opts['epic'],
-          dryRun: opts['dryRun'],
-          push: opts['push'] !== false,
-          bump: opts['bump'] !== false,
-          remote: opts['remote'],
-        },
-        { command: 'release' },
-      );
-    });
+/** cleo release show — show details for a specific release */
+const showCommand = defineCommand({
+  meta: { name: 'show', description: 'Show release details' },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version to show',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'release.show',
+      { version: args.version },
+      { command: 'release' },
+    );
+  },
+});
 
-  release
-    .command('list')
-    .description('List all releases')
-    .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'release.list', {}, { command: 'release' });
-    });
+/** cleo release cancel — cancel and remove a release in draft or prepared state */
+const cancelCommand = defineCommand({
+  meta: {
+    name: 'cancel',
+    description: 'Cancel and remove a release in draft or prepared state',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version to cancel',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'release.cancel',
+      { version: args.version },
+      { command: 'release' },
+    );
+  },
+});
 
-  release
-    .command('show <version>')
-    .description('Show release details')
-    .action(async (version: string) => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'release.show',
-        { version },
-        { command: 'release' },
-      );
-    });
+/** cleo release rollback — roll back a shipped release */
+const rollbackCommand = defineCommand({
+  meta: {
+    name: 'rollback',
+    description: 'Roll back a shipped release (marks it as rolled-back in CLEO records)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version to roll back',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Reason for rollback',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'release.rollback',
+      {
+        version: args.version,
+        reason: args.reason as string | undefined,
+      },
+      { command: 'release' },
+    );
+  },
+});
 
-  release
-    .command('cancel <version>')
-    .description('Cancel and remove a release in draft or prepared state')
-    .action(async (version: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'release.cancel',
-        { version },
-        { command: 'release' },
-      );
-    });
+/** cleo release channel — show the current release channel based on git branch */
+const channelCommand = defineCommand({
+  meta: {
+    name: 'channel',
+    description: 'Show the current release channel based on git branch (latest/beta/alpha)',
+  },
+  async run() {
+    await dispatchFromCli('query', 'pipeline', 'release.channel.show', {}, { command: 'release' });
+  },
+});
 
-  release
-    .command('rollback <version>')
-    .description('Roll back a shipped release (marks it as rolled-back in CLEO records)')
-    .option('--reason <reason>', 'Reason for rollback')
-    .action(async (version: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'release.rollback',
-        {
-          version,
-          reason: opts['reason'],
-        },
-        { command: 'release' },
-      );
-    });
-
-  release
-    .command('channel')
-    .description('Show the current release channel based on git branch (latest/beta/alpha)')
-    .action(async () => {
-      await dispatchFromCli(
-        'query',
-        'pipeline',
-        'release.channel.show',
-        {},
-        { command: 'release' },
-      );
-    });
-}
+/**
+ * Root release command group — release lifecycle management.
+ *
+ * Dispatches to `pipeline.release.*` registry operations.
+ */
+export const releaseCommand = defineCommand({
+  meta: { name: 'release', description: 'Release lifecycle management' },
+  subCommands: {
+    ship: shipCommand,
+    list: listCommand,
+    show: showCommand,
+    cancel: cancelCommand,
+    rollback: rollbackCommand,
+    channel: channelCommand,
+  },
+});

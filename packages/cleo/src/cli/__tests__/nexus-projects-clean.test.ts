@@ -15,9 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ShimCommand } from '../commander-shim.js';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerNexusCommand } from '../commands/nexus.js';
+import { nexusCommand } from '../commands/nexus.js';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -26,6 +24,9 @@ import { registerNexusCommand } from '../commands/nexus.js';
 const { getNexusDbMock } = vi.hoisted(() => ({ getNexusDbMock: vi.fn() }));
 
 // Mock nexus-sqlite: stub all exports so no real DB is opened.
+// The production code uses `import(x as string)` which vitest's static transform
+// cannot hoist.  The vitest.config.ts alias for `@cleocode/core/store/nexus-sqlite`
+// maps it to the source tree so vi.mock intercepts it at runtime.
 vi.mock('@cleocode/core/store/nexus-sqlite', () => ({
   getNexusDb: getNexusDbMock,
   getNexusDbPath: vi.fn().mockReturnValue('/mock/nexus.db'),
@@ -161,36 +162,42 @@ function makeMockDb(rows: MockRow[]) {
   };
 }
 
-// ── Registration helper ───────────────────────────────────────────────────────
+// ── Citty command accessor ────────────────────────────────────────────────────
 
 /**
- * Find the `clean` ShimCommand under `nexus projects`.
- * Throws if the command tree is not found (test setup error).
+ * Reach into the citty command tree to get the `clean` subcommand definition.
+ * Uses approach (a): assert on nexusCommand.subCommands shape.
  */
-function getCleanCmd(): ShimCommand {
-  const program = new Command();
-  registerNexusCommand(program);
-  const nexusCmd = program.commands.find((c) => c.name() === 'nexus');
-  if (!nexusCmd) throw new Error('nexus command not registered');
-  const projectsCmd = nexusCmd.commands.find((c) => c.name() === 'projects');
-  if (!projectsCmd) throw new Error('nexus projects command not registered');
-  const cleanCmd = projectsCmd.commands.find((c) => c.name() === 'clean');
-  if (!cleanCmd) throw new Error('nexus projects clean command not registered');
-  return cleanCmd;
+function getCleanDef() {
+  const projectsDef = nexusCommand.subCommands?.['projects'];
+  if (!projectsDef || typeof projectsDef !== 'object') {
+    throw new Error('nexus projects subcommand not found');
+  }
+  // projectsDef may be a lazy resolver or a defineCommand result
+  const projects = projectsDef as { subCommands?: Record<string, unknown> };
+  const cleanDef = projects.subCommands?.['clean'];
+  if (!cleanDef || typeof cleanDef !== 'object') {
+    throw new Error('nexus projects clean subcommand not found');
+  }
+  return cleanDef as {
+    meta?: { name?: string; description?: string };
+    args?: Record<string, { type: string; description?: string }>;
+    run?: (ctx: { args: Record<string, unknown> }) => Promise<void>;
+  };
 }
 
-// ── Helper: invoke the clean action directly ─────────────────────────────────
+// ── Helper: invoke the clean run handler directly ────────────────────────────
 
 /**
- * Invoke the `cleo nexus projects clean` action with the given opts.
+ * Invoke the `cleo nexus projects clean` run handler with the given args.
  * Captures stdout/stderr and the exit code set by process.exitCode.
  *
  * @param rows - Rows the mock db will return from select.
- * @param opts - Parsed option values passed to the action (mirrors Commander opts).
+ * @param args - Parsed arg values passed to run() (citty kebab-case keys).
  */
 async function invokeClean(
   rows: MockRow[],
-  opts: Record<string, unknown>,
+  args: Record<string, unknown>,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | undefined }> {
   const mockDb = makeMockDb(rows);
   getNexusDbMock.mockResolvedValue(mockDb);
@@ -211,11 +218,10 @@ async function invokeClean(
   };
   process.exitCode = undefined;
 
-  const cleanCmd = getCleanCmd();
-  // The ShimCommand action is stored as _action. Invoke it directly.
-  if (cleanCmd._action) {
+  const cleanDef = getCleanDef();
+  if (cleanDef.run) {
     try {
-      await (cleanCmd._action as (opts: Record<string, unknown>) => Promise<void>)(opts);
+      await cleanDef.run({ args });
     } catch {
       // Swallow — exitCode is set before throws
     }
@@ -247,28 +253,28 @@ describe('nexus projects clean', () => {
   // ── Command registration ─────────────────────────────────────────────────
 
   it('registers the clean subcommand under nexus projects', () => {
-    const program = new Command();
-    registerNexusCommand(program);
-    const nexusCmd = program.commands.find((c) => c.name() === 'nexus');
-    expect(nexusCmd).toBeDefined();
-    const projectsCmd = nexusCmd!.commands.find((c) => c.name() === 'projects');
-    expect(projectsCmd).toBeDefined();
-    const cleanCmd = projectsCmd!.commands.find((c) => c.name() === 'clean');
-    expect(cleanCmd).toBeDefined();
-    expect(cleanCmd!.description()).toContain('Bulk purge');
+    const projectsDef = nexusCommand.subCommands?.['projects'] as {
+      subCommands?: Record<string, unknown>;
+    };
+    expect(projectsDef).toBeDefined();
+    const cleanDef = projectsDef?.subCommands?.['clean'] as {
+      meta?: { name?: string; description?: string };
+    };
+    expect(cleanDef).toBeDefined();
+    expect(cleanDef?.meta?.description).toContain('Bulk purge');
   });
 
-  it('has all required flags', () => {
-    const cleanCmd = getCleanCmd();
-    const optionLongs = cleanCmd.options.map((o) => o.long);
-    expect(optionLongs).toContain('--dry-run');
-    expect(optionLongs).toContain('--pattern');
-    expect(optionLongs).toContain('--include-temp');
-    expect(optionLongs).toContain('--include-tests');
-    expect(optionLongs).toContain('--unhealthy');
-    expect(optionLongs).toContain('--never-indexed');
-    expect(optionLongs).toContain('--yes');
-    expect(optionLongs).toContain('--json');
+  it('has all required args defined', () => {
+    const cleanDef = getCleanDef();
+    const argKeys = Object.keys(cleanDef.args ?? {});
+    expect(argKeys).toContain('dry-run');
+    expect(argKeys).toContain('pattern');
+    expect(argKeys).toContain('include-temp');
+    expect(argKeys).toContain('include-tests');
+    expect(argKeys).toContain('unhealthy');
+    expect(argKeys).toContain('never-indexed');
+    expect(argKeys).toContain('yes');
+    expect(argKeys).toContain('json');
   });
 
   // ── No criteria → exit 6 ─────────────────────────────────────────────────
@@ -297,14 +303,18 @@ describe('nexus projects clean', () => {
   // ── --dry-run ─────────────────────────────────────────────────────────────
 
   it('--dry-run with --include-temp lists matches without deleting', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true });
+    const result = await invokeClean(ALL_ROWS, { 'include-temp': true, 'dry-run': true });
     expect(result.stdout).toContain(TEMP_ROW.projectPath);
     expect(deletedIds).toHaveLength(0);
     expect(result.exitCode).toBeUndefined();
   });
 
   it('--dry-run --json outputs LAFS envelope with dryRun:true and purged:0', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, {
+      'include-temp': true,
+      'dry-run': true,
+      json: true,
+    });
     const envelope = JSON.parse(result.stdout) as {
       success: boolean;
       data: { dryRun: boolean; purged: number; matched: number };
@@ -317,14 +327,18 @@ describe('nexus projects clean', () => {
   });
 
   it('--dry-run does NOT write an audit log entry', async () => {
-    await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true });
+    await invokeClean(ALL_ROWS, { 'include-temp': true, 'dry-run': true });
     expect(auditInserts).toHaveLength(0);
   });
 
   // ── --include-temp ────────────────────────────────────────────────────────
 
   it('--include-temp matches only .temp/ paths', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, {
+      'include-temp': true,
+      'dry-run': true,
+      json: true,
+    });
     const envelope = JSON.parse(result.stdout) as {
       data: { matched: number; sample: string[] };
     };
@@ -334,7 +348,11 @@ describe('nexus projects clean', () => {
   });
 
   it('--include-temp does not match test/tmp paths', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, {
+      'include-temp': true,
+      'dry-run': true,
+      json: true,
+    });
     const envelope = JSON.parse(result.stdout) as { data: { sample: string[] } };
     expect(envelope.data.sample).not.toContain(TESTS_ROW.projectPath);
   });
@@ -350,14 +368,18 @@ describe('nexus projects clean', () => {
       { projectId: 'e', projectPath: '/x/sandbox/p', healthStatus: 'healthy', lastIndexed: null },
       { projectId: 'f', projectPath: '/x/normal/p', healthStatus: 'healthy', lastIndexed: null },
     ];
-    const result = await invokeClean(rows, { includeTests: true, dryRun: true, json: true });
+    const result = await invokeClean(rows, { 'include-tests': true, 'dry-run': true, json: true });
     const envelope = JSON.parse(result.stdout) as { data: { matched: number; sample: string[] } };
     expect(envelope.data.matched).toBe(5);
     expect(envelope.data.sample).not.toContain('/x/normal/p');
   });
 
   it('--include-tests does not match .temp/ paths', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTests: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, {
+      'include-tests': true,
+      'dry-run': true,
+      json: true,
+    });
     const envelope = JSON.parse(result.stdout) as { data: { sample: string[] } };
     expect(envelope.data.sample).not.toContain(TEMP_ROW.projectPath);
   });
@@ -367,7 +389,7 @@ describe('nexus projects clean', () => {
   it('--pattern filters by custom JS regex', async () => {
     const result = await invokeClean(ALL_ROWS, {
       pattern: 'normal',
-      dryRun: true,
+      'dry-run': true,
       json: true,
     });
     const envelope = JSON.parse(result.stdout) as { data: { matched: number; sample: string[] } };
@@ -376,7 +398,7 @@ describe('nexus projects clean', () => {
   });
 
   it('--pattern with invalid regex exits 6', async () => {
-    const result = await invokeClean(ALL_ROWS, { pattern: '[invalid(', dryRun: true });
+    const result = await invokeClean(ALL_ROWS, { pattern: '[invalid(', 'dry-run': true });
     expect(result.exitCode).toBe(6);
     expect(result.stderr).toContain('Invalid --pattern regex');
   });
@@ -384,7 +406,7 @@ describe('nexus projects clean', () => {
   it('--pattern --json with invalid regex outputs E_INVALID_PATTERN', async () => {
     const result = await invokeClean(ALL_ROWS, {
       pattern: '[invalid(',
-      dryRun: true,
+      'dry-run': true,
       json: true,
     });
     const envelope = JSON.parse(result.stdout) as { success: boolean; error: { code: string } };
@@ -395,14 +417,18 @@ describe('nexus projects clean', () => {
   // ── --unhealthy + --never-indexed combo ───────────────────────────────────
 
   it('--unhealthy matches only rows with healthStatus="unhealthy"', async () => {
-    const result = await invokeClean(ALL_ROWS, { unhealthy: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, { unhealthy: true, 'dry-run': true, json: true });
     const envelope = JSON.parse(result.stdout) as { data: { matched: number; sample: string[] } };
     expect(envelope.data.matched).toBe(1);
     expect(envelope.data.sample).toContain(UNHEALTHY_ROW.projectPath);
   });
 
   it('--never-indexed matches only rows with lastIndexed=null', async () => {
-    const result = await invokeClean(ALL_ROWS, { neverIndexed: true, dryRun: true, json: true });
+    const result = await invokeClean(ALL_ROWS, {
+      'never-indexed': true,
+      'dry-run': true,
+      json: true,
+    });
     const envelope = JSON.parse(result.stdout) as { data: { matched: number; sample: string[] } };
     expect(envelope.data.matched).toBe(1);
     expect(envelope.data.sample).toContain(NEVER_INDEXED_ROW.projectPath);
@@ -411,8 +437,8 @@ describe('nexus projects clean', () => {
   it('--unhealthy --never-indexed combo matches rows matching EITHER condition', async () => {
     const result = await invokeClean(ALL_ROWS, {
       unhealthy: true,
-      neverIndexed: true,
-      dryRun: true,
+      'never-indexed': true,
+      'dry-run': true,
       json: true,
     });
     const envelope = JSON.parse(result.stdout) as { data: { matched: number } };
@@ -423,7 +449,7 @@ describe('nexus projects clean', () => {
   // ── --yes skips prompt ────────────────────────────────────────────────────
 
   it('--yes skips confirmation prompt and deletes', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, yes: true, json: true });
+    const result = await invokeClean(ALL_ROWS, { 'include-temp': true, yes: true, json: true });
     const envelope = JSON.parse(result.stdout) as {
       success: boolean;
       data: { purged: number };
@@ -435,7 +461,7 @@ describe('nexus projects clean', () => {
   });
 
   it('--yes with --json reports correct remaining count', async () => {
-    const result = await invokeClean(ALL_ROWS, { includeTemp: true, yes: true, json: true });
+    const result = await invokeClean(ALL_ROWS, { 'include-temp': true, yes: true, json: true });
     const envelope = JSON.parse(result.stdout) as { data: { remaining: number } };
     expect(envelope.data.remaining).toBe(ALL_ROWS.length - 1);
   });
@@ -443,13 +469,13 @@ describe('nexus projects clean', () => {
   // ── Audit log ─────────────────────────────────────────────────────────────
 
   it('writes an audit log entry with action="projects.clean" on deletion', async () => {
-    await invokeClean(ALL_ROWS, { includeTemp: true, yes: true });
+    await invokeClean(ALL_ROWS, { 'include-temp': true, yes: true });
     const entry = auditInserts.find((e) => e['action'] === 'projects.clean');
     expect(entry).toBeDefined();
   });
 
   it('audit log detailsJson includes count and sample', async () => {
-    await invokeClean(ALL_ROWS, { includeTemp: true, yes: true });
+    await invokeClean(ALL_ROWS, { 'include-temp': true, yes: true });
     const entry = auditInserts.find((e) => e['action'] === 'projects.clean');
     expect(entry).toBeDefined();
     const details = JSON.parse(entry!['detailsJson'] as string) as {
@@ -461,7 +487,7 @@ describe('nexus projects clean', () => {
   });
 
   it('does NOT write audit log on dry-run', async () => {
-    await invokeClean(ALL_ROWS, { includeTemp: true, dryRun: true });
+    await invokeClean(ALL_ROWS, { 'include-temp': true, 'dry-run': true });
     const entry = auditInserts.find((e) => e['action'] === 'projects.clean');
     expect(entry).toBeUndefined();
   });
@@ -469,7 +495,7 @@ describe('nexus projects clean', () => {
   // ── Zero matches ─────────────────────────────────────────────────────────
 
   it('reports zero purged when no rows match', async () => {
-    const result = await invokeClean([NORMAL_ROW], { includeTemp: true, yes: true, json: true });
+    const result = await invokeClean([NORMAL_ROW], { 'include-temp': true, yes: true, json: true });
     const envelope = JSON.parse(result.stdout) as {
       success: boolean;
       data: { matched: number; purged: number };

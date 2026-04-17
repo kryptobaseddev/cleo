@@ -21,8 +21,7 @@ import {
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerNexusCommand } from '../nexus.js';
+import { nexusCommand } from '../nexus.js';
 
 let testDir: string;
 let registryDir: string;
@@ -117,15 +116,12 @@ afterEach(async () => {
   await rm(testDir, { recursive: true, force: true });
 });
 
-describe('registerNexusCommand', () => {
-  it('should register the nexus command with subcommands', () => {
-    const program = new Command();
-    registerNexusCommand(program);
+describe('nexusCommand', () => {
+  it('should define the nexus command with subcommands', () => {
+    expect(nexusCommand).toBeDefined();
+    expect(nexusCommand.meta?.name).toBe('nexus');
 
-    const nexusCmd = program.commands.find((c) => c.name() === 'nexus');
-    expect(nexusCmd).toBeDefined();
-
-    const subcommandNames = nexusCmd!.commands.map((c) => c.name());
+    const subcommandNames = Object.keys(nexusCommand.subCommands ?? {});
     expect(subcommandNames).toContain('init');
     expect(subcommandNames).toContain('register');
     expect(subcommandNames).toContain('unregister');

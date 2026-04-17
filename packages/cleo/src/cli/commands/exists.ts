@@ -1,58 +1,38 @@
 /**
- * CLI exists command - check if a task ID exists.
- *
- * Intentional dispatch bypass: `tasks.exists` was removed during the T5615
- * rationalization. The canonical replacement is `tasks.find {exact:true}` and
- * checking `results.length > 0`. This command calls `getTask()` from core
- * directly for simplicity and exit-code semantics (0=exists, 4=not found).
- *
+ * CLI exists command
  * @task T4454
+ * @task T487
  */
-
 import { ExitCode } from '@cleocode/contracts';
 import { getTask, resolveProjectRoot } from '@cleocode/core/internal';
-import type { ShimCommand as Command } from '../commander-shim.js';
+import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
-
-/**
- * Register the exists command.
- *
- * @param program - Root CLI program instance.
- *
- * @example
- * ```ts
- * registerExistsCommand(rootCommand);
- * // cleo exists T001 → exit 0 if found, exit 4 if not
- * ```
- */
-export function registerExistsCommand(program: Command): void {
-  program
-    .command('exists <task-id>')
-    .description('Check if a task ID exists (exit 0=exists, 4=not found)')
-    .option('--verbose', 'Show task title and status when found')
-    .action(async (taskId: string, opts: Record<string, unknown>) => {
-      const cwd = resolveProjectRoot();
-      let task: Awaited<ReturnType<typeof getTask>>;
-
-      try {
-        task = await getTask(taskId, cwd);
-      } catch (err) {
-        console.error(`exists: ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(ExitCode.GENERAL_ERROR);
-      }
-
-      if (!task) {
-        const data = { exists: false, taskId };
-        cliOutput(data, { command: 'exists', operation: 'tasks.exists' });
-        process.exit(ExitCode.NOT_FOUND);
-      }
-
-      const data: Record<string, unknown> = { exists: true, taskId };
-      if (opts['verbose']) {
-        data['title'] = task.title;
-        data['status'] = task.status;
-      }
-
-      cliOutput(data, { command: 'exists', operation: 'tasks.exists' });
-    });
-}
+/** Native citty command for `cleo exists <task-id>`. */
+export const existsCommand = defineCommand({
+  meta: { name: 'exists', description: 'Check if a task ID exists (exit 0=exists, 4=not found)' },
+  args: {
+    'task-id': { type: 'positional', description: 'Task ID to look up', required: true },
+    verbose: { type: 'boolean', description: 'Show task title and status when found' },
+  },
+  async run({ args }) {
+    const taskId = args['task-id'];
+    const cwd = resolveProjectRoot();
+    let task: Awaited<ReturnType<typeof getTask>>;
+    try {
+      task = await getTask(taskId, cwd);
+    } catch (err) {
+      console.error(`exists: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+    if (!task) {
+      cliOutput({ exists: false, taskId }, { command: 'exists', operation: 'tasks.exists' });
+      process.exit(ExitCode.NOT_FOUND);
+    }
+    const data: Record<string, unknown> = { exists: true, taskId };
+    if (args.verbose) {
+      data['title'] = task.title;
+      data['status'] = task.status;
+    }
+    cliOutput(data, { command: 'exists', operation: 'tasks.exists' });
+  },
+});

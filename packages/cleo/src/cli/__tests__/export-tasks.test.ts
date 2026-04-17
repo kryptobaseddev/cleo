@@ -1,61 +1,46 @@
 /**
- * Tests for export-tasks CLI command.
+ * Tests for export-tasks CLI command (native citty).
  * @task T4551
  * @epic T4545
  */
 
-import { describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../commander-shim.js';
-import { registerExportTasksCommand } from '../commands/export-tasks.js';
+import { describe, expect, it } from 'vitest';
+import { exportTasksCommand } from '../commands/export-tasks.js';
 
-vi.mock('../../../../core/src/store/json.js', () => ({
-  readJson: vi.fn(),
-}));
-
-// T633: use importActual + spread — see checkpoint.test.ts for the trap.
-vi.mock('../../../../core/src/paths.js', async () => {
-  const actual = await vi.importActual<typeof import('../../../../core/src/paths.js')>(
-    '../../../../core/src/paths.js',
-  );
-  return {
-    ...actual,
-    getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
-  };
-});
-
-vi.mock('../../../../core/src/store/export.js', () => ({
-  buildExportPackage: vi.fn().mockReturnValue({
-    _meta: { format: 'cleo-export', taskCount: 0 },
-    tasks: [],
-  }),
-}));
-
-describe('registerExportTasksCommand', () => {
-  it('registers an export-tasks command on the program', () => {
-    const program = new Command();
-    registerExportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'export-tasks');
-    expect(cmd).toBeDefined();
-    expect(cmd!.description()).toContain('portable');
+describe('exportTasksCommand (native citty)', () => {
+  it('exports a command with the correct name', () => {
+    expect(exportTasksCommand).toBeDefined();
+    const meta =
+      typeof exportTasksCommand.meta === 'function'
+        ? exportTasksCommand.meta()
+        : exportTasksCommand.meta;
+    expect((meta as { name: string }).name).toBe('export-tasks');
   });
 
-  it('has expected options', () => {
-    const program = new Command();
-    registerExportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'export-tasks')!;
-    const optionNames = cmd.options.map((o) => o.long);
-    expect(optionNames).toContain('--output');
-    expect(optionNames).toContain('--subtree');
-    expect(optionNames).toContain('--filter');
-    expect(optionNames).toContain('--include-deps');
-    expect(optionNames).toContain('--dry-run');
+  it('has a description containing "portable"', () => {
+    const meta =
+      typeof exportTasksCommand.meta === 'function'
+        ? exportTasksCommand.meta()
+        : exportTasksCommand.meta;
+    expect((meta as { description: string }).description).toContain('portable');
   });
 
-  it('accepts variadic task ID arguments', () => {
-    const program = new Command();
-    registerExportTasksCommand(program);
-    const cmd = program.commands.find((c) => c.name() === 'export-tasks')!;
-    expect(cmd.registeredArguments.length).toBe(1);
-    expect(cmd.registeredArguments[0].variadic).toBe(true);
+  it('defines --output, --subtree, --filter, --include-deps, --dry-run args', () => {
+    const args = exportTasksCommand.args as Record<string, { type: string }> | undefined;
+    expect(args).toBeDefined();
+    expect(args?.['output']).toBeDefined();
+    expect(args?.['subtree']).toBeDefined();
+    expect(args?.['filter']).toBeDefined();
+    expect(args?.['include-deps']).toBeDefined();
+    expect(args?.['dry-run']).toBeDefined();
+  });
+
+  it('accepts task IDs as positional argument', () => {
+    const args = exportTasksCommand.args as
+      | Record<string, { type: string; required?: boolean }>
+      | undefined;
+    const taskIdsArg = args?.['taskIds'];
+    expect(taskIdsArg).toBeDefined();
+    expect(taskIdsArg?.type).toBe('positional');
   });
 });

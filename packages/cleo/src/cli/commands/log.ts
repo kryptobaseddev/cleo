@@ -1,38 +1,57 @@
 /**
- * CLI log command - view audit log entries.
+ * CLI log command — view audit log entries.
+ *
+ * Dispatches to `admin.log` via dispatchFromCli.
+ *
  * @task T4538
  * @epic T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
 /**
- * Register the log command.
- * @task T4538
+ * cleo log — view audit log entries (operations, timestamps, changes).
  */
-export function registerLogCommand(program: Command): void {
-  program
-    .command('log')
-    .description('View audit log entries (operations, timestamps, changes)')
-    .option('--limit <n>', 'Maximum entries to show', '20')
-    .option('--offset <n>', 'Skip N entries', '0')
-    .option('--operation <op>', 'Filter by operation type')
-    .option('--task <id>', 'Filter by task ID')
-    .option('--since <date>', 'Filter entries since date')
-    .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli(
-        'query',
-        'admin',
-        'log',
-        {
-          limit: opts['limit'] ? Number(opts['limit']) : 20,
-          offset: opts['offset'] ? Number(opts['offset']) : 0,
-          operation: opts['operation'] as string | undefined,
-          taskId: opts['task'] as string | undefined,
-          since: opts['since'] as string | undefined,
-        },
-        { command: 'log', operation: 'admin.log' },
-      );
-    });
-}
+export const logCommand = defineCommand({
+  meta: { name: 'log', description: 'View audit log entries (operations, timestamps, changes)' },
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum entries to show',
+      default: '20',
+    },
+    offset: {
+      type: 'string',
+      description: 'Skip N entries',
+      default: '0',
+    },
+    operation: {
+      type: 'string',
+      description: 'Filter by operation type',
+    },
+    task: {
+      type: 'string',
+      description: 'Filter by task ID',
+    },
+    since: {
+      type: 'string',
+      description: 'Filter entries since date',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'log',
+      {
+        limit: args.limit ? Number(args.limit) : 20,
+        offset: args.offset ? Number(args.offset) : 0,
+        operation: args.operation as string | undefined,
+        taskId: args.task as string | undefined,
+        since: args.since as string | undefined,
+      },
+      { command: 'log', operation: 'admin.log' },
+    );
+  },
+});

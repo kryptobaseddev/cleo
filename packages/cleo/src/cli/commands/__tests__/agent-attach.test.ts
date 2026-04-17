@@ -1,23 +1,18 @@
 /**
- * Unit tests for T364: cleo agent attach / detach CLI verbs.
+ * Unit tests for T364: cleo agent attach / detach CLI verbs (native citty).
  *
  * Tests cover the happy paths and E_NOT_FOUND branches for both subcommands.
  * All DB and registry calls are mocked — no real SQLite is touched.
- *
- * Pattern mirrors add-description.test.ts: register the command tree on a
- * fresh ShimCommand, find the subcommand by name, and invoke its `_action`
- * callback directly.
  *
  * @task T364
  * @epic T310
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShimCommand as Command } from '../../commander-shim.js';
-import { registerAgentCommand } from '../agent.js';
+import { agentCommand } from '../agent.js';
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal (dynamic import inside action handlers)
+// Mock @cleocode/core/internal (dynamic import inside run handlers)
 // ---------------------------------------------------------------------------
 
 const mockAttachAgentToProject = vi.fn();
@@ -32,10 +27,7 @@ vi.mock('@cleocode/core/internal', () => ({
   getProjectAgentRef: (...args: unknown[]) => mockGetProjectAgentRef(...args),
   lookupAgent: (...args: unknown[]) => mockLookupAgent(...args),
   getDb: (...args: unknown[]) => mockGetDb(...args),
-  // AgentRegistryAccessor is instantiated to init DBs; provide a no-op ctor via
-  // an inline function (avoids the vi.mock hoisting issue with class declarations).
   AgentRegistryAccessor: function AgentRegistryAccessor() {},
-  // Other symbols used elsewhere in agent.ts — safe stubs
   checkAgentHealth: vi.fn(),
   detectCrashedAgents: vi.fn(),
   detectStaleAgents: vi.fn(),
@@ -54,20 +46,17 @@ vi.mock('../../renderers/index.js', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
+type RunContext = { args: Record<string, unknown>; rawArgs: string[] };
+type RunFn = (ctx: RunContext) => Promise<void>;
+
 /**
- * Register the agent command tree and extract the named subcommand's action.
- *
- * @param subName - Subcommand name, e.g. `'attach'` or `'detach'`.
- * @returns The action handler extracted from the ShimCommand tree.
+ * Extract the run function from a named subcommand of agentCommand.
  */
-function getAgentSubAction(subName: string): (...args: unknown[]) => Promise<void> {
-  const program = new Command();
-  registerAgentCommand(program);
-  const agentCmd = program.commands.find((c) => c.name() === 'agent');
-  if (!agentCmd) throw new Error('agent command not registered');
-  const sub = agentCmd.commands.find((c) => c.name() === subName);
-  if (!sub?._action) throw new Error(`agent ${subName} subcommand has no action registered`);
-  return sub._action as (...args: unknown[]) => Promise<void>;
+function getAgentSubRun(subName: string): RunFn {
+  const subs = agentCommand.subCommands as Record<string, { run?: RunFn }>;
+  const sub = subs[subName];
+  if (!sub?.run) throw new Error(`agent ${subName} subcommand has no run function`);
+  return sub.run;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,15 +66,14 @@ function getAgentSubAction(subName: string): (...args: unknown[]) => Promise<voi
 describe('T364 cleo agent attach', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset exitCode between tests
     process.exitCode = undefined;
   });
 
   it('calls attachAgentToProject and outputs success when agent exists globally', async () => {
     mockLookupAgent.mockReturnValue({ agentId: 'agent-1', displayName: 'Test Agent' });
 
-    const action = getAgentSubAction('attach');
-    await action('agent-1', {});
+    const run = getAgentSubRun('attach');
+    await run({ args: { agentId: 'agent-1' }, rawArgs: [] });
 
     expect(mockAttachAgentToProject).toHaveBeenCalledWith(expect.any(String), 'agent-1', {
       role: null,
@@ -101,8 +89,11 @@ describe('T364 cleo agent attach', () => {
   it('passes role and capabilitiesOverride options through', async () => {
     mockLookupAgent.mockReturnValue({ agentId: 'agent-2', displayName: 'Role Agent' });
 
-    const action = getAgentSubAction('attach');
-    await action('agent-2', { role: 'reviewer', capabilitiesOverride: '{"x":1}' });
+    const run = getAgentSubRun('attach');
+    await run({
+      args: { agentId: 'agent-2', role: 'reviewer', 'capabilities-override': '{"x":1}' },
+      rawArgs: [],
+    });
 
     expect(mockAttachAgentToProject).toHaveBeenCalledWith(expect.any(String), 'agent-2', {
       role: 'reviewer',
@@ -113,8 +104,8 @@ describe('T364 cleo agent attach', () => {
   it('sets exitCode=4 and does NOT call attach when agent does not exist globally', async () => {
     mockLookupAgent.mockReturnValue(null);
 
-    const action = getAgentSubAction('attach');
-    await action('ghost-agent', {});
+    const run = getAgentSubRun('attach');
+    await run({ args: { agentId: 'ghost-agent' }, rawArgs: [] });
 
     expect(mockAttachAgentToProject).not.toHaveBeenCalled();
     expect(mockCliOutput).toHaveBeenCalledWith(
@@ -130,8 +121,8 @@ describe('T364 cleo agent attach', () => {
       throw new Error('conduit db locked');
     });
 
-    const action = getAgentSubAction('attach');
-    await action('agent-3', {});
+    const run = getAgentSubRun('attach');
+    await run({ args: { agentId: 'agent-3' }, rawArgs: [] });
 
     expect(mockCliOutput).toHaveBeenCalledWith(
       expect.objectContaining({ success: false }),
@@ -154,8 +145,8 @@ describe('T364 cleo agent detach', () => {
   it('calls detachAgentFromProject and outputs success when ref exists', async () => {
     mockGetProjectAgentRef.mockReturnValue({ agentId: 'agent-1', enabled: 1 });
 
-    const action = getAgentSubAction('detach');
-    await action('agent-1');
+    const run = getAgentSubRun('detach');
+    await run({ args: { agentId: 'agent-1' }, rawArgs: [] });
 
     expect(mockDetachAgentFromProject).toHaveBeenCalledWith(expect.any(String), 'agent-1');
     expect(mockCliOutput).toHaveBeenCalledWith(
@@ -168,8 +159,8 @@ describe('T364 cleo agent detach', () => {
   it('sets exitCode=4 and does NOT call detach when agent is not attached to project', async () => {
     mockGetProjectAgentRef.mockReturnValue(null);
 
-    const action = getAgentSubAction('detach');
-    await action('ghost-agent');
+    const run = getAgentSubRun('detach');
+    await run({ args: { agentId: 'ghost-agent' }, rawArgs: [] });
 
     expect(mockDetachAgentFromProject).not.toHaveBeenCalled();
     expect(mockCliOutput).toHaveBeenCalledWith(
@@ -185,8 +176,8 @@ describe('T364 cleo agent detach', () => {
       throw new Error('disk full');
     });
 
-    const action = getAgentSubAction('detach');
-    await action('agent-4');
+    const run = getAgentSubRun('detach');
+    await run({ args: { agentId: 'agent-4' }, rawArgs: [] });
 
     expect(mockCliOutput).toHaveBeenCalledWith(
       expect.objectContaining({ success: false }),

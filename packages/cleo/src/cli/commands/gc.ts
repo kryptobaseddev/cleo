@@ -18,109 +18,9 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { defineCommand } from 'citty';
 import { runGC } from '../../gc/runner.js';
 import { readGCState } from '../../gc/state.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
-
-/**
- * Register the `cleo gc` command group.
- *
- * @param program - Root CLI command to attach to
- */
-export function registerGCCommand(program: Command): void {
-  const gc = program
-    .command('gc')
-    .description('Transcript garbage collection: manual trigger and status');
-
-  // ---------------------------------------------------------------------------
-  // cleo gc run
-  // ---------------------------------------------------------------------------
-
-  gc.command('run')
-    .description('Run GC immediately (blocking). Prunes old transcripts based on disk pressure.')
-    .option('--cleo-dir <path>', 'Override .cleo/ directory path')
-    .option('--dry-run', 'Report what would be pruned without deleting anything')
-    .option('--json', 'Output result as JSON')
-    .action(async (opts: { cleoDir?: string; dryRun?: boolean; json?: boolean }) => {
-      const cleoDir = opts.cleoDir ?? join(homedir(), '.cleo');
-      const dryRun = opts.dryRun ?? false;
-
-      try {
-        const gcResult = await runGC({ cleoDir, dryRun });
-        const result = { success: true, data: gcResult };
-
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          const dryLabel = dryRun ? ' (dry run)' : '';
-          process.stdout.write(`GC run complete${dryLabel}\n`);
-          process.stdout.write(
-            `Disk: ${gcResult.diskUsedPct.toFixed(1)}% (${gcResult.threshold.toUpperCase()})\n`,
-          );
-          process.stdout.write(
-            `Pruned: ${gcResult.pruned.length} paths, ${formatBytes(gcResult.bytesFreed)} freed\n`,
-          );
-          if (gcResult.escalationSet && gcResult.escalationReason) {
-            process.stdout.write(`\nWARNING: ${gcResult.escalationReason}\n`);
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const result = { success: false, error: { code: 'E_INTERNAL', message } };
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          process.stderr.write(`GC run failed: ${message}\n`);
-        }
-        process.exit(1);
-      }
-    });
-
-  // ---------------------------------------------------------------------------
-  // cleo gc status
-  // ---------------------------------------------------------------------------
-
-  gc.command('status')
-    .description('Show last GC run stats, disk usage, and escalation state')
-    .option('--cleo-dir <path>', 'Override .cleo/ directory path')
-    .option('--json', 'Output result as JSON')
-    .action(async (opts: { cleoDir?: string; json?: boolean }) => {
-      const cleoDir = opts.cleoDir ?? join(homedir(), '.cleo');
-      const statePath = join(cleoDir, 'gc-state.json');
-
-      try {
-        const state = await readGCState(statePath);
-        const result = { success: true, data: state };
-
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          process.stdout.write(`Last run:     ${state.lastRunAt ?? 'never'}\n`);
-          process.stdout.write(`Last result:  ${state.lastRunResult ?? 'none'}\n`);
-          process.stdout.write(`Bytes freed:  ${formatBytes(state.lastRunBytesFreed)}\n`);
-          const diskStr =
-            state.lastDiskUsedPct !== null ? `${state.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
-          process.stdout.write(`Disk used:    ${diskStr}\n`);
-          process.stdout.write(`Failures:     ${state.consecutiveFailures}\n`);
-          process.stdout.write(
-            `Escalation:   ${state.escalationNeeded ? 'YES — run cleo gc run' : 'no'}\n`,
-          );
-          if (state.escalationReason) {
-            process.stdout.write(`Reason:       ${state.escalationReason}\n`);
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const result = { success: false, error: { code: 'E_INTERNAL', message } };
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          process.stderr.write(`Error reading GC status: ${message}\n`);
-        }
-        process.exit(1);
-      }
-    });
-}
 
 /**
  * Format a byte count into a human-readable string.
@@ -135,3 +35,133 @@ function formatBytes(bytes: number): string {
   const value = bytes / 1024 ** exp;
   return `${value.toFixed(exp === 0 ? 0 : 1)} ${units[exp] ?? 'B'}`;
 }
+
+/** cleo gc run — trigger GC immediately (blocking) */
+const runCommand = defineCommand({
+  meta: {
+    name: 'run',
+    description: 'Run GC immediately (blocking). Prunes old transcripts based on disk pressure.',
+  },
+  args: {
+    'cleo-dir': {
+      type: 'string',
+      description: 'Override .cleo/ directory path',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report what would be pruned without deleting anything',
+      default: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const dryRun = args['dry-run'];
+
+    try {
+      const gcResult = await runGC({ cleoDir, dryRun });
+      const result = { success: true, data: gcResult };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else {
+        const dryLabel = dryRun ? ' (dry run)' : '';
+        process.stdout.write(`GC run complete${dryLabel}\n`);
+        process.stdout.write(
+          `Disk: ${gcResult.diskUsedPct.toFixed(1)}% (${gcResult.threshold.toUpperCase()})\n`,
+        );
+        process.stdout.write(
+          `Pruned: ${gcResult.pruned.length} paths, ${formatBytes(gcResult.bytesFreed)} freed\n`,
+        );
+        if (gcResult.escalationSet && gcResult.escalationReason) {
+          process.stdout.write(`\nWARNING: ${gcResult.escalationReason}\n`);
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const result = { success: false, error: { code: 'E_INTERNAL', message } };
+      if (args.json) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else {
+        process.stderr.write(`GC run failed: ${message}\n`);
+      }
+      process.exit(1);
+    }
+  },
+});
+
+/** cleo gc status — show last GC run stats, disk usage, and escalation state */
+const statusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description: 'Show last GC run stats, disk usage, and escalation state',
+  },
+  args: {
+    'cleo-dir': {
+      type: 'string',
+      description: 'Override .cleo/ directory path',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const statePath = join(cleoDir, 'gc-state.json');
+
+    try {
+      const state = await readGCState(statePath);
+      const result = { success: true, data: state };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else {
+        process.stdout.write(`Last run:     ${state.lastRunAt ?? 'never'}\n`);
+        process.stdout.write(`Last result:  ${state.lastRunResult ?? 'none'}\n`);
+        process.stdout.write(`Bytes freed:  ${formatBytes(state.lastRunBytesFreed)}\n`);
+        const diskStr =
+          state.lastDiskUsedPct !== null ? `${state.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
+        process.stdout.write(`Disk used:    ${diskStr}\n`);
+        process.stdout.write(`Failures:     ${state.consecutiveFailures}\n`);
+        process.stdout.write(
+          `Escalation:   ${state.escalationNeeded ? 'YES — run cleo gc run' : 'no'}\n`,
+        );
+        if (state.escalationReason) {
+          process.stdout.write(`Reason:       ${state.escalationReason}\n`);
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const result = { success: false, error: { code: 'E_INTERNAL', message } };
+      if (args.json) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else {
+        process.stderr.write(`Error reading GC status: ${message}\n`);
+      }
+      process.exit(1);
+    }
+  },
+});
+
+/**
+ * Root GC command group — transcript garbage collection manual trigger and status.
+ *
+ * Subcommands dispatch directly to the GC runner and state reader without
+ * going through the dispatch layer (GC is a local utility, not a domain operation).
+ */
+export const gcCommand = defineCommand({
+  meta: {
+    name: 'gc',
+    description: 'Transcript garbage collection: manual trigger and status',
+  },
+  subCommands: {
+    run: runCommand,
+    status: statusCommand,
+  },
+});

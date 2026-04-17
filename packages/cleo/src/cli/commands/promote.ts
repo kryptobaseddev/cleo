@@ -1,5 +1,5 @@
 /**
- * CLI promote command - remove parent from task, making it root-level.
+ * CLI promote command — remove parent from task, making it root-level.
  *
  * Routes to `tasks.reparent` with `newParentId: null` (the canonical way to
  * promote a task since T5615 rationalization removed `tasks.promote`).
@@ -7,20 +7,28 @@
  * @task T4454
  */
 
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
 
-export function registerPromoteCommand(program: Command): void {
-  program
-    .command('promote <task-id>')
-    .description('Remove parent from task, making it root-level')
-    .action(async (taskId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'tasks',
-        'reparent',
-        { taskId, newParentId: null },
-        { command: 'promote' },
-      );
-    });
-}
+/**
+ * cleo promote <task-id> — remove parent from task, making it root-level.
+ */
+export const promoteCommand = defineCommand({
+  meta: { name: 'promote', description: 'Remove parent from task, making it root-level' },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID to promote to root level',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'reparent',
+      { taskId: args.taskId, newParentId: null },
+      { command: 'promote' },
+    );
+  },
+});

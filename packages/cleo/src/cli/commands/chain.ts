@@ -1,77 +1,140 @@
 /**
- * CLI chain command group.
+ * CLI chain command group — WarpChain pipeline operations.
  *
- * WarpChain pipeline operations for tier-2 orchestrator workflows.
- * Covers the 5 chain.* operations: show, list, add, instantiate, advance.
+ * Exposes the 5 chain operations registered under the pipeline domain
+ * as a native citty subcommand group:
+ *
+ *   cleo chain show <chainId>              — show a WarpChain definition
+ *   cleo chain list                        — list all WarpChain definitions
+ *   cleo chain add <file>                  — add a definition from a JSON file
+ *   cleo chain instantiate <chainId> <epicId> — instantiate for an epic
+ *   cleo chain advance <instanceId> <nextStage> — advance to next stage
+ *
+ * All subcommands dispatch to `pipeline.chain.*` registry entries via
+ * dispatchFromCli.
  *
  * @task T483
  */
 
 import { readFileSync } from 'node:fs';
+import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import type { ShimCommand as Command } from '../commander-shim.js';
+
+/** cleo chain show — display details for a WarpChain definition */
+const showCommand = defineCommand({
+  meta: { name: 'show', description: 'Show details for a WarpChain definition' },
+  args: {
+    chainId: {
+      type: 'positional',
+      description: 'WarpChain definition ID',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'chain.show',
+      { chainId: args.chainId },
+      { command: 'chain' },
+    );
+  },
+});
+
+/** cleo chain list — list all WarpChain definitions */
+const listCommand = defineCommand({
+  meta: { name: 'list', description: 'List all WarpChain definitions' },
+  async run() {
+    await dispatchFromCli('query', 'pipeline', 'chain.list', {}, { command: 'chain' });
+  },
+});
+
+/** cleo chain add — register a new WarpChain definition from a JSON file */
+const addCommand = defineCommand({
+  meta: { name: 'add', description: 'Add a new WarpChain definition from a JSON file' },
+  args: {
+    file: {
+      type: 'positional',
+      description: 'Path to JSON file containing the WarpChain definition',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const chainJson = JSON.parse(readFileSync(args.file, 'utf-8')) as Record<string, unknown>;
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'chain.add',
+      { chain: chainJson },
+      { command: 'chain' },
+    );
+  },
+});
+
+/** cleo chain instantiate — create a running instance of a WarpChain for an epic */
+const instantiateCommand = defineCommand({
+  meta: { name: 'instantiate', description: 'Instantiate a WarpChain for an epic' },
+  args: {
+    chainId: {
+      type: 'positional',
+      description: 'WarpChain definition ID to instantiate',
+      required: true,
+    },
+    epicId: {
+      type: 'positional',
+      description: 'Epic ID to attach the instance to',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'chain.instantiate',
+      { chainId: args.chainId, epicId: args.epicId },
+      { command: 'chain' },
+    );
+  },
+});
+
+/** cleo chain advance — move a WarpChain instance to the next stage */
+const advanceCommand = defineCommand({
+  meta: { name: 'advance', description: 'Advance a WarpChain instance to the next stage' },
+  args: {
+    instanceId: {
+      type: 'positional',
+      description: 'WarpChain instance ID to advance',
+      required: true,
+    },
+    nextStage: {
+      type: 'positional',
+      description: 'Name of the stage to advance to',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'pipeline',
+      'chain.advance',
+      { instanceId: args.instanceId, nextStage: args.nextStage },
+      { command: 'chain' },
+    );
+  },
+});
 
 /**
- * Register the `chain` subcommand group on the given program.
+ * Root chain command group — registers all 5 WarpChain subcommands.
  *
- * @param program - Root ShimCommand to attach the `chain` group to.
+ * Dispatches to `pipeline.chain.*` registry operations.
  */
-export function registerChainCommand(program: Command): void {
-  const chain = program
-    .command('chain')
-    .description('WarpChain pipeline management (tier-2 orchestrator)');
-
-  chain
-    .command('show <chainId>')
-    .description('Show details for a WarpChain definition')
-    .action(async (chainId: string) => {
-      await dispatchFromCli('query', 'pipeline', 'chain.show', { chainId }, { command: 'chain' });
-    });
-
-  chain
-    .command('list')
-    .description('List all WarpChain definitions')
-    .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'chain.list', {}, { command: 'chain' });
-    });
-
-  chain
-    .command('add <file>')
-    .description('Add a new WarpChain definition from a JSON file')
-    .action(async (file: string) => {
-      const chainJson = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>;
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'chain.add',
-        { chain: chainJson },
-        { command: 'chain' },
-      );
-    });
-
-  chain
-    .command('instantiate <chainId> <epicId>')
-    .description('Instantiate a WarpChain for an epic')
-    .action(async (chainId: string, epicId: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'chain.instantiate',
-        { chainId, epicId },
-        { command: 'chain' },
-      );
-    });
-
-  chain
-    .command('advance <instanceId> <nextStage>')
-    .description('Advance a WarpChain instance to the next stage')
-    .action(async (instanceId: string, nextStage: string) => {
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'chain.advance',
-        { instanceId, nextStage },
-        { command: 'chain' },
-      );
-    });
-}
+export const chainCommand = defineCommand({
+  meta: { name: 'chain', description: 'WarpChain pipeline management (tier-2 orchestrator)' },
+  subCommands: {
+    show: showCommand,
+    list: listCommand,
+    add: addCommand,
+    instantiate: instantiateCommand,
+    advance: advanceCommand,
+  },
+});
