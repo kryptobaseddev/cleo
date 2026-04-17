@@ -42,6 +42,7 @@ import {
   STALE_THRESHOLD_MS,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
+import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
 
@@ -109,7 +110,7 @@ const registerCommand = defineCommand({
       // Scaffold .cant persona file if it doesn't exist
       const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const cantDir = join('.cleo', 'agents');
+      const cantDir = join(CLEO_DIR_NAME, AGENTS_SUBDIR);
       const cantPath = join(cantDir, `${agentId}.cant`);
       let cantScaffolded = false;
 
@@ -355,7 +356,7 @@ const startCommand = defineCommand({
       //    daemon does not interpret the workflow body.
       let profile: string | null = null;
       let cantValidation: ProfileValidation | null = null;
-      const cantPath = args.cant ?? join('.cleo', 'agents', `${args.agentId}.cant`);
+      const cantPath = args.cant ?? join(CLEO_DIR_NAME, AGENTS_SUBDIR, `${args.agentId}.cant`);
       if (existsSync(cantPath)) {
         profile = readFileSync(cantPath, 'utf-8');
         try {
@@ -969,7 +970,7 @@ const workCommand = defineCommand({
       }
       await registry.update(args.agentId, { isActive: true });
       await registry.markUsed(args.agentId);
-      const cantPath = join('.cleo', 'agents', `${args.agentId}.cant`);
+      const cantPath = join(CLEO_DIR_NAME, AGENTS_SUBDIR, `${args.agentId}.cant`);
       const hasProfile = existsSync(cantPath);
       const runtime = await createRuntime(registry, {
         agentId: args.agentId,
@@ -2118,7 +2119,7 @@ const installCommand = defineCommand({
         const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
         targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
       } else {
-        targetRoot = join(process.cwd(), '.cleo', 'cant', 'agents');
+        targetRoot = join(process.cwd(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
       }
 
       const targetDir = join(targetRoot, agentName);
@@ -2448,7 +2449,7 @@ const createCommand = defineCommand({
         const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
         targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
       } else {
-        targetRoot = join(process.cwd(), '.cleo', 'cant', 'agents');
+        targetRoot = join(process.cwd(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
       }
 
       const agentDir = join(targetRoot, name);

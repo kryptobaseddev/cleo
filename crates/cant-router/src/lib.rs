@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! CleoOS v2 model router — 3-layer classifier + router + pipeline.
+//! `CleoOS` v2 model router — 3-layer classifier + router + pipeline.
 //!
 //! Implements ULTRAPLAN §11: classify a prompt by complexity, select a
 //! model tier (low/mid/high), and route to the primary model with

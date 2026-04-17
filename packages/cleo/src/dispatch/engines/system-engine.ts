@@ -48,6 +48,12 @@ import {
   safestop,
   uncancelTask,
 } from '@cleocode/core/internal';
+import {
+  CLEO_DIR_NAME,
+  COMPLIANCE_JSONL,
+  METRICS_SUBDIR,
+  TASKS_DB_FILENAME,
+} from '../../cli/paths.js';
 import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
 import type { TaskRecord } from './task-engine.js';
 
@@ -587,7 +593,7 @@ async function queryAuditLogSqlite(
   try {
     const { join } = await import('node:path');
     const { existsSync } = await import('node:fs');
-    const dbPath = join(projectRoot, '.cleo', 'tasks.db');
+    const dbPath = join(projectRoot, CLEO_DIR_NAME, TASKS_DB_FILENAME);
     if (!existsSync(dbPath)) {
       const offset = filters?.offset ?? 0;
       const limit = filters?.limit ?? 20;
@@ -725,7 +731,7 @@ export function systemContext(
   params?: { session?: string },
 ): EngineResult<ContextData> {
   try {
-    const cleoDir = join(projectRoot, '.cleo');
+    const cleoDir = join(projectRoot, CLEO_DIR_NAME);
 
     // Resolve state file
     let stateFile: string;
@@ -1042,7 +1048,7 @@ export function systemCompliance(
 ): EngineResult<ComplianceData> {
   try {
     if (params?.subcommand === 'trend') {
-      const compliancePath = join(projectRoot, '.cleo', 'metrics', 'COMPLIANCE.jsonl');
+      const compliancePath = join(projectRoot, CLEO_DIR_NAME, METRICS_SUBDIR, COMPLIANCE_JSONL);
       let entries: Record<string, unknown>[] = [];
 
       if (existsSync(compliancePath)) {
@@ -1550,7 +1556,7 @@ export async function systemPaths(projectRoot: string): Promise<EngineResult<Pat
     return {
       success: true,
       data: {
-        projectCleoDir: join(projectRoot, '.cleo'),
+        projectCleoDir: join(projectRoot, CLEO_DIR_NAME),
         cleoHome,
         configDir,
         hub: {

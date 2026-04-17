@@ -17,6 +17,10 @@ use super::span::Span;
 /// Parses a `skill Name:` block starting at the given line index.
 ///
 /// Returns the parsed [`SkillDef`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the skill block header or body is malformed.
 pub fn parse_skill_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,

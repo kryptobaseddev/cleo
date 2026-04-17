@@ -350,7 +350,11 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
 
     // Helper: populate a fresh DB with numSessions × rowsPerSession retrieval rows
     // and return the measured duration of a single applyStdpPlasticity call.
-    async function measureRun(dir: string, numSessions: number, rowsPerSession: number): Promise<number> {
+    async function measureRun(
+      dir: string,
+      numSessions: number,
+      rowsPerSession: number,
+    ): Promise<number> {
       closeBrainDb();
       const nativeDb = await setupDb(dir);
 
@@ -381,23 +385,35 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
       return Date.now() - startMs;
     }
 
-    // SMALL run: 5 sessions × 10 rows = 50 spikes
-    const smallDir = tempDir; // managed by beforeEach/afterEach
-    const timeSmallMs = await measureRun(smallDir, 5, 10);
+    // Take MEDIAN of 3 runs each to smooth out CPU-contention spikes when this
+    // test runs in parallel with other vitest workers. A single run can be
+    // arbitrarily delayed by GC/context-switches; median tracks the true cost.
+    const medianOf = (values: number[]): number => {
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+    };
 
-    // LARGE run: 20 sessions × 10 rows = 200 spikes (4× input)
+    // SMALL run: 5 sessions × 10 rows = 50 spikes — 3 trials
+    const smallDir = tempDir; // managed by beforeEach/afterEach
+    const smallTrials: number[] = [];
+    for (let i = 0; i < 3; i++) smallTrials.push(await measureRun(smallDir, 5, 10));
+    const timeSmallMs = medianOf(smallTrials);
+
+    // LARGE run: 20 sessions × 10 rows = 200 spikes (4× input) — 3 trials
     const largeDir = await mkdtemp(join(tmpdir(), 'cleo-stdp-wave3-t695-large-'));
-    let timeLargeMs: number;
+    const largeTrials: number[] = [];
     try {
       process.env['CLEO_DIR'] = join(largeDir, '.cleo');
-      timeLargeMs = await measureRun(largeDir, 20, 10);
+      for (let i = 0; i < 3; i++) largeTrials.push(await measureRun(largeDir, 20, 10));
     } finally {
       closeBrainDb();
       process.env['CLEO_DIR'] = join(smallDir, '.cleo');
       await rm(largeDir, { recursive: true, force: true });
     }
+    const timeLargeMs = medianOf(largeTrials);
 
-    // Sanity: both runs must complete within 60 s individually (catches totally broken impl)
+    // Sanity: median runs must complete within 60 s individually (catches totally broken impl)
     expect(timeSmallMs).toBeLessThan(60_000);
     expect(timeLargeMs).toBeLessThan(60_000);
 

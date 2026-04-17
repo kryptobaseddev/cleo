@@ -53,7 +53,12 @@ pub struct JsValidationResult {
 /// A [`JsValidationResult`] with:
 /// - `valid: true`, empty errors — when the envelope conforms
 /// - `valid: false`, populated errors — when validation fails
-/// - Throws a napi error — when `payload` is not valid JSON
+///
+/// # Errors
+///
+/// Returns a [`napi::Error`] with status `InvalidArg` when `payload` is not
+/// valid JSON. Schema validation failures are returned as `Ok` with
+/// `valid: false` rather than as errors, so the caller can inspect details.
 #[napi]
 pub fn lafs_validate_envelope(payload: String) -> napi::Result<JsValidationResult> {
     match lafs_core::validate_envelope_json(&payload) {

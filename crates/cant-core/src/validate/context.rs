@@ -20,9 +20,9 @@ pub struct ValidationContext {
     pub defined_workflows: HashMap<String, Span>,
     /// Pipeline names defined in the document, mapped to their definition span.
     pub defined_pipelines: HashMap<String, Span>,
-    /// Team names defined in the document (CleoOS v2), mapped to their definition span.
+    /// Team names defined in the document (`CleoOS` v2), mapped to their definition span.
     pub defined_teams: HashMap<String, Span>,
-    /// Tool names defined in the document (CleoOS v2), mapped to their definition span.
+    /// Tool names defined in the document (`CleoOS` v2), mapped to their definition span.
     pub defined_tools: HashMap<String, Span>,
     /// Scope stack for variable bindings. Each entry is a scope level containing
     /// name -> definition span mappings. The outermost scope is at index 0.

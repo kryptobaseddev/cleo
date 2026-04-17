@@ -1,5 +1,5 @@
 //! Build script for cant-core: generates `src/generated/events.rs` from
-//! `packages/caamp/providers/hook-mappings.json` (the canonical SSoT for all
+//! `packages/caamp/providers/hook-mappings.json` (the canonical `SSoT` for all
 //! event definitions).
 //!
 //! # Determinism
@@ -33,7 +33,7 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{self, Command, Stdio};
 
 struct EventEntry {
     name: String,
@@ -44,7 +44,13 @@ struct EventEntry {
 }
 
 fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = match env::var("CARGO_MANIFEST_DIR") {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("cargo:error=cant-core build.rs: CARGO_MANIFEST_DIR not set: {e}");
+            process::exit(1);
+        }
+    };
     let json_path =
         Path::new(&manifest_dir).join("../../packages/caamp/providers/hook-mappings.json");
 
@@ -57,11 +63,17 @@ fn main() {
     let formatted = format_with_rustfmt(&raw);
 
     let out_dir = Path::new(&manifest_dir).join("src/generated");
-    fs::create_dir_all(&out_dir).expect("Failed to create src/generated/");
+    if let Err(e) = fs::create_dir_all(&out_dir) {
+        eprintln!(
+            "cargo:error=cant-core build.rs: failed to create {}: {e}",
+            out_dir.display()
+        );
+        process::exit(1);
+    }
     write_if_changed(&out_dir.join("events.rs"), &formatted);
     write_if_changed(
         &out_dir.join("mod.rs"),
-        "// @generated — DO NOT EDIT.\n\npub mod events;\n",
+        "// @generated — DO NOT EDIT.\n\n/// Generated canonical event definitions from `hook-mappings.json`.\npub mod events;\n",
     );
 }
 
@@ -74,8 +86,13 @@ fn write_if_changed(path: &Path, contents: &str) {
             return;
         }
     }
-    fs::write(path, contents)
-        .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
+    if let Err(e) = fs::write(path, contents) {
+        eprintln!(
+            "cargo:error=cant-core build.rs: failed to write {}: {e}",
+            path.display()
+        );
+        process::exit(1);
+    }
 }
 
 /// Pipes `source` through `rustfmt --edition 2024 --emit stdout` and returns
@@ -138,28 +155,53 @@ fn format_with_rustfmt(source: &str) -> String {
 }
 
 fn parse_mappings(json_path: &Path) -> (Vec<EventEntry>, BTreeSet<String>, BTreeSet<String>) {
-    let json_str = fs::read_to_string(json_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {}", json_path.display(), e));
-    let mappings: serde_json::Value =
-        serde_json::from_str(&json_str).expect("Failed to parse hook-mappings.json");
+    let json_str = match fs::read_to_string(json_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "cargo:error=cant-core build.rs: failed to read {}: {e}",
+                json_path.display()
+            );
+            process::exit(1);
+        }
+    };
+    let mappings: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("cargo:error=cant-core build.rs: failed to parse hook-mappings.json: {e}");
+            process::exit(1);
+        }
+    };
 
-    let events = mappings["canonicalEvents"]
-        .as_object()
-        .expect("canonicalEvents must be an object");
+    let events = match mappings["canonicalEvents"].as_object() {
+        Some(obj) => obj,
+        None => {
+            eprintln!(
+                "cargo:error=cant-core build.rs: hook-mappings.json: canonicalEvents must be an object"
+            );
+            process::exit(1);
+        }
+    };
 
     let mut categories = BTreeSet::new();
     let mut sources = BTreeSet::new();
     let mut entries = Vec::new();
 
     for (name, meta) in events {
-        let category = meta["category"]
-            .as_str()
-            .unwrap_or_else(|| panic!("Event '{name}' missing category"))
-            .to_string();
-        let source = meta["source"]
-            .as_str()
-            .unwrap_or_else(|| panic!("Event '{name}' missing source"))
-            .to_string();
+        let category = match meta["category"].as_str() {
+            Some(s) => s.to_string(),
+            None => {
+                eprintln!("cargo:error=cant-core build.rs: event '{name}' missing category");
+                process::exit(1);
+            }
+        };
+        let source = match meta["source"].as_str() {
+            Some(s) => s.to_string(),
+            None => {
+                eprintln!("cargo:error=cant-core build.rs: event '{name}' missing source");
+                process::exit(1);
+            }
+        };
         let can_block = meta["canBlock"].as_bool().unwrap_or(false);
         let description = meta["description"].as_str().unwrap_or("").to_string();
 
@@ -292,7 +334,7 @@ fn gen_event_enum(c: &mut String, entries: &[EventEntry]) {
             ));
         }
         c.push_str(&format!(
-            "    /// {} — `{}` category. {}.\n    {},\n",
+            "    /// `{}` — `{}` category. {}.\n    {},\n",
             entry.name, entry.category, entry.description, entry.name
         ));
     }
@@ -316,7 +358,7 @@ fn gen_event_impl(c: &mut String, entries: &[EventEntry]) {
     });
 
     // from_str
-    c.push_str("    /// Parses a PascalCase event name. O(1) via compiler-optimized match.\n");
+    c.push_str("    /// Parses a `PascalCase` event name. O(1) via compiler-optimized match.\n");
     c.push_str("    #[allow(clippy::should_implement_trait)]\n");
     c.push_str("    pub fn from_str(s: &str) -> Option<Self> {\n");
     c.push_str("        match s {\n");
@@ -372,7 +414,7 @@ fn gen_const_match(
     value_fn: impl Fn(&EventEntry) -> String,
 ) {
     let doc = match name {
-        "as_str" => "Returns the PascalCase string name.",
+        "as_str" => "Returns the `PascalCase` string name.",
         "category" => "Returns the event category.",
         "source" => "Returns the event source (provider or domain).",
         "can_block" => "Whether a hook handler can block the associated action.",
@@ -406,7 +448,7 @@ fn gen_helpers(c: &mut String, entries: &[EventEntry]) {
     c.push_str("    CanonicalEvent::from_str(name).is_some()\n}\n");
 }
 
-/// Converts a lowercase string to PascalCase.
+/// Converts a lowercase string to `PascalCase`.
 fn pascal_case(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {

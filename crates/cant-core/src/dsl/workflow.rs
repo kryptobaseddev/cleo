@@ -23,6 +23,10 @@ use super::statement::parse_statement_block;
 /// Parses a `workflow Name:` or `workflow Name(params):` block starting at the given line index.
 ///
 /// Returns the parsed [`WorkflowDef`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the workflow header or body is malformed.
 pub fn parse_workflow_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -126,7 +130,7 @@ mod tests {
         assert_eq!(wf.body.len(), 1);
         match &wf.body[0] {
             Statement::Session(_) => {}
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -138,7 +142,7 @@ mod tests {
         assert_eq!(consumed, 3);
         match &wf.body[0] {
             Statement::Conditional(_) => {}
-            other => panic!("expected Conditional, got {:?}", other),
+            other => panic!("expected Conditional, got {other:?}"),
         }
     }
 
@@ -150,7 +154,7 @@ mod tests {
         assert_eq!(consumed, 5);
         match &wf.body[0] {
             Statement::TryCatch(_) => {}
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -171,7 +175,7 @@ mod tests {
         assert_eq!(wf.body.len(), 2);
         match &wf.body[0] {
             Statement::Binding(_) => {}
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
     }
 
@@ -183,7 +187,7 @@ mod tests {
         assert_eq!(consumed, 3);
         match &wf.body[0] {
             Statement::Repeat(_) => {}
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -195,7 +199,7 @@ mod tests {
         assert_eq!(consumed, 3);
         match &wf.body[0] {
             Statement::ForLoop(_) => {}
-            other => panic!("expected ForLoop, got {:?}", other),
+            other => panic!("expected ForLoop, got {other:?}"),
         }
     }
 
@@ -207,7 +211,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match &wf.body[0] {
             Statement::Parallel(_) => {}
-            other => panic!("expected Parallel, got {:?}", other),
+            other => panic!("expected Parallel, got {other:?}"),
         }
     }
 
@@ -219,7 +223,7 @@ mod tests {
         assert_eq!(consumed, 3);
         match &wf.body[0] {
             Statement::ApprovalGate(_) => {}
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -255,7 +259,7 @@ mod tests {
         let (wf, _) = parse_workflow_block(&lines, 0).unwrap();
         match &wf.body[0] {
             Statement::Output(_) => {}
-            other => panic!("expected Output, got {:?}", other),
+            other => panic!("expected Output, got {other:?}"),
         }
     }
 
@@ -284,7 +288,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match &wf.body[0] {
             Statement::Pipeline(_) => {}
-            other => panic!("expected Pipeline, got {:?}", other),
+            other => panic!("expected Pipeline, got {other:?}"),
         }
     }
 }

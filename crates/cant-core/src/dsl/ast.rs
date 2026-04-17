@@ -42,32 +42,32 @@ pub enum DocumentKind {
     Message,
     /// A protocol definition document — RCASD/IVTR protocol contract.
     ///
-    /// CleoOS v2 (ULTRAPLAN §8): typed replacement for the hand-written
+    /// `CleoOS` v2 (ULTRAPLAN §8): typed replacement for the hand-written
     /// protocols-markdown files in `packages/core/src/validation/protocols/`.
     Protocol,
     /// A lifecycle definition document — pipeline stage definitions.
     ///
-    /// CleoOS v2 (ULTRAPLAN §8): typed replacement for the TypeScript const
+    /// `CleoOS` v2 (ULTRAPLAN §8): typed replacement for the TypeScript const
     /// `PIPELINE_STAGES` in `packages/core/src/lifecycle/stages.ts`.
     Lifecycle,
     /// A team definition document — 3-tier hierarchy (orchestrator / leads / workers).
     ///
-    /// CleoOS v2 (ULTRAPLAN §10): declares the multi-agent hierarchy with
+    /// `CleoOS` v2 (ULTRAPLAN §10): declares the multi-agent hierarchy with
     /// HITL routing rules and role enforcement.
     Team,
     /// A tool definition document — LLM-callable tool declarations.
     ///
-    /// CleoOS v2 (ULTRAPLAN §8): custom Pi-tool registrations beyond the
+    /// `CleoOS` v2 (ULTRAPLAN §8): custom Pi-tool registrations beyond the
     /// built-in dispatcher tools.
     Tool,
     /// A model-routing document — tier matrix + classifier config.
     ///
-    /// CleoOS v2 (ULTRAPLAN §11): low/mid/high tier matrix driving the
+    /// `CleoOS` v2 (ULTRAPLAN §11): low/mid/high tier matrix driving the
     /// 3-layer classifier / router / pipeline.
     ModelRouting,
     /// A mental-model definition document — per-agent persistent model schema.
     ///
-    /// CleoOS v2 (ULTRAPLAN §12): per-project BRAIN namespace config with
+    /// `CleoOS` v2 (ULTRAPLAN §12): per-project BRAIN namespace config with
     /// validate-on-load policy.
     MentalModel,
 }
@@ -100,9 +100,9 @@ pub enum Section {
     Workflow(WorkflowDef),
     /// A pipeline definition block (Layer 3).
     Pipeline(PipelineDef),
-    /// A team definition block (CleoOS v2 — 3-tier hierarchy).
+    /// A team definition block (`CleoOS` v2 — 3-tier hierarchy).
     Team(TeamDef),
-    /// A tool definition block (CleoOS v2 — LLM-callable tool).
+    /// A tool definition block (`CleoOS` v2 — LLM-callable tool).
     Tool(ToolDef),
     /// An import statement.
     Import(ImportStatement),
@@ -137,12 +137,12 @@ pub struct AgentDef {
     pub context_refs: Vec<ContextRef>,
     /// Inline hook definitions (`on Event:` within the agent block).
     pub hooks: Vec<HookDef>,
-    /// Properties from a `context_sources:` sub-block (CleoOS v2 — JIT context pull config).
+    /// Properties from a `context_sources:` sub-block (`CleoOS` v2 — JIT context pull config).
     ///
     /// Stored as raw properties; the bridge interprets them at spawn time.
     /// Lint rule `JIT-001` requires an `on_overflow:` entry whenever this is non-empty.
     pub context_sources: Vec<Property>,
-    /// Properties from a `mental_model:` sub-block (CleoOS v2 — per-agent persistent model).
+    /// Properties from a `mental_model:` sub-block (`CleoOS` v2 — per-agent persistent model).
     ///
     /// Lint rules `MM-001` / `MM-002` require `scope:` and `validate: true` respectively
     /// whenever this is non-empty.
@@ -192,7 +192,7 @@ pub struct SkillDef {
     pub span: Span,
 }
 
-// ── Team Definition (CleoOS v2) ──────────────────────────────────────
+// ── Team Definition (`CleoOS` v2) ──────────────────────────────────────
 
 /// A team definition block (`team Name:`).
 ///
@@ -234,7 +234,7 @@ pub struct TeamDef {
     pub span: Span,
 }
 
-// ── Tool Definition (CleoOS v2) ──────────────────────────────────────
+// ── Tool Definition (`CleoOS` v2) ──────────────────────────────────────
 
 /// A tool definition block (`tool Name:`).
 ///
@@ -425,7 +425,7 @@ pub struct PathPermissions {
     /// Glob patterns for paths this agent is allowed to write (Edit/Write tool).
     ///
     /// Empty vec = no writes allowed (security-first default-deny).
-    /// Absent (None on AgentDef) = unrestricted (no declared ACL).
+    /// Absent (None on `AgentDef`) = unrestricted (no declared ACL).
     pub write: Vec<String>,
     /// Glob patterns for paths this agent is allowed to read.
     ///

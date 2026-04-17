@@ -95,6 +95,7 @@ pub fn resolve_import_path(import_path: &str, base_dir: &str) -> Option<String> 
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use cant_core::dsl::ast::*;

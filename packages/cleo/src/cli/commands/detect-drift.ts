@@ -18,6 +18,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getErrorMessage } from '@cleocode/contracts';
 import { defineCommand } from 'citty';
+import { CLEO_DIR_NAME, CLEO_INJECTION_MD, TEMPLATES_SUBDIR } from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {
@@ -107,7 +108,7 @@ export const detectDriftCommand = defineCommand({
       };
 
       // Check: agent injection template
-      const injPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
+      const injPath = join(projectRoot, CLEO_DIR_NAME, TEMPLATES_SUBDIR, CLEO_INJECTION_MD);
       if (existsSync(injPath)) {
         const content = safeRead(injPath);
         userResult.checks.push({
@@ -432,7 +433,7 @@ export const detectDriftCommand = defineCommand({
 
     // Check 7: Agent injection template
     try {
-      const injectionPath = join(projectRoot, '.cleo', 'templates', 'CLEO-INJECTION.md');
+      const injectionPath = join(projectRoot, CLEO_DIR_NAME, TEMPLATES_SUBDIR, CLEO_INJECTION_MD);
       if (!existsSync(injectionPath)) {
         addCheck('Agent injection', 'fail', 'Agent injection template missing', [
           {

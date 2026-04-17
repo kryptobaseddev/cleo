@@ -17,6 +17,10 @@ use super::span::Span;
 ///
 /// This is the top-level entry point for expression parsing. It handles
 /// boolean operators (`and`, `or`) at the lowest precedence.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the expression is syntactically invalid.
 pub fn parse_expression(
     input: &str,
     byte_offset: usize,
@@ -369,7 +373,7 @@ fn parse_array_expr(
     Ok(Expression::Array(ArrayExpr { elements, span }))
 }
 
-/// Parses a dotted property access like `a.b.c` into nested PropertyAccess nodes.
+/// Parses a dotted property access like `a.b.c` into nested `PropertyAccess` nodes.
 fn parse_property_access(
     input: &str,
     byte_offset: usize,
@@ -511,7 +515,7 @@ mod tests {
         let expr = parse_expression("status", 0, 1, 1).unwrap();
         match expr {
             Expression::Name(n) => assert_eq!(n.name, "status"),
-            other => panic!("expected Name, got {:?}", other),
+            other => panic!("expected Name, got {other:?}"),
         }
     }
 
@@ -522,7 +526,7 @@ mod tests {
             Expression::PropertyAccess(pa) => {
                 assert_eq!(pa.property, "status");
             }
-            other => panic!("expected PropertyAccess, got {:?}", other),
+            other => panic!("expected PropertyAccess, got {other:?}"),
         }
     }
 
@@ -536,10 +540,10 @@ mod tests {
                     Expression::PropertyAccess(inner) => {
                         assert_eq!(inner.property, "b");
                     }
-                    other => panic!("expected inner PropertyAccess, got {:?}", other),
+                    other => panic!("expected inner PropertyAccess, got {other:?}"),
                 }
             }
-            other => panic!("expected PropertyAccess, got {:?}", other),
+            other => panic!("expected PropertyAccess, got {other:?}"),
         }
     }
 
@@ -551,10 +555,10 @@ mod tests {
                 assert_eq!(s.segments.len(), 1);
                 match &s.segments[0] {
                     StringSegment::Literal(text) => assert_eq!(text, "hello world"),
-                    other => panic!("expected Literal segment, got {:?}", other),
+                    other => panic!("expected Literal segment, got {other:?}"),
                 }
             }
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
     }
 
@@ -566,14 +570,14 @@ mod tests {
                 assert_eq!(s.segments.len(), 2);
                 match &s.segments[0] {
                     StringSegment::Literal(text) => assert_eq!(text, "hello "),
-                    other => panic!("expected Literal, got {:?}", other),
+                    other => panic!("expected Literal, got {other:?}"),
                 }
                 match &s.segments[1] {
                     StringSegment::Interpolation(_) => {}
-                    other => panic!("expected Interpolation, got {:?}", other),
+                    other => panic!("expected Interpolation, got {other:?}"),
                 }
             }
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
     }
 
@@ -582,16 +586,18 @@ mod tests {
         let expr = parse_expression("42", 0, 1, 1).unwrap();
         match expr {
             Expression::Number(n) => assert!((n.value - 42.0).abs() < f64::EPSILON),
-            other => panic!("expected Number, got {:?}", other),
+            other => panic!("expected Number, got {other:?}"),
         }
     }
 
     #[test]
     fn parse_float() {
-        let expr = parse_expression("3.14", 0, 1, 1).unwrap();
+        // Use 2.5 instead of 3.14 to avoid clippy::approx_constant lint
+        // (the test just needs any float — the specific value doesn't matter).
+        let expr = parse_expression("2.5", 0, 1, 1).unwrap();
         match expr {
-            Expression::Number(n) => assert!((n.value - 3.14).abs() < f64::EPSILON),
-            other => panic!("expected Number, got {:?}", other),
+            Expression::Number(n) => assert!((n.value - 2.5).abs() < f64::EPSILON),
+            other => panic!("expected Number, got {other:?}"),
         }
     }
 
@@ -600,7 +606,7 @@ mod tests {
         let expr = parse_expression("true", 0, 1, 1).unwrap();
         match expr {
             Expression::Boolean(b) => assert!(b.value),
-            other => panic!("expected Boolean true, got {:?}", other),
+            other => panic!("expected Boolean true, got {other:?}"),
         }
     }
 
@@ -609,7 +615,7 @@ mod tests {
         let expr = parse_expression("false", 0, 1, 1).unwrap();
         match expr {
             Expression::Boolean(b) => assert!(!b.value),
-            other => panic!("expected Boolean false, got {:?}", other),
+            other => panic!("expected Boolean false, got {other:?}"),
         }
     }
 
@@ -618,7 +624,7 @@ mod tests {
         let expr = parse_expression("T1234", 0, 1, 1).unwrap();
         match expr {
             Expression::TaskRef(t) => assert_eq!(t.id, "T1234"),
-            other => panic!("expected TaskRef, got {:?}", other),
+            other => panic!("expected TaskRef, got {other:?}"),
         }
     }
 
@@ -627,7 +633,7 @@ mod tests {
         let expr = parse_expression("@ops-lead", 0, 1, 1).unwrap();
         match expr {
             Expression::Address(a) => assert_eq!(a.name, "ops-lead"),
-            other => panic!("expected Address, got {:?}", other),
+            other => panic!("expected Address, got {other:?}"),
         }
     }
 
@@ -636,7 +642,7 @@ mod tests {
         let expr = parse_expression("[]", 0, 1, 1).unwrap();
         match expr {
             Expression::Array(a) => assert!(a.elements.is_empty()),
-            other => panic!("expected Array, got {:?}", other),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 
@@ -645,7 +651,7 @@ mod tests {
         let expr = parse_expression("[\"a\", \"b\", \"c\"]", 0, 1, 1).unwrap();
         match expr {
             Expression::Array(a) => assert_eq!(a.elements.len(), 3),
-            other => panic!("expected Array, got {:?}", other),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 
@@ -656,7 +662,7 @@ mod tests {
             Expression::Comparison(c) => {
                 assert_eq!(c.op, ComparisonOp::Eq);
             }
-            other => panic!("expected Comparison, got {:?}", other),
+            other => panic!("expected Comparison, got {other:?}"),
         }
     }
 
@@ -665,7 +671,7 @@ mod tests {
         let expr = parse_expression("x != y", 0, 1, 1).unwrap();
         match expr {
             Expression::Comparison(c) => assert_eq!(c.op, ComparisonOp::Ne),
-            other => panic!("expected Comparison, got {:?}", other),
+            other => panic!("expected Comparison, got {other:?}"),
         }
     }
 
@@ -674,7 +680,7 @@ mod tests {
         let expr = parse_expression("a > b", 0, 1, 1).unwrap();
         match expr {
             Expression::Comparison(c) => assert_eq!(c.op, ComparisonOp::Gt),
-            other => panic!("expected Comparison, got {:?}", other),
+            other => panic!("expected Comparison, got {other:?}"),
         }
     }
 
@@ -683,7 +689,7 @@ mod tests {
         let expr = parse_expression("a >= b", 0, 1, 1).unwrap();
         match expr {
             Expression::Comparison(c) => assert_eq!(c.op, ComparisonOp::Ge),
-            other => panic!("expected Comparison, got {:?}", other),
+            other => panic!("expected Comparison, got {other:?}"),
         }
     }
 
@@ -692,7 +698,7 @@ mod tests {
         let expr = parse_expression("a and b", 0, 1, 1).unwrap();
         match expr {
             Expression::Logical(l) => assert_eq!(l.op, LogicalOp::And),
-            other => panic!("expected Logical And, got {:?}", other),
+            other => panic!("expected Logical And, got {other:?}"),
         }
     }
 
@@ -701,7 +707,7 @@ mod tests {
         let expr = parse_expression("a or b", 0, 1, 1).unwrap();
         match expr {
             Expression::Logical(l) => assert_eq!(l.op, LogicalOp::Or),
-            other => panic!("expected Logical Or, got {:?}", other),
+            other => panic!("expected Logical Or, got {other:?}"),
         }
     }
 
@@ -711,9 +717,9 @@ mod tests {
         match expr {
             Expression::Negation(n) => match *n.operand {
                 Expression::Name(name) => assert_eq!(name.name, "active"),
-                other => panic!("expected Name inside not, got {:?}", other),
+                other => panic!("expected Name inside not, got {other:?}"),
             },
-            other => panic!("expected Negation, got {:?}", other),
+            other => panic!("expected Negation, got {other:?}"),
         }
     }
 
@@ -725,7 +731,7 @@ mod tests {
                 assert_eq!(d.amount, 30);
                 assert_eq!(d.unit, DurationUnit::Seconds);
             }
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 
@@ -741,9 +747,9 @@ mod tests {
         match expr {
             Expression::String(s) => match &s.segments[0] {
                 StringSegment::Literal(text) => assert_eq!(text, "line1\nline2"),
-                other => panic!("expected Literal, got {:?}", other),
+                other => panic!("expected Literal, got {other:?}"),
             },
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
     }
 }

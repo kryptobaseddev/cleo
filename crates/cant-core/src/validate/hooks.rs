@@ -212,7 +212,7 @@ fn check_hook_body_for_workflow(
 
 // ── H04: Blocking hooks must have explicit handling ─────────────────
 
-/// H04: Blocking hooks (PreToolUse, PermissionRequest) MUST have a
+/// H04: Blocking hooks (`PreToolUse`, `PermissionRequest`) MUST have a
 /// non-empty body with explicit handling logic.
 fn check_h04_blocking_hooks_handling(doc: &CantDocument) -> Vec<Diagnostic> {
     let mut diags = Vec::new();

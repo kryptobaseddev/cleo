@@ -13,6 +13,10 @@ use super::span::Span;
 /// Parses a `let` or `const` binding from the given line.
 ///
 /// Returns the parsed [`LetBinding`].
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the line is not a valid binding statement.
 pub fn parse_binding(line: &IndentedLine<'_>) -> Result<LetBinding, ParseError> {
     let content = line.content;
     let base_offset = line.byte_offset + line.indent;
@@ -95,7 +99,7 @@ mod tests {
         assert_eq!(binding.name.value, "status");
         match &binding.value {
             Expression::PropertyAccess(pa) => assert_eq!(pa.property, "status"),
-            other => panic!("expected PropertyAccess, got {:?}", other),
+            other => panic!("expected PropertyAccess, got {other:?}"),
         }
     }
 
@@ -107,7 +111,7 @@ mod tests {
         assert_eq!(binding.name.value, "threshold");
         match &binding.value {
             Expression::Number(n) => assert!((n.value - 42.0).abs() < f64::EPSILON),
-            other => panic!("expected Number, got {:?}", other),
+            other => panic!("expected Number, got {other:?}"),
         }
     }
 
@@ -119,7 +123,7 @@ mod tests {
         assert_eq!(binding.name.value, "greeting");
         match &binding.value {
             Expression::String(_) => {}
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
     }
 
@@ -130,7 +134,7 @@ mod tests {
         let binding = parse_binding(&lines[0]).unwrap();
         match &binding.value {
             Expression::Boolean(b) => assert!(b.value),
-            other => panic!("expected Boolean, got {:?}", other),
+            other => panic!("expected Boolean, got {other:?}"),
         }
     }
 

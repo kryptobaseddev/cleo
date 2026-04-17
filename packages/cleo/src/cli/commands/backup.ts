@@ -15,6 +15,15 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import {
+  CLEO_DIR_NAME,
+  CLI_GLOBAL_BACKUP_FILES,
+  CLI_PROJECT_BACKUP_FILES,
+  CONFIG_JSON,
+  PROJECT_INFO_JSON,
+  RESTORE_CONFLICTS_MD,
+  RESTORE_IMPORTED_SUBDIR,
+} from '../paths.js';
 import { backupInspectSubCommand } from './backup-inspect.js';
 
 // ---------------------------------------------------------------------------
@@ -377,14 +386,14 @@ const importCommand = defineCommand({
         // manifest json filenames may include a path prefix (e.g. "json/config.json").
         // Extract only the basename to match the FilenameForRestore constraint.
         const basename = path.basename(jsonEntry.filename) as
-          | 'config.json'
-          | 'project-info.json'
+          | typeof CONFIG_JSON
+          | typeof PROJECT_INFO_JSON
           | 'project-context.json';
 
         let localGenerated: unknown;
-        if (basename === 'config.json') {
+        if (basename === CONFIG_JSON) {
           localGenerated = core.regenerateConfigJson(projectRoot).content;
-        } else if (basename === 'project-info.json') {
+        } else if (basename === PROJECT_INFO_JSON) {
           localGenerated = core.regenerateProjectInfoJson(projectRoot).content;
         } else {
           localGenerated = core.regenerateProjectContextJson(projectRoot).content;
@@ -398,7 +407,7 @@ const importCommand = defineCommand({
         jsonReports.push(report);
 
         // Write the applied merge to disk (always to .cleo/<basename>)
-        const targetPath = path.join(projectRoot, '.cleo', basename);
+        const targetPath = path.join(projectRoot, CLEO_DIR_NAME, basename);
         fs.mkdirSync(path.dirname(targetPath), { recursive: true });
         fs.writeFileSync(targetPath, JSON.stringify(report.applied, null, 2), 'utf-8');
       }
@@ -425,7 +434,7 @@ const importCommand = defineCommand({
       // -----------------------------------------------------------------------
       // Step 7: Move raw imported JSON files to .cleo/restore-imported/
       // -----------------------------------------------------------------------
-      const importedDir = path.join(projectRoot, '.cleo', 'restore-imported');
+      const importedDir = path.join(projectRoot, CLEO_DIR_NAME, RESTORE_IMPORTED_SUBDIR);
       fs.mkdirSync(importedDir, { recursive: true });
       for (const jsonEntry of manifest.json) {
         const src = path.join(stagingDir, jsonEntry.filename);
@@ -441,7 +450,7 @@ const importCommand = defineCommand({
       // Step 8: Log completion
       // -----------------------------------------------------------------------
       const totalConflicts = jsonReports.reduce((sum, r) => sum + r.conflictCount, 0);
-      const conflictReportPath = path.join(projectRoot, '.cleo', 'restore-conflicts.md');
+      const conflictReportPath = path.join(projectRoot, CLEO_DIR_NAME, RESTORE_CONFLICTS_MD);
 
       process.stdout.write(
         JSON.stringify({
@@ -536,15 +545,8 @@ export const backupCommand = defineCommand({
  * @epic T311
  */
 function checkForExistingData(projectRoot: string, cleoHome: string): string[] {
-  const projectFiles = [
-    '.cleo/tasks.db',
-    '.cleo/brain.db',
-    '.cleo/conduit.db',
-    '.cleo/config.json',
-    '.cleo/project-info.json',
-    '.cleo/project-context.json',
-  ];
-  const globalFiles = ['nexus.db', 'signaldock.db'];
+  const projectFiles: readonly string[] = CLI_PROJECT_BACKUP_FILES;
+  const globalFiles: readonly string[] = CLI_GLOBAL_BACKUP_FILES;
 
   const found: string[] = [];
   for (const f of projectFiles) {
@@ -575,7 +577,7 @@ function resolveDbTarget(projectRoot: string, name: string, cleoHome: string): s
   if (name === 'nexus' || name === 'signaldock') {
     return path.join(cleoHome, `${name}.db`);
   }
-  return path.join(projectRoot, '.cleo', `${name}.db`);
+  return path.join(projectRoot, CLEO_DIR_NAME, `${name}.db`);
 }
 
 /**

@@ -88,10 +88,12 @@ fn end_to_end_downgrade_chain_on_cost_cap() {
     let s_high = route(high);
     assert_eq!(s_high.tier, Tier::High);
 
+    #[allow(clippy::expect_used)]
     let s_mid = downgrade_for_cost(s_high).expect("high → mid");
     assert_eq!(s_mid.tier, Tier::Mid);
     assert_eq!(s_mid.primary_model, "claude-sonnet-4-6");
 
+    #[allow(clippy::expect_used)]
     let s_low = downgrade_for_cost(s_mid).expect("mid → low");
     assert_eq!(s_low.tier, Tier::Low);
     assert_eq!(s_low.primary_model, "claude-haiku-4-5");

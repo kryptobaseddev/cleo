@@ -61,6 +61,7 @@ fn validate_pattern_violation_returns_pattern_keyword() {
 
     let pattern_error = errors.iter().find(|e| e.keyword == "pattern");
     assert!(pattern_error.is_some(), "Should have a pattern error");
+    #[allow(clippy::unwrap_used)]
     let pe = pattern_error.unwrap();
     assert!(
         pe.path.contains("specVersion"),
@@ -182,6 +183,7 @@ fn validate_error_display_format() {
     .to_string();
 
     let result = validate_envelope_json(&json);
+    #[allow(clippy::unwrap_used)]
     let err = result.unwrap_err();
     let display = format!("{err}");
     assert!(

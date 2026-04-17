@@ -14,6 +14,11 @@ use super::span::Span;
 /// Returns `None` if the first line is not `---`. Otherwise, consumes lines
 /// up to and including the closing `---` and returns a parsed [`Frontmatter`]
 /// along with the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if an opening `---` is found but the block is
+/// malformed or the closing `---` is missing.
 pub fn parse_frontmatter(
     lines: &[IndentedLine<'_>],
 ) -> Result<Option<(Frontmatter, usize)>, ParseError> {
@@ -131,7 +136,7 @@ fn parse_frontmatter_property(line: &IndentedLine<'_>) -> Result<Property, Parse
 ///
 /// The frontmatter uses kebab-case for multi-word kinds (`model-routing`,
 /// `mental-model`) per the CANT style guide, distinct from the Rust
-/// PascalCase variant names ([`DocumentKind::ModelRouting`],
+/// `PascalCase` variant names ([`DocumentKind::ModelRouting`],
 /// [`DocumentKind::MentalModel`]).
 fn parse_document_kind(value: &Value) -> Option<DocumentKind> {
     let s = extract_string_value(value)?;
@@ -294,13 +299,13 @@ mod tests {
         // Boolean
         match parse_simple_value("true", 0, 1, 1) {
             Value::Boolean(v) => assert!(v),
-            other => panic!("expected Boolean, got {:?}", other),
+            other => panic!("expected Boolean, got {other:?}"),
         }
 
         // Number
         match parse_simple_value("42", 0, 1, 1) {
             Value::Number(v) => assert!((v - 42.0).abs() < f64::EPSILON),
-            other => panic!("expected Number, got {:?}", other),
+            other => panic!("expected Number, got {other:?}"),
         }
 
         // Quoted string
@@ -309,13 +314,13 @@ mod tests {
                 assert_eq!(sv.raw, "hello");
                 assert!(sv.double_quoted);
             }
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
 
         // Identifier
         match parse_simple_value("opus", 0, 1, 1) {
             Value::Identifier(id) => assert_eq!(id, "opus"),
-            other => panic!("expected Identifier, got {:?}", other),
+            other => panic!("expected Identifier, got {other:?}"),
         }
     }
 }

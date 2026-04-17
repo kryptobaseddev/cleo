@@ -24,6 +24,10 @@ use super::span::Span;
 ///
 /// Returns the parsed [`ProseBlock`] and the number of additional lines
 /// consumed (not counting the key line itself).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the prose block has no content lines.
 pub fn parse_prose_block(
     lines: &[IndentedLine<'_>],
     key_line_idx: usize,
@@ -247,10 +251,10 @@ agent ops:
                         assert_eq!(pb.lines[0], "You are calm and precise.");
                         assert_eq!(pb.lines[1], "Never use jargon.");
                     }
-                    other => panic!("expected ProseBlock, got {:?}", other),
+                    other => panic!("expected ProseBlock, got {other:?}"),
                 }
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -287,11 +291,11 @@ agent coordinator:
                         assert_eq!(pb.lines[2], "");
                         assert_eq!(pb.lines[3], "Always prioritize safety over speed.");
                     }
-                    other => panic!("expected ProseBlock, got {:?}", other),
+                    other => panic!("expected ProseBlock, got {other:?}"),
                 }
                 assert_eq!(a.permissions.len(), 1);
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 
@@ -319,10 +323,10 @@ skill ct-deploy:
                         assert_eq!(pb.lines[0], "Deployment automation skill.");
                         assert_eq!(pb.lines[1], "Handles CI/CD pipelines.");
                     }
-                    other => panic!("expected ProseBlock, got {:?}", other),
+                    other => panic!("expected ProseBlock, got {other:?}"),
                 }
             }
-            other => panic!("expected Skill, got {:?}", other),
+            other => panic!("expected Skill, got {other:?}"),
         }
     }
 
@@ -344,10 +348,10 @@ agent ops:
                     Value::ProseBlock(pb) => {
                         assert!(pb.lines.is_empty());
                     }
-                    other => panic!("expected empty ProseBlock, got {:?}", other),
+                    other => panic!("expected empty ProseBlock, got {other:?}"),
                 }
             }
-            other => panic!("expected Agent, got {:?}", other),
+            other => panic!("expected Agent, got {other:?}"),
         }
     }
 }

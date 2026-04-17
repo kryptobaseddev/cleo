@@ -1,6 +1,7 @@
-//! Integration tests for CleoOS v2 grammar additions: `team`, `tool`, and JIT
+//! Integration tests for `CleoOS` v2 grammar additions: `team`, `tool`, and JIT
 //! agent fixtures live under `tests/fixtures/` and must round-trip through
 //! [`cant_core::dsl::parse_document`] with no parse errors and lint clean.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use cant_core::dsl::ast::{DocumentKind, Section};
 use cant_core::dsl::parse_document;

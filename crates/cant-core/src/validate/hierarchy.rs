@@ -1,4 +1,4 @@
-//! Hierarchy lint rules for CleoOS v2 agent/team/tool declarations.
+//! Hierarchy lint rules for `CleoOS` v2 agent/team/tool declarations.
 //!
 //! Implements the 8 rules defined in `docs/plans/CLEO-ULTRAPLAN.md` §9 and
 //! `docs/plans/blueprints/wave-0.5-grammar-blueprint.md` §6:

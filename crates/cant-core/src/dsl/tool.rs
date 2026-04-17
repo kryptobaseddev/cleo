@@ -1,4 +1,4 @@
-//! Tool block parser for the CANT DSL (CleoOS v2).
+//! Tool block parser for the CANT DSL (`CleoOS` v2).
 //!
 //! Parses `tool Name:` blocks that declare LLM-callable tools beyond the
 //! built-in dispatcher tools (per ULTRAPLAN §8).

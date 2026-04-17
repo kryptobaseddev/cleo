@@ -21,6 +21,10 @@ use super::statement::parse_statement_block;
 ///
 /// Returns the parsed [`TryCatch`] wrapped in a [`Statement::TryCatch`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the `try:`, `catch:`, or `finally:` clauses are malformed.
 pub fn parse_try_catch(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -64,8 +68,7 @@ pub fn parse_try_catch(
             // Parse catch header: "catch:" or "catch err:"
             if catch_content == "catch:" {
                 // No error binding
-            } else if catch_content.starts_with("catch ") {
-                let after_catch = catch_content.strip_prefix("catch ").unwrap();
+            } else if let Some(after_catch) = catch_content.strip_prefix("catch ") {
                 let err_name = after_catch
                     .strip_suffix(':')
                     .ok_or_else(|| {
@@ -144,7 +147,7 @@ mod tests {
                 assert!(tc.catch_body.is_none());
                 assert!(tc.finally_body.is_none());
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -162,7 +165,7 @@ mod tests {
                 assert_eq!(tc.catch_body.unwrap().len(), 1);
                 assert!(tc.finally_body.is_none());
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -177,7 +180,7 @@ mod tests {
                 assert!(tc.catch_name.is_none());
                 assert!(tc.catch_body.is_some());
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -196,7 +199,7 @@ mod tests {
                 assert!(tc.finally_body.is_some());
                 assert_eq!(tc.finally_body.unwrap().len(), 1);
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -211,7 +214,7 @@ mod tests {
                 assert!(tc.catch_body.is_none());
                 assert!(tc.finally_body.is_some());
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -227,7 +230,7 @@ mod tests {
                 assert_eq!(tc.catch_body.as_ref().unwrap().len(), 2);
                 assert_eq!(tc.finally_body.as_ref().unwrap().len(), 2);
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -239,7 +242,7 @@ mod tests {
         assert_eq!(consumed, 1);
         match stmt {
             Statement::TryCatch(tc) => assert!(tc.try_body.is_empty()),
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -269,7 +272,7 @@ mod tests {
                 assert_eq!(tc.span.start, 0);
                 assert_eq!(tc.span.line, 1);
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 
@@ -292,7 +295,7 @@ mod tests {
                 assert!(tc.catch_name.is_none());
                 assert!(tc.catch_body.is_some());
             }
-            other => panic!("expected TryCatch, got {:?}", other),
+            other => panic!("expected TryCatch, got {other:?}"),
         }
     }
 }
