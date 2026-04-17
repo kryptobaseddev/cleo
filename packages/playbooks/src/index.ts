@@ -24,3 +24,43 @@
  * (e.g. ensuring the `@cleocode/playbooks` runtime matches CLEO core).
  */
 export const PLAYBOOKS_PACKAGE_VERSION: string = '2026.4.85';
+
+export {
+  approveGate,
+  type CreateApprovalGateInput,
+  createApprovalGate,
+  E_APPROVAL_ALREADY_DECIDED,
+  E_APPROVAL_NOT_FOUND,
+  generateResumeToken,
+  getPendingApprovals,
+  getPlaybookSecret,
+  rejectGate,
+} from './approval.js';
+// W4-7: .cantbook YAML parser → PlaybookDefinition
+export {
+  type ParsePlaybookResult,
+  PlaybookParseError,
+  parsePlaybook,
+} from './parser.js';
+// W4-9: HITL auto-policy evaluator
+export {
+  DEFAULT_POLICY_RULES,
+  type EvaluatePolicyResult,
+  evaluatePolicy,
+  type PolicyRule,
+} from './policy.js';
+// W4-8: state layer CRUD for playbook_runs + playbook_approvals
+export {
+  type CreatePlaybookApprovalInput,
+  type CreatePlaybookRunInput,
+  createPlaybookApproval,
+  createPlaybookRun,
+  deletePlaybookRun,
+  getPlaybookApprovalByToken,
+  getPlaybookRun,
+  type ListPlaybookRunsOptions,
+  listPlaybookApprovals,
+  listPlaybookRuns,
+  updatePlaybookApproval,
+  updatePlaybookRun,
+} from './state.js';
