@@ -145,26 +145,12 @@ export {
   type RetryOptions,
   withRetry as withRetryShared,
 } from './lib/retry.js';
-// Pipeline-stage backfill (T869: realign tasks.pipeline_stage with lifecycle_stages pre-T832)
-export type {
-  PipelineStageBackfillChange,
-  PipelineStageBackfillResult,
-} from './lifecycle/backfill-pipeline-stage.js';
-export {
-  BACKFILL_KEY as PIPELINE_STAGE_BACKFILL_KEY,
-  backfillPipelineStageFromLifecycle,
-  isPipelineStageBackfillDone,
-} from './lifecycle/backfill-pipeline-stage.js';
-// Terminal pipeline-stage backfill (T871: sync tasks.pipeline_stage with terminal status)
-export type {
-  TerminalPipelineStageBackfillChange,
-  TerminalPipelineStageBackfillResult,
-} from './lifecycle/backfill-terminal-pipeline-stage.js';
-export {
-  backfillTerminalPipelineStage,
-  isTerminalPipelineStageBackfillDone,
-  TERMINAL_BACKFILL_KEY as TERMINAL_PIPELINE_STAGE_BACKFILL_KEY,
-} from './lifecycle/backfill-terminal-pipeline-stage.js';
+// Pipeline-stage invariants: the former TS backfills (T869, T871) were
+// replaced in T877 by migration 20260417000000_t877-pipeline-stage-invariants
+// which (a) SQL-native one-shot realigns drifted rows and (b) installs
+// BEFORE INSERT/UPDATE triggers enforcing the invariants going forward.
+// No runtime-callable API is needed anymore; the migration runs once via
+// drizzle's __drizzle_migrations journal.
 export {
   addChain,
   advanceInstance,

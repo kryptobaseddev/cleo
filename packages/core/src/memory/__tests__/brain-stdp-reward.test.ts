@@ -56,13 +56,15 @@ function insertTestTask(
       : null;
   const completedAt = opts.completedAt ?? (opts.status === 'done' ? now : null);
   const cancelledAt = opts.cancelledAt ?? (opts.status === 'cancelled' ? now : null);
+  // T877: pipeline_stage must satisfy the structural invariant.
+  const pipelineStage = opts.status === 'done' ? 'contribution' : 'cancelled';
 
   nativeTasksDb
     .prepare(
       `INSERT OR REPLACE INTO tasks
        (id, title, status, session_id, verification_json, completed_at, cancelled_at,
-        created_at, updated_at, priority)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'medium')`,
+        created_at, updated_at, priority, pipeline_stage)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'medium', ?)`,
     )
     .run(
       opts.id,
@@ -74,6 +76,7 @@ function insertTestTask(
       cancelledAt,
       now,
       now,
+      pipelineStage,
     );
 }
 

@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { __testing__ } from '../+page.server.js';
 
-const { resolveColumnId, PIPELINE_STAGES } = __testing__;
+const { resolveColumnId, PIPELINE_STAGES, COLUMN_LABELS } = __testing__;
 
 describe('PIPELINE_STAGES column taxonomy (T873)', () => {
   it('includes all canonical RCASD-IVTR+C stages', () => {
@@ -114,5 +114,29 @@ describe('resolveColumnId (T873)', () => {
 
   it('status=pending + pipeline_stage=unknown_value → unassigned', () => {
     expect(resolveColumnId({ status: 'pending', pipeline_stage: 'mystery' })).toBe('unassigned');
+  });
+});
+
+describe('COLUMN_LABELS (T880)', () => {
+  it('maps architecture_decision to Design / ADR (owner directive)', () => {
+    expect(COLUMN_LABELS['architecture_decision']).toBe('Design / ADR');
+  });
+
+  it('provides a human label for every canonical enum stage', () => {
+    for (const stage of PIPELINE_STAGES) {
+      expect(COLUMN_LABELS[stage]).toBeDefined();
+      expect(COLUMN_LABELS[stage]).not.toBe('');
+    }
+  });
+
+  it('labels terminal buckets clearly', () => {
+    expect(COLUMN_LABELS['done']).toBe('Done');
+    expect(COLUMN_LABELS['cancelled']).toBe('Cancelled');
+    expect(COLUMN_LABELS['unassigned']).toBe('Unassigned');
+  });
+
+  it('does not use the legacy "Arch. Decision" label', () => {
+    // Owner flagged the old shortened label as unclear. T880 replaces it.
+    expect(Object.values(COLUMN_LABELS)).not.toContain('Arch. Decision');
   });
 });
