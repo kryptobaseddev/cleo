@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.86] — 2026-04-17 — T889 Orchestration Coherence v3 (Foundation Release)
+
+Mega-epic unifying the disjointed layers of the agent-composition pipeline into one coherent programmatic API, aligned with 2026 industry standards (OpenProse semiformal agentic DSL, thin-agent pattern, contract-based orchestration, HITL resume tokens).
+
+**Scope landed (13 of 20 tasks complete — foundation primitives shipped):** CANT DSL v3 types + mapper + linter, seed-agent SSoT unification, registry v3 migration + resolveAgent + installAgentFromCant, cleo agent doctor, CLI install rewrite, atomicity guard, task hoist, cleo orchestrate plan, harness-hint dedup, canonical composeSpawnPayload API, Playbook DSL contracts + schema + parser + state + policy + HMAC resume tokens. Conduit orphan deleted + getProjectRoot hardened.
+
+**Deferred to T910 follow-up epic (SDK unification + runtime wiring):** Playbook runtime state machine (W4-10), starter playbooks (W4-11), `cleo playbook` CLI domain (W4-12), thin-agent runtime enforcer (W4-14/W4-15), `cleo orchestrate approve/reject/pending` CLI (W4-17), composeSpawnPayload full integration into orchestrate-engine (W3-7), architecture diagram (W3-8). SDK consolidation audit found 3 competing systems (`@anthropic-ai/claude-agent-sdk`, `@openai/agents`, Vercel AI SDK `ai`); T910 recommendation: standardize on Vercel AI SDK (`ai` v6) as provider-agnostic LLM surface.
+
+### Added — Foundation Types (Wave 0)
+- **CANT DSL v3 formal types** (`@cleocode/cant`): `CantAgentV3`, `CantContractBlock`, `CantContractClause`, `CantMentalModelRef`, `CantContextSourceDef`, `CantOverflowStrategy`, `CantTier`, `CantPathPermissions`, `isCantAgentV3` guard. First time the agent DSL is typed (was only `ParsedCANTMessage` before).
+- **`@cleocode/contracts/agent-registry-v3`** — `AgentTier`, `AgentSpawnCapability`, `AgentSkillSource`, `AgentRegistryExtendedFields`, `ResolvedAgent`, `AgentDoctorCode` (D-001..D-010), `AgentDoctorFinding`, `DoctorReport`.
+- **`@cleocode/contracts/errors`** — `ThinAgentViolationError` + `ExitCode.THIN_AGENT_VIOLATION = 68`, `ExitCode.ATOMICITY_VIOLATION = 69`.
+- **`@cleocode/contracts/playbook`** — Full Playbook DSL contracts: `PlaybookDefinition`, `PlaybookNode` discriminated union (`agentic | deterministic | approval`), `PlaybookEdge`, `PlaybookRun`, `PlaybookApproval`, `PlaybookRunStatus`, `PlaybookApprovalStatus`, `PlaybookPolicy`, `PlaybookErrorHandler`.
+- **New package `@cleocode/playbooks`** — scaffolded with Drizzle schema for `playbook_runs` + `playbook_approvals` tables in tasks.db.
+
+### Added — Registry Layer (Wave 1)
+- **Agent registry v3 migration** adds 8 columns on `agents` + 2 on `agent_skills`. Idempotent via PRAGMA table_info filter.
+- **`installAgentFromCant()`** atomic pipeline — BEGIN IMMEDIATE transaction wraps validate → sha256 → copy → insert → junction. Full rollback on any failure.
+- **`resolveAgent()` + `resolveAgentsBatch()` + `getAgentSkills()`** — 4-tier precedence (project → global → packaged → fallback) + `DEPRECATED_ALIASES` + orphan-row auto-skip + `AgentNotFoundError` (exit 65).
+- **`cleo agent doctor`** — D-001..D-010 findings with severity + fix hints, `--repair` behind explicit flags.
+- **`cleo agent install` CLI rewritten** to use `installAgentFromCant()` — `--strict` / `--attach` / `--force` / `--resync` flags. Preserves `--global` backward compat.
+
+### Added — Seed-Agent SSoT (Wave 1A)
+- **Canonical seed-agents dir**: `packages/agents/seed-agents/` — 7 personas.
+- **Postinstall seed hook** via `bootstrapGlobalCleo()` Step 5b — idempotently copies seed-agents to `~/.local/share/cleo/cant/agents/` on install/upgrade.
+- **TODO-stub linter `S-TODO-001`** at error severity — `compileBundle().valid = false` when `prompt`/`tone`/`enforcement` contain literal `TODO`.
+- **`toCantAgentV3()` mapper** — bridges Rust AST → typed `CantAgentV3` with v1/v2 backward-compat defaults.
+
+### Added — Spawn Coherence (Wave C)
+- **Canonical `composeSpawnPayload()`** (`packages/core/src/orchestration/spawn.ts`) — wraps T882's `buildSpawnPrompt` with `resolveAgent()` + `resolveHarnessHint()` + `checkAtomicity()` + auto-tier. Returns `SpawnPayload` meta-envelope.
+- **Harness hint resolver** — 5-source cascade. Claude Code hint → ~9KB saved per tier-1 spawn (13.8KB → 4.7KB).
+- **Atomicity guard** — worker role rejects tasks with >3 files (`E_ATOMICITY_VIOLATION`) or missing AC.files (`E_ATOMICITY_NO_SCOPE`).
+- **Task section hoisted** to first 500 chars of spawn prompt.
+- **`cleo orchestrate plan <epicId>`** — deterministic machine-readable plan with SHA256 inputHash.
+
+### Added — Playbook Runtime Primitives (Wave D)
+- **`.cantbook` YAML parser** (`packages/playbooks/src/parser.ts`) — `parsePlaybook(source) → { definition, sourceHash }`. Strict validation, `PlaybookParseError` (exit 70) on any violation.
+- **Playbook state layer** (`packages/playbooks/src/state.ts`) — `node:sqlite` CRUD for `playbook_runs` + `playbook_approvals` with JSON-boundary serialization.
+- **HITL auto-policy** (`packages/playbooks/src/policy.ts`) — `evaluatePolicy(command)` with frozen `DEFAULT_POLICY_RULES`. require-human rules cannot be bypassed by custom auto-approve. Blocks publish/push/tag/release/destructive/external-api/remote-access.
+- **HMAC-SHA256 resume tokens** (`packages/playbooks/src/approval.ts`) — `generateResumeToken(runId, nodeId, bindings)` deterministic via canonicalized sorted-keys JSON. `createApprovalGate` / `approveGate` / `rejectGate` / `getPendingApprovals`. `CLEO_PLAYBOOK_SECRET` env override.
+
+### Fixed
+- **`~/.cleo/conduit.db` orphan DELETED** (208KB, zero data rows — `$HOME` fallback regression). `getProjectRoot()` hardened to refuse `$HOME` or `/` via walk-up.
+- **3 duplicate seed-agent directories collapsed** — deleted 6 stale `.cant` files from `packages/cleo-os/seed-agents/`, migrated `cleo-subagent.cant` to canonical dir.
+- **TODO stubs in `cleo-prime.cant` filled** with real persona content. `cleoos-opus-orchestrator.cant` marked `deprecated: true supersededBy: cleo-prime`.
+
+### Evidence
+5 commits on main since `51971cd4a` (v2026.4.85) baseline. All changes verified with REAL testing — ZERO `@cleocode/*` module mocks. Real in-memory sqlite via `node:sqlite`, real `.cant` fixtures on disk, real subprocess execution.
+
+Test counts: 80/80 playbooks, 11/11 resolver, 8/8 install, 6/6 doctor, 17/17 atomicity, 5/5 hoist, 10/10 spawn, 16/16 harness-hint, 6/6 orchestrate-plan, 12/12 playbook schema, 25/25 parser, 15/15 state, 12/12 policy, 16/16 approval. Baseline suite 4380+ tests pass.
+
+Gates: `pnpm run build` exit 0 (14 packages including new `@cleocode/playbooks`). `pnpm biome ci packages/` clean (1470+ files).
+
 ## [2026.4.85] — 2026-04-17
 
 ### T882 EPIC: Orchestrate Spawn Prompt Rebuild — fully-resolved self-contained prompts
