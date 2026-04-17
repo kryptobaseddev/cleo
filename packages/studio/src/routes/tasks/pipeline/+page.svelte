@@ -79,6 +79,7 @@
       <nav class="tasks-nav">
         <a href="/tasks" class="nav-tab">Dashboard</a>
         <a href="/tasks/pipeline" class="nav-tab active">Pipeline</a>
+        <a href="/tasks/graph" class="nav-tab">Graph</a>
         <a href="/tasks/sessions" class="nav-tab">Sessions</a>
       </nav>
     </div>

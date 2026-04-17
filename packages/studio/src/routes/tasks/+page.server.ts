@@ -1,16 +1,20 @@
 /**
  * Tasks dashboard server load — status/priority/type counts, epic progress, recent activity.
  *
- * T874: epic progress now uses a single consistent basis — direct children
- * only — for both numerator and denominator. The previous implementation
- * mixed a recursive-descendant COUNT(*) with a plain status bucket, which
- * produced nonsense like "5/29 done" where 5 = direct children done and
- * 29 = all descendants including archived. Now both sides count the same
- * rows (`parent_id = epic.id AND status != 'archived'`), so counts match
- * `cleo list --parent <epicId>`.
+ * T874: epic progress uses a single direct-children basis for both numerator
+ * and denominator (see `_computeEpicProgress`).
  *
- * @task T874
- * @epic T870
+ * T878 (T900): adds two URL-driven display filters:
+ *   - `?deferred=1`  — include cancelled epics in the Epic Progress panel
+ *                      (default: hidden; prevents clutter from long-term-parked epics)
+ *   - `?archived=1`  — include archived tasks in Recent Activity and surface
+ *                      an `archived` count on stats. Default: hidden.
+ * Both are read server-side so the toggle round-trips through the URL and
+ * remains shareable/bookmarkable. The dashboard UI wires `<a href>` links
+ * rather than client state so SSR stays correct.
+ *
+ * @task T874 | T878
+ * @epic T876 (owner-labelled T900)
  */
 
 import { getTasksDb } from '$lib/server/db/connections.js';
@@ -21,6 +25,7 @@ export interface DashboardStats {
   pending: number;
   active: number;
   done: number;
+  cancelled: number;
   archived: number;
   critical: number;
   high: number;
@@ -44,10 +49,19 @@ export interface RecentTask {
 export interface EpicProgress {
   id: string;
   title: string;
+  status: string;
   total: number;
   done: number;
   active: number;
   pending: number;
+  cancelled: number;
+}
+
+export interface DashboardFilters {
+  /** Include cancelled epics in the Epic Progress panel (?deferred=1). */
+  showDeferred: boolean;
+  /** Include archived tasks in Recent Activity and surface archived count (?archived=1). */
+  showArchived: boolean;
 }
 
 /**
@@ -68,7 +82,8 @@ export interface EpicProgressDbLike {
  * without spinning up the full SvelteKit load context.
  *
  * @param db - SQLite DB handle (better-sqlite3-compatible).
- * @returns One {@link EpicProgress} row per non-archived epic.
+ * @param options.includeDeferred - When true, include cancelled epics too.
+ * @returns One {@link EpicProgress} row per epic (filtered by `includeDeferred`).
  *
  * @remarks
  * Both numerator and denominator count the same row set
@@ -78,13 +93,29 @@ export interface EpicProgressDbLike {
  * "5 done / 29 total" because the numerator and denominator counted
  * different things.
  *
- * @task T874
- * @epic T870
+ * T878: `status` is now returned so the UI can render a "Deferred" badge,
+ * and `cancelled` bucket is surfaced for the same reason.
+ *
+ * @task T874 | T878
+ * @epic T876
  */
-export function computeEpicProgress(db: EpicProgressDbLike): EpicProgress[] {
+export function _computeEpicProgress(
+  db: EpicProgressDbLike,
+  options: { includeDeferred?: boolean } = {},
+): EpicProgress[] {
+  const { includeDeferred = false } = options;
+
+  // By default: hide archived AND cancelled epics. Cancelled epics are the
+  // "deferred / parked" bucket the owner flagged in the T900 brief.
+  const epicFilter = includeDeferred
+    ? `status != 'archived'`
+    : `status NOT IN ('archived','cancelled')`;
+
   const epics = db
-    .prepare(`SELECT id, title FROM tasks WHERE type = 'epic' AND status != 'archived' ORDER BY id`)
-    .all() as Array<{ id: string; title: string }>;
+    .prepare(
+      `SELECT id, title, status FROM tasks WHERE type = 'epic' AND ${epicFilter} ORDER BY id`,
+    )
+    .all() as Array<{ id: string; title: string; status: string }>;
 
   return epics.map((epic) => {
     const children = db
@@ -103,19 +134,26 @@ export function computeEpicProgress(db: EpicProgressDbLike): EpicProgress[] {
     return {
       id: epic.id,
       title: epic.title,
+      status: epic.status,
       total,
       done: childMap['done'] ?? 0,
       active: childMap['active'] ?? 0,
       pending: childMap['pending'] ?? 0,
+      cancelled: childMap['cancelled'] ?? 0,
     };
   });
 }
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = ({ locals, url }) => {
   const db = getTasksDb(locals.projectCtx);
 
+  // T878: read display filters from URL query params.
+  const showDeferred = url.searchParams.get('deferred') === '1';
+  const showArchived = url.searchParams.get('archived') === '1';
+  const filters: DashboardFilters = { showDeferred, showArchived };
+
   if (!db) {
-    return { stats: null, recentTasks: [], epicProgress: [] };
+    return { stats: null, recentTasks: [], epicProgress: [], filters };
   }
 
   try {
@@ -146,6 +184,7 @@ export const load: PageServerLoad = ({ locals }) => {
       pending: statusMap['pending'] ?? 0,
       active: statusMap['active'] ?? 0,
       done: statusMap['done'] ?? 0,
+      cancelled: statusMap['cancelled'] ?? 0,
       archived: statusMap['archived'] ?? 0,
       critical: priorityMap['critical'] ?? 0,
       high: priorityMap['high'] ?? 0,
@@ -156,22 +195,28 @@ export const load: PageServerLoad = ({ locals }) => {
       subtasks: typeMap['subtask'] ?? 0,
     };
 
+    // T878: Recent Activity respects the archived toggle. When archived is
+    // on, include 'archived' rows alongside active/pending/done. When off,
+    // keep the pre-T878 behaviour (no archived noise).
+    const recentStatusFilter = showArchived
+      ? `status IN ('active', 'pending', 'done', 'archived')`
+      : `status IN ('active', 'pending', 'done')`;
     const recentTasks = db
       .prepare(
         `SELECT id, title, status, priority, type, pipeline_stage, updated_at
          FROM tasks
-         WHERE status IN ('active', 'pending', 'done')
+         WHERE ${recentStatusFilter}
          ORDER BY updated_at DESC
          LIMIT 20`,
       )
       .all() as RecentTask[];
 
-    // T874: epic progress uses direct-children basis on BOTH sides.
-    // See computeEpicProgress for the full rationale.
-    const epicProgress = computeEpicProgress(db);
+    // T874/T878: epic progress uses direct-children basis on BOTH sides;
+    // cancelled epics hidden unless `?deferred=1`.
+    const epicProgress = _computeEpicProgress(db, { includeDeferred: showDeferred });
 
-    return { stats, recentTasks, epicProgress };
+    return { stats, recentTasks, epicProgress, filters };
   } catch {
-    return { stats: null, recentTasks: [], epicProgress: [] };
+    return { stats: null, recentTasks: [], epicProgress: [], filters };
   }
 };

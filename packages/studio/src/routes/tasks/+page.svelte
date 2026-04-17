@@ -1,7 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import type { PageData } from './$types';
-  import type { EpicProgress, RecentTask } from './+page.server.js';
+  import type { DashboardFilters, EpicProgress, RecentTask } from './+page.server.js';
   import type { SearchTaskRow } from '../api/tasks/search/+server.js';
   import { normalizeSearch } from '$lib/tasks/search.js';
 
@@ -13,6 +14,24 @@
   const stats = data.stats;
   const recentTasks: RecentTask[] = data.recentTasks ?? [];
   const epicProgress: EpicProgress[] = data.epicProgress ?? [];
+  // T878: display filter state (?deferred=1 / ?archived=1) driven from the URL.
+  const filters: DashboardFilters = data.filters ?? { showDeferred: false, showArchived: false };
+
+  /**
+   * Build a toggle URL that flips one filter flag while preserving the other.
+   * We round-trip through the URL so the dashboard stays SSR-correct and the
+   * toggle state is bookmarkable / shareable.
+   */
+  function toggleUrl(flag: 'deferred' | 'archived'): string {
+    const next = new URL($page.url);
+    const current = next.searchParams.get(flag) === '1';
+    if (current) {
+      next.searchParams.delete(flag);
+    } else {
+      next.searchParams.set(flag, '1');
+    }
+    return next.pathname + (next.search ? next.search : '');
+  }
 
   // ---------------------------------------------------------------------------
   // Search state
@@ -194,6 +213,7 @@
       <nav class="tasks-nav">
         <a href="/tasks" class="nav-tab active">Dashboard</a>
         <a href="/tasks/pipeline" class="nav-tab">Pipeline</a>
+        <a href="/tasks/graph" class="nav-tab">Graph</a>
         <a href="/tasks/sessions" class="nav-tab">Sessions</a>
       </nav>
     </div>
@@ -280,6 +300,10 @@
           <span class="stat-num">{stats.done}</span>
           <span class="stat-lbl">Done</span>
         </div>
+        <div class="stat-card status-cancelled-card">
+          <span class="stat-num">{stats.cancelled}</span>
+          <span class="stat-lbl">Cancelled</span>
+        </div>
         <div class="stat-card muted">
           <span class="stat-num">{stats.archived}</span>
           <span class="stat-lbl">Archived</span>
@@ -319,16 +343,52 @@
     <div class="no-db">tasks.db not found — start CLEO in the project directory</div>
   {/if}
 
+  <!-- T878: dashboard filter toggles -->
+  <div class="filter-bar" aria-label="Dashboard filters">
+    <a
+      href={toggleUrl('deferred')}
+      class="filter-chip"
+      class:active={filters.showDeferred}
+      data-sveltekit-noscroll
+      title="Show deferred / cancelled epics in the Epic Progress panel"
+    >
+      <span class="chip-check">{filters.showDeferred ? '✓' : ' '}</span>
+      Show deferred epics
+    </a>
+    <a
+      href={toggleUrl('archived')}
+      class="filter-chip"
+      class:active={filters.showArchived}
+      data-sveltekit-noscroll
+      title="Include archived tasks in Recent Activity"
+    >
+      <span class="chip-check">{filters.showArchived ? '✓' : ' '}</span>
+      Show archived
+    </a>
+  </div>
+
   <div class="lower-grid">
     {#if epicProgress.length > 0}
       <section class="panel">
-        <h2 class="panel-title">Epic Progress</h2>
+        <h2 class="panel-title">
+          Epic Progress
+          {#if filters.showDeferred}
+            <span class="panel-sub">(including deferred)</span>
+          {/if}
+        </h2>
         <div class="epic-list">
           {#each epicProgress as ep}
-            <a href="/tasks/tree/{ep.id}" class="epic-row">
+            <a
+              href="/tasks/tree/{ep.id}"
+              class="epic-row"
+              class:epic-deferred={ep.status === 'cancelled'}
+            >
               <div class="epic-header-row">
                 <span class="epic-id">{ep.id}</span>
                 <span class="epic-title">{ep.title}</span>
+                {#if ep.status === 'cancelled'}
+                  <span class="epic-status-badge badge-cancelled">deferred</span>
+                {/if}
                 <span class="epic-counts">{ep.done}/{ep.total}</span>
                 <span class="epic-pct">{progressPct(ep)}%</span>
               </div>
@@ -339,6 +399,9 @@
                 <span class="sub-done">{ep.done} done</span>
                 <span class="sub-active">{ep.active} active</span>
                 <span class="sub-pending">{ep.pending} pending</span>
+                {#if ep.cancelled > 0}
+                  <span class="sub-cancelled">{ep.cancelled} cancelled</span>
+                {/if}
               </div>
             </a>
           {/each}
@@ -687,7 +750,78 @@
   .stat-card.primary { border-color: #a855f7; }
   .stat-card.status-active-card { border-color: rgba(59, 130, 246, 0.4); }
   .stat-card.status-done-card { border-color: rgba(34, 197, 94, 0.4); }
+  .stat-card.status-cancelled-card { border-color: rgba(239, 68, 68, 0.4); }
   .stat-card.muted { opacity: 0.6; }
+
+  /* T878: filter bar */
+  .filter-bar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #94a3b8;
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+  .filter-chip:hover {
+    color: #e2e8f0;
+    background: #21273a;
+  }
+  .filter-chip.active {
+    color: #a855f7;
+    border-color: rgba(168, 85, 247, 0.5);
+    background: rgba(168, 85, 247, 0.08);
+  }
+  .chip-check {
+    display: inline-block;
+    width: 0.875rem;
+    text-align: center;
+    font-size: 0.75rem;
+    opacity: 0.9;
+  }
+
+  .panel-sub {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 400;
+    margin-left: 0.5rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  /* T878: deferred epic styling */
+  .epic-row.epic-deferred {
+    opacity: 0.7;
+  }
+  .epic-row.epic-deferred .epic-title {
+    color: #94a3b8;
+  }
+  .epic-status-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.1rem 0.375rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .badge-cancelled {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+  }
+  .sub-cancelled {
+    color: #ef4444;
+  }
 
   .stat-num {
     font-size: 1.75rem;

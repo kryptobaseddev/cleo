@@ -61,13 +61,29 @@ export function rowToTask(row: TaskRow): Task {
   };
 }
 
-/** Convert a domain Task to a database row for insert/upsert. */
+/** Convert a domain Task to a database row for insert/upsert.
+ *
+ * T877 invariant: when a task has a terminal status but no explicit
+ * pipelineStage, derive it so the INSERT satisfies the SQLite trigger
+ * `trg_tasks_status_pipeline_insert` (status=done requires
+ * pipeline_stage IN (contribution, cancelled); status=cancelled requires
+ * pipeline_stage=cancelled). This mirrors the runtime behaviour in
+ * complete/cancel-ops and means callers never have to think about the
+ * invariant — the canonical converter enforces it.
+ */
 export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
+  const status = task.status ?? 'pending';
+  let pipelineStage: string | null = task.pipelineStage ?? null;
+  if (pipelineStage === null || pipelineStage === undefined) {
+    if (status === 'done') pipelineStage = 'contribution';
+    else if (status === 'cancelled') pipelineStage = 'cancelled';
+  }
+
   return {
     id: task.id,
     title: task.title ?? '',
     description: task.description ?? null,
-    status: task.status ?? 'pending',
+    status,
     priority: task.priority ?? 'medium',
     type: task.type ?? null,
     parentId: task.parentId ?? null,
@@ -92,7 +108,7 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     createdBy: task.provenance?.createdBy ?? null,
     modifiedBy: task.provenance?.modifiedBy ?? null,
     sessionId: task.provenance?.sessionId ?? null,
-    pipelineStage: task.pipelineStage ?? null,
+    pipelineStage,
     assignee: task.assignee ?? null,
   };
 }

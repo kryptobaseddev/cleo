@@ -262,6 +262,17 @@ async function runMigrationDataImport(
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
         try {
+          // T877 invariant: derive a terminal pipeline_stage for legacy
+          // status=done/cancelled rows missing it, so imports satisfy the
+          // SQLite trigger that enforces status ↔ pipeline_stage alignment.
+          const importedPipelineStage: string | null =
+            (task as { pipelineStage?: string | null }).pipelineStage ??
+            (task.status === 'done'
+              ? 'contribution'
+              : task.status === 'cancelled'
+                ? 'cancelled'
+                : null);
+
           await db
             .insert(schema.tasks)
             .values({
@@ -292,6 +303,7 @@ async function runMigrationDataImport(
               createdBy: task.provenance?.createdBy,
               modifiedBy: task.provenance?.modifiedBy,
               sessionId: task.provenance?.sessionId,
+              pipelineStage: importedPipelineStage,
             })
             .onConflictDoNothing()
             .run();
@@ -629,6 +641,15 @@ export async function migrateJsonToSqlite(
 
       for (const task of tasks) {
         try {
+          // T877 invariant: derive terminal pipeline_stage when missing.
+          const importedPipelineStage: string | null =
+            (task as { pipelineStage?: string | null }).pipelineStage ??
+            (task.status === 'done'
+              ? 'contribution'
+              : task.status === 'cancelled'
+                ? 'cancelled'
+                : null);
+
           db.insert(schema.tasks)
             .values({
               id: task.id,
@@ -658,6 +679,7 @@ export async function migrateJsonToSqlite(
               createdBy: task.provenance?.createdBy,
               modifiedBy: task.provenance?.modifiedBy,
               sessionId: task.provenance?.sessionId,
+              pipelineStage: importedPipelineStage,
             })
             .onConflictDoNothing()
             .run();

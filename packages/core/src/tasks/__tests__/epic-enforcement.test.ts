@@ -349,7 +349,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       createdAt: now,
       updatedAt: now,
     });
-    // Seed done child at research
+    // Seed done child. Post-T877 invariant: status=done ⇒ pipeline_stage=contribution.
     await accessor.upsertSingleTask({
       id: 'T002',
       title: 'Child',
@@ -358,7 +358,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       priority: 'medium',
       type: 'task',
       parentId: 'T001',
-      pipelineStage: 'research',
+      pipelineStage: 'contribution',
       createdAt: now,
       updatedAt: now,
     });
@@ -454,6 +454,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       createdAt: now,
       updatedAt: now,
     });
+    // Post-T877 invariant: status=cancelled ⇒ pipeline_stage=cancelled.
     await accessor.upsertSingleTask({
       id: 'T002',
       title: 'Child',
@@ -462,7 +463,7 @@ describe('validateEpicStageAdvancement (strict)', () => {
       priority: 'medium',
       type: 'task',
       parentId: 'T001',
-      pipelineStage: 'research',
+      pipelineStage: 'cancelled',
       createdAt: now,
       updatedAt: now,
     });

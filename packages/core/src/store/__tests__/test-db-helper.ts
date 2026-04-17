@@ -91,19 +91,38 @@ export async function createTestDb(): Promise<TestDbEnv> {
 /**
  * Build full Task objects from a list of task partials.
  * Useful for seeding test data via accessor.upsertSingleTask().
+ *
+ * T877: pipeline_stage is auto-defaulted based on status so test fixtures
+ * satisfy the structural invariant enforced by the SQLite trigger
+ * `trg_tasks_status_pipeline_insert`:
+ *   - status='done'       → pipeline_stage='contribution'
+ *   - status='cancelled'  → pipeline_stage='cancelled'
+ *   - otherwise           → whatever the caller supplied (default null)
+ * Explicit pipelineStage on the partial always wins.
  */
 export function makeTasks(tasks: Array<Partial<Task> & { id: string }>): Task[] {
-  return tasks.map(
-    (t) =>
-      ({
-        title: t.title ?? `Task ${t.id}`,
-        description: t.description ?? undefined,
-        status: t.status ?? 'pending',
-        priority: t.priority ?? 'medium',
-        createdAt: t.createdAt ?? new Date().toISOString(),
-        ...t,
-      }) as Task,
-  );
+  return tasks.map((t) => {
+    const status = t.status ?? 'pending';
+    // Derive a terminal pipelineStage when caller left it unset but chose a
+    // terminal status — keeps fixtures compatible with T877 triggers without
+    // forcing every seed site to know about the invariant.
+    let pipelineStage: string | null | undefined = t.pipelineStage;
+    if (pipelineStage === undefined || pipelineStage === null) {
+      if (status === 'done') pipelineStage = 'contribution';
+      else if (status === 'cancelled') pipelineStage = 'cancelled';
+      else pipelineStage = t.pipelineStage ?? undefined;
+    }
+
+    return {
+      title: t.title ?? `Task ${t.id}`,
+      description: t.description ?? undefined,
+      status,
+      priority: t.priority ?? 'medium',
+      createdAt: t.createdAt ?? new Date().toISOString(),
+      ...t,
+      pipelineStage,
+    } as Task;
+  });
 }
 
 /**

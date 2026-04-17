@@ -44,17 +44,25 @@ const PIPELINE_STAGES = [
 const TERMINAL_DONE_STAGES = new Set(['contribution', 'done']);
 const TERMINAL_CANCELLED_STAGES = new Set(['cancelled']);
 
-/** Human-readable column labels (override default Title Case where needed). */
+/**
+ * Human-readable column labels (override default Title Case where needed).
+ *
+ * T880: `architecture_decision` now renders as "Design / ADR" per owner
+ * directive. Internal enum stays `architecture_decision` (backend, CLI,
+ * tests) — only the display label in Studio changes. This avoids a
+ * schema migration while keeping the UI owner-friendly.
+ */
 const COLUMN_LABELS: Record<string, string> = {
   research: 'Research',
   consensus: 'Consensus',
-  architecture_decision: 'Arch. Decision',
+  architecture_decision: 'Design / ADR',
   specification: 'Specification',
   decomposition: 'Decomposition',
   implementation: 'Implementation',
   validation: 'Validation',
   testing: 'Testing',
   release: 'Release',
+  contribution: 'Contribution',
   done: 'Done',
   cancelled: 'Cancelled',
   unassigned: 'Unassigned',
@@ -158,7 +166,7 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 /**
- * Exported for tests (T873).
+ * Exported for tests (T873, T880).
  * Pure router used by `load` — unit-testable without a DB connection.
  */
-export const __testing__ = { resolveColumnId, PIPELINE_STAGES };
+export const __testing__ = { resolveColumnId, PIPELINE_STAGES, COLUMN_LABELS };
