@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.5.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
 
 ## Session Start (cheapest-first)
 
@@ -166,6 +166,37 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 - ❌ Skipping `cleo memory observe` on non-trivial tasks
 - ❌ Self-attesting without programmatic proof
 - ❌ Modifying files after `cleo verify` but before `cleo complete` (caught by staleness check)
+
+## Spawn Prompt Contents (what subagents receive) — T882 / v2.6.0
+
+`cleo orchestrate spawn <taskId>` returns a fully-resolved, self-contained
+prompt. Subagents never re-resolve protocol content; everything required is
+embedded. Three tiers control content depth:
+
+| Tier | Contents |
+|------|----------|
+| `0` | Task identity · file paths · session linkage · stage guidance · evidence gates · quality gates · return format · protocol pointer |
+| `1` | tier 0 + full **CLEO-INJECTION.md embed** (this document) — **default** |
+| `2` | tier 1 + **ct-cleo** + **ct-orchestrator** skill excerpts + **SUBAGENT-PROTOCOL-BLOCK** + anti-patterns |
+
+Invoke with an explicit tier:
+
+```bash
+cleo orchestrate spawn T1234 --tier 0   # minimal (quick workers)
+cleo orchestrate spawn T1234            # tier 1 (default)
+cleo orchestrate spawn T1234 --tier 2   # full (autonomous workers)
+```
+
+Every spawn prompt contains these required sections — orchestrators can
+programmatically assert their presence before dispatching a subagent:
+
+- `## Task Identity`
+- `## File Paths (absolute — do not guess)`
+- `## Session Linkage`
+- `## Stage-Specific Guidance`
+- `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)`
+- `## Quality Gates`
+- `## Return Format Contract (MANDATORY)`
 
 ## Rules
 

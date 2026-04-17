@@ -1,14 +1,15 @@
 /**
- * Test CLEO-INJECTION.md v2.5.0 CLI-only template with evidence-based gate protocol.
+ * Test CLEO-INJECTION.md template structure and size budgets.
  *
- * Validates the trimmed template:
- * 1. Has version 2.4.0 with CLI-only dispatch
+ * Validates the template:
+ * 1. Has the current major-minor version with CLI-only dispatch
  * 2. Contains all essential sections (session start, work loop, discovery, memory, errors)
  * 3. Uses `cleo` prefix exclusively (no `ct` prefix, no MCP syntax)
  * 4. Contains escalation section with skill pointers
- * 5. Is under 100 lines (optimized for token efficiency)
+ * 5. Stays within the token-efficient size envelope
  *
  * @task T5096
+ * @task T882 (v2.6.0 bumped cap to 250 lines to accommodate the "Spawn Prompt Contents" section)
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ const injectionPath = join(corePackageRoot, 'templates', 'CLEO-INJECTION.md');
 
 const templateExists = existsSync(injectionPath);
 
-describe('CLEO-INJECTION v2.5.0 CLI-only template', () => {
+describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   const content = templateExists ? readFileSync(injectionPath, 'utf-8') : '';
 
   it('template file exists at templates/CLEO-INJECTION.md', () => {
@@ -30,11 +31,10 @@ describe('CLEO-INJECTION v2.5.0 CLI-only template', () => {
   });
 
   describe('Version and identity', () => {
-    it('has version 2.5.0 (T832/ADR-051 evidence-based gate protocol)', () => {
-      // v2.5.0 (T832/ADR-051): Evidence-based gate verification protocol — replaces
-      // rubber-stampable `cleo verify --all` with `cleo verify --gate <g> --evidence <atoms>`.
-      // --force removed from `cleo complete` (owner-approved env only).
-      expect(content).toContain('Version: 2.5.0');
+    it('has version 2.6.0 (T882 spawn prompt rebuild — Spawn Prompt Contents section)', () => {
+      // v2.6.0 (T882): documents the canonical spawn prompt contract + tier system.
+      // v2.5.0 (T832/ADR-051) introduced evidence-based gate verification.
+      expect(content).toContain('Version: 2.6.0');
     });
 
     it('declares CLI-only dispatch', () => {
@@ -129,14 +129,33 @@ describe('CLEO-INJECTION v2.5.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 200 lines (token-optimized; v2.4.1 adds Triggers/Orchestration/Docs/Gate Ritual sections — ~140 lines still compact)', () => {
+    it('is under 250 lines (token-optimized; v2.6.0 adds Spawn Prompt Contents section — ~230 lines)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(200);
+      expect(lines).toBeLessThanOrEqual(250);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
       const lines = content.split('\n').length;
       expect(lines).toBeGreaterThan(50);
+    });
+  });
+
+  describe('Spawn Prompt Contents (T882 / v2.6.0)', () => {
+    it('documents the spawn prompt tier system', () => {
+      expect(content).toContain('Spawn Prompt Contents');
+      expect(content).toContain('tier 0');
+      expect(content).toContain('tier 1');
+      expect(content).toContain('tier 2');
+    });
+
+    it('lists the required sections every spawn prompt contains', () => {
+      expect(content).toContain('## Task Identity');
+      expect(content).toContain('## File Paths');
+      expect(content).toContain('## Session Linkage');
+      expect(content).toContain('## Stage-Specific Guidance');
+      expect(content).toContain('## Evidence-Based Gate Ritual');
+      expect(content).toContain('## Quality Gates');
+      expect(content).toContain('## Return Format Contract');
     });
   });
 });
