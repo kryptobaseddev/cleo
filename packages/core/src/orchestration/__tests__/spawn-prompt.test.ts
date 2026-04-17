@@ -1,0 +1,309 @@
+/**
+ * Tests for the canonical spawn prompt builder (T882 / T884 / T885 / T887).
+ *
+ * Shape-based assertions, not snapshots — the prompt content can evolve
+ * without churning these tests, but every required section and every
+ * tier-specific content contract is verified.
+ *
+ * @task T882
+ * @task T887
+ */
+
+import type { Task } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  ALL_SPAWN_PROTOCOL_PHASES,
+  buildSpawnPrompt,
+  DEFAULT_SPAWN_TIER,
+  resetSpawnPromptCache,
+  resolvePromptTokens,
+  type SpawnTier,
+} from '../spawn-prompt.js';
+
+const BASE_TASK: Task = {
+  id: 'T9000',
+  title: 'Example task for spawn prompt tests',
+  description: 'A task used to validate prompt shape across tiers and protocols.',
+  status: 'pending',
+  priority: 'high',
+  type: 'task',
+  size: 'medium',
+  parentId: 'T8999',
+  labels: ['test-label'],
+  depends: ['T8998'],
+  acceptance: ['AC1: verify first criterion', 'AC2: verify second criterion'],
+  createdAt: '2026-04-17T00:00:00Z',
+};
+
+const PROJECT_ROOT = '/tmp/spawn-prompt-test-project';
+
+beforeEach(() => {
+  resetSpawnPromptCache();
+});
+
+afterEach(() => {
+  resetSpawnPromptCache();
+});
+
+describe('buildSpawnPrompt — core contract', () => {
+  it('returns a fully-resolved prompt with default tier 1', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.tier).toBe(DEFAULT_SPAWN_TIER);
+    expect(result.unresolvedTokens).toHaveLength(0);
+    expect(result.prompt).toContain('T9000');
+    expect(result.prompt).toContain('Example task for spawn prompt tests');
+  });
+
+  it('header identifies task, protocol, and tier', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 2,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toMatch(/CLEO Subagent Spawn — T9000/);
+    expect(result.prompt).toContain('**Protocol**: implementation');
+    expect(result.prompt).toContain('**Tier**: 2');
+  });
+
+  it('includes every required section in tier 1 prompts', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 1,
+      projectRoot: PROJECT_ROOT,
+    });
+    const p = result.prompt;
+    // Required sections
+    expect(p).toContain('## Task Identity');
+    expect(p).toContain('## File Paths');
+    expect(p).toContain('## Session Linkage');
+    expect(p).toContain('## Stage-Specific Guidance');
+    expect(p).toContain('## Evidence-Based Gate Ritual');
+    expect(p).toContain('## Quality Gates');
+    expect(p).toContain('## Return Format Contract');
+  });
+
+  it('tier 0 omits the full CLEO-INJECTION embed and uses the pointer', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 0,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('CLEO Protocol (tier 0 reference)');
+    expect(result.prompt).not.toContain('## CLEO Protocol (embedded — tier 1)');
+  });
+
+  it('tier 1 includes CLEO-INJECTION embed', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 1,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('## CLEO Protocol (embedded — tier 1)');
+  });
+
+  it('tier 2 includes tier 1 embed + skill excerpts + anti-patterns', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 2,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('## CLEO Protocol (embedded — tier 1)');
+    expect(result.prompt).toContain('## Skill Excerpts (tier 2)');
+    expect(result.prompt).toContain('## Anti-Patterns');
+  });
+});
+
+describe('buildSpawnPrompt — protocol phase matrix', () => {
+  // Matrix: every protocol × every tier → required markers present, no
+  // unresolved tokens.
+  for (const protocol of ALL_SPAWN_PROTOCOL_PHASES) {
+    for (const tier of [0, 1, 2] as SpawnTier[]) {
+      it(`produces a resolved prompt for protocol=${protocol} tier=${tier}`, () => {
+        const result = buildSpawnPrompt({
+          task: BASE_TASK,
+          protocol,
+          tier,
+          projectRoot: PROJECT_ROOT,
+        });
+        expect(result.unresolvedTokens).toHaveLength(0);
+        expect(result.prompt).toContain('T9000');
+        expect(result.prompt).toContain('Stage-Specific Guidance');
+        expect(result.prompt).toContain('Return Format Contract');
+        // Evidence gate always present
+        expect(result.prompt).toContain('Evidence-Based Gate Ritual');
+        expect(result.prompt).toMatch(/cleo verify T9000/);
+      });
+    }
+  }
+});
+
+describe('buildSpawnPrompt — stage-specific guidance', () => {
+  it('research stage points at the rcasd/research folder', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'research',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('.cleo/rcasd/T9000/research/');
+    expect(result.prompt).toContain('Gather information and evidence');
+  });
+
+  it('specification stage uses RFC-2119 language', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'specification',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('RFC-2119');
+  });
+
+  it('implementation stage explicitly forbids any/unknown', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('`any`');
+  });
+
+  it('release stage mentions CalVer + CI green gating', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'release',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('CalVer');
+    expect(result.prompt).toContain('CI must be GREEN');
+  });
+
+  it('testing stage references evidence atom for pnpm-test', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'testing',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('tool:pnpm-test');
+  });
+
+  it('contribution stage documents follow-up tracking', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'contribution',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('needs_followup');
+  });
+});
+
+describe('buildSpawnPrompt — return format contract', () => {
+  it('includes the three exact return strings for implementation', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('Implementation complete. See MANIFEST.jsonl for summary.');
+    expect(result.prompt).toContain('Implementation partial. See MANIFEST.jsonl for details.');
+    expect(result.prompt).toContain(
+      'Implementation blocked. See MANIFEST.jsonl for blocker details.',
+    );
+  });
+
+  it('uses the correct verb for research', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'research',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('Research complete. See MANIFEST.jsonl for summary.');
+  });
+});
+
+describe('buildSpawnPrompt — session linkage', () => {
+  it('embeds the session id when provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      sessionId: 'ses_20260417_abc123',
+    });
+    expect(result.prompt).toContain('ses_20260417_abc123');
+    expect(result.prompt).toContain('Orchestrator Session');
+  });
+
+  it('surfaces a clear notice when no session is available', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      sessionId: null,
+    });
+    expect(result.prompt).toContain('No active orchestrator session');
+  });
+});
+
+describe('buildSpawnPrompt — file path resolution', () => {
+  it('uses absolute paths anchored to the project root', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: '/abs/proj',
+    });
+    expect(result.prompt).toContain('/abs/proj/.cleo/agent-outputs');
+    expect(result.prompt).toContain('/abs/proj/.cleo/agent-outputs/MANIFEST.jsonl');
+    expect(result.prompt).toContain('/abs/proj/.cleo/rcasd/T9000');
+    expect(result.prompt).toContain('/abs/proj/.cleo/test-runs');
+  });
+});
+
+describe('resolvePromptTokens', () => {
+  it('resolves known tokens', () => {
+    const { resolved, unresolved } = resolvePromptTokens('Task: {{TASK_ID}} Date: {{DATE}}', {
+      TASK_ID: 'T100',
+      DATE: '2026-04-17',
+    });
+    expect(resolved).toBe('Task: T100 Date: 2026-04-17');
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it('reports unresolved tokens', () => {
+    const { unresolved } = resolvePromptTokens('Missing {{UNKNOWN}}', {});
+    expect(unresolved).toContain('UNKNOWN');
+  });
+
+  it('does not flag tilde-prefixed @file references', () => {
+    const { unresolved } = resolvePromptTokens('See @~/.cleo/templates/CLEO-INJECTION.md', {});
+    expect(unresolved).toEqual([]);
+  });
+});
+
+describe('buildSpawnPrompt — token resolution', () => {
+  it('produces a prompt with zero unresolved tokens in default flow', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.unresolvedTokens).toEqual([]);
+  });
+
+  it('exposes the token map used for resolution', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.tokens['TASK_ID']).toBe('T9000');
+    expect(result.tokens['EPIC_ID']).toBe('T8999');
+    expect(result.tokens['TIER']).toBe(String(DEFAULT_SPAWN_TIER));
+  });
+});

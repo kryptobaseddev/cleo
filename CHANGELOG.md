@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.85] — 2026-04-17
+
+### T882 EPIC: Orchestrate Spawn Prompt Rebuild — fully-resolved self-contained prompts
+
+Owner mandate: "fix at systemic level … no backward compat … holy shit done."
+Six children shipped under this epic (T883–T888).
+
+The `cleo orchestrate spawn <taskId>` command now returns a **fully-resolved,
+self-contained prompt** ready to paste into ANY LLM (Claude, GPT-4, Gemini,
+open-source). Subagents no longer hand-roll prompts because the returned
+skeleton was missing context.
+
+#### T883 — Canonical spawn prompt builder
+- New module `packages/core/src/orchestration/spawn-prompt.ts` — single source of truth for spawn prompt construction.
+- `prepareSpawn` in `packages/core/src/orchestration/index.ts` delegates to `buildSpawnPrompt`.
+- `prepareSpawnContext` in `packages/core/src/skills/dispatch.ts` remains a **skill-auto-dispatch** helper (different role — selects WHICH skill to use) and is documented as NOT a prompt builder.
+- Inlined `buildSpawnPrompt` + `findUnresolvedTokens` helpers deleted from `index.ts`. `resolveTokens` retained as an alias for existing callers.
+
+#### T884 — Fully-resolved prompt (10-point spec)
+Every spawn prompt now contains eight required sections in order:
+1. **Header** — identity banner + tier + protocol + generated timestamp.
+2. **Task Identity** — id, title, description, parent epic, pipeline stage, labels, dependencies, acceptance criteria (string + structured `AcceptanceGate`).
+3. **File Paths** — absolute paths to agent-outputs dir, MANIFEST.jsonl, rcasd workspace, test-runs dir (no guessing).
+4. **Session Linkage** — orchestrator session id (or "no active session" fallback).
+5. **Stage-Specific Guidance** — tailored content per RCASD-IVTR+C phase (research / consensus / architecture_decision / specification / decomposition / implementation / validation / testing / release / contribution).
+6. **Evidence-Based Gate Ritual** — explicit `cleo verify --gate <g> --evidence <atoms>` commands per gate (ADR-051 / T832).
+7. **Quality Gates** — `pnpm biome ci .` + `pnpm run build` + `pnpm run test` commands.
+8. **Return Format Contract** — exact one-line completion strings the subagent must return.
+
+#### T885 — Tier system (0/1/2)
+- Tier 0: minimal (authored sections + protocol pointer).
+- Tier 1: default — tier 0 + CLEO-INJECTION.md embedded verbatim.
+- Tier 2: tier 1 + ct-cleo + ct-orchestrator skill excerpts (truncated at 6k chars each) + SUBAGENT-PROTOCOL-BLOCK + anti-patterns reference.
+- `cleo orchestrate spawn T### --tier {0|1|2}` routes through the CLI; undefined defaults to tier 1.
+- Template/skill content is memoized after first read; `resetSpawnPromptCache()` exported for tests.
+- `orchestrateSpawn` + `orchestrateSpawnExecute` now thread the orchestrator's active session id into the builder via `getActiveSession`, degrading gracefully when no session exists.
+
+#### T886 — cleo-subagent AGENT.md v2.0.0
+- Version bumped 1.3.0 → 2.0.0 (breaking: spawn prompts are authoritative).
+- New "Spawn Prompt Contract" section documents the eight required sections and MUST/MUST-NOT rules.
+- Anti-patterns reinforced: re-resolving protocol content, re-loading skills via `@`, fabricating absolute paths.
+- "Escalation" section no longer tells subagents to `cleo admin help` pre-emptively — the prompt already contains what they need.
+
+#### T887 — Test suite — shape-based matrix
+- 52 new tests in `packages/core/src/orchestration/__tests__/spawn-prompt.test.ts`.
+- Matrix: 10 protocols × 3 tiers = 30 combinations asserting zero unresolved tokens and required markers.
+- Shape assertions (not snapshots) — allows content evolution without churning tests.
+- Existing `orchestration.test.ts` + `autonomous-spec.test.ts` pass unchanged (delegation preserves the `taskId`/`prompt`/`tokenResolution` contract).
+
+#### T888 — CLEO-INJECTION.md documentation
+- New "Spawn Prompt Contents" section documents the tier system + required sections.
+- Protocol version bumped 2.5.0 → 2.6.0.
+
+### Breaking changes
+- **None for end-users**. The new prompt is strictly larger than the old skeleton, so every caller that consumed the old output still works.
+- **Breaking for spawn adapters** that parsed the raw prompt for section markers: the authored section headings (`## Task Identity`, `## File Paths`, etc.) are new. Adapters should match on those headings instead of the old `## Task: T###` prefix.
+
 ## [2026.4.84] — 2026-04-17
 
 ### Fixed

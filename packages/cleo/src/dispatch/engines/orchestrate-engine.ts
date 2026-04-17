@@ -523,10 +523,22 @@ export async function orchestrateSpawnExecute(
       };
     }
 
-    // Prepare spawn context (reuse existing prepareSpawn logic)
-    const { prepareSpawn } = await import('@cleocode/core/internal');
+    // Prepare spawn context (reuse canonical prepareSpawn). Thread the
+    // orchestrator session id so the subagent mutations stay bound to the
+    // same session; best-effort — missing session falls back to null.
+    const { getActiveSession, prepareSpawn } = await import('@cleocode/core/internal');
     const accessor = await getAccessor(cwd);
-    const spawnContext = await prepareSpawn(taskId, cwd, accessor);
+    let activeSessionId: string | null = null;
+    try {
+      const active = await getActiveSession(cwd);
+      activeSessionId = active?.id ?? null;
+    } catch {
+      activeSessionId = null;
+    }
+    const spawnContext = await prepareSpawn(taskId, cwd, accessor, {
+      tier,
+      sessionId: activeSessionId,
+    });
 
     // Check for unresolved tokens
     if (!spawnContext.tokenResolution.fullyResolved) {
@@ -707,21 +719,45 @@ export async function orchestrateSpawn(
       });
     }
 
-    // Prepare spawn context via core
-    const spawnContext = await prepareSpawn(taskId, root, accessor);
+    // Thread the orchestrator's active session id into the spawn prompt so
+    // the subagent logs every mutation against the same session. Failure to
+    // load the session is non-fatal — the prompt degrades gracefully with a
+    // "no active session" notice.
+    let activeSessionId: string | null = null;
+    try {
+      const { getActiveSession } = await import('@cleocode/core/internal');
+      const active = await getActiveSession(root);
+      activeSessionId = active?.id ?? null;
+    } catch {
+      activeSessionId = null;
+    }
 
+    // Prepare spawn context via the canonical buildSpawnPrompt (T882). The
+    // tier + sessionId options route through prepareSpawn → buildSpawnPrompt
+    // which assembles a fully-resolved, self-contained prompt.
+    const spawnContext = await prepareSpawn(taskId, root, accessor, {
+      tier,
+      sessionId: activeSessionId,
+    });
+
+    // Return shape: `prompt` at the top level is the primary payload every
+    // caller should consume. `spawnContext` mirrors it for legacy readers
+    // and `tokenResolution` carries diagnostics for unresolved tokens.
     return {
       success: true,
       data: {
         taskId,
+        prompt: spawnContext.prompt,
         spawnContext: {
           taskId: spawnContext.taskId,
           protocol: spawnContext.protocol,
           protocolType: protocolType || spawnContext.protocol,
           tier: tier ?? null,
+          prompt: spawnContext.prompt,
         },
         protocolType: protocolType || spawnContext.protocol,
         tier: tier ?? null,
+        sessionId: activeSessionId,
         tokenResolution: spawnContext.tokenResolution,
       },
     };
