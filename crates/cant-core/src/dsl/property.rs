@@ -14,6 +14,11 @@ use super::span::Span;
 ///
 /// The line content should already have its leading whitespace stripped
 /// (available via `IndentedLine.content`).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the line does not contain a `:` separator or the
+/// value cannot be parsed.
 pub fn parse_property(line: &IndentedLine<'_>) -> Result<Property, ParseError> {
     let content = line.content;
     let base_offset = line.byte_offset + line.indent;
@@ -63,6 +68,10 @@ pub fn parse_property(line: &IndentedLine<'_>) -> Result<Property, ParseError> {
 ///
 /// Returns the parsed [`Property`] and the number of additional lines consumed
 /// beyond the property line itself (0 for non-prose properties, N for prose blocks).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the property line is malformed.
 pub fn parse_property_or_prose(
     lines: &[IndentedLine<'_>],
     line_idx: usize,
@@ -104,6 +113,10 @@ pub fn parse_property_or_prose(
 /// - Durations: `30s`, `5m`, `2h`, `1d`
 /// - Arrays: `[a, b, c]` or `["x", "y"]`
 /// - Bare identifiers: `opus`
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the string does not match any recognised value syntax.
 pub fn parse_value(s: &str, byte_offset: usize, line: u32, col: u32) -> Result<Value, ParseError> {
     let s = s.trim();
 
@@ -254,7 +267,7 @@ mod tests {
                 assert_eq!(sv.raw, "gpt-4");
                 assert!(sv.double_quoted);
             }
-            other => panic!("expected String, got {:?}", other),
+            other => panic!("expected String, got {other:?}"),
         }
     }
 
@@ -265,7 +278,7 @@ mod tests {
         assert_eq!(prop.key.value, "model");
         match &prop.value {
             Value::Identifier(id) => assert_eq!(id, "opus"),
-            other => panic!("expected Identifier, got {:?}", other),
+            other => panic!("expected Identifier, got {other:?}"),
         }
     }
 
@@ -275,7 +288,7 @@ mod tests {
         let prop = parse_property(&line).unwrap();
         match &prop.value {
             Value::Boolean(v) => assert!(*v),
-            other => panic!("expected Boolean, got {:?}", other),
+            other => panic!("expected Boolean, got {other:?}"),
         }
     }
 
@@ -285,7 +298,7 @@ mod tests {
         let prop = parse_property(&line).unwrap();
         match &prop.value {
             Value::Number(v) => assert!((v - 4096.0).abs() < f64::EPSILON),
-            other => panic!("expected Number, got {:?}", other),
+            other => panic!("expected Number, got {other:?}"),
         }
     }
 
@@ -298,7 +311,7 @@ mod tests {
                 assert_eq!(d.amount, 30);
                 assert_eq!(d.unit, DurationUnit::Seconds);
             }
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 
@@ -311,7 +324,7 @@ mod tests {
                 assert_eq!(d.amount, 5);
                 assert_eq!(d.unit, DurationUnit::Minutes);
             }
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 
@@ -324,7 +337,7 @@ mod tests {
                 assert_eq!(d.amount, 24);
                 assert_eq!(d.unit, DurationUnit::Hours);
             }
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 
@@ -337,7 +350,7 @@ mod tests {
                 assert_eq!(d.amount, 7);
                 assert_eq!(d.unit, DurationUnit::Days);
             }
-            other => panic!("expected Duration, got {:?}", other),
+            other => panic!("expected Duration, got {other:?}"),
         }
     }
 
@@ -349,7 +362,7 @@ mod tests {
             Value::Array(arr) => {
                 assert_eq!(arr.len(), 2);
             }
-            other => panic!("expected Array, got {:?}", other),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 
@@ -359,7 +372,7 @@ mod tests {
         let prop = parse_property(&line).unwrap();
         match &prop.value {
             Value::Array(arr) => assert!(arr.is_empty()),
-            other => panic!("expected empty Array, got {:?}", other),
+            other => panic!("expected empty Array, got {other:?}"),
         }
     }
 

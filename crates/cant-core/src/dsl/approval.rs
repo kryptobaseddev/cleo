@@ -19,6 +19,10 @@ use super::span::Span;
 ///
 /// Returns the parsed [`ApprovalGate`] wrapped in a [`Statement::ApprovalGate`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the approval block header or body is malformed.
 pub fn parse_approval_gate(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -82,7 +86,7 @@ mod tests {
                 assert_eq!(g.properties.len(), 1);
                 assert_eq!(g.properties[0].key.value, "message");
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -98,7 +102,7 @@ mod tests {
                 assert_eq!(g.properties[0].key.value, "message");
                 assert_eq!(g.properties[1].key.value, "timeout");
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -112,7 +116,7 @@ mod tests {
                 assert_eq!(g.properties.len(), 2);
                 assert_eq!(g.properties[1].key.value, "expires");
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -124,7 +128,7 @@ mod tests {
         assert_eq!(consumed, 1);
         match stmt {
             Statement::ApprovalGate(g) => assert!(g.properties.is_empty()),
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -139,7 +143,7 @@ mod tests {
                 assert_eq!(g.properties.len(), 3);
                 assert_eq!(g.properties[2].key.value, "assignee");
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -159,7 +163,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match stmt {
             Statement::ApprovalGate(g) => assert_eq!(g.properties.len(), 2),
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -174,7 +178,7 @@ mod tests {
                 assert_eq!(g.properties.len(), 1);
                 assert_eq!(g.properties[0].key.value, "message");
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -190,10 +194,10 @@ mod tests {
                     Value::Duration(d) => {
                         assert_eq!(d.amount, 30);
                     }
-                    other => panic!("expected Duration, got {:?}", other),
+                    other => panic!("expected Duration, got {other:?}"),
                 }
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 
@@ -207,7 +211,7 @@ mod tests {
                 assert_eq!(g.span.start, 0);
                 assert_eq!(g.span.line, 1);
             }
-            other => panic!("expected ApprovalGate, got {:?}", other),
+            other => panic!("expected ApprovalGate, got {other:?}"),
         }
     }
 

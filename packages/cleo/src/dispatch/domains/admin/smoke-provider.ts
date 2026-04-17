@@ -22,6 +22,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { BRAIN_DB_FILENAME, CLEO_DIR_NAME } from '../../../cli/paths.js';
 import type { EngineResult } from '../../engines/_error.js';
 import { engineError, engineSuccess } from '../../engines/_error.js';
 
@@ -293,12 +294,12 @@ export async function smokeProvider(
   // ------------------------------------------------------------------
 
   const cleoHome = coreInternal.getCleoHome();
-  const projectCleoDir = join(projectRoot, '.cleo');
+  const projectCleoDir = join(projectRoot, CLEO_DIR_NAME);
 
   const taskDbPath = coreInternal.getTaskPath(projectRoot);
   // getBrainDbPath is not re-exported from @cleocode/core/internal; derive directly
-  // via the same formula used in brain-sqlite.ts: join(cleoDirAbsolute, 'brain.db').
-  const brainPath = join(projectCleoDir, 'brain.db');
+  // via the same formula used in brain-sqlite.ts: join(cleoDirAbsolute, BRAIN_DB_FILENAME).
+  const brainPath = join(projectCleoDir, BRAIN_DB_FILENAME);
   const conduitDbPath = coreInternal.getConduitDbPath(projectRoot);
   const nexusDbPath = coreInternal.getNexusDbPath();
 

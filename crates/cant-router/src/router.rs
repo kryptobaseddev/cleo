@@ -172,6 +172,7 @@ mod tests {
     #[test]
     fn downgrade_high_to_mid() {
         let original = route(classification(Tier::High, 0.9));
+        #[allow(clippy::expect_used)]
         let downgraded = downgrade_for_cost(original).expect("should downgrade");
         assert_eq!(downgraded.tier, Tier::Mid);
         assert_eq!(downgraded.primary_model, "claude-sonnet-4-6");
@@ -180,6 +181,7 @@ mod tests {
     #[test]
     fn downgrade_mid_to_low() {
         let original = route(classification(Tier::Mid, 0.5));
+        #[allow(clippy::expect_used)]
         let downgraded = downgrade_for_cost(original).expect("should downgrade");
         assert_eq!(downgraded.tier, Tier::Low);
         assert_eq!(downgraded.primary_model, "claude-haiku-4-5");

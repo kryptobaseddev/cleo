@@ -143,6 +143,7 @@ mod tests {
             }));
         }
         for h in handles {
+            #[allow(clippy::expect_used)]
             h.join().expect("thread join");
         }
         assert_eq!(log.len(), 80);

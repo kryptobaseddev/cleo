@@ -67,69 +67,69 @@ impl EventSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CanonicalEvent {
     // Provider events
-    /// ConfigChange — `context` category. Configuration file changes during a session.
+    /// `ConfigChange` — `context` category. Configuration file changes during a session.
     ConfigChange,
-    /// Notification — `context` category. System notification or alert is emitted.
+    /// `Notification` — `context` category. System notification or alert is emitted.
     Notification,
-    /// PermissionRequest — `tool` category. Permission dialog appears for a tool action.
+    /// `PermissionRequest` — `tool` category. Permission dialog appears for a tool action.
     PermissionRequest,
-    /// PostCompact — `context` category. After context window compaction completes.
+    /// `PostCompact` — `context` category. After context window compaction completes.
     PostCompact,
-    /// PostModel — `agent` category. After receiving an LLM response.
+    /// `PostModel` — `agent` category. After receiving an LLM response.
     PostModel,
-    /// PostToolUse — `tool` category. After a tool call succeeds.
+    /// `PostToolUse` — `tool` category. After a tool call succeeds.
     PostToolUse,
-    /// PostToolUseFailure — `tool` category. After a tool call fails or times out.
+    /// `PostToolUseFailure` — `tool` category. After a tool call fails or times out.
     PostToolUseFailure,
-    /// PreCompact — `context` category. Before context window compaction.
+    /// `PreCompact` — `context` category. Before context window compaction.
     PreCompact,
-    /// PreModel — `agent` category. Before sending a request to the LLM.
+    /// `PreModel` — `agent` category. Before sending a request to the LLM.
     PreModel,
-    /// PreToolUse — `tool` category. Before a tool call executes (can block/modify).
+    /// `PreToolUse` — `tool` category. Before a tool call executes (can block/modify).
     PreToolUse,
-    /// PromptSubmit — `prompt` category. User submits a prompt, before agent processes it.
+    /// `PromptSubmit` — `prompt` category. User submits a prompt, before agent processes it.
     PromptSubmit,
-    /// ResponseComplete — `prompt` category. Agent finishes responding to a turn.
+    /// `ResponseComplete` — `prompt` category. Agent finishes responding to a turn.
     ResponseComplete,
-    /// SessionEnd — `session` category. Session terminates or exits.
+    /// `SessionEnd` — `session` category. Session terminates or exits.
     SessionEnd,
-    /// SessionStart — `session` category. Session begins, resumes, or is cleared.
+    /// `SessionStart` — `session` category. Session begins, resumes, or is cleared.
     SessionStart,
-    /// SubagentStart — `agent` category. A subagent is spawned.
+    /// `SubagentStart` — `agent` category. A subagent is spawned.
     SubagentStart,
-    /// SubagentStop — `agent` category. A subagent finishes execution.
+    /// `SubagentStop` — `agent` category. A subagent finishes execution.
     SubagentStop,
 
     // Domain events
-    /// ApprovalExpired — `session` category. A workflow approval token has expired without response.
+    /// `ApprovalExpired` — `session` category. A workflow approval token has expired without response.
     ApprovalExpired,
-    /// ApprovalGranted — `session` category. A workflow approval has been granted via /approve token.
+    /// `ApprovalGranted` — `session` category. A workflow approval has been granted via /approve token.
     ApprovalGranted,
-    /// ApprovalRequested — `session` category. A workflow approval gate has fired, awaiting human approval.
+    /// `ApprovalRequested` — `session` category. A workflow approval gate has fired, awaiting human approval.
     ApprovalRequested,
-    /// MemoryDecisionStored — `memory` category. A decision has been stored via memory.decision.store.
+    /// `MemoryDecisionStored` — `memory` category. A decision has been stored via memory.decision.store.
     MemoryDecisionStored,
-    /// MemoryLearningStored — `memory` category. A learning has been stored via memory.learning.store.
+    /// `MemoryLearningStored` — `memory` category. A learning has been stored via memory.learning.store.
     MemoryLearningStored,
-    /// MemoryObserved — `memory` category. An observation has been recorded to brain.db via memory.observe.
+    /// `MemoryObserved` — `memory` category. An observation has been recorded to brain.db via memory.observe.
     MemoryObserved,
-    /// MemoryPatternStored — `memory` category. A pattern has been stored via memory.pattern.store.
+    /// `MemoryPatternStored` — `memory` category. A pattern has been stored via memory.pattern.store.
     MemoryPatternStored,
-    /// PipelineManifestAppended — `pipeline` category. A manifest entry has been appended to MANIFEST.jsonl.
+    /// `PipelineManifestAppended` — `pipeline` category. A manifest entry has been appended to MANIFEST.jsonl.
     PipelineManifestAppended,
-    /// PipelineStageCompleted — `pipeline` category. A LOOM lifecycle gate has passed validation.
+    /// `PipelineStageCompleted` — `pipeline` category. A LOOM lifecycle gate has passed validation.
     PipelineStageCompleted,
-    /// SessionEnded — `session` category. A CLEO session has ended via session.end.
+    /// `SessionEnded` — `session` category. A CLEO session has ended via session.end.
     SessionEnded,
-    /// SessionStarted — `session` category. A CLEO session has been started via session.start.
+    /// `SessionStarted` — `session` category. A CLEO session has been started via session.start.
     SessionStarted,
-    /// TaskBlocked — `task` category. A CLEO task has been blocked.
+    /// `TaskBlocked` — `task` category. A CLEO task has been blocked.
     TaskBlocked,
-    /// TaskCompleted — `task` category. A CLEO task has been marked complete via tasks.complete.
+    /// `TaskCompleted` — `task` category. A CLEO task has been marked complete via tasks.complete.
     TaskCompleted,
-    /// TaskCreated — `task` category. A CLEO task has been created via tasks.add.
+    /// `TaskCreated` — `task` category. A CLEO task has been created via tasks.add.
     TaskCreated,
-    /// TaskStarted — `task` category. A CLEO task has been started via tasks.start.
+    /// `TaskStarted` — `task` category. A CLEO task has been started via tasks.start.
     TaskStarted,
 }
 
@@ -169,7 +169,7 @@ impl CanonicalEvent {
         Self::TaskStarted,
     ];
 
-    /// Returns the PascalCase string name.
+    /// Returns the `PascalCase` string name.
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::ConfigChange => "ConfigChange",
@@ -206,7 +206,7 @@ impl CanonicalEvent {
         }
     }
 
-    /// Parses a PascalCase event name. O(1) via compiler-optimized match.
+    /// Parses a `PascalCase` event name. O(1) via compiler-optimized match.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {

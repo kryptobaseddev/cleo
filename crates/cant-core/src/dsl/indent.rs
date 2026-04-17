@@ -38,6 +38,11 @@ impl<'a> IndentedLine<'a> {
 /// Splits source content into [`IndentedLine`] entries, validating indentation.
 ///
 /// Returns an error if tabs are found or indentation is not a multiple of [`INDENT_WIDTH`].
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if any line uses tabs or has indentation that is not a
+/// multiple of [`INDENT_WIDTH`] (2 spaces).
 pub fn split_lines(content: &str) -> Result<Vec<IndentedLine<'_>>, ParseError> {
     let mut lines = Vec::new();
     let mut byte_offset = 0usize;

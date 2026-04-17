@@ -57,6 +57,11 @@ fn is_identifier_start(c: char) -> bool {
 /// A directive is `/` followed by a VERB (`[a-z][a-z0-9-]*`).
 /// Returns the verb string without the leading `/`.
 ///
+/// # Errors
+///
+/// Returns a nom error if the input does not start with `/` followed by a
+/// valid verb character sequence.
+///
 /// # Examples
 ///
 /// - `"/done rest"` parses to `("done", " rest")`
@@ -73,6 +78,11 @@ pub fn parse_directive(input: &str) -> IResult<&str, &str> {
 ///
 /// An address is `@` followed by an IDENTIFIER (`[a-zA-Z][a-zA-Z0-9_-]*`).
 /// Returns the identifier string without the leading `@`.
+///
+/// # Errors
+///
+/// Returns a nom error if the input does not start with `@` followed by a
+/// valid identifier character sequence.
 ///
 /// # Examples
 ///
@@ -91,6 +101,11 @@ pub fn parse_address(input: &str) -> IResult<&str, &str> {
 /// A task reference is `T` followed by one or more digits.
 /// Returns the full reference including the `T` prefix (e.g., `"T1234"`).
 ///
+/// # Errors
+///
+/// Returns a nom error if the input does not start with `T` followed by one
+/// or more ASCII digits.
+///
 /// # Examples
 ///
 /// - `"T1234"` parses to `("T1234", "")`
@@ -103,6 +118,11 @@ pub fn parse_task_ref(input: &str) -> IResult<&str, &str> {
 ///
 /// A tag is `#` followed by an IDENTIFIER (`[a-zA-Z][a-zA-Z0-9_-]*`).
 /// Returns the identifier string without the leading `#`.
+///
+/// # Errors
+///
+/// Returns a nom error if the input does not start with `#` followed by a
+/// valid identifier character sequence.
 ///
 /// # Examples
 ///

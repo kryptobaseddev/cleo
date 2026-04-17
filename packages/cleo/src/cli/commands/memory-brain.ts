@@ -53,6 +53,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -1522,7 +1523,7 @@ const importCommand = defineCommand({
     const isDryRun = !!args['dry-run'];
     const isJson = !!args.json;
     const projectRoot = getProjectRoot();
-    const stateFile = join(projectRoot, '.cleo', 'migrate-memory-hashes.json');
+    const stateFile = join(projectRoot, CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON);
 
     if (!existsSync(sourceDir)) {
       const msg = `Source directory not found: ${sourceDir}`;

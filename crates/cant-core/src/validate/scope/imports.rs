@@ -112,7 +112,7 @@ pub fn check_import_depth(ctx: &ValidationContext) -> Vec<Diagnostic> {
 /// S03: Check for circular import chains.
 ///
 /// Note: Full cycle detection requires resolving imports across files. This
-/// check validates the import_chain in the context. Call before processing
+/// check validates the `import_chain` in the context. Call before processing
 /// each import to verify the target is not already in the chain.
 pub fn check_circular_import(path: &str, ctx: &ValidationContext, span: Span) -> Vec<Diagnostic> {
     let mut diags = Vec::new();

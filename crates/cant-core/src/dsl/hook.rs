@@ -19,6 +19,11 @@ use super::statement::parse_statement_block;
 ///
 /// Validates that the event name is one of the 16 CAAMP canonical events.
 /// Returns the parsed [`HookDef`] and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the hook header or body is malformed, or if the
+/// event name is not a known canonical event.
 pub fn parse_hook_block(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -123,7 +128,7 @@ mod tests {
                 assert_eq!(d.verb, "checkin");
                 assert_eq!(d.addresses, vec!["all"]);
             }
-            other => panic!("expected Directive, got {:?}", other),
+            other => panic!("expected Directive, got {other:?}"),
         }
     }
 
@@ -136,7 +141,7 @@ mod tests {
         assert_eq!(hook.body.len(), 2);
         match &hook.body[0] {
             Statement::Binding(b) => assert_eq!(b.name.value, "status"),
-            other => panic!("expected Binding, got {:?}", other),
+            other => panic!("expected Binding, got {other:?}"),
         }
         match &hook.body[1] {
             Statement::Directive(d) => {
@@ -144,7 +149,7 @@ mod tests {
                 assert_eq!(d.task_refs, vec!["T1234"]);
                 assert_eq!(d.tags, vec!["shipped"]);
             }
-            other => panic!("expected Directive, got {:?}", other),
+            other => panic!("expected Directive, got {other:?}"),
         }
     }
 
@@ -219,7 +224,7 @@ mod tests {
         assert_eq!(hook.body.len(), 2);
         match &hook.body[0] {
             Statement::Comment(c) => assert_eq!(c.text, "check permissions first"),
-            other => panic!("expected Comment, got {:?}", other),
+            other => panic!("expected Comment, got {other:?}"),
         }
     }
 
@@ -243,7 +248,7 @@ mod tests {
                 assert_eq!(d.task_refs, vec!["T1234"]);
                 assert_eq!(d.argument, Some("deployment complete".to_string()));
             }
-            other => panic!("expected Directive, got {:?}", other),
+            other => panic!("expected Directive, got {other:?}"),
         }
     }
 
@@ -257,19 +262,19 @@ mod tests {
         assert_eq!(hook.body.len(), 2);
         match &hook.body[0] {
             Statement::Directive(d) => assert_eq!(d.verb, "checkin"),
-            other => panic!("expected Directive, got {:?}", other),
+            other => panic!("expected Directive, got {other:?}"),
         }
         match &hook.body[1] {
             Statement::Session(s) => {
                 use crate::dsl::ast::SessionTarget;
                 match &s.target {
                     SessionTarget::Prompt(p) => assert_eq!(p, "Load canon state"),
-                    other => panic!("expected Prompt, got {:?}", other),
+                    other => panic!("expected Prompt, got {other:?}"),
                 }
                 assert_eq!(s.properties.len(), 1);
                 assert_eq!(s.properties[0].key.value, "context");
             }
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 
@@ -282,7 +287,7 @@ mod tests {
         assert_eq!(hook.body.len(), 1);
         match &hook.body[0] {
             Statement::Session(_) => {}
-            other => panic!("expected Session, got {:?}", other),
+            other => panic!("expected Session, got {other:?}"),
         }
     }
 }

@@ -19,6 +19,10 @@ use super::span::Span;
 ///
 /// Returns the parsed [`DiscretionCondition`] with the prose text extracted.
 /// The input must be the full condition text including the `**` delimiters.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the input does not have the required `**` delimiters.
 pub fn parse_discretion(
     input: &str,
     byte_offset: usize,

@@ -398,8 +398,13 @@ static COMPILED_VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
 /// Returns a reference to the lazily compiled schema validator.
 fn get_validator() -> &'static jsonschema::Validator {
     COMPILED_VALIDATOR.get_or_init(|| {
+        // SAFETY: Both `expect` calls operate on embedded compile-time constants.
+        // If either panics it is an unrecoverable programmer error (the embedded
+        // schema is malformed), not a recoverable runtime condition.
+        #[allow(clippy::expect_used)]
         let schema: serde_json::Value =
             serde_json::from_str(LAFS_ENVELOPE_SCHEMA).expect("embedded schema is valid JSON");
+        #[allow(clippy::expect_used)]
         jsonschema::validator_for(&schema).expect("embedded schema compiles")
     })
 }
@@ -537,6 +542,12 @@ impl std::error::Error for ValidateEnvelopeError {}
 ///
 /// Returns `Ok(())` on success, or an error with structured details.
 /// Uses a lazily compiled validator for performance.
+///
+/// # Errors
+///
+/// Returns [`ValidateEnvelopeError::InvalidJson`] if `payload` is not valid
+/// JSON, or [`ValidateEnvelopeError::SchemaErrors`] if the JSON does not
+/// conform to the embedded LAFS envelope schema.
 ///
 /// # Example
 ///

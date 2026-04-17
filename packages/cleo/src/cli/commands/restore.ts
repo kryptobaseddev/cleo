@@ -21,6 +21,12 @@ import { CleoError, formatError, getAccessor } from '@cleocode/core';
 import { getProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import {
+  CLEO_DIR_NAME,
+  RESTORE_CONFLICTS_MD,
+  RESTORE_DEFAULT_FILE,
+  RESTORE_VALID_JSON_FILENAMES,
+} from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -32,7 +38,7 @@ interface ParsedResolution {
   /** Which section of the report this came from. */
   section: 'auto' | 'manual';
   /** The target JSON file on disk. */
-  filename: 'config.json' | 'project-info.json' | 'project-context.json';
+  filename: 'config.json' | 'project-info.json' | 'project-context.json'; // values from RESTORE_VALID_JSON_FILENAMES
   /** Dot-separated field path (e.g. "hooks.preCommit"). */
   fieldPath: string;
   /** The local (A) value, may be undefined if not present. */
@@ -113,7 +119,7 @@ function setAtPath(obj: Record<string, unknown>, dotPath: string, value: unknown
 export function parseConflictReport(md: string): ParsedResolution[] {
   const results: ParsedResolution[] = [];
 
-  const VALID_FILENAMES = new Set(['config.json', 'project-info.json', 'project-context.json']);
+  const VALID_FILENAMES = RESTORE_VALID_JSON_FILENAMES;
 
   // Split into lines for state-machine parsing
   const lines = md.split('\n');
@@ -241,7 +247,7 @@ const finalizeCommand = defineCommand({
   },
   async run() {
     const projectRoot = getProjectRoot();
-    const reportPath = path.join(projectRoot, '.cleo', 'restore-conflicts.md');
+    const reportPath = path.join(projectRoot, CLEO_DIR_NAME, RESTORE_CONFLICTS_MD);
 
     if (!fs.existsSync(reportPath)) {
       console.log('No pending restore conflicts. Nothing to finalize.');
@@ -296,7 +302,7 @@ const finalizeCommand = defineCommand({
 
     let applied = 0;
     for (const [filename, resolutions] of byFile) {
-      const filePath = path.join(projectRoot, '.cleo', filename);
+      const filePath = path.join(projectRoot, CLEO_DIR_NAME, filename);
       if (!fs.existsSync(filePath)) continue;
       const raw = fs.readFileSync(filePath, 'utf-8');
       const obj = JSON.parse(raw) as Record<string, unknown>;
@@ -312,7 +318,7 @@ const finalizeCommand = defineCommand({
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const archivePath = path.join(
       projectRoot,
-      '.cleo',
+      CLEO_DIR_NAME,
       `restore-conflicts-${timestamp}.md.finalized`,
     );
     fs.renameSync(reportPath, archivePath);
@@ -349,7 +355,7 @@ const backupSubCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      const fileName = args.file ?? 'tasks.db';
+      const fileName = args.file ?? RESTORE_DEFAULT_FILE;
       const scope = args.scope ?? 'project';
 
       const response = await dispatchRaw('mutate', 'admin', 'backup', {

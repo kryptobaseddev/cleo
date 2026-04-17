@@ -281,6 +281,7 @@ pub async fn execute_step(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use cant_core::dsl::ast::{Property, Spanned, StringValue};

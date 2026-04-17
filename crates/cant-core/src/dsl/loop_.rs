@@ -29,6 +29,10 @@ use super::statement::parse_statement_block;
 ///
 /// Returns the parsed [`RepeatLoop`] wrapped in a [`Statement::Repeat`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the repeat header or body is malformed.
 pub fn parse_repeat(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -92,6 +96,10 @@ pub fn parse_repeat(
 ///
 /// Returns the parsed [`ForLoop`] wrapped in a [`Statement::ForLoop`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the for-loop header or body is malformed.
 pub fn parse_for_loop(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -185,6 +193,10 @@ pub fn parse_for_loop(
 ///
 /// Returns the parsed [`LoopUntil`] wrapped in a [`Statement::LoopUntil`]
 /// and the number of lines consumed.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the loop header, body, or `until` clause is malformed.
 pub fn parse_loop_until(
     lines: &[IndentedLine<'_>],
     start_idx: usize,
@@ -286,7 +298,7 @@ mod tests {
             Statement::Repeat(r) => {
                 assert_eq!(r.body.len(), 1);
             }
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -297,7 +309,7 @@ mod tests {
         let (stmt, _) = parse_repeat(&lines, 0).unwrap();
         match stmt {
             Statement::Repeat(_) => {}
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -309,7 +321,7 @@ mod tests {
         assert_eq!(consumed, 3);
         match stmt {
             Statement::Repeat(r) => assert_eq!(r.body.len(), 2),
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -342,7 +354,7 @@ mod tests {
                 assert_eq!(f.variable.value, "item");
                 assert_eq!(f.body.len(), 1);
             }
-            other => panic!("expected ForLoop, got {:?}", other),
+            other => panic!("expected ForLoop, got {other:?}"),
         }
     }
 
@@ -353,7 +365,7 @@ mod tests {
         let (stmt, _) = parse_for_loop(&lines, 0).unwrap();
         match stmt {
             Statement::ForLoop(f) => assert_eq!(f.variable.value, "task"),
-            other => panic!("expected ForLoop, got {:?}", other),
+            other => panic!("expected ForLoop, got {other:?}"),
         }
     }
 
@@ -402,10 +414,10 @@ mod tests {
                 assert_eq!(lu.body.len(), 1);
                 match &lu.condition {
                     Condition::Expression(_) => {}
-                    other => panic!("expected Expression condition, got {:?}", other),
+                    other => panic!("expected Expression condition, got {other:?}"),
                 }
             }
-            other => panic!("expected LoopUntil, got {:?}", other),
+            other => panic!("expected LoopUntil, got {other:?}"),
         }
     }
 
@@ -417,9 +429,9 @@ mod tests {
         match stmt {
             Statement::LoopUntil(lu) => match &lu.condition {
                 Condition::Discretion(dc) => assert_eq!(dc.prose, "deployment is stable"),
-                other => panic!("expected Discretion condition, got {:?}", other),
+                other => panic!("expected Discretion condition, got {other:?}"),
             },
-            other => panic!("expected LoopUntil, got {:?}", other),
+            other => panic!("expected LoopUntil, got {other:?}"),
         }
     }
 
@@ -431,7 +443,7 @@ mod tests {
         assert_eq!(consumed, 4);
         match stmt {
             Statement::LoopUntil(lu) => assert_eq!(lu.body.len(), 2),
-            other => panic!("expected LoopUntil, got {:?}", other),
+            other => panic!("expected LoopUntil, got {other:?}"),
         }
     }
 
@@ -469,7 +481,7 @@ mod tests {
                 assert_eq!(r.span.start, 0);
                 assert_eq!(r.span.line, 1);
             }
-            other => panic!("expected Repeat, got {:?}", other),
+            other => panic!("expected Repeat, got {other:?}"),
         }
     }
 
@@ -483,7 +495,7 @@ mod tests {
                 assert_eq!(f.span.start, 0);
                 assert_eq!(f.span.line, 1);
             }
-            other => panic!("expected ForLoop, got {:?}", other),
+            other => panic!("expected ForLoop, got {other:?}"),
         }
     }
 }

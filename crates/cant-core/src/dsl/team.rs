@@ -1,4 +1,4 @@
-//! Team block parser for the CANT DSL (CleoOS v2).
+//! Team block parser for the CANT DSL (`CleoOS` v2).
 //!
 //! Parses `team Name:` blocks that declare the 3-tier multi-agent hierarchy
 //! (orchestrator / leads / workers) and HITL routing rules per

@@ -328,7 +328,7 @@ pub fn cant_extract_agent_profiles(content: String) -> Vec<JsAgentProfile> {
         .collect()
 }
 
-/// Convert an AgentDef AST node into a JsAgentProfile.
+/// Convert an [`AgentDef`][cant_core::dsl::ast::AgentDef] AST node into a [`JsAgentProfile`].
 fn extract_agent_profile(agent: &cant_core::dsl::ast::AgentDef) -> JsAgentProfile {
     let mut model = None;
     let mut prompt = None;
@@ -408,7 +408,7 @@ fn format_value(value: &cant_core::dsl::ast::Value) -> String {
     }
 }
 
-/// Format a DurationUnit into its string suffix.
+/// Format a [`DurationUnit`][cant_core::dsl::ast::DurationUnit] into its string suffix.
 fn format_duration_unit(unit: &cant_core::dsl::ast::DurationUnit) -> &'static str {
     match unit {
         cant_core::dsl::ast::DurationUnit::Seconds => "s",
