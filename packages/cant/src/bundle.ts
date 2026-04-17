@@ -24,6 +24,15 @@
 
 import type { CantDocumentResult, CantValidationResult } from './document.js';
 import { parseDocument, validateDocument } from './document.js';
+import type {
+  CantAgentV3,
+  CantContextSourceDef,
+  CantContractBlock,
+  CantContractClause,
+  CantMentalModelRef,
+  CantOverflowStrategy,
+  CantTier,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -91,6 +100,22 @@ export interface AgentEntry {
 }
 
 /**
+ * Agent entry extended with a fully-typed {@link CantAgentV3} projection.
+ *
+ * @remarks
+ * T889 Wave 1 (W1-2) surface. `typed` is `null` when the entry could not be
+ * mapped to the v3 shape (for example, the AST kind is not `agent` or required
+ * fields are missing). When `typed` is present, the entry satisfies the
+ * {@link isCantAgentV3} structural guard and carries v1/v2-backward-compatible
+ * defaults (`tier: 'mid'`, `contextSources: []`, etc.) merged on top of any
+ * values discovered in the `.cant` source.
+ */
+export interface TypedAgentEntry extends AgentEntry {
+  /** Typed v3 projection of this agent entry, or `null` when mapping failed. */
+  typed: CantAgentV3 | null;
+}
+
+/**
  * A team declaration extracted from a compiled `.cant` file.
  *
  * @remarks
@@ -135,8 +160,17 @@ export interface ToolEntry {
 export interface CompiledBundle {
   /** All successfully parsed documents, keyed by source path. */
   documents: Map<string, ParsedCantDocument>;
-  /** Agents found across all documents. */
-  agents: AgentEntry[];
+  /**
+   * Agents found across all documents.
+   *
+   * @remarks
+   * Each entry includes a `typed: CantAgentV3 | null` field that carries
+   * the fully-typed v3 projection (populated via {@link toCantAgentV3}).
+   * Older consumers that only read `name`, `sourcePath`, and `properties`
+   * remain source-compatible because {@link TypedAgentEntry} extends
+   * {@link AgentEntry}.
+   */
+  agents: TypedAgentEntry[];
   /** Teams found across all documents. */
   teams: TeamEntry[];
   /** Tools found across all documents. */
@@ -263,6 +297,254 @@ function extractAgents(doc: unknown, sourcePath: string): AgentEntry[] {
     agents.push({ name: nameValue, sourcePath, properties });
   }
   return agents;
+}
+
+/** Valid {@link CantTier} string values. */
+const VALID_TIERS: readonly CantTier[] = ['low', 'mid', 'high'];
+
+/** Valid {@link CantOverflowStrategy} string values. */
+const VALID_OVERFLOW: readonly CantOverflowStrategy[] = ['escalate_tier', 'fail'];
+
+/**
+ * Coerce a simplified AST value to a plain string, or `undefined` if the value
+ * cannot be safely represented as one. Accepts raw strings, numbers, and the
+ * stringified form of booleans; other shapes (objects, arrays) return
+ * `undefined`.
+ */
+function coerceString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+}
+
+/**
+ * Coerce a simplified AST value to an array of strings. Returns an empty array
+ * for non-array inputs. Array members are coerced via {@link coerceString} and
+ * dropped if they cannot be represented as strings.
+ */
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const s = coerceString(item);
+    if (typeof s === 'string') out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Map the raw `permissions` property (either a domain-access record or the
+ * tool-permissions scalar map) to the flat `Record<string, string>` required
+ * by {@link CantAgentV3}. Array access lists are joined with `, ` so downstream
+ * consumers keep the v1/v2 "tasks: read, write" wire format.
+ */
+function extractV3Permissions(value: unknown): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (typeof value !== 'object' || value === null) return result;
+  const rec = value as Record<string, unknown>;
+  for (const [domain, access] of Object.entries(rec)) {
+    if (Array.isArray(access)) {
+      const parts = coerceStringArray(access);
+      if (parts.length > 0) result[domain] = parts.join(', ');
+    } else {
+      const s = coerceString(access);
+      if (typeof s === 'string') result[domain] = s;
+    }
+  }
+  return result;
+}
+
+/**
+ * Map the raw `contracts` property to a {@link CantContractBlock}.
+ *
+ * @remarks
+ * The Wave 0 grammar does not yet recognize `contracts:` blocks, so today
+ * this helper returns `null` unless the property is already shaped as
+ * `{ requires: string[], ensures: string[] }`. When the grammar adds the
+ * block, this helper will round-trip the richer shape without breaking
+ * existing callers.
+ */
+function extractContracts(value: unknown): CantContractBlock {
+  const empty: CantContractBlock = { requires: [], ensures: [] };
+  if (typeof value !== 'object' || value === null) return empty;
+  const rec = value as Record<string, unknown>;
+  const toClauses = (raw: unknown): CantContractClause[] => {
+    if (!Array.isArray(raw)) return [];
+    const out: CantContractClause[] = [];
+    for (const item of raw) {
+      const text = coerceString(item);
+      if (typeof text === 'string' && text.length > 0) out.push({ text });
+    }
+    return out;
+  };
+  return {
+    requires: toClauses(rec['requires']),
+    ensures: toClauses(rec['ensures']),
+  };
+}
+
+/**
+ * Map the raw `context_sources` property value to an array of
+ * {@link CantContextSourceDef}. Supports the list form
+ * `[{source, query, max_entries}]` today; dict form (`patterns: {...}`) is
+ * flattened by the Wave 0 parser into sibling properties and therefore
+ * requires a follow-up grammar pass to reconstruct. Returns an empty array
+ * when the value is absent, malformed, or dict-flattened.
+ */
+function extractContextSources(value: unknown): CantContextSourceDef[] {
+  if (!Array.isArray(value)) return [];
+  const out: CantContextSourceDef[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue;
+    const rec = item as Record<string, unknown>;
+    const source = coerceString(rec['source']);
+    const query = coerceString(rec['query']);
+    const maxRaw = rec['maxEntries'] ?? rec['max_entries'] ?? rec['max'];
+    const maxEntries =
+      typeof maxRaw === 'number'
+        ? maxRaw
+        : typeof maxRaw === 'string'
+          ? Number.parseInt(maxRaw, 10)
+          : Number.NaN;
+    if (
+      typeof source === 'string' &&
+      typeof query === 'string' &&
+      Number.isFinite(maxEntries) &&
+      maxEntries > 0
+    ) {
+      out.push({ source, query, maxEntries });
+    }
+  }
+  return out;
+}
+
+/**
+ * Project an {@link AgentEntry} into the fully-typed {@link CantAgentV3}
+ * surface, filling v1/v2-backward-compatible defaults for fields the source
+ * `.cant` file omits.
+ *
+ * @remarks
+ * Defaults applied when the source file does not declare them:
+ *
+ * - `tier`: `'mid'`
+ * - `contextSources`: `[]`
+ * - `onOverflow`: `'escalate_tier'`
+ * - `mentalModelRef`: `null`
+ * - `contracts`: `{ requires: [], ensures: [] }`
+ *
+ * Returns `null` when `entry.name` is empty (the AST kind wasn't `agent` or
+ * the name field was missing), so callers can distinguish "mapped" from
+ * "not an agent".
+ *
+ * @param entry - The {@link AgentEntry} extracted by {@link compileBundle}.
+ * @param sourcePath - Absolute path to the source `.cant` file (used to
+ *   populate {@link CantAgentV3.sourcePath}).
+ * @returns A {@link CantAgentV3} projection, or `null` when mapping fails.
+ */
+export function toCantAgentV3(entry: AgentEntry, sourcePath: string): CantAgentV3 | null {
+  if (typeof entry.name !== 'string' || entry.name.length === 0) return null;
+  const props = entry.properties;
+
+  const tierRaw = coerceString(props['tier']);
+  const tier: CantTier =
+    tierRaw !== undefined && (VALID_TIERS as readonly string[]).includes(tierRaw)
+      ? (tierRaw as CantTier)
+      : 'mid';
+
+  const overflowRaw = coerceString(props['on_overflow'] ?? props['onOverflow']);
+  const onOverflow: CantOverflowStrategy =
+    overflowRaw !== undefined && (VALID_OVERFLOW as readonly string[]).includes(overflowRaw)
+      ? (overflowRaw as CantOverflowStrategy)
+      : 'escalate_tier';
+
+  const mentalModelRef: CantMentalModelRef | null = null;
+
+  const version = coerceString(props['version']) ?? '1';
+  const role = coerceString(props['role']) ?? '';
+  const description = coerceString(props['description']) ?? '';
+  const prompt = coerceString(props['prompt']) ?? '';
+  const skills = coerceStringArray(props['skills']);
+  const permissions = extractV3Permissions(props['permissions']);
+  const contextSources = extractContextSources(props['context_sources'] ?? props['contextSources']);
+  const contracts = extractContracts(props['contracts']);
+
+  const model = coerceString(props['model']);
+  const persistRaw = props['persist'];
+  const persist: boolean | string | undefined =
+    typeof persistRaw === 'boolean'
+      ? persistRaw
+      : typeof persistRaw === 'string'
+        ? persistRaw
+        : undefined;
+  const parent = coerceString(props['parent']);
+  const consultWhen = coerceString(props['consult-when'] ?? props['consultWhen']);
+  const workers = coerceStringArray(props['workers']);
+  const stages = coerceStringArray(props['stages']);
+  const deprecatedRaw = props['deprecated'];
+  const deprecated = typeof deprecatedRaw === 'boolean' ? deprecatedRaw : undefined;
+  const supersededBy = coerceString(props['superseded_by'] ?? props['supersededBy']);
+
+  const typed: CantAgentV3 = {
+    name: entry.name,
+    sourcePath,
+    version,
+    role,
+    description,
+    prompt,
+    skills,
+    permissions,
+    tier,
+    contextSources,
+    onOverflow,
+    mentalModelRef,
+    contracts,
+  };
+
+  if (model !== undefined) typed.model = model;
+  if (persist !== undefined) typed.persist = persist;
+  if (parent !== undefined) typed.parent = parent;
+  if (consultWhen !== undefined) typed.consultWhen = consultWhen;
+  if (workers.length > 0) typed.workers = workers;
+  if (stages.length > 0) typed.stages = stages;
+  if (deprecated !== undefined) typed.deprecated = deprecated;
+  if (supersededBy !== undefined) typed.supersededBy = supersededBy;
+
+  return typed;
+}
+
+/**
+ * Detect placeholder `TODO` stubs in an agent's behavioral fields.
+ *
+ * @remarks
+ * T889 Wave 1 (W1-4) linter. Emits one {@link BundleDiagnostic} per offending
+ * field at severity `'error'` with `ruleId: 'S-TODO-001'`. An agent cannot be
+ * spawned while any of its `prompt`, `tone`, or `enforcement` values contain
+ * the literal substring `TODO` because the composer would forward placeholder
+ * content to the live model. The enclosing `valid` flag on
+ * {@link CompiledBundle} flips to `false` when any such diagnostic is raised.
+ *
+ * @param entry - The {@link AgentEntry} whose raw properties are inspected
+ *   (not the {@link CantAgentV3} projection, because `tone` and `enforcement`
+ *   are not part of the typed v3 surface).
+ * @param sourcePath - Absolute path to the source `.cant` file for attribution.
+ * @returns Zero or more S-TODO-001 diagnostics.
+ */
+function detectTodoStubs(entry: AgentEntry, sourcePath: string): BundleDiagnostic[] {
+  const stubs: BundleDiagnostic[] = [];
+  const fields: readonly string[] = ['prompt', 'tone', 'enforcement'];
+  for (const field of fields) {
+    const raw = entry.properties[field];
+    const value = coerceString(raw);
+    if (value?.includes('TODO')) {
+      stubs.push({
+        ruleId: 'S-TODO-001',
+        message: `Field '${field}' on agent '${entry.name}' contains TODO stub; agent cannot be spawned with placeholder content`,
+        severity: 'error',
+        sourcePath,
+      });
+    }
+  }
+  return stubs;
 }
 
 /**
@@ -464,7 +746,7 @@ function renderBundleSystemPrompt(bundle: CompiledBundle): string {
  */
 export async function compileBundle(filePaths: string[]): Promise<CompiledBundle> {
   const documents = new Map<string, ParsedCantDocument>();
-  const allAgents: AgentEntry[] = [];
+  const allAgents: TypedAgentEntry[] = [];
   const allTeams: TeamEntry[] = [];
   const allTools: ToolEntry[] = [];
   const allDiagnostics: BundleDiagnostic[] = [];
@@ -565,7 +847,20 @@ export async function compileBundle(filePaths: string[]): Promise<CompiledBundle
       const teams = extractTeams(parseResult.document, filePath);
       const tools = extractTools(parseResult.document, filePath);
 
-      allAgents.push(...agents);
+      for (const agent of agents) {
+        const typed = toCantAgentV3(agent, filePath);
+        const typedEntry: TypedAgentEntry = { ...agent, typed };
+
+        const todoStubs = detectTodoStubs(agent, filePath);
+        if (todoStubs.length > 0) {
+          for (const stub of todoStubs) {
+            fileDiagnostics.push(stub);
+          }
+          allValid = false;
+        }
+
+        allAgents.push(typedEntry);
+      }
       allTeams.push(...teams);
       allTools.push(...tools);
     }

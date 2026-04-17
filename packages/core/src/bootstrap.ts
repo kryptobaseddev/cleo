@@ -11,11 +11,16 @@
  * @task T5267
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getAgentsHome, getCleoTemplatesDir, getCleoTemplatesTildePath } from './paths.js';
+import {
+  getAgentsHome,
+  getCleoGlobalCantAgentsDir,
+  getCleoTemplatesDir,
+  getCleoTemplatesTildePath,
+} from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -74,6 +79,11 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
 
   // Step 5: Install agent definition (cleo-subagent symlink)
   await installAgentDefinitionGlobally(ctx);
+
+  // Step 5b (W2-5): Seed global CANT agents (.cant personas)
+  // Idempotently copies bundled seed-agents into ~/.local/share/cleo/cant/agents/
+  // so spawn/orchestrate can resolve personas on fresh installs.
+  await installSeedAgentsGlobally(ctx);
 
   // Step 6: Install provider adapters
   await installProviderAdapters(ctx, options?.packageRoot);
@@ -332,6 +342,86 @@ async function installAgentDefinitionGlobally(ctx: BootstrapContext): Promise<vo
   } catch (err) {
     ctx.warnings.push(
       `Agent definition install: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+// ── Step 5b (W2-5): Global seed-agents install ───────────────────────
+
+/**
+ * Seed the global CANT agents directory from the bundled seed-agents.
+ *
+ * Idempotently copies `.cant` persona files from the `@cleocode/agents`
+ * package's `seed-agents/` directory into
+ * `{cleoHome}/cant/agents/` (typically `~/.local/share/cleo/cant/agents/`).
+ *
+ * Without this step, a fresh `npm install -g @cleocode/cleo` leaves the
+ * global CANT agents directory empty, and `cleo orchestrate spawn` has no
+ * personas to resolve against. The post-install hook calls this step so the
+ * canonical personas (cleo-prime, cleo-dev, cleo-historian, cleo-rust-lead,
+ * cleo-db-lead, cleoos-opus-orchestrator) are available immediately.
+ *
+ * Seed-dir resolution is delegated to {@link resolveSeedAgentsDir} in
+ * `init.ts` so both the project-scoped `cleo init --install-seed-agents` path
+ * and this global path share the same multi-candidate lookup (monorepo,
+ * node_modules, bundled CLI dist).
+ *
+ * Behaviour:
+ *   - Existing files in the global target are preserved (never overwritten).
+ *   - Missing seed-dir is a warning, not a failure — keeps postinstall
+ *     resilient when the agents package isn't yet linked.
+ *   - Dry-run mode records the planned action without touching the FS.
+ *
+ * @param ctx - Bootstrap context for recording created/warnings entries.
+ *
+ * @task T889 / T897 / W2-5
+ */
+export async function installSeedAgentsGlobally(ctx: BootstrapContext): Promise<void> {
+  try {
+    const { resolveSeedAgentsDir } = await import('./init.js');
+    const seedDir = await resolveSeedAgentsDir();
+
+    if (!seedDir) {
+      ctx.warnings.push('seed-agents (global): bundled seed-agents/ directory not found; skipping');
+      return;
+    }
+
+    const targetDir = getCleoGlobalCantAgentsDir();
+
+    if (ctx.isDryRun) {
+      ctx.created.push(`seed-agents (global): would copy .cant files to ${targetDir}`);
+      return;
+    }
+
+    await mkdir(targetDir, { recursive: true });
+
+    const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
+    if (seeds.length === 0) {
+      ctx.warnings.push('seed-agents (global): no .cant files in bundled seed-agents/');
+      return;
+    }
+
+    let copied = 0;
+    let skipped = 0;
+    for (const seed of seeds) {
+      const src = join(seedDir, seed);
+      const dst = join(targetDir, seed);
+      if (existsSync(dst)) {
+        skipped++;
+        continue;
+      }
+      await copyFile(src, dst);
+      copied++;
+    }
+
+    if (copied > 0) {
+      ctx.created.push(
+        `seed-agents (global): ${copied} .cant personas installed (${skipped} already present)`,
+      );
+    }
+  } catch (err) {
+    ctx.warnings.push(
+      `seed-agents (global) install failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

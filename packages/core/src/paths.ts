@@ -642,6 +642,35 @@ export function getCleoGlobalAgentsDir(): string {
   return join(getCleoHome(), 'agents');
 }
 
+/**
+ * Get the Global CLEO CANT Agents directory.
+ *
+ * Holds globally-available `.cant` persona files seeded from
+ * `@cleocode/agents/seed-agents/` during postinstall. `cleo agent start <id>`
+ * and `cleo orchestrate spawn` resolve agent IDs that aren't found in the
+ * project-local registry against this directory.
+ *
+ * Project-local CANT agents still live in `{projectRoot}/.cleo/cant/agents/`.
+ *
+ * @returns Absolute path to the `cant/agents` directory under CLEO home
+ *
+ * @remarks
+ * Returns `{cleoHome}/cant/agents` — e.g. `~/.local/share/cleo/cant/agents`
+ * on Linux. This is the target of both the npm postinstall seed hook (W2-5)
+ * and the `cleo agent install --global` CLI command.
+ *
+ * @example
+ * ```typescript
+ * const dir = getCleoGlobalCantAgentsDir();
+ * // Linux: "/home/user/.local/share/cleo/cant/agents"
+ * ```
+ *
+ * @task T889 / T897 / W2-5
+ */
+export function getCleoGlobalCantAgentsDir(): string {
+  return join(getCleoHome(), 'cant', 'agents');
+}
+
 // ============================================================================
 // Agent Outputs
 // ============================================================================

@@ -2,7 +2,7 @@
  * CleoOS Agent Registry — catalog of installed agents across all provider adapters.
  *
  * Discovers agents from two sources:
- *   1. **Seed agents** — bundled with CleoOS in `packages/cleo-os/seed-agents/`.
+ *   1. **Seed agents** — canonical SSoT at `packages/agents/seed-agents/` (T889).
  *   2. **User agents** — installed by individual provider adapters into their
  *      provider-specific agent directories (e.g. `~/.claude/agents/`).
  *
@@ -65,7 +65,7 @@ export interface AgentDefinition {
   /**
    * Origin of this agent definition.
    *
-   * - `"seed"` — bundled with CleoOS under `packages/cleo-os/seed-agents/`
+   * - `"seed"` — canonical SSoT under `packages/agents/seed-agents/` (T889)
    * - `"user"` — installed by a provider adapter into its agent directory
    */
   source: 'seed' | 'user';
@@ -76,12 +76,13 @@ export interface AgentDefinition {
 // ---------------------------------------------------------------------------
 
 /**
- * Absolute path to the CleoOS seed-agents directory.
+ * Absolute path to the canonical CLEO seed-agents directory.
  *
- * Located at `packages/cleo-os/seed-agents/` relative to this source file's
- * compiled output (`dist/registry/`), so we go up two levels from `__dirname`.
+ * Post T889 the SSoT lives at `packages/agents/seed-agents/`. Resolved
+ * relative to the compiled output (`cleo-os/dist/registry/`), so we go up
+ * three levels to the `packages/` root and into `agents/seed-agents/`.
  */
-const SEED_AGENTS_DIR = join(__dirname, '..', '..', 'seed-agents');
+const SEED_AGENTS_DIR = join(__dirname, '..', '..', '..', 'agents', 'seed-agents');
 
 /**
  * Known provider IDs and their default agent installation directories.
@@ -174,9 +175,9 @@ export class AgentRegistry {
   /**
    * Load seed agents bundled with CleoOS.
    *
-   * Reads `packages/cleo-os/seed-agents/` and returns one `AgentDefinition`
-   * per agent file found. Returns an empty array when the directory is absent
-   * or empty (the directory is created during T640 but initially unpopulated).
+   * Reads `packages/agents/seed-agents/` (canonical SSoT post T889) and returns
+   * one `AgentDefinition` per agent file found. Returns an empty array when
+   * the directory is absent or empty.
    *
    * @returns Array of seed agent definitions; empty if none are installed.
    */

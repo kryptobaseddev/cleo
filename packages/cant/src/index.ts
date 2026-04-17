@@ -10,9 +10,10 @@ export type {
   ParsedCantDocument,
   TeamEntry,
   ToolEntry,
+  TypedAgentEntry,
 } from './bundle';
 // Bundle compiler
-export { compileBundle } from './bundle';
+export { compileBundle, toCantAgentV3 } from './bundle';
 export type {
   AgentDefinition,
   ContextProvider,
