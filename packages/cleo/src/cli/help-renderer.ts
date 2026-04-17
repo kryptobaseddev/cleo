@@ -123,7 +123,7 @@ const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     name: 'Research & Orchestration',
-    commands: ['research', 'orchestrate'],
+    commands: ['research', 'orchestrate', 'conduit'],
   },
   {
     name: 'Import / Export',
