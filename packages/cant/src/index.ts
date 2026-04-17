@@ -95,7 +95,18 @@ export type { ParsedCANTMessage } from './parse';
 // Parser
 export { initCantParser, parseCANTMessage } from './parse';
 // Types
-export type { DirectiveType } from './types';
+export type {
+  CantAgentV3,
+  CantContextSourceDef,
+  CantContractBlock,
+  CantContractClause,
+  CantMentalModelRef,
+  CantOverflowStrategy,
+  CantPathPermissions,
+  CantTier,
+  DirectiveType,
+} from './types';
+export { isCantAgentV3 } from './types';
 export type {
   MergeResult,
   WorktreeConfig,

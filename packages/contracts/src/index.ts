@@ -56,6 +56,17 @@ export type {
   ProjectAgentRef,
   TransportConfig,
 } from './agent-registry.js';
+// === Agent Registry v3 (T889 / T897 — tier-aware resolution extensions) ===
+export type {
+  AgentDoctorCode,
+  AgentDoctorFinding,
+  AgentRegistryExtendedFields,
+  AgentSkillSource,
+  AgentSpawnCapability,
+  AgentTier,
+  DoctorReport,
+  ResolvedAgent,
+} from './agent-registry-v3.js';
 // === Archive Types ===
 export type {
   ArchiveCycleTimesReport,
@@ -200,6 +211,7 @@ export {
   isErrorResult,
   isErrorType,
   normalizeError,
+  ThinAgentViolationError,
 } from './errors.js';
 // === Evidence Record Types (IVTR typed proof artifacts) ===
 export type {

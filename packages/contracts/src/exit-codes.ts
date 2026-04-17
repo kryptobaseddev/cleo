@@ -68,7 +68,7 @@ export enum ExitCode {
   CONTEXT_EMERGENCY = 53,
   CONTEXT_STALE = 54,
 
-  // === ORCHESTRATOR ERRORS (60-67) ===
+  // === ORCHESTRATOR ERRORS (60-68) ===
   PROTOCOL_MISSING = 60,
   INVALID_RETURN_MESSAGE = 61,
   MANIFEST_ENTRY_MISSING = 62,
@@ -77,6 +77,16 @@ export enum ExitCode {
   HANDOFF_REQUIRED = 65,
   RESUME_FAILED = 66,
   CONCURRENT_SESSION = 67,
+  /**
+   * E_THIN_AGENT_VIOLATION — A worker or lead agent attempted to spawn another
+   * agent, violating the thin-agent inversion-of-control rule (ORC-012).
+   * Only orchestrators may spawn subagents; non-orchestrator roles must
+   * escalate via the playbook approval gate.
+   *
+   * @task T889 Orchestration Coherence v3
+   * @task T907 Thin-agent enforcement
+   */
+  THIN_AGENT_VIOLATION = 68,
 
   // === NEXUS ERRORS (70-79) ===
   NEXUS_NOT_INITIALIZED = 70,
