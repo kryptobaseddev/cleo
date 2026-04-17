@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.84] — 2026-04-17
+
+### Fixed
+
+- **CI test env (T682 brain-stdp-functional)**: test was spawning `cleo` via system PATH, failing on CI runners where the binary isn't installed. Resolution order now:
+  1. `CLEO_BIN` env override (for targeted integration runs)
+  2. Monorepo-local `packages/cleo/dist/cli/index.js` (always present after build, invoked via `node <path>`)
+  3. Global `cleo` on PATH (last-resort dev fallback)
+  
+  T682-1/T682-2/T682-3 now pass on CI without pre-install steps.
+
+- **Pre-commit hook lockfile-drift false positive**: the staged-file heuristic blocked any `package.json` change without a matching `pnpm-lock.yaml` staged, but pnpm `workspace:*` refs don't regenerate the lockfile on workspace version bumps. This forced the v2026.4.83 commit to use `--no-verify`. Removed the heuristic; the hook now relies solely on `pnpm install --frozen-lockfile` (the authoritative check). No more false-positive blocks → no more `--no-verify` bypasses needed for version bumps.
+
+- **Studio build**: `computeEpicProgress` → `_computeEpicProgress` (SvelteKit only allows underscore-prefixed non-standard exports from `+page.server.ts`). Fixes the `vite build` failure that would have occurred on v2026.4.83.
+
 ## [2026.4.83] — 2026-04-17
 
 ### T876 EPIC: Tasks System Coherence — structural invariants + Studio surface

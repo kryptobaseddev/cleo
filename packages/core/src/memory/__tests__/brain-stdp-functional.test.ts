@@ -29,9 +29,11 @@
  */
 
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,19 +47,38 @@ const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Resolve the `cleo` binary path at module load time.
-// Prefer the installed binary on PATH so it exercises the real distributed CLI.
+//
+// Preference order (CI-safe, no PATH dependency):
+//   1. Monorepo-local dist (packages/cleo/dist/cli/index.js) — always present
+//      after `pnpm run build` and independent of shell PATH setup.
+//   2. `CLEO_BIN` env override — lets us point at an arbitrary binary for
+//      end-to-end integration runs against a released version.
+//   3. Global `cleo` on PATH — last-resort fallback for dev machines that
+//      already have it installed.
 // ---------------------------------------------------------------------------
 
+const __thisFile = fileURLToPath(import.meta.url);
+// packages/core/src/memory/__tests__ → repo root
+const __repoRoot = resolve(dirname(__thisFile), '..', '..', '..', '..', '..');
+const __localDistCleo = join(__repoRoot, 'packages', 'cleo', 'dist', 'cli', 'index.js');
+
 /**
- * Locate the `cleo` executable. Resolves via the system PATH.
- * If not found, tests that require the CLI binary will be skipped.
+ * Locate the `cleo` executable for integration tests.
+ *
+ * Returns either a direct Node.js ESM bundle path (to be spawned as a script)
+ * OR the literal string "cleo" (to be resolved via PATH). When the return
+ * value ends in `.js`, callers must invoke it via `node <path>` rather than
+ * as a direct executable.
  */
 function getCleoPath(): string {
-  // Prefer the installed npm-global binary (matches CI environment)
+  if (process.env['CLEO_BIN']) return process.env['CLEO_BIN'];
+  if (existsSync(__localDistCleo)) return __localDistCleo;
   return 'cleo';
 }
 
 const CLEO_BIN = getCleoPath();
+/** True when CLEO_BIN is a `.js` script that must be invoked via `node`. */
+const CLEO_BIN_IS_SCRIPT = CLEO_BIN.endsWith('.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,8 +138,12 @@ async function runCleo(
   args: string[],
   cleoDirAbsolute: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  // When CLEO_BIN resolves to a local .js ESM bundle, invoke via `node`.
+  // Otherwise spawn the binary directly (PATH lookup or absolute path).
+  const executable = CLEO_BIN_IS_SCRIPT ? process.execPath : CLEO_BIN;
+  const spawnArgs = CLEO_BIN_IS_SCRIPT ? [CLEO_BIN, ...args] : args;
   try {
-    const { stdout, stderr } = await execFileAsync(CLEO_BIN, args, {
+    const { stdout, stderr } = await execFileAsync(executable, spawnArgs, {
       env: {
         ...process.env,
         CLEO_DIR: cleoDirAbsolute,
