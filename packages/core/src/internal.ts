@@ -1174,6 +1174,17 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
+export type {
+  BuildDoctorReportOptions,
+  ReconcileDoctorOptions,
+  ReconcileDoctorResult,
+} from './store/agent-doctor.js';
+export { buildDoctorReport, reconcileDoctor } from './store/agent-doctor.js';
+export type {
+  InstallAgentFromCantInput,
+  InstallAgentFromCantResult,
+} from './store/agent-install.js';
+export { installAgentFromCant } from './store/agent-install.js';
 export {
   AgentRegistryAccessor,
   attachAgentToProject,
@@ -1183,3 +1194,11 @@ export {
   listAgentsForProject,
   lookupAgent,
 } from './store/agent-registry-accessor.js';
+export type { ResolveAgentOptions } from './store/agent-resolver.js';
+export {
+  AgentNotFoundError,
+  DEPRECATED_ALIASES,
+  getAgentSkills,
+  resolveAgent,
+  resolveAgentsBatch,
+} from './store/agent-resolver.js';

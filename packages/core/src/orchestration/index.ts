@@ -24,6 +24,12 @@ export {
   detectCircularDependencies,
   findMissingDependencies,
 } from './analyze.js';
+export type {
+  AtomicityErrorCode,
+  AtomicityInput,
+  AtomicityResult,
+} from './atomicity.js';
+export { AtomicityViolationError, checkAtomicity, MAX_WORKER_FILES } from './atomicity.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
 export { OrchestrationHierarchyImpl } from './hierarchy.js';
