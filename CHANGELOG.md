@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.80] — 2026-04-17
+
+### Fixed
+
+- **CI hotfix**: `packages/cleo/src/cli/paths.ts` was untracked when v2026.4.79 shipped, causing esbuild to fail resolving imports from 5 command files (agent.ts, backup.ts, detect-drift.ts, memory-brain.ts, restore.ts). File now staged + committed. Full bundle of v2026.4.79 ships under v2026.4.80.
+
+### Bundled from the aborted v2026.4.79 + v2026.4.78 releases
+
+This release supersedes the failed v2026.4.78 and v2026.4.79 tags (neither published to npm). Contents:
+
+#### T832 CLI Gate Integrity (ADR-051)
+
+- **Evidence-based verify**: `cleo verify --gate <g> --evidence <atoms>` now REQUIRED. Evidence atoms: `commit:<sha>`, `files:<p1,p2>`, `test-run:<json>`, `tool:<name>`, `url:<url>`, `note:<text>`. Rubber-stamping via `cleo verify --all` without evidence → `E_EVIDENCE_MISSING`.
+- **`cleo complete --force` REMOVED**: the silent bypass of `E_LIFECYCLE_GATE_FAILED` is gone. Owner-mandated: no rubber-stamping at any LOOM stage.
+- **`cleo update --pipelineStage` wired**: flag was declared in help but not applied; now updates `task.pipelineStage` with forward-only enforcement.
+- **`lifecycle_stages ↔ task.pipelineStage` unified**: `recordStageProgress` now dual-writes. Eliminates the pre-T832 data split that caused child-completion deadlocks.
+- **Audit trail**: every gate write appends to `.cleo/audit/gates.jsonl` with taskId, gate, evidence, agent, sessionId, passed.
+- **Migration**: `backfill-pipeline-stage.ts` one-shot fixes pre-T832 epics (T612, T673, T861) where lifecycle advanced but pipelineStage stuck at research. Idempotent (schema_meta guard).
+- **47 new tests** across evidence validator, gate audit, update/pipelineStage, lifecycle unification.
+
+#### T820 Project-Agnostic Release Pipeline (ADR-053)
+
+- `.cleo/release-config.json` is now the project-level SSoT: `versionScheme` (calver/semver/custom), `tagPrefix`, `gitWorkflow` (direct/pr/auto), `registries` (npm/crates/docker/none), `prereleaseChannel`, `buildArtifactPaths`.
+- **Auto-CHANGELOG**: `releaseChangelogSince(tag)` parses `git log <tag>..HEAD`, extracts `T\d+` and `Epic T\d+` patterns, renders grouped markdown with task refs + short shas.
+- **IVTR gate enforcement**: `cleo release ship` queries `ivtr_state.currentPhase` for all tasks in the release epic; rejects ship if any `!= 'released'`. `--force` escape hatch with loud owner warning.
+- **PR-first mode**: `config.gitWorkflow='pr'` opens draft PR via `gh` CLI with auto-body (CHANGELOG + tasks table + evidence).
+- **Real rollback**: `cleo release rollback` deletes tag, reverts commit, flips DB record, optional npm unpublish/deprecate.
+- **Downstream fixture test**: `packages/cleo/test/fixtures/release-test-project/` proves zero cleocode-specific hardcoded assumptions.
+- **IVTR integration**: after `cleo orchestrate ivtr <epic> --release` succeeds, `cleo release ship` is auto-suggested as `nextStep`.
+- **7 children** (T821–T827) all shipped.
+
+#### T090 CLI Path Centralization
+
+- `packages/cleo/src/cli/paths.ts` NEW: centralized CLI constants (`.cleo/`, `tasks.db`, `brain.db`, agent subdirs). Five command files refactored to import constants instead of hardcoded strings. No behavior change.
+
+#### T325 CLEOOS-VISION.md v2026.4.79
+
+- Updated `docs/concepts/CLEOOS-VISION.md` to reflect current state (v2026.4.80, ADR-051/052/053 referenced).
+- New empirical gate: `packages/cleo-os/test/empirical/wave-10-vision.test.ts` validates version marker + key sections present.
+
+#### T695 Flaky Test Fix
+
+- `brain-stdp-wave3.test.ts` T695-1 rewritten: ratio-based O(n²) guard (50 vs 200 spikes, ratio < 8x) with median-of-3 trials to smooth out parallel-worker CPU contention. Machine-independent, stable under full-suite load.
+
+#### Rust Compliance (T870)
+
+- All 14 crates pass `cargo clippy --all-targets --all-features -- -D warnings`: missing-docs added to build scripts + generated modules, `clippy::approx_constant` fixed in cant-core expression parser tests, `cargo fmt` clean.
+
+#### T869 ferrous-forge Scope Fix
+
+- Pre-commit hook now skips Rust validation when no `.rs` / `Cargo.toml` / `Cargo.lock` files are staged. TypeScript-only commits no longer blocked by pre-existing Rust warnings.
+
+#### Clean-house
+
+- Closed legitimately (no `--force`): T488, T490, T491, T830 (after lifecycle advance + evidence-based verify).
+- Cancelled with rationale: T010, T012, T115, T117, T118, T119, T120, T121, T122, T133, T155, T182, T251, T298, T313, T376, T453 + 8 children (T464, T466, T467, T470, T471, T472, T495, T496), T468, T513, T558, T709, T831 — scope-blown, superseded, or owner-deferred-to-cancel.
+- **Pending count**: 74 → 1 (only T631 owner-deferred persona remaining).
+
+### Tests
+
+- 8548 / 8590 pass, 0 failures, 10 skipped, 32 todo.
+- `pnpm biome ci .` clean.
+- `cargo clippy --all-targets --all-features -- -D warnings` clean.
+
 ## [2026.4.78] — 2026-04-17
 
 ### T861 EPIC: CLEO CLI Perfection (post-T487 cleanup)
