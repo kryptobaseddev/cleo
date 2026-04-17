@@ -164,7 +164,9 @@ export const gcCommand = defineCommand({
     run: runCommand,
     status: statusCommand,
   },
-  async run({ cmd }) {
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
     await showUsage(cmd);
   },
 });

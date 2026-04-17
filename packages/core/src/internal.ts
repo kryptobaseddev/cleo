@@ -155,6 +155,16 @@ export {
   backfillPipelineStageFromLifecycle,
   isPipelineStageBackfillDone,
 } from './lifecycle/backfill-pipeline-stage.js';
+// Terminal pipeline-stage backfill (T871: sync tasks.pipeline_stage with terminal status)
+export type {
+  TerminalPipelineStageBackfillChange,
+  TerminalPipelineStageBackfillResult,
+} from './lifecycle/backfill-terminal-pipeline-stage.js';
+export {
+  backfillTerminalPipelineStage,
+  isTerminalPipelineStageBackfillDone,
+  TERMINAL_BACKFILL_KEY as TERMINAL_PIPELINE_STAGE_BACKFILL_KEY,
+} from './lifecycle/backfill-terminal-pipeline-stage.js';
 export {
   addChain,
   advanceInstance,

@@ -31,9 +31,11 @@ const NO_SESSION_CONFIG = JSON.stringify({
 import {
   getPipelineStageOrder,
   isPipelineTransitionForward,
+  isTerminalPipelineStage,
   isValidPipelineStage,
   resolveDefaultPipelineStage,
   TASK_PIPELINE_STAGES,
+  TERMINAL_PIPELINE_STAGES,
   validatePipelineStage,
   validatePipelineTransition,
 } from '../pipeline-stage.js';
@@ -179,6 +181,60 @@ describe('resolveDefaultPipelineStage', () => {
     });
     // Falls through to task default
     expect(result).toBe('implementation');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T871 — terminal pipeline stage helpers
+// ---------------------------------------------------------------------------
+
+describe('TERMINAL_PIPELINE_STAGES / isTerminalPipelineStage (T871)', () => {
+  it('TASK_PIPELINE_STAGES includes both terminal markers', () => {
+    expect(TASK_PIPELINE_STAGES).toContain('contribution');
+    expect(TASK_PIPELINE_STAGES).toContain('cancelled');
+  });
+
+  it('TERMINAL_PIPELINE_STAGES contains exactly contribution and cancelled', () => {
+    expect(TERMINAL_PIPELINE_STAGES.has('contribution')).toBe(true);
+    expect(TERMINAL_PIPELINE_STAGES.has('cancelled')).toBe(true);
+    expect(TERMINAL_PIPELINE_STAGES.size).toBe(2);
+  });
+
+  it('isTerminalPipelineStage returns true for contribution and cancelled', () => {
+    expect(isTerminalPipelineStage('contribution')).toBe(true);
+    expect(isTerminalPipelineStage('cancelled')).toBe(true);
+  });
+
+  it('isTerminalPipelineStage returns false for non-terminal stages', () => {
+    expect(isTerminalPipelineStage('research')).toBe(false);
+    expect(isTerminalPipelineStage('implementation')).toBe(false);
+    expect(isTerminalPipelineStage('release')).toBe(false);
+  });
+
+  it('isTerminalPipelineStage handles null / undefined / unknown safely', () => {
+    expect(isTerminalPipelineStage(null)).toBe(false);
+    expect(isTerminalPipelineStage(undefined)).toBe(false);
+    expect(isTerminalPipelineStage('')).toBe(false);
+    expect(isTerminalPipelineStage('unknown')).toBe(false);
+  });
+
+  it('cancelled has strictly higher order than contribution (forward-only preserved)', () => {
+    expect(getPipelineStageOrder('cancelled')).toBeGreaterThan(
+      getPipelineStageOrder('contribution'),
+    );
+  });
+
+  it('any non-terminal stage can transition forward into cancelled', () => {
+    expect(isPipelineTransitionForward('research', 'cancelled')).toBe(true);
+    expect(isPipelineTransitionForward('implementation', 'cancelled')).toBe(true);
+    expect(isPipelineTransitionForward('release', 'cancelled')).toBe(true);
+    expect(isPipelineTransitionForward('contribution', 'cancelled')).toBe(true);
+  });
+
+  it('cancelled cannot transition back to any earlier stage', () => {
+    expect(isPipelineTransitionForward('cancelled', 'research')).toBe(false);
+    expect(isPipelineTransitionForward('cancelled', 'implementation')).toBe(false);
+    expect(isPipelineTransitionForward('cancelled', 'contribution')).toBe(false);
   });
 });
 

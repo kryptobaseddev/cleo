@@ -129,3 +129,36 @@ describe('cancelMultiple', () => {
     expect(results).toHaveLength(0);
   });
 });
+
+// ----------------------------------------------------------------------------
+// T871 — status ↔ pipelineStage sync on cancellation
+// ----------------------------------------------------------------------------
+
+describe('cancelTask pipelineStage sync (T871)', () => {
+  it('sets pipelineStage to cancelled when cancelling from research', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending', pipelineStage: 'research' })];
+    const { tasks: updated } = cancelTask('T001', tasks, 'dup');
+    expect(updated[0].status).toBe('cancelled');
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('sets pipelineStage to cancelled when cancelling from implementation', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'active', pipelineStage: 'implementation' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('sets pipelineStage to cancelled when previous stage was unset', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('leaves already-terminal pipelineStage alone (idempotent)', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending', pipelineStage: 'contribution' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].status).toBe('cancelled');
+    // contribution is a terminal marker; cancelTask must not overwrite it.
+    expect(updated[0].pipelineStage).toBe('contribution');
+  });
+});

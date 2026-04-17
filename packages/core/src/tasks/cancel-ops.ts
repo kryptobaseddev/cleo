@@ -7,6 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { isTerminalPipelineStage } from './pipeline-stage.js';
 
 /** Result of a cancel operation. */
 export interface CancelResult {
@@ -72,6 +73,11 @@ export function cancelTask(
         cancelledAt: timestamp,
         cancellationReason: reason ?? undefined,
         updatedAt: timestamp,
+        // T871: sync pipelineStage with status. Leave an already-terminal
+        // stage alone (idempotent), otherwise route to the 'cancelled'
+        // terminal marker so Studio Pipeline groups this task under the
+        // CANCELLED column.
+        pipelineStage: isTerminalPipelineStage(t.pipelineStage) ? t.pipelineStage : 'cancelled',
       };
     }
     return t;
