@@ -42,7 +42,14 @@ export interface ResolvedParent {
  * This matches lifecycle/stages.ts PIPELINE_STAGES but is kept local to avoid
  * a circular dependency — tasks/ must not import from lifecycle/.
  *
+ * The `contribution` stage is the natural terminal stage for successfully
+ * completed tasks. The `cancelled` stage is a special terminal marker for
+ * tasks cancelled via `cleo cancel`; it sits at order 11 so a transition
+ * INTO cancelled is always forward from any earlier stage, but transitions
+ * away from it are blocked by the forward-only validator.
+ *
  * @task T060
+ * @task T871 (schema-integrity: `cancelled` added as terminal marker)
  */
 export const TASK_PIPELINE_STAGES = [
   'research',
@@ -55,6 +62,7 @@ export const TASK_PIPELINE_STAGES = [
   'testing',
   'release',
   'contribution',
+  'cancelled',
 ] as const;
 
 /** Union type of all valid pipeline stage names. */
@@ -72,7 +80,42 @@ const STAGE_ORDER: Record<TaskPipelineStage, number> = {
   testing: 8,
   release: 9,
   contribution: 10,
+  cancelled: 11,
 };
+
+/**
+ * Terminal pipeline stages — tasks that have reached one of these stages
+ * should not advance further through the normal RCASD-IVTR+C chain.
+ *
+ * `contribution` is the natural terminal for successfully completed tasks.
+ * `cancelled` is the terminal for cancelled tasks.
+ *
+ * @task T871
+ */
+export const TERMINAL_PIPELINE_STAGES: ReadonlySet<TaskPipelineStage> = new Set([
+  'contribution',
+  'cancelled',
+]);
+
+/**
+ * Check whether a pipeline stage is terminal (task will not advance further).
+ *
+ * @param stage - Stage name to check; accepts any string for callers that
+ *   may have legacy or untyped values in hand.
+ * @returns True if the stage is one of the terminal markers.
+ *
+ * @example
+ * ```ts
+ * isTerminalPipelineStage('contribution'); // => true
+ * isTerminalPipelineStage('cancelled');    // => true
+ * isTerminalPipelineStage('implementation'); // => false
+ * ```
+ *
+ * @task T871
+ */
+export function isTerminalPipelineStage(stage: string | null | undefined): boolean {
+  return !!stage && TERMINAL_PIPELINE_STAGES.has(stage as TaskPipelineStage);
+}
 
 // =============================================================================
 // VALIDATION

@@ -13,11 +13,16 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
-import { isValidPipelineStage } from './pipeline-stage.js';
+import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 
 /**
  * IVTR execution stages — tasks in these stages auto-advance to 'release'
  * when marked complete (cleo complete TXXX).  T719.
+ *
+ * Historical note: prior to T871 this set drove the only pipeline-stage
+ * side-effect of `cleo complete`. T871 adds a second (always-fires) step
+ * that sets `pipelineStage='contribution'` so status and pipeline_stage
+ * stay in sync — the Studio pipeline DONE column depends on this.
  */
 const EXECUTION_STAGES_FOR_RELEASE = new Set(['implementation', 'validation', 'testing']);
 
@@ -228,6 +233,17 @@ export async function completeTask(
     task.pipelineStage = 'release';
   }
 
+  // T871: Always sync pipelineStage to a terminal value on completion.
+  // `contribution` is the natural terminal stage (RCASD-IVTR+C). This keeps
+  // `status=done` and `pipelineStage=contribution` aligned so downstream
+  // consumers (Studio Pipeline Kanban, dashboards) can rely on either signal
+  // without drift. The write is below so it always wins over the
+  // `implementation/validation/testing → release` nudge above — completed
+  // tasks should never linger in a pre-terminal stage.
+  if (!isTerminalPipelineStage(task.pipelineStage)) {
+    task.pipelineStage = 'contribution';
+  }
+
   // Update task
   task.status = 'done';
   task.completedAt = now;
@@ -265,6 +281,10 @@ export async function completeTask(
         parent.status = 'done';
         parent.completedAt = now;
         parent.updatedAt = now;
+        // T871: Auto-completed epics must also reach a terminal pipelineStage.
+        if (!isTerminalPipelineStage(parent.pipelineStage)) {
+          parent.pipelineStage = 'contribution';
+        }
         autoCompleted.push(parent.id);
         autoCompletedTasks.push(parent);
       }

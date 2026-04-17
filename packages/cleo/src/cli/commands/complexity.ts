@@ -31,7 +31,9 @@ const complexityEstimateCommand = defineCommand({
 export const complexityCommand = defineCommand({
   meta: { name: 'complexity', description: 'Task complexity analysis' },
   subCommands: { estimate: complexityEstimateCommand },
-  async run({ cmd }) {
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
     await showUsage(cmd);
   },
 });
