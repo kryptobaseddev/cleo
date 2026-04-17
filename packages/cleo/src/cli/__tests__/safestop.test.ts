@@ -21,13 +21,14 @@ describe('safestopCommand (native citty)', () => {
     expect((meta as { description: string }).description).toContain('Graceful shutdown');
   });
 
-  it('requires --reason arg', () => {
+  it('has --reason arg (shows usage on bare invocation instead of throwing)', () => {
     const args = safestopCommand.args as
       | Record<string, { type: string; required?: boolean }>
       | undefined;
     expect(args?.['reason']).toBeDefined();
     expect(args?.['reason'].type).toBe('string');
-    expect(args?.['reason'].required).toBe(true);
+    // required: false so bare `cleo safestop` shows help and exits 0 (T863)
+    expect(args?.['reason'].required).toBe(false);
   });
 
   it('has --commit, --handoff, --no-session-end, --dry-run args', () => {

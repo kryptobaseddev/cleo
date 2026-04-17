@@ -25,7 +25,7 @@ import {
   purgeBrainNoise,
   runBrainMaintenance,
 } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 
 /** cleo brain maintenance — temporal decay, consolidation, and embedding backfill */
 const maintenanceCommand = defineCommand({
@@ -511,5 +511,8 @@ export const brainCommand = defineCommand({
     plasticity: plasticityCommand,
     quality: qualityCommand,
     export: exportCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

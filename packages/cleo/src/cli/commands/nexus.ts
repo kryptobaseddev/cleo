@@ -13,7 +13,7 @@
  */
 
 import path from 'node:path';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -3276,5 +3276,8 @@ export const nexusCommand = defineCommand({
     'refresh-bridge': refreshBridgeCommand,
     export: exportCommand,
     diff: diffCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

@@ -11,7 +11,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -137,5 +137,8 @@ export const relatesCommand = defineCommand({
     add: addCommand,
     discover: discoverCommand,
     list: listCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

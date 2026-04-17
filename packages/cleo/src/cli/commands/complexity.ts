@@ -4,7 +4,7 @@
  * @epic T443
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo complexity estimate — estimate complexity of a single task */
@@ -31,4 +31,7 @@ const complexityEstimateCommand = defineCommand({
 export const complexityCommand = defineCommand({
   meta: { name: 'complexity', description: 'Task complexity analysis' },
   subCommands: { estimate: complexityEstimateCommand },
+  async run({ cmd }) {
+    await showUsage(cmd);
+  },
 });

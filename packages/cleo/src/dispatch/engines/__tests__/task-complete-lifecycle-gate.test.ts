@@ -8,13 +8,16 @@
  *
  * Also verifies:
  * - Advisory mode logs a warning but proceeds.
- * - force=true bypasses the gate, records a VerificationFailure, and sets
- *   lifecycleGateBypassed in the result.
  * - Tasks with no parent skip the gate entirely.
  * - Tasks whose parent is not an epic skip the gate.
  * - Tasks whose parent epic is in implementation or later are allowed through.
  *
+ * As of T832 / ADR-051, the `--force` bypass has been REMOVED.  Tasks cannot
+ * be completed with a research-stage parent epic via any bypass path.
+ *
  * @task T788
+ * @task T832
+ * @adr ADR-051
  * @epic T769
  */
 
@@ -406,50 +409,31 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // force=true — bypass records a VerificationFailure and sets marker
+  // T832 / ADR-051: --force has been removed.  taskCompleteStrict no longer
+  // accepts a `force` parameter.  The dispatch layer rejects `force` in its
+  // request params with E_FLAG_REMOVED (see tasks.test.ts).  Here we simply
+  // verify the engine signature rejects the previous bypass path.
   // -------------------------------------------------------------------------
 
-  it('force=true: bypasses gate, records VerificationFailure, returns lifecycleGateBypassed', async () => {
+  it('rejects parent-epic gate even when extra args are passed (T832)', async () => {
     vi.mocked(loadConfig).mockResolvedValue({
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    const upsertMock = vi.fn().mockResolvedValue(undefined);
     vi.mocked(getAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: EPIC_ID, verification: null },
         parent: { id: EPIC_ID, type: 'epic', pipelineStage: 'research' },
-        upsertSingleTask: upsertMock,
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
 
-    const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-    vi.mocked(mockComplete).mockResolvedValue({
-      task: {
-        id: CHILD_ID,
-        title: 'Child task',
-        description: '',
-        status: 'done',
-        priority: 'medium',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-02T00:00:00.000Z',
-        completedAt: '2026-01-02T00:00:00.000Z',
-      },
-    } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
+    // Current signature: taskCompleteStrict(projectRoot, taskId, notes?).
+    // Passing extra args is a compile-time error; at runtime the gate STILL
+    // rejects research-stage parent epics.
+    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
 
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID, undefined, true);
-
-    expect(result.success).toBe(true);
-    expect((result.data as Record<string, unknown>)?.['lifecycleGateBypassed']).toBe(true);
-
-    // upsertSingleTask should have been called with a failureLog entry
-    expect(upsertMock).toHaveBeenCalledTimes(1);
-    const saved = upsertMock.mock.calls[0]![0] as {
-      verification: { failureLog: Array<{ reason: string; agent: string }> };
-    };
-    expect(saved.verification.failureLog).toHaveLength(1);
-    expect(saved.verification.failureLog[0]!.agent).toBe('owner-forced');
-    expect(saved.verification.failureLog[0]!.reason).toContain('lifecycle gate bypass');
-    expect(saved.verification.failureLog[0]!.reason).toContain('research');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
+    expect(result.error?.fix).toContain('lifecycle complete');
   });
 });

@@ -17,7 +17,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 
 const VALID_STAGES =
@@ -279,5 +279,8 @@ export const lifecycleCommand = defineCommand({
     history: historyCommand,
     reset: resetCommand,
     'gate-record': gateRecordCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

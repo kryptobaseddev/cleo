@@ -312,16 +312,29 @@ export class TasksHandler implements DomainHandler {
             parent: (params?.parent ?? params?.parentId) as string | null | undefined,
             type: params?.type as string | undefined,
             size: params?.size as string | undefined,
+            // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
+            pipelineStage: params?.pipelineStage as string | undefined,
           });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
         case 'complete': {
+          // T833 / ADR-051 Decision 3: --force has been removed. Any caller
+          // passing `force` gets a structured rejection pointing to the ADR.
+          if (params?.force !== undefined) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              'E_FLAG_REMOVED',
+              '--force has been removed. Use evidence-based `cleo verify --gate … --evidence …` or set CLEO_OWNER_OVERRIDE=1 on verify for emergency bypass (audited). See ADR-051.',
+              startTime,
+            );
+          }
           const result = await taskCompleteStrict(
             projectRoot,
             params!.taskId as string,
             params?.notes as string | undefined,
-            params?.force as boolean | undefined,
           );
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

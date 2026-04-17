@@ -23,7 +23,7 @@
  * @see schemas/adr-frontmatter.schema.json for validation schema
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo adr validate — validate frontmatter on all .cleo/adrs/*.md files */
@@ -173,5 +173,8 @@ export const adrCommand = defineCommand({
     show: showCommand,
     sync: syncCommand,
     find: findCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

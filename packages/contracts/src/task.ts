@@ -91,6 +91,55 @@ export interface VerificationFailure {
   timestamp: string;
 }
 
+/**
+ * A single piece of evidence backing a verification gate.
+ *
+ * Evidence is validated at `cleo verify` write time (commits reachable, files
+ * exist with matching sha256, tests pass, tools exit 0) and re-validated at
+ * `cleo complete` time to catch post-verify tampering.
+ *
+ * @task T832
+ * @adr ADR-051
+ */
+export type EvidenceAtom =
+  | { kind: 'commit'; sha: string; shortSha: string }
+  | { kind: 'files'; files: Array<{ path: string; sha256: string }> }
+  | {
+      kind: 'test-run';
+      path: string;
+      sha256: string;
+      passCount: number;
+      failCount: number;
+      skipCount: number;
+    }
+  | { kind: 'tool'; tool: string; exitCode: number; stdoutTail: string }
+  | { kind: 'url'; url: string }
+  | { kind: 'note'; note: string }
+  | { kind: 'override'; reason: string };
+
+/**
+ * Evidence backing a single verification gate.
+ *
+ * @task T832
+ * @adr ADR-051
+ */
+export interface GateEvidence {
+  /** One or more evidence atoms supporting this gate. */
+  atoms: EvidenceAtom[];
+  /** ISO 8601 timestamp of when evidence was captured. */
+  capturedAt: string;
+  /** Agent identifier that captured the evidence. */
+  capturedBy: string;
+  /**
+   * True when CLEO_OWNER_OVERRIDE was used to bypass evidence validation.
+   * Override evidence MUST NOT be re-validated at complete time.
+   * @defaultValue undefined (false)
+   */
+  override?: boolean;
+  /** Reason given for an override (`CLEO_OWNER_OVERRIDE_REASON` env). */
+  overrideReason?: string;
+}
+
 /** Task verification state. */
 export interface TaskVerification {
   /** Whether all required verification gates have passed. */
@@ -99,6 +148,12 @@ export interface TaskVerification {
   round: number;
   /** Gate pass/fail/pending status for each verification gate. */
   gates: Partial<Record<VerificationGate, boolean | null>>;
+  /**
+   * Evidence backing each gate.  Populated by `cleo verify --evidence …` and
+   * re-validated at `cleo complete` time (T832 / ADR-051).
+   * @defaultValue undefined
+   */
+  evidence?: Partial<Record<VerificationGate, GateEvidence>>;
   /** The last agent that performed a verification check, or `null`. */
   lastAgent: VerificationAgent | null;
   /** ISO 8601 timestamp of the most recent verification update, or `null`. */

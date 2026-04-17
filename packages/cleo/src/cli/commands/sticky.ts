@@ -17,7 +17,7 @@
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError } from '@cleocode/core';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -354,5 +354,8 @@ export const stickyCommand = defineCommand({
     convert: convertCommand,
     archive: archiveCommand,
     purge: purgeCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

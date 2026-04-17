@@ -23,7 +23,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -532,5 +532,8 @@ export const sessionCommand = defineCommand({
     'record-assumption': recordAssumptionCommand,
     'record-decision': recordDecisionCommand,
     'decision-log': decisionLogCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

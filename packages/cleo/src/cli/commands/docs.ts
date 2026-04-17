@@ -18,7 +18,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CleoError, formatError, getAgentOutputsAbsolute, readJson } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -472,5 +472,8 @@ export const docsCommand = defineCommand({
     generate: generateCommand,
     sync: syncCommand,
     'gap-check': gapCheckCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

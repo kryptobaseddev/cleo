@@ -14,7 +14,7 @@
  * @epic T4545
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo testing validate — validate testing protocol compliance for a task */
@@ -137,5 +137,8 @@ export const testingCommand = defineCommand({
     status: statusCommand,
     coverage: coverageCommand,
     run: runCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

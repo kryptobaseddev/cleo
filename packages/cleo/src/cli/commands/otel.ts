@@ -28,7 +28,7 @@ import {
   getOtelSummary,
   getRealTokenUsage,
 } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
 /** cleo otel status — show token tracking status and recent activity */
@@ -194,5 +194,8 @@ export const otelCommand = defineCommand({
     spawns: spawnsCommand,
     real: realCommand,
     clear: clearCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

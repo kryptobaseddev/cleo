@@ -5,10 +5,12 @@
  * @task T132
  * @task T260 — generic protocol subcommand exposing all 12 protocols
  * @task T476 — output and chain-validate subcommands
+ * @task T864 — check.schema args derived from registry (SSoT proof-of-concept)
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 
 /**
  * The 12 supported protocol types — must stay in sync with
@@ -31,19 +33,23 @@ const SUPPORTED_PROTOCOL_TYPES = [
   'provenance',
 ] as const;
 
-/** cleo check schema — validate schema by type */
+/**
+ * cleo check schema — validate schema by type.
+ *
+ * Args derived from registry via `paramsToCittyArgs` (T864 SSoT).
+ */
 const checkSchemaCommand = defineCommand({
   meta: {
     name: 'schema',
     description: 'Validate schema (type: todo, config, archive, log, sessions)',
   },
-  args: { type: { type: 'positional', description: 'Schema type to validate', required: true } },
+  args: paramsToCittyArgs(getOperationParams('query', 'check', 'schema')),
   async run({ args }) {
     await dispatchFromCli(
       'query',
       'check',
       'schema',
-      { type: args.type as string },
+      { type: args['type'] as string },
       { command: 'check' },
     );
   },
@@ -312,5 +318,8 @@ export const checkCommand = defineCommand({
     'chain-validate': checkChainValidateCommand,
     canon: checkCanonCommand,
     protocol: checkProtocolCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

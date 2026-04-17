@@ -32,7 +32,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo orchestrate start — start orchestrator session for an epic */
@@ -721,5 +721,8 @@ export const orchestrateCommand = defineCommand({
     'conduit-start': conduitStartCommand,
     'conduit-stop': conduitStopCommand,
     'conduit-send': conduitSendCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

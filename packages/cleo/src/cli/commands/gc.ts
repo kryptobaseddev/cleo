@@ -18,7 +18,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { runGC } from '../../gc/runner.js';
 import { readGCState } from '../../gc/state.js';
 
@@ -163,5 +163,8 @@ export const gcCommand = defineCommand({
   subCommands: {
     run: runCommand,
     status: statusCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

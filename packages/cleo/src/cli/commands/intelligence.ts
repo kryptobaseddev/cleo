@@ -12,7 +12,7 @@
  * @epic T5149
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo intelligence predict — calculate risk score or predict validation outcome */
@@ -171,5 +171,8 @@ export const intelligenceCommand = defineCommand({
     'learn-errors': learnErrorsCommand,
     confidence: confidenceCommand,
     match: matchCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

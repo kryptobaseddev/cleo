@@ -8,7 +8,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -29,7 +29,7 @@ export const addCommand = defineCommand({
     title: {
       type: 'positional',
       description: 'Task title (3–500 characters)',
-      required: true,
+      required: false,
     },
     status: {
       type: 'string',
@@ -107,7 +107,11 @@ export const addCommand = defineCommand({
       description: 'Show what would be created without making changes',
     },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.title) {
+      await showUsage(cmd);
+      return;
+    }
     const params: Record<string, unknown> = { title: args.title };
 
     if (args.status !== undefined) params['status'] = args.status;

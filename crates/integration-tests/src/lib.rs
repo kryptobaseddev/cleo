@@ -219,9 +219,9 @@ mod tests {
             .expect("valid .cant document should parse without errors");
 
         // Confirm the agent block was found.
-        let has_agent = doc.sections.iter().any(|s| {
-            matches!(s, cant_core::dsl::ast::Section::Agent(a) if a.name.value == "cleo-prime")
-        });
+        let has_agent = doc.sections.iter().any(
+            |s| matches!(s, cant_core::dsl::ast::Section::Agent(a) if a.name.value == "cleo-prime"),
+        );
         assert!(has_agent, "expected an agent named cleo-prime in the AST");
 
         // Run the same validation path that cant-lsp::diagnostics invokes.

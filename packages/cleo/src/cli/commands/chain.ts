@@ -17,7 +17,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo chain show — display details for a WarpChain definition */
@@ -136,5 +136,8 @@ export const chainCommand = defineCommand({
     add: addCommand,
     instantiate: instantiateCommand,
     advance: advanceCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
