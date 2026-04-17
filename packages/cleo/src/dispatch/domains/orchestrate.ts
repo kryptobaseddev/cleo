@@ -32,6 +32,7 @@ import {
   orchestrateNext,
   orchestrateParallelEnd,
   orchestrateParallelStart,
+  orchestratePlan,
   orchestrateReady,
   orchestrateSpawn,
   orchestrateSpawnExecute,
@@ -213,6 +214,28 @@ export class OrchestrateHandler implements DomainHandler {
             );
           }
           const result = await orchestrateWaves(epicId, projectRoot);
+          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+        }
+
+        case 'plan': {
+          // T889 / W3-6: deterministic machine-readable plan of waves+workers.
+          const epicId = params?.epicId as string;
+          if (!epicId) {
+            return errorResult(
+              'query',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
+          }
+          const preferTierRaw = params?.preferTier;
+          let preferTier: 0 | 1 | 2 | undefined;
+          if (preferTierRaw === 0 || preferTierRaw === 1 || preferTierRaw === 2) {
+            preferTier = preferTierRaw;
+          }
+          const result = await orchestratePlan({ epicId, projectRoot, preferTier });
           return wrapResult(result, 'query', 'orchestrate', operation, startTime);
         }
 
@@ -592,6 +615,7 @@ export class OrchestrateHandler implements DomainHandler {
         'analyze',
         'context',
         'waves',
+        'plan', // T889 / W3-6 — deterministic machine-readable plan
         'bootstrap',
         'unblock.opportunities',
         'tessera.list',

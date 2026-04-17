@@ -92,6 +92,13 @@ export {
   memoryTimeline,
   memoryUnlink,
 } from '../engines/memory-engine.js';
+export type {
+  OrchestratePlanInput,
+  OrchestratePlanResult,
+  PlanWarning,
+  PlanWave,
+  PlanWorkerEntry,
+} from '../engines/orchestrate-engine.js';
 // Orchestrate engine
 export {
   orchestrateAnalyze,
@@ -103,6 +110,7 @@ export {
   orchestrateNext,
   orchestrateParallelEnd,
   orchestrateParallelStart,
+  orchestratePlan,
   orchestrateReady,
   orchestrateSkillInject,
   orchestrateSpawn,

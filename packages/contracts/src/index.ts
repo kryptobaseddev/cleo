@@ -359,6 +359,27 @@ export {
   type OrchestrationHierarchyAPI,
   OrchestrationLevel,
 } from './orchestration-hierarchy.js';
+// === Playbook DSL Types (T889 / T904 / W4-6) ===
+export type {
+  PlaybookAgenticNode,
+  PlaybookApproval,
+  PlaybookApprovalNode,
+  PlaybookApprovalStatus,
+  PlaybookDefinition,
+  PlaybookDeterministicNode,
+  PlaybookEdge,
+  PlaybookEnsures,
+  PlaybookErrorHandler,
+  PlaybookInput,
+  PlaybookNode,
+  PlaybookNodeBase,
+  PlaybookNodeOnFailure,
+  PlaybookNodeType,
+  PlaybookPolicy,
+  PlaybookRequires,
+  PlaybookRun,
+  PlaybookRunStatus,
+} from './playbook.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
