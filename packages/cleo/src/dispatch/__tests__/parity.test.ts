@@ -142,9 +142,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T797: docs domain — docs.add (mutate), docs.list (query), docs.fetch (query), docs.remove (mutate) — +2 query / +2 mutate / +4 total.
     // T811: orchestrate.ivtr.{status,start,next,release,loop-back} — +1 query / +4 mutate / +5 total.
     // T798: docs.generate (query) — +1 query / +1 total.
-    expect(queryCount).toBe(158);
-    expect(mutateCount).toBe(110);
-    expect(OPERATIONS.length).toBe(268);
+    // T820: pipeline.release.changelog.since (query) + pipeline.release.rollback.full (mutate) — +1 query / +1 mutate / +2 total.
+    expect(queryCount).toBe(159);
+    expect(mutateCount).toBe(111);
+    expect(OPERATIONS.length).toBe(270);
   });
 
   it('all operations have valid gateway values', () => {
@@ -691,13 +692,23 @@ describe('Parity Group 4: Dispatch routing correctness', () => {
 
 describe('Parity Group 5: Schema utils', () => {
   it('getOperationSchema for op with no params returns permissive schema', () => {
-    // tasks.show has no params[] in current registry (T4897 migration pending)
-    const schema = getOperationSchema('tasks', 'show', 'query');
+    // tasks.find has no params[] in the current registry (pre-T4897 migration entry)
+    const schema = getOperationSchema('tasks', 'find', 'query');
 
     expect(schema.type).toBe('object');
     // Permissive schema: empty properties, no required fields
     expect(Object.keys(schema.properties)).toHaveLength(0);
     expect(schema.required).toHaveLength(0);
+  });
+
+  it('getOperationSchema for tasks.show returns derived schema (T864 migration)', () => {
+    // tasks.show now has params[] populated (T864 SSoT migration)
+    const schema = getOperationSchema('tasks', 'show', 'query');
+
+    expect(schema.type).toBe('object');
+    // Derived schema: has taskId property
+    expect(Object.keys(schema.properties)).toContain('taskId');
+    expect(schema.required).toContain('taskId');
   });
 
   it('getOperationSchema for nonexistent op returns permissive schema', () => {

@@ -7,7 +7,7 @@
  * @task T4904
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -25,7 +25,7 @@ export const safestopCommand = defineCommand({
     reason: {
       type: 'string',
       description: 'Reason for stopping',
-      required: true,
+      required: false,
     },
     commit: {
       type: 'boolean',
@@ -47,7 +47,11 @@ export const safestopCommand = defineCommand({
       default: false,
     },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.reason) {
+      await showUsage(cmd);
+      return;
+    }
     await dispatchFromCli(
       'mutate',
       'admin',

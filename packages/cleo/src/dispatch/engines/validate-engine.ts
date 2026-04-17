@@ -754,11 +754,24 @@ export async function validateProtocolProvenance(
 }
 
 // ============================================================================
-// Gate Verification (T5327)
+// Gate Verification (T5327 + T832/ADR-051)
 // ============================================================================
 
-import type { TaskVerification, VerificationGate } from '@cleocode/contracts';
-import { getAccessor } from '@cleocode/core/internal';
+import type {
+  EvidenceAtom,
+  GateEvidence,
+  TaskVerification,
+  VerificationGate,
+} from '@cleocode/contracts';
+import {
+  appendForceBypassLine,
+  appendGateAuditLine,
+  checkGateEvidenceMinimum,
+  composeGateEvidence,
+  getAccessor,
+  parseEvidence,
+  validateAtom,
+} from '@cleocode/core/internal';
 
 const VALID_GATES: VerificationGate[] = [
   'implemented',
@@ -782,10 +795,24 @@ function initVerification(): TaskVerification {
     passed: false,
     round: 0,
     gates: {},
+    evidence: {},
     lastAgent: null,
     lastUpdated: null,
     failureLog: [],
   };
+}
+
+/**
+ * Evaluate CLEO_OWNER_OVERRIDE environment and return the override state +
+ * reason. Documented in ADR-051 §7.4.
+ *
+ * @task T832
+ */
+function readOverrideState(): { override: boolean; reason: string } {
+  const raw = process.env.CLEO_OWNER_OVERRIDE;
+  const override = raw === '1' || raw === 'true';
+  const reason = (process.env.CLEO_OWNER_OVERRIDE_REASON ?? '').trim() || 'unspecified';
+  return { override, reason };
 }
 
 function computePassed(
@@ -829,6 +856,13 @@ interface GateVerifyParams {
   agent?: string;
   all?: boolean;
   reset?: boolean;
+  /**
+   * Raw evidence string from CLI `--evidence` flag (T832 / ADR-051).
+   * Required for all write operations except `reset` and `value=false`.
+   */
+  evidence?: string;
+  /** Session ID for audit trail (T832 / ADR-051 §6.1). */
+  sessionId?: string;
 }
 
 interface GateVerifyResult {
@@ -845,11 +879,23 @@ interface GateVerifyResult {
   action?: 'view' | 'set_gate' | 'set_all' | 'reset';
   gateSet?: string;
   gatesSet?: VerificationGate[];
+  /** Evidence atoms validated and persisted for this write (T832). */
+  evidenceStored?: EvidenceAtom[];
+  /** True when CLEO_OWNER_OVERRIDE bypassed evidence validation (T832). */
+  override?: boolean;
 }
 
 /**
- * check.gate.verify - View or modify verification gates for a task
+ * check.gate.verify — View or modify verification gates for a task.
+ *
+ * As of v2026.4.78 (T832 / ADR-051), every gate write MUST be accompanied
+ * by structured evidence validated against git, the filesystem, and the
+ * toolchain.  `reset` mode requires no evidence. `value=false` (gate fail)
+ * requires no evidence since failures do not need proof.
+ *
  * @task T5327
+ * @task T832
+ * @adr ADR-051
  */
 export async function validateGateVerify(
   params: GateVerifyParams,
@@ -858,6 +904,8 @@ export async function validateGateVerify(
   try {
     const root = projectRoot || resolveProjectRoot();
     const { taskId, gate, value = true, agent, all, reset } = params;
+    const agentId = agent ?? 'unknown';
+    const sessionId = params.sessionId ?? null;
 
     // Validate task ID format
     const idPattern = /^T\d{3,}$/;
@@ -869,6 +917,15 @@ export async function validateGateVerify(
     const task = await accessor.loadSingleTask(taskId);
     if (!task) {
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
+    }
+
+    // Completed tasks are immutable w.r.t. verification (ADR-051 §11.1).
+    // View + reset remain available; evidence writes are rejected.
+    if (task.status === 'done' && (gate || all) && value !== false) {
+      return engineError(
+        'E_ALREADY_DONE',
+        `Task ${taskId} is already done — verification evidence cannot be added to completed tasks (ADR-051 §11.1)`,
+      );
     }
 
     const configGates = await loadRequiredGates(root);
@@ -895,24 +952,92 @@ export async function validateGateVerify(
       };
     }
 
+    // Check if evidence-based requirement applies.  gate failures
+    // (value=false) and resets do NOT require evidence.
+    const isWriteRequiringEvidence = (all || (gate && value !== false)) && !reset;
+    const override = readOverrideState();
+
     // Modification mode
     let verification = task.verification ?? initVerification();
+    if (!verification.evidence) {
+      verification.evidence = {};
+    }
     const now = new Date().toISOString();
     let action: GateVerifyResult['action'] = 'view';
+    const evidenceStored: EvidenceAtom[] = [];
 
     if (reset) {
       verification = initVerification();
       action = 'reset';
-    } else if (all) {
-      for (const g of configGates) {
-        verification.gates[g] = true;
+    } else if (isWriteRequiringEvidence) {
+      // Determine target gates.
+      const targets: VerificationGate[] = all ? configGates : [gate as VerificationGate];
+
+      if (!all && !VALID_GATES.includes(gate as VerificationGate)) {
+        return engineError(
+          'E_INVALID_INPUT',
+          `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`,
+        );
       }
-      if (agent) {
-        verification.lastAgent = agent as never;
+
+      // Parse evidence if provided.
+      let validatedAtoms: EvidenceAtom[] = [];
+      if (override.override) {
+        // Override — no evidence required.
+        validatedAtoms = [{ kind: 'override', reason: override.reason }];
+      } else {
+        if (!params.evidence) {
+          return engineError(
+            'E_EVIDENCE_MISSING',
+            `Evidence is required. See ADR-051.\n` +
+              `Example: cleo verify ${taskId} --gate implemented --evidence commit:<sha>;files:<path>\n` +
+              `Or set CLEO_OWNER_OVERRIDE=1 with CLEO_OWNER_OVERRIDE_REASON=<reason> for emergency bypass (audited).`,
+          );
+        }
+
+        let parsed: ReturnType<typeof parseEvidence>;
+        try {
+          parsed = parseEvidence(params.evidence);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return engineError('E_EVIDENCE_INVALID', message);
+        }
+
+        for (const atom of parsed.atoms) {
+          const check = await validateAtom(atom, root);
+          if (!check.ok) {
+            return engineError(check.codeName, check.reason);
+          }
+          validatedAtoms.push(check.atom);
+        }
+
+        // Check each target gate satisfies its minimum.
+        for (const targetGate of targets) {
+          const missing = checkGateEvidenceMinimum(targetGate, validatedAtoms);
+          if (missing) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', missing);
+          }
+        }
       }
+
+      evidenceStored.push(...validatedAtoms);
+      const evidence: GateEvidence = composeGateEvidence(
+        validatedAtoms,
+        agentId,
+        override.override || undefined,
+        override.override ? override.reason : undefined,
+      );
+
+      for (const targetGate of targets) {
+        verification.gates[targetGate] = true;
+        verification.evidence![targetGate] = evidence;
+      }
+
+      verification.lastAgent = agent as never;
       verification.lastUpdated = now;
-      action = 'set_all';
+      action = all ? 'set_all' : 'set_gate';
     } else if (gate) {
+      // Gate failure — no evidence required (failures do not need proof).
       if (!VALID_GATES.includes(gate as VerificationGate)) {
         return engineError(
           'E_INVALID_INPUT',
@@ -920,22 +1045,20 @@ export async function validateGateVerify(
         );
       }
 
-      verification.gates[gate as VerificationGate] = value;
+      verification.gates[gate as VerificationGate] = false;
 
       if (agent) {
         verification.lastAgent = agent as never;
       }
       verification.lastUpdated = now;
 
-      if (!value) {
-        verification.round++;
-        verification.failureLog.push({
-          round: verification.round,
-          agent: agent ?? 'unknown',
-          reason: `Gate ${gate} set to false`,
-          timestamp: now,
-        });
-      }
+      verification.round++;
+      verification.failureLog.push({
+        round: verification.round,
+        agent: agentId,
+        reason: `Gate ${gate} set to false`,
+        timestamp: now,
+      });
       action = 'set_gate';
     }
 
@@ -944,6 +1067,47 @@ export async function validateGateVerify(
     task.updatedAt = now;
 
     await accessor.upsertSingleTask(task);
+
+    // Emit audit line for every non-view action.  Best-effort: audit write
+    // failures are logged but do not block the operation.
+    if (action && action !== 'view') {
+      const auditRecord = {
+        timestamp: now,
+        taskId,
+        gate: all ? '*all*' : (gate ?? ''),
+        action: (action === 'set_gate' ? 'set' : action === 'set_all' ? 'all' : 'reset') as
+          | 'set'
+          | 'all'
+          | 'reset',
+        evidence:
+          evidenceStored.length > 0
+            ? composeGateEvidence(
+                evidenceStored,
+                agentId,
+                override.override || undefined,
+                override.override ? override.reason : undefined,
+              )
+            : undefined,
+        agent: agentId,
+        sessionId,
+        passed: verification.passed,
+        override: override.override,
+      };
+
+      try {
+        await appendGateAuditLine(root, auditRecord);
+        if (override.override && action !== 'reset') {
+          await appendForceBypassLine(root, {
+            ...auditRecord,
+            overrideReason: override.reason,
+            pid: process.pid,
+            command: (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512),
+          });
+        }
+      } catch {
+        // Audit failure must not block the operation — silent fallback.
+      }
+    }
 
     const missing = getMissingGates(verification, configGates);
     const result: GateVerifyResult = {
@@ -964,6 +1128,11 @@ export async function validateGateVerify(
       result.gateSet = gate;
     } else if (action === 'set_all') {
       result.gatesSet = configGates;
+    }
+
+    if (evidenceStored.length > 0) {
+      result.evidenceStored = evidenceStored;
+      result.override = override.override;
     }
 
     return { success: true, data: result };

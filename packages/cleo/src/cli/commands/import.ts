@@ -6,7 +6,7 @@
  * @task T4454, T5323, T5328
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
@@ -24,7 +24,7 @@ export const importCommand = defineCommand({
     file: {
       type: 'positional',
       description: 'Path to export package file',
-      required: true,
+      required: false,
     },
     parent: {
       type: 'string',
@@ -48,7 +48,11 @@ export const importCommand = defineCommand({
       description: 'Preview import without changes',
     },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.file) {
+      await showUsage(cmd);
+      return;
+    }
     await dispatchFromCli(
       'mutate',
       'admin',

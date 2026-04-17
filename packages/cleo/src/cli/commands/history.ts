@@ -5,7 +5,7 @@
  * @task T5323
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo history log — show operation audit log with optional date range */
@@ -64,5 +64,8 @@ export const historyCommand = defineCommand({
   subCommands: {
     log: logCommand,
     work: workCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

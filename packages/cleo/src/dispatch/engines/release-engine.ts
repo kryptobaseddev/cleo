@@ -24,6 +24,7 @@ import {
   generateReleaseChangelog,
   getAccessor,
   getGitFlowConfig,
+  getIvtrState,
   getPushMode,
   getVersionBumpConfig,
   isGhCliAvailable,
@@ -81,6 +82,38 @@ async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
   } catch (error: unknown) {
     throw new Error(`Failed to load task data: ${(error as Error).message}`);
   }
+}
+
+/**
+ * Check IVTR gate for all tasks in a release epic.
+ *
+ * Returns a list of task IDs whose ivtr_state.currentPhase is not 'released'.
+ * An empty list means all tasks are cleared.
+ *
+ * @task T820 RELEASE-03
+ */
+async function checkIvtrGates(
+  taskIds: string[],
+  projectRoot?: string,
+): Promise<{ blocked: string[]; unchecked: string[] }> {
+  const blocked: string[] = [];
+  const unchecked: string[] = [];
+
+  for (const taskId of taskIds) {
+    try {
+      const state = await getIvtrState(taskId, { cwd: projectRoot });
+      if (state === null) {
+        // No IVTR state started — not blocked but flagged as unchecked
+        unchecked.push(taskId);
+      } else if (state.currentPhase !== 'released') {
+        blocked.push(taskId);
+      }
+    } catch {
+      unchecked.push(taskId);
+    }
+  }
+
+  return { blocked, unchecked };
 }
 
 /**
@@ -248,6 +281,276 @@ export async function releaseRollback(
 }
 
 /**
+ * release.rollback.full - Full rollback: delete git tag, revert commit,
+ * remove release record from DB, and optionally unpublish from npm.
+ *
+ * Sequence:
+ *   1. Delete remote git tag (if pushed)
+ *   2. Delete local git tag
+ *   3. Revert the release commit (creates a new revert commit)
+ *   4. Remove/flip release record in DB to 'rolled_back'
+ *   5. (Optional) npm deprecate if npm registry is configured
+ *
+ * @task T820 RELEASE-05
+ */
+export async function releaseRollbackFull(
+  version: string,
+  options: { reason?: string; force?: boolean; unpublish?: boolean },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!version) {
+    return engineError('E_INVALID_INPUT', 'version is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+  const gitTag = `v${version.replace(/^v/, '')}`;
+  const reason = options.reason ?? 'Rollback via cleo release rollback';
+  const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+  const steps: string[] = [];
+
+  try {
+    // Step 1: Delete remote git tag (best-effort; may not exist if push failed)
+    try {
+      execFileSync('git', ['push', 'origin', `--delete`, gitTag], gitCwd);
+      steps.push(`Deleted remote tag ${gitTag}`);
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        '';
+      if (msg.includes('remote ref does not exist') || msg.includes('error: unable to delete')) {
+        steps.push(`Remote tag ${gitTag} not found — skipping remote delete`);
+      } else {
+        steps.push(`Warning: could not delete remote tag ${gitTag}: ${msg.slice(0, 200)}`);
+      }
+    }
+
+    // Step 2: Delete local git tag
+    try {
+      execFileSync('git', ['tag', '-d', gitTag], gitCwd);
+      steps.push(`Deleted local tag ${gitTag}`);
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        '';
+      steps.push(`Warning: could not delete local tag ${gitTag}: ${msg.slice(0, 200)}`);
+    }
+
+    // Step 3: Revert the release commit (find the most recent commit with our message)
+    let revertSha: string | undefined;
+    try {
+      const logOut = execFileSync(
+        'git',
+        ['log', '--oneline', '--grep', `release: ship v${version}`, '-1'],
+        gitCwd,
+      )
+        .toString()
+        .trim();
+
+      if (logOut) {
+        revertSha = logOut.split(' ')[0];
+        execFileSync('git', ['revert', '--no-edit', revertSha!], gitCwd);
+        steps.push(`Reverted release commit ${revertSha}`);
+      } else {
+        steps.push(`No release commit found for ${version} — skipping revert`);
+      }
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        '';
+      steps.push(`Warning: could not revert release commit: ${msg.slice(0, 200)}`);
+    }
+
+    // Step 4: Mark release as rolled_back in DB
+    const dbResult = await rollbackRelease(version, reason, projectRoot);
+    steps.push(
+      `Marked release ${dbResult.version} as rolled_back in DB (was: ${dbResult.previousStatus})`,
+    );
+
+    // Step 5: Optional npm deprecate (best-effort, non-blocking)
+    if (options.unpublish) {
+      try {
+        const config = loadReleaseConfig(cwd);
+        if (config.registries?.includes('npm')) {
+          const pkgJson = JSON.parse(readFileSync(`${cwd}/package.json`, 'utf-8')) as {
+            name?: string;
+          };
+          const pkgName = pkgJson.name;
+          if (pkgName) {
+            execFileSync('npm', ['deprecate', `${pkgName}@${version}`, `Rolled back: ${reason}`], {
+              cwd,
+              encoding: 'utf-8',
+              stdio: 'pipe',
+            });
+            steps.push(`npm deprecated ${pkgName}@${version}`);
+          }
+        }
+      } catch (err: unknown) {
+        const msg = (err as { message?: string }).message ?? String(err);
+        steps.push(`Warning: npm deprecate failed (non-blocking): ${msg.slice(0, 200)}`);
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        version: dbResult.version,
+        previousStatus: dbResult.previousStatus,
+        status: dbResult.status,
+        reason,
+        gitTag,
+        revertSha,
+        steps,
+      },
+    };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_ROLLBACK_FAILED';
+    return engineError(code, message);
+  }
+}
+
+/**
+ * Parse commit messages from `git log` output, extracting task/epic IDs.
+ *
+ * Returns a structured list of commits grouped by referenced task IDs.
+ *
+ * @task T820 RELEASE-02
+ */
+interface ParsedCommit {
+  sha: string;
+  message: string;
+  taskIds: string[];
+  epicIds: string[];
+  timestamp: string;
+}
+
+function parseGitLogCommits(raw: string): ParsedCommit[] {
+  const commits: ParsedCommit[] = [];
+  // Format: <sha>\x1f<timestamp>\x1f<message>
+  const entries = raw.split('\x1e').filter(Boolean);
+  const taskPattern = /\bT\d+\b/g;
+  const epicPattern = /\bEpic\s+(T\d+)\b/gi;
+
+  for (const entry of entries) {
+    const parts = entry.trim().split('\x1f');
+    if (parts.length < 3) continue;
+    const [sha, timestamp, ...msgParts] = parts;
+    if (!sha || !timestamp) continue;
+    const message = msgParts.join('\x1f').trim();
+    const taskIds = [...new Set([...(message.match(taskPattern) ?? [])])];
+    const epicMatches = [...message.matchAll(epicPattern)];
+    const epicIds = [...new Set(epicMatches.map((m) => m[1] ?? '').filter(Boolean))];
+
+    commits.push({ sha: sha.trim(), message, taskIds, epicIds, timestamp: timestamp.trim() });
+  }
+
+  return commits;
+}
+
+/**
+ * release.changelog.since - Auto-CHANGELOG from git log since last tag.
+ *
+ * Walks git log since `sinceTag`, parses epic/task IDs from each commit
+ * message, groups commits by epic, and renders a structured changelog body.
+ *
+ * @task T820 RELEASE-02
+ */
+export async function releaseChangelogSince(
+  sinceTag: string,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!sinceTag) {
+    return engineError('E_INVALID_INPUT', 'sinceTag is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+
+  try {
+    // Walk git log since the given tag using a parseable format
+    let rawLog: string;
+    const logArgs = ['log', `${sinceTag}..HEAD`, '--pretty=format:%H\x1f%cI\x1f%s %b\x1e'];
+
+    try {
+      rawLog = execFileSync('git', logArgs, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        '';
+      // If the tag doesn't exist, git will error — surface clearly
+      return engineError(
+        'E_NOT_FOUND',
+        `Cannot walk git log since '${sinceTag}': ${msg.slice(0, 400)}`,
+      );
+    }
+
+    const commits = parseGitLogCommits(rawLog);
+
+    // Group commits by epic IDs (or 'uncategorized' if none found)
+    const byEpic = new Map<string, ParsedCommit[]>();
+    for (const commit of commits) {
+      if (commit.epicIds.length > 0) {
+        for (const epicId of commit.epicIds) {
+          if (!byEpic.has(epicId)) byEpic.set(epicId, []);
+          byEpic.get(epicId)!.push(commit);
+        }
+      } else {
+        const key = commit.taskIds.length > 0 ? `tasks:${commit.taskIds[0]}` : 'uncategorized';
+        if (!byEpic.has(key)) byEpic.set(key, []);
+        byEpic.get(key)!.push(commit);
+      }
+    }
+
+    // Render markdown changelog
+    const lines: string[] = [
+      `## Changelog since ${sinceTag}`,
+      '',
+      `> Auto-generated from \`git log ${sinceTag}..HEAD\``,
+      `> ${commits.length} commit(s) found`,
+      '',
+    ];
+
+    for (const [groupKey, groupCommits] of byEpic.entries()) {
+      const isEpic = /^T\d+$/.test(groupKey);
+      const header = isEpic ? `### Epic ${groupKey}` : `### ${groupKey}`;
+      lines.push(header);
+      for (const commit of groupCommits) {
+        const taskRef = commit.taskIds.length > 0 ? ` (${commit.taskIds.join(', ')})` : '';
+        lines.push(`- ${commit.message}${taskRef} [\`${commit.sha.slice(0, 8)}\`]`);
+      }
+      lines.push('');
+    }
+
+    const changelog = lines.join('\n');
+
+    return {
+      success: true,
+      data: {
+        sinceTag,
+        commitCount: commits.length,
+        epicCount: byEpic.size,
+        changelog,
+        commits: commits.map((c) => ({
+          sha: c.sha.slice(0, 8),
+          message: c.message,
+          taskIds: c.taskIds,
+          epicIds: c.epicIds,
+        })),
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message ?? String(err));
+  }
+}
+
+/**
  * release.cancel - Cancel and remove a release in draft or prepared state
  * @task T5602
  */
@@ -364,10 +667,12 @@ export async function releaseShip(
     remote?: string;
     dryRun?: boolean;
     bump?: boolean;
+    /** Skip IVTR gate check — requires owner confirmation (T820 RELEASE-03). */
+    force?: boolean;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
-  const { version, epicId, remote, dryRun = false, bump = true } = params;
+  const { version, epicId, remote, dryRun = false, bump = true, force = false } = params;
 
   if (!version) {
     return engineError('E_INVALID_INPUT', 'version is required');
@@ -472,6 +777,58 @@ export async function releaseShip(
       );
     }
     logStep(1, 8, 'Validate release gates', true);
+
+    // Step 1.5 (T820 RELEASE-03): IVTR gate enforcement
+    // Load epic task IDs to check their IVTR state before proceeding.
+    // --force bypasses with a loud warning.
+    if (!force) {
+      logStep(1, 8, 'Check IVTR gate for epic tasks');
+      let epicTaskIds: string[] = [];
+      try {
+        const epicAccessorForIvtr = await getAccessor(cwd);
+        const epicResult = await epicAccessorForIvtr.queryTasks({ parentId: epicId });
+        epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
+          .filter((t) => t.type !== 'epic')
+          .map((t) => t.id);
+      } catch {
+        // If we cannot load tasks, skip IVTR check (project may not have them)
+      }
+
+      if (epicTaskIds.length > 0) {
+        const { blocked, unchecked } = await checkIvtrGates(epicTaskIds, projectRoot);
+        if (blocked.length > 0) {
+          logStep(
+            1,
+            8,
+            'Check IVTR gate for epic tasks',
+            false,
+            `${blocked.length} task(s) not released in IVTR`,
+          );
+          return engineError(
+            'E_LIFECYCLE_GATE_FAILED',
+            `IVTR gate rejected: ${blocked.length} task(s) in epic ${epicId} have not reached IVTR 'released' phase: ${blocked.join(', ')}. ` +
+              'Run `cleo orchestrate ivtr <taskId> --release` for each blocking task, or pass --force to bypass with owner warning.',
+            {
+              fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
+              details: { blocked, unchecked, epicId },
+            },
+          );
+        }
+        if (unchecked.length > 0) {
+          // Warn but don't block — tasks without IVTR are allowed (e.g. docs tasks)
+          const w = `  ! IVTR gate: ${unchecked.length} task(s) have no IVTR state (non-blocking): ${unchecked.join(', ')}`;
+          steps.push(w);
+          console.log(w);
+        }
+        logStep(1, 8, 'Check IVTR gate for epic tasks', true);
+      } else {
+        logStep(1, 8, 'Check IVTR gate for epic tasks', true);
+      }
+    } else {
+      const w = `  ! --force: IVTR gate check BYPASSED. Owner-level override only.`;
+      steps.push(w);
+      console.warn(w);
+    }
 
     // Resolve release channel from current branch (after gates, which read the branch)
     let resolvedChannel: string = 'latest';

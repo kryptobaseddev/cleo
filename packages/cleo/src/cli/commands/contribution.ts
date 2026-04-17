@@ -12,7 +12,7 @@
  * @epic T4454
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo contribution validate — validate contribution protocol compliance for a task */
@@ -96,5 +96,8 @@ export const contributionCommand = defineCommand({
   subCommands: {
     validate: validateCommand,
     check: checkCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

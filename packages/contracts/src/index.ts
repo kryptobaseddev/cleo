@@ -330,6 +330,15 @@ export type {
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
+// ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)
+export type {
+  CittyArgDef,
+  OperationParams,
+  ParamCliDef,
+  ParamDef,
+  ParamType,
+} from './operations/params.js';
+export { paramsToCittyArgs } from './operations/params.js';
 // === Orchestration Hierarchy ===
 export {
   type AgentHierarchy,
@@ -421,7 +430,9 @@ export type {
   CancelledTask,
   CompletedTask,
   EpicLifecycle,
+  EvidenceAtom,
   FileMeta,
+  GateEvidence,
   Phase,
   PhaseStatus,
   PhaseTransition,

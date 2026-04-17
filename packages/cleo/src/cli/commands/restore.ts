@@ -19,7 +19,7 @@ import path from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getAccessor } from '@cleocode/core';
 import { getProjectRoot } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -641,5 +641,8 @@ export const restoreCommand = defineCommand({
     finalize: finalizeCommand,
     backup: backupSubCommand,
     task: taskSubCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

@@ -13,7 +13,7 @@
  * @task T480 — add cleanup, job, job.cancel, install.global, context.inject subcommands.
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo admin version — show CLEO version */
@@ -358,5 +358,8 @@ export const adminCommand = defineCommand({
     job: jobCommand,
     'install-global': installGlobalCommand,
     'context-inject': contextInjectCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

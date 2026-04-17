@@ -15,7 +15,7 @@
  */
 
 import { describeOperation, type OperationSchema } from '@cleocode/lafs';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import type { OperationDef } from '../../dispatch/registry.js';
 import { OPERATIONS } from '../../dispatch/registry.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -132,7 +132,7 @@ export const schemaCommand = defineCommand({
     operation: {
       type: 'positional',
       description: 'Operation key in domain.operation format (e.g. tasks.add)',
-      required: true,
+      required: false,
     },
     format: {
       type: 'string',
@@ -150,7 +150,11 @@ export const schemaCommand = defineCommand({
       default: false,
     },
   },
-  async run({ args }) {
+  async run({ args, cmd }) {
+    if (!args.operation) {
+      await showUsage(cmd);
+      return;
+    }
     const format = args.format ?? 'json';
     const includeGates = args['include-gates'] !== false;
     const includeExamples = args['include-examples'] === true;

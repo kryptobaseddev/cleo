@@ -51,7 +51,7 @@ import {
   runConsolidation,
   triggerManualDream,
 } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -2346,5 +2346,8 @@ export const memoryBrainCommand = defineCommand({
     verify: verifyCommand,
     'pending-verify': pendingVerifyCommand,
     tier: tierCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

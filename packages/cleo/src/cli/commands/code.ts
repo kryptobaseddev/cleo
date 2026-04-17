@@ -25,9 +25,31 @@ async function requireTreeSitter(): Promise<void> {
   }
 }
 
+/**
+ * Smart Explore code analysis command.
+ *
+ * Provides CLI access to tree-sitter powered code analysis:
+ * - outline: Extract file structure (signatures only)
+ * - search: Find symbols across codebase with relevance scoring
+ * - unfold: Extract complete symbol source with context
+ *
+ * @returns Command definition for citty dispatcher
+ * @task T154, T157
+ */
 export const codeCommand = defineCommand({
   meta: { name: 'code', description: 'Code analysis via tree-sitter AST' },
   subCommands: {
+    /**
+     * Outline subcommand — extract file structure via tree-sitter.
+     *
+     * Shows all top-level symbols and nested methods/properties with signatures only
+     * (bodies collapsed). Provides ~1-2K token overview vs ~12K for full file read.
+     *
+     * Usage:
+     *   cleo code outline packages/core/src/store/sqlite.ts
+     *
+     * @task T154, T157
+     */
     outline: defineCommand({
       meta: { name: 'outline', description: 'Show file structural skeleton (signatures only)' },
       args: {
@@ -59,6 +81,18 @@ export const codeCommand = defineCommand({
       },
     }),
 
+    /**
+     * Search subcommand — find symbols across codebase with relevance scoring.
+     *
+     * Walks directory tree, parses files by language, and matches symbols against
+     * query string with relevance scoring (exact > substring > fuzzy > path).
+     *
+     * Usage:
+     *   cleo code search parseFile --lang typescript --max 10
+     *   cleo code search smartOutline --path "src/**"
+     *
+     * @task T152, T157
+     */
     search: defineCommand({
       meta: { name: 'search', description: 'Search for symbols across codebase' },
       args: {
@@ -96,6 +130,19 @@ export const codeCommand = defineCommand({
       },
     }),
 
+    /**
+     * Unfold subcommand — extract complete symbol source code.
+     *
+     * Takes file path + symbol name, finds the symbol via tree-sitter AST,
+     * and extracts complete source including JSDoc/docstrings, decorators,
+     * and full body. AST boundaries guarantee no truncation.
+     *
+     * Usage:
+     *   cleo code unfold packages/core/src/code/outline.ts smartOutline
+     *   cleo code unfold packages/cleo/src/cli/commands/code.ts codeCommand
+     *
+     * @task T153, T157
+     */
     unfold: defineCommand({
       meta: { name: 'unfold', description: 'Extract complete symbol source' },
       args: {

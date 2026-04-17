@@ -11,7 +11,7 @@
 
 import { ExitCode } from '@cleocode/contracts';
 import { depsCriticalPath, resolveProjectRoot } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -159,6 +159,9 @@ export const depsCommand = defineCommand({
     'critical-path': criticalPathCommand,
     impact: impactCommand,
     cycles: cyclesCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
 

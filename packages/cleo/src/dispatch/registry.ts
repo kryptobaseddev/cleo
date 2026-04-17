@@ -62,6 +62,27 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'ID of the task to retrieve',
+        cli: { positional: true },
+      },
+      {
+        name: 'history',
+        type: 'boolean',
+        required: false,
+        description: 'Include lifecycle stage history in the response',
+      },
+      {
+        name: 'ivtr-history',
+        type: 'boolean',
+        required: false,
+        description: 'Include IVTR phase chain history in the response',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -114,6 +135,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -124,6 +146,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -134,6 +157,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -144,6 +168,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -154,6 +179,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -190,6 +216,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -201,6 +228,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -211,6 +239,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -221,6 +258,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query' as const,
@@ -231,6 +277,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -241,6 +288,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // Label operations (dispatch migration)
   {
@@ -252,6 +300,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -262,6 +311,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -298,6 +348,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -308,6 +359,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -318,6 +370,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -329,6 +382,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -339,6 +393,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T4959: Rich debrief removed — merged into session.show via include param (T5615)
   {
@@ -350,6 +405,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -360,6 +416,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T811 — IVTR multi-agent enforcement
   {
@@ -371,6 +428,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -381,6 +447,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: true,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -391,6 +466,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: true,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -401,6 +485,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: true,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -411,6 +504,27 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: true,
     requiredParams: ['taskId', 'phase', 'reason'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'phase',
+        type: 'string',
+        required: true,
+        description: 'phase parameter',
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: true,
+        description: 'reason parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -421,6 +535,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -431,6 +546,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -475,6 +591,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -485,6 +602,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -495,6 +613,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -505,6 +624,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // orchestrate.critical.path removed — merged into analyze via mode param (T5615)
   // ---------------------------------------------------------------------------
@@ -540,6 +660,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['anchor'],
+    params: [
+      {
+        name: 'anchor',
+        type: 'string',
+        required: true,
+        description: 'anchor parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -550,6 +678,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['ids'],
+    params: [
+      {
+        name: 'ids',
+        type: 'string',
+        required: true,
+        description: 'ids parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // memory.stats, memory.contradictions, memory.superseded removed — dashboard-only (T5615)
   {
@@ -561,6 +697,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -572,6 +709,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // memory.pattern.stats removed — dashboard-only (T5615)
   {
@@ -584,6 +722,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // memory.learning.stats removed — dashboard-only (T5615)
   // memory — PageIndex graph queries (T5385)
@@ -596,6 +735,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['nodeId'],
+    params: [
+      {
+        name: 'nodeId',
+        type: 'string',
+        required: true,
+        description: 'nodeId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -606,6 +754,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['nodeId'],
+    params: [
+      {
+        name: 'nodeId',
+        type: 'string',
+        required: true,
+        description: 'nodeId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // memory — Graph traversal (T535)
   {
@@ -618,6 +775,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['nodeId'],
+    params: [
+      {
+        name: 'nodeId',
+        type: 'string',
+        required: true,
+        description: 'nodeId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -629,6 +795,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['nodeId'],
+    params: [
+      {
+        name: 'nodeId',
+        type: 'string',
+        required: true,
+        description: 'nodeId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -640,6 +815,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['nodeId'],
+    params: [
+      {
+        name: 'nodeId',
+        type: 'string',
+        required: true,
+        description: 'nodeId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -650,6 +834,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // memory — Reasoning & hybrid search (T5388-T5393)
   {
@@ -661,6 +846,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -671,6 +865,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['entryId'],
+    params: [
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'entryId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -681,6 +884,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -691,6 +903,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -701,6 +914,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -711,6 +925,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -722,6 +937,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // stage.gates removed — merged into stage.status via include param (T5615)
   // stage.prerequisites removed — always returned in stage.validate response (T5615)
@@ -753,6 +969,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // pipeline manifest query operations (T5241 — moved from memory)
   {
@@ -764,6 +981,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['entryId'],
+    params: [
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'entryId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -774,6 +1000,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -784,6 +1011,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // manifest.pending removed — merged into manifest.list via filter param (T5615)
   {
@@ -795,6 +1031,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T5405: WarpChain pipeline operations
   {
@@ -806,6 +1043,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['chainId'],
+    params: [
+      {
+        name: 'chainId',
+        type: 'string',
+        required: true,
+        description: 'chainId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -816,6 +1062,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -825,7 +1072,16 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['type'],
+    params: [
+      {
+        name: 'type',
+        type: 'string',
+        required: true,
+        description: 'Schema type to validate (todo, config, archive, log, sessions)',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -836,6 +1092,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -846,6 +1103,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -856,6 +1114,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -866,6 +1125,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -877,6 +1137,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // compliance.violations removed — merged into compliance.summary via detail param (T5615)
   // test.status removed — merged into test op (T5615)
@@ -889,6 +1150,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -899,6 +1161,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
 
   // Protocol validation operations (T5327) — protocol.consensus/contribution/decomposition/implementation/specification
@@ -914,6 +1177,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // check.archive.stats incoming from admin (T5615)
   {
@@ -925,6 +1197,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // check.grade and check.grade.list incoming from admin (T5615)
   {
@@ -936,6 +1209,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['sessionId'],
+    params: [
+      {
+        name: 'sessionId',
+        type: 'string',
+        required: true,
+        description: 'sessionId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -978,6 +1260,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['chain'],
+    params: [
+      {
+        name: 'chain',
+        type: 'string',
+        required: true,
+        description: 'chain parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // T646: Canon drift detection — CI gate
   {
@@ -990,6 +1281,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T065: Agent workflow compliance telemetry
   {
@@ -1021,6 +1313,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1031,6 +1324,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1041,6 +1335,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1052,6 +1347,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1062,6 +1358,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1072,6 +1369,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     // T549 Wave 5-A: JIT task context pull — bundles task + brain memories + handoff
@@ -1084,6 +1382,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -1094,6 +1401,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1105,6 +1413,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.job.status + admin.job.list merged into admin.job via action param (T5615)
   {
@@ -1152,6 +1461,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1187,6 +1497,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1197,6 +1508,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1234,6 +1546,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // tools.issue.templates and tools.issue.validate.labels moved to ct-github-issues plugin (T5615)
   {
@@ -1245,6 +1558,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1255,6 +1569,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1265,6 +1580,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1275,6 +1591,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1285,6 +1602,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1295,6 +1613,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1305,6 +1624,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // skill.catalog.protocols/profiles/resources/info merged into skill.catalog via type param (T5615)
   {
@@ -1361,6 +1681,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1371,6 +1692,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1381,6 +1703,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1433,6 +1756,88 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['title'],
+    params: [
+      {
+        name: 'title',
+        type: 'string',
+        required: true,
+        description: 'Task title (3\u2013500 characters)',
+        cli: { positional: true },
+      },
+      {
+        name: 'parent',
+        type: 'string',
+        required: false,
+        description: 'Parent task ID (makes this task a subtask)',
+        cli: { flag: 'parent' },
+      },
+      {
+        name: 'priority',
+        type: 'string',
+        required: false,
+        description: 'Task priority',
+        enum: ['low', 'medium', 'high', 'critical'] as const,
+        cli: { flag: 'priority', short: '-p' },
+      },
+      {
+        name: 'type',
+        type: 'string',
+        required: false,
+        description: 'Task type',
+        enum: ['epic', 'task', 'subtask', 'bug'] as const,
+        cli: { flag: 'type', short: '-t' },
+      },
+      {
+        name: 'size',
+        type: 'string',
+        required: false,
+        description: 'Scope size estimate',
+        enum: ['small', 'medium', 'large'] as const,
+        cli: { flag: 'size' },
+      },
+      {
+        name: 'description',
+        type: 'string',
+        required: false,
+        description: 'Detailed task description (must differ meaningfully from title)',
+        cli: { flag: 'description', short: '-d' },
+      },
+      {
+        name: 'acceptance',
+        type: 'array',
+        required: false,
+        description: 'Pipe-separated acceptance criteria (e.g. "AC1|AC2|AC3")',
+        cli: { flag: 'acceptance' },
+      },
+      {
+        name: 'labels',
+        type: 'array',
+        required: false,
+        description: 'Comma-separated labels',
+        cli: { flag: 'labels', short: '-l' },
+      },
+      {
+        name: 'depends',
+        type: 'array',
+        required: false,
+        description: 'Comma-separated dependency task IDs',
+        cli: { flag: 'depends', short: '-D' },
+      },
+      {
+        name: 'phase',
+        type: 'string',
+        required: false,
+        description: 'Phase slug to assign the task to',
+        cli: { flag: 'phase', short: '-P' },
+      },
+      {
+        name: 'notes',
+        type: 'string',
+        required: false,
+        description: 'Initial note entry for the task',
+        cli: { flag: 'notes' },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1443,6 +1848,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1453,6 +1867,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1464,6 +1887,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1474,6 +1906,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1484,6 +1925,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1494,6 +1936,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1504,6 +1955,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1514,6 +1974,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId', 'position'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'position',
+        type: 'string',
+        required: true,
+        description: 'position parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1524,6 +1999,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId', 'type'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'type',
+        type: 'string',
+        required: true,
+        description: 'type parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1534,6 +2024,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1544,6 +2043,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // === tasks.sync sub-domain (provider-agnostic task reconciliation) ===
   {
@@ -1687,6 +2187,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1697,6 +2198,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1707,6 +2209,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1717,6 +2220,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1727,6 +2231,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1737,6 +2242,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1747,6 +2253,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // session.context.inject moved to admin.context.inject (T5615)
   {
@@ -1758,6 +2265,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1768,6 +2276,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1865,6 +2374,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // parallel.start and parallel.end merged into orchestrate.parallel via action param (T5615)
   {
@@ -1891,6 +2401,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['text'],
+    params: [
+      {
+        name: 'text',
+        type: 'string',
+        required: true,
+        description: 'text parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1901,6 +2420,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['decision', 'rationale'],
+    params: [
+      {
+        name: 'decision',
+        type: 'string',
+        required: true,
+        description: 'decision parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'rationale',
+        type: 'string',
+        required: true,
+        description: 'rationale parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1912,6 +2446,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['pattern', 'context'],
+    params: [
+      {
+        name: 'pattern',
+        type: 'string',
+        required: true,
+        description: 'pattern parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'context',
+        type: 'string',
+        required: true,
+        description: 'context parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1923,6 +2472,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['insight', 'source'],
+    params: [
+      {
+        name: 'insight',
+        type: 'string',
+        required: true,
+        description: 'insight parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'source',
+        type: 'string',
+        required: true,
+        description: 'source parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -1933,6 +2497,22 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId', 'entryId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'taskId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'entryId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // memory.unlink removed — rarely needed; direct repair if needed (T5615)
   // memory — PageIndex graph mutations (T5385)
@@ -1945,6 +2525,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -1955,6 +2536,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1965,6 +2547,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1975,6 +2558,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -1985,6 +2569,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'symbol parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -1995,6 +2587,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['memoryId'],
+    params: [
+      {
+        name: 'memoryId',
+        type: 'string',
+        required: true,
+        description: 'memoryId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2005,6 +2606,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['memoryId', 'codeSymbol'],
+    params: [
+      {
+        name: 'memoryId',
+        type: 'string',
+        required: true,
+        description: 'memoryId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'codeSymbol',
+        type: 'string',
+        required: true,
+        description: 'codeSymbol parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2015,6 +2631,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T791 — LLM extraction backend status
   {
@@ -2027,6 +2644,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // T792 — pending verification queue
   {
@@ -2084,6 +2702,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2094,6 +2713,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2104,6 +2724,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2114,6 +2735,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2124,6 +2746,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // pipeline manifest mutate operations (T5241 — moved from memory)
   {
@@ -2135,6 +2758,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['entry'],
+    params: [
+      {
+        name: 'entry',
+        type: 'string',
+        required: true,
+        description: 'entry parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2145,6 +2777,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['beforeDate'],
+    params: [
+      {
+        name: 'beforeDate',
+        type: 'string',
+        required: true,
+        description: 'beforeDate parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // T5326: Phase mutation operations
   {
@@ -2206,6 +2846,20 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['oldName', 'newName'],
+    params: [
+      {
+        name: 'oldName',
+        type: 'string',
+        required: true,
+        description: 'oldName parameter',
+      },
+      {
+        name: 'newName',
+        type: 'string',
+        required: true,
+        description: 'newName parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -2237,6 +2891,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['chain'],
+    params: [
+      {
+        name: 'chain',
+        type: 'string',
+        required: true,
+        description: 'chain parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2247,6 +2910,22 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['chainId', 'epicId'],
+    params: [
+      {
+        name: 'chainId',
+        type: 'string',
+        required: true,
+        description: 'chainId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'epicId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2257,6 +2936,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['instanceId', 'nextStage'],
+    params: [
+      {
+        name: 'instanceId',
+        type: 'string',
+        required: true,
+        description: 'instanceId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'nextStage',
+        type: 'string',
+        required: true,
+        description: 'nextStage parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2267,6 +2961,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2277,6 +2972,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2287,6 +2983,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2298,6 +2995,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -2308,6 +3006,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -2318,6 +3017,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'version parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -2328,6 +3036,26 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'release.changelog.since',
+    description:
+      'Generate CHANGELOG from git log since a given tag — parses T\\d+ task/epic IDs and groups by epic (T820 RELEASE-02)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sinceTag'],
+    params: [
+      {
+        name: 'sinceTag',
+        type: 'string',
+        required: true,
+        description: 'sinceTag parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // release.prepare/changelog/commit/tag/push/gates.run removed — merged into release.ship via step param (T5615)
   {
@@ -2339,6 +3067,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'version parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2349,6 +3086,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2360,6 +3098,42 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['version', 'epicId'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'version parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'epicId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'release.rollback.full',
+    description:
+      'Full rollback: delete git tag (local + remote), revert release commit, remove manifest record (T820 RELEASE-05)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'version parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -2370,6 +3144,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2381,6 +3156,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2391,6 +3167,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2420,6 +3197,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2430,6 +3208,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.restore and admin.backup.restore removed — merged into admin.backup via action param (T5615)
   {
@@ -2441,6 +3220,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2451,6 +3231,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2461,6 +3242,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2471,6 +3253,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2481,6 +3264,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.sequence (mutate) removed — duplicate name; expose via config.set if needed (T5615)
   // tools.issue.add.bug/feature/help moved to ct-github-issues plugin (T5615)
@@ -2494,6 +3278,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2504,6 +3289,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // skill.enable/disable removed — aliases for install/uninstall (T5615)
   // skill.configure removed — stub with no real behavior (T5615)
@@ -2516,6 +3302,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -2526,6 +3313,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // === adapter sub-domain (T5240) ===
   {
@@ -2537,6 +3325,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -2558,6 +3347,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -2616,6 +3406,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.grade/grade.list/archive.stats moved to check domain (T5615)
   // admin.token.summary/list/show merged into admin.token (query) (T5615)
@@ -2695,6 +3486,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['adrId'],
+    params: [
+      {
+        name: 'adrId',
+        type: 'string',
+        required: true,
+        description: 'adrId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -2706,6 +3506,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.adr.validate removed — merged into adr.sync via validate flag (T5615)
   {
@@ -2752,6 +3553,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.context.inject moved from session.context.inject (T5615)
   {
@@ -2764,6 +3566,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['protocolType'],
+    params: [
+      {
+        name: 'protocolType',
+        type: 'string',
+        required: true,
+        description: 'protocolType parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // admin.snapshot.export/export.tasks merged into admin.export via scope param (T5615)
   {
@@ -2776,6 +3586,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // admin.snapshot.import/import.tasks merged into admin.import via scope param (T5615)
   {
@@ -2788,6 +3599,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['file'],
+    params: [
+      {
+        name: 'file',
+        type: 'string',
+        required: true,
+        description: 'file parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -2798,6 +3618,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -2808,6 +3629,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -2905,6 +3727,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // nexus.share.remotes removed — git CLI wrapper (T5615)
   // nexus.share.sync.status removed — git CLI wrapper (T5615)
@@ -2917,6 +3740,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate' as const,
@@ -2927,6 +3751,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // nexus.share.sync.gitignore/remote.add/remote.remove/share.push/share.pull removed — git wrappers (T5615)
 
@@ -2944,6 +3769,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -2954,6 +3780,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -2964,6 +3791,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['name'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'name parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // nexus.query renamed to nexus.resolve — 'query' violates VERB-STANDARDS (T5615)
   {
@@ -2976,6 +3811,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query' as const,
@@ -2986,6 +3830,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query' as const,
@@ -2996,6 +3849,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -3006,6 +3860,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -3016,6 +3871,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query' as const,
@@ -3026,6 +3890,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   // nexus.critical-path/blocking/orphans removed — aliases for path.show/blockers.show/orphans.list (T5615)
   {
@@ -3037,6 +3902,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['query'],
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'query parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query' as const,
@@ -3047,6 +3921,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['pattern'],
+    params: [
+      {
+        name: 'pattern',
+        type: 'string',
+        required: true,
+        description: 'pattern parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
 
   // Mutate operations
@@ -3059,6 +3942,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate' as const,
@@ -3069,6 +3953,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['path'],
+    params: [
+      {
+        name: 'path',
+        type: 'string',
+        required: true,
+        description: 'path parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -3079,6 +3972,14 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['name'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'name parameter',
+      },
+    ] satisfies ParamDef[],
   },
   // nexus.sync.all merged into nexus.sync via optional name param (T5615)
   {
@@ -3109,6 +4010,20 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['name', 'level'],
+    params: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'name parameter',
+      },
+      {
+        name: 'level',
+        type: 'string',
+        required: true,
+        description: 'level parameter',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -3119,6 +4034,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
 
   // ---------------------------------------------------------------------------
@@ -3225,6 +4141,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query' as const,
@@ -3235,6 +4152,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['stickyId'],
+    params: [
+      {
+        name: 'stickyId',
+        type: 'string',
+        required: true,
+        description: 'stickyId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
 
   // Mutate operations
@@ -3247,6 +4173,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['content'],
+    params: [
+      {
+        name: 'content',
+        type: 'string',
+        required: true,
+        description: 'content parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -3302,6 +4237,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['stickyId'],
+    params: [
+      {
+        name: 'stickyId',
+        type: 'string',
+        required: true,
+        description: 'stickyId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate' as const,
@@ -3312,6 +4256,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['stickyId'],
+    params: [
+      {
+        name: 'stickyId',
+        type: 'string',
+        required: true,
+        description: 'stickyId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // orchestrate — tessera template operations (T5411)
   // tessera.show removed — merged into tessera.list via optional id param (T5615)
@@ -3344,6 +4297,22 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['templateId', 'epicId'],
+    params: [
+      {
+        name: 'templateId',
+        type: 'string',
+        required: true,
+        description: 'templateId parameter',
+        cli: { positional: true },
+      },
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'epicId parameter',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
   },
   // orchestrate — Wave 7a dispatch ops (T408, T409, T410, T415)
   {
@@ -3494,6 +4463,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate' as const,
@@ -3636,6 +4606,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'query',
@@ -3693,6 +4664,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
@@ -3703,6 +4675,7 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+    params: [],
   },
 
   // ── docs (T797) ────────────────────────────────────────────────────────────

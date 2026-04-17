@@ -619,6 +619,8 @@ export async function taskUpdate(
     parent?: string | null;
     type?: string;
     size?: string;
+    /** Pipeline stage transition target (T834 / ADR-051 Decision 4). */
+    pipelineStage?: string;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
@@ -641,6 +643,8 @@ export async function taskUpdate(
         parentId: updates.parent,
         type: updates.type as import('@cleocode/contracts').TaskType | undefined,
         size: updates.size as import('@cleocode/contracts').TaskSize | undefined,
+        // T834 / ADR-051 Decision 4: forward pipelineStage to core update.
+        pipelineStage: updates.pipelineStage,
       },
       projectRoot,
       accessor,
@@ -734,50 +738,44 @@ function toHistoryEntry(e: IvtrPhaseEntry): IvtrHistoryEntry {
 }
 
 /**
- * Complete a task with strict IVTR enforcement when configured.
+ * Complete a task with strict IVTR + evidence-staleness enforcement.
  *
  * @remarks
- * When `lifecycle.mode === 'strict'` AND the task has an `ivtr_state` column
- * populated AND `ivtr_state.currentPhase !== 'released'`, this function rejects
- * with {@link E_IVTR_INCOMPLETE}, listing which phases have not passed and any
- * gate failures.
+ * Enforcement path (T832 / ADR-051 Decision 3+8):
+ * 1. **Evidence staleness re-check**: every verification.evidence record is
+ *    re-validated.  Hard atoms (commit, files, test-run) must still match
+ *    their recorded sha256 / reachability; tampering after verify → reject
+ *    with {@link E_EVIDENCE_STALE}.
+ * 2. **IVTR enforcement** in strict mode: `ivtr_state.currentPhase` MUST be
+ *    `released`; otherwise reject with {@link E_IVTR_INCOMPLETE}.
+ * 3. **Parent-epic lifecycle gate**: child task completion is blocked while
+ *    the parent epic is still in a planning stage (research/consensus/
+ *    architecture_decision/specification/decomposition).  Rejects with
+ *    {@link E_LIFECYCLE_GATE_FAILED}.
  *
- * When `force` is true the IVTR check is bypassed. A loud owner warning is
- * logged and the bypass is recorded in `failureLog` via the existing
- * verification mechanism (best-effort, non-blocking).
- *
- * Delegates the actual task completion to {@link taskComplete}.
+ * Unlike v2026.4.77 and earlier, `--force` is no longer accepted.  The
+ * dispatch layer rejects `force` with `E_FLAG_REMOVED` before we reach
+ * here. Emergency bypass lives in `cleo verify` via `CLEO_OWNER_OVERRIDE`.
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to complete
  * @param notes - Optional completion notes
- * @param force - When true, bypass IVTR check (logs warning)
  * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
  *
- * @example
- * ```typescript
- * // Strict enforcement — rejects if IVTR not at 'released'
- * const result = await taskCompleteStrict('/project', 'T42', 'All tests passing', false);
- *
- * // Force bypass — logs warning and completes anyway
- * const result = await taskCompleteStrict('/project', 'T42', undefined, true);
- * ```
- *
  * @task T815
+ * @task T832
+ * @adr ADR-051
  * @epic T810
  */
 export async function taskCompleteStrict(
   projectRoot: string,
   taskId: string,
   notes?: string,
-  force?: boolean,
 ): Promise<
   EngineResult<{
     task: TaskRecord;
     autoCompleted?: string[];
     unblockedTasks?: Array<{ id: string; title: string }>;
-    ivtrBypassed?: boolean;
-    lifecycleGateBypassed?: boolean;
   }>
 > {
   try {
@@ -785,7 +783,47 @@ export async function taskCompleteStrict(
     const config = await loadConfig(projectRoot);
     const lifecycleMode = config.lifecycle?.mode ?? 'strict';
 
-    // IVTR enforcement only applies in strict mode.
+    // 1. Evidence staleness re-check (T832 / ADR-051 Decision 8).
+    // When verification.evidence is populated, re-validate each hard atom
+    // to catch post-verify tampering. Best-effort import to avoid cycles
+    // during dispatch tests — core module is lazily loaded.
+    if (lifecycleMode === 'strict') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task?.verification?.evidence) {
+        const { revalidateEvidence } = await import('@cleocode/core/internal');
+        const evidenceEntries = Object.entries(task.verification.evidence);
+        const staleGates: Array<{ gate: string; failures: string[] }> = [];
+        for (const [gate, ev] of evidenceEntries) {
+          if (!ev) continue;
+          const check = await revalidateEvidence(ev, projectRoot);
+          if (!check.stillValid) {
+            staleGates.push({
+              gate,
+              failures: check.failedAtoms.map((f: { reason: string }) => f.reason),
+            });
+          }
+        }
+        if (staleGates.length > 0) {
+          const message =
+            `Task ${taskId} evidence is stale. ` +
+            staleGates.map((sg) => `Gate '${sg.gate}': ${sg.failures.join('; ')}`).join(' | ');
+          return engineError<{
+            task: TaskRecord;
+            autoCompleted?: string[];
+            unblockedTasks?: Array<{ id: string; title: string }>;
+          }>('E_EVIDENCE_STALE', message, {
+            details: { taskId, staleGates },
+            fix:
+              `Re-capture evidence for the stale gates via ` +
+              `'cleo verify ${taskId} --gate <gate> --evidence <updated>' ` +
+              `then retry 'cleo complete ${taskId}'. See ADR-051.`,
+          });
+        }
+      }
+    }
+
+    // 2. IVTR enforcement only applies in strict mode.
     if (lifecycleMode === 'strict') {
       const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
 
@@ -814,98 +852,28 @@ export async function taskCompleteStrict(
           );
         }
 
-        if (!force) {
-          // Reject with E_IVTR_INCOMPLETE.
-          return engineError<{
-            task: TaskRecord;
-            autoCompleted?: string[];
-            unblockedTasks?: Array<{ id: string; title: string }>;
-            ivtrBypassed?: boolean;
-          }>(
-            'E_IVTR_INCOMPLETE',
-            `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
-            {
-              details: {
-                taskId,
-                currentPhase: ivtrState.currentPhase,
-                failedPhases,
-              },
-              fix: `Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr ${taskId} --next', or use '--force' to bypass (logs warning)`,
-            },
-          );
-        }
-
-        // force=true: log loud owner warning and record in task failureLog (best-effort).
-        const { getLogger } = await import('@cleocode/core');
-        getLogger('engine:ivtr').warn(
+        return engineError<{
+          task: TaskRecord;
+          autoCompleted?: string[];
+          unblockedTasks?: Array<{ id: string; title: string }>;
+        }>(
+          'E_IVTR_INCOMPLETE',
+          `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
           {
-            taskId,
-            currentPhase: ivtrState.currentPhase,
-            failedPhases,
-            forced: true,
+            details: {
+              taskId,
+              currentPhase: ivtrState.currentPhase,
+              failedPhases,
+            },
+            fix: `Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr ${taskId} --next'. Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
           },
-          `[OWNER WARNING] cleo complete --force bypassed IVTR enforcement for ${taskId}. ` +
-            `IVTR currentPhase='${ivtrState.currentPhase}' — phases not passing: ${failedPhases.join('; ')}`,
         );
-
-        // Record force-bypass in task verification failureLog (best-effort).
-        try {
-          const accessor = await getAccessor(projectRoot);
-          const task = await accessor.loadSingleTask(taskId);
-          if (task) {
-            const now = new Date().toISOString();
-            if (!task.verification) {
-              task.verification = {
-                round: 0,
-                gates: {},
-                passed: false,
-                lastAgent: null,
-                lastUpdated: null,
-                failureLog: [],
-              };
-            }
-            if (!task.verification.failureLog) {
-              task.verification.failureLog = [];
-            }
-            task.verification.failureLog.push({
-              round: task.verification.round,
-              agent: 'owner-forced',
-              reason: `OWNER FORCED cleo complete --force — IVTR bypass. currentPhase='${ivtrState.currentPhase}'. Incomplete: ${failedPhases.join('; ')}`,
-              timestamp: now,
-            });
-            task.updatedAt = now;
-            await accessor.upsertSingleTask(task);
-          }
-        } catch {
-          // Best-effort — never block task completion
-        }
-
-        // Complete with ivtrBypassed marker.
-        const innerResult = await taskComplete(projectRoot, taskId, notes);
-        if (!innerResult.success)
-          return innerResult as EngineResult<{
-            task: TaskRecord;
-            autoCompleted?: string[];
-            unblockedTasks?: Array<{ id: string; title: string }>;
-            ivtrBypassed?: boolean;
-          }>;
-        return {
-          success: true,
-          data: { ...innerResult.data!, ivtrBypassed: true },
-        };
       }
     }
 
-    // T788 LOOM-04: parent-epic lifecycle gate check on child complete.
+    // 3. Parent-epic lifecycle gate check on child complete (T788 LOOM-04).
     // When child task has an epic parent whose pipelineStage is still in early
-    // planning stages (research/consensus/architecture_decision/specification/
-    // decomposition), reject completion unless --force. Prevents completing
-    // implementation before the epic has formally advanced past planning.
-    //
-    // Enforcement modes:
-    //   strict: reject with E_LIFECYCLE_GATE_FAILED (exit 80)
-    //   advisory: warn via logger but allow completion to proceed
-    //   off / other: no check
+    // planning stages, reject completion. Advisory mode logs but allows.
     if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
       const accessor = await getAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
@@ -924,12 +892,11 @@ export async function taskCompleteStrict(
             const msg =
               `Task ${taskId} cannot complete: parent epic ${task.parentId} is still in ` +
               `'${epicStage}' stage. Advance the epic past decomposition before completing children.`;
-            if (lifecycleMode === 'strict' && !force) {
+            if (lifecycleMode === 'strict') {
               return engineError<{
                 task: TaskRecord;
                 autoCompleted?: string[];
                 unblockedTasks?: Array<{ id: string; title: string }>;
-                ivtrBypassed?: boolean;
               }>('E_LIFECYCLE_GATE_FAILED', msg, {
                 details: {
                   taskId,
@@ -939,69 +906,19 @@ export async function taskCompleteStrict(
                 },
                 fix:
                   `Advance the parent epic via 'cleo lifecycle complete ${task.parentId} ${epicStage}' ` +
-                  `and then the next stages, or use '--force' to bypass.`,
+                  `and then the next stages. Lifecycle advancement automatically updates the parent epic's pipelineStage (ADR-051 Decision 5).`,
               });
             }
-            // advisory mode OR force=true: log warning but continue.
+            // Advisory mode: log warning but continue.
             getLogger('engine:lifecycle').warn(
               {
                 taskId,
                 parentEpicId: task.parentId,
                 epicStage,
                 mode: lifecycleMode,
-                forced: force === true,
               },
-              lifecycleMode === 'advisory'
-                ? `[ADVISORY] parent-epic lifecycle gate: ${msg}`
-                : `[OWNER WARNING] cleo complete --force bypassed parent-epic lifecycle gate: ${msg}`,
+              `[ADVISORY] parent-epic lifecycle gate: ${msg}`,
             );
-
-            // force=true in strict mode: record VerificationFailure for audit trail.
-            if (lifecycleMode === 'strict' && force === true) {
-              try {
-                const now = new Date().toISOString();
-                if (!task.verification) {
-                  task.verification = {
-                    round: 0,
-                    gates: {},
-                    passed: false,
-                    lastAgent: null,
-                    lastUpdated: null,
-                    failureLog: [],
-                  };
-                }
-                if (!task.verification.failureLog) {
-                  task.verification.failureLog = [];
-                }
-                task.verification.failureLog.push({
-                  round: task.verification.round,
-                  agent: 'owner-forced',
-                  reason:
-                    `OWNER FORCED cleo complete --force — parent-epic lifecycle gate bypass. ` +
-                    `Epic ${task.parentId} at stage='${epicStage}'.`,
-                  timestamp: now,
-                });
-                task.updatedAt = now;
-                await accessor.upsertSingleTask(task);
-              } catch {
-                // Best-effort — never block on audit trail write
-              }
-
-              // Return completed result with lifecycleGateBypassed marker.
-              const innerResult = await taskComplete(projectRoot, taskId, notes);
-              if (!innerResult.success)
-                return innerResult as EngineResult<{
-                  task: TaskRecord;
-                  autoCompleted?: string[];
-                  unblockedTasks?: Array<{ id: string; title: string }>;
-                  ivtrBypassed?: boolean;
-                  lifecycleGateBypassed?: boolean;
-                }>;
-              return {
-                success: true,
-                data: { ...innerResult.data!, lifecycleGateBypassed: true },
-              };
-            }
           }
         }
       }
@@ -1013,7 +930,6 @@ export async function taskCompleteStrict(
         task: TaskRecord;
         autoCompleted?: string[];
         unblockedTasks?: Array<{ id: string; title: string }>;
-        ivtrBypassed?: boolean;
       }>
     >;
   } catch (err: unknown) {

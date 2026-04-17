@@ -18,7 +18,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo sync links remove — remove all external task links for a provider */
@@ -137,5 +137,8 @@ export const syncCommand = defineCommand({
   subCommands: {
     links: linksCommand,
     reconcile: reconcileCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

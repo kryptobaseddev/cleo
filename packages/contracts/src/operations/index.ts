@@ -8,6 +8,7 @@
 export * from './issues.js';
 export * from './lifecycle.js';
 export * from './orchestrate.js';
+export * from './params.js';
 export * from './release.js';
 export * from './research.js';
 export * from './session.js';

@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import { measureTokenExchange, recordTokenExchange } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -232,5 +232,8 @@ export const tokenCommand = defineCommand({
     delete: deleteCommand,
     clear: clearCommand,
     estimate: estimateCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

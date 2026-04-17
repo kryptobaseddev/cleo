@@ -8,15 +8,9 @@
  *   cleo reason impact <taskId>         — downstream dependency impact for a known task
  *   cleo reason timeline <taskId>       — task history and audit trail
  *
- * DEPRECATED (removed): `reason why` and `reason similar` were duplicates of
- * `memory reason-why` and `memory reason-similar`. Use the `memory` subcommands.
- *
- * @task T043
- * @task T044
- * @epic T038
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo reason impact — predict impact of a change or analyse downstream deps */
@@ -121,5 +115,8 @@ export const reasonCommand = defineCommand({
   subCommands: {
     impact: impactCommand,
     timeline: timelineCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

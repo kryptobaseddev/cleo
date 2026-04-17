@@ -25,7 +25,7 @@ import {
   push,
   removeRemote,
 } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo remote add <url> — add a git remote to .cleo/.git */
@@ -186,6 +186,9 @@ export const remoteCommand = defineCommand({
     remove: removeRemoteCommand,
     list: listRemoteCommand,
     status: statusRemoteCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
 

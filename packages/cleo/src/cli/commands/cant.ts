@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 interface MigrateModule {
@@ -271,5 +271,8 @@ export const cantCommand = defineCommand({
     list: cantListCommand,
     execute: cantExecuteCommand,
     migrate: cantMigrateCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

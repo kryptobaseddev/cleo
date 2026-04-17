@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.78] — 2026-04-17
+
+### T861 EPIC: CLEO CLI Perfection (post-T487 cleanup)
+
+Follow-up cleanup epic after T487 commander-shim removal. Deletes all deprecated command files, fixes bare-parent UX behavior, promotes `ParamDef` to `packages/contracts` as SSoT, and files the caamp migration decision.
+
+### Removed (T862)
+
+- `packages/cleo/src/cli/commands/env.ts` — unwired, never used
+- `packages/cleo/src/cli/commands/phases.ts` — use `cleo phase` instead
+- `packages/cleo/src/cli/commands/observe.ts` — use `cleo memory observe` instead
+- `packages/cleo/src/cli/commands/validate.ts` — use `cleo check schema todo` instead
+- `packages/cleo/src/cli/commands/agents.ts` — use `cleo agent` instead
+- `packages/cleo/src/cli/commands/implementation.ts` — use `cleo check protocol implementation` instead
+- `packages/cleo/src/cli/commands/commands.ts` — use `cleo ops` instead
+- `packages/cleo/src/cli/commands/specification.ts` — use `cleo check protocol specification` instead
+- `packages/cleo/src/cli/__tests__/commands.test.ts` — tested deleted command
+- **ALL `DEPRECATED` / `@deprecated` comments in packages/cleo/src/cli** — zero remaining
+
+### Fixed (T863)
+
+- **Bare parent CLI UX**: 52 command files patched so `cleo <parent>` (no subcommand) prints help and exits 0 instead of citty's default exit 1. Matches commander-shim behavior. Implementation: `async run({ cmd }) { await showUsage(cmd); }` on 36 parent CommandDefs + `required: false` + guard pattern on 6 leaf commands (add, import, safestop, schema, update, verify).
+
+### Added (T864) — Registry as Single Source of Truth
+
+- **`packages/contracts/src/operations/params.ts`** — `ParamDef`, `ParamType`, `ParamCliDef`, `OperationParams`, `CittyArgDef` types, plus `paramsToCittyArgs()` converter (DRY helper).
+- **`packages/cleo/src/cli/lib/registry-args.ts`** — `getOperationParams(gateway, domain, operation)` helper so CLI commands can derive `args:` from registry `params[]`.
+- `packages/cleo/src/dispatch/types.ts` now re-exports `ParamDef` from `@cleocode/contracts` (no more duplicate type definition).
+- **3 commands proven via SSoT path**: `show`, `list`, `check schema` now derive args from registry.
+- Registry `params[]` backfilled for `tasks.show`, `check.schema` during proof-of-concept.
+- Follow-up filed for Phase 5: backfill remaining 183 operations to reach 100% params[] coverage.
+
+### Decision (T865) — CAAMP stays on commander
+
+ADR-052 filed (T867). Rationale: (1) `preAction` hook with `optsWithGlobals()` has no citty equivalent and is used across 34 files; (2) 16 test files use `program.parseAsync(argv)` (citty has no programmatic invocation API); (3) zero shared code with cleo — migration is aesthetic, not structural. caamp is a separate npm binary (`@cleocode/caamp`) with live users; regression risk outweighs aesthetic consistency. commander ^14 is actively maintained.
+
+### Quality Metrics
+
+| Metric | v2026.4.77 | v2026.4.78 | Δ |
+|---|---|---|---|
+| DEPRECATED / @deprecated comments | 24 | **0** | -24 |
+| Deprecated source files | 8 | **0** | -8 |
+| Bare-parent exit codes (31 parents) | exit 1 | **exit 0** | fixed |
+| Biome CI errors | 0 | **0** | ✅ |
+| Build exit code | 0 | **0** | ✅ |
+| Monorepo tests | 8331 | **8540** | **+209** |
+| ParamDef in contracts (SSoT) | no | **yes** | ✅ |
+| Commands using registry-derived args | 0 | **3** | +3 |
+| commander-shim refs | 0 | **0** | ✅ (stable) |
+
+### Follow-ups filed
+
+- **T866** — Final verification: 100% operation smoke matrix, release
+- **T867** — ADR-052: Document caamp commander divergence
+- Phase 5 registry backfill — file as child of T864 (183 operations)
+
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
 ## [2026.4.77] — 2026-04-17
 
 ### T487 EPIC: Commander-Shim Removal — Native Citty CLI Migration (COMPLETE)

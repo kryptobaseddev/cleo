@@ -14,7 +14,7 @@
  * @task T782
  */
 
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo req add <task-id> — add a typed AcceptanceGate (with REQ-ID) to a task */
@@ -128,5 +128,8 @@ export const reqCommand = defineCommand({
     add: addCommand,
     list: listCommand,
     migrate: migrateCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });

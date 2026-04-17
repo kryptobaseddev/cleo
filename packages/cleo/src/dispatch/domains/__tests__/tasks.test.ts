@@ -684,35 +684,20 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('complete', { taskId: 'T001', notes: 'Done' });
 
       expect(result.success).toBe(true);
-      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done', undefined);
+      // T832/ADR-051: taskCompleteStrict no longer accepts the force parameter.
+      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
     });
 
-    it('complete - passes force flag to taskCompleteStrict', async () => {
-      vi.mocked(taskCompleteStrict).mockResolvedValue({
-        success: true,
-        data: {
-          task: {
-            id: 'T001',
-            title: 'Test',
-            description: 'test',
-            status: 'done',
-            priority: 'medium',
-            createdAt: '2026-01-01',
-            updatedAt: null,
-          },
-          ivtrBypassed: true,
-        },
-      });
-
+    it('complete - rejects --force with E_FLAG_REMOVED (T832/ADR-051)', async () => {
       const result = await handler.mutate('complete', {
         taskId: 'T001',
         notes: 'Forced',
         force: true,
       });
 
-      expect(result.success).toBe(true);
-      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Forced', true);
-      expect((result.data as Record<string, unknown>)?.ivtrBypassed).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_FLAG_REMOVED');
+      expect(taskCompleteStrict).not.toHaveBeenCalled();
     });
 
     it('complete - returns E_IVTR_INCOMPLETE when strict enforcement rejects', async () => {
@@ -735,11 +720,38 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
-      expect(taskCompleteStrict).toHaveBeenCalledWith(
+      // T832/ADR-051: force parameter removed from taskCompleteStrict signature.
+      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+    });
+
+    it('update - forwards pipelineStage to engine (T832 / T834)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T500',
+            title: 'Test',
+            description: 'test',
+            status: 'active',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+            pipelineStage: 'consensus',
+          },
+          changes: ['pipelineStage'],
+        },
+      });
+
+      const result = await handler.mutate('update', {
+        taskId: 'T500',
+        pipelineStage: 'consensus',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
         '/mock/project',
-        'T001',
-        undefined,
-        undefined,
+        'T500',
+        expect.objectContaining({ pipelineStage: 'consensus' }),
       );
     });
 

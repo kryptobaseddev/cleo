@@ -356,6 +356,10 @@ export class IvtrHandler implements DomainHandler {
                 taskId,
                 released: true,
                 message: `Task ${taskId} has been released. All IVTR phases passed. Status set to done.`,
+                // T820 RELEASE-07: Wire into release pipeline
+                nextStep:
+                  `All I+V+T evidence complete for ${taskId}. ` +
+                  `When ALL tasks in the epic are released, run: cleo release ship <version> --epic <epicId>`,
               },
             },
             'mutate',

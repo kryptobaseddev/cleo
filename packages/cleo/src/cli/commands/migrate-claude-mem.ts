@@ -13,7 +13,7 @@
  */
 
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -119,5 +119,8 @@ export const migrateClaudeMemCommand = defineCommand({
   subCommands: {
     'claude-mem': claudeMemCommand,
     storage: storageCommand,
+  },
+  async run({ cmd }) {
+    await showUsage(cmd);
   },
 });
