@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.88] — 2026-04-17 — Release workflow hotfix (add @cleocode/playbooks to publish list)
+
+`@cleocode/playbooks` (new in v2026.4.86/.87) was absent from `.github/workflows/release.yml` hardcoded publish list — workflow silently skipped it. Added to:
+1. Version-sync `for pkg in ...` loop (line 117)
+2. STAGING copy block (new "Playbooks package" section after adapters)
+3. `publish_pkg` dependency-ordered call list (between skills and cleo — playbooks depends on contracts + core)
+
+**Manual prerequisite:** `@cleocode/playbooks` is a NEW npm package. Before first successful publish, configure npm Trusted Publisher at npmjs.com → @cleocode/playbooks → Settings → Publishing access → GitHub Actions (org=kryptobaseddev, repo=cleo, workflow=.github/workflows/release.yml). Without this, publish fails with OIDC/401 error (workflow reports it clearly, doesn't fail silently).
+
 ## [2026.4.87] — 2026-04-17 — CI hotfix
 
 Fixes CI test failures in v2026.4.86 caused by hardcoded absolute paths in 3 test files that resolved to `/mnt/projects/cleocode/...` (local dev machine only) rather than CI runner paths. Patched to use `path.resolve(__dirname, ...)` monorepo-relative resolution. Release contents identical to v2026.4.86 + this fix.
