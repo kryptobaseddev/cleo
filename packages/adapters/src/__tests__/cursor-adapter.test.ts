@@ -156,7 +156,8 @@ describe('CursorInstallProvider — integration', () => {
 
     const content = readFileSync(mdcPath, 'utf-8');
     expect(content).toContain('alwaysApply: true');
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
+    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
@@ -190,7 +191,8 @@ describe('CursorInstallProvider — integration', () => {
     const content = readFileSync(legacyPath, 'utf-8');
     expect(content).toContain('# Project Rules');
     expect(content).toContain('Use TypeScript.');
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
+    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
@@ -201,16 +203,15 @@ describe('CursorInstallProvider — integration', () => {
 
   it('does not duplicate references in legacy .cursorrules', async () => {
     const legacyPath = join(testDir, '.cursorrules');
-    writeFileSync(
-      legacyPath,
-      '@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n',
-      'utf-8',
-    );
+    // Pre-seed with the dynamically-resolved reference so dedup logic fires
+    const { getCleoTemplatesTildePath } = await import('../providers/shared/paths.js');
+    const injectionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+    writeFileSync(legacyPath, `${injectionRef}\n@.cleo/memory-bridge.md\n`, 'utf-8');
 
     await install.ensureInstructionReferences(testDir);
 
     const content = readFileSync(legacyPath, 'utf-8');
-    const injectionCount = content.split('@~/.cleo/templates/CLEO-INJECTION.md').length - 1;
+    const injectionCount = (content.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
     expect(injectionCount).toBe(1);
   });
 

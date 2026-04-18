@@ -19,9 +19,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
-/** Lines that should appear in AGENTS.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
+/**
+ * Lines that should appear in AGENTS.md to reference CLEO.
+ * The CLEO-INJECTION.md path is resolved dynamically to support non-default
+ * XDG / OS installation locations (T916).
+ */
+const INSTRUCTION_REFERENCES = [
+  `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
+  '@.cleo/memory-bridge.md',
+];
 
 /**
  * Resolve the Pi global state root directory.
