@@ -62,6 +62,8 @@ export {
   LAST_STAGE,
   PIPELINE_STAGES,
   PLANNING_STAGES,
+  resolveStageAlias,
+  STAGE_ALIASES,
   STAGE_COUNT,
   STAGE_DEFINITIONS as CANONICAL_STAGE_DEFINITIONS,
   STAGE_ORDER,
@@ -78,6 +80,7 @@ import type { Stage } from './stages.js';
 import {
   isValidStage,
   PIPELINE_STAGES,
+  resolveStageAlias,
   STAGE_DEFINITIONS,
   STAGE_ORDER,
   STAGE_PREREQUISITES,
@@ -832,6 +835,10 @@ export async function recordStageProgress(
   notes?: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; status: string; timestamp: string }> {
+  // T929: resolve alias before validation so shorthand names like 'architecture'
+  // map to 'architecture_decision'.
+  stage = resolveStageAlias(stage);
+
   if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Invalid stage: ${stage}`);
   }
@@ -945,6 +952,8 @@ export async function skipStageWithReason(
   reason: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; reason: string; timestamp: string }> {
+  // T929: resolve alias so shorthand names work.
+  stage = resolveStageAlias(stage);
   const result = await recordStageProgress(epicId, stage, 'skipped', reason, cwd);
   return { epicId, stage, reason, timestamp: result.timestamp };
 }
@@ -959,6 +968,9 @@ export async function resetStage(
   reason: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; reason: string }> {
+  // T929: resolve alias before validation.
+  stage = resolveStageAlias(stage);
+
   if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Invalid stage: ${stage}`);
   }

@@ -7,8 +7,12 @@
  * in `taskCompleteStrict` to continue rejecting child completions even after
  * a correct lifecycle advancement.
  *
+ * Also covers T929 — stage alias resolution so shorthand names like 'architecture'
+ * are accepted in place of the full canonical name 'architecture_decision'.
+ *
  * @task T832
  * @task T835
+ * @task T929
  * @adr ADR-051 Decision 5
  */
 
@@ -17,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { recordStageProgress } from '../index.js';
+import { recordStageProgress, resolveStageAlias } from '../index.js';
 
 let testDir: string;
 let cleoDir: string;
@@ -83,5 +87,99 @@ describe('recordStageProgress keeps tasks.pipelineStage in sync (T835)', () => {
     expect(await readTaskPipelineStage('T903')).toBe('specification');
     await recordStageProgress('T903', 'implementation', 'in_progress');
     expect(await readTaskPipelineStage('T903')).toBe('implementation');
+  });
+});
+
+// =============================================================================
+// T929 — stage alias resolution
+// =============================================================================
+
+describe('resolveStageAlias (T929)', () => {
+  it('resolves "architecture" to "architecture_decision"', () => {
+    expect(resolveStageAlias('architecture')).toBe('architecture_decision');
+  });
+
+  it('resolves "adr" to "architecture_decision"', () => {
+    expect(resolveStageAlias('adr')).toBe('architecture_decision');
+  });
+
+  it('resolves "spec" to "specification"', () => {
+    expect(resolveStageAlias('spec')).toBe('specification');
+  });
+
+  it('resolves "decompose" to "decomposition"', () => {
+    expect(resolveStageAlias('decompose')).toBe('decomposition');
+  });
+
+  it('resolves "implement" to "implementation"', () => {
+    expect(resolveStageAlias('implement')).toBe('implementation');
+  });
+
+  it('resolves "verify" / "validate" to "validation"', () => {
+    expect(resolveStageAlias('verify')).toBe('validation');
+    expect(resolveStageAlias('validate')).toBe('validation');
+  });
+
+  it('resolves "test" to "testing"', () => {
+    expect(resolveStageAlias('test')).toBe('testing');
+  });
+
+  it('returns canonical names unchanged', () => {
+    const canonicals = [
+      'research',
+      'consensus',
+      'architecture_decision',
+      'specification',
+      'decomposition',
+      'implementation',
+      'validation',
+      'testing',
+      'release',
+    ];
+    for (const s of canonicals) {
+      expect(resolveStageAlias(s)).toBe(s);
+    }
+  });
+
+  it('returns unknown names unchanged (caller validates separately)', () => {
+    expect(resolveStageAlias('unknown_stage')).toBe('unknown_stage');
+  });
+});
+
+describe('recordStageProgress accepts stage aliases (T929)', () => {
+  it('accepts "architecture" shorthand for architecture_decision', async () => {
+    await recordStageProgress('T910', 'research', 'completed');
+    await recordStageProgress('T910', 'consensus', 'completed');
+    await recordStageProgress('T910', 'architecture', 'completed');
+    const stage = await readTaskPipelineStage('T910');
+    expect(stage).toBe('architecture_decision');
+  });
+
+  it('accepts "spec" shorthand for specification', async () => {
+    await recordStageProgress('T911', 'research', 'completed');
+    await recordStageProgress('T911', 'consensus', 'completed');
+    await recordStageProgress('T911', 'architecture_decision', 'completed');
+    await recordStageProgress('T911', 'spec', 'completed');
+    const stage = await readTaskPipelineStage('T911');
+    expect(stage).toBe('specification');
+  });
+
+  it('advances full RCASD chain using shorthand stage names (T929 regression)', async () => {
+    // Mirrors the bug report: research→consensus→architecture→specification→decomposition
+    // All using shorthand names as a user would type them on the CLI.
+    await recordStageProgress('T912', 'research', 'completed');
+    expect(await readTaskPipelineStage('T912')).toBe('research');
+
+    await recordStageProgress('T912', 'consensus', 'completed');
+    expect(await readTaskPipelineStage('T912')).toBe('consensus');
+
+    await recordStageProgress('T912', 'architecture', 'completed');
+    expect(await readTaskPipelineStage('T912')).toBe('architecture_decision');
+
+    await recordStageProgress('T912', 'spec', 'completed');
+    expect(await readTaskPipelineStage('T912')).toBe('specification');
+
+    await recordStageProgress('T912', 'decompose', 'completed');
+    expect(await readTaskPipelineStage('T912')).toBe('decomposition');
   });
 });
