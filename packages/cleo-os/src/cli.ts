@@ -14,10 +14,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
 import { renderDoctorReport, runDoctor } from './commands/doctor.js';
 import { AgentRegistry } from './registry/agent-registry.js';
 import { ProviderMatrix } from './registry/provider-matrix.js';
-import { resolveCleoOsPaths } from './xdg.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -155,34 +155,35 @@ async function handleDiagnosticsFlags(args: string[]): Promise<boolean> {
  * @returns Array of absolute extension file paths.
  */
 function collectExtensionPaths(): string[] {
-  const paths = resolveCleoOsPaths();
+  const { data } = getPlatformPaths();
+  const extensionsDir = join(data, 'extensions');
   const extensions: string[] = [];
 
   // cleo-startup: branded session banner + memory bridge display (load first
   // so the welcome panel appears before CANT bridge status bar entries)
-  const startupPath = join(paths.extensions, 'cleo-startup.js');
+  const startupPath = join(extensionsDir, 'cleo-startup.js');
   if (existsSync(startupPath)) {
     extensions.push(startupPath);
   }
 
-  const bridgePath = join(paths.extensions, 'cleo-cant-bridge.js');
+  const bridgePath = join(extensionsDir, 'cleo-cant-bridge.js');
   if (existsSync(bridgePath)) {
     extensions.push(bridgePath);
   }
 
   // cleo-hooks-bridge: CAAMP hooks (PreToolUse, PostToolUse, SubagentStart)
-  const hooksBridgePath = join(paths.extensions, 'cleo-hooks-bridge.js');
+  const hooksBridgePath = join(extensionsDir, 'cleo-hooks-bridge.js');
   if (existsSync(hooksBridgePath)) {
     extensions.push(hooksBridgePath);
   }
 
   // cleo-chatroom: inter-agent messaging TUI
-  const chatroomPath = join(paths.extensions, 'cleo-chatroom.js');
+  const chatroomPath = join(extensionsDir, 'cleo-chatroom.js');
   if (existsSync(chatroomPath)) {
     extensions.push(chatroomPath);
   }
 
-  const monitorPath = join(paths.extensions, 'cleo-agent-monitor.js');
+  const monitorPath = join(extensionsDir, 'cleo-agent-monitor.js');
   if (existsSync(monitorPath)) {
     extensions.push(monitorPath);
   }
