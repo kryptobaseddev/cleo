@@ -28,11 +28,17 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
+import { ThinAgentViolationError } from '@cleocode/contracts';
 import { resolveAgent } from '../store/agent-resolver.js';
 import { type AtomicityResult, checkAtomicity } from './atomicity.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
 import { autoDispatch } from './index.js';
 import { buildSpawnPrompt, type SpawnProtocolPhase, type SpawnTier } from './spawn-prompt.js';
+import {
+  enforceThinAgent,
+  type ThinAgentEnforcementMode,
+  type ThinAgentResult,
+} from './thin-agent.js';
 
 // ============================================================================
 // Types
@@ -98,6 +104,36 @@ export interface ComposeSpawnPayloadOptions {
    * subagent logs every mutation against the caller's session.
    */
   sessionId?: string | null;
+  /**
+   * Resolved tool allowlist for the agent. When present, the composer runs
+   * {@link enforceThinAgent} against it as a dispatch-time defense-in-depth
+   * check. Workers carrying spawn-capable tools (`Agent`, `Task`) are
+   * rejected (strict mode) or stripped (strip mode) per
+   * {@link thinAgentEnforcement}.
+   *
+   * Leave `undefined` when the caller has not resolved a flat tool list yet
+   * — the guard becomes a no-op and composition proceeds normally.
+   *
+   * @task T931 Thin-agent runtime enforcer
+   */
+  tools?: readonly string[];
+  /**
+   * Thin-agent enforcement mode. Defaults to `'strict'` — any worker payload
+   * that still contains `Agent` or `Task` is rejected with
+   * {@link ThinAgentViolationError}.
+   *
+   *  - `'strict'` (default) — throw on violation.
+   *  - `'strip'`            — silently remove the offending tools, surface
+   *                           the strip in `payload.meta.thinAgent`.
+   *  - `'off'`              — escape hatch. Reserved for audited owner
+   *                           overrides; emits `payload.meta.thinAgent.
+   *                           bypassed = true`.
+   *
+   * Only consulted when {@link tools} is provided.
+   *
+   * @task T931 Thin-agent runtime enforcer
+   */
+  thinAgentEnforcement?: ThinAgentEnforcementMode;
 }
 
 /**
@@ -148,6 +184,35 @@ export interface SpawnPayloadMeta {
   generatedAt: string;
   /** Pinned composer contract version — bump on breaking changes. */
   composerVersion: '3.0.0';
+  /**
+   * Thin-agent enforcement summary. Present only when the composer was given
+   * a `tools` allowlist and therefore executed {@link enforceThinAgent}.
+   *
+   * @task T931 Thin-agent runtime enforcer
+   */
+  thinAgent?: SpawnPayloadThinAgentMeta;
+}
+
+/**
+ * Summary of the T931 thin-agent guard run for a given spawn payload. Attached
+ * to {@link SpawnPayloadMeta.thinAgent} when the composer invoked
+ * {@link enforceThinAgent}.
+ *
+ * @task T931 Thin-agent runtime enforcer
+ */
+export interface SpawnPayloadThinAgentMeta {
+  /** Enforcement mode that ran. */
+  readonly mode: ThinAgentEnforcementMode;
+  /**
+   * Tools removed from the effective allowlist. Populated in `'strip'` mode
+   * when a worker had `Agent`/`Task` tools removed; empty otherwise.
+   */
+  readonly stripped: readonly string[];
+  /**
+   * `true` when the guard was skipped because `mode === 'off'`. Surfaces to
+   * audit logs so escape-hatch usage is visible.
+   */
+  readonly bypassed: boolean;
 }
 
 // ============================================================================
@@ -256,6 +321,28 @@ export async function composeSpawnPayload(
         declaredFiles: task.files,
       });
 
+  // 6b. Thin-agent runtime enforcer (T931). Defense-in-depth against a worker
+  //     payload that still carries `Agent`/`Task` after the parse-time strip.
+  //     Only runs when the caller supplied a tool allowlist — the resolver
+  //     does not (yet) emit one, so legacy call sites remain unchanged.
+  const thinAgentMode: ThinAgentEnforcementMode = options.thinAgentEnforcement ?? 'strict';
+  let thinAgentMeta: SpawnPayloadThinAgentMeta | undefined;
+  if (options.tools !== undefined) {
+    const thinAgentResult: ThinAgentResult = enforceThinAgent(role, options.tools, thinAgentMode);
+    if (!thinAgentResult.ok) {
+      throw new ThinAgentViolationError(
+        resolvedAgent.agentId,
+        role,
+        `composeSpawnPayload(tools=[${thinAgentResult.violatingTools.join(', ')}])`,
+      );
+    }
+    thinAgentMeta = {
+      mode: thinAgentMode,
+      stripped: thinAgentResult.stripped,
+      bypassed: thinAgentResult.bypassed,
+    };
+  }
+
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
@@ -277,6 +364,18 @@ export async function composeSpawnPayload(
   //    harness.
   const effectiveDedup = !shouldEmbedInjection ? hintResult.dedupSavedChars : 0;
 
+  const meta: SpawnPayloadMeta = {
+    sourceTier: resolvedAgent.tier,
+    dedupSavedChars: effectiveDedup,
+    promptChars: promptResult.prompt.length,
+    protocol: promptResult.protocol,
+    generatedAt: new Date().toISOString(),
+    composerVersion: '3.0.0',
+  };
+  if (thinAgentMeta !== undefined) {
+    meta.thinAgent = thinAgentMeta;
+  }
+
   return {
     taskId: task.id,
     agentId: resolvedAgent.agentId,
@@ -286,13 +385,6 @@ export async function composeSpawnPayload(
     resolvedAgent,
     atomicity,
     prompt: promptResult.prompt,
-    meta: {
-      sourceTier: resolvedAgent.tier,
-      dedupSavedChars: effectiveDedup,
-      promptChars: promptResult.prompt.length,
-      protocol: promptResult.protocol,
-      generatedAt: new Date().toISOString(),
-      composerVersion: '3.0.0',
-    },
+    meta,
   };
 }

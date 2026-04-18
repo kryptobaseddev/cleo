@@ -39,13 +39,23 @@ export {
   parseDocument,
   validateDocument,
 } from './document';
-export type { Role, SpawnValidation, TeamDefinition, TeamRouting } from './hierarchy.js';
-// 3-tier hierarchy enforcement (ULTRAPLAN Wave 7)
+export type {
+  Role,
+  SpawnValidation,
+  StripSpawnToolsResult,
+  TeamDefinition,
+  TeamRouting,
+  ThinAgentToolsStrippedWarning,
+} from './hierarchy.js';
+// 3-tier hierarchy enforcement (ULTRAPLAN Wave 7) + T931 thin-agent strip.
 export {
   filterToolsForRole,
   LEAD_FORBIDDEN_TOOLS,
   ORCHESTRATOR_FORBIDDEN_TOOLS,
+  stripSpawnToolsForWorker,
+  THIN_AGENT_TOOLS_STRIPPED,
   validateSpawnRequest,
+  WORKER_FORBIDDEN_SPAWN_TOOLS,
 } from './hierarchy.js';
 export type {
   ConsolidateOptions,
