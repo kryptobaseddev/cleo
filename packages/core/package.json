@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.4.87",
+  "version": "2026.4.88",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,6 +40,11 @@
       "types": "./dist/memory/transcript-extractor.d.ts",
       "import": "./dist/memory/transcript-extractor.js",
       "require": "./dist/memory/transcript-extractor.js"
+    },
+    "./system/platform-paths.js": {
+      "types": "./dist/system/platform-paths.d.ts",
+      "import": "./dist/system/platform-paths.js",
+      "require": "./dist/system/platform-paths.js"
     },
     "./*": {
       "types": "./dist/*.d.ts",
