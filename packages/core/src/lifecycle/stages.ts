@@ -398,6 +398,56 @@ export function getDependents(stage: Stage): Stage[] {
 }
 
 // =============================================================================
+// STAGE ALIASES (T929 — user-facing shorthand names)
+// =============================================================================
+
+/**
+ * Accepted shorthand aliases mapped to their canonical stage names.
+ *
+ * These allow users to type shorter names like `architecture` instead of
+ * `architecture_decision` on the CLI without breaking the state machine.
+ * The canonical name is always what gets persisted to the database.
+ *
+ * @task T929
+ */
+export const STAGE_ALIASES: Readonly<Record<string, Stage>> = {
+  // architecture_decision shortcuts
+  architecture: 'architecture_decision',
+  adr: 'architecture_decision',
+  // specification shortcuts
+  spec: 'specification',
+  // decomposition shortcuts
+  decompose: 'decomposition',
+  // implementation shortcuts
+  implement: 'implementation',
+  // validation shortcuts
+  verify: 'validation',
+  validate: 'validation',
+  // testing shortcuts
+  test: 'testing',
+};
+
+/**
+ * Resolve a stage name or alias to the canonical stage name.
+ *
+ * If `stage` is already a canonical stage name it is returned unchanged.
+ * If it is a known alias the canonical name is returned.
+ * Otherwise the original string is returned (callers should validate after).
+ *
+ * @param stage - Stage name or alias to resolve
+ * @returns Canonical stage name
+ *
+ * @task T929
+ * @example
+ * resolveStageAlias('architecture')       // => 'architecture_decision'
+ * resolveStageAlias('architecture_decision') // => 'architecture_decision'
+ * resolveStageAlias('unknown')            // => 'unknown'
+ */
+export function resolveStageAlias(stage: string): string {
+  return STAGE_ALIASES[stage] ?? stage;
+}
+
+// =============================================================================
 // STAGE VALIDATION
 // =============================================================================
 

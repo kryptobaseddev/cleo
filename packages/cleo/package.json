@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "postbuild": "node scripts/assert-shebang.mjs",
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
     "postinstall": "node bin/postinstall.js"
@@ -55,6 +56,7 @@
     "migrations",
     "completions",
     "bin",
+    "scripts",
     "templates"
   ],
   "devDependencies": {

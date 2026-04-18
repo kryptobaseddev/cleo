@@ -21,6 +21,7 @@ import {
   passGate,
   recordStageProgress,
   resetStage,
+  resolveStageAlias,
   skipStageWithReason,
 } from '@cleocode/core/internal';
 import { type EngineResult, engineError, engineSuccess } from './_error.js';
@@ -149,6 +150,11 @@ export async function lifecycleProgress(
   if (!taskId || !stage || !status) {
     return engineError('E_INVALID_INPUT', 'taskId, stage, and status are required');
   }
+  // T929: resolve shorthand aliases (e.g. 'architecture' → 'architecture_decision')
+  // before any validation or forward-only checks so the full RCASD chain can be
+  // advanced in one call per stage without knowing internal canonical names.
+  stage = resolveStageAlias(stage);
+
   try {
     // Enforce forward-only stage progression
     if (status === 'in_progress' || status === 'completed') {
