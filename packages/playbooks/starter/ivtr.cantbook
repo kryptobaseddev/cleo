@@ -1,0 +1,97 @@
+version: "1.0"
+name: ivtr
+description: >
+  IVTR execution loop — Implement, Validate, Test. Each stage is a distinct
+  agentic node wired in declaration order; failures retry in place up to
+  `max_iterations`, mimicking the classic build-lint-test cycle. The runtime
+  keeps per-node iteration counters so the total retry budget across the three
+  nodes is bounded by the sum of each node's cap (see T930 runtime semantics).
+
+inputs:
+  - name: taskId
+    required: true
+    description: Task id being executed (e.g. T934).
+  - name: maxAttempts
+    required: false
+    default: 3
+    description: >
+      Documentation-only hint — the runtime uses per-node max_iterations.
+
+nodes:
+  - id: implement
+    type: agentic
+    skill: ct-task-executor
+    role: worker
+    description: >
+      Implement {{inputs.taskId}} against its spec and acceptance criteria.
+      On failure, retries in place with the last error injected into context
+      (__lastError / __lastFailedNode). Cap: 3 attempts.
+    inputs:
+      taskId: "{{inputs.taskId}}"
+    ensures:
+      schema: implementation_diff
+    on_failure:
+      max_iterations: 3
+      escalate: false
+
+  - id: validate
+    type: agentic
+    skill: ct-validator
+    role: worker
+    description: >
+      Validate the implementation against the task spec — static checks,
+      schema compliance, and contract invariants. Retries in place on
+      failure; a sustained failure escalates back to implement via
+      `inject_into` so the worker can incorporate the validator's feedback.
+    requires:
+      from: implement
+      fields:
+        - diff
+    ensures:
+      schema: validation_report
+    on_failure:
+      max_iterations: 2
+      inject_into: implement
+
+  - id: test
+    type: agentic
+    skill: ct-task-executor
+    role: worker
+    description: >
+      Run the task's test suite and verify every acceptance criterion passes.
+      On failure, bounces back to implement with the failing test names in
+      context so the worker can address root cause rather than re-running.
+      Terminal stage of the IVTR loop.
+    requires:
+      from: validate
+      fields:
+        - passed
+    ensures:
+      schema: test_report
+    on_failure:
+      max_iterations: 2
+      inject_into: implement
+
+edges:
+  - from: implement
+    to: validate
+    contract:
+      requires:
+        - diff
+      ensures:
+        - passed
+  - from: validate
+    to: test
+    contract:
+      requires:
+        - passed
+      ensures:
+        - testsPassed
+
+error_handlers:
+  - on: iteration_cap_exceeded
+    action: hitl_escalate
+    message: "IVTR loop exhausted — implementation, validation, or tests keep failing."
+  - on: contract_violation
+    action: inject_hint
+    message: "Contract violated at stage boundary — check requires/ensures fields."

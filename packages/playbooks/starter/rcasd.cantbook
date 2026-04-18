@@ -1,0 +1,142 @@
+version: "1.0"
+name: rcasd
+description: >
+  RCASD planning pipeline — Research, Consensus, Architecture, Specification,
+  Decomposition. Linear five-stage agent chain that produces a fully-decomposed
+  epic ready for IVTR execution. Every stage merges its structured output into
+  the run context via the playbook runtime state machine (see T930).
+
+inputs:
+  - name: epicId
+    required: true
+    description: Parent epic id being planned (e.g. T999).
+  - name: scope
+    required: false
+    default: global
+    description: Planning scope (global|team|project).
+
+nodes:
+  - id: research
+    type: agentic
+    skill: ct-research-agent
+    role: lead
+    description: >
+      Gather context for {{inputs.epicId}} — prior art, patterns, alternatives,
+      and unknowns. Emits a structured research summary into the run context.
+    inputs:
+      topic: "{{inputs.epicId}}"
+      scope: "{{inputs.scope}}"
+    ensures:
+      schema: research_summary
+    on_failure:
+      max_iterations: 2
+      escalate: true
+
+  - id: consensus
+    type: agentic
+    skill: ct-validator
+    agent: consensus-lead
+    role: lead
+    description: >
+      Review research findings, validate approach, surface risks, and obtain
+      HITL alignment on direction before committing to architecture.
+    requires:
+      from: research
+      fields:
+        - summary
+        - risks
+    ensures:
+      schema: consensus_decision
+    on_failure:
+      max_iterations: 2
+
+  - id: architecture
+    type: agentic
+    skill: ct-spec-writer
+    agent: architecture-lead
+    role: lead
+    description: >
+      Choose concrete patterns, integration points, and data flows. Capture
+      decisions as ADR stubs referenced by the specification stage.
+    requires:
+      from: consensus
+      fields:
+        - decision
+    ensures:
+      schema: architecture_plan
+    on_failure:
+      max_iterations: 2
+
+  - id: specification
+    type: agentic
+    skill: ct-spec-writer
+    role: lead
+    description: >
+      Write a formal specification using RFC 2119 language, acceptance
+      criteria, contract invariants, and failure modes for {{inputs.epicId}}.
+    requires:
+      from: architecture
+      fields:
+        - patterns
+        - adrs
+    ensures:
+      schema: specification_document
+    on_failure:
+      max_iterations: 2
+
+  - id: decomposition
+    type: agentic
+    skill: ct-epic-architect
+    role: lead
+    description: >
+      Break {{inputs.epicId}} into atomic child tasks with dependencies,
+      acceptance gates, and size estimates (small|medium|large). Terminal
+      stage of the RCASD pipeline.
+    requires:
+      from: specification
+      fields:
+        - acceptance
+        - requirements
+    ensures:
+      schema: task_tree
+    on_failure:
+      max_iterations: 2
+      escalate: true
+
+edges:
+  - from: research
+    to: consensus
+    contract:
+      requires:
+        - summary
+      ensures:
+        - decision
+  - from: consensus
+    to: architecture
+    contract:
+      requires:
+        - decision
+      ensures:
+        - patterns
+  - from: architecture
+    to: specification
+    contract:
+      requires:
+        - patterns
+      ensures:
+        - acceptance
+  - from: specification
+    to: decomposition
+    contract:
+      requires:
+        - acceptance
+      ensures:
+        - children
+
+error_handlers:
+  - on: iteration_cap_exceeded
+    action: hitl_escalate
+    message: "RCASD stage exhausted retries — escalate to human for direction."
+  - on: agentic_timeout
+    action: inject_hint
+    message: "Narrow scope and retry."

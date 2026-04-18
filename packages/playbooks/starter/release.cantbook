@@ -1,0 +1,99 @@
+version: "1.0"
+name: release
+description: >
+  Release pipeline — bump version, update the changelog, pause at a HITL
+  approval gate, then publish. The approval node uses the `conservative`
+  policy so the runtime always requires human sign-off (it returns
+  `terminalStatus=pending_approval` with a signed HMAC resume token per
+  approval.ts).
+
+inputs:
+  - name: targetVersion
+    required: true
+    description: Target semver or CalVer to publish (e.g. 2026.4.92).
+  - name: channel
+    required: false
+    default: latest
+    description: npm dist-tag (latest|next|canary).
+
+nodes:
+  - id: version_bump
+    type: agentic
+    skill: ct-dev-workflow
+    agent: release-lead
+    role: lead
+    description: >
+      Bump package.json versions to {{inputs.targetVersion}} across the
+      monorepo (pnpm run version:bump or equivalent orchestrator call).
+    inputs:
+      targetVersion: "{{inputs.targetVersion}}"
+    ensures:
+      schema: version_bump_report
+    on_failure:
+      max_iterations: 2
+
+  - id: changelog
+    type: agentic
+    skill: ct-documentor
+    agent: release-lead
+    role: lead
+    description: >
+      Update CHANGELOG.md with an entry for {{inputs.targetVersion}}, summarize
+      the commits since the last tag, and categorize (feat/fix/chore/docs).
+    requires:
+      from: version_bump
+      fields:
+        - versionBumped
+    ensures:
+      schema: changelog_entry
+    on_failure:
+      max_iterations: 2
+
+  - id: approval
+    type: approval
+    policy: conservative
+    prompt: >
+      Approve release of {{inputs.targetVersion}} to {{inputs.channel}}?
+      Review the changelog entry and version bump before clicking approve.
+    description: >
+      HITL gate — runtime pauses here and returns a signed HMAC resume token.
+      A human (or automated owner) must call approveGate() / rejectGate() and
+      then resumePlaybook() to continue past this node.
+
+  - id: publish
+    type: agentic
+    skill: ct-dev-workflow
+    agent: release-lead
+    role: lead
+    description: >
+      Publish to npm (pnpm run release:publish --tag {{inputs.channel}}).
+      Terminal node — completes the release pipeline.
+    ensures:
+      schema: publish_report
+    on_failure:
+      max_iterations: 1
+      escalate: true
+
+edges:
+  - from: version_bump
+    to: changelog
+    contract:
+      requires:
+        - versionBumped
+      ensures:
+        - changelogUpdated
+  - from: changelog
+    to: approval
+  - from: approval
+    to: publish
+    contract:
+      ensures:
+        - published
+
+error_handlers:
+  - on: iteration_cap_exceeded
+    action: hitl_escalate
+    message: "Release stage exhausted retries — stop and investigate before retrying."
+  - on: contract_violation
+    action: abort
+    message: "Release contract violated — halt to avoid publishing a broken artifact."

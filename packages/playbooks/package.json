@@ -13,7 +13,8 @@
   },
   "files": [
     "dist/",
-    "src/"
+    "src/",
+    "starter/"
   ],
   "scripts": {
     "build": "tsc -b",
