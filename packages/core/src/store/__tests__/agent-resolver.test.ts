@@ -22,16 +22,21 @@
 
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SEED_HISTORIAN_SOURCE =
-  '/mnt/projects/cleocode/packages/agents/seed-agents/cleo-historian.cant';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+/** Monorepo-relative seed-agent — works locally and in CI. */
+const SEED_HISTORIAN_SOURCE = resolve(
+  __dirname,
+  '../../../../agents/seed-agents/cleo-historian.cant',
+);
 
 /** Minimal .cant whose `name` matches the filename base. */
 const FIXTURE_WORKER_CANT = `---
@@ -322,7 +327,7 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     try {
       // Install the canonical target, then look up via the deprecated alias.
       installAgentFromCant(db, {
-        cantSource: '/mnt/projects/cleocode/packages/agents/seed-agents/cleo-prime.cant',
+        cantSource: resolve(__dirname, '../../../../agents/seed-agents/cleo-prime.cant'),
         targetTier: 'global',
         installedFrom: 'seed',
         globalCantDir: env.globalCantDir,

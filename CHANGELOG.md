@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.87] — 2026-04-17 — CI hotfix
+
+Fixes CI test failures in v2026.4.86 caused by hardcoded absolute paths in 3 test files that resolved to `/mnt/projects/cleocode/...` (local dev machine only) rather than CI runner paths. Patched to use `path.resolve(__dirname, ...)` monorepo-relative resolution. Release contents identical to v2026.4.86 + this fix.
+
+Files fixed:
+- `packages/core/src/store/__tests__/agent-install.test.ts`
+- `packages/core/src/store/__tests__/agent-resolver.test.ts`
+- `packages/cleo/src/cli/commands/__tests__/agent-install.test.ts`
+
 ## [2026.4.86] — 2026-04-17 — T889 Orchestration Coherence v3 (Foundation Release)
 
 Mega-epic unifying the disjointed layers of the agent-composition pipeline into one coherent programmatic API, aligned with 2026 industry standards (OpenProse semiformal agentic DSL, thin-agent pattern, contract-based orchestration, HITL resume tokens).
