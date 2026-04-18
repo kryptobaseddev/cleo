@@ -25,6 +25,13 @@ export default defineConfig({
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/adapters': new URL('./src/index.ts', import.meta.url).pathname,
+      // T937: harness-interop sandbox resolves @cleocode/playbooks to source so the
+      // runtime can be exercised end-to-end without circular build dependencies.
+      // Adapters does not depend on @cleocode/playbooks at build time — the alias
+      // is test-only and confirms the SDK-consolidation invariant (no provider
+      // SDK imports leak into the runtime source).
+      '@cleocode/playbooks': new URL('../../packages/playbooks/src/index.ts', import.meta.url)
+        .pathname,
     },
   },
 });
