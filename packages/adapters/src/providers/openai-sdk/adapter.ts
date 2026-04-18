@@ -1,11 +1,14 @@
 /**
- * OpenAI Agents SDK Adapter.
+ * OpenAI SDK Adapter — Vercel AI SDK edition.
  *
- * Main `CLEOProviderAdapter` implementation for the OpenAI Agents SDK.
- * Provides spawn and install capabilities. Hooks are not supported (the
- * SDK does not expose a CLI hook system equivalent to Claude Code's).
+ * Main `CLEOProviderAdapter` implementation for the OpenAI provider, backed
+ * by the Vercel AI SDK (`ai` v6 + `@ai-sdk/openai`). Provides spawn and
+ * install capabilities. Hooks are not supported — the Vercel AI SDK does not
+ * expose a CLI hook system equivalent to Claude Code's.
  *
- * @task T582
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — Vercel AI SDK migration)
+ * @see ADR-052 — SDK consolidation decision
  */
 
 import type {
@@ -17,29 +20,27 @@ import { OpenAiSdkInstallProvider } from './install.js';
 import { OpenAiSdkSpawnProvider } from './spawn.js';
 
 /**
- * CLEO provider adapter for the OpenAI Agents SDK.
+ * CLEO provider adapter for the OpenAI provider.
  *
- * Bridges CLEO's adapter system with the `@openai/agents` SDK:
- * - Spawn: Launches agents via the SDK runner with handoff topology
+ * Bridges CLEO's adapter system with the Vercel AI SDK:
+ * - Spawn: Launches agents via the SDK with CLEO-native handoff topology
  * - Install: Manages AGENTS.md @-references and .openai/ config directory
  * - Tracing: Default-on conduit span persistence via `CleoConduitTraceProcessor`
  *
  * @remarks
- * This adapter is the only CLEO provider with first-class handoff support.
- * Team Lead → Worker topology is declared in `SpawnContext.options.handoffs`
- * and wired directly to SDK `Agent.handoffs`. The SDK handles routing
- * internally without any CLEO glue code.
- *
- * This is also the only provider supporting 100+ LLMs via the Vercel AI SDK
- * bridge (capability flag: `supportsMultiModel`).
+ * Handoff topology is CLEO-owned (see `handoff.ts`): lead agents delegate to
+ * worker archetypes in sequence, and the concatenated output is returned.
+ * The Vercel AI SDK surface (`generateText` / `streamText`) works uniformly
+ * across Anthropic, OpenAI, and compatible providers, so the provider keeps
+ * the `supportsMultiModel` capability flag.
  */
 export class OpenAiSdkAdapter implements CLEOProviderAdapter {
   /** Unique provider identifier. */
   readonly id = 'openai-sdk';
   /** Human-readable provider name. */
-  readonly name = 'OpenAI Agents SDK';
+  readonly name = 'OpenAI SDK (Vercel AI SDK)';
   /** Adapter version string. */
-  readonly version = '1.0.0';
+  readonly version = '2.0.0';
 
   /** Declared capabilities for this provider. */
   capabilities: AdapterCapabilities = {
@@ -117,7 +118,7 @@ export class OpenAiSdkAdapter implements CLEOProviderAdapter {
       details: {
         apiKeyPresent,
         projectDir: this.projectDir,
-        sdkVersion: '0.8.3',
+        sdkVersion: 'ai@6 + @ai-sdk/openai',
       },
     };
   }

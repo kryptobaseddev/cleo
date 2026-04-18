@@ -1,32 +1,50 @@
 /**
- * Tests for ClaudeSDKSpawnProvider
+ * Tests for ClaudeSDKSpawnProvider — Vercel AI SDK edition.
  *
- * The SDK `query()` function is mocked so tests run without a real
+ * The Vercel AI SDK `generateText` call is mocked via a CLEO-native mock
+ * that returns a deterministic response. Tests run without a real
  * ANTHROPIC_API_KEY or network connection.
  *
- * @task T581
+ * @task T581 (original)
+ * @task T933 (SDK consolidation — Vercel AI SDK migration)
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSDKSpawnProvider } from '../spawn.js';
 
 // ---------------------------------------------------------------------------
-// Mock the SDK module
+// Mock Vercel AI SDK surface
 // ---------------------------------------------------------------------------
 
-/** Minimal SDK message iterator builder for tests. */
-function makeQueryIterator(messages: Array<Record<string, unknown>>) {
+/** Shared mock state tracked across tests. */
+const { mockState } = vi.hoisted(() => {
   return {
-    [Symbol.asyncIterator]: async function* () {
-      for (const msg of messages) {
-        yield msg;
-      }
+    mockState: {
+      text: 'mocked claude response',
+      shouldThrow: false,
+      lastCall: null as null | { model: unknown; prompt: string },
     },
   };
-}
+});
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn(),
+// Mock the '@ai-sdk/anthropic' surface: createAnthropic returns a factory
+// function that produces a LanguageModel stand-in. CLEO only consumes the
+// return value as an opaque handle passed to generateText.
+vi.mock('@ai-sdk/anthropic', () => ({
+  createAnthropic: vi.fn((_config: { apiKey: string }) => {
+    return (modelId: string) => ({ __cleoMockModel: true, modelId });
+  }),
+}));
+
+// Mock 'ai' generateText to drive deterministic test outputs.
+vi.mock('ai', () => ({
+  generateText: vi.fn(async ({ model, prompt }: { model: unknown; prompt: string }) => {
+    mockState.lastCall = { model, prompt };
+    if (mockState.shouldThrow) {
+      throw new Error('mock AI SDK error');
+    }
+    return { text: mockState.text };
+  }),
 }));
 
 // Mock CANT enrichment so tests don't need the cleo CLI.
@@ -37,15 +55,6 @@ vi.mock('../../../cant-context.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function getQueryMock() {
-  const { query } = await import('@anthropic-ai/claude-agent-sdk');
-  return query as ReturnType<typeof vi.fn>;
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -54,10 +63,14 @@ describe('ClaudeSDKSpawnProvider', () => {
 
   beforeEach(() => {
     provider = new ClaudeSDKSpawnProvider();
+    mockState.shouldThrow = false;
+    mockState.text = 'mocked claude response';
+    mockState.lastCall = null;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    mockState.shouldThrow = false;
   });
 
   // -------------------------------------------------------------------------
@@ -71,13 +84,9 @@ describe('ClaudeSDKSpawnProvider', () => {
     });
 
     it('returns false when no credentials are available', async () => {
-      // Mock fs.existsSync to return false for all key paths so no tier
-      // resolves (env var, stored key file, or OAuth credentials file).
-      const { existsSync } = await import('node:fs');
       const saved = process.env.ANTHROPIC_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
-      vi.spyOn({ existsSync }, 'existsSync').mockReturnValue(false);
-      // Use vi.mock for node:fs to prevent reading real ~/.claude/.credentials.json
+      // Mock node:fs so the stored-key file and OAuth creds both fail to resolve.
       vi.doMock('node:fs', () => ({
         existsSync: vi.fn().mockReturnValue(false),
         readFileSync: vi.fn().mockImplementation(() => {
@@ -85,7 +94,6 @@ describe('ClaudeSDKSpawnProvider', () => {
         }),
       }));
       try {
-        // Re-import spawn module with mocked fs to get fresh resolver state
         vi.resetModules();
         const { ClaudeSDKSpawnProvider: FreshProvider } = await import('../spawn.js');
         const freshProvider = new FreshProvider();
@@ -153,48 +161,15 @@ describe('ClaudeSDKSpawnProvider', () => {
   // -------------------------------------------------------------------------
 
   describe('spawn() — success', () => {
-    it('returns completed status with aggregated output', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'system',
-            subtype: 'init',
-            session_id: 'sess-abc',
-            tools: [],
-            mcp_servers: [],
-            model: 'claude-sonnet-4-5',
-            permissionMode: 'bypassPermissions',
-            cwd: '/tmp',
-            slash_commands: [],
-            output_style: 'auto',
-          },
-          {
-            type: 'assistant',
-            session_id: 'sess-abc',
-            message: {
-              content: [
-                { type: 'text', text: 'Hello from' },
-                { type: 'text', text: ' the SDK.' },
-              ],
-            },
-          },
-          {
-            type: 'result',
-            subtype: 'success',
-            session_id: 'sess-abc',
-            result: 'Done.',
-            is_error: false,
-            duration_ms: 100,
-            duration_api_ms: 80,
-            num_turns: 1,
-            total_cost_usd: 0.001,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
+    beforeEach(() => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+    });
+    afterEach(() => {
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    it('returns completed status with generated output', async () => {
+      mockState.text = 'Hello from the SDK.';
 
       const result = await provider.spawn({
         taskId: 'T001',
@@ -205,113 +180,44 @@ describe('ClaudeSDKSpawnProvider', () => {
       expect(result.status).toBe('completed');
       expect(result.providerId).toBe('claude-sdk');
       expect(result.taskId).toBe('T001');
-      expect(result.output).toContain('Hello from');
-      expect(result.output).toContain('the SDK.');
-      expect(result.output).toContain('Done.');
+      expect(result.output).toBe('Hello from the SDK.');
       expect(result.exitCode).toBe(0);
       expect(result.startTime).toBeTruthy();
       expect(result.endTime).toBeTruthy();
     });
 
-    it('passes allowedTools from context options', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'success',
-            session_id: 'sess-xyz',
-            result: '',
-            is_error: false,
-            duration_ms: 10,
-            duration_api_ms: 8,
-            num_turns: 1,
-            total_cost_usd: 0,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
-
+    it('forwards the enriched prompt to generateText', async () => {
       await provider.spawn({
         taskId: 'T002',
-        prompt: 'Read only.',
-        options: { toolAllowlist: ['Read', 'Grep'] },
+        prompt: 'Describe the project.',
       });
 
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({
-            allowedTools: ['Read', 'Grep'],
-          }),
-        }),
-      );
+      expect(mockState.lastCall?.prompt).toBe('Describe the project.');
     });
 
-    it('uses default tools when no toolAllowlist provided', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'success',
-            session_id: 'sess-xyz',
-            result: '',
-            is_error: false,
-            duration_ms: 10,
-            duration_api_ms: 8,
-            num_turns: 1,
-            total_cost_usd: 0,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
+    it('uses the default model when none is specified', async () => {
+      await provider.spawn({
+        taskId: 'T003',
+        prompt: 'Default model.',
+      });
 
-      await provider.spawn({ taskId: 'T003', prompt: 'Default tools.' });
-
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({
-            allowedTools: expect.arrayContaining(['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep']),
-          }),
-        }),
-      );
+      const model = mockState.lastCall?.model as
+        | { __cleoMockModel: true; modelId: string }
+        | undefined;
+      expect(model?.modelId).toBe('claude-sonnet-4-5');
     });
 
-    it('sets permissionMode to bypassPermissions', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'success',
-            session_id: 'sess-perm',
-            result: '',
-            is_error: false,
-            duration_ms: 5,
-            duration_api_ms: 4,
-            num_turns: 1,
-            total_cost_usd: 0,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
+    it('uses the requested model when provided in options', async () => {
+      await provider.spawn({
+        taskId: 'T004',
+        prompt: 'Override model.',
+        options: { model: 'claude-sonnet-4-6' },
+      });
 
-      await provider.spawn({ taskId: 'T004', prompt: 'Permissions.' });
-
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({
-            permissionMode: 'bypassPermissions',
-            allowDangerouslySkipPermissions: true,
-          }),
-        }),
-      );
+      const model = mockState.lastCall?.model as
+        | { __cleoMockModel: true; modelId: string }
+        | undefined;
+      expect(model?.modelId).toBe('claude-sonnet-4-6');
     });
   });
 
@@ -320,114 +226,43 @@ describe('ClaudeSDKSpawnProvider', () => {
   // -------------------------------------------------------------------------
 
   describe('spawn() — error handling', () => {
-    it('returns failed status on SDK error subtype', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'error_during_execution',
-            session_id: 'sess-err',
-            is_error: true,
-            errors: ['Something went wrong'],
-            duration_ms: 50,
-            duration_api_ms: 40,
-            num_turns: 1,
-            total_cost_usd: 0,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
-
-      const result = await provider.spawn({ taskId: 'T005', prompt: 'Fail.' });
-
-      expect(result.status).toBe('failed');
-      expect(result.exitCode).toBe(1);
-      expect(result.error).toContain('Something went wrong');
+    it('returns failed status when no Anthropic credentials exist', async () => {
+      const saved = process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      vi.doMock('node:fs', () => ({
+        existsSync: vi.fn().mockReturnValue(false),
+        readFileSync: vi.fn().mockImplementation(() => {
+          throw new Error('mocked: file not found');
+        }),
+      }));
+      try {
+        vi.resetModules();
+        const { ClaudeSDKSpawnProvider: FreshProvider } = await import('../spawn.js');
+        const freshProvider = new FreshProvider();
+        const result = await freshProvider.spawn({
+          taskId: 'T005',
+          prompt: 'No creds.',
+        });
+        expect(result.status).toBe('failed');
+        expect(result.exitCode).toBe(1);
+        expect(result.error).toContain('No Anthropic credentials');
+      } finally {
+        vi.resetModules();
+        vi.doUnmock('node:fs');
+        if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved;
+      }
     });
 
-    it('returns failed status when query() throws', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockImplementation(() => {
-        throw new Error('Network error');
-      });
+    it('returns failed status when generateText throws', async () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      mockState.shouldThrow = true;
 
       const result = await provider.spawn({ taskId: 'T006', prompt: 'Throw.' });
 
       expect(result.status).toBe('failed');
       expect(result.exitCode).toBe(1);
-      expect(result.error).toContain('Network error');
-    });
-
-    it('returns failed status when error_max_turns reached', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'error_max_turns',
-            session_id: 'sess-max',
-            is_error: true,
-            errors: [],
-            duration_ms: 200,
-            duration_api_ms: 180,
-            num_turns: 10,
-            total_cost_usd: 0.05,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
-
-      const result = await provider.spawn({ taskId: 'T007', prompt: 'Max turns.' });
-
-      expect(result.status).toBe('failed');
-      expect(result.exitCode).toBe(1);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Session resume
-  // -------------------------------------------------------------------------
-
-  describe('spawn() — session resume', () => {
-    it('passes resume option when resumeSessionId is provided', async () => {
-      const queryMock = await getQueryMock();
-      queryMock.mockReturnValue(
-        makeQueryIterator([
-          {
-            type: 'result',
-            subtype: 'success',
-            session_id: 'sess-resume',
-            result: 'resumed',
-            is_error: false,
-            duration_ms: 20,
-            duration_api_ms: 15,
-            num_turns: 1,
-            total_cost_usd: 0,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          },
-        ]),
-      );
-
-      await provider.spawn({
-        taskId: 'T008',
-        prompt: 'Continue work.',
-        options: { resumeSessionId: 'prior-session-id' },
-      });
-
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({
-            resume: 'prior-session-id',
-          }),
-        }),
-      );
+      expect(result.error).toContain('mock AI SDK error');
+      delete process.env.ANTHROPIC_API_KEY;
     });
   });
 });

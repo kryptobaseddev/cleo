@@ -1,32 +1,115 @@
 /**
- * OpenAI Agents SDK trace processor that writes spans to conduit.db.
+ * CLEO trace processor that writes spans to conduit.db.
  *
- * `CleoConduitTraceProcessor` implements the SDK `TracingProcessor` interface.
- * On every span end it serialises the span and writes a structured event to
- * conduit.db via the shared `conduit-trace-writer` transport layer.
+ * `CleoConduitTraceProcessor` implements a CLEO-native tracing processor
+ * interface that records spans emitted by the OpenAI SDK adapter. Post T933
+ * (ADR-052 — Vercel AI SDK consolidation) the processor no longer implements
+ * `@openai/agents` type surfaces; instead it consumes `CleoSpan` events
+ * produced by `OpenAiSdkSpawnProvider` during a run.
  *
  * Tracing is on by default for all OpenAI SDK spawns. Set
  * `options.tracingDisabled = true` in `SpawnContext.options` to opt out when
  * conduit is unavailable.
  *
- * @task T582
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — provider-neutral rewrite)
  */
 
-import type { Span, SpanData, Trace, TracingProcessor } from '@openai/agents';
 import type { ConduitSpanEvent } from '../shared/conduit-trace-writer.js';
 import { writeSpanBatchToConduit } from '../shared/conduit-trace-writer.js';
+
+// ---------------------------------------------------------------------------
+// CLEO-native span shape
+// ---------------------------------------------------------------------------
+
+/** Span category emitted by the OpenAI SDK adapter. */
+export type CleoSpanKind = 'agent' | 'handoff' | 'function' | 'model' | 'custom';
+
+/**
+ * CLEO-native span payload produced by the OpenAI SDK adapter.
+ *
+ * @remarks
+ * Intentionally mirrors the subset of `@openai/agents` span data CLEO
+ * actually consumed, rebuilt as a provider-neutral record.
+ */
+export interface CleoSpan {
+  /** Deterministic span identifier. */
+  spanId: string;
+  /** ISO timestamp when the span started. */
+  startedAt?: string;
+  /** ISO timestamp when the span ended. */
+  endedAt?: string;
+  /** Structured span data (type discriminates payload shape). */
+  spanData?: CleoSpanData;
+}
+
+/** Agent-kind span payload. */
+export interface CleoAgentSpanData {
+  type: 'agent';
+  name: string;
+}
+
+/** Handoff-kind span payload (agent delegation). */
+export interface CleoHandoffSpanData {
+  type: 'handoff';
+  from_agent?: string;
+  to_agent?: string;
+}
+
+/** Function-kind span payload (tool invocation). */
+export interface CleoFunctionSpanData {
+  type: 'function';
+  name: string;
+}
+
+/** Catch-all for future span kinds. */
+export interface CleoGenericSpanData {
+  type: Exclude<CleoSpanKind, 'agent' | 'handoff' | 'function'>;
+  [key: string]: unknown;
+}
+
+/** Tagged union of all span payloads. */
+export type CleoSpanData =
+  | CleoAgentSpanData
+  | CleoHandoffSpanData
+  | CleoFunctionSpanData
+  | CleoGenericSpanData;
+
+/** CLEO-native trace envelope — currently opaque to the processor. */
+export interface CleoTrace {
+  /** Trace identifier. */
+  traceId?: string;
+  /** Free-form metadata. */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * CLEO-native trace processor contract.
+ *
+ * @remarks
+ * Replaces `TracingProcessor` from `@openai/agents`. The shape is compatible
+ * with the legacy interface so downstream consumers can continue to invoke
+ * the same methods.
+ */
+export interface CleoTraceProcessor {
+  onTraceStart(trace: CleoTrace): Promise<void>;
+  onTraceEnd(trace: CleoTrace): Promise<void>;
+  onSpanStart(span: CleoSpan): Promise<void>;
+  onSpanEnd(span: CleoSpan): Promise<void>;
+  shutdown(timeout?: number): Promise<void>;
+  forceFlush(): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Processor
 // ---------------------------------------------------------------------------
 
 /**
- * CLEO trace processor that persists OpenAI Agents SDK spans to conduit.db.
+ * CLEO trace processor that persists OpenAI SDK adapter spans to conduit.db.
  *
- * Implements the `TracingProcessor` interface from `@openai/agents-core`.
- * Each `onSpanEnd` call extracts span metadata and enqueues a write to
- * conduit via the shared `conduit-trace-writer` module. Writes are
- * fire-and-forget — failures are logged but never propagated to the caller.
+ * Each `onSpanEnd` call extracts span metadata and enqueues a write to conduit
+ * via the shared `conduit-trace-writer` module. Writes are fire-and-forget —
+ * failures are logged but never propagated to the caller.
  *
  * @remarks
  * `onTraceEnd` performs a batch flush of any buffered spans. Individual
@@ -35,14 +118,14 @@ import { writeSpanBatchToConduit } from '../shared/conduit-trace-writer.js';
  *
  * @example
  * ```typescript
- * import { addTraceProcessor } from '@openai/agents';
+ * import { registerTraceProcessor } from './spawn.js';
  * import { CleoConduitTraceProcessor } from './tracing.js';
  *
  * const processor = new CleoConduitTraceProcessor('T582');
- * addTraceProcessor(processor);
+ * registerTraceProcessor(processor);
  * ```
  */
-export class CleoConduitTraceProcessor implements TracingProcessor {
+export class CleoConduitTraceProcessor implements CleoTraceProcessor {
   /** CLEO task ID included in every span event for correlation. */
   private readonly taskId: string;
 
@@ -61,7 +144,7 @@ export class CleoConduitTraceProcessor implements TracingProcessor {
    *
    * @param _trace - The trace that just started (unused).
    */
-  async onTraceStart(_trace: Trace): Promise<void> {
+  async onTraceStart(_trace: CleoTrace): Promise<void> {
     this.pendingEvents = [];
   }
 
@@ -70,7 +153,7 @@ export class CleoConduitTraceProcessor implements TracingProcessor {
    *
    * @param _trace - The trace that just ended (unused — spans were captured via `onSpanEnd`).
    */
-  async onTraceEnd(_trace: Trace): Promise<void> {
+  async onTraceEnd(_trace: CleoTrace): Promise<void> {
     if (this.pendingEvents.length > 0) {
       await writeSpanBatchToConduit(this.pendingEvents);
       this.pendingEvents = [];
@@ -82,16 +165,16 @@ export class CleoConduitTraceProcessor implements TracingProcessor {
    *
    * @param _span - The span that just started (unused).
    */
-  async onSpanStart(_span: Span<SpanData>): Promise<void> {
+  async onSpanStart(_span: CleoSpan): Promise<void> {
     // Capture on end so startedAt / endedAt are both populated.
   }
 
   /**
    * Called when a span ends. Serialises and writes the span to conduit.
    *
-   * @param span - The completed span from the SDK.
+   * @param span - The completed span from the adapter.
    */
-  async onSpanEnd(span: Span<SpanData>): Promise<void> {
+  async onSpanEnd(span: CleoSpan): Promise<void> {
     const event = this.extractSpanEvent(span);
     if (event) {
       this.pendingEvents.push(event);
@@ -127,13 +210,13 @@ export class CleoConduitTraceProcessor implements TracingProcessor {
   // ---------------------------------------------------------------------------
 
   /**
-   * Extract a {@link ConduitSpanEvent} from an SDK span, or `null` if the
+   * Extract a {@link ConduitSpanEvent} from an adapter span, or `null` if the
    * span cannot be meaningfully serialised.
    *
-   * @param span - The SDK span to serialise.
+   * @param span - The adapter span to serialise.
    * @returns A conduit span event or `null`.
    */
-  private extractSpanEvent(span: Span<SpanData>): ConduitSpanEvent | null {
+  private extractSpanEvent(span: CleoSpan): ConduitSpanEvent | null {
     const spanId =
       span.spanId ?? `span-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 

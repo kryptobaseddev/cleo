@@ -1,8 +1,8 @@
 {
   "id": "openai-sdk",
-  "name": "OpenAI Agents SDK Adapter",
-  "version": "1.0.0",
-  "description": "CLEO adapter for the OpenAI Agents SDK with first-class handoffs and multi-model support",
+  "name": "OpenAI SDK (Vercel AI SDK)",
+  "version": "2.0.0",
+  "description": "CLEO adapter for OpenAI via the Vercel AI SDK with CLEO-native handoffs and multi-model support",
   "provider": "openai-sdk",
   "entryPoint": "src/providers/openai-sdk/index.ts",
   "capabilities": {
@@ -35,7 +35,7 @@
     "provider.openai.tracingEnabled": {
       "type": "boolean",
       "default": true,
-      "description": "Whether to write SDK span events to conduit.db"
+      "description": "Whether to write adapter span events to conduit.db"
     }
   },
   "detectionPatterns": [
