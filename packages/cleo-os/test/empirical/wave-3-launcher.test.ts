@@ -122,11 +122,14 @@ describe("T392 — postinstall.ts source", () => {
     expect(content).toContain("isGlobalInstall");
   });
 
-  it("contains XDG path resolution", () => {
+  it("delegates to core getPlatformPaths for cross-OS path resolution", () => {
     const src = join(PKG_ROOT, "src", "postinstall.ts");
     const content = readFileSync(src, "utf-8");
-    expect(content).toContain("XDG_DATA_HOME");
-    expect(content).toContain("XDG_CONFIG_HOME");
+    // Postinstall MUST delegate to @cleocode/core's platform-paths (SSoT).
+    // It MUST NOT re-implement XDG / AppData logic inline — that was the
+    // duplication that caused cross-OS drift pre-W1.2.
+    expect(content).toContain("getPlatformPaths");
+    expect(content).toContain("@cleocode/core/system/platform-paths");
   });
 
   it("deploys cleo-cant-bridge extension", () => {
@@ -184,10 +187,17 @@ describe("T394 — tsconfig build pipeline", () => {
 // ---------------------------------------------------------------------------
 
 describe("T395 — XDG path resolution", () => {
-  const originalEnv = { ...process.env };
+  const originalEnv: Record<string, string | undefined> = { ...process.env };
 
+  // Restore via key-level mutation so env-paths's captured process.env
+  // reference stays live across tests (reassigning process.env orphans it).
   afterEach(() => {
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    for (const [k, v] of Object.entries(originalEnv)) {
+      if (v !== undefined) process.env[k] = v;
+    }
   });
 
   it("resolveCleoOsPaths resolves auth under config root", async () => {

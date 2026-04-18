@@ -1,9 +1,15 @@
 /**
- * CLI self-update command - check for and install updates.
+ * CLI `cleo self-update` command — upgrade the CLI BINARY itself via npm.
  *
- * After updating, runs post-update diagnostics:
- *   - Pre-flight storage migration check
- *   - Auto-triggers upgrade if JSON data needs SQLite migration
+ * Not to be confused with:
+ *   - `cleo update <taskId>` (see update.ts) — edit a task's fields
+ *   - `cleo upgrade` (see upgrade.ts) — repair current project's .cleo/ state
+ *
+ * Flow:
+ *   1. Check current installed version vs. npm registry / GitHub releases
+ *   2. If newer available, run `npm i -g @cleocode/cleo@<version>` (or equivalent)
+ *   3. After CLI upgrade, delegate to `runUpgrade()` for project-state repair
+ *      (same logic as `cleo upgrade`)
  *
  * Designed for LLM agents: structured JSON output, actionable fix commands.
  *
@@ -20,7 +26,9 @@ import { ExitCode } from '@cleocode/contracts';
 import {
   BUILD_CONFIG,
   CleoError,
+  checkAllRegisteredProjects,
   checkStorageMigration,
+  type FullHealthReport,
   formatError,
   getCleoHome,
   getRuntimeDiagnostics,
@@ -153,6 +161,12 @@ export const selfUpdateCommand = defineCommand({
       type: 'boolean',
       description: 'Automatically migrate storage without prompting',
     },
+    'check-projects': {
+      type: 'boolean',
+      default: true,
+      description:
+        'Run cross-project health probe after upgrade (disable with --no-check-projects)',
+    },
     // Global output format flags — read directly from args (no optsWithGlobals in citty)
     json: {
       type: 'boolean',
@@ -174,6 +188,8 @@ export const selfUpdateCommand = defineCommand({
     try {
       const noAutoUpgrade = args['no-auto-upgrade'] === true;
 
+      const checkProjects = args['check-projects'] !== false;
+
       // --post-update: skip version check, just run diagnostics + upgrade
       if (args['post-update']) {
         progress.start();
@@ -181,6 +197,7 @@ export const selfUpdateCommand = defineCommand({
         await runPostUpdateDiagnostics({
           skipUpgrade: noAutoUpgrade,
           autoMigrate: !!args['auto-migrate'] || !!args.force,
+          checkProjects,
         });
         progress.complete('Post-update diagnostics complete');
         return;
@@ -299,6 +316,7 @@ export const selfUpdateCommand = defineCommand({
         await runPostUpdateDiagnostics({
           skipUpgrade: noAutoUpgrade,
           autoMigrate: !!args['auto-migrate'] || !!args.force,
+          checkProjects,
         });
         progress.complete('Already up to date');
         cliOutput(
@@ -336,6 +354,7 @@ export const selfUpdateCommand = defineCommand({
       await runPostUpdateDiagnostics({
         skipUpgrade: noAutoUpgrade,
         autoMigrate: !!args['auto-migrate'] || !!args.force,
+        checkProjects,
       });
       progress.complete(`Updated to ${latest}`);
     } catch (err) {
@@ -363,6 +382,7 @@ export const selfUpdateCommand = defineCommand({
 async function runPostUpdateDiagnostics(opts?: {
   skipUpgrade?: boolean;
   autoMigrate?: boolean;
+  checkProjects?: boolean;
 }): Promise<void> {
   const preflight = checkStorageMigration();
 
@@ -487,19 +507,80 @@ async function runPostUpdateDiagnostics(opts?: {
               : 'Post-update maintenance had errors.',
           },
         );
-        return;
+      } else {
+        cliOutput(
+          {
+            postUpdate: true,
+            storagePreflight: {
+              migrationNeeded: false,
+              summary: preflight.summary,
+            },
+          },
+          { command: 'self-update', message: 'No post-update actions needed.' },
+        );
       }
-    }
-
-    cliOutput(
-      {
-        postUpdate: true,
-        storagePreflight: {
-          migrationNeeded: false,
-          summary: preflight.summary,
+    } else {
+      cliOutput(
+        {
+          postUpdate: true,
+          storagePreflight: {
+            migrationNeeded: false,
+            summary: preflight.summary,
+          },
         },
-      },
-      { command: 'self-update', message: 'No post-update actions needed.' },
-    );
+        { command: 'self-update', message: 'No post-update actions needed.' },
+      );
+    }
+  }
+
+  // ── Cross-project health probe (ADR: T-PROJECT-HEALTH) ──────────────
+  // After the project-local upgrade finishes, iterate every project in
+  // nexus.db and probe its DBs + config files. This catches drift in OTHER
+  // projects that would not otherwise surface until the user cd's into them.
+  //
+  // Disabled via --no-check-projects. Never fatal — probe failures are
+  // captured on the returned report, not thrown.
+  if (opts?.checkProjects !== false) {
+    try {
+      const report: FullHealthReport = await checkAllRegisteredProjects({
+        updateRegistry: true,
+      });
+      cliOutput(
+        {
+          crossProjectHealth: {
+            summary: report.summary,
+            global: report.global.overall,
+            globalIssues: report.global.issues,
+            degraded: report.projects
+              .filter((p) => p.overall === 'degraded')
+              .map((p) => ({
+                hash: p.projectHash,
+                path: p.projectPath,
+                issues: p.issues,
+              })),
+            unreachable: report.projects
+              .filter((p) => p.overall === 'unreachable')
+              .map((p) => ({
+                hash: p.projectHash,
+                path: p.projectPath,
+              })),
+          },
+        },
+        {
+          command: 'self-update',
+          message:
+            report.summary.degraded > 0 || report.summary.unreachable > 0
+              ? `Cross-project health: ${report.summary.degraded} degraded, ${report.summary.unreachable} unreachable`
+              : `Cross-project health: ${report.summary.totalProjects} project(s) healthy`,
+        },
+      );
+    } catch (err) {
+      // Non-fatal — the probe itself is instrumented to never throw, but we
+      // belt-and-suspenders here in case the import path fails in a novel
+      // installation state.
+      process.stderr.write(
+        `\n⚠ Cross-project health probe failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
   }
 }

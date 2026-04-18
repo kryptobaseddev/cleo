@@ -15,6 +15,7 @@ import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import type { HookMatrixResult } from '../../dispatch/engines/hooks-engine.js';
 import { createDoctorProgress } from '../progress.js';
+import { runDoctorProjects } from './doctor-projects.js';
 
 /**
  * Render the hook matrix as a human-readable provider x event grid.
@@ -100,6 +101,14 @@ export const doctorCommand = defineCommand({
       type: 'boolean',
       description: 'Show cross-provider hook support matrix (CAAMP canonical taxonomy)',
     },
+    'all-projects': {
+      type: 'boolean',
+      description: 'Probe DB + config health for every registered project (nexus.db)',
+    },
+    'ignore-unreachable': {
+      type: 'boolean',
+      description: 'When used with --all-projects, exit 1 instead of 2 on unreachable projects',
+    },
     // Global output format flags — read directly from args (no optsWithGlobals in citty)
     json: {
       type: 'boolean',
@@ -121,7 +130,15 @@ export const doctorCommand = defineCommand({
     progress.start();
 
     try {
-      if (args.hooks) {
+      if (args['all-projects']) {
+        progress.step(0, 'Probing registered projects');
+        await runDoctorProjects({
+          json: args.json === true,
+          quiet: args.quiet === true,
+          ignoreUnreachable: args['ignore-unreachable'] === true,
+        });
+        progress.complete('Project health report complete');
+      } else if (args.hooks) {
         progress.step(0, 'Building provider hook matrix');
         if (isHuman) {
           const response = await dispatchRaw('query', 'admin', 'hooks.matrix', {
