@@ -176,6 +176,8 @@ export {
   recordStageProgress,
   renderStageGuidance,
   resetStage,
+  resolveStageAlias,
+  STAGE_ALIASES,
   STAGE_SKILL_MAP,
   type Stage,
   type StageGuidance,
@@ -383,6 +385,13 @@ export {
   startParallelExecution,
 } from './orchestration/parallel.js';
 export { getSkillContent } from './orchestration/skill-ops.js';
+export type {
+  ComposeSpawnPayloadOptions,
+  SpawnPayload,
+  SpawnPayloadMeta,
+} from './orchestration/spawn.js';
+// Canonical spawn payload composer (T889 / T891 / T932 — single-path spawn).
+export { composeSpawnPayload } from './orchestration/spawn.js';
 export {
   computeEpicStatus,
   computeOverallStatus,
