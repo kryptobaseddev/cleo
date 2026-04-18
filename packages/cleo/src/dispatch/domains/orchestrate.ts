@@ -48,6 +48,11 @@ import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
 import { ConduitHandler } from './conduit.js';
 import { IvtrHandler } from './ivtr.js';
+import {
+  acquirePlaybookDb,
+  listPendingApprovalsForDispatch,
+  lookupApprovalByTokenForDispatch,
+} from './playbook.js';
 
 /** Shared ConduitHandler instance for conduit.* sub-operations (ADR-042). */
 const conduitHandler = new ConduitHandler();
@@ -295,6 +300,10 @@ export class OrchestrateHandler implements DomainHandler {
         // T811: IVTR orchestration harness sub-operations
         case 'ivtr.status':
           return ivtrHandler.query('status', params);
+
+        // T935: HITL approval gates for playbook runs
+        case 'pending':
+          return handlePendingApprovals(startTime);
 
         default:
           return errorResult(
@@ -587,6 +596,12 @@ export class OrchestrateHandler implements DomainHandler {
         case 'ivtr.loop-back':
           return ivtrHandler.mutate('loop-back', params);
 
+        // T935: HITL approval gates for playbook runs
+        case 'approve':
+          return handleApproveGate(params, startTime);
+        case 'reject':
+          return handleRejectGate(params, startTime);
+
         default:
           return errorResult(
             'mutate',
@@ -627,6 +642,8 @@ export class OrchestrateHandler implements DomainHandler {
         'conduit.peek',
         // T811: IVTR orchestration harness
         'ivtr.status',
+        // T935: HITL approval gate listing
+        'pending',
       ],
       mutate: [
         'start',
@@ -647,6 +664,9 @@ export class OrchestrateHandler implements DomainHandler {
         'ivtr.next',
         'ivtr.release',
         'ivtr.loop-back',
+        // T935: HITL approval gate decisions
+        'approve',
+        'reject',
       ],
     };
   }
@@ -1059,5 +1079,248 @@ async function orchestrateAnalyzeParallelSafety(
         message: error instanceof Error ? error.message : String(error),
       },
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// T935 — HITL approval gate handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * List all pending approval gates across every active playbook run.
+ *
+ * Mirrors the schema of `getPendingApprovals` from `@cleocode/playbooks` and
+ * wraps it in a LAFS envelope so the CLI can render a table or JSON blob
+ * without additional transformation.
+ *
+ * @task T935
+ */
+async function handlePendingApprovals(startTime: number): Promise<DispatchResponse> {
+  try {
+    const approvals = await listPendingApprovalsForDispatch();
+    return {
+      meta: dispatchMeta('query', 'orchestrate', 'pending', startTime),
+      success: true,
+      data: {
+        approvals,
+        count: approvals.length,
+        total: approvals.length,
+      },
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'pending', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return handleErrorResult('query', 'orchestrate', 'pending', error, startTime);
+  }
+}
+
+/**
+ * Approve a HITL playbook gate by its resume token.
+ *
+ * Idempotency contract: calling approve twice for the same token returns the
+ * same approved approval record on the second invocation rather than
+ * emitting `E_APPROVAL_ALREADY_DECIDED` — matching the task spec's
+ * "double-approve returns same result" acceptance criterion. Only
+ * transitions from `pending → approved` perform a state write; the second
+ * call is a pure read.
+ *
+ * @task T935
+ */
+async function handleApproveGate(
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  const resumeToken = params?.resumeToken as string | undefined;
+  if (!resumeToken) {
+    return errorResult(
+      'mutate',
+      'orchestrate',
+      'approve',
+      'E_VALIDATION',
+      'resumeToken is required',
+      startTime,
+    );
+  }
+  const approver =
+    typeof params?.approver === 'string' && params.approver.length > 0
+      ? params.approver
+      : 'cli-user';
+  const reason = typeof params?.reason === 'string' ? params.reason : undefined;
+
+  try {
+    const existing = await lookupApprovalByTokenForDispatch(resumeToken);
+    if (existing === null) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'approve',
+        'E_APPROVAL_NOT_FOUND',
+        `no approval gate for token ${resumeToken}`,
+        startTime,
+      );
+    }
+    // Idempotent path: already approved → return the existing record.
+    if (existing.status === 'approved') {
+      return {
+        meta: dispatchMeta('mutate', 'orchestrate', 'approve', startTime),
+        success: true,
+        data: {
+          ...existing,
+          idempotent: true,
+        },
+      };
+    }
+    // Rejected gates cannot be re-approved.
+    if (existing.status === 'rejected') {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'approve',
+        'E_APPROVAL_ALREADY_DECIDED',
+        `gate ${existing.approvalId} was rejected${existing.reason ? ` (${existing.reason})` : ''}`,
+        startTime,
+      );
+    }
+
+    // Pending → approve.
+    const db = await acquirePlaybookDb();
+    const { approveGate } = await import('@cleocode/playbooks');
+    const updated = approveGate(db, resumeToken, approver, reason);
+    return {
+      meta: dispatchMeta('mutate', 'orchestrate', 'approve', startTime),
+      success: true,
+      data: updated,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('E_APPROVAL_ALREADY_DECIDED')) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'approve',
+        'E_APPROVAL_ALREADY_DECIDED',
+        message,
+        startTime,
+      );
+    }
+    if (message.includes('E_APPROVAL_NOT_FOUND')) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'approve',
+        'E_APPROVAL_NOT_FOUND',
+        message,
+        startTime,
+      );
+    }
+    getLogger('domain:orchestrate').error({ operation: 'approve', err: error }, message);
+    return handleErrorResult('mutate', 'orchestrate', 'approve', error, startTime);
+  }
+}
+
+/**
+ * Reject a HITL playbook gate with a mandatory reason.
+ *
+ * @task T935
+ */
+async function handleRejectGate(
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  const resumeToken = params?.resumeToken as string | undefined;
+  if (!resumeToken) {
+    return errorResult(
+      'mutate',
+      'orchestrate',
+      'reject',
+      'E_VALIDATION',
+      'resumeToken is required',
+      startTime,
+    );
+  }
+  const reason = typeof params?.reason === 'string' ? params.reason.trim() : '';
+  if (reason.length === 0) {
+    return errorResult(
+      'mutate',
+      'orchestrate',
+      'reject',
+      'E_VALIDATION',
+      'reason is required for rejection',
+      startTime,
+    );
+  }
+  const approver =
+    typeof params?.approver === 'string' && params.approver.length > 0
+      ? params.approver
+      : 'cli-user';
+
+  try {
+    const existing = await lookupApprovalByTokenForDispatch(resumeToken);
+    if (existing === null) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'reject',
+        'E_APPROVAL_NOT_FOUND',
+        `no approval gate for token ${resumeToken}`,
+        startTime,
+      );
+    }
+    // Idempotent path: already rejected → return the existing record.
+    if (existing.status === 'rejected') {
+      return {
+        meta: dispatchMeta('mutate', 'orchestrate', 'reject', startTime),
+        success: true,
+        data: {
+          ...existing,
+          idempotent: true,
+        },
+      };
+    }
+    if (existing.status === 'approved') {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'reject',
+        'E_APPROVAL_ALREADY_DECIDED',
+        `gate ${existing.approvalId} was already approved`,
+        startTime,
+      );
+    }
+
+    const db = await acquirePlaybookDb();
+    const { rejectGate } = await import('@cleocode/playbooks');
+    const updated = rejectGate(db, resumeToken, approver, reason);
+    return {
+      meta: dispatchMeta('mutate', 'orchestrate', 'reject', startTime),
+      success: true,
+      data: updated,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('E_APPROVAL_ALREADY_DECIDED')) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'reject',
+        'E_APPROVAL_ALREADY_DECIDED',
+        message,
+        startTime,
+      );
+    }
+    if (message.includes('E_APPROVAL_NOT_FOUND')) {
+      return errorResult(
+        'mutate',
+        'orchestrate',
+        'reject',
+        'E_APPROVAL_NOT_FOUND',
+        message,
+        startTime,
+      );
+    }
+    getLogger('domain:orchestrate').error({ operation: 'reject', err: error }, message);
+    return handleErrorResult('mutate', 'orchestrate', 'reject', error, startTime);
   }
 }
