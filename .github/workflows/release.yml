@@ -132,14 +132,14 @@ jobs:
       - name: Biome CI (format + lint gate)
         run: pnpm biome ci .
 
-      # Wipe all dist directories before building to prevent stale incremental
-      # tsbuildinfo cache from producing incomplete tarballs (T721 / T633).
-      # Without this, `tsc --composite` reuses cached .d.ts-only outputs when
-      # the pnpm node_modules cache is restored but the dist tree is partial.
-      - name: Clean dist (prevent stale cache)
+      # Wipe all dist directories AND tsbuildinfo before building. tsc --composite
+      # short-circuits when tsbuildinfo is fresh even if dist/ has been wiped,
+      # which produced an empty @cleocode/playbooks tarball in v2026.4.94
+      # (fixed in v2026.4.95). Nuking both guarantees a fresh emit.
+      - name: Clean dist + tsbuildinfo (prevent stale cache)
         run: |
-          pnpm -r exec -- sh -c 'rm -rf dist' 2>/dev/null || true
-          echo "All dist directories wiped"
+          pnpm -r exec -- sh -c 'rm -rf dist tsconfig.tsbuildinfo' 2>/dev/null || true
+          echo "All dist directories + tsbuildinfo files wiped"
 
       - name: Build
         run: pnpm run build
@@ -173,6 +173,32 @@ jobs:
             exit 1
           fi
           echo "✅ @cleocode/core tarball verification passed"
+
+      - name: Verify @cleocode/playbooks tarball contents
+        run: |
+          cd packages/playbooks
+          npm pack --dry-run > /tmp/playbooks-pack-list.txt 2>&1
+          REQUIRED_FILES=(
+            "dist/index.js"
+            "dist/runtime.js"
+            "dist/parser.js"
+            "dist/state.js"
+            "dist/approval.js"
+            "dist/policy.js"
+          )
+          MISSING=()
+          for file in "${REQUIRED_FILES[@]}"; do
+            if ! grep -qF "$file" /tmp/playbooks-pack-list.txt; then
+              MISSING+=("$file")
+            fi
+          done
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::@cleocode/playbooks tarball missing required JS files"
+            for f in "${MISSING[@]}"; do echo "  MISSING: $f"; done
+            cat /tmp/playbooks-pack-list.txt
+            exit 1
+          fi
+          echo "Playbooks tarball verification passed"
 
       - name: Validate build output
         run: |

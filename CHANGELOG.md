@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.95] — 2026-04-18 — Hotfix: @cleocode/playbooks dist/ shipped empty on v2026.4.94
+
+Patch-level hotfix for v2026.4.94. The `@cleocode/playbooks@2026.4.94` tarball
+was published WITHOUT its `dist/` directory, causing `ERR_MODULE_NOT_FOUND` at
+runtime for any consumer of `@cleocode/cleo@2026.4.94` (including the live
+`pnpm dlx @cleocode/cleo@latest` entry point). v2026.4.95 is a drop-in
+replacement that ships the complete tarball.
+
+### Root Cause
+
+`packages/playbooks` was never wired into the monorepo's `build.mjs` dispatch
+chain — prior releases simply did not require its dist/ because `@cleocode/cleo`
+did not import it. When T935 (commit `3f9abc99c`) added `@cleocode/playbooks`
+as a runtime workspace dep of the cleo CLI, the import path started requiring
+`node_modules/@cleocode/playbooks/dist/index.js` on consumers. The Release
+workflow's `Clean dist` step also left `tsconfig.tsbuildinfo` in place, so
+`tsc --composite -b` short-circuited and emitted nothing — producing an empty
+dist/ tree that npm pack dutifully omitted.
+
+### Fix
+
+- **`build.mjs`** — added explicit build step for `@cleocode/playbooks` after
+  `@cleocode/core` (topological). Also wipes `packages/playbooks/tsconfig.tsbuildinfo`
+  before the tsc invocation to defeat the short-circuit.
+- **`build.mjs`** — added `'@cleocode/playbooks'` to the `bundle-cleo-deps`
+  inlineMap so the cleo CLI bundle inlines playbooks source. Defense in depth:
+  even if a future release breaks the standalone dist, the cleo CLI continues
+  to resolve playbook APIs from its own bundle.
+- **`.github/workflows/release.yml`** — the `Clean dist` step now also wipes
+  `tsconfig.tsbuildinfo` repo-wide. New `Verify @cleocode/playbooks tarball
+  contents` gate mirrors the existing `@cleocode/core` gate — release fails
+  fast if `dist/index.js`, `dist/runtime.js`, `dist/parser.js`, `dist/state.js`,
+  `dist/approval.js`, or `dist/policy.js` are absent from the pack list.
+
 ## [2026.4.94] — 2026-04-18 — Epic T910 Orchestration Coherence v4 (Full Ship)
 
 Finalizes epic **T910 "Orchestration Coherence v4"** with the complete CLI
