@@ -112,6 +112,9 @@ importers:
         specifier: ^6.0.168
         version: 6.0.168(zod@4.3.6)
     devDependencies:
+      '@cleocode/playbooks':
+        specifier: workspace:*
+        version: link:../playbooks
       '@types/node':
         specifier: ^22.19.15
         version: 22.19.15
