@@ -72,6 +72,9 @@ const SAMPLE_TASKS = [
     priority: 'medium',
     parentId: 'T100',
     depends: ['T101'],
+    // T932: composeSpawnPayload enforces atomicity on worker spawns — declare
+    // a single file so the gate allows the spawn through.
+    files: ['packages/core/src/t102.ts'],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: null,
   },
@@ -83,6 +86,7 @@ const SAMPLE_TASKS = [
     priority: 'high',
     parentId: 'T100',
     depends: ['T101'],
+    files: ['packages/core/src/t103.ts'],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: null,
   },
@@ -94,6 +98,7 @@ const SAMPLE_TASKS = [
     priority: 'low',
     parentId: 'T100',
     depends: ['T102', 'T103'],
+    files: ['packages/core/src/t104.ts'],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: null,
   },
@@ -161,6 +166,12 @@ describe('Orchestrate Engine', () => {
       expect(data.readyTasks.map((t: any) => t.id)).toContain('T102');
       expect(data.readyTasks.map((t: any) => t.id)).toContain('T103');
     });
+
+    it('T929 regression: returns E_NOT_FOUND for a nonexistent epic instead of success', async () => {
+      const result = await orchestrateReady('T999', TEST_ROOT);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_NOT_FOUND');
+    });
   });
 
   describe('orchestrateNext', () => {
@@ -210,13 +221,147 @@ describe('Orchestrate Engine', () => {
       const result = await orchestrateSpawn('T102', undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).taskId).toBe('T102');
-      expect((result.data as any).tokenResolution.fullyResolved).toBe(true);
+      // T932: response envelope surfaces composer meta + atomicity verdict.
+      expect((result.data as any).meta.composerVersion).toBe('3.0.0');
+      expect((result.data as any).atomicity.allowed).toBe(true);
+      expect((result.data as any).prompt).toContain('T102');
     });
 
     it('should reject not-ready task', async () => {
+      // Mutate T104 back to a state that fails readiness by leaving its deps
+      // unmet at spawn time (T102/T103 still pending in this fixture).
       const result = await orchestrateSpawn('T104', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_SPAWN_VALIDATION_FAILED');
+    });
+
+    it('T929 regression: returns E_NOT_FOUND (exit 4) for a nonexistent task ID', async () => {
+      const result = await orchestrateSpawn('T999', undefined, TEST_ROOT);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_NOT_FOUND');
+      expect(result.error?.exitCode).toBe(4);
+    });
+  });
+
+  describe('T929 regression: orchestrateStartup and orchestrateReady agree on ready task set', () => {
+    it('both return the same task IDs for a 6-child epic with no dependencies', async () => {
+      // Build a fresh epic with 6 children that have no inter-dependencies —
+      // the exact reproduce scenario from the T929 task description.
+      const epicTasks = [
+        {
+          id: 'E001',
+          title: 'Fresh Epic',
+          description: 'Top-level epic for T929 regression',
+          status: 'pending',
+          priority: 'high',
+          type: 'epic',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: null,
+        },
+        ...([1, 2, 3, 4, 5, 6] as const).map((i) => ({
+          id: `C00${i}`,
+          title: `child ${i}`,
+          description: `child task ${i}`,
+          status: 'pending',
+          priority: 'high',
+          parentId: 'E001',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: null,
+        })),
+      ];
+
+      // Seed into an isolated test root so existing fixture tasks don't interfere.
+      const isolatedRoot = await mkdtemp(join(tmpdir(), 'cleo-t929-'));
+      try {
+        await seedTasks(isolatedRoot, epicTasks);
+
+        const startResult = await orchestrateStartup('E001', isolatedRoot);
+        expect(startResult.success).toBe(true);
+        const startData = startResult.data as any;
+        // start must report 6 ready tasks and all 6 in firstWave
+        expect(startData.summary.readyTasks).toBe(6);
+        expect(startData.firstWave.tasks).toHaveLength(6);
+
+        const readyResult = await orchestrateReady('E001', isolatedRoot);
+        expect(readyResult.success).toBe(true);
+        const readyData = readyResult.data as any;
+        // ready must return the same 6 task IDs that start reported
+        expect(readyData.total).toBe(6);
+        const readyIds = new Set(readyData.readyTasks.map((t: any) => t.id));
+        const firstWaveIds = new Set(startData.firstWave.tasks);
+        for (const id of firstWaveIds) {
+          expect(readyIds.has(id)).toBe(true);
+        }
+      } finally {
+        try {
+          const { closeAllDatabases } = await import('@cleocode/core/internal');
+          await closeAllDatabases();
+        } catch {
+          /* ignore */
+        }
+        await rm(isolatedRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('orchestrateReady includes a reason field when no tasks are ready', async () => {
+      // All tasks have unmet deps — ready set should be empty with a reason.
+      // Note: the DB filters out depends-on IDs that do not exist in the task
+      // store (loadDependenciesForTasks only keeps valid IDs). So the blocker
+      // must be a real task that exists but is NOT done.
+      const blockedTasks = [
+        {
+          id: 'EP01',
+          title: 'Blocked Epic',
+          description: 'Epic where all children have unmet deps',
+          status: 'pending',
+          priority: 'high',
+          type: 'epic',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: null,
+        },
+        {
+          // Standalone pending task used as an unmet blocker — NOT a child of EP01.
+          id: 'BT_BLOCKER',
+          title: 'blocker task',
+          description: 'pending task that is a dep of BT01',
+          status: 'pending',
+          priority: 'high',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: null,
+        },
+        {
+          id: 'BT01',
+          title: 'blocked child',
+          description: 'child with unmet dep',
+          status: 'pending',
+          priority: 'high',
+          parentId: 'EP01',
+          depends: ['BT_BLOCKER'],
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: null,
+        },
+      ];
+
+      const isolatedRoot2 = await mkdtemp(join(tmpdir(), 'cleo-t929b-'));
+      try {
+        await seedTasks(isolatedRoot2, blockedTasks);
+
+        const result = await orchestrateReady('EP01', isolatedRoot2);
+        expect(result.success).toBe(true);
+        const data = result.data as any;
+        expect(data.total).toBe(0);
+        expect(data.readyTasks).toHaveLength(0);
+        expect(typeof data.reason).toBe('string');
+        expect(data.reason.length).toBeGreaterThan(0);
+      } finally {
+        try {
+          const { closeAllDatabases } = await import('@cleocode/core/internal');
+          await closeAllDatabases();
+        } catch {
+          /* ignore */
+        }
+        await rm(isolatedRoot2, { recursive: true, force: true });
+      }
     });
   });
 

@@ -168,25 +168,35 @@ export async function getSystemHealth(
     checks.push({ name: 'cleo_dir', status: 'fail', message: '.cleo directory not found' });
   }
 
-  // Check tasks.db (primary data store per ADR-006)
+  // Check tasks.db via integrity probe (T929 — size-only check misdetected corrupted DBs).
+  // probeDb runs PRAGMA integrity_check and catches non-SQLite files that open() rejects.
   const dbPath = join(cleoDir, 'tasks.db');
-  if (existsSync(dbPath)) {
-    try {
-      const dbSize = statSync(dbPath).size;
-      if (dbSize > 0) {
-        checks.push({ name: 'tasks_db', status: 'pass', message: `tasks.db: ${dbSize} bytes` });
-      } else {
-        checks.push({ name: 'tasks_db', status: 'warn', message: 'tasks.db exists but is empty' });
-      }
-    } catch {
+  {
+    const { probeDb } = await import('./project-health.js');
+    const probe = await probeDb(dbPath);
+    if (!probe.exists) {
+      checks.push({ name: 'tasks_db', status: 'fail', message: 'tasks.db not found' });
+    } else if (!probe.sqliteOpenable) {
       checks.push({
         name: 'tasks_db',
         status: 'fail',
-        message: 'tasks.db exists but is not readable',
+        message: `tasks.db is not a valid SQLite database: ${probe.error ?? 'open failed'}`,
+      });
+    } else if (!probe.integrityOk) {
+      checks.push({
+        name: 'tasks_db',
+        status: 'fail',
+        message: `tasks.db integrity_check failed: ${probe.error ?? 'unknown error'}`,
+      });
+    } else if (probe.sizeBytes === 0) {
+      checks.push({ name: 'tasks_db', status: 'warn', message: 'tasks.db exists but is empty' });
+    } else {
+      checks.push({
+        name: 'tasks_db',
+        status: 'pass',
+        message: `tasks.db: ${probe.sizeBytes} bytes, integrity ok`,
       });
     }
-  } else {
-    checks.push({ name: 'tasks_db', status: 'fail', message: 'tasks.db not found' });
   }
 
   if (existsSync(dbPath)) {
