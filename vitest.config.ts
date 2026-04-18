@@ -77,6 +77,10 @@ export default defineConfig({
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,
+      // T929: @cleocode/nexus was missing from vitest aliases — core imports it
+      // from src/code/index.ts and src/internal.ts, which caused orchestrate-engine
+      // tests to fail with "Failed to resolve entry for package @cleocode/nexus".
+      '@cleocode/nexus': new URL('./packages/nexus/src/index.ts', import.meta.url).pathname,
     },
   },
 });
