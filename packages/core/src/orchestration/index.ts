@@ -49,6 +49,7 @@ export type {
   ComposeSpawnPayloadOptions,
   SpawnPayload,
   SpawnPayloadMeta,
+  SpawnPayloadThinAgentMeta,
 } from './spawn.js';
 export { composeSpawnPayload } from './spawn.js';
 export type {
@@ -79,6 +80,17 @@ export {
   computeStartupSummary,
   countByStatus,
 } from './status.js';
+export type {
+  ThinAgentEnforcementMode,
+  ThinAgentFail,
+  ThinAgentOk,
+  ThinAgentResult,
+} from './thin-agent.js';
+export {
+  E_THIN_AGENT_VIOLATION,
+  enforceThinAgent,
+  THIN_AGENT_SPAWN_TOOLS,
+} from './thin-agent.js';
 
 /** Orchestrator session state. */
 export interface OrchestratorSession {
