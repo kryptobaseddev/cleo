@@ -5,7 +5,7 @@
  * @task T5243
  */
 
-import { stderr, stdout } from 'node:process';
+import { stderr } from 'node:process';
 
 export interface ProgressOptions {
   /** Whether to show progress (true for human mode, false for JSON mode) */
@@ -60,13 +60,18 @@ export class ProgressTracker {
 
   /**
    * Mark as complete with optional summary.
+   *
+   * @remarks
+   * Writes to stderr (not stdout) so that progress messages never pollute
+   * the machine-readable JSON envelope on stdout. Stdout MUST contain exactly
+   * one JSON object per CLI invocation (ADR-039 / T927).
    */
   complete(summary?: string): void {
     if (!this.enabled) return;
     if (summary) {
-      stdout.write(`\n${this.prefix}: ✓ ${summary}\n\n`);
+      stderr.write(`\n${this.prefix}: \u2713 ${summary}\n\n`);
     } else {
-      stdout.write(`\n${this.prefix}: ✓ Complete\n\n`);
+      stderr.write(`\n${this.prefix}: \u2713 Complete\n\n`);
     }
   }
 
@@ -75,7 +80,7 @@ export class ProgressTracker {
    */
   error(message: string): void {
     if (!this.enabled) return;
-    stderr.write(`\n${this.prefix}: ✗ ${message}\n\n`);
+    stderr.write(`\n${this.prefix}: \u2717 ${message}\n\n`);
   }
 }
 
@@ -86,7 +91,18 @@ export class Spinner {
   private enabled: boolean;
   private message: string;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  private frames = [
+    '\u280b',
+    '\u2819',
+    '\u2839',
+    '\u2838',
+    '\u283c',
+    '\u2834',
+    '\u2826',
+    '\u2827',
+    '\u2807',
+    '\u280f',
+  ];
   private frameIndex = 0;
 
   constructor(options: { enabled: boolean; message: string }) {
@@ -116,7 +132,7 @@ export class Spinner {
       this.timer = null;
     }
     if (finalMessage) {
-      stderr.write(`\r✓ ${finalMessage}\n`);
+      stderr.write(`\r\u2713 ${finalMessage}\n`);
     } else {
       stderr.write('\r'.padEnd(this.message.length + 2) + '\r');
     }
