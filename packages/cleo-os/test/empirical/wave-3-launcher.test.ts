@@ -21,7 +21,7 @@
  * @packageDocumentation
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,11 +98,12 @@ describe("T391 — keystore.ts", () => {
     expect(content).toContain("@mariozechner/pi-coding-agent");
   });
 
-  it("uses XDG auth path from xdg.ts", () => {
+  it("uses getPlatformPaths from @cleocode/core and inlines auth path", () => {
     const keystoreSrc = join(PKG_ROOT, "src", "keystore.ts");
     const content = readFileSync(keystoreSrc, "utf-8");
-    expect(content).toContain("resolveCleoOsPaths");
-    expect(content).toContain("paths.auth");
+    expect(content).toContain("getPlatformPaths");
+    expect(content).toContain("@cleocode/core/system/platform-paths.js");
+    expect(content).toContain("join(config, 'auth'");
   });
 });
 
@@ -185,42 +186,30 @@ describe("T394 — tsconfig build pipeline", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T395: XDG path correctness
+// T395: XDG path correctness (via @cleocode/core getPlatformPaths)
+// xdg.ts was deleted in T915 — callers now import getPlatformPaths directly.
 // ---------------------------------------------------------------------------
 
 describe("T395 — XDG path resolution", () => {
-  const originalEnv: Record<string, string | undefined> = { ...process.env };
-
-  // Restore via key-level mutation so env-paths's captured process.env
-  // reference stays live across tests (reassigning process.env orphans it).
-  afterEach(() => {
-    for (const key of Object.keys(process.env)) {
-      if (!(key in originalEnv)) delete process.env[key];
-    }
-    for (const [k, v] of Object.entries(originalEnv)) {
-      if (v !== undefined) process.env[k] = v;
-    }
+  it("src/xdg.ts does not exist (deleted in T915)", () => {
+    const xdgSrc = join(PKG_ROOT, "src", "xdg.ts");
+    expect(existsSync(xdgSrc)).toBe(false);
   });
 
-  it("resolveCleoOsPaths resolves auth under config root", async () => {
-    process.env["XDG_CONFIG_HOME"] = "/tmp/test-xdg-w3";
-    const { resolveCleoOsPaths } = await import("../../src/xdg.js");
-    const paths = resolveCleoOsPaths();
-    expect(paths.auth).toBe("/tmp/test-xdg-w3/cleo/auth");
+  it("cli.ts imports getPlatformPaths from @cleocode/core directly", () => {
+    const cliSrc = join(PKG_ROOT, "src", "cli.ts");
+    const content = readFileSync(cliSrc, "utf-8");
+    expect(content).toContain("getPlatformPaths");
+    expect(content).toContain("@cleocode/core/system/platform-paths.js");
+    expect(content).not.toContain("./xdg.js");
   });
 
-  it("resolveCleoOsPaths resolves extensions under data root", async () => {
-    process.env["XDG_DATA_HOME"] = "/tmp/test-xdg-w3-data";
-    const { resolveCleoOsPaths } = await import("../../src/xdg.js");
-    const paths = resolveCleoOsPaths();
-    expect(paths.extensions).toBe("/tmp/test-xdg-w3-data/cleo/extensions");
-  });
-
-  it("resolveCleoOsPaths resolves cant under data root", async () => {
-    process.env["XDG_DATA_HOME"] = "/tmp/test-xdg-w3-cant";
-    const { resolveCleoOsPaths } = await import("../../src/xdg.js");
-    const paths = resolveCleoOsPaths();
-    expect(paths.cant).toBe("/tmp/test-xdg-w3-cant/cleo/cant");
+  it("keystore.ts imports getPlatformPaths from @cleocode/core directly", () => {
+    const keystoreSrc = join(PKG_ROOT, "src", "keystore.ts");
+    const content = readFileSync(keystoreSrc, "utf-8");
+    expect(content).toContain("getPlatformPaths");
+    expect(content).toContain("@cleocode/core/system/platform-paths.js");
+    expect(content).not.toContain("./xdg.js");
   });
 });
 
