@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.91] — 2026-04-17 — CHANGELOG catch-up (tags v2026.4.89 and v2026.4.90 shipped without changelog entries; the release workflow's Verify CHANGELOG step gated them. This release rolls forward all three together.)
+
+Publishable version of the v2026.4.89 + v2026.4.90 content below. No additional code changes — CHANGELOG entries only.
+
+## [2026.4.90] — 2026-04-17 — CI hotfix: cleo-os postinstall must not import from @cleocode/core
+
+v2026.4.89 Release + CI both failed because cleo-os's postinstall imported `@cleocode/core/system/platform-paths.js` at the top of the module. In workspace CI, `pnpm install` runs postinstall BEFORE any build, and `@cleocode/core`'s `dist/` does not exist yet — the import fails at module-load time (before the `isGlobalInstall()` short-circuit), crashing the entire install step across both workflows.
+
+Fix:
+- `packages/cleo-os/src/postinstall.ts`: use `env-paths` directly (same underlying library that `@cleocode/core`'s `getPlatformPaths` wraps). Keeps cross-OS correctness AND avoids the build-order trap.
+- `packages/cleo-os/package.json`: re-add `env-paths` as an explicit direct dep (transitive-via-core cannot be relied upon before build).
+- `packages/cleo-os/src/xdg.ts` unchanged — still delegates to core (runtime code, consumed after build).
+- Test assertion updated to enforce the rule: postinstall.ts must use env-paths directly and MUST NOT import from `@cleocode/core`.
+
+## [2026.4.89] — 2026-04-17 — Install canonical layout + cross-DB health check + llmtxt 2026.4.6
+
+### Install canonical layout (`~/.cleo` symlink)
+
+- `packages/core/src/bootstrap.ts`: removed the legacy `~/.cleo/templates/` dual-write sync. Added `ensureCleoSymlink()` as Step 0.5 that makes `~/.cleo` a symlink (junction on Windows) to `getCleoHome()`. With this one piece in place, `@~/.cleo/*` injection references resolve universally across Linux/macOS/Windows while the actual files live at the OS-appropriate XDG / AppData / Library location.
+- Real-directory legacy state (e.g. `~/.cleo/` full of pre-XDG artifacts on dev machines) is migrated to `~/.cleo.bak-<timestamp>` with a user-facing warning. Existing correct symlinks are no-op'd. Wrong-target symlinks are warned about but not touched (safety).
+- Health check (`verifyBootstrapHealth`) now verifies symlink integrity instead of warning about legacy-dir presence.
+- 3 new tests cover create / noop / migrate-legacy paths.
+
+### cleo-os XDG consolidation
+
+- `packages/cleo-os/src/xdg.ts`: now a thin adapter over `@cleocode/core`'s `getPlatformPaths()` (the cross-OS env-paths wrapper). Replaces Linux-only hardcoded XDG defaults — correct on macOS (`~/Library/*`) and Windows (`%APPDATA%` / `%LOCALAPPDATA%`).
+- `packages/cleo-os/src/postinstall.ts`: also refactored away from an inline duplicate resolver; initial attempt imported from core and broke CI (see v2026.4.90 hotfix above for the resolution).
+- `packages/core/package.json`: added explicit `./system/platform-paths.js` subpath export so NodeNext consumers can import it.
+- `packages/core/src/system/platform-paths.ts`: removed the process-wide path cache. env-paths is microsecond-fast and the cache was causing test pollution plus missed XDG env-var changes. `getSystemInfo()` still cached (hostname / arch are actually slow).
+- Tests: env-var restoration patched to use key-level mutation instead of `process.env = {...}` reassignment (the latter orphans env-paths' module-level `const {env} = process` reference, silently breaking XDG overrides between tests).
+
+### Three update commands distinguished
+
+- `update.ts`, `upgrade.ts`, `self-update.ts` now carry cross-referencing docstrings at the top of each file explaining their distinct purposes: task-field edit vs. project-state repair vs. CLI-binary upgrade. Resolves the naming confusion the three similar command names caused.
+
+### Cross-DB registered-project health check
+
+- NEW `packages/core/src/system/project-health.ts` (~540 LOC): `probeDb`, `checkProjectHealth`, `checkGlobalHealth`, `checkAllRegisteredProjects`. Iterates `nexus.db:project_registry`, probes `tasks.db` + `brain.db` + `conduit.db` per-project plus global `nexus.db` + `signaldock.db`. Checks existence, readability, SQLite openability, `PRAGMA integrity_check`, WAL sidecar state, schema version. Writes `health_status` + `health_last_check` back to the registry. Bounded concurrency. Never throws from public functions.
+- NEW `cleo doctor-projects` standalone command + `cleo doctor --all-projects` flag. JSON / human table / quiet output modes. Exit codes 0/1/2 (healthy/degraded/unreachable) with `--ignore-unreachable` override.
+- `cleo self-update` now auto-runs the health check after `runUpgrade` (disable with `--no-check-projects`). Results surfaced in structured output.
+- 18 new tests (13 unit + 5 CLI integration).
+
+### llmtxt 2026.4.6 adoption
+
+- Bumped `llmtxt` from `^2026.4.5` to `^2026.4.6` in both `@cleocode/cleo` and `@cleocode/core` (optional dep).
+- 2026.4.6 is a major feature ship by upstream: collaborative document lifecycle primitives (`loro-crdt` + `yjs` CRDT), ed25519 signed URLs, zod validation.
+- `build.mjs`: added `llmtxt`, `onnxruntime-node`, `mssql`, `@opentelemetry/api` to `sharedExternals` so esbuild does not try to inline the new CRDT + `.node` native bindings.
+
+### Playbooks package README
+
+- NEW `packages/playbooks/README.md`: status matrix, `.cantbook` grammar reference, quick API, DB table schemas (`playbook_runs` + `playbook_approvals`), HMAC approval-token flow, error codes, policy evaluator, related packages, testing.
+
+### Quality gates (v2026.4.89)
+
+- `pnpm biome ci .`: clean (1 pre-existing warning on archived symlink, unrelated)
+- `pnpm run build` (full dep graph): green
+- `pnpm run test` (repo-wide): 506 files, 8877 passed / 10 skipped / 32 todo, 0 failures
+- TSC strict across all touched packages: clean
+
+### Deferred follow-ups (tracked)
+
+- Adapter install files (`pi`, `cursor`, `codex`, `opencode`) still hardcode `@~/.cleo/templates/CLEO-INJECTION.md` as the injection-ref string. With the new symlink those refs *work* on every OS, but should eventually migrate to `getCleoTemplatesTildePath()` for clarity.
+- `packages/caamp/src/core/platform-paths.ts` is a third duplicate of the platform-paths logic; should delegate to core.
+
 ## [2026.4.88] — 2026-04-17 — Release workflow hotfix (add @cleocode/playbooks to publish list)
 
 `@cleocode/playbooks` (new in v2026.4.86/.87) was absent from `.github/workflows/release.yml` hardcoded publish list — workflow silently skipped it. Added to:
