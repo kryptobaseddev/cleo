@@ -1,53 +1,56 @@
 /**
- * XDG-compliant path resolution for CleoOS.
+ * CleoOS filesystem path resolution.
  *
- * Resolves:
- * - Data: $XDG_DATA_HOME/cleo/ or ~/.local/share/cleo/
- * - Config: $XDG_CONFIG_HOME/cleo/ or ~/.config/cleo/
- * - Agent dir: same as data root (Pi's agentDir equivalent)
- * - Extensions: <data>/extensions/
- * - CANT source: <data>/cant/ (global tier)
+ * Thin adapter over `@cleocode/core`'s canonical `getPlatformPaths()`
+ * (which uses env-paths internally). Adds CleoOS-specific sub-paths
+ * on top of the OS-appropriate data/config roots.
+ *
+ * Canonical OS layout (from env-paths via core/platform-paths):
+ *   Linux:   data=~/.local/share/cleo         config=~/.config/cleo
+ *   macOS:   data=~/Library/Application Support/cleo  config=~/Library/Preferences/cleo
+ *   Windows: data=%LOCALAPPDATA%\cleo\Data    config=%APPDATA%\cleo\Config
+ *
+ * CleoOS sub-paths:
+ *   - `agentDir` = data root (Pi's agentDir convention)
+ *   - `extensions` = `<data>/extensions/`
+ *   - `cant` = `<data>/cant/` (global tier)
+ *   - `cantUser` = `<config>/cant/` (user tier)
+ *   - `auth` = `<config>/auth/` (credential storage)
  *
  * @packageDocumentation
  */
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
 
-/** Resolved CleoOS filesystem paths following XDG Base Directory Specification. */
+/** Resolved CleoOS filesystem paths. */
 export interface CleoOsPaths {
-  /** XDG data home: ~/.local/share/cleo/ */
+  /** User data root (OS-appropriate, respects CLEO_HOME override). */
   data: string;
-  /** XDG config home: ~/.config/cleo/ */
+  /** User config root (OS-appropriate). */
   config: string;
-  /** Pi agent directory (= data root) */
+  /** Pi agent directory (= data root). */
   agentDir: string;
-  /** Extensions directory: <data>/extensions/ */
+  /** Extensions directory: `<data>/extensions/`. */
   extensions: string;
-  /** Global CANT source: <data>/cant/ */
+  /** Global CANT source: `<data>/cant/`. */
   cant: string;
-  /** User-tier CANT source: <config>/cant/ */
+  /** User-tier CANT source: `<config>/cant/`. */
   cantUser: string;
-  /** Auth/keystore directory: <config>/auth/ */
+  /** Auth/keystore directory: `<config>/auth/`. */
   auth: string;
 }
 
 /**
- * Resolve CleoOS filesystem paths using XDG Base Directory Specification.
+ * Resolve CleoOS filesystem paths.
  *
- * Respects `XDG_DATA_HOME` and `XDG_CONFIG_HOME` environment variables
- * when set, falling back to the XDG defaults (`~/.local/share/` and
- * `~/.config/` respectively).
+ * Delegates to `@cleocode/core`'s `getPlatformPaths()` for the cross-OS
+ * data and config roots, then layers CleoOS-specific subdirectories on top.
  *
  * @returns Resolved paths for all CleoOS directories.
  */
 export function resolveCleoOsPaths(): CleoOsPaths {
-  const home = homedir();
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-  const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-
-  const data = join(xdgData, 'cleo');
-  const config = join(xdgConfig, 'cleo');
+  const { data, config } = getPlatformPaths();
 
   return {
     data,

@@ -2,10 +2,17 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { resolveCleoOsPaths } from '../src/xdg.js';
 
 describe('resolveCleoOsPaths', () => {
-  const originalEnv = { ...process.env };
+  const originalEnv: Record<string, string | undefined> = { ...process.env };
 
+  // Restore via mutation (not reassignment) so env-paths's module-level
+  // `const {env} = process` reference stays live across tests.
   afterEach(() => {
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    for (const [k, v] of Object.entries(originalEnv)) {
+      if (v !== undefined) process.env[k] = v;
+    }
   });
 
   it('uses default XDG paths when env vars are not set', () => {

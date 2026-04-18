@@ -663,6 +663,22 @@ export {
   safestop,
   uncancelTask,
 } from './system/index.js';
+// Cross-project registered-project health probe (T-PROJECT-HEALTH)
+export type {
+  CheckAllOptions,
+  DbProbeResult,
+  FullHealthReport,
+  GlobalHealthReport,
+  JsonFileProbe,
+  ProjectHealthReport,
+  ProjectHealthStatus,
+} from './system/project-health.js';
+export {
+  checkAllRegisteredProjects,
+  checkGlobalHealth,
+  checkProjectHealth,
+  probeDb,
+} from './system/project-health.js';
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';

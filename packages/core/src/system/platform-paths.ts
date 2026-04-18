@@ -45,41 +45,25 @@ export interface SystemInfo {
   paths: PlatformPaths;
 }
 
-let _paths: PlatformPaths | null = null;
 let _sysInfo: SystemInfo | null = null;
-let _lastCleoHome: string | undefined;
 
 /**
  * Get OS-appropriate paths for CLEO's global directories.
- * Cached after first call. CLEO_HOME env var overrides the data path.
  *
- * The cache is automatically invalidated when CLEO_HOME changes,
- * so test code can set process.env['CLEO_HOME'] without calling
- * _resetPlatformPathsCache() manually.
+ * Reads fresh on every call — env-paths is fast (microseconds) and a
+ * process-wide cache would skip XDG / APPDATA env-var changes that test
+ * code and long-running CLI sessions legitimately make. CLEO_HOME env
+ * var overrides the data path for backward compatibility.
  */
 export function getPlatformPaths(): PlatformPaths {
-  const currentCleoHome = process.env['CLEO_HOME'];
-
-  // Invalidate if CLEO_HOME changed since last cache build
-  if (_paths && currentCleoHome !== _lastCleoHome) {
-    _paths = null;
-    _sysInfo = null;
-  }
-
-  if (_paths) return _paths;
-
   const ep = envPaths(APP_NAME, { suffix: '' });
-  _lastCleoHome = currentCleoHome;
-
-  _paths = {
-    data: currentCleoHome ?? ep.data,
+  return {
+    data: process.env['CLEO_HOME'] ?? ep.data,
     config: ep.config,
     cache: ep.cache,
     log: ep.log,
     temp: ep.temp,
   };
-
-  return _paths;
 }
 
 /**
@@ -90,26 +74,23 @@ export function getPlatformPaths(): PlatformPaths {
 export function getSystemInfo(): SystemInfo {
   if (_sysInfo) return _sysInfo;
 
-  const paths = getPlatformPaths();
-
   _sysInfo = {
     platform: platform(),
     arch: arch(),
     release: release(),
     hostname: hostname(),
     nodeVersion: process.version,
-    paths,
+    paths: getPlatformPaths(),
   };
 
   return _sysInfo;
 }
 
 /**
- * Invalidate the path and system info caches.
- * Use in tests after mutating CLEO_HOME env var.
+ * Invalidate the system info cache.
+ * Use in tests that need a fresh platform snapshot.
  * @internal
  */
 export function _resetPlatformPathsCache(): void {
-  _paths = null;
   _sysInfo = null;
 }

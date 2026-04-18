@@ -63,6 +63,14 @@ const sharedExternals = [
   // bundle into the ESM output, causing "Dynamic require of events is not supported"
   // at CLI startup. Keep it external so it loads at runtime from node_modules. (T755)
   'node-cron',
+  // llmtxt (≥2026.4.6) is an optional runtime dep used by docs-generator via
+  // dynamic import('llmtxt'). It pulls in onnxruntime-node (.node bindings),
+  // mssql, and @opentelemetry/api transitively — all must stay external so
+  // esbuild does not try to inline the native addons or tsql drivers.
+  'llmtxt',
+  'onnxruntime-node',
+  'mssql',
+  '@opentelemetry/api',
 ];
 
 // ---------------------------------------------------------------------------

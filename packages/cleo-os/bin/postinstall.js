@@ -21,29 +21,25 @@
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // ---------------------------------------------------------------------------
-// XDG path resolution (inline copy — avoids importing from dist/ which may
-// not exist when this script runs for the first time)
+// Cross-OS path resolution — delegates to @cleocode/core (the single source
+// of truth). Safe to import here because postinstall short-circuits on
+// non-global installs (isGlobalInstall check below), so workspace dev
+// installs never reach this path before @cleocode/core's dist/ is built.
 // ---------------------------------------------------------------------------
 /**
- * Inline XDG path resolution that mirrors `src/xdg.ts`.
+ * Resolve CleoOS directory layout. Delegates to core's `getPlatformPaths`
+ * for cross-OS data/config roots, then layers CleoOS sub-paths.
  *
- * Uses an inline copy here so the postinstall script can run before
- * the compiled `dist/` tree is available on a fresh install.
- *
- * @returns Resolved CleoOS XDG directory paths.
+ * @returns Resolved CleoOS directory paths.
  */
 function resolveCleoOsPaths() {
-    const home = homedir();
-    const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-    const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-    const data = join(xdgData, 'cleo');
-    const config = join(xdgConfig, 'cleo');
+    const { data, config } = getPlatformPaths();
     return {
         data,
         config,
