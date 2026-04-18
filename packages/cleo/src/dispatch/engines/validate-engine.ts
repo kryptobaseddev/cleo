@@ -883,6 +883,13 @@ interface GateVerifyResult {
   evidenceStored?: EvidenceAtom[];
   /** True when CLEO_OWNER_OVERRIDE bypassed evidence validation (T832). */
   override?: boolean;
+  /**
+   * Actionable next-step hint emitted when all required gates become green
+   * after a write (policy-b: verify never auto-completes, explicit complete
+   * is always required).  Absent on view mode and when gates are still missing.
+   * Fixes GH #94 / T919.
+   */
+  hint?: string;
 }
 
 /**
@@ -1133,6 +1140,19 @@ export async function validateGateVerify(
     if (evidenceStored.length > 0) {
       result.evidenceStored = evidenceStored;
       result.override = override.override;
+    }
+
+    // GH #94 / T919 — policy (b): verify NEVER auto-completes.
+    // When the final gate write drives verification.passed to true, emit a
+    // clear next-step hint so agents and users know they must explicitly run
+    // `cleo complete`.  Only emitted on write actions (not view/reset) when
+    // all required gates are green.
+    if (
+      (action === 'set_gate' || action === 'set_all') &&
+      verification.passed === true &&
+      missing.length === 0
+    ) {
+      result.hint = `All gates green. Run: cleo complete ${taskId}`;
     }
 
     return { success: true, data: result };
