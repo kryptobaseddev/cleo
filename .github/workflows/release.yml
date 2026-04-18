@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -270,6 +270,15 @@ jobs:
           if [[ -d packages/adapters/dist ]]; then
             mkdir -p "$STAGING/packages/adapters"
             cp -r packages/adapters/dist packages/adapters/package.json "$STAGING/packages/adapters/"
+          fi
+
+          # Playbooks package (T889 / T904 — playbook DSL runtime + schema)
+          if [[ -d packages/playbooks/dist ]]; then
+            mkdir -p "$STAGING/packages/playbooks"
+            cp -r packages/playbooks/dist packages/playbooks/package.json "$STAGING/packages/playbooks/"
+            for extra in README.md LICENSE starter-playbooks; do
+              [[ -e "packages/playbooks/$extra" ]] && cp -r "packages/playbooks/$extra" "$STAGING/packages/playbooks/" || true
+            done
           fi
 
           # Skills package (data)
@@ -432,8 +441,9 @@ jobs:
           }
 
           # Publish in dependency order:
-          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → cleo → cleo-os
+          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → playbooks → cleo → cleo-os
           # cleo-os depends on cleo + cant (workspace:*), so it must publish LAST.
+          # playbooks depends on contracts + core, so it publishes after those.
           publish_pkg contracts
           publish_pkg lafs
           publish_pkg core
@@ -444,6 +454,7 @@ jobs:
           publish_pkg adapters
           publish_pkg agents
           publish_pkg skills
+          publish_pkg playbooks
           publish_pkg cleo
           publish_pkg cleo-os
 
