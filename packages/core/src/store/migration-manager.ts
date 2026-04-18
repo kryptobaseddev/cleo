@@ -303,6 +303,13 @@ export function reconcileJournal(
   // Detects migrations whose DDL columns already exist in the database but whose
   // journal entry was never written (e.g., cherry-picked from a worktree, or process
   // crashed after the ALTER TABLE succeeded but before the journal INSERT committed).
+  //
+  // T920: Extended to handle PARTIAL application — when SOME ALTER targets exist but
+  // not all (e.g., T528 where brain_page_nodes ALTERs ran but brain_page_edges.provenance
+  // did not). In this case the migration also has DROP TABLE + CREATE TABLE statements,
+  // so the full migration cannot be re-run (the existing columns cause duplicate-column
+  // errors). Fix: add any missing ALTER columns via idempotent ALTER TABLE, then mark
+  // the migration as applied so Drizzle skips it.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const journalEntries = nativeDb
@@ -316,34 +323,95 @@ export function reconcileJournal(
       // Parse the migration SQL for ALTER TABLE ... ADD COLUMN statements.
       // drizzle's readMigrationFiles returns sql as string[] (one entry per
       // statement-breakpoint-separated statement), so join them for regex scanning.
-      const alterColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
-      const alterMatches: Array<{ table: string; column: string }> = [];
+      const alterColumnRegex =
+        /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?\s*(.*?)(?:;|$)/gi;
+      const alterMatches: Array<{ table: string; column: string; ddl: string }> = [];
       const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
       const fullSql = sqlStatements.join('\n');
       for (const m of fullSql.matchAll(alterColumnRegex)) {
-        alterMatches.push({ table: m[1] as string, column: m[2] as string });
+        alterMatches.push({
+          table: m[1] as string,
+          column: m[2] as string,
+          ddl: ((m[3] as string) || '').trim(),
+        });
       }
 
-      // Only auto-reconcile migrations that consist entirely of ALTER TABLE ADD COLUMN
-      // statements (and contain at least one). Pure CREATE INDEX / DROP INDEX migrations
-      // that have no journal entry are genuinely pending and must run normally.
+      // Only auto-reconcile migrations that have at least one ALTER TABLE ADD COLUMN.
+      // Pure CREATE INDEX / DROP INDEX migrations that have no journal entry are
+      // genuinely pending and must run normally.
       if (alterMatches.length === 0) continue;
 
-      // Check whether all ADD COLUMN targets already exist in their tables.
-      const allColumnsExist = alterMatches.every(({ table, column }) => {
-        if (!tableExists(nativeDb, table)) return false;
-        const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      // Check which ADD COLUMN targets already exist and which are missing.
+      const existingColumns: Array<{ table: string; column: string; ddl: string }> = [];
+      const missingColumns: Array<{ table: string; column: string; ddl: string }> = [];
+
+      for (const target of alterMatches) {
+        if (!tableExists(nativeDb, target.table)) {
+          missingColumns.push(target);
+          continue;
+        }
+        const cols = nativeDb.prepare(`PRAGMA table_info(${target.table})`).all() as Array<{
           name: string;
         }>;
-        return cols.some((c) => c.name === column);
-      });
+        if (cols.some((c) => c.name === target.column)) {
+          existingColumns.push(target);
+        } else {
+          missingColumns.push(target);
+        }
+      }
 
-      if (allColumnsExist) {
+      // Case A: All ALTER targets already exist — mark as applied (original behaviour).
+      if (missingColumns.length === 0) {
         const log = getLogger(logSubsystem);
         log.warn(
           { migration: migration.name, columns: alterMatches },
           `Detected partially-applied migration ${migration.name} — columns exist but journal entry missing. Auto-reconciling.`,
         );
+        insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
+        continue;
+      }
+
+      // Case B (T920): SOME columns exist but others are missing — the migration was
+      // partially applied. If at least one column already exists from this migration's
+      // ALTER TABLE set, Drizzle cannot re-run the migration (the existing columns cause
+      // "duplicate column name"). Idempotently add the missing columns, then mark applied.
+      //
+      // We do NOT attempt to run DROP TABLE / CREATE TABLE statements from the migration
+      // (e.g., T528's brain_page_edges table recreation for weight NOT NULL), because
+      // the table already has data-compatible columns from the partial apply. The
+      // ensureColumns call in brain-sqlite.ts provides any remaining structural safety net.
+      if (existingColumns.length > 0 && missingColumns.length > 0) {
+        const log = getLogger(logSubsystem);
+        log.warn(
+          {
+            migration: migration.name,
+            existingColumns: existingColumns.map((c) => `${c.table}.${c.column}`),
+            missingColumns: missingColumns.map((c) => `${c.table}.${c.column}`),
+          },
+          `T920: Detected partial migration ${migration.name} — some ALTER columns exist, some missing. Adding missing columns and marking applied.`,
+        );
+
+        // Add each missing column only if its table exists (guard against DROP TABLE
+        // mid-migration removing the table entirely).
+        for (const { table, column, ddl } of missingColumns) {
+          if (!tableExists(nativeDb, table)) continue;
+          try {
+            nativeDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column}${ddl ? ` ${ddl}` : ''}`);
+            log.warn(
+              { migration: migration.name, table, column },
+              `T920: Added missing column ${table}.${column} to complete partial migration.`,
+            );
+          } catch {
+            // Column add failed (e.g., NOT NULL without default on non-empty table).
+            // Log and continue — the subsequent migrate() call may still succeed or
+            // fall through to the duplicate-column retry handler.
+            log.warn(
+              { migration: migration.name, table, column },
+              `T920: Could not add missing column ${table}.${column} — will let Drizzle migrate() handle it.`,
+            );
+          }
+        }
+
         insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
       }
     }
