@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.4.92",
+  "version": "2026.4.93",
   "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -25,6 +25,7 @@
     "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
+    "@cleocode/playbooks": "workspace:*",
     "@cleocode/runtime": "workspace:*",
     "check-disk-space": "^3.4.0",
     "citty": "^0.2.1",

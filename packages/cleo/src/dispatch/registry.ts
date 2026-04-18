@@ -4854,6 +4854,187 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── playbook.* HITL CLI surface (T935) ───────────────────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'playbook',
+    operation: 'run',
+    description:
+      'playbook.run (mutate) — load a .cantbook by name and execute it via the playbook runtime state machine',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['name'],
+    params: [
+      {
+        name: 'name',
+        type: 'string' as const,
+        required: true,
+        description: 'Playbook name (looks up <name>.cantbook in the configured search path)',
+        cli: { positional: true },
+      },
+      {
+        name: 'context',
+        type: 'string' as const,
+        required: false,
+        description: 'JSON object string seeding the initial run context (e.g. {"epicId":"T999"})',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'playbook',
+    operation: 'status',
+    description:
+      'playbook.status (query) — return the current state of a playbook run from playbook_runs',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['runId'],
+    params: [
+      {
+        name: 'runId',
+        type: 'string' as const,
+        required: true,
+        description: 'Playbook run identifier (FK into playbook_runs.run_id)',
+        cli: { positional: true },
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'playbook',
+    operation: 'resume',
+    description:
+      'playbook.resume (mutate) — resume a paused playbook run once its HITL gate is approved',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['runId'],
+    params: [
+      {
+        name: 'runId',
+        type: 'string' as const,
+        required: true,
+        description: 'Playbook run identifier to resume',
+        cli: { positional: true },
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'playbook',
+    operation: 'list',
+    description:
+      'playbook.list (query) — enumerate playbook runs with optional status filter (active|completed|pending)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'status',
+        type: 'string' as const,
+        required: false,
+        description: 'Filter on status (active|running|pending|paused|completed|failed|cancelled)',
+      },
+      {
+        name: 'epicId',
+        type: 'string' as const,
+        required: false,
+        description: 'Filter runs by the epic they belong to',
+      },
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum number of runs to return',
+      },
+      {
+        name: 'offset',
+        type: 'number' as const,
+        required: false,
+        description: 'Skip the first N runs (applied after limit)',
+      },
+    ],
+  },
+  // ── orchestrate.{approve,reject,pending} HITL gate decisions (T935) ──────
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'approve',
+    description:
+      'orchestrate.approve (mutate) — approve a pending playbook approval gate to unblock the run',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['resumeToken'],
+    params: [
+      {
+        name: 'resumeToken',
+        type: 'string' as const,
+        required: true,
+        description: 'HMAC-signed resume token returned when the gate was created',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string' as const,
+        required: false,
+        description: 'Optional justification note recorded on the approval row',
+      },
+      {
+        name: 'approver',
+        type: 'string' as const,
+        required: false,
+        description: 'Identity of the approver (defaults to cli-user)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'reject',
+    description:
+      'orchestrate.reject (mutate) — reject a pending playbook approval gate with a mandatory reason',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['resumeToken', 'reason'],
+    params: [
+      {
+        name: 'resumeToken',
+        type: 'string' as const,
+        required: true,
+        description: 'HMAC-signed resume token returned when the gate was created',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string' as const,
+        required: true,
+        description: 'Justification for the rejection (recorded on the audit row)',
+      },
+      {
+        name: 'approver',
+        type: 'string' as const,
+        required: false,
+        description: 'Identity of the rejector (defaults to cli-user)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'pending',
+    description:
+      'orchestrate.pending (query) — list all approval gates awaiting a decision across every run',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
 ];
 
 // ---------------------------------------------------------------------------

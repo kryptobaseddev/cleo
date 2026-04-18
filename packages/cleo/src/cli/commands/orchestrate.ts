@@ -684,6 +684,90 @@ const conduitStopCommand = defineCommand({
   },
 });
 
+/** cleo orchestrate approve — approve a pending HITL playbook gate (T935) */
+const approveCommand = defineCommand({
+  meta: {
+    name: 'approve',
+    description: 'Approve a pending HITL playbook approval gate by its resume token',
+  },
+  args: {
+    resumeToken: {
+      type: 'positional',
+      description: 'HMAC-signed resume token returned when the gate was created',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Optional justification note recorded on the audit row',
+    },
+    approver: {
+      type: 'string',
+      description: 'Identity of the approver (defaults to cli-user)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'orchestrate',
+      'approve',
+      {
+        resumeToken: args.resumeToken,
+        reason: args.reason,
+        approver: args.approver,
+      },
+      { command: 'orchestrate' },
+    );
+  },
+});
+
+/** cleo orchestrate reject — reject a pending HITL playbook gate with a mandatory reason (T935) */
+const rejectCommand = defineCommand({
+  meta: {
+    name: 'reject',
+    description: 'Reject a pending HITL playbook approval gate with a mandatory reason',
+  },
+  args: {
+    resumeToken: {
+      type: 'positional',
+      description: 'HMAC-signed resume token returned when the gate was created',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Justification for the rejection (mandatory, recorded on the audit row)',
+      required: true,
+    },
+    approver: {
+      type: 'string',
+      description: 'Identity of the rejector (defaults to cli-user)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'orchestrate',
+      'reject',
+      {
+        resumeToken: args.resumeToken,
+        reason: args.reason,
+        approver: args.approver,
+      },
+      { command: 'orchestrate' },
+    );
+  },
+});
+
+/** cleo orchestrate pending — list all pending HITL playbook approvals (T935) */
+const pendingCommand = defineCommand({
+  meta: {
+    name: 'pending',
+    description: 'List all pending HITL playbook approval gates awaiting a decision',
+  },
+  async run() {
+    await dispatchFromCli('query', 'orchestrate', 'pending', {}, { command: 'orchestrate' });
+  },
+});
+
 /** cleo orchestrate conduit-send — send a message via conduit */
 const conduitSendCommand = defineCommand({
   meta: {
@@ -752,6 +836,10 @@ export const orchestrateCommand = defineCommand({
     'conduit-start': conduitStartCommand,
     'conduit-stop': conduitStopCommand,
     'conduit-send': conduitSendCommand,
+    // T935: HITL playbook approval gates
+    approve: approveCommand,
+    reject: rejectCommand,
+    pending: pendingCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

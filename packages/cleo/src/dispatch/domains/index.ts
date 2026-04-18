@@ -19,6 +19,7 @@ import { MemoryHandler } from './memory.js';
 import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
+import { PlaybookHandler } from './playbook.js';
 import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
@@ -35,6 +36,7 @@ export {
   NexusHandler,
   OrchestrateHandler,
   PipelineHandler,
+  PlaybookHandler,
   SessionHandler,
   StickyHandler,
   TasksHandler,
@@ -60,6 +62,8 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('sticky', new StickyHandler());
   handlers.set('diagnostics', new DiagnosticsHandler());
   handlers.set('docs', new DocsHandler());
+  // T935: HITL playbook runtime + approvals surface
+  handlers.set('playbook', new PlaybookHandler());
   // ADR-042: conduit ops moved to orchestrate.conduit.* — ConduitHandler
   // is instantiated inside OrchestrateHandler; no standalone domain entry needed.
   return handlers;
