@@ -57,6 +57,21 @@ export type { SystemMetricsResult } from './metrics.js';
 export { getSystemMetrics } from './metrics.js';
 export type { MigrateResult } from './migrate.js';
 export { getMigrationStatus } from './migrate.js';
+export type {
+  CheckAllOptions,
+  DbProbeResult,
+  FullHealthReport,
+  GlobalHealthReport,
+  JsonFileProbe,
+  ProjectHealthReport,
+  ProjectHealthStatus,
+} from './project-health.js';
+export {
+  checkAllRegisteredProjects,
+  checkGlobalHealth,
+  checkProjectHealth,
+  probeDb,
+} from './project-health.js';
 export type { RuntimeDiagnostics } from './runtime.js';
 export { getRuntimeDiagnostics } from './runtime.js';
 export type { SafestopResult, UncancelResult } from './safestop.js';

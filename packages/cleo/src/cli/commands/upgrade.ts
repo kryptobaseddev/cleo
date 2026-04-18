@@ -1,11 +1,18 @@
 /**
- * CLI upgrade command - unified project maintenance.
+ * CLI `cleo upgrade` command — unified PROJECT maintenance.
+ *
+ * Not to be confused with:
+ *   - `cleo update <taskId>` (see update.ts) — edit a task's fields
+ *   - `cleo self-update` (see self-update.ts) — upgrade the CLI binary via npm
+ *
+ * This command repairs the CURRENT project's `.cleo/` state in place.
+ * It does NOT fetch a new CLI version — only `cleo self-update` does that.
  *
  * Delegates to core upgrade logic. Handles:
  *   - Storage migration (JSON -> SQLite, automatic)
  *   - Schema version upgrades
  *   - Structural repairs (checksums, missing fields)
- *   - Global ~/.cleo data checks
+ *   - Global `{cleoHome}` data checks (via --include-global)
  *   - Deep diagnostics via --diagnose
  *
  * Global output flags (--json, --human, --quiet) are declared in args so

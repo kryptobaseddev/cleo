@@ -11,13 +11,14 @@
  * @task T5267
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFile, mkdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
+  getCleoHome,
   getCleoTemplatesDir,
   getCleoTemplatesTildePath,
 } from './paths.js';
@@ -66,7 +67,11 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
     // Best-effort — don't fail bootstrap if cleanup fails
   }
 
-  // Step 1: Ensure global templates (XDG + legacy sync)
+  // Step 0.5: Install the ~/.cleo symlink that makes @~/.cleo/* references
+  // resolve to the canonical OS-appropriate data dir on Linux/macOS/Windows.
+  await ensureCleoSymlink(ctx);
+
+  // Step 1: Ensure global templates at the canonical XDG data dir
   await ensureGlobalTemplatesBootstrap(ctx, options?.packageRoot);
 
   // Step 2: CAAMP injection into ~/.agents/AGENTS.md
@@ -92,6 +97,100 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   await verifyBootstrapHealth(ctx);
 
   return ctx;
+}
+
+// ── Step 0.5: ~/.cleo canonical symlink ──────────────────────────────
+
+/**
+ * Ensure `~/.cleo` is a symlink (or junction on Windows) pointing to the
+ * canonical OS-appropriate CLEO data directory (`getCleoHome()`).
+ *
+ * This is the keystone of CLEO's cross-OS layout:
+ *
+ *   Physical canonical storage (OS-specific via env-paths):
+ *     Linux   → `~/.local/share/cleo/`
+ *     macOS   → `~/Library/Application Support/cleo/`
+ *     Windows → `%LOCALAPPDATA%\cleo\Data\`
+ *
+ *   Universal reference path (identical on every OS):
+ *     `~/.cleo/`  (symlink / junction)
+ *
+ * With this symlink in place, an injection reference like
+ * `@~/.cleo/templates/CLEO-INJECTION.md` resolves correctly on every OS
+ * without the caller having to know the OS-specific canonical path. All
+ * internal code writing to `join(homedir(), '.cleo', …)` also transparently
+ * routes to the canonical location.
+ *
+ * Behaviour:
+ *   - If `~/.cleo` does not exist           → create the symlink.
+ *   - If it is already the correct symlink  → no-op.
+ *   - If it is a symlink to a wrong target  → warn; do not modify.
+ *   - If it is a real directory with files  → move to `~/.cleo.bak-<ts>`
+ *                                             and create the symlink (user
+ *                                             informed via ctx.created).
+ *   - Errors are non-fatal — bootstrap continues with a warning.
+ */
+async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
+  if (ctx.isDryRun) return;
+
+  const legacyPath = join(homedir(), '.cleo');
+  const canonicalTarget = getCleoHome();
+  const linkType: 'dir' | 'junction' = process.platform === 'win32' ? 'junction' : 'dir';
+
+  // Guard: if a user (or test) has set CLEO_HOME=~/.cleo, the canonical path
+  // IS the legacy path — no symlink needed, it would self-reference.
+  if (canonicalTarget === legacyPath) return;
+
+  try {
+    // Ensure the canonical target exists so the symlink is never dangling
+    await mkdir(canonicalTarget, { recursive: true });
+
+    // If nothing at ~/.cleo, just create the symlink
+    if (!existsSync(legacyPath)) {
+      await symlink(canonicalTarget, legacyPath, linkType);
+      ctx.created.push(`~/.cleo → ${canonicalTarget} (${linkType} link)`);
+      return;
+    }
+
+    const stat = lstatSync(legacyPath);
+
+    // Already a symlink — check where it points
+    if (stat.isSymbolicLink()) {
+      const currentTarget = await readlink(legacyPath);
+      if (currentTarget === canonicalTarget) {
+        return; // no-op, already correct
+      }
+      ctx.warnings.push(
+        `~/.cleo is a symlink pointing to ${currentTarget}, expected ${canonicalTarget}. Leaving untouched — remove it manually if you want the canonical link.`,
+      );
+      return;
+    }
+
+    // Real directory — migrate contents and replace with symlink
+    if (stat.isDirectory()) {
+      const backupPath = `${legacyPath}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      await rename(legacyPath, backupPath);
+      await symlink(canonicalTarget, legacyPath, linkType);
+      ctx.created.push(
+        `~/.cleo backed up to ${backupPath} and replaced with symlink → ${canonicalTarget}`,
+      );
+      ctx.warnings.push(
+        `Legacy ~/.cleo directory migrated to ${backupPath}. Review its contents — any project data you need has been preserved there. You can remove the backup once satisfied.`,
+      );
+      return;
+    }
+
+    // Some other file type (regular file, etc.)
+    ctx.warnings.push(
+      `~/.cleo exists but is not a directory or symlink. Leaving untouched — resolve manually.`,
+    );
+  } catch (err) {
+    // Windows unprivileged users may lack symlink permission. Junction type
+    // should succeed without admin, but report any failure so the user knows.
+    ctx.warnings.push(
+      `Could not ensure ~/.cleo symlink: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ── Step 1: Global templates ─────────────────────────────────────────
@@ -150,24 +249,11 @@ async function ensureGlobalTemplatesBootstrap(
     return;
   }
 
-  // Write to XDG primary path
   const xdgDest = join(globalTemplatesDir, 'CLEO-INJECTION.md');
   const xdgWritten = await writeTemplateTo(templateContent, xdgDest, ctx.isDryRun);
   ctx.created.push(
     `${getCleoTemplatesTildePath()}/CLEO-INJECTION.md (${xdgWritten ? 'refreshed' : 'would refresh'})`,
   );
-
-  // Sync to legacy ~/.cleo/templates/ if it exists (backward compat for
-  // project AGENTS.md files that still reference the old path)
-  const home = homedir();
-  const legacyTemplatesDir = join(home, '.cleo', 'templates');
-  if (legacyTemplatesDir !== globalTemplatesDir && existsSync(join(home, '.cleo'))) {
-    const legacyDest = join(legacyTemplatesDir, 'CLEO-INJECTION.md');
-    const legacyWritten = await writeTemplateTo(templateContent, legacyDest, ctx.isDryRun);
-    if (legacyWritten) {
-      ctx.created.push('~/.cleo/templates/CLEO-INJECTION.md (legacy sync)');
-    }
-  }
 }
 
 // ── Step 2: CAAMP injection into ~/.agents/AGENTS.md ─────────────────
@@ -597,7 +683,7 @@ export async function verifyBootstrapComplete(): Promise<BootstrapVerificationRe
  *
  * Checks:
  *   1. XDG template exists and has a version header
- *   2. Legacy template (if present) matches XDG version
+ *   2. `~/.cleo` symlink is installed and points to the canonical data dir
  *   3. ~/.agents/AGENTS.md references the correct template path
  *   4. No orphaned content in AGENTS.md
  */
@@ -608,26 +694,33 @@ async function verifyBootstrapHealth(ctx: BootstrapContext): Promise<void> {
     const xdgTemplatePath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
     const agentsMd = join(getAgentsHome(), 'AGENTS.md');
 
-    // Check 1: XDG template exists
     if (!existsSync(xdgTemplatePath)) {
       ctx.warnings.push('Health: XDG template missing after bootstrap');
       return;
     }
 
-    const xdgContent = await readFile(xdgTemplatePath, 'utf8');
-    const xdgVersion = xdgContent.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
-
-    // Check 2: Legacy template version sync
-    const home = homedir();
-    const legacyTemplatePath = join(home, '.cleo', 'templates', 'CLEO-INJECTION.md');
-    if (existsSync(legacyTemplatePath)) {
-      const legacyContent = await readFile(legacyTemplatePath, 'utf8');
-      const legacyVersion = legacyContent.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
-      if (legacyVersion !== xdgVersion) {
+    // Check 2: ~/.cleo symlink integrity. On fresh installs Step 0.5 created
+    // the link; here we verify it stayed intact (user didn't replace it).
+    const legacyPath = join(homedir(), '.cleo');
+    const canonicalTarget = getCleoHome();
+    if (existsSync(legacyPath)) {
+      const stat = lstatSync(legacyPath);
+      if (stat.isSymbolicLink()) {
+        const target = await readlink(legacyPath);
+        if (target !== canonicalTarget) {
+          ctx.warnings.push(
+            `Health: ~/.cleo points to ${target}, expected ${canonicalTarget}. Remove it and re-run bootstrap.`,
+          );
+        }
+      } else {
         ctx.warnings.push(
-          `Health: Legacy template version (${legacyVersion}) != XDG version (${xdgVersion})`,
+          `Health: ~/.cleo is not a symlink — canonical layout requires it to link to ${canonicalTarget}. Re-run bootstrap to migrate.`,
         );
       }
+    } else {
+      ctx.warnings.push(
+        `Health: ~/.cleo symlink missing — re-run bootstrap so @~/.cleo/* injection references resolve correctly.`,
+      );
     }
 
     // Check 3: AGENTS.md references the correct path

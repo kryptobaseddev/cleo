@@ -1,6 +1,11 @@
 /**
- * CLI update command — update a task's fields.
+ * CLI `cleo update <taskId>` command — update a task's FIELDS.
  *
+ * Not to be confused with:
+ *   - `cleo upgrade` (see upgrade.ts) — project maintenance (schema/migration repair)
+ *   - `cleo self-update` (see self-update.ts) — upgrade the CLI binary itself via npm
+ *
+ * This command mutates task-row columns (title, status, priority, etc.).
  * Accepts up to 20 options covering title, status, priority, type, size,
  * phase, description, labels, dependencies, notes, acceptance criteria,
  * files, blocked-by, parent, auto-complete control, and pipeline stage.
