@@ -122,14 +122,16 @@ describe("T392 — postinstall.ts source", () => {
     expect(content).toContain("isGlobalInstall");
   });
 
-  it("delegates to core getPlatformPaths for cross-OS path resolution", () => {
+  it("uses env-paths directly for cross-OS path resolution (no core import)", () => {
     const src = join(PKG_ROOT, "src", "postinstall.ts");
     const content = readFileSync(src, "utf-8");
-    // Postinstall MUST delegate to @cleocode/core's platform-paths (SSoT).
-    // It MUST NOT re-implement XDG / AppData logic inline — that was the
-    // duplication that caused cross-OS drift pre-W1.2.
-    expect(content).toContain("getPlatformPaths");
-    expect(content).toContain("@cleocode/core/system/platform-paths");
+    // Postinstall MUST use env-paths directly — NOT import from @cleocode/core.
+    // Core's dist/ may not exist when this script runs in workspace CI
+    // (pnpm install triggers postinstall before build). env-paths is a
+    // direct dep resolvable right after install.
+    expect(content).toContain("envPaths");
+    expect(content).toContain("'env-paths'");
+    expect(content).not.toContain("@cleocode/core/system/platform-paths");
   });
 
   it("deploys cleo-cant-bridge extension", () => {
