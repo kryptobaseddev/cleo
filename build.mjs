@@ -160,9 +160,10 @@ const cleoBuildOptions = {
   format: 'esm',
   outdir: 'packages/cleo/dist',
   sourcemap: true,
-  banner: {
-    js: '#!/bin/sh\n":" //; exec node --disable-warning=ExperimentalWarning "$0" "$@"',
-  },
+  // NOTE: src/cli/index.ts already carries `#!/usr/bin/env node` — esbuild
+  // preserves it into dist when `preserveShebang` semantics apply. If shebang
+  // was missing, assert-shebang postbuild would fail the build (T929).
+  banner: {},
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
