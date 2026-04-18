@@ -16,7 +16,7 @@ import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cle
 const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
 
 /**
- * Install provider for the OpenAI Agents SDK.
+ * Install provider for the OpenAI SDK adapter (Vercel AI SDK).
  *
  * Manages CLEO's integration with OpenAI SDK projects by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files

@@ -1,13 +1,19 @@
 /**
  * @packageDocumentation
  *
- * Claude Agent SDK spawn provider for CLEO.
- * Uses `@anthropic-ai/claude-agent-sdk` instead of the CLI for programmatic
- * subagent execution with structured output and session tracking.
+ * Claude SDK spawn provider for CLEO — Vercel AI SDK edition.
+ *
+ * Uses `@ai-sdk/anthropic` via the Vercel AI SDK (`ai` v6) instead of the
+ * legacy `@anthropic-ai/claude-agent-sdk`. CLEO retains its own orchestration
+ * primitives (composeSpawnPayload, playbook runtime, agent registry); this
+ * provider exposes the LLM bridge for programmatic subagent execution with
+ * structured output and session tracking.
  *
  * Enabled via `provider.claude.mode = 'sdk'` in CLEO config.
  *
- * @task T581
+ * @task T581 (original)
+ * @task T933 (SDK consolidation — Vercel AI SDK migration)
+ * @see ADR-052 — SDK consolidation decision
  */
 
 export type { McpServerMap, McpStdioConfig } from './mcp-registry.js';

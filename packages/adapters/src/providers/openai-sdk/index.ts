@@ -1,22 +1,30 @@
 /**
  * @packageDocumentation
  *
- * CLEO provider adapter for the OpenAI Agents SDK.
+ * CLEO provider adapter for the OpenAI provider, backed by the Vercel AI SDK.
  * Default export is the adapter class for dynamic loading by AdapterManager.
  *
- * @task T582
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — Vercel AI SDK migration)
  */
 
 import { OpenAiSdkAdapter } from './adapter.js';
 
 export { OpenAiSdkAdapter } from './adapter.js';
+export type {
+  CleoGuardrailResult,
+  CleoInputGuardrail,
+  CleoInputGuardrailFunctionArgs,
+  InputGuardrail,
+} from './guardrails.js';
 export {
   buildDefaultGuardrails,
   buildPathGuardrail,
   buildToolAllowlistGuardrail,
+  evaluateGuardrails,
   isPathAllowed,
 } from './guardrails.js';
-export type { TopologyOptions, WorkerArchetype } from './handoff.js';
+export type { Agent, CleoAgent, TopologyOptions, WorkerArchetype } from './handoff.js';
 export {
   buildAgentTopology,
   buildLeadAgent,
@@ -26,7 +34,23 @@ export {
 } from './handoff.js';
 export { OpenAiSdkInstallProvider } from './install.js';
 export type { OpenAiSdkSpawnOptions } from './spawn.js';
-export { OpenAiSdkSpawnProvider } from './spawn.js';
+export {
+  OpenAiSdkSpawnProvider,
+  registerTraceProcessor,
+  setTracingDisabled,
+  unregisterTraceProcessor,
+} from './spawn.js';
+export type {
+  CleoAgentSpanData,
+  CleoFunctionSpanData,
+  CleoGenericSpanData,
+  CleoHandoffSpanData,
+  CleoSpan,
+  CleoSpanData,
+  CleoSpanKind,
+  CleoTrace,
+  CleoTraceProcessor,
+} from './tracing.js';
 export { CleoConduitTraceProcessor } from './tracing.js';
 
 export default OpenAiSdkAdapter;
