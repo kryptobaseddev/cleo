@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/playbooks",
-  "version": "2026.4.89",
+  "version": "2026.4.90",
   "description": "Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3",
   "type": "module",
   "main": "./dist/index.js",

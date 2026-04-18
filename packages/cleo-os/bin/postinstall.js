@@ -23,23 +23,32 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
+import envPaths from 'env-paths';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // ---------------------------------------------------------------------------
-// Cross-OS path resolution — delegates to @cleocode/core (the single source
-// of truth). Safe to import here because postinstall short-circuits on
-// non-global installs (isGlobalInstall check below), so workspace dev
-// installs never reach this path before @cleocode/core's dist/ is built.
+// Cross-OS path resolution via env-paths (the underlying SSoT library that
+// @cleocode/core's platform-paths also wraps).
+//
+// IMPORTANT: this MUST NOT import from `@cleocode/core/...` — the import
+// statement resolves at module-load time, BEFORE isGlobalInstall() runs.
+// In workspace CI (pnpm install → build → test), cleo-os's postinstall
+// runs right after install, when @cleocode/core's dist/ does not yet
+// exist. Importing from core would crash the whole install.
+// env-paths is a direct dep of cleo-os and is always resolvable from
+// node_modules after pnpm install completes.
 // ---------------------------------------------------------------------------
 /**
- * Resolve CleoOS directory layout. Delegates to core's `getPlatformPaths`
- * for cross-OS data/config roots, then layers CleoOS sub-paths.
+ * Resolve CleoOS directory layout. Uses env-paths directly — same underlying
+ * library that @cleocode/core's `getPlatformPaths` wraps, so the two stay
+ * in lock-step without creating a build-order dependency.
  *
  * @returns Resolved CleoOS directory paths.
  */
 function resolveCleoOsPaths() {
-    const { data, config } = getPlatformPaths();
+    const ep = envPaths('cleo', { suffix: '' });
+    const data = process.env['CLEO_HOME'] ?? ep.data;
+    const config = ep.config;
     return {
         data,
         config,

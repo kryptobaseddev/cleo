@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo-os",
-  "version": "2026.4.89",
+  "version": "2026.4.90",
   "description": "CleoOS — the batteries-included agentic development environment wrapping Pi",
   "type": "module",
   "main": "./dist/cli.js",
@@ -24,7 +24,8 @@
     "@cleocode/cleo": "workspace:*",
     "@cleocode/core": "workspace:*",
     "@mariozechner/pi-coding-agent": ">=0.60.0",
-    "@sinclair/typebox": "^0.34.49"
+    "@sinclair/typebox": "^0.34.49",
+    "env-paths": "^4.0.0"
   },
   "devDependencies": {
     "typescript": "^6.0.2",
