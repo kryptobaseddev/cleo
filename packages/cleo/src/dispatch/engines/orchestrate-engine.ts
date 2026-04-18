@@ -21,6 +21,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { Provider } from '@cleocode/caamp';
 import type {
+  AgentSpawnCapability,
   AgentTier,
   BrainState,
   CLEOSpawnAdapter,
@@ -34,6 +35,7 @@ import {
   orchestrationAnalyzeDependencies as analyzeDependencies,
   analyzeEpic,
   buildBrainState,
+  composeSpawnPayload,
   computeEpicStatus,
   computeOverallStatus,
   computeProgress,
@@ -51,10 +53,10 @@ import {
   orchestrationGetReadyTasks as getReadyTasks,
   getSkillContent,
   getUnblockOpportunities,
-  prepareSpawn,
   recordStageProgress,
   resolveAgent,
   resolveProjectRoot,
+  type SpawnPayload,
   startParallelExecution,
   validateSpawnReadiness,
 } from '@cleocode/core/internal';
@@ -257,9 +259,31 @@ export async function orchestrateReady(
 
   try {
     const root = projectRoot || resolveProjectRoot();
+    // T929: verify the epic exists before computing the ready-set so that a
+    // nonexistent epicId returns E_NOT_FOUND (exit 4) instead of success:{total:0}.
+    const tasks = await loadTasks(root);
+    const epic = tasks.find((t) => t.id === epicId);
+    if (!epic) {
+      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+    }
     const accessor = await getAccessor(root);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
+
+    // T929: when no tasks are ready, include a diagnostic reason so callers
+    // can distinguish "all done" from "all blocked" without a second query.
+    let reason: string | undefined;
+    if (ready.length === 0) {
+      const all = readyTasks;
+      const blockedCount = all.filter((t) => !t.ready && t.blockers.length > 0).length;
+      if (all.length === 0) {
+        reason = 'epic has no children';
+      } else if (blockedCount === all.length) {
+        reason = 'all children have unmet dependencies';
+      } else {
+        reason = 'no tasks with unmet dependencies found; check child task statuses';
+      }
+    }
 
     return {
       success: true,
@@ -272,6 +296,7 @@ export async function orchestrateReady(
           depends: t.blockers,
         })),
         total: ready.length,
+        ...(reason !== undefined && { reason }),
       },
     };
   } catch (err: unknown) {
@@ -549,11 +574,10 @@ export async function orchestrateSpawnExecute(
       };
     }
 
-    // Prepare spawn context (reuse canonical prepareSpawn). Thread the
-    // orchestrator session id so the subagent mutations stay bound to the
-    // same session; best-effort — missing session falls back to null.
-    const { getActiveSession, prepareSpawn } = await import('@cleocode/core/internal');
-    const accessor = await getAccessor(cwd);
+    // Route the spawn through the canonical composer (T932). This activates
+    // atomicity, harness dedup, resolved-agent metadata, and traceability
+    // meta — all returned in a single SpawnPayload envelope.
+    const { getActiveSession } = await import('@cleocode/core/internal');
     let activeSessionId: string | null = null;
     try {
       const active = await getActiveSession(cwd);
@@ -561,24 +585,33 @@ export async function orchestrateSpawnExecute(
     } catch {
       activeSessionId = null;
     }
-    const spawnContext = await prepareSpawn(taskId, cwd, accessor, {
+
+    const payload = await composeSpawnForTask(taskId, cwd, {
       tier,
       sessionId: activeSessionId,
+      protocol: protocolType,
     });
 
-    // Check for unresolved tokens
-    if (!spawnContext.tokenResolution.fullyResolved) {
+    // Atomicity violations short-circuit the spawn so the adapter never sees
+    // a rejected payload. Full verdict is preserved under `error.details`.
+    if (!payload.atomicity.allowed) {
       return {
         success: false,
         error: {
-          code: 'E_SPAWN_VALIDATION_FAILED',
-          message: `Unresolved tokens in spawn context: ${spawnContext.tokenResolution.unresolvedTokens.join(', ')}`,
-          exitCode: 63,
+          code: payload.atomicity.code ?? 'E_ATOMICITY_VIOLATION',
+          message: payload.atomicity.message ?? 'Atomicity gate rejected spawn',
+          exitCode: 69,
+          details: {
+            taskId,
+            atomicity: payload.atomicity,
+            meta: payload.meta,
+            fix: payload.atomicity.fixHint,
+          },
         },
       };
     }
 
-    // Build CLEO spawn context from core spawn context
+    // Build CLEO spawn context from core spawn payload
     const { getSpawnCapableProviders } = await import('@cleocode/caamp');
     const providers = getSpawnCapableProviders();
     const provider = providers.find((p: { id: string }) => p.id === adapter.providerId);
@@ -594,32 +627,27 @@ export async function orchestrateSpawnExecute(
       };
     }
 
-    // The raw prompt from prepareSpawn is passed to the adapter unchanged.
+    // The raw prompt from the composer is passed to the adapter unchanged.
     // CANT bundle compilation, mental model injection, and identity bootstrap
     // are all handled inside buildCantEnrichedPrompt() at the adapter layer
-    // (packages/adapters/src/cant-context.ts), which receives the agentDef
-    // via cleoSpawnContext.options. This eliminates the previous double-compile
-    // that occurred when composeSpawnPayload ran here AND buildCantEnrichedPrompt
-    // ran in the provider (T506 spawn injection unification).
-    const rawPrompt = spawnContext.prompt;
-
-    // Extract agentDef from spawn context to thread through to the adapter.
-    // The adapter's buildCantEnrichedPrompt uses it for mental model injection.
-    const agentDef = spawnContext.agentDef as Record<string, unknown> | undefined;
+    // (packages/adapters/src/cant-context.ts). The agentDef is not currently
+    // threaded through composeSpawnPayload (T891 will classify + resolve a
+    // full CANT team envelope); until then the adapter receives the prompt
+    // alone and falls back to its own mental-model injection defaults.
+    const rawPrompt = payload.prompt;
 
     const cleoSpawnContext: CLEOSpawnContext = {
-      taskId: spawnContext.taskId,
-      protocol: protocolType || spawnContext.protocol,
+      taskId: payload.taskId,
+      protocol: protocolType || payload.meta.protocol,
       prompt: rawPrompt,
       provider: provider.id,
       options: {
         prompt: rawPrompt,
-        ...(agentDef ? { agentDef } : {}),
       },
       workingDirectory: cwd,
       tokenResolution: {
         resolved: [],
-        unresolved: spawnContext.tokenResolution.unresolvedTokens,
+        unresolved: [],
         totalTokens: 0,
       },
     };
@@ -705,6 +733,11 @@ export async function orchestrateSpawnExecute(
         taskId,
         timing: result.timing,
         tier: tier ?? null,
+        atomicity: payload.atomicity,
+        meta: payload.meta,
+        agentId: payload.agentId,
+        role: payload.role,
+        harnessHint: payload.harnessHint,
       },
     };
   } catch (error) {
@@ -720,8 +753,91 @@ export async function orchestrateSpawnExecute(
 }
 
 /**
- * orchestrate.spawn - Generate spawn prompt for a task
+ * Open a short-lived signaldock db handle for composer lookups.
+ *
+ * Mirrors the pattern used by {@link orchestratePlan}: we intentionally do
+ * NOT cache this handle — the resolver contract owns its own lifecycle and
+ * callers must close the returned handle when the batch completes.
+ *
+ * @returns Open {@link _SignaldockDbHandle} bound to the global signaldock.db.
+ * @task T932
+ */
+async function openSignaldockDbForComposer(): Promise<_SignaldockDbHandle> {
+  await ensureGlobalSignaldockDb();
+  const dbPath = getGlobalSignaldockDbPath();
+  const db = new _DatabaseSyncCtor(dbPath);
+  db.exec('PRAGMA foreign_keys = ON');
+  return db;
+}
+
+/**
+ * Compose a spawn payload through {@link composeSpawnPayload} with a task-id
+ * lookup shortcut.
+ *
+ * Centralizes the composer invocation used by both {@link orchestrateSpawn}
+ * and {@link orchestrateSpawnExecute} so every spawn emit path in the engine
+ * routes through the same canonical composer.
+ *
+ * @param taskId         - Task to render the spawn for.
+ * @param root           - Absolute project root.
+ * @param options        - Composer overrides (tier, sessionId, role, …).
+ * @returns Full {@link SpawnPayload} envelope with atomicity + meta surfaced.
+ * @task T932
+ */
+async function composeSpawnForTask(
+  taskId: string,
+  root: string,
+  options: {
+    tier?: 0 | 1 | 2;
+    sessionId?: string | null;
+    role?: AgentSpawnCapability;
+    protocol?: string;
+    skipAtomicityCheck?: boolean;
+  } = {},
+): Promise<SpawnPayload> {
+  const accessor = await getAccessor(root);
+  const task = await accessor.loadSingleTask(taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found`);
+  }
+
+  const db = await openSignaldockDbForComposer();
+  try {
+    return await composeSpawnPayload(db, task, {
+      tier: options.tier,
+      projectRoot: root,
+      sessionId: options.sessionId ?? null,
+      role: options.role,
+      protocol: options.protocol,
+      skipAtomicityCheck: options.skipAtomicityCheck ?? false,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * orchestrate.spawn - Generate spawn prompt for a task.
+ *
+ * Every spawn emit in the engine routes through
+ * {@link composeSpawnPayload} (T932) so atomicity, harness-hint dedup, and
+ * traceability metadata are active on every orchestrate spawn. Legacy
+ * {@link prepareSpawn} is no longer called directly from this path.
+ *
+ * The response envelope surfaces:
+ *
+ *  - `atomicity` — the worker file-scope gate verdict
+ *  - `meta.composerVersion` — pinned to `'3.0.0'` for the T932 composer path
+ *  - `meta.dedupSavedChars` — characters saved via harness-hint dedup
+ *  - `meta.promptChars` — total rendered prompt length
+ *  - `meta.sourceTier` — registry tier the resolved agent was sourced from
+ *
+ * Atomicity violations return an `E_ATOMICITY_VIOLATION` error envelope with
+ * the full verdict attached to `error.details.atomicity` so callers can
+ * inspect the rejection reason before retrying.
+ *
  * @task T4478
+ * @task T932
  */
 export async function orchestrateSpawn(
   taskId: string,
@@ -736,10 +852,19 @@ export async function orchestrateSpawn(
   try {
     const root = projectRoot || resolveProjectRoot();
 
-    // Validate readiness first
+    // Validate readiness first.
+    // T929: a V_NOT_FOUND issue means the task ID doesn't exist in the DB —
+    // surface E_NOT_FOUND (exit 4) so callers get a clear, actionable error
+    // instead of a generic spawn-validation failure that obscures the root cause.
     const accessor = await getAccessor(root);
     const validation = await validateSpawnReadiness(taskId, root, accessor);
     if (!validation.ready) {
+      const notFound = validation.issues.some((i) => i.code === 'V_NOT_FOUND');
+      if (notFound) {
+        return engineError('E_NOT_FOUND', `Task ${taskId} not found`, {
+          fix: `cleo find "${taskId}"`,
+        });
+      }
       return engineError('E_SPAWN_VALIDATION_FAILED', `Task ${taskId} is not ready to spawn`, {
         details: { issues: validation.issues },
       });
@@ -758,33 +883,57 @@ export async function orchestrateSpawn(
       activeSessionId = null;
     }
 
-    // Prepare spawn context via the canonical buildSpawnPrompt (T882). The
-    // tier + sessionId options route through prepareSpawn → buildSpawnPrompt
-    // which assembles a fully-resolved, self-contained prompt.
-    const spawnContext = await prepareSpawn(taskId, root, accessor, {
+    // Route every spawn through the canonical composer (T932). Atomicity,
+    // harness-hint dedup, resolved-agent metadata, and traceability meta are
+    // all populated here — prepareSpawn/buildSpawnPrompt are NOT called
+    // directly from this path anymore.
+    const payload = await composeSpawnForTask(taskId, root, {
       tier,
       sessionId: activeSessionId,
+      protocol: protocolType,
     });
 
+    // Surface atomicity violations as a first-class error envelope so callers
+    // can react programmatically. The full verdict is attached to
+    // `error.details.atomicity` so diagnostics are preserved.
+    if (!payload.atomicity.allowed) {
+      return engineError(
+        payload.atomicity.code ?? 'E_ATOMICITY_VIOLATION',
+        payload.atomicity.message ?? 'Atomicity gate rejected spawn',
+        {
+          details: {
+            taskId,
+            atomicity: payload.atomicity,
+            meta: payload.meta,
+          },
+          fix: payload.atomicity.fixHint,
+        },
+      );
+    }
+
     // Return shape: `prompt` at the top level is the primary payload every
-    // caller should consume. `spawnContext` mirrors it for legacy readers
-    // and `tokenResolution` carries diagnostics for unresolved tokens.
+    // caller should consume. `atomicity` + `meta` surface the T932 composer
+    // guarantees. `spawnContext` mirrors the prompt for legacy readers.
     return {
       success: true,
       data: {
         taskId,
-        prompt: spawnContext.prompt,
+        prompt: payload.prompt,
+        agentId: payload.agentId,
+        role: payload.role,
+        tier: payload.tier,
+        harnessHint: payload.harnessHint,
+        atomicity: payload.atomicity,
+        meta: payload.meta,
         spawnContext: {
-          taskId: spawnContext.taskId,
-          protocol: spawnContext.protocol,
-          protocolType: protocolType || spawnContext.protocol,
-          tier: tier ?? null,
-          prompt: spawnContext.prompt,
+          taskId: payload.taskId,
+          protocol: payload.meta.protocol,
+          protocolType: protocolType || payload.meta.protocol,
+          tier: payload.tier,
+          prompt: payload.prompt,
         },
-        protocolType: protocolType || spawnContext.protocol,
-        tier: tier ?? null,
+        protocolType: protocolType || payload.meta.protocol,
         sessionId: activeSessionId,
-        tokenResolution: spawnContext.tokenResolution,
       },
     };
   } catch (err: unknown) {
