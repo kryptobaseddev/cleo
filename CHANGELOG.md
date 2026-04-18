@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.92] — 2026-04-18 — Epic T911 Wave 2 (caamp paths + doctor schema probes + CLI double-JSON + gate-verify hint + brain.db T528 + sandbox harnesses)
+
+Completes epic **T911 "Install Canonical Layout + Sandbox Harness Coverage"** — 16 child tasks delivered via 16 parallel `cleo-subagent` workers.
+
+### Main-repo code (this release)
+
+- **T915** — Deleted `packages/cleo-os/src/xdg.ts` strictly. Inlined `getPlatformPaths()` joins at `cli.ts` + `keystore.ts` callers. (commit `2a47867b5`)
+- **T916** — Migrated 5 adapter install files (`pi`, `cursor`, `codex`, `opencode/install`, `opencode/spawn`) from hardcoded `@~/.cleo/templates/CLEO-INJECTION.md` to dynamic `getCleoTemplatesTildePath()`. Updated 3 adapter test suites. (commit `4d806029a`)
+- **T917 (E5)** — Refactored `packages/caamp/src/core/platform-paths.ts` with a shared `createPlatformPathsResolver` helper. Documents the `@cleocode/core` → `@cleocode/caamp` circular-dep constraint that prevents caamp from importing from core.
+- **T918 (E6)** — Extended `packages/core/src/system/project-health.ts` with `expectedVersion` + `schemaDrift` fields per DB/JSON probe. Schema drift surfaces as `degraded` (actionable) not `unreachable`. Covers tasks/brain/conduit + nexus/signaldock + config.json + project-info.json.
+- **T919 (G1, fixes GH #94)** — Task auto-complete inconsistency: chose policy (b). `cleo verify` **never** auto-completes. When the final required gate drives `verification.passed=true`, the response carries `hint: "All gates green. Run: cleo complete <taskId>"` (set_gate/set_all only). New test covers the 4-cell matrix.
+- **T920 (G2, fixes GH #95)** — brain.db T528 duplicate-column migration. Root cause: `reconcileJournal` Scenario 3 required ALL ALTER targets to exist before journaling; T528's `brain_page_edges.provenance` column was missing on partial applies, so Drizzle kept retrying. Fix: Scenario 3 now tracks existing vs missing columns and idempotently adds missing ones before journaling. 4 regression tests cover fresh DB, fully-applied-absent-from-journal, partial-apply, and the exact `observeBrain` GH #95 failure path. (commit `361a8573a`)
+- **T927 (G3)** — CLI double-JSON envelope fix. `ProgressTracker.complete()` now writes to stderr (not stdout). Stdout carries exactly ONE JSON envelope per CLI invocation (ADR-039). Fixes orchestrator scripts choking on pino WARN + envelope double-parse.
+
+### Sandbox repo (`/mnt/projects/cleo-sandbox`, separate repo)
+
+Harness scaffolds for every CLEO-supported agent harness, ready to exercise:
+
+- **T921** opencode · **T922** pi-coding-agent · **T923** codex cli · **T924** gemini-cli · **T925** cursor · **T926** claude-sdk + openai-sdk + kimi (3 SDK harnesses) · **T912** antigravity (GUI-only, deferred with decision log)
+- **T913** scenario `corrupted-db-recovery` — corrupts `.cleo/tasks.db` bytes, asserts `cleo doctor --all-projects` reports degraded without crashing
+- **T914** scenario `harness-e2e` — per-harness scripted CLEO workflow (init → add → start → verify → complete → memory observe → self-update) with `--harness <name>` flag
+
+Sandbox repo has `git init` + working tree ready for you to review / commit.
+
+### Quality gates
+- `pnpm biome ci .`: clean (1 pre-existing archive-symlink warning, unrelated)
+- `pnpm run build` (full dep graph): green across 15 packages
+- `pnpm run test` (repo-wide): 506 files, **8885 passed** / 10 skipped / 32 todo (1 known-flaky complexity-proof test in `brain-stdp-wave3`, passes 13/13 in isolation)
+- TSC strict across `@cleocode/core`, `@cleocode/caamp`, `@cleocode/cleo`, `@cleocode/cleo-os`: clean
+
+### Orchestration
+- 16 `cleo-subagent` workers dispatched in 2 parallel waves via Claude Code `Agent` tool
+- Epic `T911` tracked in CLEO tasks DB with 16 children (T912–T927)
+- RCASD + IVTR protocol loops per the `ct-orchestrator` skill
+- Session `ses_20260417203615_045dae` carried through the entire epic
+
 ## [2026.4.91] — 2026-04-17 — CHANGELOG catch-up (tags v2026.4.89 and v2026.4.90 shipped without changelog entries; the release workflow's Verify CHANGELOG step gated them. This release rolls forward all three together.)
 
 Publishable version of the v2026.4.89 + v2026.4.90 content below. No additional code changes — CHANGELOG entries only.

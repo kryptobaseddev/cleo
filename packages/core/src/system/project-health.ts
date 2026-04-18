@@ -99,6 +99,24 @@ export interface DbProbeResult {
   walSidecarClean: boolean;
   /** Value of `PRAGMA user_version` — undefined if the DB could not be opened. */
   schemaVersion?: number;
+  /**
+   * Number of applied migrations from the `__drizzle_migrations` table (or the
+   * DB-specific equivalent). Undefined when the DB could not be opened or when
+   * no recognised migration tracking table exists.
+   */
+  migrationCount?: number;
+  /**
+   * Expected migration count for this database as defined by the source-code
+   * migration directories. Populated only when `probeDb` is called with the
+   * `expectedVersion` option. Undefined otherwise.
+   */
+  expectedVersion?: number;
+  /**
+   * True when `migrationCount` is defined and is less than `expectedVersion`,
+   * indicating the database is behind the expected schema. Always `false` (not
+   * `undefined`) when `expectedVersion` was supplied.
+   */
+  schemaDrift?: boolean;
   /** Size of the DB file in bytes, or `-1` when `stat` fails. */
   sizeBytes: number;
   /** First error encountered during the probe (null when the probe succeeded). */
@@ -111,6 +129,22 @@ export interface JsonFileProbe {
   exists: boolean;
   /** True if the file parsed as JSON without throwing. */
   parseable: boolean;
+  /**
+   * Schema version extracted from the file's top-level `schemaVersion` or
+   * `version` field. Undefined when the file is absent, unparseable, or
+   * carries no version field.
+   */
+  schemaVersion?: string;
+  /**
+   * Expected schema version for this file. Populated only when
+   * {@link probeJsonFile} is called with the `expectedVersion` option.
+   */
+  expectedVersion?: string;
+  /**
+   * True when `schemaVersion` is defined and does not match `expectedVersion`.
+   * Always `false` (not `undefined`) when `expectedVersion` was supplied.
+   */
+  schemaDrift?: boolean;
   /** First error encountered (missing file, IO error, parse error). */
   error?: string;
 }
@@ -197,6 +231,42 @@ export interface CheckAllOptions {
 }
 
 // ============================================================================
+// Expected schema version map
+// ============================================================================
+
+/**
+ * Expected migration counts for each known database file, derived from the
+ * number of timestamped directories present in
+ * `packages/core/migrations/drizzle-<db>/` at build time.
+ *
+ * - `tasks.db`, `brain.db`, `nexus.db`, `signaldock.db` use Drizzle migrations
+ *   tracked in `__drizzle_migrations`.
+ * - `conduit.db` uses a bespoke `_conduit_migrations` table (1 initial entry).
+ *
+ * When the applied migration count in a database falls below the expected
+ * count, {@link probeDb} sets `schemaDrift = true` and the health check
+ * surfaces the affected project as `degraded`.
+ */
+export const DB_EXPECTED_VERSIONS: Readonly<Record<string, number>> = {
+  [TASKS_DB]: 11,
+  [BRAIN_DB]: 14,
+  [NEXUS_DB]: 3,
+  [SIGNALDOCK_DB]: 1,
+  [CONDUIT_DB]: 1,
+};
+
+/**
+ * Expected schema version strings for the two canonical JSON config files.
+ *
+ * - `config.json` uses the top-level `version` key (matches `CleoConfig.version`).
+ * - `project-info.json` uses the top-level `schemaVersion` key.
+ */
+export const JSON_EXPECTED_VERSIONS: Readonly<Record<string, string>> = {
+  [CONFIG_JSON]: '2.10.0',
+  [PROJECT_INFO_JSON]: '1.0.0',
+};
+
+// ============================================================================
 // Internal helpers
 // ============================================================================
 
@@ -213,21 +283,48 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-/** Read a file and attempt a JSON parse. Never throws. */
-async function probeJsonFile(path: string): Promise<JsonFileProbe> {
+/**
+ * Read a JSON file, attempt to parse it, extract its schema version, and
+ * compare against an expected version when provided. Never throws.
+ *
+ * @param path - Absolute path to the JSON file.
+ * @param expectedVersion - Optional expected `schemaVersion` / `version` string.
+ *   When supplied, the result will carry `expectedVersion` and `schemaDrift`.
+ */
+async function probeJsonFile(path: string, expectedVersion?: string): Promise<JsonFileProbe> {
   if (!(await pathExists(path))) {
-    return { exists: false, parseable: false, error: 'File not found' };
+    const base: JsonFileProbe = { exists: false, parseable: false, error: 'File not found' };
+    if (expectedVersion !== undefined) {
+      base.expectedVersion = expectedVersion;
+      base.schemaDrift = false; // can't determine drift without the file
+    }
+    return base;
   }
   try {
     const raw = await readFile(path, 'utf-8');
-    JSON.parse(raw);
-    return { exists: true, parseable: true };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+    // Extract version: prefer `schemaVersion`, fall back to `version`.
+    const rawVersion = parsed['schemaVersion'] ?? parsed['version'];
+    const schemaVersion = typeof rawVersion === 'string' ? rawVersion : undefined;
+
+    const result: JsonFileProbe = { exists: true, parseable: true, schemaVersion };
+    if (expectedVersion !== undefined) {
+      result.expectedVersion = expectedVersion;
+      result.schemaDrift = schemaVersion !== undefined && schemaVersion !== expectedVersion;
+    }
+    return result;
   } catch (err) {
-    return {
+    const result: JsonFileProbe = {
       exists: true,
       parseable: false,
       error: err instanceof Error ? err.message : String(err),
     };
+    if (expectedVersion !== undefined) {
+      result.expectedVersion = expectedVersion;
+      result.schemaDrift = false; // can't determine drift when unparseable
+    }
+    return result;
   }
 }
 
@@ -271,11 +368,15 @@ function deriveOverallStatus(
 
   const dbProbes: DbProbeResult[] = [dbs.tasks, dbs.brain, dbs.conduit];
   const degradedDb = dbProbes.some(
-    (d) => d.exists && (!d.integrityOk || !d.walSidecarClean || !d.sqliteOpenable),
+    (d) =>
+      d.exists &&
+      (!d.integrityOk || !d.walSidecarClean || !d.sqliteOpenable || d.schemaDrift === true),
   );
   const configBroken = files.config.exists && !files.config.parseable;
   const infoBroken = files.projectInfo.exists && !files.projectInfo.parseable;
-  if (degradedDb || configBroken || infoBroken) return 'degraded';
+  const configDrifted = files.config.schemaDrift === true;
+  const infoDrifted = files.projectInfo.schemaDrift === true;
+  if (degradedDb || configBroken || infoBroken || configDrifted || infoDrifted) return 'degraded';
 
   // A project with no DBs at all is unknown (effectively empty .cleo/ dir).
   // A healthy project must have at least tasks.db present and passing.
@@ -302,13 +403,25 @@ function collectProjectIssues(report: Omit<ProjectHealthReport, 'issues' | 'over
       issues.push(`${label}: integrity_check failed`);
     } else if (probe.exists && !probe.walSidecarClean) {
       issues.push(`${label}: WAL sidecar conflict`);
+    } else if (probe.schemaDrift === true) {
+      issues.push(
+        `${label}: schema drift (migrationCount=${probe.migrationCount ?? '?'} < expected=${probe.expectedVersion ?? '?'})`,
+      );
     }
   }
   if (report.files.config.exists && !report.files.config.parseable) {
     issues.push(`config.json: ${report.files.config.error ?? 'parse error'}`);
+  } else if (report.files.config.schemaDrift === true) {
+    issues.push(
+      `config.json: schema drift (version=${report.files.config.schemaVersion ?? '?'} != expected=${report.files.config.expectedVersion ?? '?'})`,
+    );
   }
   if (report.files.projectInfo.exists && !report.files.projectInfo.parseable) {
     issues.push(`project-info.json: ${report.files.projectInfo.error ?? 'parse error'}`);
+  } else if (report.files.projectInfo.schemaDrift === true) {
+    issues.push(
+      `project-info.json: schema drift (version=${report.files.projectInfo.schemaVersion ?? '?'} != expected=${report.files.projectInfo.expectedVersion ?? '?'})`,
+    );
   }
   return issues;
 }
@@ -331,6 +444,10 @@ function collectGlobalIssues(dbs: GlobalHealthReport['dbs']): string[] {
       issues.push(`${label}: integrity_check failed`);
     } else if (!probe.walSidecarClean) {
       issues.push(`${label}: WAL sidecar conflict`);
+    } else if (probe.schemaDrift === true) {
+      issues.push(
+        `${label}: schema drift (migrationCount=${probe.migrationCount ?? '?'} < expected=${probe.expectedVersion ?? '?'})`,
+      );
     }
   }
   return issues;
@@ -342,7 +459,9 @@ function deriveGlobalStatus(dbs: GlobalHealthReport['dbs']): ProjectHealthStatus
   // Missing global DB is "unknown" (pre-init) not a failure.
   if (probes.every((p) => !p.exists)) return 'unknown';
   const degraded = probes.some(
-    (p) => p.exists && (!p.integrityOk || !p.walSidecarClean || !p.sqliteOpenable),
+    (p) =>
+      p.exists &&
+      (!p.integrityOk || !p.walSidecarClean || !p.sqliteOpenable || p.schemaDrift === true),
   );
   return degraded ? 'degraded' : 'healthy';
 }
@@ -362,17 +481,26 @@ function deriveGlobalStatus(dbs: GlobalHealthReport['dbs']): ProjectHealthStatus
  *   4. Open via `node:sqlite` in read-only mode.
  *   5. `PRAGMA integrity_check` — expects exactly the string `'ok'`.
  *   6. `PRAGMA user_version` — captured as `schemaVersion`.
+ *   7. Applied-migration count from `__drizzle_migrations` (or
+ *      `_conduit_migrations` for conduit.db) — captured as `migrationCount`.
+ *   8. When `expectedVersion` is provided: compares `migrationCount` against
+ *      it and sets `schemaDrift`.
  *
  * @param dbPath - Absolute path to the SQLite DB file.
+ * @param expectedVersion - Optional expected migration count for this database.
+ *   When provided, {@link DbProbeResult.expectedVersion} and
+ *   {@link DbProbeResult.schemaDrift} are populated. Use
+ *   {@link DB_EXPECTED_VERSIONS} to look up the canonical value for each DB.
  * @returns A fully populated {@link DbProbeResult}.
  *
  * @example
  * ```typescript
- * const probe = await probeDb('/my/project/.cleo/tasks.db');
+ * const probe = await probeDb('/my/project/.cleo/tasks.db', 11);
+ * if (probe.schemaDrift) console.warn('Schema is behind expected version');
  * if (!probe.integrityOk) console.error(probe.error);
  * ```
  */
-export async function probeDb(dbPath: string): Promise<DbProbeResult> {
+export async function probeDb(dbPath: string, expectedVersion?: number): Promise<DbProbeResult> {
   const result: DbProbeResult = {
     path: dbPath,
     exists: false,
@@ -383,11 +511,16 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
     sizeBytes: -1,
   };
 
+  if (expectedVersion !== undefined) {
+    result.expectedVersion = expectedVersion;
+  }
+
   // 1. Existence + readability
   const exists = await pathExists(dbPath);
   result.exists = exists;
   if (!exists) {
     result.error = 'File not found';
+    if (expectedVersion !== undefined) result.schemaDrift = false;
     return result;
   }
 
@@ -396,6 +529,7 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
     result.readable = true;
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
+    if (expectedVersion !== undefined) result.schemaDrift = false;
     return result;
   }
 
@@ -416,6 +550,7 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
   if (!DatabaseSyncCtor) {
     result.error = 'node:sqlite runtime not available';
     result.walSidecarClean = !walExists;
+    if (expectedVersion !== undefined) result.schemaDrift = false;
     return result;
   }
 
@@ -438,7 +573,7 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
       result.error = err instanceof Error ? err.message : String(err);
     }
 
-    // 6. Schema version (best-effort)
+    // 6. Schema version via PRAGMA user_version (best-effort, backward-compat)
     try {
       const row = db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
       if (typeof row?.user_version === 'number') {
@@ -446,6 +581,37 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
       }
     } catch {
       // user_version read failure is non-fatal
+    }
+
+    // 7. Applied-migration count (best-effort).
+    //    Check Drizzle's __drizzle_migrations first, then the bespoke
+    //    _conduit_migrations table used by conduit.db.
+    try {
+      const tables = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('__drizzle_migrations','_conduit_migrations')",
+        )
+        .all() as Array<{ name: string }>;
+
+      const migrationTable = tables.find(
+        (t) => t.name === '__drizzle_migrations' || t.name === '_conduit_migrations',
+      );
+      if (migrationTable) {
+        const countRow = db.prepare(`SELECT COUNT(*) AS c FROM "${migrationTable.name}"`).get() as
+          | { c: number }
+          | undefined;
+        if (typeof countRow?.c === 'number') {
+          result.migrationCount = countRow.c;
+        }
+      }
+    } catch {
+      // migration count read failure is non-fatal
+    }
+
+    // 8. Schema drift: DB has fewer applied migrations than expected.
+    if (expectedVersion !== undefined) {
+      result.schemaDrift =
+        result.migrationCount !== undefined && result.migrationCount < expectedVersion;
     }
 
     // WAL sidecar is considered clean when the DB opened successfully —
@@ -458,6 +624,7 @@ export async function probeDb(dbPath: string): Promise<DbProbeResult> {
     // DB could not be opened — if a WAL sidecar exists, flag it as dirty
     // since we cannot confirm SQLite was able to process it.
     result.walSidecarClean = !walExists;
+    if (expectedVersion !== undefined) result.schemaDrift = false;
   } finally {
     try {
       db?.close();
@@ -535,11 +702,11 @@ export async function checkProjectHealth(
   const cleoDirExists = await pathExists(cleoDir);
 
   const [tasks, brain, conduit, configProbe, infoProbe] = await Promise.all([
-    probeDb(join(cleoDir, TASKS_DB)),
-    probeDb(join(cleoDir, BRAIN_DB)),
-    probeDb(join(cleoDir, CONDUIT_DB)),
-    probeJsonFile(join(cleoDir, CONFIG_JSON)),
-    probeJsonFile(join(cleoDir, PROJECT_INFO_JSON)),
+    probeDb(join(cleoDir, TASKS_DB), DB_EXPECTED_VERSIONS[TASKS_DB]),
+    probeDb(join(cleoDir, BRAIN_DB), DB_EXPECTED_VERSIONS[BRAIN_DB]),
+    probeDb(join(cleoDir, CONDUIT_DB), DB_EXPECTED_VERSIONS[CONDUIT_DB]),
+    probeJsonFile(join(cleoDir, CONFIG_JSON), JSON_EXPECTED_VERSIONS[CONFIG_JSON]),
+    probeJsonFile(join(cleoDir, PROJECT_INFO_JSON), JSON_EXPECTED_VERSIONS[PROJECT_INFO_JSON]),
   ]);
 
   const base: Omit<ProjectHealthReport, 'issues' | 'overall'> = {
@@ -569,8 +736,8 @@ export async function checkProjectHealth(
 export async function checkGlobalHealth(): Promise<GlobalHealthReport> {
   const cleoHome = getCleoHome();
   const [nexus, signaldock] = await Promise.all([
-    probeDb(join(cleoHome, NEXUS_DB)),
-    probeDb(join(cleoHome, SIGNALDOCK_DB)),
+    probeDb(join(cleoHome, NEXUS_DB), DB_EXPECTED_VERSIONS[NEXUS_DB]),
+    probeDb(join(cleoHome, SIGNALDOCK_DB), DB_EXPECTED_VERSIONS[SIGNALDOCK_DB]),
   ]);
   const dbs = { nexus, signaldock };
   return {
