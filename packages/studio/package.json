@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/studio",
-  "version": "2026.4.92",
+  "version": "2026.4.94",
   "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
   "type": "module",
   "private": true,

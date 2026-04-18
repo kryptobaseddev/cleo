@@ -4,7 +4,72 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2026.4.93] — 2026-04-18 — Epic T910 Orchestration Coherence v4
+## [2026.4.94] — 2026-04-18 — Epic T910 Orchestration Coherence v4 (Full Ship)
+
+Finalizes epic **T910 "Orchestration Coherence v4"** with the complete CLI
+surface, harness interop verification, and version bumps that were absent from
+the abandoned local `v2026.4.93` tag. All 8 child tasks (T930–T937) are
+shipped, tested, and documented in this release. No prior `v2026.4.93` tag
+was pushed to origin — the `chore(release): v2026.4.93` commit `ec9447a4c`
+remains in history as the incomplete release attempt, superseded in full by
+this entry.
+
+### Added — cleo playbook + cleo orchestrate HITL CLI (T935, commit `3f9abc99c`)
+
+- **New canonical domain `playbook`** — brings the total to **14 CLEO domains**.
+  Registered in `CANONICAL_DOMAINS` with full registry + dispatch + citty
+  wiring. Operations count: 271 → 278 (query 160→163, mutate 111→115).
+- **`cleo playbook run <name> [--context JSON]`** — load starter or user
+  `.cantbook`, parse, execute via `executePlaybook` with the canonical
+  dispatcher (`orchestrateSpawnExecute` for `agentic` nodes). Returns the
+  LAFS envelope with `{runId, terminalStatus, finalContext, approvalToken?}`.
+- **`cleo playbook status <runId>`** — thin wrapper over `getPlaybookRun`.
+- **`cleo playbook resume <runId>`** — resumes a paused run. Re-validates the
+  on-disk `.cantbook` hash against `playbook_runs.playbookHash`; returns
+  `E_PLAYBOOK_HASH_MISMATCH` if the source file drifted since the run began.
+- **`cleo playbook list [--status active|completed|pending]`** — filtered
+  listing. Accepts both the CLI vocabulary and the raw DB enum
+  (`running|paused|completed|failed|canceled`).
+- **`cleo orchestrate approve <resumeToken>`** — grants a pending playbook
+  approval. Idempotent: calling twice on the same token returns
+  `{idempotent: true}` instead of `E_APPROVAL_ALREADY_DECIDED`.
+- **`cleo orchestrate reject <resumeToken> --reason "<text>"`** — denies the
+  approval with an audit row. Missing reason → `E_VALIDATION`.
+- **`cleo orchestrate pending`** — lists all pending approvals across all
+  runs. Used by operators to triage the HITL backlog.
+- All 7 subcommands LAFS-compliant. Audit trail: every `approve`/`reject`
+  writes a `playbook_approvals` row with the resolver identity + ISO
+  timestamp. 33 integration tests (18 playbook + 15 orchestrate-approval).
+
+### Added — Harness Interop Sandbox Tests (T937, commit `5904c1ab1`)
+
+- **`packages/adapters/src/__tests__/harness-interop.test.ts`** — proves the
+  Vercel-AI-SDK-based adapters correctly execute the T930 runtime state
+  machine across all provider harnesses.
+- **Three providers exercised**: `claude-sdk`, `openai-sdk`, and a `generic`
+  zero-SDK dispatcher — each one runs the real `rcasd.cantbook` starter
+  playbook to terminal `completed` state.
+- **Architectural invariant locked down**: meta-test grep-asserts zero
+  imports of `@ai-sdk/*`, `@anthropic-ai/claude-agent-sdk`, `@openai/agents`,
+  `openai`, or bare `from 'ai'` in `packages/playbooks/src/runtime.ts`.
+  Comment strings stripped before grep so TSDoc narrative doesn't false-
+  positive.
+- **Mock strategy**: Vercel AI SDK factories (`createOpenAI` / `createAnthropic`)
+  intercepted at module level. Model handle carries a `__cleoMockModel`
+  marker so the single `ai` mock routes per-provider and records per-provider
+  invocation counts for cross-contamination assertions. No real network
+  calls.
+- **Pi provider**: substituted with the `generic` zero-SDK dispatcher because
+  Pi uses detached `child_process` spawn — inappropriate for in-process unit
+  tests. The generic dispatcher proves the provider-agnostic invariant more
+  rigorously (it imports nothing SDK-related at all).
+
+## [2026.4.93] — 2026-04-18 — Epic T910 Orchestration Coherence v4 (Partial — Superseded)
+
+Incomplete local release — superseded by v2026.4.94. The tag was never pushed
+to origin and the release commit did not include the package.json version
+bumps or the T935 CLI implementation. Ships T930–T934 + T936 only. Retained
+in CHANGELOG for traceability.
 
 Completes epic **T910 "Orchestration Coherence v4"** — the follow-up to T889's
 foundation release. Ships the executable playbook runtime, thin-agent runtime
