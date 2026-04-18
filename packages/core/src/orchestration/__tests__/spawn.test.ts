@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
+import { ThinAgentViolationError } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEDUP_EMBED_CHARS } from '../harness-hint.js';
 import { composeSpawnPayload } from '../spawn.js';
@@ -443,6 +444,180 @@ describe('composeSpawnPayload — real-registry integration', () => {
       // Role derived from orch_level in the registry.
       expect(payload.role).toBe('lead');
       expect(payload.tier).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('composeSpawnPayload — thin-agent runtime enforcer (T931)', () => {
+  let env: TmpEnv;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    env = await makeTmpEnv(Math.random().toString(36).slice(2));
+  });
+
+  afterEach(() => {
+    env.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('throws ThinAgentViolationError when worker payload declares Agent tool', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      await expect(
+        composeSpawnPayload(
+          db,
+          { ...BASE_TASK, files: ['src/a.ts'] },
+          {
+            agentId: 'fixture-worker',
+            role: 'worker',
+            tier: 0,
+            harnessHint: 'generic',
+            projectRoot: env.projectRoot,
+            tools: ['Agent', 'Read'],
+          },
+        ),
+      ).rejects.toBeInstanceOf(ThinAgentViolationError);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('throws ThinAgentViolationError when worker payload declares Task tool', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      await expect(
+        composeSpawnPayload(
+          db,
+          { ...BASE_TASK, files: ['src/a.ts'] },
+          {
+            agentId: 'fixture-worker',
+            role: 'worker',
+            tier: 0,
+            harnessHint: 'generic',
+            projectRoot: env.projectRoot,
+            tools: ['Task'],
+          },
+        ),
+      ).rejects.toBeInstanceOf(ThinAgentViolationError);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('allows worker with only safe tools and surfaces mode in meta', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          tools: ['Read', 'Edit'],
+        },
+      );
+      expect(payload.meta.thinAgent?.mode).toBe('strict');
+      expect(payload.meta.thinAgent?.stripped).toEqual([]);
+      expect(payload.meta.thinAgent?.bypassed).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('strip mode: worker with Agent/Task yields stripped tools and metadata', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          tools: ['Agent', 'Read'],
+          thinAgentEnforcement: 'strip',
+        },
+      );
+      expect(payload.meta.thinAgent?.mode).toBe('strip');
+      expect(payload.meta.thinAgent?.stripped).toEqual(['Agent']);
+      expect(payload.meta.thinAgent?.bypassed).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('off mode: worker with Agent succeeds with bypassed flag set', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          tools: ['Agent', 'Task', 'Read'],
+          thinAgentEnforcement: 'off',
+        },
+      );
+      expect(payload.meta.thinAgent?.mode).toBe('off');
+      expect(payload.meta.thinAgent?.bypassed).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lead with Agent tool passes unchanged — leads are permitted to spawn', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-lead.cant', FIXTURE_LEAD_CANT);
+      const payload = await composeSpawnPayload(db, BASE_TASK, {
+        agentId: 'fixture-lead',
+        role: 'lead',
+        tier: 1,
+        harnessHint: 'generic',
+        projectRoot: env.projectRoot,
+        tools: ['Agent', 'Task', 'Read'],
+      });
+      expect(payload.meta.thinAgent?.mode).toBe('strict');
+      expect(payload.meta.thinAgent?.stripped).toEqual([]);
+      expect(payload.role).toBe('lead');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('no-op when tools option omitted — thinAgent meta is undefined', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['src/a.ts'] },
+        {
+          agentId: 'fixture-worker',
+          role: 'worker',
+          tier: 0,
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+        },
+      );
+      expect(payload.meta.thinAgent).toBeUndefined();
     } finally {
       db.close();
     }
