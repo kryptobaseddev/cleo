@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * CLEO CLI - Main entry point
  *
@@ -90,6 +91,7 @@ import { importCommand } from './commands/import.js';
 import { importTasksCommand } from './commands/import-tasks.js';
 import { initCommand } from './commands/init.js';
 import { injectCommand } from './commands/inject.js';
+import { installGlobalCommand } from './commands/install-global.js';
 import { intelligenceCommand } from './commands/intelligence.js';
 import { issueCommand } from './commands/issue.js';
 import { labelsCommand } from './commands/labels.js';
@@ -208,6 +210,7 @@ subCommands['history'] = historyCommand as CommandDef;
 subCommands['import'] = importCommand as CommandDef;
 subCommands['import-tasks'] = importTasksCommand as CommandDef;
 subCommands['init'] = initCommand as CommandDef;
+subCommands['install-global'] = installGlobalCommand as CommandDef;
 subCommands['inject'] = injectCommand as CommandDef;
 subCommands['intelligence'] = intelligenceCommand as CommandDef;
 subCommands['issue'] = issueCommand as CommandDef;
