@@ -172,6 +172,12 @@ const cleoBuildOptions = {
       '@cleocode/nexus': resolve(__dirname, 'packages/nexus/src/index.ts'),
       '@cleocode/nexus/internal': resolve(__dirname, 'packages/nexus/src/internal.ts'),
       '@cleocode/adapters': resolve(__dirname, 'packages/adapters/src/index.ts'),
+      // T910/T935: playbooks is imported at runtime by
+      // packages/cleo/src/dispatch/domains/playbook.ts. Inline its source into
+      // the cleo bundle so the published CLI works even if @cleocode/playbooks
+      // has not produced a standalone dist/ (v2026.4.94 shipped with no dist,
+      // see CHANGELOG v2026.4.95).
+      '@cleocode/playbooks': resolve(__dirname, 'packages/playbooks/src/index.ts'),
     }),
   ],
 };
@@ -349,6 +355,22 @@ async function build() {
   // migration is present in @cleocode/cleo, causing E_BRAIN_OBSERVE on fresh
   // installs (brain_page_edges missing the `provenance` column that T528 adds).
   await syncMigrationsToCleoPackage();
+
+  // T910/T935: playbooks standalone build for external consumers. The cleo
+  // bundle inlines playbooks source, but @cleocode/playbooks is also published
+  // on npm and needs its own dist/ for direct consumers. Built AFTER core
+  // because playbooks depends on @cleocode/contracts + @cleocode/core.
+  // tsconfig.tsbuildinfo must be removed first — composite: true causes tsc -b
+  // to short-circuit when the cache thinks nothing has changed, even if dist/
+  // has been wiped. This was the root cause of the v2026.4.94 empty-tarball
+  // regression (fixed in v2026.4.95).
+  await rm(resolve(__dirname, 'packages/playbooks/tsconfig.tsbuildinfo'), { force: true });
+  console.log('Building @cleocode/playbooks...');
+  execFileSync('pnpm', ['--filter', '@cleocode/playbooks', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/playbooks/dist/');
 
   console.log('Building @cleocode/cleo...');
   await esbuild.build(cleoBuildOptions);
