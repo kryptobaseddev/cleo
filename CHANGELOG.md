@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.96] — 2026-04-18 — Hotfix: adapters harness-interop CI resolution
+
+Patch release. Packaging identical to v2026.4.95 — fixes only the CI red
+signal on `packages/adapters/src/__tests__/harness-interop.test.ts` which
+hit `ERR_MODULE_NOT_FOUND` for `@cleocode/playbooks` under the root vitest
+runner (T937's test-time alias lived only in `packages/adapters/vitest.config.ts`,
+which the root runner did not pick up).
+
+### Fix
+
+- **`packages/adapters/package.json`** — added `@cleocode/playbooks` as
+  a `devDependency` (`workspace:*`). The test now resolves through the
+  canonical node_modules path in every environment: per-package
+  `pnpm test`, root `pnpm run test`, and CI `Unit Tests (shard 2/2)`.
+- **`pnpm-lock.yaml`** — updated by `pnpm install` after the devDep was
+  added.
+
+End-user experience for v2026.4.95 is unchanged and correct — the failing
+test was test-infra, not a shipped-code defect.
+
 ## [2026.4.95] — 2026-04-18 — Hotfix: @cleocode/playbooks dist/ shipped empty on v2026.4.94
 
 Patch-level hotfix for v2026.4.94. The `@cleocode/playbooks@2026.4.94` tarball
