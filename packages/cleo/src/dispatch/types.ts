@@ -41,7 +41,7 @@ export type {
 } from '@cleocode/contracts';
 
 /**
- * The 13 canonical domain names.
+ * The 14 canonical domain names.
  */
 export const CANONICAL_DOMAINS = [
   'tasks',
@@ -57,6 +57,7 @@ export const CANONICAL_DOMAINS = [
   'intelligence',
   'diagnostics',
   'docs',
+  'playbook',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

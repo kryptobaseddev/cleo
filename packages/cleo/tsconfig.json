@@ -28,7 +28,8 @@
     { "path": "../caamp" },
     { "path": "../adapters" },
     { "path": "../runtime" },
-    { "path": "../cant" }
+    { "path": "../cant" },
+    { "path": "../playbooks" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/__mocks__", "src/**/*.test.ts"]

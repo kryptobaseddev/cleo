@@ -224,6 +224,9 @@ importers:
       '@cleocode/nexus':
         specifier: workspace:*
         version: link:../nexus
+      '@cleocode/playbooks':
+        specifier: workspace:*
+        version: link:../playbooks
       '@cleocode/runtime':
         specifier: workspace:*
         version: link:../runtime

@@ -144,9 +144,11 @@ describe('Parity Group 1: Registry completeness', () => {
     // T798: docs.generate (query) — +1 query / +1 total.
     // T820: pipeline.release.changelog.since (query) + pipeline.release.rollback.full (mutate) — +1 query / +1 mutate / +2 total.
     // T889/W3-6: orchestrate.plan (query) — +1 query / +1 total.
-    expect(queryCount).toBe(160);
-    expect(mutateCount).toBe(111);
-    expect(OPERATIONS.length).toBe(271);
+    // T935: playbook.{status,list} + orchestrate.pending (query) and playbook.{run,resume}
+    //       + orchestrate.{approve,reject} (mutate) — +3 query / +4 mutate / +7 total.
+    expect(queryCount).toBe(163);
+    expect(mutateCount).toBe(115);
+    expect(OPERATIONS.length).toBe(278);
   });
 
   it('all operations have valid gateway values', () => {
