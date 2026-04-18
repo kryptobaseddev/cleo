@@ -168,7 +168,8 @@ describe('ClaudeCodeInstallProvider — integration', () => {
   it('creates CLAUDE.md with @-references', async () => {
     await install.ensureInstructionReferences(testDir);
     const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
+    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
@@ -180,18 +181,22 @@ describe('ClaudeCodeInstallProvider — integration', () => {
     const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
     expect(content).toContain('# Project');
     expect(content).toContain('@AGENTS.md');
-    expect(content).toContain('@~/.cleo/templates/CLEO-INJECTION.md');
+    // Structure check: must be a non-empty @~/... path pointing to CLEO-INJECTION.md (OS-agnostic)
+    expect(content).toMatch(/@~\/.+\/CLEO-INJECTION\.md/);
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
   it('does not duplicate existing references', async () => {
-    const existing = '@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n';
+    // Pre-seed with the dynamically-resolved reference so dedup logic fires
+    const { getCleoTemplatesTildePath } = await import('../providers/shared/paths.js');
+    const injectionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+    const existing = `${injectionRef}\n@.cleo/memory-bridge.md\n`;
     writeFileSync(join(testDir, 'CLAUDE.md'), existing, 'utf-8');
 
     await install.ensureInstructionReferences(testDir);
     const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
     // Should not have duplicated lines
-    const injectionCount = content.split('@~/.cleo/templates/CLEO-INJECTION.md').length - 1;
+    const injectionCount = (content.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
     expect(injectionCount).toBe(1);
   });
 

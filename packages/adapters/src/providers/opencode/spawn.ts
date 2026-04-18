@@ -16,6 +16,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
+import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 const execAsync = promisify(exec);
 
@@ -95,7 +96,7 @@ async function ensureSubagentDefinition(
       'You are a CLEO subagent executing a delegated task.',
       'Follow the CLEO protocol and complete the assigned work.',
       '',
-      '@~/.cleo/templates/CLEO-INJECTION.md',
+      `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
     ].join('\n');
 
   const content = buildOpenCodeAgentMarkdown(description, instructions);
