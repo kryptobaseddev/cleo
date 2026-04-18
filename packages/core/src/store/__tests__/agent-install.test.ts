@@ -23,16 +23,21 @@
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SEED_HISTORIAN_SOURCE =
-  '/mnt/projects/cleocode/packages/agents/seed-agents/cleo-historian.cant';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+/** Monorepo-relative seed-agent path — works locally and in CI. */
+const SEED_HISTORIAN_SOURCE = resolve(
+  __dirname,
+  '../../../../agents/seed-agents/cleo-historian.cant',
+);
 
 /** Minimal valid .cant manifest used for write-and-install tests. */
 const FIXTURE_MINIMAL_CANT = `---
