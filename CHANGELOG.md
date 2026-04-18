@@ -4,6 +4,131 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.93] — 2026-04-18 — Epic T910 Orchestration Coherence v4
+
+Completes epic **T910 "Orchestration Coherence v4"** — the follow-up to T889's
+foundation release. Ships the executable playbook runtime, thin-agent runtime
+enforcement, composer integration into orchestrate-engine, SDK consolidation
+onto the Vercel AI SDK, starter playbooks, and the architectural documentation
+that ties the six-layer pipeline together into one canonical reference.
+
+### Added — Playbook Runtime (T930, commit `f3dcceb02`)
+
+- **`packages/playbooks/src/runtime.ts`** — deterministic state-machine executor
+  for `.cantbook` flows. Pure dependency injection: callers pass an
+  `AgentDispatcher` for `agentic` nodes and an optional `DeterministicRunner`
+  for `deterministic` nodes. The runtime never imports from `@cleocode/core`
+  or any provider SDK, so every branch is testable with stub dispatchers.
+- **Three node kinds** — `agentic`, `deterministic`, `approval` (discriminated
+  union `PlaybookNode` from `@cleocode/contracts`).
+- **HITL gates** — `approval` nodes write a `playbook_approvals` row with an
+  HMAC-SHA256 resume token, mark the run `paused`, and return. Resume via
+  `resumePlaybook(token)` after human approval via `approveGate` /
+  `rejectGate`.
+- **Iteration caps + escalation** — per-node `on_failure.max_iterations`
+  (default 3, parser-enforced max 10) with optional `on_failure.inject_into`
+  to hand control to a recovery node carrying `__lastError` /
+  `__lastFailedNode` in context.
+- **Terminal statuses** — `completed` / `failed` / `exceeded_iteration_cap` /
+  `pending_approval`.
+- **Persistence** — crash-resume capable. `playbook_runs.current_node` +
+  `bindings` are persisted after every step under BEGIN/COMMIT transactions so
+  partial failures cannot leave a half-mutated row.
+
+### Added — Thin-Agent Runtime Enforcer (T931, commit `f305d595c`)
+
+- **`packages/core/src/orchestration/thin-agent.ts`** — `enforceThinAgent(role,
+  tools, mode)` defense-in-depth check at the dispatch boundary. Workers
+  MUST NOT carry `Agent` / `Task` tools. Three modes: `'strict'` (default —
+  throw `ThinAgentViolationError`), `'strip'` (silently drop violators,
+  surface in `payload.meta.thinAgent.stripped`), `'off'` (audited escape
+  hatch).
+- Complements the parse-time `stripSpawnToolsForWorker` in `@cleocode/cant` —
+  parser strips at authoring time; runtime enforces at dispatch time. Neither
+  alone closes the loophole.
+- Exit code `68` (`ExitCode.THIN_AGENT_VIOLATION`) carries the violation out
+  through the LAFS envelope.
+
+### Added — composeSpawnPayload Integrated into orchestrate-engine (T932, commit `561b1c31a`)
+
+- **`orchestrate-engine.ts` migrated** from `buildSpawnPrompt` / `prepareSpawn`
+  to `composeSpawnPayload`. Legacy call sites continue to work (the engine is
+  now the internal assembler) but new code goes through the canonical composer.
+- **`meta.composerVersion === '3.0.0'`** is the integration-test hook that
+  asserts callers are on the new composer path and not on a legacy bypass.
+- New **`orchestrate-engine-composer.test.ts`** asserts the composer path end-
+  to-end, including `E_ATOMICITY_NO_SCOPE` when `AC.files` is missing on a
+  worker spawn.
+
+### Added — SDK Consolidation on Vercel AI SDK (T933, commit `5f3454fab`)
+
+- **`packages/adapters` standardized on Vercel AI SDK** (`ai` v6 +
+  `@ai-sdk/anthropic` + `@ai-sdk/openai`). Removes `@anthropic-ai/claude-agent-sdk`
+  and `@openai/agents`.
+- **CLEO-native types** — `CleoAgent`, `CleoInputGuardrail`,
+  `CleoTraceProcessor`, `CleoSpan` replace legacy SDK types. Legacy names
+  kept as aliases for backward compatibility.
+- **Handoff topology owned by CLEO** — `OpenAiSdkSpawnProvider.spawn()` now
+  orchestrates lead-then-workers sequentially instead of relying on
+  `@openai/agents`' built-in routing. Visible behaviour preserved.
+- **286/286 adapter tests pass.**
+- **New ADR-052** documents the consolidation decision.
+
+### Added — Starter Playbooks (T934)
+
+Three reference `.cantbook` playbooks under `packages/playbooks/starter/`:
+
+- `rcasd.cantbook` — RCASD planning pipeline (5 stages).
+- `ivtr.cantbook` — IVTR execution loop (Implementation → Verification →
+  Tests → Review).
+- `release.cantbook` — Release pipeline with a HITL approval gate before
+  publish.
+
+Each exercises every node kind and demonstrates the `requires` / `ensures`
+contract pattern without prescribing a specific project structure.
+
+### Added — Architectural Documentation (T936)
+
+- **`docs/architecture/orchestration-flow.md`** — canonical 6-layer reference:
+  classify → registry → composer → harness hint → playbook runtime → subagent
+  dispatch. Includes Mermaid diagram of the spawn pipeline and a detailed
+  breakdown of each layer with module paths.
+- **`docs/adr/ADR-053-playbook-runtime.md`** — ADR documenting the
+  state-machine decision, three node kinds, iteration caps, HITL resume
+  tokens, terminal statuses, and rationale for rejecting XState, LangGraph,
+  Temporal, and ad-hoc procedural alternatives.
+- **`CLEO-INJECTION.md` template** (`packages/core/templates/`) references the
+  playbook domain and the new orchestrate approve/reject/pending commands so
+  subagent spawn prompts surface the new CLI surface.
+
+### Planned — CLI Surface (T935, T937)
+
+The runtime, contracts, and data model all ship in this release. The CLI
+commands that expose them are tracked as follow-up work:
+
+- `cleo playbook run <name>` — execute a `.cantbook`.
+- `cleo playbook status <runId>` — inspect run state.
+- `cleo playbook resume <runId>` — continue after HITL approval.
+- `cleo orchestrate approve <resumeToken>` — grant approval.
+- `cleo orchestrate reject <resumeToken> --reason <r>` — deny with audit.
+- `cleo orchestrate pending` — list awaiting approvals.
+- T937 — harness interop tests for the full pipeline across claude-code,
+  generic, and bare hint values.
+
+### Quality gates
+
+- `pnpm biome ci .`: clean (1 pre-existing archive-symlink warning, unrelated)
+- `pnpm run build` (full dep graph): green across all packages
+- Adapter test suite: 286/286 pass post-SDK-consolidation
+- TSC strict across `@cleocode/core`, `@cleocode/playbooks`,
+  `@cleocode/adapters`, `@cleocode/cleo`: clean
+
+### Orchestration
+
+- Epic `T910` tracked in CLEO tasks DB with 8 children (T930-T937)
+- RCASD + IVTR protocol loops per the `ct-orchestrator` skill
+- T930-T934, T936 shipped in this release; T935 and T937 tracked for follow-up
+
 ## [2026.4.92] — 2026-04-18 — Epic T911 Wave 2 (caamp paths + doctor schema probes + CLI double-JSON + gate-verify hint + brain.db T528 + sandbox harnesses)
 
 Completes epic **T911 "Install Canonical Layout + Sandbox Harness Coverage"** — 16 child tasks delivered via 16 parallel `cleo-subagent` workers.

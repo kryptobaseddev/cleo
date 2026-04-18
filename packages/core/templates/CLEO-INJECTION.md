@@ -73,6 +73,26 @@ Memory bridge (`.cleo/memory-bridge.md`) auto-refreshes on session end and task 
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
 | Multi-agent IVTR loop | `cleo orchestrate ivtr <taskId> --start` |
 | View epic wave plan | `cleo orchestrate waves <epicId>` |
+| Grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
+| Deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
+| List awaiting HITL approvals | `cleo orchestrate pending` |
+
+## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
+
+`.cantbook` playbooks encode multi-stage agent flows (research → spec → impl →
+review, release with HITL gate, etc.) as YAML. The playbook runtime is a
+deterministic state machine with HMAC-signed resume tokens for HITL gates —
+see `docs/architecture/orchestration-flow.md` for the 6-layer pipeline and
+`docs/adr/ADR-053-playbook-runtime.md` for the state-machine decision.
+
+| Goal | Command |
+|------|---------|
+| Execute a `.cantbook` playbook | `cleo playbook run <name>` |
+| Inspect run state | `cleo playbook status <runId>` |
+| Resume after HITL approval | `cleo playbook resume <runId>` |
+
+Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`,
+`ivtr.cantbook`, `release.cantbook`.
 
 ## Documents & Attachments
 
