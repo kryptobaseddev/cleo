@@ -129,6 +129,37 @@ commands that expose them are tracked as follow-up work:
 - RCASD + IVTR protocol loops per the `ct-orchestrator` skill
 - T930-T934, T936 shipped in this release; T935 and T937 tracked for follow-up
 
+### Also shipped — Epic T929 (sandbox-driven CLEO bug fixes, parallel to T910)
+
+Surfaced + fixed by running the cleo-sandbox Docker playground end-to-end against live v2026.4.92:
+
+- **T929 shebang on bin targets** (`5d7cce264`) — `src/cli/index.ts` now carries `#!/usr/bin/env node`; esbuild banner produces single clean shebang. `scripts/assert-shebang.mjs` postbuild gate fails the build if any declared bin target lacks its shebang. 11 bin targets validated.
+- **T929 doctor integrity_check** (`ca63b11ba`) — `cleo doctor` now runs `PRAGMA integrity_check` against every declared SQLite DB instead of only checking file size. A corrupted tasks.db surfaces as `degraded` (exit 1), not masked as `pass` at 659KB. Includes 2 regression tests.
+- **T929 orchestrate ready E_NOT_FOUND** (`ca63b11ba`) — `cleo orchestrate ready --epic <nonexistent>` now returns `E_NOT_FOUND` + exit 4 instead of success-with-empty.
+- **T929 orchestrate ready == start wave set** (`14a08d533`) — aligned both commands to the same `computeReadySet` source. Previously `start` reported 6 ready tasks while `ready` returned 0. `orchestrate spawn` with empty/invalid task id also returns `E_NOT_FOUND` now.
+- **T929 lifecycle auto-start on complete** — `cleo lifecycle complete <stage>` now auto-transitions pending → active → completed in one call instead of failing with `E_LIFECYCLE_PROGRESS`. `STAGE_ALIASES` map added so shorthand names resolve to canonical pipeline stages. Unblocks RCASD chain for epic-driven workflows.
+- **T929 `cleo install-global` command wired** — the standalone bootstrap trigger documented in v2026.4.89 CHANGELOG was never actually wired. Now present with `--dry-run`, `--json/--human/--quiet`. Calls `bootstrapGlobalCleo()` (includes `~/.cleo` symlink migration). 13 new tests.
+
+### Also shipped — cleo-sandbox (separate repo: github.com/kryptobaseddev/cleo-sandbox)
+
+- **`AGENTS.md` (13 KB)** — agent-facing primary doc enabling autonomous test-diagnose-patch-retest loops. Quick-start, test contract, result schema, autonomous loop pattern (pseudocode), scenario + harness catalogs, add-scenario/add-harness step-by-step, pitfalls, safety + reset + artifact collection.
+- **`bin/sandbox test-all`** — iterates all `scenarios/*/` on a target node, prints summary table or JSON. `--fail-fast`, `--node <name>`, `--json`.
+- **`scenarios/TEMPLATE/`** + **`harnesses/TEMPLATE/`** — copy-paste skeletons.
+- **Sandbox bug fixes surfaced by autonomous testing:** artifact bind-mount UID mismatch, Alpine Dockerfile corepack gap, fresh-install-linux state leak across runs, harness-e2e obsolete `cleo task add` syntax + missing session/parent prerequisites.
+
+### End-to-end validation — `bin/sandbox test-all` against v2026.4.92 via fresh-install:
+
+```
+corrupted-db-recovery        PASS       3s
+fresh-install-linux          PASS       5s
+harness-e2e                  PASS       9s
+multi-project-registry       PASS       7s
+upgrade-from-legacy-dotcleo  PASS      33s
+All 5 scenario(s) PASSED on node ubuntu.
+```
+
+Every CLEO fix in this release was sandbox-validated behaviorally before ship.
+
 ## [2026.4.92] — 2026-04-18 — Epic T911 Wave 2 (caamp paths + doctor schema probes + CLI double-JSON + gate-verify hint + brain.db T528 + sandbox harnesses)
 
 Completes epic **T911 "Install Canonical Layout + Sandbox Harness Coverage"** — 16 child tasks delivered via 16 parallel `cleo-subagent` workers.
