@@ -17,10 +17,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.108",
+    "@ai-sdk/anthropic": "^3.0.69",
+    "@ai-sdk/openai": "^2.0.53",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
-    "@openai/agents": "0.8.3"
+    "ai": "^6.0.168"
   },
   "license": "MIT",
   "engines": {

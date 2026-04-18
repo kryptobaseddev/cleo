@@ -1,13 +1,14 @@
 /**
  * Shared SDK result mapper for CLEO spawn providers.
  *
- * Normalises provider-specific run results (OpenAI Agents SDK, Claude Agent SDK)
+ * Normalises provider-specific run results from the Vercel AI SDK bridge
  * into the canonical {@link SpawnResult} contract used by CLEO orchestration.
  *
- * Both T581 (Claude SDK) and T582 (OpenAI SDK) import from this module so the
- * mapping logic stays DRY.
+ * Both the Claude SDK provider (T581) and the OpenAI SDK provider (T582)
+ * import from this module so the mapping logic stays DRY.
  *
- * @task T582
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — Vercel AI SDK migration)
  */
 
 import type { SpawnResult } from '@cleocode/contracts';
@@ -16,9 +17,10 @@ import type { SpawnResult } from '@cleocode/contracts';
  * Raw run outcome from any SDK provider, normalised before mapping.
  *
  * @remarks
- * Both `@anthropic-ai/claude-agent-sdk` and `@openai/agents` surface a
- * `finalOutput` string plus an optional error. This interface captures the
- * minimal shared shape so the mapper stays provider-agnostic.
+ * Both `@ai-sdk/anthropic` and `@ai-sdk/openai` (via Vercel AI SDK
+ * `generateText`) surface a `text` string plus an optional error. This
+ * interface captures the minimal shared shape so the mapper stays
+ * provider-agnostic.
  */
 export interface RawSdkRunOutcome {
   /** Final text produced by the agent run. Empty string when the run failed. */

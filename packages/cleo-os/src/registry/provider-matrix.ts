@@ -119,7 +119,7 @@ const KNOWN_PROVIDERS: ReadonlyArray<{ id: string; displayName: string }> = [
   { id: 'cursor', displayName: 'Cursor' },
   { id: 'gemini-cli', displayName: 'Gemini CLI' },
   { id: 'kimi', displayName: 'Kimi' },
-  { id: 'openai-sdk', displayName: 'OpenAI Agents SDK' },
+  { id: 'openai-sdk', displayName: 'OpenAI SDK (Vercel AI SDK)' },
   { id: 'opencode', displayName: 'OpenCode' },
   { id: 'pi', displayName: 'Pi Coding Agent' },
 ];

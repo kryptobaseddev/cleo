@@ -1,20 +1,56 @@
 /**
- * CLEO Team topology → OpenAI Agents SDK handoff mapping.
+ * CLEO Team topology → lead/worker agent descriptors.
  *
- * CLEO agents are organised in a Lead → Worker hierarchy. This module maps
- * that topology to the SDK's first-class `handoffs` graph:
+ * CLEO agents are organised in a Lead → Worker hierarchy. Historically this
+ * was wired into the `@openai/agents` first-class `handoffs` graph. Post T933
+ * (ADR-052 — Vercel AI SDK consolidation) CLEO owns the topology entirely:
  *
- * - A Team Lead becomes an `Agent` whose `handoffs` array lists its workers.
+ * - A Team Lead is a {@link CleoAgent} whose `handoffs` array lists its workers.
  * - Each Worker archetype (read-only, write, bash) is declared in
  *   `WORKER_ARCHETYPES` and built on demand.
  * - The mapping is driven by `SpawnContext.options.handoffs`, which is an
  *   array of worker archetype names.
+ * - When a lead agent needs to delegate, the spawn provider runs a separate
+ *   `generateText` call for the selected worker and injects the result back
+ *   into the lead's context.
  *
- * @task T582
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — CLEO-native topology)
  */
 
-import type { InputGuardrail } from '@openai/agents';
-import { Agent } from '@openai/agents';
+import type { CleoInputGuardrail } from './guardrails.js';
+
+// ---------------------------------------------------------------------------
+// CLEO-native agent shape
+// ---------------------------------------------------------------------------
+
+/**
+ * Agent descriptor used by the CLEO OpenAI adapter.
+ *
+ * @remarks
+ * Intentionally mirrors the subset of `@openai/agents`'s `Agent` that CLEO
+ * actually consumed. The Vercel AI SDK delivers model inference via
+ * `generateText` / `streamText`; handoffs are orchestrated by the spawn
+ * provider using this descriptor as input.
+ */
+export interface CleoAgent {
+  /** Agent identifier surfaced in trace spans. */
+  name: string;
+  /** System-level instructions fed to the model. */
+  instructions: string;
+  /** Vercel AI SDK model identifier (e.g. `gpt-4.1`, `gpt-4.1-mini`). */
+  model: string;
+  /** Workers this agent may delegate to. Undefined when the agent is a leaf. */
+  handoffs?: CleoAgent[];
+  /** Input guardrails evaluated before the model call. */
+  inputGuardrails?: CleoInputGuardrail[];
+}
+
+/**
+ * @deprecated Use {@link CleoAgent}. Legacy alias for callers that imported
+ *   the `Agent` type from this module. Removed in a future major.
+ */
+export type Agent = CleoAgent;
 
 // ---------------------------------------------------------------------------
 // Worker archetypes
@@ -24,12 +60,12 @@ import { Agent } from '@openai/agents';
  * Descriptor for a pre-configured worker agent archetype.
  *
  * Archetypes are declarative templates. `buildWorkerAgent` inflates them into
- * live SDK `Agent` instances.
+ * live {@link CleoAgent} instances.
  */
 export interface WorkerArchetype {
-  /** Archetype identifier (also used as SDK agent name). */
+  /** Archetype identifier (also used as agent name). */
   name: string;
-  /** Short description passed as the SDK agent instructions. */
+  /** Short description passed as the agent instructions. */
   instructions: string;
   /** Preferred model for this archetype. */
   model: string;
@@ -67,49 +103,49 @@ export const WORKER_ARCHETYPES: Record<string, WorkerArchetype> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a worker `Agent` instance from a named archetype.
+ * Build a worker {@link CleoAgent} from a named archetype.
  *
  * @param archetypeName - Key in {@link WORKER_ARCHETYPES}.
  * @param guardrails - Input guardrails to attach to the worker agent.
- * @returns A configured SDK `Agent` or `null` when the archetype is unknown.
+ * @returns A configured agent descriptor or `null` when the archetype is unknown.
  */
 export function buildWorkerAgent(
   archetypeName: string,
-  guardrails: InputGuardrail[],
-): Agent | null {
+  guardrails: CleoInputGuardrail[],
+): CleoAgent | null {
   const archetype = WORKER_ARCHETYPES[archetypeName];
   if (!archetype) return null;
 
-  return new Agent({
+  return {
     name: archetype.name,
     instructions: archetype.instructions,
     model: archetype.model,
-    inputGuardrails: guardrails.length > 0 ? guardrails : undefined,
-  });
+    ...(guardrails.length > 0 ? { inputGuardrails: guardrails } : {}),
+  };
 }
 
 /**
- * Build a team lead `Agent` whose `handoffs` reference the given workers.
+ * Build a team lead {@link CleoAgent} whose `handoffs` reference the given workers.
  *
  * @param leadInstructions - System instructions for the lead agent.
  * @param leadModel - Model to use for the lead agent.
  * @param workers - Worker agents this lead can hand off to.
  * @param guardrails - Input guardrails to attach to the lead agent.
- * @returns A configured lead SDK `Agent`.
+ * @returns A configured lead agent descriptor.
  */
 export function buildLeadAgent(
   leadInstructions: string,
   leadModel: string,
-  workers: Agent[],
-  guardrails: InputGuardrail[],
-): Agent {
-  return new Agent({
+  workers: CleoAgent[],
+  guardrails: CleoInputGuardrail[],
+): CleoAgent {
+  return {
     name: 'cleo-lead',
     instructions: leadInstructions,
     model: leadModel,
-    handoffs: workers.length > 0 ? workers : undefined,
-    inputGuardrails: guardrails.length > 0 ? guardrails : undefined,
-  });
+    ...(workers.length > 0 ? { handoffs: workers } : {}),
+    ...(guardrails.length > 0 ? { inputGuardrails: guardrails } : {}),
+  };
 }
 
 /**
@@ -121,19 +157,19 @@ export function buildLeadAgent(
  * @param instructions - Agent system instructions.
  * @param model - Model identifier.
  * @param guardrails - Input guardrails.
- * @returns A configured SDK `Agent`.
+ * @returns A configured agent descriptor.
  */
 export function buildStandaloneAgent(
   instructions: string,
   model: string,
-  guardrails: InputGuardrail[],
-): Agent {
-  return new Agent({
+  guardrails: CleoInputGuardrail[],
+): CleoAgent {
+  return {
     name: 'cleo-worker',
     instructions,
     model,
-    inputGuardrails: guardrails.length > 0 ? guardrails : undefined,
-  });
+    ...(guardrails.length > 0 ? { inputGuardrails: guardrails } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +187,7 @@ export interface TopologyOptions {
   /** Names of worker archetypes to create and attach as handoffs. */
   handoffNames: string[];
   /** Input guardrails shared across all agents in the topology. */
-  guardrails: InputGuardrail[];
+  guardrails: CleoInputGuardrail[];
 }
 
 /**
@@ -164,9 +200,9 @@ export interface TopologyOptions {
  * Unknown archetype names in `handoffNames` are silently skipped.
  *
  * @param options - Topology build options.
- * @returns The entry-point agent to pass to `runner.run()`.
+ * @returns The entry-point agent descriptor.
  */
-export function buildAgentTopology(options: TopologyOptions): Agent {
+export function buildAgentTopology(options: TopologyOptions): CleoAgent {
   const { instructions, model, tier, handoffNames, guardrails } = options;
 
   if (tier === 'worker') {
@@ -174,9 +210,9 @@ export function buildAgentTopology(options: TopologyOptions): Agent {
   }
 
   // Build worker agents from archetype names; skip unknown names.
-  const workers: Agent[] = handoffNames
+  const workers: CleoAgent[] = handoffNames
     .map((name) => buildWorkerAgent(name, guardrails))
-    .filter((a): a is Agent => a !== null);
+    .filter((a): a is CleoAgent => a !== null);
 
   if (workers.length === 0) {
     // Lead with no workers — still usable as a standalone agent.

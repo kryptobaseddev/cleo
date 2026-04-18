@@ -1,15 +1,64 @@
 /**
- * CLEO permission rules mapped to OpenAI Agents SDK guardrails.
+ * CLEO permission rules for the OpenAI SDK adapter.
  *
- * CLEO ACLs (file-glob path allowlists, tool allowlists) are expressed as
- * `InputGuardrail` instances that run before agent execution. A path that
- * falls outside the allowed glob list causes the guardrail to trip and
- * the agent run is rejected.
+ * Historically these rules were expressed as `InputGuardrail` instances from
+ * `@openai/agents`. Post T933 (ADR-052 — Vercel AI SDK consolidation) they
+ * are CLEO-native objects with the same shape so provider code that relies on
+ * their behaviour does not need to change. The Vercel AI SDK does not ship an
+ * equivalent guardrail abstraction — CLEO implements its own path ACL and
+ * tool allowlist enforcement here.
  *
- * @task T582
+ * A guardrail evaluates the serialised agent input before the request is sent
+ * to the model. A path that falls outside the allowed glob list causes the
+ * guardrail to trip and the run is rejected.
+ *
+ * @task T582 (original)
+ * @task T933 (SDK consolidation — provider-neutral rewrite)
  */
 
-import type { InputGuardrail, InputGuardrailFunctionArgs } from '@openai/agents';
+// ---------------------------------------------------------------------------
+// CLEO-native guardrail contract
+// ---------------------------------------------------------------------------
+
+/** Arguments passed to a CLEO input guardrail. */
+export interface CleoInputGuardrailFunctionArgs {
+  /** The agent being invoked. Opaque to guardrails. */
+  agent: unknown;
+  /** Serialised input to scan — may be a string or arbitrary JSON value. */
+  input: unknown;
+  /** Per-run context (opaque). */
+  context: unknown;
+}
+
+/** Result of evaluating a CLEO input guardrail. */
+export interface CleoGuardrailResult {
+  /** When true, the guardrail has tripped and the run MUST be rejected. */
+  tripwireTriggered: boolean;
+  /** Free-form diagnostic payload for logging and trace spans. */
+  outputInfo: unknown;
+}
+
+/**
+ * CLEO-native replacement for `InputGuardrail` from `@openai/agents`.
+ *
+ * @remarks
+ * The shape is identical to the legacy SDK contract so downstream consumers
+ * do not require changes. CLEO enforces these guardrails in-process before
+ * dispatching a prompt to the Vercel AI SDK.
+ */
+export interface CleoInputGuardrail {
+  /** Stable guardrail identifier for logs and trace metadata. */
+  name: string;
+  /** Execute the guardrail against the current run arguments. */
+  execute(args: CleoInputGuardrailFunctionArgs): Promise<CleoGuardrailResult>;
+}
+
+/**
+ * @deprecated Use {@link CleoInputGuardrail}. Kept as a named alias for
+ *   callers that previously imported the legacy `InputGuardrail` name from
+ *   this module. Removed in a future major.
+ */
+export type InputGuardrail = CleoInputGuardrail;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,20 +107,18 @@ export function isPathAllowed(path: string, allowedGlobs: string[]): boolean {
  *
  * @param allowedGlobs - Glob patterns that tool path arguments must match.
  *   Pass an empty array to allow all paths (permissive mode).
- * @returns An {@link InputGuardrail} ready to attach to an `Agent`.
+ * @returns A {@link CleoInputGuardrail} ready to attach to an agent.
  *
  * @example
  * ```typescript
  * const guard = buildPathGuardrail(['/mnt/projects/**', '/tmp/**']);
- * const agent = new Agent({ ..., inputGuardrails: [guard] });
+ * const agent = buildStandaloneAgent('...', 'gpt-4.1', [guard]);
  * ```
  */
-export function buildPathGuardrail(allowedGlobs: string[]): InputGuardrail {
+export function buildPathGuardrail(allowedGlobs: string[]): CleoInputGuardrail {
   return {
     name: 'cleo_path_acl',
-    execute: async (
-      args: InputGuardrailFunctionArgs,
-    ): Promise<{ tripwireTriggered: boolean; outputInfo: unknown }> => {
+    execute: async (args: CleoInputGuardrailFunctionArgs): Promise<CleoGuardrailResult> => {
       // Serialise input to a string for heuristic path scanning.
       const inputStr = typeof args.input === 'string' ? args.input : JSON.stringify(args.input);
 
@@ -100,26 +147,23 @@ export function buildPathGuardrail(allowedGlobs: string[]): InputGuardrail {
 /**
  * Build an input guardrail that documents the tool allowlist for audit purposes.
  *
- * In the OpenAI Agents SDK, tool-name enforcement is primarily structural —
- * agents only receive the tools attached to their `tools` array. This guardrail
- * provides an additional audit layer that records the active allowlist in the
- * span metadata.
+ * Tool-name enforcement is primarily structural — agents only receive the
+ * tools declared by CLEO orchestration. This guardrail provides an additional
+ * audit layer that records the active allowlist in the span metadata.
  *
  * @param allowedTools - Exact tool names permitted for this agent.
  *   Pass an empty array to allow all tools (permissive mode).
- * @returns An {@link InputGuardrail} ready to attach to an `Agent`.
+ * @returns A {@link CleoInputGuardrail} ready to attach to an agent.
  *
  * @example
  * ```typescript
  * const guard = buildToolAllowlistGuardrail(['read', 'write']);
  * ```
  */
-export function buildToolAllowlistGuardrail(allowedTools: string[]): InputGuardrail {
+export function buildToolAllowlistGuardrail(allowedTools: string[]): CleoInputGuardrail {
   return {
     name: 'cleo_tool_allowlist',
-    execute: async (
-      _args: InputGuardrailFunctionArgs,
-    ): Promise<{ tripwireTriggered: boolean; outputInfo: unknown }> => {
+    execute: async (_args: CleoInputGuardrailFunctionArgs): Promise<CleoGuardrailResult> => {
       // Structural enforcement: only listed tools are attached to the agent.
       // This guardrail records the allowlist for audit and always passes.
       return {
@@ -134,7 +178,7 @@ export function buildToolAllowlistGuardrail(allowedTools: string[]): InputGuardr
  * Build the default CLEO guardrail set from spawn options.
  *
  * Combines path ACL and tool allowlist guards into a single array ready to
- * pass as `inputGuardrails` on an `Agent` or `RunConfig`.
+ * pass as `inputGuardrails` on an agent topology build.
  *
  * @param allowedGlobs - File-path glob allowlist.
  * @param allowedTools - Tool name allowlist.
@@ -143,8 +187,8 @@ export function buildToolAllowlistGuardrail(allowedTools: string[]): InputGuardr
 export function buildDefaultGuardrails(
   allowedGlobs: string[],
   allowedTools: string[],
-): InputGuardrail[] {
-  const guards: InputGuardrail[] = [];
+): CleoInputGuardrail[] {
+  const guards: CleoInputGuardrail[] = [];
 
   if (allowedGlobs.length > 0) {
     guards.push(buildPathGuardrail(allowedGlobs));
@@ -155,4 +199,41 @@ export function buildDefaultGuardrails(
   }
 
   return guards;
+}
+
+/**
+ * Evaluate a set of CLEO input guardrails against an input payload.
+ *
+ * Runs every guardrail in sequence and returns the first tripwire result.
+ * When no guardrail trips, returns a passing result with diagnostic data
+ * aggregated from each guardrail's `outputInfo`.
+ *
+ * @param guardrails - Guardrails to evaluate.
+ * @param input - The input string to test (typically the enriched prompt).
+ * @returns Aggregated guardrail result.
+ */
+export async function evaluateGuardrails(
+  guardrails: CleoInputGuardrail[],
+  input: string,
+): Promise<CleoGuardrailResult> {
+  const aggregate: Array<{ name: string; outputInfo: unknown }> = [];
+
+  for (const guard of guardrails) {
+    const result = await guard.execute({
+      agent: null,
+      input,
+      context: null,
+    });
+
+    if (result.tripwireTriggered) {
+      return result;
+    }
+
+    aggregate.push({ name: guard.name, outputInfo: result.outputInfo });
+  }
+
+  return {
+    tripwireTriggered: false,
+    outputInfo: aggregate,
+  };
 }
