@@ -49,6 +49,23 @@ export {
   evaluatePolicy,
   type PolicyRule,
 } from './policy.js';
+// W4-10 / T930: playbook runtime state machine + HITL resume
+export {
+  type AgentDispatcher,
+  type AgentDispatchInput,
+  type AgentDispatchResult,
+  type DeterministicRunInput,
+  type DeterministicRunner,
+  type DeterministicRunResult,
+  E_PLAYBOOK_RESUME_BLOCKED,
+  E_PLAYBOOK_RUNTIME_INVALID,
+  type ExecutePlaybookOptions,
+  type ExecutePlaybookResult,
+  executePlaybook,
+  type PlaybookTerminalStatus,
+  type ResumePlaybookOptions,
+  resumePlaybook,
+} from './runtime.js';
 // W4-8: state layer CRUD for playbook_runs + playbook_approvals
 export {
   type CreatePlaybookApprovalInput,
