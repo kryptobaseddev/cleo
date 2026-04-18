@@ -201,6 +201,7 @@ vi.mock('../commands/provider.js', () => ({ providerCommand: {} }));
 vi.mock('../commands/sync.js', () => ({ syncCommand: {} }));
 vi.mock('../commands/transcript.js', () => ({ transcriptCommand: {} }));
 vi.mock('../commands/conduit.js', () => ({ conduitCommand: {} }));
+vi.mock('../commands/playbook.js', () => ({ playbookCommand: {} }));
 // ---------------------------------------------------------------------------
 
 describe('CLI startup: T310 migration hook (T360)', () => {
