@@ -39,6 +39,7 @@ export * as compliance from './compliance/index.js';
 export * as conduit from './conduit/index.js';
 export * as context from './context/index.js';
 export * as coreHooks from './hooks/index.js';
+export * as identity from './identity/index.js';
 export * as inject from './inject/index.js';
 export * as intelligence from './intelligence/index.js';
 export * as issue from './issue/index.js';
@@ -200,6 +201,16 @@ export {
 export type { ProblemDetails } from './errors.js';
 // Errors
 export { CleoError } from './errors.js';
+// Identity (T947 / ADR-054 draft) — signing primitives for audit trails
+export {
+  type AgentIdentity,
+  type AuditSignature,
+  type CleoIdentityFile,
+  getCleoIdentity,
+  getCleoIdentityPath,
+  signAuditLine,
+  verifyAuditLine,
+} from './identity/index.js';
 export type { InitOptions, InitResult } from './init.js';
 // Init
 export { ensureInitialized, getVersion, initProject } from './init.js';
@@ -287,6 +298,13 @@ export type {
 export { Cleo } from './cleo.js';
 // Hooks
 export { HookRegistry, hooks } from './hooks/registry.js';
+// Lifecycle
+export {
+  computeTaskRollup,
+  computeTaskRollups,
+  type RollupExecStatus,
+  type TaskRollup,
+} from './lifecycle/rollup.js';
 export type {
   PopulateEmbeddingsOptions,
   PopulateEmbeddingsResult,

@@ -11,9 +11,27 @@ import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import type { AgentSessionHandle } from './agent-session-adapter.js';
+import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
+
+/**
+ * In-process registry of open llmtxt AgentSession handles, keyed by
+ * CLEO session id. `startSession` opens a handle; `endSession` closes
+ * and persists the receipt. A Map (not a single slot) is used so
+ * parallel sessions — a legitimate operational mode per the Worktree
+ * Protocol — do not step on each other.
+ *
+ * Intentionally process-local: adapter state is re-created on every
+ * CLI invocation because `cleo complete` / `cleo session end` run in
+ * fresh processes. The llmtxt backend is file-backed, so durability
+ * survives process boundaries.
+ *
+ * @task T947
+ */
+const AGENT_SESSION_HANDLES = new Map<string, AgentSessionHandle>();
 
 /** Options for starting a session. */
 export interface StartSessionOptions {
@@ -158,6 +176,27 @@ export async function startSession(
   const acc = accessor ?? (await getAccessor(cwd));
   await acc.upsertSingleSession(session);
 
+  // T947 Step 2: open a corresponding llmtxt AgentSession for audit
+  // receipts. Best-effort — peer-dep absence yields `null` and leaves
+  // observable behaviour unchanged. The handle is cached on an
+  // in-process Map so `endSession` can release it; cross-process
+  // completions (e.g. `cleo complete` in a new shell) re-open a
+  // transient handle via `wrapWithAgentSession` and do not rely on
+  // this registry.
+  try {
+    const handle = await openAgentSession({
+      sessionId: session.id,
+      agentId: options.agent ?? process.env.CLEO_AGENT_ID ?? 'cleo',
+      projectRoot: cwd ?? process.cwd(),
+      label: `session:${session.name}`,
+    });
+    if (handle !== null) {
+      AGENT_SESSION_HANDLES.set(session.id, handle);
+    }
+  } catch {
+    /* AgentSession is best-effort; never block session start */
+  }
+
   // Best-effort adapter activation based on detected provider (T5240)
   if (session.providerId) {
     import('../adapters/index.js')
@@ -277,6 +316,19 @@ export async function endSession(
 
   const acc = accessor ?? (await getAccessor(cwd));
   await acc.upsertSingleSession(session);
+
+  // T947 Step 2: close the matching llmtxt AgentSession (if any) and
+  // persist the ContributionReceipt to `.cleo/audit/receipts.jsonl`.
+  // Best-effort — failures NEVER block CLEO session teardown.
+  const agentHandle = AGENT_SESSION_HANDLES.get(session.id);
+  if (agentHandle) {
+    AGENT_SESSION_HANDLES.delete(session.id);
+    try {
+      await closeAgentSession(agentHandle);
+    } catch {
+      /* AgentSession teardown is best-effort */
+    }
+  }
 
   // Direct memory bridge refresh AFTER session is saved to DB
   try {
@@ -433,6 +485,17 @@ export async function gcSessions(
 }
 
 export type { Session as SessionRecord } from '@cleocode/contracts';
+export type {
+  AgentSessionAdapterOptions,
+  AgentSessionHandle,
+  WrappedResult,
+} from './agent-session-adapter.js';
+export {
+  closeAgentSession,
+  getReceiptsAuditPath,
+  openAgentSession,
+  wrapWithAgentSession,
+} from './agent-session-adapter.js';
 export type { RecordAssumptionParams } from './assumptions.js';
 export { recordAssumption } from './assumptions.js';
 export type {

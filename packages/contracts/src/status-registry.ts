@@ -19,6 +19,7 @@ export const TASK_STATUSES = [
   'done',
   'cancelled',
   'archived',
+  'proposed',
 ] as const;
 
 export const SESSION_STATUSES = ['active', 'ended', 'orphaned', 'suspended'] as const;
@@ -151,6 +152,7 @@ export const TASK_STATUS_SYMBOLS_UNICODE: Record<TaskStatus, string> = {
   done: '\u2713', // ✓  complete
   cancelled: '\u2717', // ✗  abandoned
   archived: '\u25a3', // ▣  stored, inactive
+  proposed: '\u25c7', // ◇  tier-2 proposal queue (T946)
 };
 
 /**
@@ -163,4 +165,5 @@ export const TASK_STATUS_SYMBOLS_ASCII: Record<TaskStatus, string> = {
   done: '+',
   cancelled: '~',
   archived: '#',
+  proposed: '?',
 };

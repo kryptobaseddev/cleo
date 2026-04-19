@@ -1,0 +1,37 @@
+/**
+ * Cleo — standalone facade for @cleocode/core
+ *
+ * Provides a project-bound API covering all 12 domain getter properties:
+ * tasks, sessions, memory, orchestration, lifecycle, release, admin,
+ * sticky, nexus, sync, agents, and intelligence.
+ *
+ * @example
+ * const cleo = await Cleo.init('./my-project');
+ * await cleo.tasks.add({ title: 'Build API', description: 'REST endpoints' });
+ *
+ * @example
+ * // Custom store backend
+ * const cleo = await Cleo.init('./my-project', { store: myCustomAccessor });
+ */
+import type { AdminAPI, AgentsAPI, CleoInitOptions, IntelligenceAPI, LifecycleAPI, MemoryAPI, NexusAPI, OrchestrationAPI, ReleaseAPI, SessionsAPI, StickyAPI, SyncAPI, TasksAPI } from '@cleocode/contracts';
+export type { AdminAPI, AgentsAPI, CleoInitOptions, IntelligenceAPI, LifecycleAPI, MemoryAPI, NexusAPI, OrchestrationAPI, ReleaseAPI, SessionsAPI, StickyAPI, SyncAPI, TasksAPI, } from '@cleocode/contracts';
+export declare class Cleo {
+    readonly projectRoot: string;
+    private readonly _store;
+    private constructor();
+    static init(projectRoot: string, options?: CleoInitOptions): Promise<Cleo>;
+    static forProject(projectRoot: string): Cleo;
+    get tasks(): TasksAPI;
+    get sessions(): SessionsAPI;
+    get memory(): MemoryAPI;
+    get orchestration(): OrchestrationAPI;
+    get lifecycle(): LifecycleAPI;
+    get release(): ReleaseAPI;
+    get admin(): AdminAPI;
+    get sticky(): StickyAPI;
+    get nexus(): NexusAPI;
+    get agents(): AgentsAPI;
+    get intelligence(): IntelligenceAPI;
+    get sync(): SyncAPI;
+}
+//# sourceMappingURL=cleo.d.ts.map

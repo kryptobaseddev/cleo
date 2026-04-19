@@ -4406,11 +4406,16 @@ export const OPERATIONS: OperationDef[] = [
   // orchestrate — Wave 7a: analyze parallel-safety mode (T410)
   // Note: orchestrate.analyze already registered above; this documents the new
   // mode="parallel-safety" variant via the existing analyze operation's params.
-  // conduit — agent messaging operations (ADR-042: moved under orchestrate domain)
+  // conduit — agent-to-agent messaging operations
+  // T964: promoted to first-class canonical domain (supersedes ADR-042 Decision 1).
+  // CONDUIT is semantically disjoint from ORCHESTRATE — it carries live
+  // agent-to-agent messages via pluggable transports (Local/HTTP/SSE) and
+  // persists to conduit.db. ORCHESTRATE handles wave planning + spawn-prompt
+  // generation. The 10-domain invariant that justified the fold has lapsed.
   {
     gateway: 'query' as const,
-    domain: 'orchestrate',
-    operation: 'conduit.status',
+    domain: 'conduit',
+    operation: 'status',
     description: 'conduit.status (query) — check agent connection status and unread count',
     tier: 2,
     idempotent: true,
@@ -4427,8 +4432,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query' as const,
-    domain: 'orchestrate',
-    operation: 'conduit.peek',
+    domain: 'conduit',
+    operation: 'peek',
     description: 'conduit.peek (query) — one-shot poll for new messages without acking',
     tier: 2,
     idempotent: true,
@@ -4451,8 +4456,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'orchestrate',
-    operation: 'conduit.start',
+    domain: 'conduit',
+    operation: 'start',
     description: 'conduit.start (mutate) — start continuous message polling for the active agent',
     tier: 2,
     idempotent: true,
@@ -4481,8 +4486,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'orchestrate',
-    operation: 'conduit.stop',
+    domain: 'conduit',
+    operation: 'stop',
     description: 'conduit.stop (mutate) — stop the active polling loop',
     tier: 2,
     idempotent: true,
@@ -4492,8 +4497,8 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'orchestrate',
-    operation: 'conduit.send',
+    domain: 'conduit',
+    operation: 'send',
     description: 'conduit.send (mutate) — send a message to an agent or conversation',
     tier: 2,
     idempotent: false,

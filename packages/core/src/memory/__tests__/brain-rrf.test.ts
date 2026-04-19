@@ -264,7 +264,7 @@ describe('hybridSearch (RRF integration)', () => {
   }
 
   async function teardown() {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     const { resetFts5Cache } = await import('../brain-search.js');
     closeBrainDb();
     resetFts5Cache();
@@ -287,9 +287,9 @@ describe('hybridSearch (RRF integration)', () => {
   it('returns FTS results when vector unavailable (RRF graceful degradation)', async () => {
     await setup();
     try {
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { hybridSearch, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -330,9 +330,9 @@ describe('hybridSearch (RRF integration)', () => {
   it('exposes rrfScore (via score field) and sources on all results', async () => {
     await setup();
     try {
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { hybridSearch, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -364,9 +364,9 @@ describe('hybridSearch (RRF integration)', () => {
   it('respects limit option', async () => {
     await setup();
     try {
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { hybridSearch, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       resetFts5Cache();
 
@@ -391,9 +391,9 @@ describe('hybridSearch (RRF integration)', () => {
   it('results are sorted by score descending', async () => {
     await setup();
     try {
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { hybridSearch, resetFts5Cache } = await import('../brain-search.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       resetFts5Cache();
 

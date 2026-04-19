@@ -399,9 +399,14 @@ The pipeline domain manages RCASD-IVTR+C lifecycle stages, the pipelineManifest 
 - `pipeline.chain.gate.pass` → removed from registry
 - `pipeline.chain.gate.fail` → removed from registry
 
-### 6.6 orchestrate (19 canonical operations; 24 in table including 5 experimental)
+### 6.6 orchestrate (19 canonical operations)
 
-The core orchestrate operations are tier 1. CleoOS dispatch ops (`classify`, `fanout`, `fanout.status`) are tier 2. The 5 `conduit.*` sub-ops are experimental (no CLI surface yet) and listed for discoverability but excluded from the canonical summary count. All operations are orchestrator-specific and not needed at cold-start.
+The core orchestrate operations are tier 1. CleoOS dispatch ops (`classify`, `fanout`, `fanout.status`) are tier 2. All operations are orchestrator-specific and not needed at cold-start.
+
+> **Note (T964 — supersedes ADR-042 Decision 1)**: The five `conduit.*`
+> operations formerly nested under this domain were promoted to the canonical
+> `conduit` domain (see Section 6.12). The `cleo orchestrate conduit-*`
+> subcommands remain as backward-compatible CLI aliases.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -424,19 +429,15 @@ The core orchestrate operations are tier 1. CleoOS dispatch ops (`classify`, `fa
 | query | `classify` | Classify a request against CANT team registry to route to correct team, lead, and protocol | 2 | -- | Yes |
 | mutate | `fanout` | Fan out N spawn requests in parallel via `Promise.allSettled` (RCASD wave execution) | 2 | -- | No |
 | query | `fanout.status` | Get status of a running fanout by its manifest entry ID; polling complement to `orchestrate.fanout` | 2 | -- | Yes |
-| query | `conduit.status` | **[experimental]** Check agent connection status and unread count (conduit.db; ADR-037/ADR-042) | 1 | -- | Yes |
-| query | `conduit.peek` | **[experimental]** One-shot poll for new messages without acking | 1 | -- | Yes |
-| mutate | `conduit.start` | **[experimental]** Start continuous message polling for the active agent | 1 | -- | No |
-| mutate | `conduit.stop` | **[experimental]** Stop the active polling loop | 1 | -- | No |
-| mutate | `conduit.send` | **[experimental]** Send a message to an agent or conversation | 1 | -- | No |
 
 **Canonical additions (ADR-042):**
 - `orchestrate.classify` — core CANT-based request routing primitive; non-substitutable
 - `orchestrate.fanout` — workhorse of multi-agent parallel dispatch (RCASD waves)
 - `orchestrate.fanout.status` — polling complement to `fanout`; forms an atomic pair
 
-**Experimental additions (ADR-042 Decision 2):**
-- `orchestrate.conduit.*` — 5 agent messaging ops moved from the former `conduit` domain per ADR-042 Decision 1. Classified experimental: zero CLI surface, no documented mandatory workflow. Will be promoted to canonical when Shell 2 of the Conduit 4-shell stack is formally specified. These appear in the table for discoverability but are NOT counted in the canonical summary total.
+**T964 — conduit promoted out:** The 5 `conduit.*` operations formerly listed
+under orchestrate have been relocated to the canonical `conduit` domain (see
+Section 6.12). See also `.cleo/agent-outputs/T910-reconciliation/conduit-collision-research.md`.
 
 **Merged operations (removed from registry):**
 - `orchestrate.critical.path` → use `orchestrate.analyze {mode:"critical-path"}`
@@ -691,7 +692,7 @@ All 5 operations are tier 1. This domain was introduced in T549 (epic T5149) and
 | intelligence | 5 | 0 | 5 |
 | **Total** | **134** | **95** | **229** |
 
-> Orchestrate counts exclude the 5 experimental `orchestrate.conduit.*` operations (which appear in the Section 6.6 table for discoverability). Admin counts exclude `admin.map` (query and mutate forms) which are experimental. The registry is the authoritative source of truth for the current operation count.
+> Orchestrate counts no longer include the 5 `conduit.*` operations — T964 promoted them to the canonical `conduit` domain (see Section 6.12 / `ADR-042` superseded). Admin counts exclude `admin.map` (query and mutate forms) which are experimental. The registry is the authoritative source of truth for the current operation count.
 
 ---
 

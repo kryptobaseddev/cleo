@@ -60,6 +60,7 @@ import {
   skipStage,
   startStage,
 } from './lifecycle/index.js';
+import { computeTaskRollup, computeTaskRollups } from './lifecycle/rollup.js';
 // Memory
 import {
   fetchBrainEntries,
@@ -235,9 +236,12 @@ export class Cleo {
           {
             status: p?.status,
             priority: p?.priority,
+            type: p?.type,
             parentId: p?.parentId,
             phase: p?.phase,
             limit: p?.limit,
+            excludeArchived: p?.excludeArchived,
+            sortByPriority: p?.sortByPriority,
           },
           root,
           store,
@@ -348,6 +352,8 @@ export class Cleo {
   // === Lifecycle ===
   get lifecycle(): LifecycleAPI {
     const root = this.projectRoot;
+    const resolveAccessor = (): Promise<DataAccessor> =>
+      this._store !== null ? Promise.resolve(this._store) : getAccessor(root);
     return {
       status: (epicId) => getLifecycleStatus(epicId, root),
       startStage: (epicId, stage) => startStage(epicId, stage, root),
@@ -359,6 +365,10 @@ export class Cleo {
       passGate: (epicId, gate, agent) => passGate(epicId, gate, agent, undefined, root),
       failGate: (epicId, gate, reason) => failGate(epicId, gate, reason, root),
       stages: PIPELINE_STAGES,
+      // T948: expose rollup so Studio + CLI share a single canonical
+      // projection for "what is the state of this task?".
+      computeRollup: async (taskId) => computeTaskRollup(taskId, await resolveAccessor()),
+      computeRollupsBatch: async (taskIds) => computeTaskRollups(taskIds, await resolveAccessor()),
     };
   }
 

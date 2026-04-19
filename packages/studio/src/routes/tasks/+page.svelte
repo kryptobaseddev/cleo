@@ -1,28 +1,97 @@
+<!--
+  T956 — /tasks hybrid (dashboard panel + embedded 3-tab Task Explorer).
+
+  W2A of T949 ("Option C hybrid" per operator decision 2026-04-17). The
+  top of the page preserves the dashboard VERBATIM (stats / priority bars
+  / type chips / filter chips / Epic Progress / Recent Activity / live
+  SSE indicator). Below it, the 3-tab Task Explorer (Hierarchy / Graph /
+  Kanban) renders against the same `ExplorerBundle` loaded server-side.
+
+  Switching tabs does NOT re-query the server — it projects from the
+  already-loaded bundle. Tab state is URL-synced (`?view=` + hash so
+  `/tasks#graph`-style links from the T957 redirects land correctly).
+  Search, status/priority/label/cancelled filters, and selection all live
+  in the shared `createTaskFilters(url)` store (T951) and round-trip
+  through the URL. The `DetailDrawer` is rendered once globally, driven by
+  `filters.state.selected`.
+
+  Preservation checklist (per docs/specs/CLEO-TASK-DASHBOARD-SPEC.md §9):
+    - Epic Progress (direct-children per T874) — via `EpicProgressCard`
+    - Recent Activity (last 20 by updated_at) — via `RecentActivityFeed`
+    - Live SSE indicator (2-second EventSource)
+    - `?archived=1` / `?cancelled=1` toggle chips
+    - Search by ID (exact match navigates) or title (fuzzy via /api/tasks/search)
+    - All existing stats rows + priority bars + type chips
+
+  Keyboard:
+    - `/` focuses the Explorer search box (registered by TaskSearchBox)
+    - `1` / `2` / `3` switch Hierarchy / Graph / Kanban tabs
+    - `Esc` closes the DetailDrawer
+    - Tab-specific navigation lives in each tab component
+
+  @task T956
+  @epic T949
+-->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import type { PageData } from './$types';
-  import type { DashboardFilters, EpicProgress, RecentTask } from './+page.server.js';
-  import type { SearchTaskRow } from '../api/tasks/search/+server.js';
+  import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
+  import { onMount } from 'svelte';
+
+  import {
+    DetailDrawer,
+    EpicProgressCard,
+    FilterChipGroup,
+    type FilterChipOption,
+    GraphTab,
+    HierarchyTab,
+    KanbanTab,
+    RecentActivityFeed,
+    TaskSearchBox,
+  } from '$lib/components/tasks';
+  import {
+    createTaskFilters,
+    type TaskFilters,
+    type TaskView,
+  } from '$lib/stores/task-filters.svelte.js';
   import { normalizeSearch } from '$lib/tasks/search.js';
+
+  import type { SearchTaskRow } from '../api/tasks/search/+server.js';
+  import type {
+    DashboardFilters,
+    DashboardStats,
+    EpicProgress,
+    RecentTask,
+  } from './+page.server.js';
+  import type { PageData } from './$types';
 
   interface Props {
     data: PageData;
   }
   let { data }: Props = $props();
 
-  const stats = data.stats;
-  const recentTasks: RecentTask[] = data.recentTasks ?? [];
-  const epicProgress: EpicProgress[] = data.epicProgress ?? [];
-  // T878: display filter state (?deferred=1 / ?archived=1) driven from the URL.
-  const filters: DashboardFilters = data.filters ?? { showDeferred: false, showArchived: false };
+  // ---------------------------------------------------------------------------
+  // Dashboard data (preserved verbatim from the pre-T956 page)
+  // ---------------------------------------------------------------------------
+
+  const stats = $derived<DashboardStats | null>(data.stats);
+  const recentTasks = $derived<RecentTask[]>(data.recentTasks ?? []);
+  const epicProgress = $derived<EpicProgress[]>(data.epicProgress ?? []);
+  // T878 / T958: display filter state (?cancelled=1 / ?archived=1) driven
+  // from the URL. `?deferred=1` is the legacy alias honoured for one release.
+  const dashboardFilters = $derived<DashboardFilters>(
+    data.filters ?? { showCancelled: false, showArchived: false },
+  );
 
   /**
-   * Build a toggle URL that flips one filter flag while preserving the other.
-   * We round-trip through the URL so the dashboard stays SSR-correct and the
-   * toggle state is bookmarkable / shareable.
+   * Build a toggle URL that flips one dashboard filter flag while preserving
+   * the other. Round-trips through the URL so state stays SSR-correct and
+   * bookmarkable.
+   *
+   * T958: `cancelled` is the canonical param; `deferred=1` is a legacy
+   * alias the server still accepts.
    */
-  function toggleUrl(flag: 'deferred' | 'archived'): string {
+  function toggleUrl(flag: 'cancelled' | 'archived'): string {
     const next = new URL($page.url);
     const current = next.searchParams.get(flag) === '1';
     if (current) {
@@ -30,28 +99,171 @@
     } else {
       next.searchParams.set(flag, '1');
     }
+    // Strip the legacy alias when toggling the canonical param so they don't coexist.
+    if (flag === 'cancelled') next.searchParams.delete('deferred');
     return next.pathname + (next.search ? next.search : '');
   }
 
   // ---------------------------------------------------------------------------
-  // Search state
+  // Explorer filter store (T951) — one source of truth for ?q / status / priority
+  // / labels / epic / selected / cancelled / view.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The shared Task Explorer filter store. Created in an `$effect` so it is
+   * rebuilt when the URL changes cross-navigation (e.g. a user clicks a
+   * deep-link from another page). `dispose()` cleans up popstate listeners +
+   * pending debounced writes on teardown.
+   */
+  // Initialize eagerly so the Task Explorer section renders on SSR (not only
+  // after client hydration). The store is SSR-safe: it skips popstate
+  // registration + history writes when `window` is absent. Re-init in
+  // `$effect` only rebinds listeners on client-side URL changes.
+  let filters = $state<TaskFilters>(createTaskFilters(new URL($page.url)));
+
+  $effect(() => {
+    const next = createTaskFilters(new URL($page.url));
+    const old = filters;
+    filters = next;
+    return () => {
+      next.dispose();
+      old?.dispose();
+    };
+  });
+
+  /**
+   * Parse a URL hash into a valid {@link TaskView}, or `null` if the hash
+   * does not name one of the three tabs.
+   *
+   * @param hash - Raw `window.location.hash` (e.g. `"#graph"`).
+   */
+  function parseHashView(hash: string): TaskView | null {
+    const cleaned = hash.replace(/^#/, '').toLowerCase();
+    if (cleaned === 'hierarchy' || cleaned === 'graph' || cleaned === 'kanban') {
+      return cleaned;
+    }
+    return null;
+  }
+
+  /**
+   * Sync the active view between `filters.state.view` and the URL hash.
+   *
+   * On mount (and whenever the hash changes via back/forward nav), we read the
+   * hash and prefer it over whatever was seeded from `?view=`. When the user
+   * clicks a tab, {@link switchView} writes back to both the filter store AND
+   * the hash for shareable deep-links.
+   */
+  onMount(() => {
+    function readHash(): void {
+      if (!filters) return;
+      const hashView = parseHashView(window.location.hash);
+      if (hashView && hashView !== filters.state.view) {
+        filters.setView(hashView);
+      }
+    }
+    // Apply on mount (hash wins over ?view= if both are present).
+    readHash();
+    window.addEventListener('hashchange', readHash);
+    return () => window.removeEventListener('hashchange', readHash);
+  });
+
+  /**
+   * Switch the active Explorer tab. Updates both the filter store (which
+   * writes `?view=` to the URL) and the location hash (`#hierarchy` /
+   * `#graph` / `#kanban`) so hash-driven deep-links keep working.
+   *
+   * @param v - The tab to activate.
+   */
+  function switchView(v: TaskView): void {
+    if (!filters) return;
+    filters.setView(v);
+    if (typeof window !== 'undefined' && window.location.hash !== `#${v}`) {
+      // `replaceState` avoids a back-button trap on every tab toggle.
+      const next = `${window.location.pathname}${window.location.search}#${v}`;
+      window.history.replaceState(window.history.state, '', next);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived — Explorer bundle projections + selected task for the DetailDrawer
+  // ---------------------------------------------------------------------------
+
+  const explorerTasks = $derived<Task[]>(data.explorer?.tasks ?? []);
+  const explorerDeps = $derived(data.explorer?.deps ?? []);
+  const explorerLabels = $derived<string[]>(data.explorer?.labels ?? []);
+  const explorerEpicProgressMap = $derived(data.explorer?.epicProgress ?? {});
+
+  const selectedTask = $derived<Task | null>(
+    (() => {
+      if (!filters) return null;
+      const id = filters.state.selected;
+      if (!id) return null;
+      return explorerTasks.find((t) => t.id === id) ?? null;
+    })(),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Filter chip options (wired against the shared FilterChipGroup)
+  // ---------------------------------------------------------------------------
+
+  /** Canonical status chip options for the Explorer toolbar. */
+  const statusOptions: FilterChipOption[] = [
+    { value: 'pending', label: 'Pending', tint: '#f59e0b' },
+    { value: 'active', label: 'Active', tint: '#3b82f6' },
+    { value: 'blocked', label: 'Blocked', tint: '#ef4444' },
+    { value: 'done', label: 'Done', tint: '#22c55e' },
+    { value: 'cancelled', label: 'Cancelled', tint: '#6b7280' },
+  ];
+
+  /** Canonical priority chip options for the Explorer toolbar. */
+  const priorityOptions: FilterChipOption[] = [
+    { value: 'critical', label: 'Critical', tint: '#ef4444' },
+    { value: 'high', label: 'High', tint: '#f97316' },
+    { value: 'medium', label: 'Medium', tint: '#eab308' },
+    { value: 'low', label: 'Low', tint: '#64748b' },
+  ];
+
+  /** Labels discovered from the loaded bundle — empty when the project has none. */
+  const labelOptions = $derived<FilterChipOption[]>(
+    explorerLabels.map((label) => ({ value: label, label })),
+  );
+
+  /**
+   * Diff `before` vs `after` and drive the matching toggle on `filters`. The
+   * store only exposes a per-value toggle API — the chip group gives us the
+   * full next-array, so we reconcile here. Generic over the enum being
+   * toggled so the caller stays type-safe.
+   *
+   * @param before - Currently-selected values from the store.
+   * @param after  - Next-selected values from the chip group.
+   * @param toggle - The store method that toggles one value on/off.
+   */
+  function diffAndToggle<T extends string>(
+    before: readonly T[],
+    after: readonly string[],
+    toggle: (value: T) => void,
+  ): void {
+    const beforeSet = new Set<string>(before);
+    const afterSet = new Set<string>(after);
+    for (const v of beforeSet) {
+      if (!afterSet.has(v)) toggle(v as T);
+    }
+    for (const v of afterSet) {
+      if (!beforeSet.has(v)) toggle(v as T);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Legacy search bar — preserved (exact-id navigate + title fuzzy)
   // ---------------------------------------------------------------------------
 
   let searchRaw = $state('');
   let searchLoading = $state(false);
   let searchError = $state<string | null>(null);
-
-  /** Results for a fuzzy title search. */
   let titleResults = $state<SearchTaskRow[]>([]);
-  /** Whether the current search resolved to an exact ID that was not found. */
   let idNotFound = $state(false);
-  /** The resolved ID that was looked up (for not-found message). */
   let resolvedId = $state<string | null>(null);
-
-  /** True when a title search returned zero results. */
   let noTitleResults = $state(false);
-
-  /** True when a title search is active (results panel visible). */
   let showResults = $state(false);
 
   $effect(() => {
@@ -67,9 +279,7 @@
       return;
     }
 
-    let controller = new AbortController();
-
-    // Debounce: wait 250ms before firing the request
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       searchLoading = true;
       searchError = null;
@@ -102,11 +312,11 @@
 
         if (body.kind === 'id') {
           if (body.task) {
-            // Exact match — navigate directly to task detail
             goto(`/tasks/${body.task.id}`);
           } else {
             idNotFound = true;
-            resolvedId = normalizeSearch(raw).kind === 'id' ? (normalizeSearch(raw) as { kind: 'id'; id: string }).id : null;
+            const parsed = normalizeSearch(raw);
+            resolvedId = parsed.kind === 'id' ? parsed.id : null;
             showResults = true;
           }
         } else if (body.kind === 'title') {
@@ -136,33 +346,28 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Helpers
+  // Display helpers (preserved verbatim from the pre-T956 page)
   // ---------------------------------------------------------------------------
 
-  function priorityClass(p: string): string {
+  function priorityClassLocal(p: string): string {
     if (p === 'critical') return 'priority-critical';
     if (p === 'high') return 'priority-high';
     if (p === 'medium') return 'priority-medium';
     return 'priority-low';
   }
 
-  function statusIcon(s: string): string {
+  function statusIconLocal(s: string): string {
     if (s === 'done') return '✓';
     if (s === 'active') return '●';
     if (s === 'blocked') return '✗';
     return '○';
   }
 
-  function statusClass(s: string): string {
+  function statusClassLocal(s: string): string {
     if (s === 'done') return 'status-done';
     if (s === 'active') return 'status-active';
     if (s === 'blocked') return 'status-blocked';
     return 'status-pending';
-  }
-
-  function progressPct(ep: EpicProgress): number {
-    if (ep.total === 0) return 0;
-    return Math.round((ep.done / ep.total) * 100);
   }
 
   function formatTime(iso: string): string {
@@ -179,6 +384,10 @@
       return iso;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Live SSE indicator (preserved)
+  // ---------------------------------------------------------------------------
 
   let liveConnected = $state(false);
   let liveTs = $state('');
@@ -200,11 +409,43 @@
     };
     return () => src.close();
   });
+
+  // ---------------------------------------------------------------------------
+  // Page-level keyboard shortcuts: 1/2/3 tab switching (bypassed when typing)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Global `keydown` handler wiring `1` / `2` / `3` to the three Explorer
+   * tabs. The handler is inert while focus is inside an editable field so we
+   * never hijack typing. Exported via `<svelte:window onkeydown>`.
+   *
+   * @param e - Keyboard event.
+   */
+  function onPageKey(e: KeyboardEvent): void {
+    if (!filters) return;
+    const target = e.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+    }
+    if (e.key === '1') {
+      e.preventDefault();
+      switchView('hierarchy');
+    } else if (e.key === '2') {
+      e.preventDefault();
+      switchView('graph');
+    } else if (e.key === '3') {
+      e.preventDefault();
+      switchView('kanban');
+    }
+  }
 </script>
 
 <svelte:head>
   <title>Tasks — CLEO Studio</title>
 </svelte:head>
+
+<svelte:window onkeydown={onPageKey} />
 
 <div class="tasks-dashboard">
   <div class="page-header">
@@ -213,7 +454,6 @@
       <nav class="tasks-nav">
         <a href="/tasks" class="nav-tab active">Dashboard</a>
         <a href="/tasks/pipeline" class="nav-tab">Pipeline</a>
-        <a href="/tasks/graph" class="nav-tab">Graph</a>
         <a href="/tasks/sessions" class="nav-tab">Sessions</a>
       </nav>
     </div>
@@ -256,13 +496,17 @@
         <div class="search-empty">No tasks match "{searchRaw}".</div>
       {:else}
         <div class="search-results-header">
-          <span class="results-count">{titleResults.length} result{titleResults.length === 1 ? '' : 's'}</span>
+          <span class="results-count"
+            >{titleResults.length} result{titleResults.length === 1 ? '' : 's'}</span
+          >
           <button class="results-close" onclick={clearSearch} aria-label="Close results">✕</button>
         </div>
         <div class="search-results-list">
-          {#each titleResults as t}
+          {#each titleResults as t (t.id)}
             <a href="/tasks/{t.id}" class="search-result-row" onclick={clearSearch}>
-              <span class="result-status-icon {statusClass(t.status)}">{statusIcon(t.status)}</span>
+              <span class="result-status-icon {statusClassLocal(t.status)}"
+                >{statusIconLocal(t.status)}</span
+              >
               <div class="result-info">
                 <span class="result-id">{t.id}</span>
                 {#if t.type !== 'task'}
@@ -271,7 +515,7 @@
                 <span class="result-title">{t.title}</span>
               </div>
               <div class="result-meta">
-                <span class="result-priority {priorityClass(t.priority)}">{t.priority}</span>
+                <span class="result-priority {priorityClassLocal(t.priority)}">{t.priority}</span>
                 <span class="result-time">{formatTime(t.updated_at)}</span>
               </div>
             </a>
@@ -313,14 +557,14 @@
       <div class="priority-breakdown">
         <div class="section-label">Priority</div>
         <div class="priority-bars">
-          {#each [['critical', stats.critical], ['high', stats.high], ['medium', stats.medium], ['low', stats.low]] as [label, count]}
+          {#each [['critical', stats.critical], ['high', stats.high], ['medium', stats.medium], ['low', stats.low]] as [label, count] (label)}
             {@const total = stats.critical + stats.high + stats.medium + stats.low}
             {@const pct = total > 0 ? Math.round((Number(count) / total) * 100) : 0}
             <div class="priority-row">
-              <span class="priority-label {priorityClass(String(label))}">{label}</span>
+              <span class="priority-label {priorityClassLocal(String(label))}">{label}</span>
               <div class="priority-bar-track">
                 <div
-                  class="priority-bar-fill {priorityClass(String(label))}"
+                  class="priority-bar-fill {priorityClassLocal(String(label))}"
                   style="width:{pct}%"
                 ></div>
               </div>
@@ -343,96 +587,155 @@
     <div class="no-db">tasks.db not found — start CLEO in the project directory</div>
   {/if}
 
-  <!-- T878: dashboard filter toggles -->
+  <!-- T878/T958: dashboard filter toggles (canonical `cancelled` + `archived`) -->
   <div class="filter-bar" aria-label="Dashboard filters">
     <a
-      href={toggleUrl('deferred')}
+      href={toggleUrl('cancelled')}
       class="filter-chip"
-      class:active={filters.showDeferred}
+      class:active={dashboardFilters.showCancelled}
       data-sveltekit-noscroll
-      title="Show deferred / cancelled epics in the Epic Progress panel"
+      title="Include cancelled epics in the Epic Progress panel"
     >
-      <span class="chip-check">{filters.showDeferred ? '✓' : ' '}</span>
-      Show deferred epics
+      <span class="chip-check">{dashboardFilters.showCancelled ? '✓' : ' '}</span>
+      Show cancelled epics
     </a>
     <a
       href={toggleUrl('archived')}
       class="filter-chip"
-      class:active={filters.showArchived}
+      class:active={dashboardFilters.showArchived}
       data-sveltekit-noscroll
       title="Include archived tasks in Recent Activity"
     >
-      <span class="chip-check">{filters.showArchived ? '✓' : ' '}</span>
+      <span class="chip-check">{dashboardFilters.showArchived ? '✓' : ' '}</span>
       Show archived
     </a>
   </div>
 
-  <div class="lower-grid">
-    {#if epicProgress.length > 0}
-      <section class="panel">
-        <h2 class="panel-title">
-          Epic Progress
-          {#if filters.showDeferred}
-            <span class="panel-sub">(including deferred)</span>
-          {/if}
-        </h2>
-        <div class="epic-list">
-          {#each epicProgress as ep}
-            <a
-              href="/tasks/tree/{ep.id}"
-              class="epic-row"
-              class:epic-deferred={ep.status === 'cancelled'}
-            >
-              <div class="epic-header-row">
-                <span class="epic-id">{ep.id}</span>
-                <span class="epic-title">{ep.title}</span>
-                {#if ep.status === 'cancelled'}
-                  <span class="epic-status-badge badge-cancelled">deferred</span>
-                {/if}
-                <span class="epic-counts">{ep.done}/{ep.total}</span>
-                <span class="epic-pct">{progressPct(ep)}%</span>
-              </div>
-              <div class="epic-progress-bar">
-                <div class="epic-done-bar" style="width:{progressPct(ep)}%"></div>
-              </div>
-              <div class="epic-sub-counts">
-                <span class="sub-done">{ep.done} done</span>
-                <span class="sub-active">{ep.active} active</span>
-                <span class="sub-pending">{ep.pending} pending</span>
-                {#if ep.cancelled > 0}
-                  <span class="sub-cancelled">{ep.cancelled} cancelled</span>
-                {/if}
-              </div>
-            </a>
-          {/each}
-        </div>
-      </section>
-    {/if}
+  <!-- TOP PANEL: dashboard (Epic Progress + Recent Activity) — preserved -->
+  <section class="dashboard-panel" aria-label="Dashboard summary">
+    <div class="lower-grid">
+      {#if epicProgress.length > 0}
+        <EpicProgressCard
+          epics={epicProgress}
+          includingDeferred={dashboardFilters.showCancelled}
+        />
+      {/if}
 
-    {#if recentTasks.length > 0}
-      <section class="panel">
-        <h2 class="panel-title">Recent Activity</h2>
-        <div class="task-list">
-          {#each recentTasks as t}
-            <a href="/tasks/{t.id}" class="task-row">
-              <span class="task-status-icon {statusClass(t.status)}">{statusIcon(t.status)}</span>
-              <div class="task-info">
-                <span class="task-id">{t.id}</span>
-                <span class="task-title">{t.title}</span>
-              </div>
-              <div class="task-meta">
-                <span class="task-priority {priorityClass(t.priority)}">{t.priority}</span>
-                {#if t.pipeline_stage}
-                  <span class="task-stage">{t.pipeline_stage}</span>
-                {/if}
-                <span class="task-time">{formatTime(t.updated_at)}</span>
-              </div>
-            </a>
-          {/each}
+      {#if recentTasks.length > 0}
+        <RecentActivityFeed tasks={recentTasks} />
+      {/if}
+    </div>
+  </section>
+
+  <!-- BOTTOM PANEL: 3-tab Task Explorer (T953 / T954 / T955) -->
+  {#if filters}
+    <section class="task-explorer" aria-label="Task Explorer">
+      <header class="explorer-header">
+        <nav class="tabs" role="tablist" aria-label="Task Explorer views">
+          <button
+            type="button"
+            class="tab"
+            class:active={filters.state.view === 'hierarchy'}
+            role="tab"
+            aria-selected={filters.state.view === 'hierarchy'}
+            onclick={() => switchView('hierarchy')}
+          >
+            <span class="tab-key" aria-hidden="true">1</span>
+            Hierarchy
+          </button>
+          <button
+            type="button"
+            class="tab"
+            class:active={filters.state.view === 'graph'}
+            role="tab"
+            aria-selected={filters.state.view === 'graph'}
+            onclick={() => switchView('graph')}
+          >
+            <span class="tab-key" aria-hidden="true">2</span>
+            Graph
+          </button>
+          <button
+            type="button"
+            class="tab"
+            class:active={filters.state.view === 'kanban'}
+            role="tab"
+            aria-selected={filters.state.view === 'kanban'}
+            onclick={() => switchView('kanban')}
+          >
+            <span class="tab-key" aria-hidden="true">3</span>
+            Kanban
+          </button>
+        </nav>
+
+        <div class="toolbar">
+          <TaskSearchBox
+            value={filters.state.query}
+            onChange={(q) => filters?.setQuery(q)}
+            placeholder="Filter explorer by id or title..."
+            registerSlashShortcut={true}
+          />
+          <FilterChipGroup
+            label="Status"
+            options={statusOptions}
+            selected={filters.state.status}
+            onChange={(next) => {
+              if (!filters) return;
+              diffAndToggle<TaskStatus>(
+                filters.state.status,
+                next,
+                (v) => filters?.toggleStatus(v),
+              );
+            }}
+          />
+          <FilterChipGroup
+            label="Priority"
+            options={priorityOptions}
+            selected={filters.state.priority}
+            onChange={(next) => {
+              if (!filters) return;
+              diffAndToggle<TaskPriority>(
+                filters.state.priority,
+                next,
+                (v) => filters?.togglePriority(v),
+              );
+            }}
+          />
+          {#if labelOptions.length > 0}
+            <FilterChipGroup
+              label="Labels"
+              options={labelOptions}
+              selected={filters.state.labels}
+              onChange={(next) => {
+                if (!filters) return;
+                diffAndToggle<string>(
+                  filters.state.labels,
+                  next,
+                  (v) => filters?.toggleLabel(v),
+                );
+              }}
+            />
+          {/if}
         </div>
-      </section>
-    {/if}
-  </div>
+      </header>
+
+      <div class="explorer-body">
+        {#if filters.state.view === 'hierarchy'}
+          <HierarchyTab
+            tasks={explorerTasks}
+            deps={explorerDeps}
+            epicProgress={explorerEpicProgressMap}
+            {filters}
+          />
+        {:else if filters.state.view === 'graph'}
+          <GraphTab tasks={explorerTasks} deps={explorerDeps} {filters} labels={explorerLabels} />
+        {:else}
+          <KanbanTab tasks={explorerTasks} deps={explorerDeps} {filters} />
+        {/if}
+      </div>
+    </section>
+
+    <DetailDrawer task={selectedTask} onClose={() => filters?.setSelected(null)} />
+  {/if}
 </div>
 
 <style>
@@ -747,13 +1050,23 @@
     min-width: 90px;
   }
 
-  .stat-card.primary { border-color: #a855f7; }
-  .stat-card.status-active-card { border-color: rgba(59, 130, 246, 0.4); }
-  .stat-card.status-done-card { border-color: rgba(34, 197, 94, 0.4); }
-  .stat-card.status-cancelled-card { border-color: rgba(239, 68, 68, 0.4); }
-  .stat-card.muted { opacity: 0.6; }
+  .stat-card.primary {
+    border-color: #a855f7;
+  }
+  .stat-card.status-active-card {
+    border-color: rgba(59, 130, 246, 0.4);
+  }
+  .stat-card.status-done-card {
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+  .stat-card.status-cancelled-card {
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  .stat-card.muted {
+    opacity: 0.6;
+  }
 
-  /* T878: filter bar */
+  /* T878 / T958: filter bar */
   .filter-bar {
     display: flex;
     gap: 0.5rem;
@@ -788,39 +1101,6 @@
     text-align: center;
     font-size: 0.75rem;
     opacity: 0.9;
-  }
-
-  .panel-sub {
-    font-size: 0.7rem;
-    color: #64748b;
-    font-weight: 400;
-    margin-left: 0.5rem;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-
-  /* T878: deferred epic styling */
-  .epic-row.epic-deferred {
-    opacity: 0.7;
-  }
-  .epic-row.epic-deferred .epic-title {
-    color: #94a3b8;
-  }
-  .epic-status-badge {
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  .badge-cancelled {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-  }
-  .sub-cancelled {
-    color: #ef4444;
   }
 
   .stat-num {
@@ -895,15 +1175,31 @@
     font-variant-numeric: tabular-nums;
   }
 
-  :global(.priority-critical) { color: #ef4444; }
-  :global(.priority-high) { color: #f97316; }
-  :global(.priority-medium) { color: #eab308; }
-  :global(.priority-low) { color: #64748b; }
+  :global(.priority-critical) {
+    color: #ef4444;
+  }
+  :global(.priority-high) {
+    color: #f97316;
+  }
+  :global(.priority-medium) {
+    color: #eab308;
+  }
+  :global(.priority-low) {
+    color: #64748b;
+  }
 
-  .priority-bar-fill.priority-critical { background: #ef4444; }
-  .priority-bar-fill.priority-high { background: #f97316; }
-  .priority-bar-fill.priority-medium { background: #eab308; }
-  .priority-bar-fill.priority-low { background: #64748b; }
+  .priority-bar-fill.priority-critical {
+    background: #ef4444;
+  }
+  .priority-bar-fill.priority-high {
+    background: #f97316;
+  }
+  .priority-bar-fill.priority-medium {
+    background: #eab308;
+  }
+  .priority-bar-fill.priority-low {
+    background: #64748b;
+  }
 
   .type-breakdown {
     display: flex;
@@ -944,102 +1240,109 @@
   }
 
   @media (max-width: 800px) {
-    .lower-grid { grid-template-columns: 1fr; }
+    .lower-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .panel {
+  /* Status colour tokens reused by the search-result rows */
+  :global(.status-done) {
+    color: #22c55e;
+  }
+  :global(.status-active) {
+    color: #3b82f6;
+  }
+  :global(.status-blocked) {
+    color: #ef4444;
+  }
+  :global(.status-pending) {
+    color: #475569;
+  }
+
+  /* -------------------------------------------------------------------------
+     Task Explorer (bottom panel)
+     ------------------------------------------------------------------------- */
+
+  .task-explorer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: #151a24;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    padding: 1rem;
+  }
+
+  .explorer-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .tabs {
+    display: inline-flex;
+    gap: 0.25rem;
     background: #1a1f2e;
     border: 1px solid #2d3748;
     border-radius: 8px;
-    overflow: hidden;
+    padding: 0.25rem;
+    align-self: flex-start;
   }
 
-  .panel-title {
-    padding: 0.75rem 1rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid #2d3748;
-  }
-
-  .epic-list { display: flex; flex-direction: column; }
-
-  .epic-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #1e2435;
-    text-decoration: none;
-    color: inherit;
-    transition: background 0.15s;
-  }
-
-  .epic-row:hover { background: #21273a; }
-  .epic-row:last-child { border-bottom: none; }
-
-  .epic-header-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-  }
-
-  .epic-id { font-size: 0.7rem; color: #a855f7; font-weight: 600; flex-shrink: 0; }
-  .epic-title { font-size: 0.8125rem; color: #e2e8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .epic-counts { font-size: 0.75rem; color: #22c55e; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-  .epic-pct { font-size: 0.75rem; color: #94a3b8; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-  .epic-progress-bar {
-    height: 4px;
-    background: #2d3748;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .epic-done-bar {
-    height: 100%;
-    background: #22c55e;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  .epic-sub-counts { display: flex; gap: 0.75rem; font-size: 0.7rem; }
-  .sub-done { color: #22c55e; }
-  .sub-active { color: #3b82f6; }
-  .sub-pending { color: #64748b; }
-
-  .task-list { display: flex; flex-direction: column; }
-
-  .task-row {
-    display: flex;
+  .tab {
+    display: inline-flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.625rem 1rem;
-    border-bottom: 1px solid #1e2435;
-    text-decoration: none;
-    color: inherit;
-    transition: background 0.15s;
+    gap: 0.375rem;
+    padding: 0.375rem 0.875rem;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
   }
 
-  .task-row:hover { background: #21273a; }
-  .task-row:last-child { border-bottom: none; }
+  .tab:hover {
+    color: #e2e8f0;
+    background: rgba(168, 85, 247, 0.08);
+  }
 
-  .task-status-icon { font-size: 0.75rem; width: 1rem; text-align: center; flex-shrink: 0; }
+  .tab:focus-visible {
+    outline: 2px solid rgba(168, 85, 247, 0.5);
+    outline-offset: 1px;
+  }
 
-  :global(.status-done) { color: #22c55e; }
-  :global(.status-active) { color: #3b82f6; }
-  :global(.status-blocked) { color: #ef4444; }
-  :global(.status-pending) { color: #475569; }
+  .tab.active {
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.15);
+  }
 
-  .task-info { display: flex; align-items: baseline; gap: 0.5rem; flex: 1; min-width: 0; }
-  .task-id { font-size: 0.7rem; color: #a855f7; font-weight: 600; flex-shrink: 0; }
-  .task-title { font-size: 0.8125rem; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab-key {
+    font-size: 0.65rem;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #64748b;
+    line-height: 1.2;
+  }
 
-  .task-meta { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+  .tab.active .tab-key {
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.12);
+  }
 
-  .task-priority { font-size: 0.675rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-  .task-stage { font-size: 0.675rem; color: #475569; background: #1e2435; padding: 0.1rem 0.375rem; border-radius: 3px; }
-  .task-time { font-size: 0.675rem; color: #475569; font-variant-numeric: tabular-nums; }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .explorer-body {
+    min-height: 400px;
+  }
 </style>

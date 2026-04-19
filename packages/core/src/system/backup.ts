@@ -37,7 +37,7 @@ import {
 import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNativeDb } from '../store/sqlite.js';
 
 /** Safe wrapper around VACUUM INTO: flushes WAL then clones the DB. */
@@ -141,7 +141,7 @@ export async function createBackup(
     // tasks.db open failed — will be skipped by the sqlite target below
   }
   try {
-    const { getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
   } catch {
     // brain.db open failed — will be skipped by the sqlite target below

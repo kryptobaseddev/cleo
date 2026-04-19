@@ -5,7 +5,7 @@
   import { EdgeArrowProgram } from 'sigma/rendering';
   import type { NodeLabelDrawingFunction } from 'sigma/rendering';
   import forceAtlas2 from 'graphology-layout-forceatlas2';
-  import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
+  import type { BrainNode, BrainEdge, BrainSubstrate } from '@cleocode/brain';
   import { livingBrainGraphStore } from '$lib/stores/living-brain-graph.js';
 
   // ---------------------------------------------------------------------------
@@ -13,8 +13,8 @@
   // ---------------------------------------------------------------------------
 
   interface Props {
-    nodes: LBNode[];
-    edges: LBEdge[];
+    nodes: BrainNode[];
+    edges: BrainEdge[];
     /** Fired when the user clicks a node. Passes the node ID. */
     onNodeClick?: (id: string) => void;
     height?: string;
@@ -38,7 +38,7 @@
   // ---------------------------------------------------------------------------
 
   /** Substrate fill colour. */
-  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
     brain: '#3b82f6',
     nexus: '#22c55e',
     tasks: '#f97316',
@@ -106,7 +106,7 @@
   // ---------------------------------------------------------------------------
   // Helper: derive node size from weight (0–1) → sigma size (4–18)
   // ---------------------------------------------------------------------------
-  function nodeSize(n: LBNode): number {
+  function nodeSize(n: BrainNode): number {
     const w = n.weight ?? 0.3;
     return 4 + w * 14;
   }
@@ -193,7 +193,7 @@
   const PULSE_DURATION_MS = 1_500;
 
   // ---------------------------------------------------------------------------
-  // Build graphology instance from LBNode[] / LBEdge[]
+  // Build graphology instance from BrainNode[] / BrainEdge[]
   // ---------------------------------------------------------------------------
   function buildGraph(): Graph {
     const g = new Graph({ multi: false, allowSelfLoops: false });
@@ -256,7 +256,7 @@
     for (const nodeId of pulsingNodes) {
       if (!g.hasNode(nodeId)) continue;
       const attrs = g.getNodeAttributes(nodeId) as {
-        substrate: LBSubstrate;
+        substrate: BrainSubstrate;
         weight: number | undefined;
         size: number;
         color: string;
@@ -268,9 +268,9 @@
       };
       const baseColor = SUBSTRATE_COLOR[attrs.substrate] ?? '#64748b';
       // Build a synthetic node for size calculation
-      const syntheticNode: LBNode = {
+      const syntheticNode: BrainNode = {
         id: nodeId,
-        kind: attrs.kind as LBNode['kind'],
+        kind: attrs.kind as BrainNode['kind'],
         substrate: attrs.substrate,
         label: attrs.label,
         weight: attrs.weight,

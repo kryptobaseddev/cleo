@@ -1,954 +1,635 @@
 /**
- * Brain Domain Operations (31 operations)
+ * BRAIN Super-Domain Operations (8 operations)
  *
- * Query operations: 21
- * Mutate operations: 10
+ * BRAIN is the **unified cross-substrate graph** wrapping
+ * `memory + nexus + tasks + conduit + signaldock` into a single
+ * super-graph substrate. It is distinct from (and layered above) the
+ * memory-only operations in `./memory.ts` which own observations,
+ * patterns, decisions, learnings, tiers, and the PageIndex graph
+ * scoped to `brain.db`.
  *
- * BRAIN is the cognitive memory subsystem backed by `brain.db` (SQLite + FTS5
- * + vector + graph). It surfaces observations, decisions, patterns, learnings,
- * a PageIndex graph, RRF hybrid search, causal reasoning, and quality/health
- * telemetry. CLI identifiers start with `brain.*`; the dispatch registry
- * routes these through the `memory` domain handler (legacy alias).
+ * These wire-format contracts are the API surface consumed by:
+ * - `@cleocode/brain` (T969 — living-brain package extraction)
+ * - `packages/studio/src/routes/api/brain/*` HTTP routes (T970 — renamed
+ *   from `/api/living-brain` as the canonical unified super-graph surface)
+ * - CLI / SDK clients performing cross-substrate graph queries
  *
- * SYNC: Canonical implementations at packages/core/src/memory/*.
- * Wire-format types live here; they are the contract for CLI + HTTP dispatch.
+ * Node IDs are **substrate-prefixed** (`"task:T949"`, `"memory:O-abc"`,
+ * `"code:symbol:foo"`) so cross-substrate edges are unambiguous and
+ * deduplication is safe by ID equality alone. The substrate-specific
+ * payload on `BrainNode.data` / `BrainEdge.data` is the ONE place where
+ * `Record<string, unknown>` is legitimate — super-graph callers treat
+ * it opaquely; individual substrate adapters own the concrete shape.
  *
- * @task T910 — Orchestration Coherence v4 (contract surface completion)
- * @see packages/cleo/src/dispatch/domains/memory.ts
- * @see packages/contracts/src/brain.ts
+ * SYNC: Canonical runtime implementation now lives at
+ * `@cleocode/brain` (BrainNode, BrainEdge, BrainGraph, adapters, SSE
+ * stream). The runtime shapes there are intentionally structurally
+ * distinct from these wire-format contracts — runtime `BrainNode` uses
+ * `kind: BrainNodeKind` + `meta` + optional adapter-produced `weight`,
+ * whereas contract `BrainNode` below uses `type: string` + `data`.
+ *
+ * @task T962 — Orchestration Coherence v4 (BRAIN super-domain)
+ * @task T968 — operations/brain.ts contract authoring (Wave B)
+ * @task T969 — `@cleocode/brain` package extraction
+ * @task T973 — runtime LB* → Brain* rename
+ * @see packages/brain/src/types.ts (runtime shapes)
+ * @see packages/contracts/src/operations/memory.ts (distinct domain)
  */
 
-import type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence } from '../brain.js';
-import type { LAFSPage } from '../lafs.js';
-
 // ============================================================================
-// Shared Brain types (API wire format)
+// Shared BRAIN types (super-graph wire format)
 // ============================================================================
 
 /**
- * Cognitive type of a brain entry.
+ * Substrate name enum — which underlying database a node/edge came from.
  *
  * @remarks
- * Mirrors the CLI-facing taxonomy accepted by `brain.observe`. Distinct from
- * `BrainCognitiveType` from `../brain.js` which carries the 3-axis
- * semantic/episodic/procedural cognitive model used internally.
+ * Intentionally distinct from the runtime
+ * `@cleocode/brain :: BrainSubstrate` type — the contracts layer uses
+ * `memory` (aligning with the cognitive-memory domain rename produced by
+ * `./memory.ts` in T965), while the runtime layer uses the legacy
+ * `brain` literal to match the on-disk `brain.db` file name. Callers
+ * translate between the two naming planes when bridging API wire format
+ * to live adapter output.
+ *
+ * @task T962 / T968
  */
-export type BrainEntryType = 'observation' | 'decision' | 'pattern' | 'learning' | 'reference';
+export type BrainSubstrateName = 'memory' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
 
-/** Brain observation subtype categories (from `brain_observations.type`). */
-export type BrainObservationKind =
-  | 'discovery'
-  | 'change'
-  | 'feature'
-  | 'bugfix'
-  | 'decision'
-  | 'refactor';
+/**
+ * Concrete node type within a substrate (e.g. `observation`, `symbol`,
+ * `task`, `session`, `agent`, `message`). Not constrained here because the
+ * set is substrate-owned and open-ended; each substrate adapter documents
+ * its own vocabulary.
+ *
+ * @task T962 / T968
+ */
+export type BrainNodeType = string;
 
-/** Origin tag distinguishing where an observation was captured. */
-export type BrainObservationSourceType =
-  | 'manual'
-  | 'session-debrief'
-  | 'observer'
-  | 'reflector'
-  | 'transcript';
+/**
+ * Substrate-prefixed node identifier.
+ *
+ * @example
+ *   "task:T949"
+ *   "memory:O-mo4abc123"
+ *   "nexus:packages/core/src/store/sqlite-data-accessor.ts::createSqliteDataAccessor"
+ *   "conduit:msg-7f3a2b1c"
+ *   "signaldock:agent-cleo-prime"
+ *
+ * @remarks
+ * The substrate prefix (before the first `:`) MUST match one of
+ * `BrainSubstrateName`. The remainder is substrate-specific and opaque
+ * to super-graph callers.
+ *
+ * @task T962 / T968
+ */
+export type BrainNodeId = string;
 
-/** Pattern taxonomy (from `brain_patterns.type`). */
-export type BrainPatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
+/**
+ * Edge kind taxonomy used across the super-graph.
+ *
+ * @remarks
+ * Concrete built-ins are enumerated for tooling autocompletion; the
+ * `string` fallback keeps the type open-ended because substrate
+ * adapters may introduce new kinds (e.g. `touches_code`, `authored_by`,
+ * `supersedes`, `derived_from`) without a schema migration at this
+ * layer.
+ *
+ * @task T962 / T968
+ */
+export type BrainEdgeKind =
+  | 'parent'
+  | 'depends'
+  | 'blocks'
+  | 'references'
+  | 'discusses'
+  | 'cites'
+  | 'embeds'
+  | 'touches_code'
+  | 'messages'
+  | string;
 
-/** Severity/impact level for a stored pattern. */
-export type BrainPatternImpact = 'low' | 'medium' | 'high';
-
-/** Compact hit returned from `brain.find` / `brain.search.hybrid` layer-0 search. */
-export interface BrainCompactHit {
-  /** Brain entry identifier (e.g. `O-abc123`, `D-def456`). */
-  id: string;
-  /** Table this hit was drawn from. */
-  type: 'decision' | 'pattern' | 'learning' | 'observation';
-  /** Normalized display title for the entry. */
-  title: string;
-  /** ISO 8601 timestamp of entry creation. */
-  date: string;
-  /** Relevance score (table-specific; higher = better). */
-  relevance?: number;
-  /** Reciprocal Rank Fusion score (only when RRF path engaged). */
-  rrfScore?: number;
-  /** BM25 normalized score from FTS path (0..1). */
-  bm25Score?: number;
-}
-
-/** Full brain entry body returned by `brain.fetch` (layer-2 retrieval). */
-export interface BrainFetchedEntry {
-  /** Brain entry identifier. */
-  id: string;
-  /** Table the entry was drawn from. */
-  type: string;
-  /** Raw entry payload — columns vary by table. */
-  data: unknown;
-}
-
-/** Timeline neighbor tuple returned by `brain.timeline`. */
-export interface BrainTimelineNeighbor {
-  /** Brain entry identifier. */
-  id: string;
-  /** Entry table type. */
-  type: string;
-  /** ISO 8601 timestamp. */
-  date: string;
-}
-
-/** Anchor entry (shape is table-dependent). */
-export type BrainAnchor = Record<string, unknown>;
-
-/** PageIndex graph node (projection of `brain_page_nodes`). */
-export interface BrainGraphNode {
-  /** Node identifier. */
-  id: string;
-  /** Node type classification (e.g. `symbol`, `file`, `concept`). */
-  nodeType: string;
-  /** Human-readable label. */
+/**
+ * A single node in the BRAIN super-graph.
+ *
+ * @remarks
+ * The `data` field carries substrate-specific metadata (memory-tier info,
+ * task status, nexus symbol kind, conduit message preview, etc.). This
+ * is the ONE place `Record<string, unknown>` is justified: the
+ * super-graph is polymorphic across substrates by definition, and the
+ * statically-typed payload belongs inside each substrate adapter.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNode {
+  /** Substrate-prefixed identifier (see {@link BrainNodeId}). */
+  id: BrainNodeId;
+  /** Source substrate. */
+  substrate: BrainSubstrateName;
+  /** Concrete node type within the substrate (e.g. `observation`, `symbol`). */
+  type: BrainNodeType;
+  /** Human-readable display label. */
   label: string;
-  /** Quality score [0..1] used by PageIndex ranking. */
-  qualityScore: number;
-  /** SHA-256 hash of the referenced content (if applicable). */
-  contentHash: string | null;
-  /** ISO 8601 timestamp of last activity touching this node. */
-  lastActivityAt: string;
-  /** Optional JSON-encoded metadata string. */
-  metadataJson: string | null;
-  /** ISO 8601 timestamp of creation. */
-  createdAt: string;
-  /** ISO 8601 timestamp of last update (nullable). */
-  updatedAt: string | null;
+  /**
+   * Substrate-specific payload. Shape is owned by the substrate adapter;
+   * super-graph callers treat it opaquely.
+   */
+  data: Record<string, unknown>;
+  /** ISO 8601 creation timestamp, when exposed by the substrate. */
+  createdAt?: string;
+  /** ISO 8601 last-update timestamp, when exposed by the substrate. */
+  updatedAt?: string;
 }
-
-/** PageIndex graph edge (projection of `brain_page_edges`). */
-export interface BrainGraphEdge {
-  /** Source node id. */
-  fromId: string;
-  /** Target node id. */
-  toId: string;
-  /** Edge type classification. */
-  edgeType: string;
-  /** Edge weight/confidence [0..1]. */
-  weight: number;
-  /** Optional JSON-encoded metadata string. */
-  metadataJson: string | null;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-/** Decision node returned by reasoning queries. */
-export interface BrainDecisionNode {
-  /** Decision entry identifier (`D-...`). */
-  id: string;
-  /** The decision statement. */
-  title: string;
-  /** Rationale for the decision. */
-  rationale: string;
-}
-
-// ============================================================================
-// Query Operations
-// ============================================================================
-
-// --------------------------------------------------------------------------
-// brain.find → cross-table FTS5 / RRF search (handler: memory.find)
-// --------------------------------------------------------------------------
 
 /**
- * Parameters for `brain.find`.
+ * A directed edge between two super-graph nodes.
  *
  * @remarks
- * Preconditions: `query` must be non-empty. Returns compact hits suitable for
- * follow-up `brain.fetch` batching (3-layer retrieval: find → filter → fetch).
+ * Both endpoints reference {@link BrainNodeId} values. Edges may be
+ * in-substrate (both endpoints share the same prefix) or cross-substrate
+ * (bridges between e.g. `memory:…` and `nexus:…`).
+ *
+ * @task T962 / T968
  */
-export interface BrainFindParams {
-  /** Full-text query string (required). */
-  query: string;
-  /** Max results to return. */
+export interface BrainEdge {
+  /** Source node id. */
+  from: BrainNodeId;
+  /** Target node id. */
+  to: BrainNodeId;
+  /** Semantic edge kind (see {@link BrainEdgeKind}). */
+  kind: BrainEdgeKind;
+  /**
+   * Normalised weight in `[0, 1]`. Higher = stronger/more confident.
+   * Produced by Hebbian/STDP training on memory edges, relation
+   * confidence on nexus edges, and substrate-specific heuristics
+   * elsewhere.
+   */
+  weight?: number;
+  /** Substrate-specific payload (opaque at super-graph level). */
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Per-substrate node and edge counters returned inside query results.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSubstrateStats {
+  /** Number of nodes contributed by the substrate. */
+  nodes: number;
+  /** Number of edges contributed by the substrate. */
+  edges: number;
+}
+
+/**
+ * Predicate bag applied per-substrate when filtering graph queries.
+ *
+ * @remarks
+ * Each field is optional; adapters apply them in-substrate and ignore
+ * any dimension they don't support. When multiple fields are set the
+ * filter is an AND (e.g. `nodeType` ∈ {…} AND `labels` ⊆ node.labels
+ * AND `textMatch` matches).
+ *
+ * @task T962 / T968
+ */
+export interface BrainGraphFilter {
+  /** Restrict to these node types (per-substrate vocabulary). */
+  nodeType?: string[];
+  /** Restrict to nodes carrying all of these labels. */
+  labels?: string[];
+  /** Free-text filter applied to the node label (substrate-dependent matcher). */
+  textMatch?: string;
+}
+
+// ============================================================================
+// 1. brain.query — fetch unified graph
+// ============================================================================
+
+/**
+ * Parameters for `brain.query`.
+ *
+ * @remarks
+ * `limit` is a cross-substrate total cap; adapters share the budget
+ * evenly (`limit / substrates.length`). Omitting `substrates`
+ * requests all five.
+ *
+ * @task T962 / T968
+ */
+export interface BrainQueryParams {
+  /** Filter by substrate names. Default: all substrates. */
+  substrates?: BrainSubstrateName[];
+  /**
+   * Maximum total nodes to return across all requested substrates.
+   * Per-substrate budget is `limit / substrates.length`. Default `500`.
+   */
   limit?: number;
-  /** Tables to search (defaults to all four). */
-  tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
-  /** ISO 8601 lower bound on entry date. */
-  dateStart?: string;
-  /** ISO 8601 upper bound on entry date. */
-  dateEnd?: string;
-  /** Filter to observations produced by a specific agent (T418 mental models). */
-  agent?: string;
-  /** When true (default), apply Reciprocal Rank Fusion across FTS + vector sources. */
-  useRRF?: boolean;
-}
-/** Result of `brain.find`. */
-export interface BrainFindResult {
-  /** Ranked matches. */
-  results: BrainCompactHit[];
-  /** Total match count (may exceed `results.length` when limit applied). */
-  total: number;
-  /** Estimated token weight of the payload. */
-  tokensEstimated: number;
+  /** Predicate bag applied per-substrate. */
+  filter?: BrainGraphFilter;
 }
 
-// --------------------------------------------------------------------------
-// brain.timeline → chronological context around anchor
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.timeline`. */
-export interface BrainTimelineParams {
-  /** Anchor entry id (required). */
-  anchor: string;
-  /** Number of entries to retrieve before the anchor. */
-  depthBefore?: number;
-  /** Number of entries to retrieve after the anchor. */
-  depthAfter?: number;
-}
-/** Result of `brain.timeline`. */
-export interface BrainTimelineResult {
-  /** The anchor entry (or null if not found). */
-  anchor: BrainAnchor | null;
-  /** Entries preceding the anchor (chronological). */
-  before: BrainTimelineNeighbor[];
-  /** Entries following the anchor (chronological). */
-  after: BrainTimelineNeighbor[];
-}
-
-// --------------------------------------------------------------------------
-// brain.fetch → batch fetch by IDs (layer-2 retrieval)
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.fetch`. */
-export interface BrainFetchParams {
-  /** One or more brain entry IDs to retrieve. Must be non-empty. */
-  ids: string[];
-}
-/** Result of `brain.fetch`. */
-export interface BrainFetchResult {
-  /** Full entry bodies. */
-  results: BrainFetchedEntry[];
-  /** IDs that could not be located. */
-  notFound: string[];
-  /** Estimated token weight of the payload. */
-  tokensEstimated: number;
-}
-
-// --------------------------------------------------------------------------
-// brain.decision.find → decision memory search
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.decision.find`. */
-export interface BrainDecisionFindParams {
-  /** Optional free-text filter. */
-  query?: string;
-  /** Filter decisions linked to a specific task. */
-  taskId?: string;
-  /** Max results. */
-  limit?: number;
-}
-/** A single decision entry returned by the API. */
-export interface BrainDecisionEntry {
-  /** Decision id (`D-...`). */
-  id: string;
-  /** Decision statement. */
-  decision: string;
-  /** Rationale body. */
-  rationale: string;
-  /** Alternatives considered at decision time. */
-  alternatives?: string[];
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-  /** Epic context, if captured. */
-  contextEpicId?: string;
-  /** Task context, if captured. */
-  contextTaskId?: string;
-  /** Phase context, if captured. */
-  contextPhase?: string;
-  /** Source confidence (T549). */
-  sourceConfidence?: BrainSourceConfidence;
-}
-/** Result of `brain.decision.find`. */
-export type BrainDecisionFindResult = BrainDecisionEntry[];
-
-// --------------------------------------------------------------------------
-// brain.pattern.find → pattern memory search
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.pattern.find`. */
-export interface BrainPatternFindParams {
-  /** Filter by pattern type. */
-  type?: BrainPatternType;
-  /** Filter by pattern impact. */
-  impact?: BrainPatternImpact;
-  /** Optional free-text query. */
-  query?: string;
-  /** Minimum reinforcement frequency. */
-  minFrequency?: number;
-  /** Max results. */
-  limit?: number;
-}
-/** A single pattern entry returned by the API. */
-export interface BrainPatternEntry {
-  /** Pattern id (`P-...`). */
-  id: string;
-  /** Pattern classification. */
-  type: BrainPatternType;
-  /** Pattern description. */
-  pattern: string;
-  /** Surrounding context. */
-  context: string;
-  /** Impact level. */
-  impact: BrainPatternImpact;
-  /** Anti-pattern counter-example (if applicable). */
-  antiPattern?: string;
-  /** Mitigation guidance (if applicable). */
-  mitigation?: string;
-  /** Concrete examples. */
-  examples?: string[];
-  /** Empirical success rate [0..1]. */
-  successRate?: number;
-  /** How often this pattern has been observed. */
-  frequency: number;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-/** Result of `brain.pattern.find`. */
-export interface BrainPatternFindResult {
-  /** Matching pattern entries. */
-  patterns: BrainPatternEntry[];
-  /** Count of matches. */
-  total: number;
-}
-
-// --------------------------------------------------------------------------
-// brain.learning.find → learning memory search
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.learning.find`. */
-export interface BrainLearningFindParams {
-  /** Optional free-text query. */
-  query?: string;
-  /** Minimum confidence threshold [0..1]. */
-  minConfidence?: number;
-  /** Restrict to learnings marked actionable. */
-  actionableOnly?: boolean;
-  /** Filter by applicable task/entry type. */
-  applicableType?: string;
-  /** Max results. */
-  limit?: number;
-}
-/** A single learning entry returned by the API. */
-export interface BrainLearningEntry {
-  /** Learning id (`L-...`). */
-  id: string;
-  /** Insight statement. */
-  insight: string;
-  /** Source reference for the insight. */
-  source: string;
-  /** Confidence score [0..1]. */
-  confidence: number;
-  /** Whether the learning is actionable. */
-  actionable: boolean;
-  /** How to apply the insight. */
-  application?: string;
-  /** Types this insight applies to. */
-  applicableTypes?: string[];
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-/** Result of `brain.learning.find`. */
-export type BrainLearningFindResult = BrainLearningEntry[];
-
-// --------------------------------------------------------------------------
-// brain.graph.* → PageIndex graph queries
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.graph.show`. */
-export interface BrainGraphShowParams {
-  /** Node identifier. */
-  nodeId: string;
-}
-/** Result of `brain.graph.show`. */
-export interface BrainGraphShowResult {
-  /** The node, if found. */
-  node: BrainGraphNode | null;
-  /** In-edges (node is target). */
-  inEdges: BrainGraphEdge[];
-  /** Out-edges (node is source). */
-  outEdges: BrainGraphEdge[];
-}
-
-/** Parameters for `brain.graph.neighbors`. */
-export interface BrainGraphNeighborsParams {
-  /** Node identifier. */
-  nodeId: string;
-  /** Optional filter to a single edge type. */
-  edgeType?: string;
-}
-/** Result of `brain.graph.neighbors`. */
-export interface BrainGraphNeighbor {
-  /** The neighbor node. */
-  node: BrainGraphNode;
-  /** Edge type connecting the query node to this neighbor. */
-  edgeType: string;
-  /** Relative to the queried node: `out` = outbound, `in` = inbound. */
-  direction: 'out' | 'in';
-  /** Edge weight/confidence. */
-  weight: number;
-}
-/** Result payload for `brain.graph.neighbors`. */
-export type BrainGraphNeighborsResult = BrainGraphNeighbor[];
-
-/** Parameters for `brain.graph.trace` (BFS traversal). */
-export interface BrainGraphTraceParams {
-  /** Seed node identifier. */
-  nodeId: string;
-  /** Max traversal depth. */
-  maxDepth?: number;
-}
-/** A node visited during BFS traversal. */
-export interface BrainGraphTraceNode extends BrainGraphNode {
-  /** Distance from the seed (0 = seed itself). */
-  depth: number;
-}
-/** Result of `brain.graph.trace`. */
-export type BrainGraphTraceResult = BrainGraphTraceNode[];
-
-/** Parameters for `brain.graph.related` (1-hop typed neighbors). */
-export interface BrainGraphRelatedParams {
-  /** Node identifier. */
-  nodeId: string;
-  /** Optional filter to a single edge type. */
-  edgeType?: string;
-}
-/** Result of `brain.graph.related`. */
-export type BrainGraphRelatedResult = BrainGraphNeighbor[];
-
-/** Parameters for `brain.graph.context` (360-degree view). */
-export interface BrainGraphContextParams {
-  /** Node identifier. */
-  nodeId: string;
-}
-/** Result of `brain.graph.context`. */
-export interface BrainGraphContextResult {
-  /** The node itself. */
-  node: BrainGraphNode;
-  /** In-edges (this node is target). */
-  inEdges: BrainGraphEdge[];
-  /** Out-edges (this node is source). */
-  outEdges: BrainGraphEdge[];
-  /** Deduplicated neighbour list with direction + edge metadata. */
-  neighbors: BrainGraphNeighbor[];
-}
-
-/** Parameters for `brain.graph.stats` — none. */
-export type BrainGraphStatsParams = Record<string, never>;
-/** Result of `brain.graph.stats`. */
-export interface BrainGraphStatsResult {
-  /** Per-type node counts. */
-  nodesByType: Array<{ nodeType: string; count: number }>;
-  /** Per-type edge counts. */
-  edgesByType: Array<{ edgeType: string; count: number }>;
-  /** Total node count. */
-  totalNodes: number;
-  /** Total edge count. */
-  totalEdges: number;
-}
-
-// --------------------------------------------------------------------------
-// brain.reason.* → causal / similarity reasoning
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.reason.why` (causal trace). */
-export interface BrainReasonWhyParams {
-  /** Task identifier whose blocker chain should be traced. */
-  taskId: string;
-}
-/** A single blocker in a causal trace. */
-export interface BrainBlockerNode {
-  /** Blocking task identifier. */
-  taskId: string;
-  /** Task status at time of trace. */
-  status: string;
-  /** Free-text reason (if captured). */
-  reason?: string;
-  /** Decisions linked to this blocker. */
-  decisions: BrainDecisionNode[];
-}
-/** Result of `brain.reason.why`. */
-export interface BrainReasonWhyResult {
-  /** Root task ID that triggered the trace. */
-  taskId: string;
-  /** Walk of unresolved blockers (depth-ordered). */
-  blockers: BrainBlockerNode[];
-  /** Leaf blocker IDs flagged as root causes. */
-  rootCauses: string[];
-  /** Maximum traversal depth reached. */
-  depth: number;
-}
-
-/** Parameters for `brain.reason.similar`. */
-export interface BrainReasonSimilarParams {
-  /** Source entry id to compare against. */
-  entryId: string;
-  /** Maximum results to return. */
-  limit?: number;
-}
-/** A similar entry with a distance score. */
-export interface BrainSimilarEntry {
-  /** Matched entry id. */
-  id: string;
-  /** Cosine / vector distance (lower = more similar). */
-  distance: number;
-  /** Entry type/table. */
-  type: string;
-  /** Display title. */
-  title: string;
-  /** Truncated text preview. */
-  text: string;
-}
-/** Result of `brain.reason.similar`. */
-export type BrainReasonSimilarResult = BrainSimilarEntry[];
-
-// --------------------------------------------------------------------------
-// brain.search.hybrid → FTS + vector + graph fusion (RRF)
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.search.hybrid`. */
-export interface BrainSearchHybridParams {
-  /** Query string (required). */
-  query: string;
-  /** RRF weight for FTS results [0..1]. */
-  ftsWeight?: number;
-  /** RRF weight for vector results [0..1]. */
-  vecWeight?: number;
-  /** RRF weight for graph-expansion results [0..1]. */
-  graphWeight?: number;
-  /** Max results to return. */
-  limit?: number;
-}
-/** A fused result from hybrid search. */
-export interface BrainHybridHit {
-  /** Brain entry id. */
-  id: string;
-  /** Fused RRF score. */
-  score: number;
-  /** Entry type/table. */
-  type: string;
-  /** Display title. */
-  title: string;
-  /** Truncated text preview. */
-  text: string;
-  /** Retrieval sources that contributed. */
-  sources: Array<'fts' | 'vec' | 'graph'>;
-  /** Rank from FTS source (0-based; undefined if absent). */
-  ftsRank?: number;
-  /** Rank from vector source (0-based; undefined if absent). */
-  vecRank?: number;
-}
-/** Result of `brain.search.hybrid`. */
-export type BrainSearchHybridResult = BrainHybridHit[];
-
-// --------------------------------------------------------------------------
-// brain.quality → memory quality report
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.quality` — none. */
-export type BrainQualityParams = Record<string, never>;
-/** Result of `brain.quality`. */
-export interface BrainQualityResult {
-  /** Per-tier entry counts. */
-  tierDistribution: Record<BrainMemoryTier, number>;
-  /** Per-cognitive-type counts. */
-  cognitiveDistribution: Record<BrainCognitiveType, number>;
-  /** Fraction of entries classified as noise [0..1]. */
-  noiseRatio: number;
-  /** Retrieval hit-rate stats for the last sampling window. */
-  retrievalStats: {
-    /** Count of retrieval requests. */
-    totalQueries: number;
-    /** Fraction returning at least one hit [0..1]. */
-    hitRate: number;
+/**
+ * Result of `brain.query`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainQueryResult {
+  /** Merged, deduplicated nodes across substrates. */
+  nodes: BrainNode[];
+  /** Edges (may reference stub nodes injected for cross-substrate targets). */
+  edges: BrainEdge[];
+  /** Aggregate and per-substrate counters. */
+  stats: {
+    /** Per-substrate node/edge contribution. */
+    perSubstrate: Record<BrainSubstrateName, BrainSubstrateStats>;
+    /** Deduplicated total node count. */
+    totalNodes: number;
+    /** Edge count (no dedup — edges are unique by (from,to,kind)). */
+    totalEdges: number;
   };
+}
+
+// ============================================================================
+// 2. brain.node — fetch single node by substrate-prefixed id
+// ============================================================================
+
+/**
+ * Parameters for `brain.node`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNodeParams {
+  /**
+   * Substrate-prefixed id to fetch.
+   *
+   * @example `"task:T949"`, `"memory:O-abc"`, `"code:symbol:foo"`.
+   */
+  id: BrainNodeId;
+}
+
+/**
+ * Result of `brain.node`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNodeResult {
+  /** The requested node. */
+  node: BrainNode;
+  /** Neighbour edges partitioned by direction relative to `node.id`. */
+  neighbors: {
+    /** Edges whose `to` equals the requested node. */
+    inbound: BrainEdge[];
+    /** Edges whose `from` equals the requested node. */
+    outbound: BrainEdge[];
+  };
+}
+
+// ============================================================================
+// 3. brain.substrate — fetch all nodes/edges for one substrate
+// ============================================================================
+
+/**
+ * Parameters for `brain.substrate`.
+ *
+ * @remarks
+ * Equivalent to `brain.query` with `substrates: [substrate]`, but
+ * provides a cleaner URL binding at the HTTP layer and emits a
+ * structured 400 error for unknown substrate names.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSubstrateParams {
+  /** Which substrate to project. */
+  substrate: BrainSubstrateName;
+  /** Maximum nodes to return. Default `500`. */
+  limit?: number;
+  /** Predicate bag applied to the substrate. */
+  filter?: BrainGraphFilter;
+}
+
+/**
+ * Result of `brain.substrate`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSubstrateResult {
+  /** The substrate that was projected. */
+  substrate: BrainSubstrateName;
+  /** Nodes contributed by this substrate. */
+  nodes: BrainNode[];
+  /** Edges contributed by this substrate. */
+  edges: BrainEdge[];
+  /** True when the result was capped by `limit`. */
+  truncated: boolean;
+}
+
+// ============================================================================
+// 4. brain.stream — SSE stream of graph mutation events
+// ============================================================================
+
+/**
+ * Discriminated union of BRAIN super-graph mutation events.
+ *
+ * @remarks
+ * Emitted as Server-Sent Events by the `brain.stream` endpoint. Every
+ * variant carries an ISO 8601 `ts` field so clients can sequence events
+ * even when they arrive out-of-order.
+ *
+ * - `hello`          — sent immediately on connect; confirms the stream is live.
+ * - `heartbeat`      — sent every 30 s to prevent connection timeout.
+ * - `node.create`    — a new node appeared in any substrate.
+ * - `node.update`    — an existing node's metadata changed.
+ * - `edge.strengthen` — an edge weight was updated (Hebbian/STDP or relation).
+ * - `edge.create`    — a new edge appeared.
+ * - `task.status`    — shortcut for tasks-substrate status changes.
+ * - `message.send`   — shortcut for conduit-substrate message inserts.
+ *
+ * Mirrors `@cleocode/brain :: BrainStreamEvent` with super-graph-aligned
+ * identifiers (ids are substrate-prefixed).
+ *
+ * @task T962 / T968
+ */
+export type BrainStreamEvent =
+  | { type: 'hello'; ts: string }
+  | { type: 'heartbeat'; ts: string }
+  | { type: 'node.create'; node: BrainNode; ts: string }
+  | { type: 'node.update'; node: BrainNode; ts: string }
+  | {
+      type: 'edge.strengthen';
+      from: BrainNodeId;
+      to: BrainNodeId;
+      kind: BrainEdgeKind;
+      weight: number;
+      ts: string;
+    }
+  | {
+      type: 'edge.create';
+      from: BrainNodeId;
+      to: BrainNodeId;
+      kind: BrainEdgeKind;
+      weight?: number;
+      ts: string;
+    }
+  | { type: 'task.status'; taskId: string; status: string; ts: string }
+  | {
+      type: 'message.send';
+      messageId: string;
+      fromAgentId: string;
+      toAgentId: string;
+      preview: string;
+      ts: string;
+    };
+
+/**
+ * Parameters for `brain.stream`.
+ *
+ * @remarks
+ * Clients may filter by substrate (only emit events from those DBs) and
+ * by event kind (only emit e.g. `node.create`). Both default to "all".
+ * `sinceTs` resumes from a prior ISO 8601 cursor when reconnecting.
+ *
+ * @task T962 / T968
+ */
+export interface BrainStreamParams {
+  /** Restrict events to these substrates. Default: all. */
+  substrates?: BrainSubstrateName[];
+  /** Restrict to these event kinds (e.g. `['node.create', 'edge.strengthen']`). */
+  kinds?: Array<BrainStreamEvent['type']>;
+  /**
+   * ISO 8601 resume cursor. When set, the server replays events emitted
+   * at or after `sinceTs` before tailing the live stream.
+   */
+  sinceTs?: string;
+}
+
+/**
+ * Result of `brain.stream`.
+ *
+ * @remarks
+ * The stream is transport-flexible (HTTP SSE in the reference adapter,
+ * WebSocket or long-poll in alternates). The `Result` shape describes
+ * the **per-frame** payload clients receive; transport framing is an
+ * adapter concern.
+ *
+ * @task T962 / T968
+ */
+export interface BrainStreamResult {
+  /** One decoded SSE frame. */
+  event: BrainStreamEvent;
+}
+
+// ============================================================================
+// 5. brain.bridges — list cross-substrate edges
+// ============================================================================
+
+/**
+ * Parameters for `brain.bridges`.
+ *
+ * @remarks
+ * Returns edges whose endpoints are in **different** substrates — e.g.
+ * `memory:O-abc → nexus:symbol:foo` (cognitive memory citing code) or
+ * `task:T949 → memory:D-decision-123` (task grounded in a decision).
+ * These are the substrate bridges that let the super-graph behave as a
+ * single knowledge surface rather than five isolated databases.
+ *
+ * @task T962 / T968
+ */
+export interface BrainBridgesParams {
+  /**
+   * Restrict to bridges whose endpoints lie in this substrate set.
+   * When set, only bridges where **both** endpoints fall inside
+   * `substrates` are returned. Default: all substrates.
+   */
+  substrates?: BrainSubstrateName[];
+  /** Restrict to these edge kinds. Default: all kinds. */
+  kinds?: BrainEdgeKind[];
+  /** Minimum edge weight to include. Default `0`. */
+  minWeight?: number;
+  /** Max edges to return. Default `500`. */
+  limit?: number;
+}
+
+/**
+ * Result of `brain.bridges`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainBridgesResult {
+  /** Cross-substrate edges matching the query. */
+  bridges: BrainEdge[];
+  /** Per-pair counts keyed by `"${fromSubstrate}->${toSubstrate}"`. */
+  pairCounts: Record<string, number>;
+  /** Total bridges returned. */
+  total: number;
+}
+
+// ============================================================================
+// 6. brain.neighborhood — BFS expand from a seed node, N hops
+// ============================================================================
+
+/**
+ * Parameters for `brain.neighborhood`.
+ *
+ * @remarks
+ * Breadth-first expansion from `seed` up to `hops` edges. Callers that
+ * need only direct neighbours should use `hops: 1`. Deep traversals
+ * should pair `hops` with `maxNodes` to bound fan-out.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNeighborhoodParams {
+  /** Seed node id. */
+  seed: BrainNodeId;
+  /** Max hops (BFS depth). Default `1`. */
+  hops?: number;
+  /** Cap on total returned nodes. Default `200`. */
+  maxNodes?: number;
+  /** Restrict traversal to these edge kinds. Default: all. */
+  edgeKinds?: BrainEdgeKind[];
+  /** Restrict traversal to these substrates. Default: all. */
+  substrates?: BrainSubstrateName[];
+  /** Minimum edge weight to traverse. Default `0`. */
+  minWeight?: number;
+}
+
+/**
+ * A single node visited during neighborhood expansion.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNeighborhoodNode {
+  /** The visited node. */
+  node: BrainNode;
+  /** BFS distance from the seed (`0` = seed itself). */
+  depth: number;
+}
+
+/**
+ * Result of `brain.neighborhood`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainNeighborhoodResult {
+  /** Seed node id that was expanded. */
+  seed: BrainNodeId;
+  /** Nodes visited, annotated with BFS depth. */
+  nodes: BrainNeighborhoodNode[];
+  /** Edges traversed during expansion. */
+  edges: BrainEdge[];
+  /** Maximum depth actually reached (≤ requested `hops`). */
+  reachedDepth: number;
+  /** True when the traversal was capped by `maxNodes`. */
+  truncated: boolean;
+}
+
+// ============================================================================
+// 7. brain.search — text/label search across all substrates
+// ============================================================================
+
+/**
+ * Parameters for `brain.search`.
+ *
+ * @remarks
+ * Cross-substrate text search. Each adapter picks the best available
+ * matcher (FTS5 for memory.db, identifier-substring for nexus, title
+ * match for tasks, etc.) and contributes hits scored on a normalised
+ * `[0, 1]` relevance axis. Results are fused by relevance desc.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSearchParams {
+  /** Search query (required, non-empty). */
+  query: string;
+  /** Restrict to these substrates. Default: all. */
+  substrates?: BrainSubstrateName[];
+  /** Restrict to these node types. Default: all. */
+  nodeTypes?: BrainNodeType[];
+  /** Max results. Default `50`. */
+  limit?: number;
+}
+
+/**
+ * A single fused search hit.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSearchHit {
+  /** The matched node. */
+  node: BrainNode;
+  /** Normalised relevance in `[0, 1]`. Higher = better. */
+  score: number;
+  /** Which substrate contributed this hit. */
+  substrate: BrainSubstrateName;
+  /** Adapter that produced the score (e.g. `fts`, `identifier`, `title`). */
+  matcher: string;
+}
+
+/**
+ * Result of `brain.search`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSearchResult {
+  /** Hits ranked by `score` desc. */
+  hits: BrainSearchHit[];
+  /** Total hit count (may exceed `hits.length` when `limit` applied). */
+  total: number;
+  /** Estimated token weight of the payload (for JIT retrieval budgeting). */
+  tokensEstimated: number;
+}
+
+// ============================================================================
+// 8. brain.stats — graph statistics per substrate
+// ============================================================================
+
+/**
+ * Parameters for `brain.stats`.
+ *
+ * @remarks
+ * Zero required params — returns the full super-graph telemetry
+ * snapshot. `substrates` narrows the report when only part of the
+ * graph matters to the caller.
+ *
+ * @task T962 / T968
+ */
+export interface BrainStatsParams {
+  /** Restrict the report to these substrates. Default: all. */
+  substrates?: BrainSubstrateName[];
+}
+
+/**
+ * Per-substrate statistics returned inside `BrainStatsResult`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainSubstrateReport {
+  /** Substrate name. */
+  substrate: BrainSubstrateName;
+  /** Node count by {@link BrainNodeType}. */
+  nodesByType: Array<{ type: BrainNodeType; count: number }>;
+  /** Edge count by {@link BrainEdgeKind}. */
+  edgesByKind: Array<{ kind: BrainEdgeKind; count: number }>;
+  /** Total nodes for the substrate. */
+  totalNodes: number;
+  /** Total edges for the substrate. */
+  totalEdges: number;
+  /** ISO 8601 timestamp of the most recent mutation, when known. */
+  lastMutationAt: string | null;
+}
+
+/**
+ * Result of `brain.stats`.
+ *
+ * @task T962 / T968
+ */
+export interface BrainStatsResult {
+  /** Per-substrate telemetry. */
+  perSubstrate: BrainSubstrateReport[];
+  /** Total nodes across all reported substrates. */
+  totalNodes: number;
+  /** Total edges across all reported substrates. */
+  totalEdges: number;
+  /** Count of cross-substrate bridges included in `totalEdges`. */
+  bridgeCount: number;
   /** ISO 8601 timestamp when the report was computed. */
   generatedAt: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.code.* → code_reference edges between brain & nexus
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.code.links` — none. */
-export type BrainCodeLinksParams = Record<string, never>;
-/** A single code_reference edge. */
-export interface BrainCodeLink {
-  /** Memory entry id. */
-  memoryId: string;
-  /** Nexus code symbol identifier. */
-  codeSymbol: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-/** Result of `brain.code.links`. */
-export type BrainCodeLinksResult = BrainCodeLink[];
-
-/** Parameters for `brain.code.memories-for-code`. */
-export interface BrainCodeMemoriesForCodeParams {
-  /** Code symbol identifier. */
-  symbol: string;
-}
-/** Result of `brain.code.memories-for-code`. */
-export interface BrainCodeMemoriesForCodeResult {
-  /** Code symbol that was queried. */
-  symbol: string;
-  /** Memory entries referencing this symbol. */
-  memories: Array<{ id: string; type: string; title: string }>;
-}
-
-/** Parameters for `brain.code.for-memory`. */
-export interface BrainCodeForMemoryParams {
-  /** Memory entry id. */
-  memoryId: string;
-}
-/** Result of `brain.code.for-memory`. */
-export interface BrainCodeForMemoryResult {
-  /** Memory entry id that was queried. */
-  memoryId: string;
-  /** Code symbols referenced by this memory. */
-  codeSymbols: string[];
-}
-
-// --------------------------------------------------------------------------
-// brain.llm-status → LLM extraction backend status
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.llm-status` — none. */
-export type BrainLlmStatusParams = Record<string, never>;
-/** Result of `brain.llm-status`. */
-export interface BrainLlmStatusResult {
-  /** Where the Anthropic API key was resolved from (env, config, keychain, etc.). */
-  resolvedSource: string;
-  /** True when LLM-assisted extraction is wired and key is present. */
-  extractionEnabled: boolean;
-  /** ISO 8601 timestamp of the most recent extraction run; null if none. */
-  lastExtractionRun: string | null;
-  /** Suggested CLI command to trigger a test extraction. */
-  testCommand: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.pending-verify → unverified-but-cited entries queue
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.pending-verify`. */
-export interface BrainPendingVerifyParams {
-  /** Minimum citation count to surface an entry (default 5). */
-  minCitations?: number;
-  /** Max entries to return (default 50). */
-  limit?: number;
-}
-/** A single pending-verify row. */
-export interface BrainPendingEntry {
-  /** Entry id (prefix varies by table). */
-  id: string;
-  /** Normalized display title. */
-  title: string | null;
-  /** Source confidence (nullable when never scored). */
-  sourceConfidence: string | null;
-  /** Times this entry has been cited by retrieval/reasoning. */
-  citationCount: number;
-  /** Memory tier (nullable when never assigned). */
-  memoryTier: string | null;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-  /** Source table name (e.g. `observations`, `decisions`). */
-  table: string;
-}
-/** Result of `brain.pending-verify`. */
-export interface BrainPendingVerifyResult {
-  /** Count of entries returned. */
-  count: number;
-  /** Minimum citation threshold applied. */
-  minCitations: number;
-  /** Pending entries ordered by citation count desc. */
-  items: BrainPendingEntry[];
-  /** Human-readable next-step hint. */
-  hint: string;
-}
-
-// ============================================================================
-// Mutate Operations
-// ============================================================================
-
-// --------------------------------------------------------------------------
-// brain.observe → save observation
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.observe`. */
-export interface BrainObserveParams {
-  /** Observation text body (required). */
-  text: string;
-  /** Short display title. */
-  title?: string;
-  /** Observation kind (default inferred from content). */
-  type?: BrainObservationKind;
-  /** Project context override. */
-  project?: string;
-  /** Originating session id. */
-  sourceSessionId?: string;
-  /** Observation source classification. */
-  sourceType?: BrainObservationSourceType;
-  /** Agent that captured this observation (T417 mental models). */
-  agent?: string;
-  /** Source confidence override (T549). */
-  sourceConfidence?: BrainSourceConfidence;
-  /** Attachment SHA-256 refs to link to this observation (T799). */
-  attachmentRefs?: string[];
-  /** Cross-reference to other brain or external IDs (T794). */
-  crossRef?: string[];
-}
-/** Result of `brain.observe`. */
-export interface BrainObserveResult {
-  /** Newly-created observation id (`O-...`). */
-  id: string;
-  /** Entry table this was written to. */
-  type: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.decision.store → store a decision
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.decision.store`. */
-export interface BrainDecisionStoreParams {
-  /** Decision statement (required). */
-  decision: string;
-  /** Rationale for the decision (required). */
-  rationale: string;
-  /** Alternatives considered at decision time. */
-  alternatives?: string[];
-  /** Task ID providing decision context. */
-  taskId?: string;
-  /** Session ID providing decision context. */
-  sessionId?: string;
-  /** Epic context. */
-  contextEpicId?: string;
-  /** Phase context. */
-  contextPhase?: string;
-}
-/** Result of `brain.decision.store`. */
-export interface BrainDecisionStoreResult {
-  /** New decision id (`D-...` or sequential `D001`). */
-  id: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.pattern.store → store a pattern
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.pattern.store`. */
-export interface BrainPatternStoreParams {
-  /** Pattern description (required). */
-  pattern: string;
-  /** Surrounding context (required). */
-  context: string;
-  /** Pattern classification (default `workflow`). */
-  type?: BrainPatternType;
-  /** Pattern impact level. */
-  impact?: BrainPatternImpact;
-  /** Counter-example anti-pattern. */
-  antiPattern?: string;
-  /** Mitigation guidance. */
-  mitigation?: string;
-  /** Concrete examples. */
-  examples?: string[];
-  /** Empirical success rate [0..1]. */
-  successRate?: number;
-  /** Origin tag (e.g. `auto`, `agent`). Routes source confidence. */
-  source?: string;
-}
-/** Result of `brain.pattern.store`. */
-export interface BrainPatternStoreResult {
-  /** New pattern id (`P-...`). */
-  id: string;
-  /** True when this store call incremented frequency on a duplicate match. */
-  deduplicated: boolean;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.learning.store → store a learning
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.learning.store`. */
-export interface BrainLearningStoreParams {
-  /** Insight statement (required). */
-  insight: string;
-  /** Source reference for the insight (required). */
-  source: string;
-  /** Confidence [0..1] (default 0.5). */
-  confidence?: number;
-  /** Marks the learning as actionable. */
-  actionable?: boolean;
-  /** How to apply the insight. */
-  application?: string;
-  /** Types/domains this learning applies to. */
-  applicableTypes?: string[];
-}
-/** Result of `brain.learning.store`. */
-export interface BrainLearningStoreResult {
-  /** New learning id (`L-...`). */
-  id: string;
-  /** True when this store call updated an existing duplicate. */
-  deduplicated: boolean;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-// --------------------------------------------------------------------------
-// brain.link → link brain entry to a task
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.link`. */
-export interface BrainLinkParams {
-  /** Task id to link. */
-  taskId: string;
-  /** Brain entry id to link. */
-  entryId: string;
-}
-/** Result of `brain.link`. */
-export interface BrainLinkResult {
-  /** Task id that was linked. */
-  taskId: string;
-  /** Entry id that was linked. */
-  entryId: string;
-  /** True when the edge was newly created (false if already present). */
-  linked: boolean;
-}
-
-// --------------------------------------------------------------------------
-// brain.graph.add / brain.graph.remove → PageIndex graph mutations
-// --------------------------------------------------------------------------
-
-/**
- * Parameters for `brain.graph.add`.
- *
- * @remarks
- * Either a node-insert shape (`nodeId` + `nodeType` + `label`) or an
- * edge-insert shape (`fromId` + `toId` + `edgeType`). Caller MUST supply
- * exactly one of those two variants.
- */
-export interface BrainGraphAddParams {
-  /** Node id (node-insert mode). */
-  nodeId?: string;
-  /** Node type classification (node-insert mode). */
-  nodeType?: string;
-  /** Display label (node-insert mode). */
-  label?: string;
-  /** JSON-encoded metadata string. */
-  metadataJson?: string;
-  /** Source node id (edge-insert mode). */
-  fromId?: string;
-  /** Target node id (edge-insert mode). */
-  toId?: string;
-  /** Edge type (edge-insert mode). */
-  edgeType?: string;
-  /** Edge weight [0..1] (edge-insert mode). */
-  weight?: number;
-}
-/** Result of `brain.graph.add`. */
-export interface BrainGraphAddResult {
-  /** Variant applied. */
-  mode: 'node' | 'edge';
-  /** Id of the node or `fromId:toId:edgeType` edge key. */
-  id: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-}
-
-/** Parameters for `brain.graph.remove`. */
-export interface BrainGraphRemoveParams {
-  /** Node id (node-remove mode). */
-  nodeId?: string;
-  /** Source node id (edge-remove mode). */
-  fromId?: string;
-  /** Target node id (edge-remove mode). */
-  toId?: string;
-  /** Edge type (edge-remove mode). */
-  edgeType?: string;
-}
-/** Result of `brain.graph.remove`. */
-export interface BrainGraphRemoveResult {
-  /** Variant applied. */
-  mode: 'node' | 'edge';
-  /** Number of rows deleted. */
-  removed: number;
-}
-
-// --------------------------------------------------------------------------
-// brain.code.link / brain.code.auto-link → code_reference edges
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.code.link`. */
-export interface BrainCodeLinkParams {
-  /** Memory entry id. */
-  memoryId: string;
-  /** Nexus code symbol identifier. */
-  codeSymbol: string;
-}
-/** Result of `brain.code.link`. */
-export interface BrainCodeLinkResult {
-  /** True when the edge was newly created (false when it already existed). */
-  linked: boolean;
-}
-
-/** Parameters for `brain.code.auto-link` — none. */
-export type BrainCodeAutoLinkParams = Record<string, never>;
-/** Result of `brain.code.auto-link`. */
-export interface BrainCodeAutoLinkResult {
-  /** Count of memory entries scanned. */
-  scanned: number;
-  /** Count of new edges created by the scan. */
-  linked: number;
-  /** Count of edges skipped because they already existed. */
-  skipped: number;
-}
-
-// --------------------------------------------------------------------------
-// brain.verify → ground-truth promote (owner / cleo-prime only)
-// --------------------------------------------------------------------------
-
-/** Parameters for `brain.verify`. */
-export interface BrainVerifyParams {
-  /** Brain entry id to promote to verified=1. */
-  id: string;
-  /** Caller identity (`cleo-prime` or `owner`). Omit for terminal invocation. */
-  agent?: string;
-}
-/** Result of `brain.verify`. */
-export interface BrainVerifyResult {
-  /** Entry id that was verified. */
-  id: string;
-  /** Table the entry lives in. */
-  table: string;
-  /** True when verified=0 → 1 transition occurred. False when already verified. */
-  promoted: boolean;
-  /** ISO 8601 timestamp of the verify attempt. */
-  verifiedAt: string;
-}
-
-// ============================================================================
-// Paginated result helper (for HTTP list surfaces that opt into LAFSPage)
-// ============================================================================
-
-/** Generic paginated envelope reused by future list variants. */
-export interface BrainPagedResult<T> {
-  /** Items for this page. */
-  items: T[];
-  /** Total count across all pages. */
-  total: number;
-  /** Pagination descriptor. */
-  page: LAFSPage;
 }

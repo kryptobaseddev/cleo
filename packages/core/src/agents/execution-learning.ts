@@ -21,13 +21,13 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { BrainDataAccessor } from '../store/brain-accessor.js';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import type { BrainDataAccessor } from '../store/memory-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BrainDecisionRow,
   BrainObservationRow,
   BrainPatternRow,
-} from '../store/brain-schema.js';
+} from '../store/memory-schema.js';
 import type { AgentType } from './agent-schema.js';
 
 // ============================================================================

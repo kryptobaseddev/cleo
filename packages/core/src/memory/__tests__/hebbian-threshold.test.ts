@@ -21,7 +21,7 @@ const { mockGetBrainDb, mockGetBrainNativeDb } = vi.hoisted(() => ({
   mockGetBrainNativeDb: vi.fn(),
 }));
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: mockGetBrainDb,
   getBrainNativeDb: mockGetBrainNativeDb,
 }));

@@ -82,7 +82,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch('/api/brain/quality');
+      const res = await fetch('/api/memory/quality');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = (await res.json()) as QualityData;
     } catch (e) {

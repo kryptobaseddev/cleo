@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.4.96",
+  "version": "2026.4.97",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,10 +11,45 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./sdk": {
+      "types": "./dist/cleo.d.ts",
+      "import": "./dist/cleo.js",
+      "require": "./dist/cleo.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "import": "./dist/internal.js",
       "require": "./dist/internal.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js",
+      "require": "./dist/contracts.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks/index.d.ts",
+      "import": "./dist/tasks/index.js",
+      "require": "./dist/tasks/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js",
+      "require": "./dist/memory/index.js"
+    },
+    "./sessions": {
+      "types": "./dist/sessions/index.d.ts",
+      "import": "./dist/sessions/index.js",
+      "require": "./dist/sessions/index.js"
+    },
+    "./nexus": {
+      "types": "./dist/nexus/index.d.ts",
+      "import": "./dist/nexus/index.js",
+      "require": "./dist/nexus/index.js"
+    },
+    "./lifecycle": {
+      "types": "./dist/lifecycle/index.d.ts",
+      "import": "./dist/lifecycle/index.js",
+      "require": "./dist/lifecycle/index.js"
     },
     "./conduit": {
       "types": "./dist/conduit/index.d.ts",
@@ -30,6 +65,31 @@
       "types": "./dist/conduit/*.d.ts",
       "import": "./dist/conduit/*.js",
       "require": "./dist/conduit/*.js"
+    },
+    "./tasks/*": {
+      "types": "./dist/tasks/*.d.ts",
+      "import": "./dist/tasks/*.js",
+      "require": "./dist/tasks/*.js"
+    },
+    "./lifecycle/*": {
+      "types": "./dist/lifecycle/*.d.ts",
+      "import": "./dist/lifecycle/*.js",
+      "require": "./dist/lifecycle/*.js"
+    },
+    "./memory/*": {
+      "types": "./dist/memory/*.d.ts",
+      "import": "./dist/memory/*.js",
+      "require": "./dist/memory/*.js"
+    },
+    "./sessions/*": {
+      "types": "./dist/sessions/*.d.ts",
+      "import": "./dist/sessions/*.js",
+      "require": "./dist/sessions/*.js"
+    },
+    "./nexus/*": {
+      "types": "./dist/nexus/*.d.ts",
+      "import": "./dist/nexus/*.js",
+      "require": "./dist/nexus/*.js"
     },
     "./memory/transcript-scanner.js": {
       "types": "./dist/memory/transcript-scanner.d.ts",
@@ -73,7 +133,7 @@
     "ai": "^6.0.162",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
@@ -112,7 +172,8 @@
   "devDependencies": {
     "@types/proper-lockfile": "^4.1.4",
     "@types/tar": "^6.1.13",
-    "@types/write-file-atomic": "^4.0.3"
+    "@types/write-file-atomic": "^4.0.3",
+    "better-sqlite3": "^12.4.1"
   },
   "repository": {
     "type": "git",
@@ -120,6 +181,14 @@
     "directory": "packages/core"
   },
   "optionalDependencies": {
-    "llmtxt": "^2026.4.6"
+    "llmtxt": "^2026.4.9"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "*"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    }
   }
 }

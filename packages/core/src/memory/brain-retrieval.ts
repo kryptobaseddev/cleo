@@ -19,14 +19,14 @@
 import { createHash } from 'node:crypto';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { memoryFindHitNext } from '../mvi-helpers.js';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
   BRAIN_OBSERVATION_TYPES,
   BrainMemoryTier,
   BrainSourceConfidence,
-} from '../store/brain-schema.js';
-import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
+} from '../store/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
@@ -459,7 +459,7 @@ export async function timelineBrain(
   const { anchor: anchorId, depthBefore = 3, depthAfter = 3 } = params;
 
   // Ensure DB is initialized
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -801,7 +801,7 @@ export async function observeBrain(
     .slice(0, 16);
 
   // Check for recent duplicate (same content within last 30 seconds)
-  const { getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb();
   if (nativeDb) {
     const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
@@ -1042,7 +1042,7 @@ export async function populateEmbeddings(
     return { processed: 0, skipped: 0, errors: 0 };
   }
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -1491,7 +1491,7 @@ async function getCurrentSessionId(projectRoot: string): Promise<string | undefi
 async function incrementCitationCounts(projectRoot: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;
@@ -1545,7 +1545,7 @@ async function logRetrieval(
 ): Promise<void> {
   if (entryIds.length === 0) return;
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;

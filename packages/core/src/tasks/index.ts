@@ -29,6 +29,24 @@ export {
 export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
 export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+// Dependency graph helpers (sentient loop consumers).
+export {
+  type DependencyCheckResult,
+  type DependencyError,
+  type DependencyWarning,
+  detectCircularDeps,
+  getBlockedTasks,
+  getDependentIds,
+  getDependents,
+  getLeafBlockers,
+  getReadyTasks,
+  getTransitiveBlockers,
+  getUnresolvedDeps,
+  topologicalSort,
+  validateDependencies,
+  validateDependencyRefs,
+  wouldCreateCycle,
+} from './dependency-check.js';
 // Evidence-based verification (T832 / ADR-051)
 export {
   type AtomValidation,
@@ -52,14 +70,18 @@ export {
   findTasks,
   fuzzyScore,
 } from './find.js';
-// Gate audit trail (T832 / ADR-051)
+// Gate audit trail (T832 / ADR-051, T947 / ADR-054 draft)
 export {
+  type AuditHistoryReport,
   appendForceBypassLine,
   appendGateAuditLine,
+  appendSignedGateAuditLine,
   type ForceBypassRecord,
   type GateAuditRecord,
   getForceBypassPath,
   getGateAuditPath,
+  type SignedGateAuditRecord,
+  verifyAuditHistory,
 } from './gate-audit.js';
 export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
 export { showTask, type TaskDetail } from './show.js';

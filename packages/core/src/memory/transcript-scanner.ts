@@ -100,7 +100,7 @@ export async function scanPendingTranscripts(
   projectRoot: string,
 ): Promise<PendingExtractionRecord[]> {
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const db = getBrainNativeDb();
     if (!db) return [];

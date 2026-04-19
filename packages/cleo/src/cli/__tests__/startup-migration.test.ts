@@ -142,7 +142,7 @@ vi.mock('../commands/lifecycle.js', () => ({ lifecycleCommand: {} }));
 vi.mock('../commands/list.js', () => ({ listCommand: {} }));
 vi.mock('../commands/log.js', () => ({ logCommand: {} }));
 vi.mock('../commands/map.js', () => ({ mapCommand: {} }));
-vi.mock('../commands/memory-brain.js', () => ({ memoryBrainCommand: {} }));
+vi.mock('../commands/memory.js', () => ({ memoryCommand: {} }));
 vi.mock('../commands/migrate-claude-mem.js', () => ({ migrateClaudeMemCommand: {} }));
 vi.mock('../commands/next.js', () => ({ nextCommand: {} }));
 vi.mock('../commands/nexus.js', () => ({ nexusCommand: {} }));
@@ -343,14 +343,20 @@ describe('CLI subCommands wiring (native citty)', () => {
     // that the mock received the expected structure.
     const { defineCommand } = await import('citty');
     const calls = (defineCommand as ReturnType<typeof vi.fn>).mock.calls;
-    // The root defineCommand call passes { meta, subCommands }
-    const rootCall = calls.find(
-      (args: unknown[]) =>
-        args[0] !== null &&
-        typeof args[0] === 'object' &&
-        'meta' in (args[0] as Record<string, unknown>) &&
-        'subCommands' in (args[0] as Record<string, unknown>),
-    );
+    // The root defineCommand call passes { meta: {name:'cleo'}, subCommands }.
+    // Sub-group commands (e.g. `cleo sentient`) also have meta+subCommands,
+    // so we filter for meta.name === 'cleo' to identify the true root.
+    const rootCall = calls.find((args: unknown[]) => {
+      const arg0 = args[0];
+      if (arg0 === null || typeof arg0 !== 'object') return false;
+      if (!('meta' in arg0) || !('subCommands' in arg0)) return false;
+      const meta = (arg0 as Record<string, unknown>).meta;
+      return (
+        meta !== null &&
+        typeof meta === 'object' &&
+        (meta as Record<string, unknown>).name === 'cleo'
+      );
+    });
     expect(rootCall).toBeDefined();
     const def = rootCall?.[0] as { subCommands: Record<string, unknown> };
     expect(def.subCommands).toHaveProperty('show');

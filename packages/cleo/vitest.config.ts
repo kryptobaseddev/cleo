@@ -39,6 +39,25 @@ export default defineConfig({
         .pathname,
       '@cleocode/core/internal': new URL('../../packages/core/src/internal.ts', import.meta.url)
         .pathname,
+      // Store sub-path exports — must be listed before the root alias so the
+      // more-specific pattern wins.  Production code uses `import(x as string)`
+      // which vitest's transform cannot statically hoist; registering these aliases
+      // ensures vi.mock('@cleocode/core/store/…') resolves to the source tree and
+      // is correctly intercepted at runtime.
+      '@cleocode/core/store/nexus-sqlite': new URL(
+        '../../packages/core/src/store/nexus-sqlite.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/store/nexus-schema': new URL(
+        '../../packages/core/src/store/nexus-schema.ts',
+        import.meta.url,
+      ).pathname,
+      // T946 sentient daemon consumes these subpath exports at runtime.
+      '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
+      '@cleocode/core/tasks': new URL(
+        '../../packages/core/src/tasks/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
     },

@@ -22,7 +22,23 @@
 import { lstat, readdir, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import checkDiskSpace from 'check-disk-space';
+import checkDiskSpaceModule from 'check-disk-space';
+
+/**
+ * Checks free + total bytes on the filesystem containing the given path.
+ *
+ * `check-disk-space@3.4.0` publishes its function as `export { x as default }`
+ * in the .d.ts, which TS 6.0 strict resolution treats as a namespaced re-export
+ * rather than a callable default. The runtime module itself exposes a callable;
+ * we bridge the type gap by typing `checkDiskSpaceModule` as the callable
+ * shape at the single import boundary.
+ */
+const checkDiskSpace = checkDiskSpaceModule as unknown as (path: string) => Promise<{
+  diskPath: string;
+  free: number;
+  size: number;
+}>;
+
 import { patchGCState, readGCState } from './state.js';
 
 // ---------------------------------------------------------------------------

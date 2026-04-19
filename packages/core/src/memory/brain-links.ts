@@ -8,7 +8,8 @@
  * @epic T5149
  */
 
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BRAIN_LINK_TYPES,
   BRAIN_MEMORY_TYPES,
@@ -16,8 +17,7 @@ import type {
   BrainLearningRow,
   BrainMemoryLinkRow,
   BrainPatternRow,
-} from '../store/brain-schema.js';
-import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
+} from '../store/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 
 type MemoryType = (typeof BRAIN_MEMORY_TYPES)[number];

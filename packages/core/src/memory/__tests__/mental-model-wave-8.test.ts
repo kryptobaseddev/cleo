@@ -41,7 +41,7 @@ let tempDir: string;
 
 async function resetBrainDb(): Promise<void> {
   try {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
   } catch {
     /* may not be loaded yet */
@@ -74,7 +74,7 @@ async function observeDirect(
 
 /** Count observations tagged with a given agent name. */
 async function countAgentObservations(root: string, agentName: string): Promise<number> {
-  const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+  const { getBrainAccessor } = await import('../../store/memory-accessor.js');
   const accessor = await getBrainAccessor(root);
   const obs = await accessor.findObservations({ agent: agentName, limit: 1000 });
   return obs.length;
@@ -82,7 +82,7 @@ async function countAgentObservations(root: string, agentName: string): Promise<
 
 /** Return all observation IDs tagged with a given agent name. */
 async function agentObservationIds(root: string, agentName: string): Promise<string[]> {
-  const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+  const { getBrainAccessor } = await import('../../store/memory-accessor.js');
   const accessor = await getBrainAccessor(root);
   const obs = await accessor.findObservations({ agent: agentName, limit: 1000 });
   return obs.map((o) => o.id);
