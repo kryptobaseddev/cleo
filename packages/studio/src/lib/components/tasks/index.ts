@@ -29,6 +29,22 @@ export {
   statusClass,
   statusIcon,
 } from './format.js';
+export { default as KanbanTab } from './KanbanTab.svelte';
+export {
+  applyKanbanFilters,
+  bucketKanbanTasks,
+  columnIsVisible,
+  findRootEpicId,
+  indexTasksById,
+  KANBAN_COLUMN_ORDER,
+  type KanbanBuckets,
+  type KanbanColumn,
+  type KanbanEpicGroup,
+  type KanbanFilterPredicate,
+  NO_EPIC_GROUP_ID,
+  NO_EPIC_GROUP_TITLE,
+  taskMatchesKanbanFilter,
+} from './kanban-bucketing.js';
 export { default as PriorityBadge } from './PriorityBadge.svelte';
 export type { RecentTaskRow } from './RecentActivityFeed.svelte';
 export { default as RecentActivityFeed } from './RecentActivityFeed.svelte';
