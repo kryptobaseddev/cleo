@@ -440,7 +440,13 @@ export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './r
 export type { PRResult } from './release/github-pr.js';
 export { buildPRBody, createPullRequest, isGhCliAvailable } from './release/github-pr.js';
 export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
-export { getGitFlowConfig, getPushMode, loadReleaseConfig } from './release/release-config.js';
+export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
+export {
+  getGitFlowConfig,
+  getPushMode,
+  loadReleaseConfig,
+  validateReleaseConfig,
+} from './release/release-config.js';
 export type { ReleaseListOptions, ReleaseTaskRecord } from './release/release-manifest.js';
 export {
   cancelRelease,
@@ -1066,6 +1072,15 @@ export type {
   BrainSearchHit,
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
+// Memory — auto-populate graph hooks (T537 + T945 Stage A)
+export {
+  addGraphEdge,
+  ensureCommitNode,
+  ensureLlmtxtNode,
+  ensureMessageNode,
+  ensureTaskNode,
+  upsertGraphNode,
+} from './memory/graph-auto-populate.js';
 export {
   autoLinkMemories,
   linkMemoryToCode,

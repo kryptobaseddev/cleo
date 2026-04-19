@@ -1,0 +1,16 @@
+/**
+ * Task operations barrel export.
+ * @task T4460
+ * @epic T4454
+ */
+export { type AddTaskOptions, type AddTaskResult, addTask, buildDefaultVerification, findRecentDuplicate, getNextPosition, getTaskDepth, inferTaskType, logOperation, normalizePriority, VALID_PRIORITIES, validateDepends, validateLabels, validateParent, validatePhaseFormat, validatePriority, validateSize, validateStatus, validateTaskType, validateTitle, } from './add.js';
+export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
+export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
+export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+export { type AtomValidation, checkGateEvidenceMinimum, composeGateEvidence, type EvidenceTool, GATE_EVIDENCE_MINIMUMS, type ParsedAtom, type ParsedEvidence, parseEvidence, type RevalidationResult, revalidateEvidence, TOOL_COMMANDS, VALID_TOOLS, validateAtom, } from './evidence.js';
+export { type FindResult, type FindTasksOptions, type FindTasksResult, findTasks, fuzzyScore, } from './find.js';
+export { appendForceBypassLine, appendGateAuditLine, type ForceBypassRecord, type GateAuditRecord, getForceBypassPath, getGateAuditPath, } from './gate-audit.js';
+export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
+export { showTask, type TaskDetail } from './show.js';
+export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
+//# sourceMappingURL=index.d.ts.map

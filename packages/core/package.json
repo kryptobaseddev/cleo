@@ -11,10 +11,45 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./sdk": {
+      "types": "./dist/cleo.d.ts",
+      "import": "./dist/cleo.js",
+      "require": "./dist/cleo.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "import": "./dist/internal.js",
       "require": "./dist/internal.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js",
+      "require": "./dist/contracts.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks/index.d.ts",
+      "import": "./dist/tasks/index.js",
+      "require": "./dist/tasks/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js",
+      "require": "./dist/memory/index.js"
+    },
+    "./sessions": {
+      "types": "./dist/sessions/index.d.ts",
+      "import": "./dist/sessions/index.js",
+      "require": "./dist/sessions/index.js"
+    },
+    "./nexus": {
+      "types": "./dist/nexus/index.d.ts",
+      "import": "./dist/nexus/index.js",
+      "require": "./dist/nexus/index.js"
+    },
+    "./lifecycle": {
+      "types": "./dist/lifecycle/index.d.ts",
+      "import": "./dist/lifecycle/index.js",
+      "require": "./dist/lifecycle/index.js"
     },
     "./conduit": {
       "types": "./dist/conduit/index.d.ts",
@@ -73,7 +108,7 @@
     "ai": "^6.0.162",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
@@ -120,6 +155,6 @@
     "directory": "packages/core"
   },
   "optionalDependencies": {
-    "llmtxt": "^2026.4.6"
+    "llmtxt": "^2026.4.9"
   }
 }
