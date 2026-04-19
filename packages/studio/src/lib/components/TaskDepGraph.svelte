@@ -1,20 +1,33 @@
-<script lang="ts">
-  /**
-   * TaskDepGraph — Mini sigma.js graph for task dependency/blocker visualization.
-   *
-   * Renders upstream (blockers) and downstream (dependents) of a focal task.
-   * Node color encodes task status; focal task is highlighted larger.
-   *
-   * @module lib/components/TaskDepGraph
-   */
-  import { onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
-  import Graph from 'graphology';
-  import Sigma from 'sigma';
-  import forceAtlas2 from 'graphology-layout-forceatlas2';
-  import { BASE_SIGMA_SETTINGS } from './sigma-defaults.js';
+<!--
+  TaskDepGraph — focal-task dependency visualization for `/tasks/[id]`.
 
-  interface GraphNode {
+  Small ego graph showing the target task plus its 1-hop upstream
+  (blockers) and 1-hop downstream (dependents).  Rewritten in Wave 1C
+  of T990 to consume the shared {@link SvgRenderer} instead of the
+  legacy sigma + graphology path — the two implementations now share
+  one engine, token pipeline, and hover/label contract.
+
+  Public prop API is preserved for its callers (`/tasks/[id]` detail
+  page lives in Wave 1E).  The legacy `{ nodes, edges }` shape accepts
+  a small superset of the upstream/downstream data previously passed;
+  we project it into the shared graph kit shape internally.
+
+  @module lib/components/TaskDepGraph
+-->
+<script lang="ts">
+  import { goto } from '$app/navigation';
+
+  import type {
+    GraphEdge as KitGraphEdge,
+    GraphNode as KitGraphNode,
+  } from '$lib/graph/types.js';
+  import SvgRenderer from '$lib/graph/renderers/SvgRenderer.svelte';
+
+  /**
+   * Legacy node shape accepted by this component.  Preserved so callers
+   * don't have to migrate at the same time as the renderer swap.
+   */
+  export interface TaskDepNode {
     id: string;
     title: string;
     status: string;
@@ -23,147 +36,86 @@
     isFocus: boolean;
   }
 
-  interface GraphEdge {
+  /**
+   * Legacy edge shape.  Assumed directional from `source → target`.
+   */
+  export interface TaskDepEdge {
     source: string;
     target: string;
   }
 
   interface Props {
-    nodes: GraphNode[];
-    edges: GraphEdge[];
+    nodes: TaskDepNode[];
+    edges: TaskDepEdge[];
+    /** Panel height. Defaults to `260px` to match the previous layout. */
     height?: string;
   }
 
   let { nodes, edges, height = '260px' }: Props = $props();
 
-  let container: HTMLDivElement | undefined = $state();
-  let sigmaInstance: Sigma | null = null;
-  let tooltip = $state<{ label: string; status: string; x: number; y: number } | null>(null);
+  /**
+   * Project the legacy inputs into the shared graph kit shape.  The
+   * focal node is tagged via `meta.focal` so {@link SvgRenderer} applies
+   * the accent halo.
+   */
+  const kitNodes = $derived<KitGraphNode[]>(
+    nodes.map((n) => ({
+      id: n.id,
+      substrate: 'tasks' as const,
+      kind: n.type || 'task',
+      label: n.title,
+      category: null,
+      weight: n.isFocus ? 1 : 0.6,
+      meta: {
+        status: n.status,
+        priority: n.priority,
+        focal: n.isFocus,
+      },
+    })),
+  );
 
-  /** Map task status to a display color. */
-  function statusColor(status: string, isFocus: boolean): string {
-    if (isFocus) return '#a855f7'; // purple = focal node
-    if (status === 'done') return '#22c55e';
-    if (status === 'active') return '#3b82f6';
-    if (status === 'blocked') return '#ef4444';
-    return '#64748b'; // pending/default
+  const kitEdges = $derived<KitGraphEdge[]>(
+    edges
+      .filter((e) => e.source !== e.target)
+      .map((e, idx) => ({
+        id: `dep-${idx}:${e.source}->${e.target}`,
+        source: e.source,
+        target: e.target,
+        kind: 'depends' as const,
+        directional: true,
+        weight: 0.6,
+      })),
+  );
+
+  function onNodeClick(n: KitGraphNode): void {
+    void goto(`/tasks/${n.id}`);
   }
-
-  function buildGraph(): Graph {
-    const graph = new Graph({ multi: false, allowSelfLoops: false });
-
-    for (const node of nodes) {
-      if (graph.hasNode(node.id)) continue;
-      graph.addNode(node.id, {
-        label: node.id,
-        size: node.isFocus ? 10 : 7,
-        color: statusColor(node.status, node.isFocus),
-        x: Math.random() * 600 - 300,
-        y: Math.random() * 400 - 200,
-        status: node.status,
-        title: node.title,
-        isFocus: node.isFocus,
-      });
-    }
-
-    for (const edge of edges) {
-      if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
-      if (edge.source === edge.target) continue;
-      if (graph.hasEdge(edge.source, edge.target)) continue;
-      graph.addEdge(edge.source, edge.target, {
-        color: 'rgba(148,163,184,0.45)',
-        size: 1.5,
-        type: 'arrow',
-      });
-    }
-
-    return graph;
-  }
-
-  onMount(() => {
-    if (!container) return;
-
-    const graph = buildGraph();
-
-    if (graph.order > 1) {
-      const iterations = Math.min(300, Math.max(80, 3000 / (graph.order + 1)));
-      forceAtlas2.assign(graph, {
-        iterations,
-        settings: forceAtlas2.inferSettings(graph),
-      });
-    } else if (graph.order === 1) {
-      // Single node — place at center
-      graph.forEachNode((id) => {
-        graph.setNodeAttribute(id, 'x', 0);
-        graph.setNodeAttribute(id, 'y', 0);
-      });
-    }
-
-    sigmaInstance = new Sigma(graph, container, {
-      ...BASE_SIGMA_SETTINGS,
-      labelRenderedSizeThreshold: 1,
-      renderEdgeLabels: false,
-    });
-
-    sigmaInstance.on('enterNode', ({ node }) => {
-      if (!container) return;
-      const attrs = graph.getNodeAttributes(node);
-      const cam = sigmaInstance!.getNodeDisplayData(node);
-      if (cam) {
-        const rect = container.getBoundingClientRect();
-        tooltip = {
-          label: `${node}: ${attrs.title as string}`,
-          status: attrs.status as string,
-          x: cam.x * rect.width,
-          y: cam.y * rect.height,
-        };
-      }
-    });
-
-    sigmaInstance.on('leaveNode', () => {
-      tooltip = null;
-    });
-
-    sigmaInstance.on('clickNode', ({ node }) => {
-      void goto(`/tasks/${node}`);
-    });
-  });
-
-  onDestroy(() => {
-    sigmaInstance?.kill();
-    sigmaInstance = null;
-  });
 </script>
 
-<div class="dep-graph-wrap" style="height:{height}; position:relative;">
-  <div class="dep-graph-canvas" bind:this={container} style="width:100%;height:100%;"></div>
-
+<div class="dep-graph-wrap" style="--dep-graph-height: {height};">
   {#if nodes.length === 0}
     <div class="dep-graph-empty">No dependencies</div>
-  {/if}
-
-  {#if tooltip}
-    <div
-      class="dep-tooltip"
-      style="left:{tooltip.x}px; top:{tooltip.y}px;"
-    >
-      <span class="dt-label">{tooltip.label}</span>
-      <span class="dt-status dt-{tooltip.status}">{tooltip.status}</span>
-    </div>
+  {:else}
+    <SvgRenderer
+      nodes={kitNodes}
+      edges={kitEdges}
+      showLabels="full"
+      nodeRenderer="circle"
+      onNodeClick={onNodeClick}
+      ariaLabel="Task dependency neighbourhood"
+    />
   {/if}
 </div>
 
 <style>
   .dep-graph-wrap {
     position: relative;
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
+    width: 100%;
+    height: var(--dep-graph-height, 260px);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     overflow: hidden;
-  }
-
-  .dep-graph-canvas {
-    display: block;
   }
 
   .dep-graph-empty {
@@ -172,42 +124,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #475569;
-    font-size: 0.8125rem;
+    color: var(--text-faint);
+    font-size: var(--text-sm);
     pointer-events: none;
   }
-
-  .dep-tooltip {
-    position: absolute;
-    transform: translate(-50%, -130%);
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 4px;
-    padding: 0.25rem 0.5rem;
-    pointer-events: none;
-    white-space: nowrap;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-width: 280px;
-  }
-
-  .dt-label {
-    font-size: 0.7rem;
-    color: #e2e8f0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dt-status {
-    font-size: 0.65rem;
-    font-weight: 600;
-  }
-
-  .dt-done { color: #22c55e; }
-  .dt-active { color: #3b82f6; }
-  .dt-blocked { color: #ef4444; }
-  .dt-pending { color: #64748b; }
 </style>

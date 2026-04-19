@@ -1,42 +1,50 @@
 <!--
-  T956 — /tasks hybrid (dashboard panel + embedded 3-tab Task Explorer).
+  /tasks — command surface for the CLEO Task Explorer.
 
-  W2A of T949 ("Option C hybrid" per operator decision 2026-04-17). The
-  top of the page preserves the dashboard VERBATIM (stats / priority bars
-  / type chips / filter chips / Epic Progress / Recent Activity / live
-  SSE indicator). Below it, the 3-tab Task Explorer (Hierarchy / Graph /
-  Kanban) renders against the same `ExplorerBundle` loaded server-side.
+  Wave 1C relayout of the T956 hybrid dashboard. Operator feedback
+  (captured in `.cleo/agent-outputs/T990-design-research/tasks-page-audit.md`):
 
-  Switching tabs does NOT re-query the server — it projects from the
-  already-loaded bundle. Tab state is URL-synced (`?view=` + hash so
-  `/tasks#graph`-style links from the T957 redirects land correctly).
-  Search, status/priority/label/cancelled filters, and selection all live
-  in the shared `createTaskFilters(url)` store (T951) and round-trip
-  through the URL. The `DetailDrawer` is rendered once globally, driven by
-  `filters.state.selected`.
+    - Kanban + Graph were buried below the fold on a 900-1100px viewport
+    - Explorer body capped at `min-height: 400px` so the d3 graph never
+      had room to breathe
+    - Dashboard cards dominated the visual hierarchy
 
-  Preservation checklist (per docs/specs/CLEO-TASK-DASHBOARD-SPEC.md §9):
-    - Epic Progress (direct-children per T874) — via `EpicProgressCard`
-    - Recent Activity (last 20 by updated_at) — via `RecentActivityFeed`
-    - Live SSE indicator (2-second EventSource)
-    - `?archived=1` / `?cancelled=1` toggle chips
-    - Search by ID (exact match navigates) or title (fuzzy via /api/tasks/search)
-    - All existing stats rows + priority bars + type chips
+  This file now renders a **two-column command surface**:
 
-  Keyboard:
-    - `/` focuses the Explorer search box (registered by TaskSearchBox)
-    - `1` / `2` / `3` switch Hierarchy / Graph / Kanban tabs
-    - `Esc` closes the DetailDrawer
-    - Tab-specific navigation lives in each tab component
+    ┌──────────────────────────────────────────────┬──────────────┐
+    │  Header (title + nav + live indicator)        │              │
+    │  Search                                       │              │
+    │  ── Task Explorer (hero, fills viewport) ──   │  Right rail  │
+    │  [1 Hierarchy] [2 Graph] [3 Kanban]           │  • Stats     │
+    │  <tab body: flex:1 min-height:0>              │  • Priority  │
+    │                                               │  • Epic prog │
+    │                                               │  • Recent    │
+    └──────────────────────────────────────────────┴──────────────┘
+
+  Below 1100px the right rail collapses to a single column under the
+  Explorer (still scrollable, still full viewport — just stacked).
+
+  Every existing behaviour is preserved:
+
+    - `?q=`, `?status=`, `?priority=`, `?labels=`, `?cancelled=`,
+      `?selected=`, `?view=` round-trip through the URL.
+    - SSE live indicator pings `/api/tasks/events` every 2s.
+    - `/tasks#hierarchy` / `#graph` / `#kanban` deep links work (T957).
+    - `1` / `2` / `3` switch tabs globally.
+    - `/` focuses the Explorer search.
+    - `Esc` closes the DetailDrawer.
+    - The dashboard filter toggles (`cancelled`, `archived`) still flip
+      via anchored navigation.
 
   @task T956
   @epic T949
+  @reviewed T990 (Wave 1C)
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   import {
     DetailDrawer,
@@ -46,6 +54,7 @@
     GraphTab,
     HierarchyTab,
     KanbanTab,
+    LabelsFilter,
     RecentActivityFeed,
     TaskSearchBox,
   } from '$lib/components/tasks';
@@ -77,19 +86,13 @@
   const stats = $derived<DashboardStats | null>(data.stats);
   const recentTasks = $derived<RecentTask[]>(data.recentTasks ?? []);
   const epicProgress = $derived<EpicProgress[]>(data.epicProgress ?? []);
-  // T878 / T958: display filter state (?cancelled=1 / ?archived=1) driven
-  // from the URL. `?deferred=1` is the legacy alias honoured for one release.
   const dashboardFilters = $derived<DashboardFilters>(
     data.filters ?? { showCancelled: false, showArchived: false },
   );
 
   /**
    * Build a toggle URL that flips one dashboard filter flag while preserving
-   * the other. Round-trips through the URL so state stays SSR-correct and
-   * bookmarkable.
-   *
-   * T958: `cancelled` is the canonical param; `deferred=1` is a legacy
-   * alias the server still accepts.
+   * the other.
    */
   function toggleUrl(flag: 'cancelled' | 'archived'): string {
     const next = new URL($page.url);
@@ -99,44 +102,30 @@
     } else {
       next.searchParams.set(flag, '1');
     }
-    // Strip the legacy alias when toggling the canonical param so they don't coexist.
     if (flag === 'cancelled') next.searchParams.delete('deferred');
     return next.pathname + (next.search ? next.search : '');
   }
 
   // ---------------------------------------------------------------------------
-  // Explorer filter store (T951) — one source of truth for ?q / status / priority
-  // / labels / epic / selected / cancelled / view.
+  // Filter store (shared with the Task Explorer)
   // ---------------------------------------------------------------------------
 
-  /**
-   * The shared Task Explorer filter store. Created in an `$effect` so it is
-   * rebuilt when the URL changes cross-navigation (e.g. a user clicks a
-   * deep-link from another page). `dispose()` cleans up popstate listeners +
-   * pending debounced writes on teardown.
-   */
-  // Initialize eagerly so the Task Explorer section renders on SSR (not only
-  // after client hydration). The store is SSR-safe: it skips popstate
-  // registration + history writes when `window` is absent. Re-init in
-  // `$effect` only rebinds listeners on client-side URL changes.
   let filters = $state<TaskFilters>(createTaskFilters(new URL($page.url)));
 
   $effect(() => {
-    const next = createTaskFilters(new URL($page.url));
-    const old = filters;
-    filters = next;
+    const url = new URL($page.url);
+    const { next, old } = untrack(() => {
+      const created = createTaskFilters(url);
+      const previous = filters;
+      filters = created;
+      return { next: created, old: previous };
+    });
     return () => {
       next.dispose();
       old?.dispose();
     };
   });
 
-  /**
-   * Parse a URL hash into a valid {@link TaskView}, or `null` if the hash
-   * does not name one of the three tabs.
-   *
-   * @param hash - Raw `window.location.hash` (e.g. `"#graph"`).
-   */
   function parseHashView(hash: string): TaskView | null {
     const cleaned = hash.replace(/^#/, '').toLowerCase();
     if (cleaned === 'hierarchy' || cleaned === 'graph' || cleaned === 'kanban') {
@@ -145,14 +134,6 @@
     return null;
   }
 
-  /**
-   * Sync the active view between `filters.state.view` and the URL hash.
-   *
-   * On mount (and whenever the hash changes via back/forward nav), we read the
-   * hash and prefer it over whatever was seeded from `?view=`. When the user
-   * clicks a tab, {@link switchView} writes back to both the filter store AND
-   * the hash for shareable deep-links.
-   */
   onMount(() => {
     function readHash(): void {
       if (!filters) return;
@@ -161,31 +142,22 @@
         filters.setView(hashView);
       }
     }
-    // Apply on mount (hash wins over ?view= if both are present).
     readHash();
     window.addEventListener('hashchange', readHash);
     return () => window.removeEventListener('hashchange', readHash);
   });
 
-  /**
-   * Switch the active Explorer tab. Updates both the filter store (which
-   * writes `?view=` to the URL) and the location hash (`#hierarchy` /
-   * `#graph` / `#kanban`) so hash-driven deep-links keep working.
-   *
-   * @param v - The tab to activate.
-   */
   function switchView(v: TaskView): void {
     if (!filters) return;
     filters.setView(v);
     if (typeof window !== 'undefined' && window.location.hash !== `#${v}`) {
-      // `replaceState` avoids a back-button trap on every tab toggle.
       const next = `${window.location.pathname}${window.location.search}#${v}`;
       window.history.replaceState(window.history.state, '', next);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Derived — Explorer bundle projections + selected task for the DetailDrawer
+  // Explorer projections
   // ---------------------------------------------------------------------------
 
   const explorerTasks = $derived<Task[]>(data.explorer?.tasks ?? []);
@@ -203,41 +175,28 @@
   );
 
   // ---------------------------------------------------------------------------
-  // Filter chip options (wired against the shared FilterChipGroup)
+  // Filter chips for the Explorer toolbar
   // ---------------------------------------------------------------------------
 
-  /** Canonical status chip options for the Explorer toolbar. */
   const statusOptions: FilterChipOption[] = [
-    { value: 'pending', label: 'Pending', tint: '#f59e0b' },
-    { value: 'active', label: 'Active', tint: '#3b82f6' },
-    { value: 'blocked', label: 'Blocked', tint: '#ef4444' },
-    { value: 'done', label: 'Done', tint: '#22c55e' },
-    { value: 'cancelled', label: 'Cancelled', tint: '#6b7280' },
+    { value: 'pending', label: 'Pending', tint: 'var(--status-pending)' },
+    { value: 'active', label: 'Active', tint: 'var(--status-active)' },
+    { value: 'blocked', label: 'Blocked', tint: 'var(--status-blocked)' },
+    { value: 'done', label: 'Done', tint: 'var(--status-done)' },
+    { value: 'cancelled', label: 'Cancelled', tint: 'var(--status-cancelled)' },
   ];
 
-  /** Canonical priority chip options for the Explorer toolbar. */
   const priorityOptions: FilterChipOption[] = [
-    { value: 'critical', label: 'Critical', tint: '#ef4444' },
-    { value: 'high', label: 'High', tint: '#f97316' },
-    { value: 'medium', label: 'Medium', tint: '#eab308' },
-    { value: 'low', label: 'Low', tint: '#64748b' },
+    { value: 'critical', label: 'Critical', tint: 'var(--priority-critical)' },
+    { value: 'high', label: 'High', tint: 'var(--priority-high)' },
+    { value: 'medium', label: 'Medium', tint: 'var(--priority-medium)' },
+    { value: 'low', label: 'Low', tint: 'var(--priority-low)' },
   ];
 
-  /** Labels discovered from the loaded bundle — empty when the project has none. */
   const labelOptions = $derived<FilterChipOption[]>(
     explorerLabels.map((label) => ({ value: label, label })),
   );
 
-  /**
-   * Diff `before` vs `after` and drive the matching toggle on `filters`. The
-   * store only exposes a per-value toggle API — the chip group gives us the
-   * full next-array, so we reconcile here. Generic over the enum being
-   * toggled so the caller stays type-safe.
-   *
-   * @param before - Currently-selected values from the store.
-   * @param after  - Next-selected values from the chip group.
-   * @param toggle - The store method that toggles one value on/off.
-   */
   function diffAndToggle<T extends string>(
     before: readonly T[],
     after: readonly string[],
@@ -254,7 +213,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Legacy search bar — preserved (exact-id navigate + title fuzzy)
+  // Legacy search bar (exact-id navigate + title fuzzy)
   // ---------------------------------------------------------------------------
 
   let searchRaw = $state('');
@@ -346,7 +305,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Display helpers (preserved verbatim from the pre-T956 page)
+  // Display helpers
   // ---------------------------------------------------------------------------
 
   function priorityClassLocal(p: string): string {
@@ -386,7 +345,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Live SSE indicator (preserved)
+  // Live SSE indicator
   // ---------------------------------------------------------------------------
 
   let liveConnected = $state(false);
@@ -411,16 +370,9 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Page-level keyboard shortcuts: 1/2/3 tab switching (bypassed when typing)
+  // Page-level keyboard shortcuts
   // ---------------------------------------------------------------------------
 
-  /**
-   * Global `keydown` handler wiring `1` / `2` / `3` to the three Explorer
-   * tabs. The handler is inert while focus is inside an editable field so we
-   * never hijack typing. Exported via `<svelte:window onkeydown>`.
-   *
-   * @param e - Keyboard event.
-   */
   function onPageKey(e: KeyboardEvent): void {
     if (!filters) return;
     const target = e.target;
@@ -447,7 +399,7 @@
 
 <svelte:window onkeydown={onPageKey} />
 
-<div class="tasks-dashboard">
+<div class="tasks-page">
   <div class="page-header">
     <div class="header-left">
       <h1 class="page-title">Tasks</h1>
@@ -466,7 +418,7 @@
     </div>
   </div>
 
-  <!-- Search bar -->
+  <!-- Search bar (full-width) -->
   <div class="search-section">
     <div class="search-box" class:loading={searchLoading}>
       <span class="search-icon" aria-hidden="true">⌕</span>
@@ -525,226 +477,241 @@
     </div>
   {/if}
 
-  {#if stats}
-    <div class="stats-section">
-      <div class="stat-group">
-        <div class="stat-card primary">
-          <span class="stat-num">{stats.total}</span>
-          <span class="stat-lbl">Total</span>
-        </div>
-        <div class="stat-card status-active-card">
-          <span class="stat-num">{stats.active}</span>
-          <span class="stat-lbl">Active</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-num">{stats.pending}</span>
-          <span class="stat-lbl">Pending</span>
-        </div>
-        <div class="stat-card status-done-card">
-          <span class="stat-num">{stats.done}</span>
-          <span class="stat-lbl">Done</span>
-        </div>
-        <div class="stat-card status-cancelled-card">
-          <span class="stat-num">{stats.cancelled}</span>
-          <span class="stat-lbl">Cancelled</span>
-        </div>
-        <div class="stat-card muted">
-          <span class="stat-num">{stats.archived}</span>
-          <span class="stat-lbl">Archived</span>
-        </div>
-      </div>
-
-      <div class="priority-breakdown">
-        <div class="section-label">Priority</div>
-        <div class="priority-bars">
-          {#each [['critical', stats.critical], ['high', stats.high], ['medium', stats.medium], ['low', stats.low]] as [label, count] (label)}
-            {@const total = stats.critical + stats.high + stats.medium + stats.low}
-            {@const pct = total > 0 ? Math.round((Number(count) / total) * 100) : 0}
-            <div class="priority-row">
-              <span class="priority-label {priorityClassLocal(String(label))}">{label}</span>
-              <div class="priority-bar-track">
-                <div
-                  class="priority-bar-fill {priorityClassLocal(String(label))}"
-                  style="width:{pct}%"
-                ></div>
-              </div>
-              <span class="priority-count">{count}</span>
-            </div>
-          {/each}
-        </div>
-      </div>
-
-      <div class="type-breakdown">
-        <div class="section-label">Type</div>
-        <div class="type-chips">
-          <span class="type-chip">Epics: <strong>{stats.epics}</strong></span>
-          <span class="type-chip">Tasks: <strong>{stats.tasks}</strong></span>
-          <span class="type-chip">Subtasks: <strong>{stats.subtasks}</strong></span>
-        </div>
-      </div>
-    </div>
-  {:else}
-    <div class="no-db">tasks.db not found — start CLEO in the project directory</div>
-  {/if}
-
-  <!-- T878/T958: dashboard filter toggles (canonical `cancelled` + `archived`) -->
-  <div class="filter-bar" aria-label="Dashboard filters">
-    <a
-      href={toggleUrl('cancelled')}
-      class="filter-chip"
-      class:active={dashboardFilters.showCancelled}
-      data-sveltekit-noscroll
-      title="Include cancelled epics in the Epic Progress panel"
-    >
-      <span class="chip-check">{dashboardFilters.showCancelled ? '✓' : ' '}</span>
-      Show cancelled epics
-    </a>
-    <a
-      href={toggleUrl('archived')}
-      class="filter-chip"
-      class:active={dashboardFilters.showArchived}
-      data-sveltekit-noscroll
-      title="Include archived tasks in Recent Activity"
-    >
-      <span class="chip-check">{dashboardFilters.showArchived ? '✓' : ' '}</span>
-      Show archived
-    </a>
-  </div>
-
-  <!-- TOP PANEL: dashboard (Epic Progress + Recent Activity) — preserved -->
-  <section class="dashboard-panel" aria-label="Dashboard summary">
-    <div class="lower-grid">
-      {#if epicProgress.length > 0}
-        <EpicProgressCard
-          epics={epicProgress}
-          includingDeferred={dashboardFilters.showCancelled}
-        />
-      {/if}
-
-      {#if recentTasks.length > 0}
-        <RecentActivityFeed tasks={recentTasks} />
-      {/if}
-    </div>
-  </section>
-
-  <!-- BOTTOM PANEL: 3-tab Task Explorer (T953 / T954 / T955) -->
+  <!-- COMMAND SURFACE — Explorer hero + Right rail -->
   {#if filters}
-    <section class="task-explorer" aria-label="Task Explorer">
-      <header class="explorer-header">
-        <nav class="tabs" role="tablist" aria-label="Task Explorer views">
-          <button
-            type="button"
-            class="tab"
-            class:active={filters.state.view === 'hierarchy'}
-            role="tab"
-            aria-selected={filters.state.view === 'hierarchy'}
-            onclick={() => switchView('hierarchy')}
-          >
-            <span class="tab-key" aria-hidden="true">1</span>
-            Hierarchy
-          </button>
-          <button
-            type="button"
-            class="tab"
-            class:active={filters.state.view === 'graph'}
-            role="tab"
-            aria-selected={filters.state.view === 'graph'}
-            onclick={() => switchView('graph')}
-          >
-            <span class="tab-key" aria-hidden="true">2</span>
-            Graph
-          </button>
-          <button
-            type="button"
-            class="tab"
-            class:active={filters.state.view === 'kanban'}
-            role="tab"
-            aria-selected={filters.state.view === 'kanban'}
-            onclick={() => switchView('kanban')}
-          >
-            <span class="tab-key" aria-hidden="true">3</span>
-            Kanban
-          </button>
-        </nav>
+    <div class="command-surface">
+      <!-- Task Explorer (hero) -->
+      <section class="task-explorer" aria-label="Task Explorer">
+        <header class="explorer-header">
+          <div class="tabs" role="tablist" aria-label="Task Explorer views">
+            <button
+              type="button"
+              class="tab"
+              class:active={filters.state.view === 'hierarchy'}
+              role="tab"
+              aria-selected={filters.state.view === 'hierarchy'}
+              onclick={() => switchView('hierarchy')}
+            >
+              <span class="tab-key" aria-hidden="true">1</span>
+              Hierarchy
+            </button>
+            <button
+              type="button"
+              class="tab"
+              class:active={filters.state.view === 'graph'}
+              role="tab"
+              aria-selected={filters.state.view === 'graph'}
+              onclick={() => switchView('graph')}
+            >
+              <span class="tab-key" aria-hidden="true">2</span>
+              Graph
+            </button>
+            <button
+              type="button"
+              class="tab"
+              class:active={filters.state.view === 'kanban'}
+              role="tab"
+              aria-selected={filters.state.view === 'kanban'}
+              onclick={() => switchView('kanban')}
+            >
+              <span class="tab-key" aria-hidden="true">3</span>
+              Kanban
+            </button>
+          </div>
 
-        <div class="toolbar">
-          <TaskSearchBox
-            value={filters.state.query}
-            onChange={(q) => filters?.setQuery(q)}
-            placeholder="Filter explorer by id or title..."
-            registerSlashShortcut={true}
-          />
-          <FilterChipGroup
-            label="Status"
-            options={statusOptions}
-            selected={filters.state.status}
-            onChange={(next) => {
-              if (!filters) return;
-              diffAndToggle<TaskStatus>(
-                filters.state.status,
-                next,
-                (v) => filters?.toggleStatus(v),
-              );
-            }}
-          />
-          <FilterChipGroup
-            label="Priority"
-            options={priorityOptions}
-            selected={filters.state.priority}
-            onChange={(next) => {
-              if (!filters) return;
-              diffAndToggle<TaskPriority>(
-                filters.state.priority,
-                next,
-                (v) => filters?.togglePriority(v),
-              );
-            }}
-          />
-          {#if labelOptions.length > 0}
+          <div class="toolbar">
+            <TaskSearchBox
+              value={filters.state.query}
+              onChange={(q) => filters?.setQuery(q)}
+              placeholder="Filter explorer by id or title..."
+              registerSlashShortcut={true}
+            />
             <FilterChipGroup
-              label="Labels"
-              options={labelOptions}
-              selected={filters.state.labels}
+              label="Status"
+              options={statusOptions}
+              selected={filters.state.status}
               onChange={(next) => {
                 if (!filters) return;
-                diffAndToggle<string>(
-                  filters.state.labels,
+                diffAndToggle<TaskStatus>(
+                  filters.state.status,
                   next,
-                  (v) => filters?.toggleLabel(v),
+                  (v) => filters?.toggleStatus(v),
                 );
               }}
             />
+            <FilterChipGroup
+              label="Priority"
+              options={priorityOptions}
+              selected={filters.state.priority}
+              onChange={(next) => {
+                if (!filters) return;
+                diffAndToggle<TaskPriority>(
+                  filters.state.priority,
+                  next,
+                  (v) => filters?.togglePriority(v),
+                );
+              }}
+            />
+            {#if labelOptions.length > 0}
+              <LabelsFilter
+                options={labelOptions}
+                selected={filters.state.labels}
+                onChange={(next) => {
+                  if (!filters) return;
+                  diffAndToggle<string>(
+                    filters.state.labels,
+                    next,
+                    (v) => filters?.toggleLabel(v),
+                  );
+                }}
+              />
+            {/if}
+          </div>
+        </header>
+
+        <div class="explorer-body">
+          {#if filters.state.view === 'hierarchy'}
+            <HierarchyTab
+              tasks={explorerTasks}
+              deps={explorerDeps}
+              epicProgress={explorerEpicProgressMap}
+              {filters}
+            />
+          {:else if filters.state.view === 'graph'}
+            <GraphTab tasks={explorerTasks} deps={explorerDeps} {filters} labels={explorerLabels} />
+          {:else}
+            <KanbanTab tasks={explorerTasks} deps={explorerDeps} {filters} />
           {/if}
         </div>
-      </header>
+      </section>
 
-      <div class="explorer-body">
-        {#if filters.state.view === 'hierarchy'}
-          <HierarchyTab
-            tasks={explorerTasks}
-            deps={explorerDeps}
-            epicProgress={explorerEpicProgressMap}
-            {filters}
-          />
-        {:else if filters.state.view === 'graph'}
-          <GraphTab tasks={explorerTasks} deps={explorerDeps} {filters} labels={explorerLabels} />
+      <!-- Right rail — dashboard summary -->
+      <aside class="side-rail" aria-label="Dashboard summary">
+        {#if stats}
+          <section class="rail-card" aria-label="Task counts">
+            <header class="rail-head">
+              <span class="rail-eyebrow">Overview</span>
+              <span class="rail-total">{stats.total} <span class="rail-total-lbl">tasks</span></span>
+            </header>
+            <div class="stat-grid">
+              <span class="stat-card status-active-card">
+                <span class="stat-num">{stats.active}</span>
+                <span class="stat-lbl">Active</span>
+              </span>
+              <span class="stat-card">
+                <span class="stat-num">{stats.pending}</span>
+                <span class="stat-lbl">Pending</span>
+              </span>
+              <span class="stat-card status-done-card">
+                <span class="stat-num">{stats.done}</span>
+                <span class="stat-lbl">Done</span>
+              </span>
+              <span class="stat-card status-cancelled-card">
+                <span class="stat-num">{stats.cancelled}</span>
+                <span class="stat-lbl">Cancelled</span>
+              </span>
+              <span class="stat-card muted">
+                <span class="stat-num">{stats.archived}</span>
+                <span class="stat-lbl">Archived</span>
+              </span>
+            </div>
+
+            <div class="priority-block">
+              <div class="section-label">Priority</div>
+              <div class="priority-bars">
+                {#each [['critical', stats.critical], ['high', stats.high], ['medium', stats.medium], ['low', stats.low]] as [label, count] (label)}
+                  {@const total = stats.critical + stats.high + stats.medium + stats.low}
+                  {@const pct = total > 0 ? Math.round((Number(count) / total) * 100) : 0}
+                  <div class="priority-row">
+                    <span class="priority-label {priorityClassLocal(String(label))}">{label}</span>
+                    <div class="priority-bar-track">
+                      <div
+                        class="priority-bar-fill {priorityClassLocal(String(label))}"
+                        style="width:{pct}%"
+                      ></div>
+                    </div>
+                    <span class="priority-count">{count}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <div class="type-block">
+              <div class="section-label">Type</div>
+              <div class="type-chips">
+                <span class="type-chip">Epics <strong>{stats.epics}</strong></span>
+                <span class="type-chip">Tasks <strong>{stats.tasks}</strong></span>
+                <span class="type-chip">Subtasks <strong>{stats.subtasks}</strong></span>
+              </div>
+            </div>
+
+            <div class="filter-bar" aria-label="Dashboard filters">
+              <a
+                href={toggleUrl('cancelled')}
+                class="filter-chip"
+                class:active={dashboardFilters.showCancelled}
+                data-sveltekit-noscroll
+                title="Include cancelled epics in the Epic Progress panel"
+              >
+                <span class="chip-check">{dashboardFilters.showCancelled ? '✓' : ' '}</span>
+                Cancelled epics
+              </a>
+              <a
+                href={toggleUrl('archived')}
+                class="filter-chip"
+                class:active={dashboardFilters.showArchived}
+                data-sveltekit-noscroll
+                title="Include archived tasks in Recent Activity"
+              >
+                <span class="chip-check">{dashboardFilters.showArchived ? '✓' : ' '}</span>
+                Archived
+              </a>
+            </div>
+          </section>
         {:else}
-          <KanbanTab tasks={explorerTasks} deps={explorerDeps} {filters} />
+          <div class="no-db">tasks.db not found — start CLEO in the project directory</div>
         {/if}
-      </div>
-    </section>
+
+        {#if epicProgress.length > 0}
+          <EpicProgressCard
+            epics={epicProgress}
+            includingDeferred={dashboardFilters.showCancelled}
+          />
+        {/if}
+
+        {#if recentTasks.length > 0}
+          <RecentActivityFeed tasks={recentTasks} />
+        {/if}
+      </aside>
+    </div>
 
     <DetailDrawer task={selectedTask} onClose={() => filters?.setSelected(null)} />
   {/if}
 </div>
 
 <style>
-  .tasks-dashboard {
+  .tasks-page {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    gap: var(--space-4);
+    /* Bounded viewport so the Explorer + Side-Rail scroll internally rather
+       than pushing the whole page into scroll. */
+    height: calc(100vh - 3.5rem);
+    min-height: 0;
+    padding-inline: var(--space-6);
+    padding-block: var(--space-4);
+    max-width: none;
+    overflow: hidden;
+  }
+
+  /* Below the mobile breakpoint the two-column grid collapses to a single
+     column; let the whole page scroll naturally. */
+  @media (max-width: 1100px) {
+    .tasks-page {
+      height: auto;
+      min-height: calc(100vh - 3.5rem);
+      overflow: visible;
+    }
   }
 
   .page-header {
@@ -752,106 +719,108 @@
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 1rem;
+    gap: var(--space-3);
   }
 
   .header-left {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    gap: var(--space-5);
   }
 
   .page-title {
-    font-size: 1.5rem;
+    font-size: var(--text-2xl);
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    margin: 0;
   }
 
   .tasks-nav {
     display: flex;
-    gap: 0.25rem;
+    gap: var(--space-1);
   }
 
   .nav-tab {
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
+    padding: 4px var(--space-3);
+    border-radius: var(--radius-sm);
     text-decoration: none;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
-    color: #64748b;
-    transition: color 0.15s, background 0.15s;
+    color: var(--text-dim);
+    transition: color var(--ease), background var(--ease);
   }
 
   .nav-tab:hover {
-    color: #e2e8f0;
-    background: #2d3748;
+    color: var(--text);
+    background: var(--bg-elev-2);
   }
 
   .nav-tab.active {
-    color: #a855f7;
-    background: rgba(168, 85, 247, 0.1);
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 
   .live-indicator {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    color: #475569;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-faint);
   }
 
   .live-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #475569;
+    background: var(--text-faint);
   }
 
   .live-indicator.connected .live-dot {
-    background: #22c55e;
-    box-shadow: 0 0 4px #22c55e;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
   }
 
   .live-indicator.connected .live-label {
-    color: #22c55e;
+    color: var(--success);
   }
 
   .live-ts {
-    color: #475569;
+    color: var(--text-faint);
   }
 
-  /* Search */
+  /* Search bar */
 
   .search-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-2);
   }
 
   .search-box {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 0.5rem 0.875rem;
-    transition: border-color 0.15s;
+    gap: var(--space-2);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3);
+    transition: border-color var(--ease), box-shadow var(--ease);
   }
 
   .search-box:focus-within {
-    border-color: rgba(168, 85, 247, 0.5);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-focus);
   }
 
   .search-box.loading {
-    border-color: rgba(168, 85, 247, 0.3);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
   .search-icon {
-    color: #475569;
-    font-size: 1.125rem;
+    color: var(--text-faint);
+    font-size: var(--text-md);
     line-height: 1;
-    flex-shrink: 0;
     user-select: none;
   }
 
@@ -860,50 +829,48 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #f1f5f9;
-    font-size: 0.875rem;
+    color: var(--text);
+    font-size: var(--text-base);
     min-width: 0;
+    font-family: inherit;
   }
 
   .search-input::placeholder {
-    color: #475569;
+    color: var(--text-faint);
   }
 
   .search-clear {
     background: none;
     border: none;
-    color: #475569;
+    color: var(--text-faint);
     cursor: pointer;
-    font-size: 0.75rem;
-    padding: 0.125rem 0.25rem;
-    border-radius: 3px;
-    transition: color 0.15s;
-    flex-shrink: 0;
+    font-size: var(--text-xs);
+    padding: 2px 4px;
+    border-radius: var(--radius-xs);
+    transition: color var(--ease);
   }
 
   .search-clear:hover {
-    color: #94a3b8;
+    color: var(--text-dim);
   }
 
   .search-error {
-    font-size: 0.75rem;
-    color: #ef4444;
-    padding: 0 0.25rem;
+    font-size: var(--text-xs);
+    color: var(--danger);
+    padding: 0 var(--space-1);
   }
 
-  /* Search results panel */
-
   .search-results-panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     overflow: hidden;
   }
 
   .search-empty {
-    padding: 1rem;
-    font-size: 0.875rem;
-    color: #64748b;
+    padding: var(--space-4);
+    font-size: var(--text-base);
+    color: var(--text-dim);
     text-align: center;
   }
 
@@ -911,13 +878,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid #2d3748;
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
   }
 
   .results-count {
-    font-size: 0.75rem;
-    color: #64748b;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-weight: 600;
@@ -926,16 +893,16 @@
   .results-close {
     background: none;
     border: none;
-    color: #475569;
+    color: var(--text-faint);
     cursor: pointer;
-    font-size: 0.75rem;
-    padding: 0.125rem 0.375rem;
-    border-radius: 3px;
-    transition: color 0.15s;
+    font-size: var(--text-xs);
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    transition: color var(--ease);
   }
 
   .results-close:hover {
-    color: #94a3b8;
+    color: var(--text-dim);
   }
 
   .search-results-list {
@@ -948,16 +915,16 @@
   .search-result-row {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.625rem 1rem;
-    border-bottom: 1px solid #1e2435;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--bg-elev-2);
     text-decoration: none;
     color: inherit;
-    transition: background 0.15s;
+    transition: background var(--ease);
   }
 
   .search-result-row:hover {
-    background: #21273a;
+    background: var(--bg-elev-2);
   }
 
   .search-result-row:last-child {
@@ -965,7 +932,7 @@
   }
 
   .result-status-icon {
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     width: 1rem;
     text-align: center;
     flex-shrink: 0;
@@ -974,30 +941,33 @@
   .result-info {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: var(--space-2);
     flex: 1;
     min-width: 0;
   }
 
   .result-id {
-    font-size: 0.7rem;
-    color: #a855f7;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--accent);
     font-weight: 600;
     flex-shrink: 0;
   }
 
   .result-type {
-    font-size: 0.675rem;
-    color: #64748b;
-    background: #1e2435;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    background: var(--bg-elev-2);
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
     flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .result-title {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
+    font-size: var(--text-sm);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1006,343 +976,410 @@
   .result-meta {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
     flex-shrink: 0;
   }
 
   .result-priority {
-    font-size: 0.675rem;
+    font-size: 0.625rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
   .result-time {
-    font-size: 0.675rem;
-    color: #475569;
+    font-size: 0.625rem;
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
 
-  /* Stats section */
+  /* =========================================================================
+     Command surface — Explorer hero + right-rail summary
+     ========================================================================= */
 
-  .stats-section {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.5rem;
-    align-items: flex-start;
-  }
-
-  .stat-group {
-    display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .stat-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.875rem 1.25rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    min-width: 90px;
-  }
-
-  .stat-card.primary {
-    border-color: #a855f7;
-  }
-  .stat-card.status-active-card {
-    border-color: rgba(59, 130, 246, 0.4);
-  }
-  .stat-card.status-done-card {
-    border-color: rgba(34, 197, 94, 0.4);
-  }
-  .stat-card.status-cancelled-card {
-    border-color: rgba(239, 68, 68, 0.4);
-  }
-  .stat-card.muted {
-    opacity: 0.6;
-  }
-
-  /* T878 / T958: filter bar */
-  .filter-bar {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #94a3b8;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    text-decoration: none;
-    transition: all 0.15s;
-  }
-  .filter-chip:hover {
-    color: #e2e8f0;
-    background: #21273a;
-  }
-  .filter-chip.active {
-    color: #a855f7;
-    border-color: rgba(168, 85, 247, 0.5);
-    background: rgba(168, 85, 247, 0.08);
-  }
-  .chip-check {
-    display: inline-block;
-    width: 0.875rem;
-    text-align: center;
-    font-size: 0.75rem;
-    opacity: 0.9;
-  }
-
-  .stat-num {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #f1f5f9;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stat-lbl {
-    font-size: 0.7rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .priority-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-width: 200px;
-  }
-
-  .section-label {
-    font-size: 0.75rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-  }
-
-  .priority-bars {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .priority-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .priority-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    width: 60px;
-  }
-
-  .priority-bar-track {
-    flex: 1;
-    height: 6px;
-    background: #1a1f2e;
-    border-radius: 3px;
-    overflow: hidden;
-    max-width: 120px;
-  }
-
-  .priority-bar-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.3s ease;
-  }
-
-  .priority-count {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    min-width: 2rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  :global(.priority-critical) {
-    color: #ef4444;
-  }
-  :global(.priority-high) {
-    color: #f97316;
-  }
-  :global(.priority-medium) {
-    color: #eab308;
-  }
-  :global(.priority-low) {
-    color: #64748b;
-  }
-
-  .priority-bar-fill.priority-critical {
-    background: #ef4444;
-  }
-  .priority-bar-fill.priority-high {
-    background: #f97316;
-  }
-  .priority-bar-fill.priority-medium {
-    background: #eab308;
-  }
-  .priority-bar-fill.priority-low {
-    background: #64748b;
-  }
-
-  .type-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .type-chips {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .type-chip {
-    font-size: 0.8125rem;
-    color: #94a3b8;
-  }
-
-  .type-chip strong {
-    color: #f1f5f9;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .no-db {
-    padding: 1.5rem;
-    background: #1a1f2e;
-    border: 1px dashed #ef4444;
-    border-radius: 8px;
-    color: #ef4444;
-    font-size: 0.875rem;
-    text-align: center;
-  }
-
-  .lower-grid {
+  .command-surface {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: var(--space-4);
+    flex: 1;
+    min-height: 0;
   }
 
-  @media (max-width: 800px) {
-    .lower-grid {
-      grid-template-columns: 1fr;
+  @media (max-width: 1100px) {
+    .command-surface {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .side-rail {
+      max-height: none;
     }
   }
 
-  /* Status colour tokens reused by the search-result rows */
-  :global(.status-done) {
-    color: #22c55e;
-  }
-  :global(.status-active) {
-    color: #3b82f6;
-  }
-  :global(.status-blocked) {
-    color: #ef4444;
-  }
-  :global(.status-pending) {
-    color: #475569;
-  }
-
-  /* -------------------------------------------------------------------------
-     Task Explorer (bottom panel)
-     ------------------------------------------------------------------------- */
+  /* ---------------- Task Explorer (hero) ---------------- */
 
   .task-explorer {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    background: #151a24;
-    border: 1px solid #2d3748;
-    border-radius: 10px;
-    padding: 1rem;
+    gap: var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    min-height: 0;
+    min-width: 0;
   }
 
   .explorer-header {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-2);
+    flex-shrink: 0;
   }
 
   .tabs {
     display: inline-flex;
-    gap: 0.25rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 0.25rem;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 4px;
     align-self: flex-start;
   }
 
   .tab {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.875rem;
-    border-radius: 6px;
+    gap: 6px;
+    padding: 6px var(--space-3);
+    border-radius: var(--radius-md);
     border: none;
     background: transparent;
-    color: #94a3b8;
-    font-size: 0.8125rem;
+    color: var(--text-dim);
+    font-size: var(--text-sm);
     font-weight: 500;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--ease), color var(--ease);
   }
 
   .tab:hover {
-    color: #e2e8f0;
-    background: rgba(168, 85, 247, 0.08);
+    color: var(--text);
+    background: var(--accent-halo);
   }
 
   .tab:focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.5);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
   .tab.active {
-    color: #a855f7;
-    background: rgba(168, 85, 247, 0.15);
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 
   .tab-key {
-    font-size: 0.65rem;
-    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-    padding: 0.05rem 0.35rem;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #64748b;
+    font-size: 0.625rem;
+    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    color: var(--text-dim);
     line-height: 1.2;
   }
 
   .tab.active .tab-key {
-    color: #a855f7;
-    background: rgba(168, 85, 247, 0.12);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
 
   .toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: var(--space-2);
     align-items: center;
   }
 
   .explorer-body {
-    min-height: 400px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------------- Side rail (dashboard summary) ---------------- */
+
+  .side-rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-height: 0;
+    /* Rail fills its grid cell and scrolls independently from the Explorer. */
+    height: 100%;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .side-rail::-webkit-scrollbar {
+    width: 6px;
+  }
+  .side-rail::-webkit-scrollbar-thumb {
+    background: var(--bg-elev-2);
+    border-radius: var(--radius-pill);
+  }
+
+  .rail-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .rail-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .rail-eyebrow {
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  .rail-total {
+    font-family: var(--font-mono);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rail-total-lbl {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    font-weight: 500;
+    margin-left: 2px;
+    text-transform: lowercase;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .stat-card.status-active-card {
+    border-color: color-mix(in srgb, var(--status-active) 40%, transparent);
+  }
+  .stat-card.status-done-card {
+    border-color: color-mix(in srgb, var(--status-done) 40%, transparent);
+  }
+  .stat-card.status-cancelled-card {
+    border-color: color-mix(in srgb, var(--status-cancelled) 40%, transparent);
+  }
+  .stat-card.muted {
+    opacity: 0.6;
+  }
+
+  .stat-num {
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-lbl {
+    font-size: 0.625rem;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .priority-block,
+  .type-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .section-label {
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+
+  .priority-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .priority-row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .priority-label {
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .priority-bar-track {
+    height: 6px;
+    background: var(--bg);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+  }
+
+  .priority-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    transition: width var(--ease-slow);
+  }
+
+  .priority-count {
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    min-width: 2ch;
+  }
+
+  :global(.priority-critical) {
+    color: var(--priority-critical);
+  }
+  :global(.priority-high) {
+    color: var(--priority-high);
+  }
+  :global(.priority-medium) {
+    color: var(--priority-medium);
+  }
+  :global(.priority-low) {
+    color: var(--priority-low);
+  }
+
+  .priority-bar-fill.priority-critical {
+    background: var(--priority-critical);
+  }
+  .priority-bar-fill.priority-high {
+    background: var(--priority-high);
+  }
+  .priority-bar-fill.priority-medium {
+    background: var(--priority-medium);
+  }
+  .priority-bar-fill.priority-low {
+    background: var(--priority-low);
+  }
+
+  .type-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+  }
+
+  .type-chip strong {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .filter-bar {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition: color var(--ease), border-color var(--ease), background var(--ease);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .filter-chip:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .filter-chip.active {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    background: var(--accent-soft);
+  }
+
+  .chip-check {
+    display: inline-block;
+    width: 0.75rem;
+    text-align: center;
+    font-size: 0.625rem;
+    opacity: 0.9;
+  }
+
+  .no-db {
+    padding: var(--space-4);
+    background: var(--bg-elev-1);
+    border: 1px dashed var(--danger);
+    border-radius: var(--radius-md);
+    color: var(--danger);
+    font-size: var(--text-sm);
+    text-align: center;
+  }
+
+  /* Status colour tokens reused by the search-result rows */
+  :global(.status-done) {
+    color: var(--status-done);
+  }
+  :global(.status-active) {
+    color: var(--status-active);
+  }
+  :global(.status-blocked) {
+    color: var(--status-blocked);
+  }
+  :global(.status-pending) {
+    color: var(--status-pending);
   }
 </style>

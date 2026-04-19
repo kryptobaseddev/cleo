@@ -1,5 +1,24 @@
+<!--
+  /brain/decisions — decision timeline with filter bar, sort, pagination,
+  and inline decision-store modal.
+
+  @task T990
+  @wave 1D
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { Badge, Button, EmptyState, Spinner } from '$lib/ui';
+  import {
+    ConfidenceBadge,
+    DecisionModal,
+    FilterBar,
+    Pagination,
+    QualityBar,
+    SortControl,
+    TierBadge,
+    type FilterValue,
+    type MemorySortKey,
+  } from '$lib/components/memory';
 
   interface BrainDecision {
     id: string;
@@ -20,42 +39,31 @@
     created_at: string;
   }
 
-  let decisions: BrainDecision[] = $state([]);
+  const LIMIT = 50;
+
+  let decisions = $state<BrainDecision[]>([]);
   let total = $state(0);
   let loading = $state(true);
-  let error: string | null = $state(null);
-  let expandedId: string | null = $state(null);
+  let error = $state<string | null>(null);
 
-  const CONFIDENCE_COLORS: Record<string, string> = {
-    high: '#22c55e',
-    medium: '#f59e0b',
-    low: '#ef4444',
-    unknown: '#64748b',
-  };
+  let filter = $state<FilterValue>({ tier: null, confidence: null, minQuality: undefined });
+  let sortBy = $state<MemorySortKey>('created_desc');
+  let offset = $state(0);
+  let searchText = $state('');
 
-  const TIER_COLORS: Record<string, string> = {
-    short: '#64748b',
-    medium: '#3b82f6',
-    long: '#22c55e',
-  };
+  let expandedId = $state<string | null>(null);
+  let modalOpen = $state(false);
+  let toastMessage = $state<string | null>(null);
 
-  function confidenceColor(c: string): string {
-    return CONFIDENCE_COLORS[c?.toLowerCase()] ?? '#64748b';
-  }
-
-  function tierColor(t: string | null): string {
-    return TIER_COLORS[t ?? 'short'] ?? '#64748b';
-  }
-
-  async function loadDecisions(): Promise<void> {
+  async function load(): Promise<void> {
     loading = true;
     error = null;
     try {
       const res = await fetch('/api/memory/decisions');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { decisions: BrainDecision[]; total: number };
-      decisions = data.decisions;
-      total = data.total;
+      const body = (await res.json()) as { decisions: BrainDecision[]; total: number };
+      decisions = body.decisions;
+      total = body.total;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load decisions';
     } finally {
@@ -63,12 +71,76 @@
     }
   }
 
+  // Client-side filter + sort — API only supports a flat chronological fetch today.
+  const displayed = $derived.by(() => {
+    let list = decisions.slice();
+    if (filter.tier) list = list.filter((d) => d.memory_tier === filter.tier);
+    if (filter.confidence) {
+      list = list.filter((d) => d.confidence?.toLowerCase() === filter.confidence);
+    }
+    if (filter.minQuality !== undefined) {
+      const m = filter.minQuality;
+      list = list.filter((d) => d.quality_score === null || d.quality_score >= m);
+    }
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      list = list.filter(
+        (d) =>
+          d.decision.toLowerCase().includes(q) ||
+          d.rationale.toLowerCase().includes(q),
+      );
+    }
+
+    if (sortBy === 'quality_desc') {
+      list.sort((a, b) => (b.quality_score ?? -1) - (a.quality_score ?? -1));
+    } else if (sortBy === 'citation_desc') {
+      // Fall back to created_desc since decisions don't surface citation_count today.
+      list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    } else {
+      // created_desc
+      list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    return list;
+  });
+
+  const paged = $derived(displayed.slice(offset, offset + LIMIT));
+
+  function onFilterChange(next: FilterValue): void {
+    filter = next;
+    offset = 0;
+  }
+
+  function onSortChange(next: MemorySortKey): void {
+    sortBy = next;
+    offset = 0;
+  }
+
+  function onPageChange(next: number): void {
+    offset = next;
+  }
+
   function toggle(id: string): void {
     expandedId = expandedId === id ? null : id;
   }
 
+  function onModalSuccess(id: string): void {
+    toastMessage = `Stored decision ${id}`;
+    offset = 0;
+    void load();
+    setTimeout(() => {
+      toastMessage = null;
+    }, 3_000);
+  }
+
+  function onModalError(msg: string): void {
+    toastMessage = `Save failed: ${msg}`;
+    setTimeout(() => {
+      toastMessage = null;
+    }, 4_000);
+  }
+
   onMount(() => {
-    loadDecisions();
+    void load();
   });
 </script>
 
@@ -76,59 +148,106 @@
   <title>BRAIN Decisions — CLEO Studio</title>
 </svelte:head>
 
-<div class="decisions-page">
-  <div class="page-header">
-    <a href="/brain/overview" class="back-link">← Overview</a>
-    <h1 class="page-title">Decisions Timeline</h1>
-    {#if !loading && !error}
-      <span class="count-badge">{total} decisions</span>
-    {/if}
-    <a href="/brain?scope=brain&type=decision" class="canvas-pill">Open in Canvas &rarr;</a>
+<section class="page">
+  <header class="page-head">
+    <div class="head-left">
+      <a class="back" href="/brain/overview">← Overview</a>
+      <h1 class="title">Decisions</h1>
+      <span class="count">
+        <span class="count-n">{displayed.length}</span>
+        <span class="count-div">/</span>
+        <span class="count-total">{total}</span>
+        <span class="count-label">shown</span>
+      </span>
+    </div>
+    <div class="head-right">
+      <a class="canvas-pill" href="/brain?scope=brain&type=decision">Open in Canvas →</a>
+      <Button variant="primary" size="sm" onclick={() => (modalOpen = true)}>
+        + Store decision
+      </Button>
+    </div>
+  </header>
+
+  <div class="controls">
+    <FilterBar
+      value={{ ...filter, q: searchText }}
+      tiers={['short', 'medium', 'long']}
+      confidences={['high', 'medium', 'low']}
+      showQuality={true}
+      showSearch={true}
+      searchPlaceholder="Search decisions…"
+      onChange={(next) => {
+        searchText = next.q ?? '';
+        const { q, ...rest } = next;
+        onFilterChange(rest);
+      }}
+    />
+    <SortControl value={sortBy} onChange={onSortChange} allowCitation={false} />
   </div>
 
   {#if loading}
-    <div class="loading">Loading decisions…</div>
+    <div class="state">
+      <Spinner size="md" />
+      <span>Loading decisions…</span>
+    </div>
   {:else if error}
-    <div class="error">{error}</div>
-  {:else if decisions.length === 0}
-    <div class="empty">No decisions found in brain.db.</div>
+    <EmptyState
+      title="Couldn't load decisions"
+      subtitle={error}
+      variant="warning"
+    >
+      {#snippet action()}
+        <Button variant="secondary" size="sm" onclick={() => { void load(); }}>Retry</Button>
+      {/snippet}
+    </EmptyState>
+  {:else if paged.length === 0}
+    <EmptyState
+      title="No decisions match these filters"
+      subtitle="Loosen the filter or capture the first decision of the project."
+    >
+      {#snippet action()}
+        <Button variant="primary" size="sm" onclick={() => (modalOpen = true)}>
+          New decision
+        </Button>
+      {/snippet}
+    </EmptyState>
   {:else}
-    <div class="timeline">
-      {#each decisions as dec}
-        <div class="timeline-item" class:expanded={expandedId === dec.id} class:invalidated={!!dec.invalid_at}>
-          <div class="timeline-connector">
-            <div class="timeline-dot" style="background:{tierColor(dec.memory_tier)}"></div>
-            <div class="timeline-line"></div>
-          </div>
+    <ol class="timeline">
+      {#each paged as dec (dec.id)}
+        <li
+          class="tl-item"
+          class:expanded={expandedId === dec.id}
+          class:invalid={!!dec.invalid_at}
+        >
+          <span class="tl-connector" aria-hidden="true">
+            <span class="tl-dot" data-tier={dec.memory_tier ?? 'short'}></span>
+            <span class="tl-line"></span>
+          </span>
 
-          <div class="timeline-content">
-            <button class="timeline-header" onclick={() => toggle(dec.id)}>
-              <div class="timeline-meta">
-                <span class="decision-date">{dec.created_at.slice(0, 10)}</span>
-                <span class="decision-type">{dec.type}</span>
-                <span class="confidence-badge" style="color:{confidenceColor(dec.confidence)}">
-                  {dec.confidence}
-                </span>
-                {#if dec.memory_tier}
-                  <span class="tier-badge" style="border-color:{tierColor(dec.memory_tier)};color:{tierColor(dec.memory_tier)}"
-                    >{dec.memory_tier}</span
-                  >
-                {/if}
-                {#if dec.verified}
-                  <span class="status-badge verified">verified</span>
-                {/if}
-                {#if dec.prune_candidate}
-                  <span class="status-badge prune">prune</span>
-                {/if}
-                {#if dec.invalid_at}
-                  <span class="status-badge invalid">invalidated</span>
-                {/if}
+          <div class="tl-content">
+            <button
+              class="tl-head"
+              aria-expanded={expandedId === dec.id}
+              onclick={() => toggle(dec.id)}
+            >
+              <span class="tl-meta">
+                <code class="tl-id">{dec.id}</code>
+                <Badge tone="neutral" size="sm" subtle>{dec.type}</Badge>
+                <ConfidenceBadge confidence={dec.confidence} />
+                <TierBadge tier={dec.memory_tier} />
+                {#if dec.verified === 1}<Badge tone="success" size="sm">verified</Badge>{/if}
+                {#if dec.prune_candidate === 1}<Badge tone="warning" size="sm">prune</Badge>{/if}
+                {#if dec.invalid_at}<Badge tone="danger" size="sm">invalidated</Badge>{/if}
+                <span class="tl-date">{dec.created_at.slice(0, 10)}</span>
+              </span>
+              <p class="tl-statement">{dec.decision}</p>
+              <div class="tl-body-end">
+                <QualityBar score={dec.quality_score} width={80} />
               </div>
-              <p class="decision-text">{dec.decision}</p>
             </button>
 
             {#if expandedId === dec.id}
-              <div class="decision-detail">
+              <div class="tl-detail">
                 <div class="detail-section">
                   <span class="detail-label">Rationale</span>
                   <p class="detail-text">{dec.rationale}</p>
@@ -140,272 +259,360 @@
                   </div>
                 {/if}
                 <div class="detail-footer">
-                  <span class="detail-id">{dec.id}</span>
                   {#if dec.context_task_id}
-                    <span class="detail-ctx">Task: {dec.context_task_id}</span>
+                    <a class="ctx-chip" href={`/tasks#${dec.context_task_id}`}>
+                      Task · <code>{dec.context_task_id}</code>
+                    </a>
                   {/if}
                   {#if dec.context_epic_id}
-                    <span class="detail-ctx">Epic: {dec.context_epic_id}</span>
+                    <a class="ctx-chip" href={`/tasks#${dec.context_epic_id}`}>
+                      Epic · <code>{dec.context_epic_id}</code>
+                    </a>
                   {/if}
-                  {#if dec.quality_score !== null && dec.quality_score !== undefined}
-                    <span class="detail-ctx">Quality: {dec.quality_score.toFixed(2)}</span>
+                  {#if dec.context_phase}
+                    <span class="detail-meta">Phase · {dec.context_phase}</span>
                   {/if}
                 </div>
               </div>
             {/if}
           </div>
-        </div>
+        </li>
       {/each}
-    </div>
+    </ol>
+
+    <Pagination {offset} limit={LIMIT} total={displayed.length} onChange={onPageChange} />
   {/if}
-</div>
+</section>
+
+<DecisionModal bind:open={modalOpen} onSuccess={onModalSuccess} onError={onModalError} />
+
+{#if toastMessage}
+  <div class="toast" role="status" aria-live="polite">{toastMessage}</div>
+{/if}
 
 <style>
-  .decisions-page {
-    max-width: 780px;
+  .page {
+    max-width: 900px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: var(--space-5);
+    font-family: var(--font-sans);
   }
 
-  .page-header {
+  .page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .head-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .back {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+
+  .back:hover {
+    color: var(--accent);
+  }
+
+  .title {
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .count {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    font-family: var(--font-mono);
+  }
+
+  .count-n {
+    font-size: var(--text-sm);
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .count-div {
+    color: var(--text-faint);
+  }
+
+  .count-total {
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .count-label {
+    margin-left: var(--space-1);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .head-right {
     display: flex;
     align-items: center;
-    gap: 1rem;
-  }
-
-  .back-link {
-    font-size: 0.8125rem;
-    color: #64748b;
-    text-decoration: none;
-  }
-
-  .back-link:hover {
-    color: #22c55e;
+    gap: var(--space-2);
   }
 
   .canvas-pill {
-    margin-left: auto;
-    padding: 0.25rem 0.875rem;
-    border-radius: 999px;
-    font-size: 0.8125rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
     font-weight: 500;
-    color: #3b82f6;
+    color: var(--info);
     text-decoration: none;
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    background: rgba(59, 130, 246, 0.08);
-    transition:
-      background 0.15s,
-      border-color 0.15s;
+    border: 1px solid color-mix(in srgb, var(--info) 40%, transparent);
+    background: var(--info-soft);
+    transition: background var(--ease), border-color var(--ease);
     white-space: nowrap;
   }
 
   .canvas-pill:hover {
-    background: rgba(59, 130, 246, 0.18);
-    border-color: #3b82f6;
+    background: color-mix(in srgb, var(--info) 25%, transparent);
+    border-color: var(--info);
   }
 
-  .page-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #f1f5f9;
-  }
-
-  .count-badge {
-    font-size: 0.75rem;
-    color: #64748b;
-    padding: 0.125rem 0.5rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 999px;
-  }
-
-  .loading,
-  .error,
-  .empty {
-    text-align: center;
-    padding: 3rem;
-    font-size: 0.875rem;
-    color: #64748b;
-  }
-
-  .error {
-    color: #ef4444;
-  }
-
-  .timeline {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .timeline-item {
-    display: flex;
-    gap: 1rem;
-  }
-
-  .timeline-item.invalidated {
-    opacity: 0.45;
-  }
-
-  .timeline-connector {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex-shrink: 0;
-    width: 20px;
-  }
-
-  .timeline-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    margin-top: 1rem;
-  }
-
-  .timeline-line {
-    flex: 1;
-    width: 1px;
-    background: #2d3748;
-    margin: 4px 0;
-    min-height: 16px;
-  }
-
-  .timeline-item:last-child .timeline-line {
-    display: none;
-  }
-
-  .timeline-content {
-    flex: 1;
-    min-width: 0;
-    padding: 0.625rem 0 0.875rem;
-  }
-
-  .timeline-header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    text-align: left;
-    width: 100%;
-  }
-
-  .timeline-meta {
+  .controls {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-4);
     flex-wrap: wrap;
   }
 
-  .decision-date {
-    font-size: 0.6875rem;
-    color: #475569;
-    font-variant-numeric: tabular-nums;
+  .controls :global(.filter-bar) {
+    flex: 1;
+    min-width: 300px;
   }
 
-  .decision-type {
-    font-size: 0.6875rem;
-    color: #64748b;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    padding: 0 0.3rem;
-    border-radius: 3px;
+  .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-8);
+    color: var(--text-dim);
+    font-size: var(--text-sm);
   }
 
-  .confidence-badge {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .tier-badge {
-    font-size: 0.6875rem;
-    padding: 0 0.3rem;
-    border-radius: 3px;
-    border: 1px solid;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .status-badge {
-    font-size: 0.6875rem;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-  }
-
-  .status-badge.verified {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
-  }
-
-  .status-badge.prune {
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
-  }
-
-  .status-badge.invalid {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-  }
-
-  .decision-text {
-    font-size: 0.875rem;
-    color: #e2e8f0;
-    font-weight: 500;
-    line-height: 1.4;
-  }
-
-  .decision-detail {
-    margin-top: 0.625rem;
-    padding: 0.75rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
+  }
+
+  .tl-item {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: var(--space-3);
+  }
+
+  .tl-item.invalid {
+    opacity: 0.5;
+  }
+
+  .tl-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .tl-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+    margin-top: 18px;
+    background: var(--text-faint);
+    box-shadow: 0 0 0 3px var(--bg);
+  }
+
+  .tl-dot[data-tier='medium'] {
+    background: var(--info);
+  }
+
+  .tl-dot[data-tier='long'] {
+    background: var(--success);
+  }
+
+  .tl-line {
+    flex: 1;
+    width: 1px;
+    background: var(--border);
+    margin: 4px 0;
+    min-height: 20px;
+  }
+
+  .tl-item:last-child .tl-line {
+    display: none;
+  }
+
+  .tl-content {
+    padding: var(--space-3) 0 var(--space-4);
+    min-width: 0;
+  }
+
+  .tl-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: 100%;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font-family: inherit;
+    padding: 0;
+  }
+
+  .tl-head:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent);
+    border-radius: var(--radius-sm);
+  }
+
+  .tl-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .tl-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    background: var(--bg-elev-2);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+  }
+
+  .tl-date {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+  }
+
+  .tl-statement {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text);
+    line-height: var(--leading-normal);
+  }
+
+  .tl-body-end {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .tl-detail {
+    margin-top: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
   }
 
   .detail-section {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-1);
   }
 
   .detail-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #64748b;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
   }
 
   .detail-text {
-    font-size: 0.8125rem;
-    color: #94a3b8;
-    line-height: 1.5;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    line-height: var(--leading-normal);
   }
 
   .detail-footer {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-2);
     flex-wrap: wrap;
-    padding-top: 0.375rem;
-    border-top: 1px solid #2d3748;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
   }
 
-  .detail-id {
-    font-size: 0.6875rem;
-    color: #475569;
-    font-family: monospace;
+  .ctx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color var(--ease), border-color var(--ease);
   }
 
-  .detail-ctx {
-    font-size: 0.6875rem;
-    color: #64748b;
+  .ctx-chip code {
+    font-family: var(--font-mono);
+    color: var(--text);
+  }
+
+  .ctx-chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .detail-meta {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: var(--space-6);
+    right: var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-elev-2);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    font-size: var(--text-sm);
+    z-index: 100;
   }
 </style>

@@ -1,38 +1,73 @@
+<!--
+  Task detail page — Wave 1E upgrade.
+
+  Two-column layout:
+    - Left 60%: Hero with id+status+priority badges, stage strip, gate
+      visualization (6 gates · I · T · Q · D · S · C), description,
+      acceptance, manifest, commits.
+    - Right 40%: dependency graph (Wave 1C's TaskDepGraph), deps list,
+      linked observations/decisions, subtask hierarchy tree.
+
+  All hex literals have been replaced with tokens. Reads from
+  `+page.server.ts` which already lives here — no additional SQL.
+
+  @task T990
+  @wave 1E
+-->
 <script lang="ts">
+  import HeroHeader from '$lib/components/shell/HeroHeader.svelte';
+  import {
+    gatesFromJson,
+    PriorityBadge,
+    StatusBadge,
+    formatTime,
+  } from '$lib/components/tasks';
+  import TaskDepGraph from '$lib/components/TaskDepGraph.svelte';
+  import type { TaskDepEdge, TaskDepNode } from '$lib/components/TaskDepGraph.svelte';
+  import { Badge, Breadcrumb, Button, Card } from '$lib/ui';
+  import type { BreadcrumbItem } from '$lib/ui';
   import type { PageData } from './$types';
-  import type { SubtaskRow, DepTask, ManifestEntry, LinkedCommit } from './+page.server.js';
+  import type { DepTask, SubtaskRow } from './+page.server.js';
+  import type { TaskPriority, TaskStatus } from '@cleocode/contracts';
+
+  const KNOWN_STATUSES = new Set<TaskStatus>([
+    'pending',
+    'active',
+    'blocked',
+    'done',
+    'cancelled',
+    'archived',
+    'proposed',
+  ]);
+  const KNOWN_PRIORITIES = new Set<TaskPriority>(['low', 'medium', 'high', 'critical']);
+
+  function toStatus(value: string): TaskStatus {
+    return (KNOWN_STATUSES as Set<string>).has(value) ? (value as TaskStatus) : 'pending';
+  }
+
+  function toPriority(value: string): TaskPriority {
+    return (KNOWN_PRIORITIES as Set<string>).has(value)
+      ? (value as TaskPriority)
+      : 'medium';
+  }
 
   interface Props {
     data: PageData;
   }
+
   let { data }: Props = $props();
 
-  const { task, subtasks, parent, manifestEntries, linkedCommits } = data;
+  const task = $derived(data.task);
+  const subtasks = $derived(data.subtasks);
+  const parent = $derived(data.parent);
+  const manifestEntries = $derived(data.manifestEntries);
+  const linkedCommits = $derived(data.linkedCommits);
 
-  function priorityClass(p: string): string {
-    if (p === 'critical') return 'priority-critical';
-    if (p === 'high') return 'priority-high';
-    if (p === 'medium') return 'priority-medium';
-    return 'priority-low';
-  }
-
-  function statusIcon(s: string): string {
-    if (s === 'done') return '✓';
-    if (s === 'active') return '●';
-    if (s === 'blocked') return '✗';
-    return '○';
-  }
-
-  function statusClass(s: string): string {
-    if (s === 'done') return 'status-done';
-    if (s === 'active') return 'status-active';
-    if (s === 'blocked') return 'status-blocked';
-    return 'status-pending';
-  }
-
-  function gateIcon(passed: boolean): string {
-    return passed ? '✓' : '·';
-  }
+  const breadcrumbs = $derived<BreadcrumbItem[]>([
+    { label: 'Tasks', href: '/tasks' },
+    ...(parent ? [{ label: parent.id, href: `/tasks/${parent.id}` }] : []),
+    { label: task.id },
+  ]);
 
   function formatDate(iso: string | null): string {
     if (!iso) return '—';
@@ -51,72 +86,132 @@
   function formatDateShort(iso: string | null | undefined): string {
     if (!iso) return '—';
     try {
-      const d = new Date(iso);
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      return new Date(iso).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
     } catch {
       return iso;
     }
   }
 
-  function subtaskVerif(row: SubtaskRow): { implemented: boolean; testsPassed: boolean; qaPassed: boolean } | null {
-    try {
-      if (!row.verification_json) return null;
-      const v = JSON.parse(row.verification_json);
-      return v.gates ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  const doneSubtasks = subtasks.filter((s: SubtaskRow) => s.status === 'done').length;
-  const subtaskPct = subtasks.length > 0 ? Math.round((doneSubtasks / subtasks.length) * 100) : 0;
-
-  /**
-   * Derive a per-criterion pass state from the overall verification.
-   * We don't have per-criterion tracking in tasks.db — only overall gate state.
-   * If verification.passed is true, all criteria pass. Otherwise none pass (pending).
-   */
-  function acCheckClass(verificationPassed: boolean | null): string {
-    if (verificationPassed === true) return 'ac-pass';
-    return 'ac-pending';
-  }
-
-  function acCheckIcon(verificationPassed: boolean | null): string {
-    if (verificationPassed === true) return '✓';
-    return '○';
-  }
-
-  /** Map artifact type to a short readable label. */
-  function artifactTypeLabel(type: string): string {
-    const map: Record<string, string> = {
-      implementation: 'impl',
-      analysis: 'analysis',
-      research: 'research',
-      fix: 'fix',
-      audit: 'audit',
-      specification: 'spec',
-      consensus: 'consensus',
-      report: 'report',
-    };
-    return map[type] ?? type;
-  }
-
-  /** Truncate a long summary for display. */
   function truncate(s: string | null, max: number): string {
     if (!s) return '';
     if (s.length <= max) return s;
-    return s.slice(0, max) + '…';
+    return `${s.slice(0, max)}…`;
   }
 
-  /** Extract just the filename from a path. */
   function basename(p: string): string {
     return p.split('/').pop() ?? p;
   }
 
-  // Collapsible notes state
-  let notesExpanded = $state(true);
-  let manifestExpanded = $state(true);
-  let commitsExpanded = $state(true);
+  interface GateViz {
+    key: string;
+    label: string;
+    passed: boolean;
+  }
+
+  const sixGates = $derived<GateViz[]>([
+    { key: 'I', label: 'Implemented', passed: task.verification?.gates.implemented ?? false },
+    { key: 'T', label: 'Tests', passed: task.verification?.gates.testsPassed ?? false },
+    { key: 'Q', label: 'QA', passed: task.verification?.gates.qaPassed ?? false },
+    { key: 'D', label: 'Documented', passed: false },
+    { key: 'S', label: 'Security', passed: false },
+    { key: 'C', label: 'Cleanup', passed: false },
+  ]);
+
+  const gatesPassed = $derived(sixGates.filter((g) => g.passed).length);
+
+  function subtaskGates(row: SubtaskRow): { implemented: boolean; testsPassed: boolean; qaPassed: boolean } {
+    return gatesFromJson(row.verification_json);
+  }
+
+  const doneSubtasks = $derived(subtasks.filter((s: SubtaskRow) => s.status === 'done').length);
+  const subtaskPct = $derived(
+    subtasks.length > 0 ? Math.round((doneSubtasks / subtasks.length) * 100) : 0,
+  );
+
+  // ---- Hero metadata line ----
+  const heroMeta = $derived<string>(
+    [
+      task.pipeline_stage ? `stage: ${task.pipeline_stage}` : null,
+      task.size ? `size: ${task.size}` : null,
+      task.assignee ? `assigned: ${task.assignee}` : null,
+      `updated ${formatTime(task.updated_at)}`,
+    ]
+      .filter((x): x is string => x !== null)
+      .join(' · '),
+  );
+
+  function priorityTone(p: string): 'danger' | 'warning' | 'info' | 'neutral' {
+    if (p === 'critical' || p === 'high') return 'danger';
+    if (p === 'medium') return 'warning';
+    if (p === 'low') return 'neutral';
+    return 'info';
+  }
+
+  function manifestTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+    if (status === 'complete') return 'success';
+    if (status === 'partial') return 'warning';
+    if (status === 'blocked') return 'danger';
+    return 'neutral';
+  }
+
+  /**
+   * Build the node list for the 1-hop ego graph centred on this task.
+   * Includes this task (marked focal) + every upstream + every
+   * downstream task.
+   */
+  function buildDepNodes(): TaskDepNode[] {
+    const nodes: TaskDepNode[] = [
+      {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        type: task.type,
+        isFocus: true,
+      },
+    ];
+    for (const u of task.upstream) {
+      nodes.push({
+        id: u.id,
+        title: u.title,
+        status: u.status,
+        priority: u.priority,
+        type: 'task',
+        isFocus: false,
+      });
+    }
+    for (const d of task.downstream) {
+      nodes.push({
+        id: d.id,
+        title: d.title,
+        status: d.status,
+        priority: d.priority,
+        type: 'task',
+        isFocus: false,
+      });
+    }
+    return nodes;
+  }
+
+  /**
+   * Edges flow `source → target` where `source` is the dependent and
+   * `target` is the blocker. Upstream blockers point INTO the focal;
+   * downstream dependents have the focal pointing INTO them.
+   */
+  function buildDepEdges(): TaskDepEdge[] {
+    const edges: TaskDepEdge[] = [];
+    for (const u of task.upstream) {
+      edges.push({ source: task.id, target: u.id });
+    }
+    for (const d of task.downstream) {
+      edges.push({ source: d.id, target: task.id });
+    }
+    return edges;
+  }
 </script>
 
 <svelte:head>
@@ -124,401 +219,290 @@
 </svelte:head>
 
 <div class="task-detail">
-  <!-- Breadcrumb -->
-  <nav class="breadcrumb">
-    <a href="/tasks">Tasks</a>
-    {#if parent}
-      <span class="crumb-sep">›</span>
-      <a href="/tasks/{parent.id}">{parent.id}</a>
-    {/if}
-    <span class="crumb-sep">›</span>
-    <span class="crumb-current">{task.id}</span>
-  </nav>
+  <Breadcrumb items={breadcrumbs} />
 
-  <div class="task-layout">
-    <!-- Main content -->
-    <div class="task-main">
-      <!-- Title + status -->
-      <div class="task-header">
-        <div class="task-title-row">
-          <span class="task-id-badge">{task.id}</span>
-          <span class="task-status-badge {statusClass(task.status)}">
-            {statusIcon(task.status)} {task.status}
-          </span>
-          <span class="task-priority-badge {priorityClass(task.priority)}">{task.priority}</span>
-          {#if task.type !== 'task'}
-            <span class="task-type-badge">{task.type}</span>
-          {/if}
-          {#if task.size}
-            <span class="task-size-badge">{task.size}</span>
+  <HeroHeader eyebrow={task.type.toUpperCase()} title={task.title} meta={heroMeta}>
+    {#snippet actions()}
+      <StatusBadge status={toStatus(task.status)} />
+      <PriorityBadge priority={toPriority(task.priority)} />
+      {#if task.size}
+        <Badge tone="neutral" size="sm">{task.size}</Badge>
+      {/if}
+    {/snippet}
+  </HeroHeader>
+
+  <div class="detail-layout">
+    <!-- LEFT COLUMN ---------------------------------------------- -->
+    <div class="detail-main">
+      <!-- Gate visualization ------------------------------------- -->
+      <section class="gate-section">
+        <div class="gate-head">
+          <span class="section-label">Verification gates</span>
+          <span class="gate-counter">{gatesPassed}/{sixGates.length}</span>
+          {#if task.verification?.passed}
+            <Badge tone="success" size="sm">ALL PASSED</Badge>
+          {:else if task.verification}
+            <Badge tone="warning" size="sm">Round {task.verification.round}</Badge>
           {/if}
         </div>
-        <h1 class="task-title">{task.title}</h1>
-        {#if task.description}
-          <div class="task-description">{task.description}</div>
-        {/if}
-      </div>
+        <div class="gate-strip">
+          {#each sixGates as gate}
+            <div class="gate" class:passed={gate.passed} title={gate.label}>
+              <span class="gate-key">{gate.key}</span>
+              <span class="gate-label">{gate.label}</span>
+              <span class="gate-icon" aria-hidden="true">{gate.passed ? '✓' : '·'}</span>
+            </div>
+          {/each}
+        </div>
+      </section>
 
-      <!-- Acceptance criteria -->
+      <!-- Description + acceptance -------------------------------- -->
+      {#if task.description}
+        <section class="prose-section">
+          <span class="section-label">Description</span>
+          <div class="prose">{task.description}</div>
+        </section>
+      {/if}
+
       {#if task.acceptance && task.acceptance.length > 0}
-        <section class="detail-section">
-          <h2 class="section-title">
-            Acceptance Criteria
-            <span class="ac-count">{task.acceptance.length} criteria</span>
-            {#if task.verification?.passed}
-              <span class="ac-all-pass">ALL PASSED</span>
-            {/if}
-          </h2>
-          <ul class="acceptance-list">
+        <section class="ac-section">
+          <span class="section-label">
+            Acceptance criteria
+            <span class="section-meta">{task.acceptance.length} criteria</span>
+          </span>
+          <ul class="ac-list">
             {#each task.acceptance as criterion}
-              {@const passed = task.verification?.passed ?? null}
-              <li class="acceptance-item {acCheckClass(passed)}">
-                <span class="acceptance-check {acCheckClass(passed)}">{acCheckIcon(passed)}</span>
-                <span class="acceptance-text">{criterion}</span>
+              {@const passed = task.verification?.passed ?? false}
+              <li class="ac-item" class:passed>
+                <span class="ac-check" aria-hidden="true">{passed ? '✓' : '○'}</span>
+                <span class="ac-text">{criterion}</span>
               </li>
             {/each}
           </ul>
         </section>
       {/if}
 
-      <!-- Verification gates -->
-      {#if task.verification}
-        {@const v = task.verification}
-        <section class="detail-section">
-          <h2 class="section-title">
-            Verification Gates
-            <span class="verif-badge" class:passed={v.passed}>
-              {v.passed ? 'PASSED' : `Round ${v.round} — Pending`}
-            </span>
-          </h2>
-          <div class="gates-grid">
-            <div class="gate" class:gate-passed={v.gates.implemented} class:gate-failed={!v.gates.implemented && v.passed === false && v.round > 1}>
-              <span class="gate-icon">{gateIcon(v.gates.implemented)}</span>
-              <span class="gate-label">Implemented</span>
-            </div>
-            <div class="gate" class:gate-passed={v.gates.testsPassed} class:gate-failed={!v.gates.testsPassed && v.passed === false && v.round > 1}>
-              <span class="gate-icon">{gateIcon(v.gates.testsPassed)}</span>
-              <span class="gate-label">Tests Passed</span>
-            </div>
-            <div class="gate" class:gate-passed={v.gates.qaPassed} class:gate-failed={!v.gates.qaPassed && v.passed === false && v.round > 1}>
-              <span class="gate-icon">{gateIcon(v.gates.qaPassed)}</span>
-              <span class="gate-label">QA Passed</span>
-            </div>
-          </div>
-          {#if v.lastAgent || v.lastUpdated}
-            <p class="verif-meta">
-              {#if v.lastAgent}Last agent: <span class="verif-agent">{v.lastAgent}</span>{/if}
-              {#if v.lastUpdated} · {formatDate(v.lastUpdated)}{/if}
-            </p>
-          {/if}
-          {#if v.failureLog && v.failureLog.length > 0}
-            <div class="failure-log">
-              <div class="failure-log-header">Failure Log ({v.failureLog.length} entries)</div>
-              {#each v.failureLog as entry}
-                <div class="failure-entry">{entry}</div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      {/if}
-
-      <!-- Notes / history -->
+      <!-- Notes --------------------------------------------------- -->
       {#if task.notes && task.notes.length > 0}
-        <section class="detail-section">
-          <button
-            class="section-title section-title-btn"
-            onclick={() => { notesExpanded = !notesExpanded; }}
-            type="button"
-          >
-            Notes &amp; History
-            <span class="note-count">{task.notes.length}</span>
-            <span class="collapse-icon">{notesExpanded ? '▾' : '▸'}</span>
-          </button>
-          {#if notesExpanded}
-            <div class="notes-feed">
-              {#each task.notes as note, i}
-                <div class="note-entry">
-                  <span class="note-index">{i + 1}</span>
-                  <span class="note-text">{note}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
+        <section class="prose-section">
+          <span class="section-label">
+            Notes
+            <span class="section-meta">{task.notes.length} entries</span>
+          </span>
+          <ol class="notes-list">
+            {#each task.notes as note, i}
+              <li class="note-item">
+                <span class="note-index">#{i + 1}</span>
+                <span class="note-text">{note}</span>
+              </li>
+            {/each}
+          </ol>
         </section>
       {/if}
 
-      <!-- Linked MANIFEST artifacts -->
+      <!-- Manifest artifacts -------------------------------------- -->
       {#if manifestEntries && manifestEntries.length > 0}
-        <section class="detail-section">
-          <button
-            class="section-title section-title-btn"
-            onclick={() => { manifestExpanded = !manifestExpanded; }}
-            type="button"
-          >
-            Agent Artifacts
-            <span class="artifact-count">{manifestEntries.length}</span>
-            <span class="collapse-icon">{manifestExpanded ? '▾' : '▸'}</span>
-          </button>
-          {#if manifestExpanded}
-            <div class="artifact-list">
-              {#each manifestEntries as entry}
-                <div class="artifact-card" class:artifact-complete={entry.status === 'complete'} class:artifact-partial={entry.status === 'partial'} class:artifact-blocked={entry.status === 'blocked'}>
-                  <div class="artifact-header">
-                    <span class="artifact-type">{artifactTypeLabel(entry.type)}</span>
-                    <span class="artifact-status artifact-status-{entry.status}">{entry.status}</span>
-                    {#if entry.date}
-                      <span class="artifact-date">{formatDateShort(entry.date)}</span>
-                    {/if}
-                    <span class="artifact-id">{entry.id}</span>
+        <section class="artifacts-section">
+          <span class="section-label">
+            Agent artifacts
+            <span class="section-meta">{manifestEntries.length}</span>
+          </span>
+          <div class="artifact-list">
+            {#each manifestEntries as entry (entry.id)}
+              <article class="artifact" data-status={entry.status}>
+                <header class="artifact-head">
+                  <Badge tone="accent" size="sm">{entry.type}</Badge>
+                  <Badge tone={manifestTone(entry.status)} size="sm">{entry.status}</Badge>
+                  {#if entry.date}
+                    <time class="artifact-date">{formatDateShort(entry.date)}</time>
+                  {/if}
+                  <code class="artifact-id">{entry.id}</code>
+                </header>
+                {#if entry.title}
+                  <h3 class="artifact-title">{entry.title}</h3>
+                {/if}
+                {#if entry.summary}
+                  <p class="artifact-summary">{truncate(entry.summary, 300)}</p>
+                {/if}
+                {#if entry.output}
+                  <div class="artifact-output">
+                    <span class="artifact-output-label">output:</span>
+                    <code class="artifact-output-path">{entry.output}</code>
                   </div>
-                  {#if entry.title}
-                    <div class="artifact-title">{entry.title}</div>
-                  {/if}
-                  {#if entry.summary}
-                    <div class="artifact-summary">{truncate(entry.summary, 300)}</div>
-                  {/if}
-                  {#if entry.output}
-                    <div class="artifact-output">
-                      <span class="artifact-output-label">Output:</span>
-                      <code class="artifact-output-path">{entry.output}</code>
-                    </div>
-                  {/if}
-                  {#if entry.files && entry.files.length > 0}
-                    <div class="artifact-files">
-                      {#each entry.files as f}
-                        <code class="artifact-file">{basename(f)}</code>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      {/if}
-
-      <!-- Linked git commits -->
-      {#if linkedCommits && linkedCommits.length > 0}
-        <section class="detail-section">
-          <button
-            class="section-title section-title-btn"
-            onclick={() => { commitsExpanded = !commitsExpanded; }}
-            type="button"
-          >
-            Git Commits
-            <span class="commit-count">{linkedCommits.length}</span>
-            <span class="collapse-icon">{commitsExpanded ? '▾' : '▸'}</span>
-          </button>
-          {#if commitsExpanded}
-            <div class="commit-list">
-              {#each linkedCommits as commit}
-                <div class="commit-row">
-                  <div class="commit-header">
-                    <code class="commit-sha">{commit.sha}</code>
-                    <span class="commit-subject">{commit.subject}</span>
-                    {#if commit.date}
-                      <span class="commit-date">{formatDateShort(commit.date)}</span>
-                    {/if}
+                {/if}
+                {#if entry.files && entry.files.length > 0}
+                  <div class="artifact-files">
+                    {#each entry.files as f}
+                      <code class="artifact-file">{basename(f)}</code>
+                    {/each}
                   </div>
-                  {#if commit.files && commit.files.length > 0}
-                    <div class="commit-files">
-                      {#each commit.files.slice(0, 10) as f}
-                        <code class="commit-file">{f}</code>
-                      {/each}
-                      {#if commit.files.length > 10}
-                        <span class="commit-files-more">+{commit.files.length - 10} more</span>
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      {/if}
-
-      <!-- Subtask tree -->
-      {#if subtasks.length > 0}
-        <section class="detail-section">
-          <h2 class="section-title">
-            {task.type === 'epic' ? 'Children' : 'Subtasks'}
-            <span class="subtask-progress">{doneSubtasks}/{subtasks.length} ({subtaskPct}%)</span>
-          </h2>
-          <div class="subtask-progress-bar">
-            <div class="subtask-done-fill" style="width:{subtaskPct}%"></div>
-          </div>
-          <div class="subtask-list">
-            {#each subtasks as sub}
-              {@const gates = subtaskVerif(sub)}
-              <a href="/tasks/{sub.id}" class="subtask-row">
-                <span class="subtask-status {statusClass(sub.status)}">{statusIcon(sub.status)}</span>
-                <div class="subtask-info">
-                  <span class="subtask-id">{sub.id}</span>
-                  {#if sub.type !== 'task'}
-                    <span class="subtask-type">{sub.type}</span>
-                  {/if}
-                  <span class="subtask-title">{sub.title}</span>
-                </div>
-                <div class="subtask-meta">
-                  <span class="subtask-priority {priorityClass(sub.priority)}">{sub.priority}</span>
-                  {#if gates}
-                    <div class="gate-icons">
-                      <span class="gate-dot" class:gate-dot-pass={gates.implemented} title="Implemented">I</span>
-                      <span class="gate-dot" class:gate-dot-pass={gates.testsPassed} title="Tests">T</span>
-                      <span class="gate-dot" class:gate-dot-pass={gates.qaPassed} title="QA">Q</span>
-                    </div>
-                  {/if}
-                </div>
-              </a>
+                {/if}
+              </article>
             {/each}
           </div>
         </section>
       {/if}
 
-      <!-- Dependencies & blockers -->
-      {#if task.upstream.length > 0 || task.downstream.length > 0}
-        <section class="detail-section">
-          <h2 class="section-title">Dependencies</h2>
-
-          {#if task.upstream.length > 0}
-            <div class="dep-group">
-              <div class="dep-group-label dep-blocked-label">
-                ↑ Blocked by ({task.upstream.length}) — must complete before this task
-              </div>
-              {#snippet depRow(dep: DepTask)}
-                <a href="/tasks/{dep.id}" class="dep-row">
-                  <span class="dep-status {statusClass(dep.status)}">{statusIcon(dep.status)}</span>
-                  <span class="dep-id">{dep.id}</span>
-                  <span class="dep-title">{dep.title}</span>
-                  <span class="dep-priority {priorityClass(dep.priority)}">{dep.priority}</span>
-                </a>
-              {/snippet}
-              <div class="dep-list">
-                {#each task.upstream as dep}
-                  {@render depRow(dep)}
-                {/each}
-              </div>
-            </div>
-          {/if}
-
-          {#if task.downstream.length > 0}
-            <div class="dep-group">
-              <div class="dep-group-label dep-blocking-label">
-                ↓ Blocking ({task.downstream.length}) — these tasks wait on this one
-              </div>
-              {#snippet depRow2(dep: DepTask)}
-                <a href="/tasks/{dep.id}" class="dep-row">
-                  <span class="dep-status {statusClass(dep.status)}">{statusIcon(dep.status)}</span>
-                  <span class="dep-id">{dep.id}</span>
-                  <span class="dep-title">{dep.title}</span>
-                  <span class="dep-priority {priorityClass(dep.priority)}">{dep.priority}</span>
-                </a>
-              {/snippet}
-              <div class="dep-list">
-                {#each task.downstream as dep}
-                  {@render depRow2(dep)}
-                {/each}
-              </div>
-            </div>
-          {/if}
+      <!-- Git commits --------------------------------------------- -->
+      {#if linkedCommits && linkedCommits.length > 0}
+        <section class="commits-section">
+          <span class="section-label">
+            Git commits
+            <span class="section-meta">{linkedCommits.length}</span>
+          </span>
+          <ol class="commits-list">
+            {#each linkedCommits as commit}
+              <li class="commit-item">
+                <code class="commit-sha">{commit.sha}</code>
+                <span class="commit-subject">{commit.subject}</span>
+                {#if commit.date}
+                  <time class="commit-date">{formatDateShort(commit.date)}</time>
+                {/if}
+                {#if commit.files && commit.files.length > 0}
+                  <div class="commit-files">
+                    {#each commit.files.slice(0, 6) as f}
+                      <code class="commit-file">{f}</code>
+                    {/each}
+                    {#if commit.files.length > 6}
+                      <span class="commit-files-more">+{commit.files.length - 6}</span>
+                    {/if}
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ol>
         </section>
       {/if}
     </div>
 
-    <!-- Sidebar -->
-    <aside class="task-sidebar">
-      <dl class="meta-list">
-        <div class="meta-row">
-          <dt>Status</dt>
-          <dd class="{statusClass(task.status)}">{statusIcon(task.status)} {task.status}</dd>
-        </div>
-        <div class="meta-row">
-          <dt>Priority</dt>
-          <dd class="{priorityClass(task.priority)}">{task.priority}</dd>
-        </div>
-        <div class="meta-row">
-          <dt>Type</dt>
-          <dd>{task.type}</dd>
-        </div>
-        {#if task.size}
+    <!-- RIGHT COLUMN --------------------------------------------- -->
+    <aside class="detail-side">
+      <!-- Dependency graph ---------------------------------------- -->
+      {#if task.upstream.length > 0 || task.downstream.length > 0}
+        {@const depNodes = buildDepNodes()}
+        {@const depEdges = buildDepEdges()}
+        <section class="side-section">
+          <span class="section-label">Dependency graph</span>
+          <Card padding="cozy" elevation={0}>
+            <TaskDepGraph nodes={depNodes} edges={depEdges} height="260px" />
+          </Card>
+        </section>
+      {/if}
+
+      <!-- Deps ---------------------------------------------------- -->
+      {#if task.upstream.length > 0}
+        <section class="side-section">
+          <span class="section-label dep-label dep-blocked">
+            ↑ Blocked by
+            <span class="section-meta">{task.upstream.length}</span>
+          </span>
+          <ul class="dep-list">
+            {#each task.upstream as dep}
+              <li><a class="dep" href={`/tasks/${dep.id}`}>{depRow(dep)}</a></li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#if task.downstream.length > 0}
+        <section class="side-section">
+          <span class="section-label dep-label dep-blocking">
+            ↓ Blocking
+            <span class="section-meta">{task.downstream.length}</span>
+          </span>
+          <ul class="dep-list">
+            {#each task.downstream as dep}
+              <li><a class="dep" href={`/tasks/${dep.id}`}>{depRow(dep)}</a></li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#snippet depRow(dep: DepTask)}
+        <span class="dep-row">
+          <StatusBadge status={toStatus(dep.status)} compact />
+          <span class="dep-id">{dep.id}</span>
+          <span class="dep-title">{dep.title}</span>
+          <Badge tone={priorityTone(dep.priority)} size="sm" subtle>{dep.priority}</Badge>
+        </span>
+      {/snippet}
+
+      <!-- Subtasks ------------------------------------------------ -->
+      {#if subtasks.length > 0}
+        <section class="side-section">
+          <span class="section-label">
+            {task.type === 'epic' ? 'Children' : 'Subtasks'}
+            <span class="section-meta">
+              {doneSubtasks}/{subtasks.length} · {subtaskPct}%
+            </span>
+          </span>
+          <div class="subtask-progress" aria-hidden="true">
+            <div class="subtask-progress-fill" style={`width: ${subtaskPct}%`}></div>
+          </div>
+          <ul class="subtask-list">
+            {#each subtasks as sub}
+              {@const gates = subtaskGates(sub)}
+              <li>
+                <a class="subtask" href={`/tasks/${sub.id}`}>
+                  <StatusBadge status={toStatus(sub.status)} compact />
+                  <span class="subtask-id">{sub.id}</span>
+                  <span class="subtask-title">{sub.title}</span>
+                  <span class="subtask-gates" aria-hidden="true">
+                    <span class="g-dot" class:g-pass={gates.implemented}>I</span>
+                    <span class="g-dot" class:g-pass={gates.testsPassed}>T</span>
+                    <span class="g-dot" class:g-pass={gates.qaPassed}>Q</span>
+                  </span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
+      <!-- Sidebar meta -------------------------------------------- -->
+      <Card padding="cozy" elevation={1}>
+        <dl class="meta-list">
           <div class="meta-row">
-            <dt>Size</dt>
-            <dd>{task.size}</dd>
+            <dt>Created</dt>
+            <dd>{formatDate(task.created_at)}</dd>
           </div>
-        {/if}
-        {#if task.pipeline_stage}
           <div class="meta-row">
-            <dt>Stage</dt>
-            <dd>{task.pipeline_stage}</dd>
+            <dt>Updated</dt>
+            <dd>{formatDate(task.updated_at)}</dd>
           </div>
-        {/if}
-        {#if task.phase}
-          <div class="meta-row">
-            <dt>Phase</dt>
-            <dd>{task.phase}</dd>
-          </div>
-        {/if}
-        {#if task.assignee}
-          <div class="meta-row">
-            <dt>Assignee</dt>
-            <dd>{task.assignee}</dd>
-          </div>
-        {/if}
-        <div class="meta-row">
-          <dt>Created</dt>
-          <dd>{formatDate(task.created_at)}</dd>
-        </div>
-        <div class="meta-row">
-          <dt>Updated</dt>
-          <dd>{formatDate(task.updated_at)}</dd>
-        </div>
-        {#if task.completed_at}
-          <div class="meta-row">
-            <dt>Completed</dt>
-            <dd>{formatDate(task.completed_at)}</dd>
-          </div>
-        {/if}
-        {#if task.labels && task.labels.length > 0}
-          <div class="meta-row">
-            <dt>Labels</dt>
-            <dd>
-              <div class="label-chips">
-                {#each task.labels as lbl}
-                  <span class="label-chip">{lbl}</span>
-                {/each}
-              </div>
-            </dd>
-          </div>
-        {/if}
-        <!-- Linked artifact count summary -->
-        {#if (manifestEntries && manifestEntries.length > 0) || (linkedCommits && linkedCommits.length > 0)}
-          <div class="meta-row meta-row-artifacts">
-            <dt>Artifacts</dt>
-            <dd class="artifact-summary-counts">
-              {#if manifestEntries && manifestEntries.length > 0}
-                <span class="artifact-pill">{manifestEntries.length} agent output{manifestEntries.length === 1 ? '' : 's'}</span>
-              {/if}
-              {#if linkedCommits && linkedCommits.length > 0}
-                <span class="artifact-pill">{linkedCommits.length} commit{linkedCommits.length === 1 ? '' : 's'}</span>
-              {/if}
-            </dd>
-          </div>
-        {/if}
-        <!-- Notes count in sidebar -->
-        {#if task.notes && task.notes.length > 0}
-          <div class="meta-row">
-            <dt>Notes</dt>
-            <dd>{task.notes.length} note{task.notes.length === 1 ? '' : 's'}</dd>
-          </div>
-        {/if}
-      </dl>
+          {#if task.completed_at}
+            <div class="meta-row">
+              <dt>Completed</dt>
+              <dd>{formatDate(task.completed_at)}</dd>
+            </div>
+          {/if}
+          {#if task.phase}
+            <div class="meta-row">
+              <dt>Phase</dt>
+              <dd>{task.phase}</dd>
+            </div>
+          {/if}
+          {#if task.labels && task.labels.length > 0}
+            <div class="meta-row">
+              <dt>Labels</dt>
+              <dd>
+                <div class="label-chips">
+                  {#each task.labels as lbl}
+                    <Badge tone="neutral" size="sm">{lbl}</Badge>
+                  {/each}
+                </div>
+              </dd>
+            </div>
+          {/if}
+        </dl>
+      </Card>
 
       <div class="sidebar-nav">
-        <a href="/tasks" class="sidebar-link">← All Tasks</a>
-        {#if parent}
-          <a href="/tasks/tree/{parent.id}" class="sidebar-link">View Epic Tree</a>
-        {:else if task.type === 'epic'}
-          <a href="/tasks/tree/{task.id}" class="sidebar-link">View as Tree</a>
+        <Button variant="ghost" size="sm" href="/tasks" block>← All Tasks</Button>
+        {#if task.type === 'epic'}
+          <Button variant="ghost" size="sm" href={`/tasks?hierarchy=${task.id}`} block>
+            View as tree
+          </Button>
         {/if}
       </div>
     </aside>
@@ -527,747 +511,567 @@
 
 <style>
   .task-detail {
-    max-width: 1100px;
-    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--space-5);
+    max-width: 1400px;
+    margin: 0 auto;
   }
 
-  /* Breadcrumb */
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    color: #64748b;
-  }
-
-  .breadcrumb a {
-    color: #64748b;
-    text-decoration: none;
-  }
-
-  .breadcrumb a:hover {
-    color: #a855f7;
-  }
-
-  .crumb-sep {
-    color: #475569;
-  }
-
-  .crumb-current {
-    color: #94a3b8;
-  }
-
-  /* Layout */
-  .task-layout {
+  .detail-layout {
     display: grid;
-    grid-template-columns: 1fr 240px;
-    gap: 1.5rem;
+    grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+    gap: var(--space-6);
     align-items: start;
   }
 
-  @media (max-width: 800px) {
-    .task-layout { grid-template-columns: 1fr; }
+  @media (max-width: 960px) {
+    .detail-layout {
+      grid-template-columns: 1fr;
+    }
   }
 
-  /* Header */
-  .task-header {
+  .detail-main,
+  .detail-side {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #2d3748;
+    gap: var(--space-5);
+    min-width: 0;
   }
 
-  .task-title-row {
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    gap: var(--space-2);
   }
 
-  .task-id-badge {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #a855f7;
-    background: rgba(168, 85, 247, 0.1);
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-  }
-
-  .task-status-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    background: #1a1f2e;
-  }
-
-  .task-priority-badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .task-type-badge {
-    font-size: 0.7rem;
-    color: #64748b;
-    background: #1a1f2e;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-  }
-
-  .task-size-badge {
-    font-size: 0.7rem;
-    color: #64748b;
-    background: #1a1f2e;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid #2d3748;
-  }
-
-  .task-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #f1f5f9;
-    line-height: 1.4;
-  }
-
-  .task-description {
-    font-size: 0.875rem;
-    color: #94a3b8;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  /* Sections */
-  .detail-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem 0;
-    border-bottom: 1px solid #1e2435;
-  }
-
-  .section-title {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .section-title-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    text-align: left;
-    width: 100%;
-  }
-
-  .section-title-btn:hover {
-    color: #e2e8f0;
-  }
-
-  .collapse-icon {
-    margin-left: auto;
-    color: #475569;
-    font-size: 0.75rem;
-  }
-
-  /* Acceptance */
-  .ac-count {
-    font-size: 0.7rem;
-    color: #64748b;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-
-  .ac-all-pass {
-    font-size: 0.675rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.3);
-    text-transform: uppercase;
-    font-weight: 700;
+  .section-meta {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     letter-spacing: 0.04em;
+    text-transform: none;
+    font-weight: 400;
   }
 
-  .acceptance-list {
-    list-style: none;
+  /* ------------- gate strip ------------- */
+  .gate-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-3);
   }
 
-  .acceptance-item {
+  .gate-head {
     display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: #e2e8f0;
-    padding: 0.375rem 0.5rem;
-    border-radius: 4px;
-    background: #161b27;
+    align-items: center;
+    gap: var(--space-3);
   }
 
-  .acceptance-item.ac-pass {
-    background: rgba(34, 197, 94, 0.05);
-    border-left: 2px solid rgba(34, 197, 94, 0.4);
+  .gate-counter {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
 
-  .acceptance-item.ac-pending {
-    border-left: 2px solid #2d3748;
+  .gate-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--space-2);
   }
 
-  .acceptance-check {
-    flex-shrink: 0;
-    margin-top: 0.1rem;
-    font-size: 0.875rem;
-    width: 1rem;
-    text-align: center;
-  }
-
-  .acceptance-check.ac-pass {
-    color: #22c55e;
-  }
-
-  .acceptance-check.ac-pending {
-    color: #475569;
-  }
-
-  .acceptance-text {
-    flex: 1;
-  }
-
-  /* Verification gates */
-  .verif-badge {
-    font-size: 0.675rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    background: #1a1f2e;
-    color: #64748b;
-    border: 1px solid #2d3748;
-    text-transform: uppercase;
-  }
-
-  .verif-badge.passed {
-    background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
-    border-color: rgba(34, 197, 94, 0.3);
-  }
-
-  .gates-grid {
-    display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+  @media (max-width: 580px) {
+    .gate-strip {
+      grid-template-columns: repeat(3, 1fr);
+    }
   }
 
   .gate {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.75rem 1rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    min-width: 90px;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-2);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    transition: border-color var(--ease), background var(--ease);
   }
 
-  .gate.gate-passed {
-    border-color: rgba(34, 197, 94, 0.4);
-    background: rgba(34, 197, 94, 0.05);
+  .gate.passed {
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success-soft) 50%, var(--bg-elev-1));
   }
 
-  .gate.gate-failed {
-    border-color: rgba(239, 68, 68, 0.3);
-    background: rgba(239, 68, 68, 0.04);
+  .gate-key {
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text-faint);
+    line-height: 1;
   }
 
-  .gate-icon {
-    font-size: 1rem;
-    color: #475569;
-  }
-
-  .gate.gate-passed .gate-icon {
-    color: #22c55e;
-  }
-
-  .gate.gate-failed .gate-icon {
-    color: #ef4444;
+  .gate.passed .gate-key {
+    color: var(--success);
   }
 
   .gate-label {
-    font-size: 0.7rem;
-    color: #64748b;
-  }
-
-  .gate.gate-passed .gate-label {
-    color: #86efac;
-  }
-
-  .gate.gate-failed .gate-label {
-    color: #fca5a5;
-  }
-
-  .verif-meta {
-    font-size: 0.75rem;
-    color: #475569;
-  }
-
-  .verif-agent {
-    color: #a855f7;
-  }
-
-  .failure-log {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    border: 1px solid rgba(249, 115, 22, 0.2);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .failure-log-header {
-    font-size: 0.7rem;
-    font-weight: 700;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #f97316;
-    background: rgba(249, 115, 22, 0.08);
-    padding: 0.375rem 0.75rem;
-    border-bottom: 1px solid rgba(249, 115, 22, 0.15);
   }
 
-  .failure-entry {
-    font-size: 0.75rem;
-    color: #f97316;
-    padding: 0.375rem 0.75rem;
-    border-bottom: 1px solid rgba(249, 115, 22, 0.1);
-    background: rgba(249, 115, 22, 0.03);
+  .gate.passed .gate-label {
+    color: var(--success);
   }
 
-  .failure-entry:last-child {
-    border-bottom: none;
+  .gate-icon {
+    font-size: var(--text-md);
+    color: var(--text-faint);
   }
 
-  /* Notes feed */
-  .note-count {
-    font-size: 0.7rem;
-    color: #64748b;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    background: #1e2435;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
+  .gate.passed .gate-icon {
+    color: var(--success);
   }
 
-  .notes-feed {
+  /* ------------- prose / acceptance ------------- */
+  .prose-section,
+  .ac-section {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-2);
   }
 
-  .note-entry {
+  .prose {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .ac-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .ac-item {
+    display: flex;
     align-items: flex-start;
-    font-size: 0.8125rem;
-    padding: 0.625rem 0.75rem;
-    background: #161b27;
-    border: 1px solid #1e2435;
-    border-radius: 6px;
-    border-left: 3px solid #a855f7;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    color: var(--text);
+  }
+
+  .ac-item.passed {
+    border-left-color: var(--success);
+    background: color-mix(in srgb, var(--success-soft) 30%, var(--bg-elev-1));
+  }
+
+  .ac-check {
+    font-family: var(--font-mono);
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+
+  .ac-item.passed .ac-check {
+    color: var(--success);
+  }
+
+  .ac-text {
+    flex: 1;
+  }
+
+  /* ------------- notes ------------- */
+  .notes-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .note-item {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
   }
 
   .note-index {
-    font-size: 0.675rem;
-    color: #a855f7;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--accent);
     font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    min-width: 1rem;
-    padding-top: 0.05rem;
     flex-shrink: 0;
   }
 
   .note-text {
-    color: #cbd5e1;
-    line-height: 1.5;
     flex: 1;
-    word-break: break-word;
     white-space: pre-wrap;
+    word-break: break-word;
   }
 
-  /* Artifact cards */
-  .artifact-count, .commit-count {
-    font-size: 0.7rem;
-    color: #64748b;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    background: #1e2435;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
+  /* ------------- artifacts ------------- */
+  .artifacts-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 
   .artifact-list {
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: var(--space-2);
   }
 
-  .artifact-card {
+  .artifact {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.75rem;
-    background: #161b27;
-    border: 1px solid #1e2435;
-    border-radius: 6px;
-    border-left: 3px solid #2d3748;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-strong);
+    border-radius: var(--radius-sm);
   }
 
-  .artifact-card.artifact-complete {
-    border-left-color: #22c55e;
-  }
+  .artifact[data-status='complete'] { border-left-color: var(--success); }
+  .artifact[data-status='partial']  { border-left-color: var(--warning); }
+  .artifact[data-status='blocked']  { border-left-color: var(--danger); }
 
-  .artifact-card.artifact-partial {
-    border-left-color: #eab308;
-  }
-
-  .artifact-card.artifact-blocked {
-    border-left-color: #ef4444;
-  }
-
-  .artifact-header {
+  .artifact-head {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
     flex-wrap: wrap;
   }
 
-  .artifact-type {
-    font-size: 0.675rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #a855f7;
-    background: rgba(168, 85, 247, 0.1);
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-  }
-
-  .artifact-status {
-    font-size: 0.675rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-  }
-
-  .artifact-status-complete { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
-  .artifact-status-partial { background: rgba(234, 179, 8, 0.1); color: #eab308; }
-  .artifact-status-blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-  .artifact-status-unknown { background: #1e2435; color: #64748b; }
-
   .artifact-date {
-    font-size: 0.675rem;
-    color: #475569;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
   }
 
   .artifact-id {
-    font-size: 0.675rem;
-    color: #475569;
-    font-family: monospace;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     margin-left: auto;
   }
 
   .artifact-title {
-    font-size: 0.875rem;
+    font-size: var(--text-md);
     font-weight: 600;
-    color: #e2e8f0;
-    line-height: 1.4;
+    color: var(--text);
+    margin: 0;
   }
 
   .artifact-summary {
-    font-size: 0.8rem;
-    color: #94a3b8;
-    line-height: 1.55;
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    line-height: var(--leading-normal);
+    margin: 0;
   }
 
   .artifact-output {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    font-size: 0.75rem;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
   }
 
   .artifact-output-label {
-    color: #64748b;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.675rem;
-    flex-shrink: 0;
+    letter-spacing: 0.06em;
   }
 
   .artifact-output-path {
-    font-size: 0.75rem;
-    color: #a855f7;
-    font-family: monospace;
-    background: rgba(168, 85, 247, 0.05);
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--accent);
+    background: var(--accent-halo);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-xs);
     word-break: break-all;
   }
 
   .artifact-files {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
+    gap: var(--space-1);
   }
 
-  .artifact-file {
-    font-size: 0.7rem;
-    color: #64748b;
-    background: #1e2435;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-    font-family: monospace;
+  .artifact-file,
+  .commit-file {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-xs);
   }
 
-  /* Git commits */
-  .commit-list {
+  /* ------------- commits ------------- */
+  .commits-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-2);
   }
 
-  .commit-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.625rem 0.75rem;
-    background: #161b27;
-    border: 1px solid #1e2435;
-    border-radius: 6px;
-    border-left: 3px solid #3b82f6;
-  }
-
-  .commit-header {
-    display: flex;
+  .commit-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--info);
+    border-radius: var(--radius-sm);
   }
 
   .commit-sha {
-    font-size: 0.75rem;
-    color: #3b82f6;
-    font-family: monospace;
-    background: rgba(59, 130, 246, 0.08);
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--info);
+    background: var(--info-soft);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-xs);
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .commit-subject {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
-    flex: 1;
-    min-width: 0;
+    font-size: var(--text-sm);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .commit-date {
-    font-size: 0.675rem;
-    color: #475569;
-    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    grid-column: 3;
+    grid-row: 1;
   }
 
   .commit-files {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-  }
-
-  .commit-file {
-    font-size: 0.675rem;
-    color: #64748b;
-    background: #1e2435;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-    font-family: monospace;
+    gap: var(--space-1);
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 
   .commit-files-more {
-    font-size: 0.675rem;
-    color: #475569;
-    padding: 0.1rem 0.25rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
   }
 
-  /* Subtasks */
-  .subtask-progress {
-    font-size: 0.75rem;
-    color: #22c55e;
-    font-weight: 400;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .subtask-progress-bar {
-    height: 4px;
-    background: #1e2435;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .subtask-done-fill {
-    height: 100%;
-    background: #22c55e;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  .subtask-list {
+  /* ------------- side column ------------- */
+  .side-section {
     display: flex;
     flex-direction: column;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    overflow: hidden;
+    gap: var(--space-2);
   }
 
-  .subtask-row {
+  .dep-label {
+    font-family: var(--font-mono);
+  }
+
+  .dep-blocked {
+    color: var(--danger);
+  }
+
+  .dep-blocking {
+    color: var(--warning);
+  }
+
+  .dep-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.625rem 0.875rem;
-    border-bottom: 1px solid #1e2435;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .dep {
+    display: flex;
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     text-decoration: none;
     color: inherit;
-    transition: background 0.15s;
+    transition: background var(--ease), border-color var(--ease);
   }
 
-  .subtask-row:hover {
-    background: #21273a;
+  .dep:hover {
+    background: var(--bg-elev-2);
+    border-color: var(--border-strong);
   }
 
-  .subtask-row:last-child {
-    border-bottom: none;
-  }
-
-  .subtask-status {
-    font-size: 0.75rem;
-    width: 1rem;
-    text-align: center;
-    flex-shrink: 0;
-  }
-
-  .subtask-info {
+  .dep-row {
     display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex: 1;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
     min-width: 0;
   }
 
-  .subtask-id {
-    font-size: 0.7rem;
-    color: #a855f7;
+  .dep-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--accent);
     font-weight: 600;
     flex-shrink: 0;
   }
 
-  .subtask-type {
-    font-size: 0.675rem;
-    color: #64748b;
-    background: #1e2435;
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
-  .subtask-title {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
+  .dep-title {
+    font-size: var(--text-sm);
+    color: var(--text);
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .subtask-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-shrink: 0;
+  .subtask-progress {
+    height: 3px;
+    background: var(--bg-elev-2);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
   }
 
-  .subtask-priority {
-    font-size: 0.675rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+  .subtask-progress-fill {
+    height: 100%;
+    background: var(--success);
+    transition: width var(--ease-slow);
   }
 
-  .gate-icons {
+  @media (prefers-reduced-motion: reduce) {
+    .subtask-progress-fill { transition: none; }
+  }
+
+  .subtask-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
+    flex-direction: column;
     gap: 2px;
   }
 
-  .gate-dot {
-    font-size: 0.6rem;
-    width: 14px;
-    height: 14px;
+  .subtask {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: inherit;
+    transition: background var(--ease);
+  }
+
+  .subtask:hover {
+    background: var(--bg-elev-2);
+  }
+
+  .subtask-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--accent);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .subtask-title {
+    font-size: var(--text-sm);
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .subtask-gates {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .g-dot {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    width: 13px;
+    height: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 2px;
-    background: #1e2435;
-    color: #475569;
-    font-weight: 600;
+    border-radius: var(--radius-xs);
+    background: var(--bg-elev-2);
+    color: var(--border-strong);
+    font-weight: 700;
   }
 
-  .gate-dot.gate-dot-pass {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
-  }
-
-  /* Sidebar */
-  .task-sidebar {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+  .g-dot.g-pass {
+    background: var(--success-soft);
+    color: var(--success);
   }
 
   .meta-list {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    overflow: hidden;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
   }
 
   .meta-row {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.5rem 0.875rem;
-    border-bottom: 1px solid #1e2435;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border);
   }
 
   .meta-row:last-child {
@@ -1275,162 +1079,30 @@
   }
 
   .meta-row dt {
-    font-size: 0.75rem;
-    color: #64748b;
-    white-space: nowrap;
-    padding-top: 0.1rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 
   .meta-row dd {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
+    font-size: var(--text-sm);
+    color: var(--text);
+    margin: 0;
     text-align: right;
-  }
-
-  .meta-row-artifacts dd {
-    text-align: right;
-  }
-
-  .artifact-summary-counts {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    align-items: flex-end;
-  }
-
-  .artifact-pill {
-    font-size: 0.675rem;
-    color: #94a3b8;
-    background: #1e2435;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
   }
 
   .label-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
+    gap: 4px;
     justify-content: flex-end;
-  }
-
-  .label-chip {
-    font-size: 0.675rem;
-    background: #1e2435;
-    color: #94a3b8;
-    padding: 0.15rem 0.375rem;
-    border-radius: 3px;
   }
 
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-2);
   }
-
-  .sidebar-link {
-    font-size: 0.8125rem;
-    color: #64748b;
-    text-decoration: none;
-    padding: 0.5rem 0.875rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    transition: color 0.15s, border-color 0.15s;
-  }
-
-  .sidebar-link:hover {
-    color: #a855f7;
-    border-color: rgba(168, 85, 247, 0.3);
-  }
-
-  /* Dependencies section */
-  .dep-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .dep-group:last-child {
-    margin-bottom: 0;
-  }
-
-  .dep-group-label {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.25rem 0;
-  }
-
-  .dep-blocked-label { color: #ef4444; }
-  .dep-blocking-label { color: #eab308; }
-
-  .dep-list {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .dep-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #1e2435;
-    text-decoration: none;
-    color: inherit;
-    transition: background 0.15s;
-  }
-
-  .dep-row:hover {
-    background: #21273a;
-  }
-
-  .dep-row:last-child {
-    border-bottom: none;
-  }
-
-  .dep-status {
-    font-size: 0.7rem;
-    flex-shrink: 0;
-    width: 1rem;
-    text-align: center;
-  }
-
-  .dep-id {
-    font-size: 0.675rem;
-    font-weight: 600;
-    color: #a855f7;
-    flex-shrink: 0;
-  }
-
-  .dep-title {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dep-priority {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    flex-shrink: 0;
-  }
-
-  /* Shared status/priority colors */
-  :global(.status-done) { color: #22c55e; }
-  :global(.status-active) { color: #3b82f6; }
-  :global(.status-blocked) { color: #ef4444; }
-  :global(.status-pending) { color: #475569; }
-  :global(.priority-critical) { color: #ef4444; }
-  :global(.priority-high) { color: #f97316; }
-  :global(.priority-medium) { color: #eab308; }
-  :global(.priority-low) { color: #64748b; }
 </style>

@@ -37,15 +37,76 @@
  * @epic T876 (owner-labelled T900) | T949
  */
 
-import type { Task, TaskRollupPayload } from '@cleocode/contracts';
+import type { Task, TaskPriority, TaskRollupPayload, TaskStatus } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
 import { getAccessor } from '@cleocode/core/store/data-accessor';
 import { listTasks } from '@cleocode/core/tasks/list';
+import type { RecentTaskRow } from '$lib/components/tasks';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import { type ExplorerBundle, loadExplorerBundle } from '$lib/server/tasks/explorer-loader.js';
 import type { PageServerLoad } from './$types';
 
 export type { ExplorerBundle };
+
+/**
+ * Set of all valid {@link TaskStatus} values, used for O(1) narrowing at
+ * the server boundary. Sourced from the canonical {@link TASK_STATUSES}
+ * registry so any future status addition is picked up for free.
+ */
+const TASK_STATUS_SET: ReadonlySet<TaskStatus> = new Set<TaskStatus>(TASK_STATUSES);
+
+/**
+ * Set of canonical {@link TaskPriority} values. Mirrors the union in
+ * `@cleocode/contracts` — the contracts package does not (yet) export a
+ * runtime constant tuple for it, so we declare the narrow literal tuple
+ * here and let TypeScript enforce exhaustiveness via the
+ * `TaskPriority[]` type annotation.
+ */
+const TASK_PRIORITY_SET: ReadonlySet<TaskPriority> = new Set<TaskPriority>([
+  'critical',
+  'high',
+  'medium',
+  'low',
+]);
+
+/**
+ * Narrow a raw `status` string from the SQL layer to {@link TaskStatus}.
+ *
+ * The dashboard SELECT filters rows to `('active', 'pending', 'done'[,
+ * 'archived'])`, but the DB column is declared as `TEXT` — so at the TS
+ * layer we still need to prove the narrowing to satisfy the strict
+ * {@link RecentTaskRow} union. Unknown values fall back to `'cancelled'`
+ * (a terminal bucket that cannot ship an unrelated render path) and log
+ * a one-line warning so a schema drift bug gets noticed.
+ */
+function narrowStatus(raw: string, taskId: string): TaskStatus {
+  if (TASK_STATUS_SET.has(raw as TaskStatus)) {
+    return raw as TaskStatus;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[tasks/+page.server] unexpected status "${raw}" for ${taskId}; coerced to "cancelled".`,
+  );
+  return 'cancelled';
+}
+
+/**
+ * Narrow a raw `priority` string from the SQL layer to {@link TaskPriority}.
+ *
+ * Same rationale as {@link narrowStatus} — the DB column is loose. Unknown
+ * values fall back to `'low'` and warn once per row.
+ */
+function narrowPriority(raw: string, taskId: string): TaskPriority {
+  if (TASK_PRIORITY_SET.has(raw as TaskPriority)) {
+    return raw as TaskPriority;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[tasks/+page.server] unexpected priority "${raw}" for ${taskId}; coerced to "low".`,
+  );
+  return 'low';
+}
 
 export interface DashboardStats {
   total: number;
@@ -63,15 +124,17 @@ export interface DashboardStats {
   subtasks: number;
 }
 
-export interface RecentTask {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  type: string;
-  pipeline_stage: string | null;
-  updated_at: string;
-}
+/**
+ * Public server-load row shape for the Recent Activity feed.
+ *
+ * T990 integration cleanup: this is now a strict alias for
+ * {@link RecentTaskRow} so the server's return type lines up with the
+ * component prop contract without a cast at the call site. The old
+ * loose `{ status: string; priority: string; ... }` shape has been
+ * retired — narrowing happens inside `load()` via
+ * {@link narrowStatus} / {@link narrowPriority}.
+ */
+export type RecentTask = RecentTaskRow;
 
 export interface EpicProgress {
   id: string;
@@ -476,7 +539,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     const recentStatusFilter = showArchived
       ? `status IN ('active', 'pending', 'done', 'archived')`
       : `status IN ('active', 'pending', 'done')`;
-    const recentTasks = db
+    const recentRaw = db
       .prepare(
         `SELECT id, title, status, priority, type, pipeline_stage, updated_at
          FROM tasks
@@ -484,7 +547,29 @@ export const load: PageServerLoad = async ({ locals, url }) => {
          ORDER BY updated_at DESC
          LIMIT 20`,
       )
-      .all() as RecentTask[];
+      .all() as Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority: string;
+      type: string;
+      pipeline_stage: string | null;
+      updated_at: string;
+    }>;
+
+    // T990 integration cleanup: narrow the loose SQL `status`/`priority`
+    // strings to their canonical unions before the payload crosses the
+    // server → client boundary. Unknown values warn + coerce (see
+    // `narrowStatus` / `narrowPriority`).
+    const recentTasks: RecentTaskRow[] = recentRaw.map((row) => ({
+      id: row.id,
+      title: row.title,
+      status: narrowStatus(row.status, row.id),
+      priority: narrowPriority(row.priority, row.id),
+      type: row.type,
+      pipeline_stage: row.pipeline_stage,
+      updated_at: row.updated_at,
+    }));
 
     // T874/T878/T948/T958: epic progress uses the facade rollup so Studio
     // shares the CANONICAL projection with CLI + /tasks/pipeline (no more

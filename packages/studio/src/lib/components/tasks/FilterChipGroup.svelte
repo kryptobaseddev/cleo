@@ -103,17 +103,17 @@
     align-items: center;
     gap: 4px;
     padding: 2px;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     flex-wrap: wrap;
   }
 
   .chip-group-label {
-    font-size: 0.6875rem;
+    font-size: var(--text-2xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #64748b;
+    color: var(--text-faint);
     padding: 0 0.375rem;
     display: flex;
     align-items: center;
@@ -123,12 +123,12 @@
   .chip {
     background: transparent;
     border: none;
-    color: #94a3b8;
+    color: var(--text-dim);
     padding: 0.25rem 0.625rem;
-    border-radius: 3px;
-    font-size: 0.75rem;
+    border-radius: var(--radius-xs);
+    font-size: var(--text-xs);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--ease), color var(--ease);
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -137,17 +137,17 @@
   }
 
   .chip:hover {
-    color: #e2e8f0;
+    color: var(--text);
   }
 
   .chip:focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.5);
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
 
   .chip.active {
-    color: #f1f5f9;
-    background: #2d3748;
+    color: var(--text);
+    background: var(--bg-elev-2);
   }
 
   .chip.active[style*="--chip-tint"] {

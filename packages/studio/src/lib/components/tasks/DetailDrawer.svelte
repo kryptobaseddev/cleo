@@ -1,125 +1,84 @@
 <!--
   DetailDrawer — right-side slide-out panel for task inspection.
 
-  Ported from the standalone viz drawer at
-  `/tmp/task-viz/index.html:330-459` into a reusable Svelte 5 rune
-  component. Matches the spec anatomy in
-  `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §5.5:
+  Post-T990 Wave 1C, the 749-line monolith is decomposed into:
 
-    ┌──────────────────────────────────────────────┐
-    │ [T123]  [× close]                            │
-    │ Title here (wraps)                           │
-    │ ┌────────────────────────────────────────┐   │
-    │ │ Status    │ Priority                   │   │
-    │ │ Type      │ Size                       │   │
-    │ │ Parent    │ Labels                     │   │
-    │ │ Pipeline  │ Updated                    │   │
-    │ └────────────────────────────────────────┘   │
-    │ Acceptance criteria (bullets)                │
-    │ ─────────────────────────────────            │
-    │ Depends on (↑N)                              │
-    │   T12 · T45 · …                              │
-    │ Depended on by (↓N)                          │
-    │   T98 · T120 · …                             │
-    │ Parent chain                                 │
-    │   Epic T-X → Task T-Y → this                 │
-    │ ─────────────────────────────────            │
-    │ [Open full page →]   [Start working]         │
-    └──────────────────────────────────────────────┘
+    - IdentitySection     — id badge + close + title + meta grid
+    - BreadcrumbSection   — parent chain
+    - DependenciesSection — upstream + downstream lists
+    - GatesSection        — acceptance-gate visualization
+    - LabelsSection       — labels + acceptance criteria
 
-  Behaviour:
-    - Opens on node click (graph), row click (hierarchy), card click (kanban).
-    - `Esc` closes (handler registered only while open).
-    - This component is presentational: deps + epic-chain + actions are
-      passed in by the parent. Dep navigation REPINS the drawer via the
-      `onSelectDep` callback; the parent decides whether that also
-      updates the URL (`?selected=T###`).
-    - `Open full page →` navigates to `/tasks/{id}` for the existing
-      full detail page — preserves legacy behaviour as opt-in.
+  The drawer itself orchestrates and performs the live-refresh fetch
+  against `/api/tasks/[id]` + `/api/tasks/[id]/deps` when a task pins, so
+  stale props from the ExplorerBundle don't leak through.
 
-  No API calls inside the component — data loading is T952's job.
+  Behaviour preserved from the previous monolith:
+
+    - Opens on node click (graph) / row click (hierarchy) / card click (kanban)
+    - Esc closes (registered only while open)
+    - Dep click repins via `onSelectDep` (prevents page nav)
+    - `Open full page →` anchors to `/tasks/{id}`
 
   @task T950
   @epic T949
+  @reviewed T990 (Wave 1C)
 -->
-<script lang="ts">
-  import type { Task } from '@cleocode/contracts';
-  import { onMount } from 'svelte';
-  import PriorityBadge from './PriorityBadge.svelte';
-  import StatusBadge from './StatusBadge.svelte';
-  import { formatTime } from './format.js';
-
+<script lang="ts" module>
   /**
-   * Minimal shape of a dependency link rendered in the drawer.
-   *
-   * The parent resolves the upstream / downstream arrays from
-   * `/api/tasks/[id]/deps` and passes them in.
+   * Single dependency-link entry rendered by the Dependencies section.
+   * Re-declared at module-scope so the Task Explorer barrel
+   * (`./index.ts`) can re-export the type alongside the component.
    */
   export interface DependencyLink {
-    /** Linked task ID. */
     id: string;
-    /** Linked task title. */
     title: string;
-    /** Linked task status (drives the leading colour dot). */
     status: string;
-    /** Linked task priority. @defaultValue undefined */
     priority?: string;
   }
 
   /**
-   * Single breadcrumb entry in the parent chain.
+   * Single parent-chain entry rendered by the Breadcrumb section.
    */
   export interface ParentChainEntry {
-    /** Ancestor task ID. */
     id: string;
-    /** Ancestor task title. */
     title: string;
-    /** Ancestor type — epic/task/subtask. @defaultValue undefined */
     type?: string;
   }
+</script>
+
+<script lang="ts">
+  import type { Task } from '@cleocode/contracts';
+  import { onMount } from 'svelte';
+
+  import Modal from '$lib/ui/Modal.svelte';
+
+  import BreadcrumbSection from './DetailDrawer/BreadcrumbSection.svelte';
+  import DependenciesSection from './DetailDrawer/DependenciesSection.svelte';
+  import GatesSection from './DetailDrawer/GatesSection.svelte';
+  import IdentitySection from './DetailDrawer/IdentitySection.svelte';
+  import LabelsSection from './DetailDrawer/LabelsSection.svelte';
 
   /**
-   * Props for {@link DetailDrawer}.
+   * Props for {@link DetailDrawer}. The drawer component hides itself
+   * when `task` is `null`.
    */
   interface Props {
-    /**
-     * The task currently pinned in the drawer, or `null` when closed.
-     * The component hides itself when `task` is null.
-     */
     task: Task | null;
-    /** Called when the user closes the drawer (Esc, × button, backdrop click). */
     onClose: () => void;
-    /**
-     * Upstream (blockers) — tasks that this one depends on.
-     * @defaultValue []
-     */
     upstream?: DependencyLink[];
-    /**
-     * Downstream (dependents) — tasks that depend on this one.
-     * @defaultValue []
-     */
     downstream?: DependencyLink[];
-    /**
-     * Parent chain from root to current (exclusive of current).
-     * Rendered as breadcrumbs. @defaultValue []
-     */
     parentChain?: ParentChainEntry[];
-    /**
-     * Called when the user clicks a dependency row. The parent should
-     * REPIN the drawer with the new task instead of navigating the page.
-     * When omitted, clicks render as plain `/tasks/<id>` anchors.
-     */
     onSelectDep?: (id: string) => void;
-    /**
-     * When true, show a loading indicator inside the deps panels.
-     * @defaultValue false
-     */
     loading?: boolean;
-    /**
-     * Error message rendered in the deps panels when non-empty.
-     * @defaultValue undefined
-     */
     error?: string | null;
+    /**
+     * When true (default), the drawer fetches fresh state from
+     * `/api/tasks/[id]` + `/api/tasks/[id]/deps` whenever `task.id`
+     * changes.  Callers that already resolve deps in-memory can pass
+     * `false` to skip the roundtrip.
+     */
+    liveFetch?: boolean;
   }
 
   let {
@@ -131,30 +90,73 @@
     onSelectDep,
     loading = false,
     error,
+    liveFetch = true,
   }: Props = $props();
 
-  const acceptanceStrings: string[] = $derived.by(() => {
-    if (!task || !Array.isArray(task.acceptance)) return [];
-    return task.acceptance.map((item) =>
-      typeof item === 'string' ? item : (item.description ?? ''),
-    );
+  // Live-fetched deps override the props when available.
+  let fetchedUpstream = $state<DependencyLink[] | null>(null);
+  let fetchedDownstream = $state<DependencyLink[] | null>(null);
+  let fetchedTask = $state<Task | null>(null);
+  let fetchLoading = $state(false);
+  let fetchError = $state<string | null>(null);
+
+  // Effective values — fetched wins over props when live fetch succeeded.
+  const effectiveTask = $derived(fetchedTask ?? task);
+  const effectiveUpstream = $derived(fetchedUpstream ?? upstream);
+  const effectiveDownstream = $derived(fetchedDownstream ?? downstream);
+  const effectiveLoading = $derived(loading || fetchLoading);
+  const effectiveError = $derived(error ?? fetchError);
+
+  /**
+   * When the pinned task changes, optionally re-fetch fresh state from
+   * the API so the drawer never shows stale counts.
+   */
+  $effect(() => {
+    const id = task?.id;
+    if (!id || !liveFetch) {
+      fetchedUpstream = null;
+      fetchedDownstream = null;
+      fetchedTask = null;
+      fetchError = null;
+      return;
+    }
+    const controller = new AbortController();
+    fetchLoading = true;
+    fetchError = null;
+    const run = async (): Promise<void> => {
+      try {
+        const [taskRes, depsRes] = await Promise.all([
+          fetch(`/api/tasks/${id}`, { signal: controller.signal }),
+          fetch(`/api/tasks/${id}/deps`, { signal: controller.signal }),
+        ]);
+        if (!taskRes.ok) {
+          // Non-fatal: fall back to props; surface a warning only.
+          fetchError = `Task refresh failed (${taskRes.status})`;
+          return;
+        }
+        const taskBody = (await taskRes.json()) as { task?: Task; error?: string };
+        if (taskBody.task) {
+          fetchedTask = taskBody.task;
+        }
+        if (depsRes.ok) {
+          const depsBody = (await depsRes.json()) as {
+            upstream?: DependencyLink[];
+            downstream?: DependencyLink[];
+          };
+          if (Array.isArray(depsBody.upstream)) fetchedUpstream = depsBody.upstream;
+          if (Array.isArray(depsBody.downstream)) fetchedDownstream = depsBody.downstream;
+        }
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          fetchError = `Fetch error: ${(e as Error).message}`;
+        }
+      } finally {
+        fetchLoading = false;
+      }
+    };
+    void run();
+    return () => controller.abort();
   });
-
-  function statusDotColor(s: string): string {
-    if (s === 'done') return '#22c55e';
-    if (s === 'active') return '#3b82f6';
-    if (s === 'blocked') return '#ef4444';
-    if (s === 'cancelled') return '#94a3b8';
-    if (s === 'archived') return '#64748b';
-    if (s === 'proposed') return '#a855f7';
-    return '#f59e0b';
-  }
-
-  function handleDepClick(e: Event, id: string): void {
-    if (!onSelectDep) return;
-    e.preventDefault();
-    onSelectDep(id);
-  }
 
   onMount(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -168,524 +170,101 @@
   });
 </script>
 
-{#if task}
-  <aside
-    class="detail-drawer"
-    aria-label={`Task ${task.id} details`}
+{#if effectiveTask}
+  {@const modalOpen = true}
+  <Modal
+    open={modalOpen}
+    title={`Task ${effectiveTask.id}`}
+    maxWidth={44}
+    onclose={onClose}
+    class="task-detail-modal"
   >
-    <header class="drawer-header">
-      <span class="d-id">{task.id}</span>
-      <button
-        type="button"
-        class="close-btn"
-        onclick={onClose}
-        aria-label="Close detail drawer"
-      >
-        ×
-      </button>
-    </header>
+    {#snippet children()}
+      <div class="detail-body" aria-label={`Task ${effectiveTask.id} details`}>
+        <IdentitySection task={effectiveTask} {onClose} />
 
-    <h3 class="d-title">{task.title}</h3>
+        <BreadcrumbSection task={effectiveTask} chain={parentChain} {onSelectDep} />
 
-    {#if parentChain.length > 0}
-      <nav class="parent-chain" aria-label="Parent chain">
-        {#each parentChain as entry, idx (entry.id)}
-          {#if onSelectDep}
-            <button
-              type="button"
-              class="crumb"
-              onclick={() => onSelectDep?.(entry.id)}
-              aria-label={`Open ${entry.id}`}
-            >
-              {#if entry.type}
-                <span class="crumb-type">{entry.type}</span>
-              {/if}
-              <span class="crumb-id">{entry.id}</span>
-            </button>
-          {:else}
-            <a href={`/tasks/${entry.id}`} class="crumb">
-              {#if entry.type}
-                <span class="crumb-type">{entry.type}</span>
-              {/if}
-              <span class="crumb-id">{entry.id}</span>
-            </a>
-          {/if}
-          {#if idx < parentChain.length - 1}
-            <span class="crumb-sep" aria-hidden="true">›</span>
-          {:else}
-            <span class="crumb-sep" aria-hidden="true">›</span>
-            <span class="crumb-current">{task.id}</span>
-          {/if}
-        {/each}
-      </nav>
-    {/if}
-
-    <dl class="d-meta">
-      <dt>Status</dt>
-      <dd><StatusBadge status={task.status} /></dd>
-
-      <dt>Priority</dt>
-      <dd><PriorityBadge priority={task.priority ?? 'medium'} /></dd>
-
-      {#if task.type}
-        <dt>Type</dt>
-        <dd>{task.type}</dd>
-      {/if}
-
-      {#if task.size}
-        <dt>Size</dt>
-        <dd>{task.size}</dd>
-      {/if}
-
-      {#if task.parentId}
-        <dt>Parent</dt>
-        <dd>
-          {#if onSelectDep}
-            <button
-              type="button"
-              class="inline-link"
-              onclick={() => onSelectDep?.(task.parentId ?? '')}
-            >
-              {task.parentId}
-            </button>
-          {:else}
-            <a href={`/tasks/${task.parentId}`} class="inline-link">{task.parentId}</a>
-          {/if}
-        </dd>
-      {/if}
-
-      {#if task.pipelineStage}
-        <dt>Pipeline</dt>
-        <dd>{task.pipelineStage}</dd>
-      {/if}
-
-      {#if task.updatedAt}
-        <dt>Updated</dt>
-        <dd>{formatTime(task.updatedAt)}</dd>
-      {/if}
-    </dl>
-
-    {#if Array.isArray(task.labels) && task.labels.length > 0}
-      <section class="d-section">
-        <h4 class="section-h">Labels</h4>
-        <div class="labels-row">
-          {#each task.labels as lbl}
-            <span class="label-pill">{lbl}</span>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    {#if acceptanceStrings.length > 0}
-      <section class="d-section">
-        <h4 class="section-h">Acceptance Criteria</h4>
-        <ul class="criteria-list">
-          {#each acceptanceStrings as crit}
-            <li>{crit}</li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-
-    <section class="d-section">
-      <h4 class="section-h">
-        Depends on
-        {#if upstream.length > 0}
-          <span class="count-badge">↑{upstream.length}</span>
-        {/if}
-      </h4>
-      {#if loading}
-        <div class="d-empty-small">Loading…</div>
-      {:else if error}
-        <div class="d-empty-small error">{error}</div>
-      {:else if upstream.length === 0}
-        <div class="d-empty-small">None.</div>
-      {:else}
-        <ul class="d-list">
-          {#each upstream as dep (dep.id)}
+        {#if effectiveTask.parentId}
+          <div class="parent-row">
+            <span class="parent-label">Parent</span>
             {#if onSelectDep}
-              <li>
-                <button
-                  type="button"
-                  class="dep-btn"
-                  onclick={(e) => handleDepClick(e, dep.id)}
-                >
-                  <span
-                    class="dep-dot"
-                    style="background:{statusDotColor(dep.status)}"
-                    aria-hidden="true"
-                  ></span>
-                  <span class="iid">{dep.id}</span>
-                  <span class="ititle">{dep.title}</span>
-                </button>
-              </li>
+              <button
+                type="button"
+                class="inline-link"
+                onclick={() => onSelectDep?.(effectiveTask.parentId ?? '')}
+              >{effectiveTask.parentId}</button>
             {:else}
-              <li>
-                <a href={`/tasks/${dep.id}`} class="dep-btn dep-link">
-                  <span
-                    class="dep-dot"
-                    style="background:{statusDotColor(dep.status)}"
-                    aria-hidden="true"
-                  ></span>
-                  <span class="iid">{dep.id}</span>
-                  <span class="ititle">{dep.title}</span>
-                </a>
-              </li>
+              <a href={`/tasks/${effectiveTask.parentId}`} class="inline-link">
+                {effectiveTask.parentId}
+              </a>
             {/if}
-          {/each}
-        </ul>
-      {/if}
-    </section>
-
-    <section class="d-section">
-      <h4 class="section-h">
-        Depended on by
-        {#if downstream.length > 0}
-          <span class="count-badge">↓{downstream.length}</span>
+          </div>
         {/if}
-      </h4>
-      {#if loading}
-        <div class="d-empty-small">Loading…</div>
-      {:else if downstream.length === 0}
-        <div class="d-empty-small">None.</div>
-      {:else}
-        <ul class="d-list">
-          {#each downstream as dep (dep.id)}
-            {#if onSelectDep}
-              <li>
-                <button
-                  type="button"
-                  class="dep-btn"
-                  onclick={(e) => handleDepClick(e, dep.id)}
-                >
-                  <span
-                    class="dep-dot"
-                    style="background:{statusDotColor(dep.status)}"
-                    aria-hidden="true"
-                  ></span>
-                  <span class="iid">{dep.id}</span>
-                  <span class="ititle">{dep.title}</span>
-                </button>
-              </li>
-            {:else}
-              <li>
-                <a href={`/tasks/${dep.id}`} class="dep-btn dep-link">
-                  <span
-                    class="dep-dot"
-                    style="background:{statusDotColor(dep.status)}"
-                    aria-hidden="true"
-                  ></span>
-                  <span class="iid">{dep.id}</span>
-                  <span class="ititle">{dep.title}</span>
-                </a>
-              </li>
-            {/if}
-          {/each}
-        </ul>
-      {/if}
-    </section>
 
-    <footer class="drawer-actions">
-      <a href={`/tasks/${task.id}`} class="btn btn-secondary">Open full page →</a>
-      <!--
-        Future: wire to CRUD API via task-explorer store (T952).
-        Keeping as a disabled hint so the action bar shape is preserved.
-      -->
-      <button type="button" class="btn btn-primary" disabled title="Wire in T952">
-        Start working
-      </button>
-    </footer>
-  </aside>
+        <LabelsSection task={effectiveTask} />
+
+        <GatesSection task={effectiveTask} />
+
+        <DependenciesSection
+          upstream={effectiveUpstream}
+          downstream={effectiveDownstream}
+          {onSelectDep}
+          loading={effectiveLoading}
+          error={effectiveError}
+        />
+      </div>
+    {/snippet}
+
+    {#snippet footer()}
+      <div class="drawer-actions">
+        <a href={`/tasks/${effectiveTask.id}`} class="btn btn-secondary">Open full page →</a>
+        <button
+          type="button"
+          class="btn btn-primary"
+          disabled
+          title="Wire in T952"
+        >
+          Start working
+        </button>
+      </div>
+    {/snippet}
+  </Modal>
 {/if}
 
 <style>
-  .detail-drawer {
-    width: 360px;
-    min-width: 320px;
-    max-width: 360px;
-    background: #151822;
-    border-left: 1px solid #2a2e3d;
-    overflow-y: auto;
-    padding: 1rem 1rem 2.5rem;
-    font-size: 0.875rem;
+  /* Inside the Modal primitive — body content scrolls vertically when long. */
+  .detail-body {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-3);
+    font-size: var(--text-base);
   }
 
-  .drawer-header {
+  .parent-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    position: sticky;
-    top: 0;
-    background: #151822;
-    padding-bottom: 0.375rem;
-    border-bottom: 1px solid #2a2e3d;
-    margin: -1rem -1rem 0;
-    padding: 0.75rem 1rem 0.5rem;
-    z-index: 2;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
   }
 
-  .d-id {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    color: #a78bfa;
-    font-size: 0.8125rem;
-    background: rgba(167, 139, 250, 0.15);
-    padding: 2px 8px;
-    border-radius: 4px;
-  }
-
-  .close-btn {
-    background: transparent;
-    border: 1px solid #2a2e3d;
-    color: #9aa3b2;
-    cursor: pointer;
-    width: 28px;
-    height: 28px;
-    border-radius: 4px;
-    font-size: 1.125rem;
-    line-height: 1;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.15s, border-color 0.15s;
-    font-family: inherit;
-  }
-
-  .close-btn:hover {
-    color: #e7eaf3;
-    border-color: #3a4055;
-  }
-
-  .close-btn:focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.5);
-    outline-offset: 1px;
-  }
-
-  .d-title {
-    font-size: 1rem;
-    line-height: 1.35;
-    margin: 0;
-    color: #e7eaf3;
-    font-weight: 600;
-  }
-
-  .parent-chain {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.7rem;
-  }
-
-  .crumb {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.1rem 0.375rem;
-    border-radius: 3px;
-    background: #1b1f2c;
-    border: 1px solid #2a2e3d;
-    color: #9aa3b2;
-    text-decoration: none;
-    font: inherit;
-    font-size: 0.7rem;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
-  }
-
-  .crumb:hover {
-    color: #e7eaf3;
-    border-color: #3a4055;
-  }
-
-  .crumb-type {
-    font-size: 0.6rem;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .crumb-id {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    color: #a78bfa;
-  }
-
-  .crumb-sep {
-    color: #6b7280;
-  }
-
-  .crumb-current {
-    color: #e7eaf3;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 0.7rem;
-  }
-
-  .d-meta {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.375rem 1rem;
-    font-size: 0.75rem;
-    margin: 0;
-    padding: 0.75rem;
-    background: #1b1f2c;
-    border-radius: 4px;
-    border: 1px solid #2a2e3d;
-  }
-
-  .d-meta dt {
-    color: #6b7280;
+  .parent-label {
+    color: var(--text-faint);
     text-transform: uppercase;
     font-size: 0.625rem;
     letter-spacing: 0.06em;
-    padding-top: 2px;
     font-weight: 600;
-  }
-
-  .d-meta dd {
-    margin: 0;
-    color: #e7eaf3;
-    font-size: 0.75rem;
-  }
-
-  .d-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .section-h {
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #6b7280;
-    margin: 0;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-  }
-
-  .count-badge {
-    font-size: 0.625rem;
-    color: #94a3b8;
-    background: #1b1f2c;
-    border: 1px solid #2a2e3d;
-    padding: 0.05rem 0.375rem;
-    border-radius: 999px;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0;
-    text-transform: none;
-  }
-
-  .criteria-list {
-    list-style: disc outside;
-    padding-left: 1.125rem;
-    margin: 0;
-    color: #e7eaf3;
-    font-size: 0.8125rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .d-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .dep-btn {
-    background: #1b1f2c;
-    border: 1px solid #2a2e3d;
-    border-radius: 4px;
-    padding: 0.375rem 0.625rem;
-    font-size: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: background 0.15s, border-color 0.15s;
-    cursor: pointer;
-    width: 100%;
-    text-align: left;
-    color: inherit;
-    text-decoration: none;
-    font-family: inherit;
-  }
-
-  .dep-btn:hover {
-    border-color: #3a4055;
-    background: #212534;
-  }
-
-  .dep-btn:focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.5);
-    outline-offset: 1px;
-  }
-
-  .dep-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .iid {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    color: #a78bfa;
-    font-size: 0.6875rem;
-    flex-shrink: 0;
-  }
-
-  .ititle {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #9aa3b2;
-  }
-
-  .d-empty-small {
-    font-size: 0.75rem;
-    color: #6b7280;
-    padding: 0.25rem 0.125rem;
-  }
-
-  .d-empty-small.error {
-    color: #ef4444;
-  }
-
-  .labels-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .label-pill {
-    font-size: 0.625rem;
-    background: #1b1f2c;
-    border: 1px solid #2a2e3d;
-    color: #9aa3b2;
-    padding: 2px 7px;
-    border-radius: 999px;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
 
   .inline-link {
     background: transparent;
     border: none;
     padding: 0;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    color: #a78bfa;
+    font-family: var(--font-mono);
+    color: var(--accent);
     cursor: pointer;
     text-decoration: none;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
   }
 
   .inline-link:hover {
@@ -694,35 +273,35 @@
 
   .drawer-actions {
     display: flex;
-    gap: 0.5rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid #2a2e3d;
-    margin-top: 0.5rem;
+    gap: var(--space-2);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    margin-top: var(--space-2);
   }
 
   .btn {
     flex: 1;
-    padding: 0.5rem 0.75rem;
-    border-radius: 4px;
-    font-size: 0.8125rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
     font-weight: 500;
     text-align: center;
     cursor: pointer;
     border: 1px solid transparent;
     font-family: inherit;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    transition: background var(--ease), border-color var(--ease), color var(--ease);
     text-decoration: none;
   }
 
   .btn-primary {
-    background: rgba(168, 85, 247, 0.15);
-    color: #a78bfa;
-    border-color: rgba(168, 85, 247, 0.4);
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.25);
-    border-color: rgba(168, 85, 247, 0.7);
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
   }
 
   .btn-primary:disabled {
@@ -731,19 +310,19 @@
   }
 
   .btn-secondary {
-    background: #1b1f2c;
-    color: #e7eaf3;
-    border-color: #2a2e3d;
+    background: var(--bg-elev-2);
+    color: var(--text);
+    border-color: var(--border);
   }
 
   .btn-secondary:hover {
-    background: #212534;
-    border-color: #3a4055;
+    background: color-mix(in srgb, var(--bg-elev-2) 70%, var(--bg-elev-1));
+    border-color: var(--border-strong);
   }
 
   .btn-secondary:focus-visible,
   .btn-primary:focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.6);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 </style>

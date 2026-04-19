@@ -1,11 +1,15 @@
 /**
- * Symbol ego-network page server load.
+ * /code/symbol/[name] — ego-network page server load.
  *
- * Fetches the 2-hop ego network for the named symbol directly from nexus.db.
+ * Wires through `/api/nexus/symbol/[name]` to kill the duplicate SQL
+ * path flagged by the T990 code audit.  Returns the raw API payload
+ * + a friendly community label for the breadcrumb.
+ *
+ * @task T990
+ * @wave 1B
  */
 
 import { error } from '@sveltejs/kit';
-import { getNexusDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
 export interface EgoNode {
@@ -24,143 +28,49 @@ export interface EgoEdge {
   type: string;
 }
 
-export const load: PageServerLoad = ({ params }) => {
-  const db = getNexusDb();
-  if (!db) {
-    error(503, 'nexus.db not available');
-  }
+export interface SymbolPageData {
+  symbolName: string;
+  nodes: EgoNode[];
+  edges: EgoEdge[];
+  center: EgoNode | null;
+  communityLabel: string | null;
+}
 
+export const load: PageServerLoad = async ({ params, fetch }) => {
   const name = decodeURIComponent(params.name);
+  const resp = await fetch(`/api/nexus/symbol/${encodeURIComponent(name)}`);
 
-  const centerRow = db
-    .prepare(
-      `SELECT id, label, kind, file_path, community_id
-       FROM nexus_nodes
-       WHERE label = ? OR id = ?
-       ORDER BY CASE WHEN label = ? THEN 0 ELSE 1 END
-       LIMIT 1`,
-    )
-    .get(name, name, name) as
-    | { id: string; label: string; kind: string; file_path: string; community_id: string | null }
-    | undefined;
-
-  if (!centerRow) {
-    error(404, `Symbol "${name}" not found`);
+  if (!resp.ok) {
+    if (resp.status === 404) error(404, `Symbol "${name}" not found`);
+    if (resp.status === 503) error(503, 'nexus.db not available');
+    error(resp.status, 'Failed to load symbol');
   }
 
-  const centerId = centerRow.id;
+  const payload = (await resp.json()) as {
+    center: string;
+    nodes: EgoNode[];
+    edges: EgoEdge[];
+  };
 
-  const hop1Rows = db
-    .prepare(
-      `SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.community_id
-       FROM nexus_relations r
-       JOIN nexus_nodes n ON (r.target_id = n.id OR r.source_id = n.id)
-       WHERE (r.source_id = ? OR r.target_id = ?)
-         AND n.id != ?
-       LIMIT 100`,
-    )
-    .all(centerId, centerId, centerId) as {
-    id: string;
-    label: string;
-    kind: string;
-    file_path: string;
-    community_id: string | null;
-  }[];
+  const center = payload.nodes.find((n) => n.id === payload.center) ?? null;
 
-  const hop1Ids = hop1Rows.map((n) => n.id);
-
-  let hop2Rows: typeof hop1Rows = [];
-  if (hop1Ids.length > 0) {
-    const placeholders = hop1Ids.map(() => '?').join(',');
-    const excludeIds = [centerId, ...hop1Ids];
-    const excludePlaceholders = excludeIds.map(() => '?').join(',');
-    hop2Rows = db
-      .prepare(
-        `SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.community_id
-         FROM nexus_relations r
-         JOIN nexus_nodes n ON (r.target_id = n.id OR r.source_id = n.id)
-         WHERE (r.source_id IN (${placeholders}) OR r.target_id IN (${placeholders}))
-           AND n.id NOT IN (${excludePlaceholders})
-         LIMIT 200`,
-      )
-      .all(...hop1Ids, ...hop1Ids, ...excludeIds) as typeof hop1Rows;
-  }
-
-  const allIds = [centerId, ...hop1Ids, ...hop2Rows.map((n) => n.id)];
-
-  const callerCounts = new Map<string, number>();
-  if (allIds.length > 0) {
-    const placeholders = allIds.map(() => '?').join(',');
-    const ccRows = db
-      .prepare(
-        `SELECT target_id, COUNT(*) AS cnt
-         FROM nexus_relations
-         WHERE target_id IN (${placeholders}) AND type = 'calls'
-         GROUP BY target_id`,
-      )
-      .all(...allIds) as { target_id: string; cnt: number }[];
-    for (const row of ccRows) {
-      callerCounts.set(row.target_id, row.cnt);
+  let communityLabel: string | null = null;
+  if (center?.communityId) {
+    const listResp = await fetch('/api/nexus?only=communities');
+    if (listResp.ok) {
+      const data = (await listResp.json()) as {
+        communities: { id: string; rawLabel: string }[];
+      };
+      const match = data.communities.find((c) => c.id === center.communityId);
+      communityLabel = match?.rawLabel ?? center.communityId.replace('comm_', 'Cluster ');
     }
   }
 
-  const edgeRows =
-    allIds.length > 0
-      ? (db
-          .prepare(
-            `SELECT source_id, target_id, type
-             FROM nexus_relations
-             WHERE source_id IN (${allIds.map(() => '?').join(',')})
-               AND target_id IN (${allIds.map(() => '?').join(',')})
-             LIMIT 1000`,
-          )
-          .all(...allIds, ...allIds) as {
-          source_id: string;
-          target_id: string;
-          type: string;
-        }[])
-      : [];
-
-  const egoNodes: EgoNode[] = [
-    {
-      id: centerRow.id,
-      label: centerRow.label,
-      kind: centerRow.kind,
-      filePath: centerRow.file_path ?? '',
-      hop: 0,
-      callerCount: callerCounts.get(centerRow.id) ?? 0,
-      communityId: centerRow.community_id,
-    },
-    ...hop1Rows.map((n) => ({
-      id: n.id,
-      label: n.label,
-      kind: n.kind,
-      filePath: n.file_path ?? '',
-      hop: 1 as const,
-      callerCount: callerCounts.get(n.id) ?? 0,
-      communityId: n.community_id,
-    })),
-    ...hop2Rows.map((n) => ({
-      id: n.id,
-      label: n.label,
-      kind: n.kind,
-      filePath: n.file_path ?? '',
-      hop: 2 as const,
-      callerCount: callerCounts.get(n.id) ?? 0,
-      communityId: n.community_id,
-    })),
-  ];
-
-  const egoEdges: EgoEdge[] = edgeRows.map((e) => ({
-    source: e.source_id,
-    target: e.target_id,
-    type: e.type,
-  }));
-
   return {
     symbolName: name,
-    center: centerRow,
-    egoNodes,
-    egoEdges,
-  };
+    nodes: payload.nodes,
+    edges: payload.edges,
+    center,
+    communityLabel,
+  } satisfies SymbolPageData;
 };

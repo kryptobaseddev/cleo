@@ -53,21 +53,30 @@
     projects.find((p) => p.projectId === activeProjectId) ?? null,
   );
 
-  /** Chip colour based on project name initial. */
-  const CHIP_COLORS = [
-    '#3b82f6',
-    '#10b981',
-    '#f59e0b',
-    '#8b5cf6',
-    '#ec4899',
-    '#06b6d4',
-    '#84cc16',
-    '#f97316',
+  /**
+   * Chip colour tokens, resolved via `getComputedStyle` from
+   * `tokens.css`. Using tokens (not raw hex) keeps the hash-to-colour
+   * projection stable under dark / light theme swaps without leaking
+   * literals into the component source. `--chip-1..8` fall back to
+   * semantic tokens for the common rainbow progression.
+   *
+   * Order mirrors the historical raw-hex table so the name → chip
+   * hash stays deterministic across the T990 tokenisation pass.
+   */
+  const CHIP_COLOR_VARS = [
+    'var(--info)', // was #3b82f6 (blue)
+    'var(--success)', // was #10b981 (emerald)
+    'var(--warning)', // was #f59e0b (amber)
+    'var(--accent)', // was #8b5cf6 (violet)
+    'var(--priority-critical)', // was #ec4899 (pink)
+    'var(--edge-definition)', // was #06b6d4 (cyan)
+    'var(--edge-structural)', // was #84cc16 (lime — maps to success family)
+    'var(--edge-extends)', // was #f97316 (orange)
   ];
 
   function chipColor(name: string): string {
     const code = name.charCodeAt(0) || 0;
-    return CHIP_COLORS[code % CHIP_COLORS.length];
+    return CHIP_COLOR_VARS[code % CHIP_COLOR_VARS.length] ?? 'var(--accent)';
   }
 
   function chipLetter(name: string): string {
@@ -339,24 +348,24 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.25rem 0.625rem;
-    border-radius: 6px;
-    border: 1px solid #2d3748;
-    background: #1a1f2e;
-    color: #e2e8f0;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elev-1);
+    color: var(--text);
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1;
     transition:
-      border-color 0.15s,
-      background 0.15s;
+      border-color var(--ease),
+      background var(--ease);
     max-width: 220px;
   }
 
   .trigger:hover,
   .trigger.open {
-    border-color: #4a5568;
-    background: #232a3a;
+    border-color: var(--border-strong);
+    background: var(--bg-elev-2);
   }
 
   .chip {
@@ -365,15 +374,15 @@
     justify-content: center;
     width: 1.25rem;
     height: 1.25rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 0.625rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text);
     flex-shrink: 0;
   }
 
   .chip.placeholder {
-    background: #4a5568 !important;
+    background: var(--border-strong) !important;
   }
 
   .trigger-name {
@@ -382,17 +391,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #e2e8f0;
+    color: var(--text);
   }
 
   .trigger-name.muted {
-    color: #718096;
+    color: var(--text-faint);
   }
 
   .chevron {
-    color: #718096;
+    color: var(--text-faint);
     flex-shrink: 0;
-    transition: transform 0.2s;
+    transition: transform var(--ease-slow);
   }
 
   .chevron.rotated {
@@ -406,12 +415,10 @@
     left: 0;
     z-index: 200;
     width: 320px;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    box-shadow:
-      0 8px 24px rgba(0, 0, 0, 0.4),
-      0 2px 6px rgba(0, 0, 0, 0.2);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
     overflow: hidden;
   }
 
@@ -421,7 +428,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0.625rem;
-    border-bottom: 1px solid #2d3748;
+    border-bottom: 1px solid var(--border);
   }
 
   .search-wrap {
@@ -429,14 +436,14 @@
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     padding: 0.3125rem 0.5rem;
   }
 
   .search-icon {
-    color: #718096;
+    color: var(--text-faint);
     flex-shrink: 0;
   }
 
@@ -445,13 +452,13 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #e2e8f0;
+    color: var(--text);
     font-size: 0.75rem;
     font-family: inherit;
   }
 
   .search-input::placeholder {
-    color: #4a5568;
+    color: var(--text-faint);
   }
 
   .toggle-label {
@@ -464,7 +471,7 @@
   }
 
   .toggle-checkbox {
-    accent-color: #3b82f6;
+    accent-color: var(--info);
     width: 13px;
     height: 13px;
     cursor: pointer;
@@ -472,7 +479,7 @@
 
   .toggle-text {
     font-size: 0.6875rem;
-    color: #718096;
+    color: var(--text-faint);
   }
 
   /* ---- Project list ---- */
@@ -485,7 +492,7 @@
   .empty-msg {
     padding: 0.75rem 1rem;
     font-size: 0.75rem;
-    color: #718096;
+    color: var(--text-faint);
     text-align: center;
   }
 
@@ -499,8 +506,8 @@
     border: none;
     cursor: pointer;
     text-align: left;
-    color: #e2e8f0;
-    transition: background 0.12s;
+    color: var(--text);
+    transition: background var(--ease);
   }
 
   .project-row:disabled {
@@ -509,11 +516,11 @@
   }
 
   .project-row.highlighted {
-    background: #232a3a;
+    background: var(--bg-elev-2);
   }
 
   .project-row.active {
-    border-left: 2px solid #3b82f6;
+    border-left: 2px solid var(--info);
     padding-left: calc(0.625rem - 2px);
   }
 
@@ -527,10 +534,10 @@
     justify-content: center;
     width: 1.375rem;
     height: 1.375rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 0.625rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text);
     flex-shrink: 0;
   }
 
@@ -548,7 +555,7 @@
   .row-name {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #e2e8f0;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -557,7 +564,7 @@
 
   .row-path {
     font-size: 0.6875rem;
-    color: #4a5568;
+    color: var(--text-faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -568,7 +575,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #3b82f6;
+    background: var(--info);
     flex-shrink: 0;
   }
 
@@ -576,7 +583,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #ef4444;
+    background: var(--danger);
     flex-shrink: 0;
   }
 
@@ -588,12 +595,12 @@
 
   .stat-pill {
     font-size: 0.625rem;
-    color: #4a5568;
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 3px;
+    color: var(--text-faint);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
     padding: 1px 4px;
-    font-family: monospace;
+    font-family: var(--font-mono);
   }
 
   /* ---- Scrollbar ---- */
@@ -606,7 +613,7 @@
   }
 
   .project-list::-webkit-scrollbar-thumb {
-    background: #2d3748;
-    border-radius: 2px;
+    background: var(--border);
+    border-radius: var(--radius-xs);
   }
 </style>
