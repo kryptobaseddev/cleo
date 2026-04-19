@@ -814,7 +814,7 @@ describe('Parity Group 5: Schema utils', () => {
 describe('Parity Group 6: Per-domain operation coverage', () => {
   it('all canonical domains have at least one registered operation', () => {
     const activeDomains = getActiveDomains();
-    // The 10 canonical domains from CANONICAL_DOMAINS
+    // The 15 canonical domains from CANONICAL_DOMAINS (T964: +conduit)
     // Verify that the active domains are a subset of canonical domains
     for (const domain of activeDomains) {
       expect(

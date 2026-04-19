@@ -128,7 +128,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
@@ -141,7 +141,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R1: verified done task → reward_signal = +1.0', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -181,7 +181,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R2: done but unverified task → reward_signal = +0.5', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -221,7 +221,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R3: cancelled task → reward_signal = -0.5', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -260,7 +260,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R4: no matching tasks → reward_signal stays NULL (neutral)', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -294,7 +294,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R5: ses_backfill_ session is a no-op', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -338,7 +338,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R6: null sessionId is a no-op', async () => {
-    const { getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
     const { getDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -360,7 +360,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R7: idempotent — running twice does not change reward_signal', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -406,7 +406,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R8: brain_modulators row inserted for each task outcome', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);
@@ -459,7 +459,7 @@ describe('backfillRewardSignals — real SQLite, no mocks', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('T681-R9: max reward wins — verified done beats cancelled in same session', async () => {
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
 
     await getBrainDb(tempDir);

@@ -809,17 +809,37 @@ export async function runReleaseGates(
   });
 
   // G2: Build artifact — dist/ must exist (Node projects only)
-  // Monorepo-aware: checks packages/cleo/dist/ first, then root dist/
+  // Project-agnostic: reads buildArtifactPaths from release-config.json if present,
+  // otherwise falls back to common conventions (dist/, build/, out/).
+  // The old monorepo-specific `packages/cleo/dist/cli/index.js` path is no longer
+  // hardcoded — it is only checked if the project provides no buildArtifactPaths config.
   const projectRoot = cwd ?? getProjectRoot();
-  const monorepoDist = join(projectRoot, 'packages', 'cleo', 'dist', 'cli', 'index.js');
-  const rootDist = join(projectRoot, 'dist', 'cli', 'index.js');
-  const distExists = existsSync(monorepoDist) || existsSync(rootDist);
   const isNodeProject = existsSync(join(projectRoot, 'package.json'));
-  if (isNodeProject) {
+  if (isNodeProject && !releaseConfig.skipBuildArtifactGate) {
+    // Read project-configured build artifact paths from release-config.json
+    const configuredArtifactPaths = releaseConfig.buildArtifactPaths ?? [];
+    const defaultArtifactPaths = [
+      join(projectRoot, 'dist'),
+      join(projectRoot, 'build'),
+      join(projectRoot, 'out'),
+    ];
+    const checkPaths =
+      configuredArtifactPaths.length > 0
+        ? configuredArtifactPaths.map((p: string) => join(projectRoot, p))
+        : defaultArtifactPaths;
+    const distExists = checkPaths.some((p: string) => existsSync(p));
     gates.push({
       name: 'build_artifact',
       status: distExists ? 'passed' : 'failed',
-      message: distExists ? 'Build artifacts present' : 'dist/ not built — run: pnpm run build',
+      message: distExists
+        ? 'Build artifacts present'
+        : `Build artifacts not found — run your build command. Checked: ${checkPaths.map((p: string) => p.replace(projectRoot + '/', '')).join(', ')}`,
+    });
+  } else if (isNodeProject && releaseConfig.skipBuildArtifactGate) {
+    gates.push({
+      name: 'build_artifact',
+      status: 'passed',
+      message: 'Build artifact gate skipped (skipBuildArtifactGate=true in release-config.json)',
     });
   }
 

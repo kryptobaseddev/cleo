@@ -1,0 +1,229 @@
+/**
+ * RCASD-IVTR pipeline lifecycle - stage transitions and gate enforcement.
+ *
+ * CANONICAL EXPORTS: `stages.ts` is the single source of truth for stage
+ * definitions, ordering, prerequisites, and transition rules. This file
+ * re-exports canonical types and provides SQLite-native lifecycle operations
+ * backed by `lifecycle_pipelines`, `lifecycle_stages`, and
+ * `lifecycle_gate_results` tables.
+ *
+ * @task T4467
+ * @task T4800 - Unified lifecycle barrel export
+ * @task T4798 - RCASD rename (Phase 1: code-only, no disk paths)
+ * @epic T4454
+ */
+import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
+export { buildStageGuidance, formatStageGuidance, renderStageGuidance, STAGE_SKILL_MAP, type StageGuidance, TIER_0_SKILLS, } from './stage-guidance.js';
+export { CONTRIBUTION_STAGE, checkTransition, DECISION_STAGES, DELIVERY_STAGES, EXECUTION_STAGES, FIRST_STAGE, getDependents, getNextStage, getPrerequisites, getPreviousStage, getSkippableStages, getStageOrder, getStagesBetween, getStagesByCategory, isPrerequisite, isStageAfter, isStageBefore, isValidStage, isValidStageStatus, LAST_STAGE, PIPELINE_STAGES, PLANNING_STAGES, resolveStageAlias, STAGE_ALIASES, STAGE_COUNT, STAGE_DEFINITIONS as CANONICAL_STAGE_DEFINITIONS, STAGE_ORDER, STAGE_PREREQUISITES as CANONICAL_PREREQUISITES, type Stage, type StageCategory, type StageDefinition, type StageStatus, VALIDATION_STAGES, validateStage, } from './stages.js';
+import type { Stage } from './stages.js';
+/** Lifecycle enforcement modes. */
+export type EnforcementMode = 'strict' | 'advisory' | 'off';
+/** Gate data within a stage. */
+export interface GateData {
+    status: 'passed' | 'failed' | 'pending';
+    agent?: string;
+    notes?: string;
+    reason?: string;
+    timestamp?: string;
+}
+/** Stage data in an on-disk manifest. */
+export interface ManifestStageData {
+    status: (typeof LIFECYCLE_STAGE_STATUSES)[number];
+    completedAt?: string;
+    skippedAt?: string;
+    skippedReason?: string;
+    artifacts?: string[];
+    notes?: string;
+    gates?: Record<string, GateData>;
+}
+/**
+ * Canonical RCASD manifest-shaped interface for compatibility payloads.
+ * Lifecycle persistence is SQLite-native; this shape is used for API
+ * responses that present stage+gate state in a manifest-like structure.
+ *
+ * Stage keys use full canonical names matching the DB CHECK constraint:
+ * research, consensus, architecture_decision, specification, decomposition,
+ * implementation, validation, testing, release.
+ *
+ * @task T4798
+ */
+export interface RcasdManifest {
+    epicId: string;
+    title?: string;
+    stages: Record<string, ManifestStageData>;
+}
+/** Gate check result. */
+export interface GateCheckResult {
+    allowed: boolean;
+    mode: EnforcementMode;
+    missingPrerequisites: string[];
+    currentStage: string;
+    message: string;
+}
+/** Stage transition result. */
+export interface StageTransitionResult {
+    epicId: string;
+    stage: string;
+    previousStatus: string;
+    newStatus: string;
+    timestamp: string;
+}
+/**
+ * Get the current lifecycle state for an epic.
+ * @task T4467
+ */
+export declare function getLifecycleState(epicId: string, cwd?: string): Promise<RcasdManifest>;
+/**
+ * Start a lifecycle stage.
+ * @task T4467
+ */
+export declare function startStage(epicId: string, stage: string, cwd?: string): Promise<StageTransitionResult>;
+/**
+ * Complete a lifecycle stage.
+ * @task T4467
+ */
+export declare function completeStage(epicId: string, stage: string, artifacts?: string[], cwd?: string): Promise<StageTransitionResult>;
+/**
+ * Skip a lifecycle stage.
+ * @task T4467
+ */
+export declare function skipStage(epicId: string, stage: string, reason: string, cwd?: string): Promise<StageTransitionResult>;
+/**
+ * Check lifecycle gate before starting a stage.
+ * @task T4467
+ */
+export declare function checkGate(epicId: string, targetStage: string, cwd?: string): Promise<GateCheckResult>;
+/**
+ * Get lifecycle status for an epic from SQLite.
+ * Returns stage progress, current/next stage, and blockers.
+ * @task T4801 - SQLite-native implementation
+ */
+export declare function getLifecycleStatus(epicId: string, cwd?: string): Promise<{
+    epicId: string;
+    title?: string;
+    currentStage: Stage | null;
+    stages: Array<{
+        stage: string;
+        status: string;
+        completedAt?: string;
+        notes?: string;
+        outputFile?: string;
+        provenanceChain?: Record<string, unknown>;
+    }>;
+    nextStage: Stage | null;
+    blockedOn: string[];
+    initialized: boolean;
+}>;
+/** History entry for stage transitions. */
+export interface LifecycleHistoryEntry {
+    stage: string;
+    action: string;
+    timestamp: string;
+    notes?: string;
+}
+/**
+ * Get lifecycle history for an epic.
+ * Returns stage transitions and gate events sorted by timestamp.
+ * SQLite-native implementation - queries lifecycle_stages and lifecycle_gate_results tables.
+ * @task T4785
+ * @task T4801
+ */
+export declare function getLifecycleHistory(epicId: string, cwd?: string): Promise<{
+    epicId: string;
+    history: LifecycleHistoryEntry[];
+}>;
+/**
+ * Get all gate statuses for an epic.
+ * @task T4785
+ */
+export declare function getLifecycleGates(epicId: string, cwd?: string): Promise<Record<string, Record<string, GateData>>>;
+/**
+ * Get prerequisites for a target stage.
+ * Pure data function, no I/O.
+ * @task T4785
+ */
+export declare function getStagePrerequisites(targetStage: string): {
+    prerequisites: string[];
+    stageInfo: {
+        stage: string;
+        name: string;
+        description: string;
+        order: number;
+    } | undefined;
+};
+/**
+ * Check if a stage's prerequisites are met for an epic.
+ * @task T4785
+ */
+export declare function checkStagePrerequisites(epicId: string, targetStage: string, cwd?: string): Promise<{
+    epicId: string;
+    targetStage: string;
+    valid: boolean;
+    canProgress: boolean;
+    missingPrerequisites: string[];
+    issues: Array<{
+        stage: string;
+        severity: string;
+        message: string;
+    }>;
+}>;
+/**
+ * Record a stage status transition (progress/record).
+ * SQLite-native implementation - T4801
+ * @task T4785
+ * @task T4801
+ */
+export declare function recordStageProgress(epicId: string, stage: string, status: string, notes?: string, cwd?: string): Promise<{
+    epicId: string;
+    stage: string;
+    status: string;
+    timestamp: string;
+}>;
+/**
+ * Skip a stage with a reason (engine-compatible).
+ * @task T4785
+ */
+export declare function skipStageWithReason(epicId: string, stage: string, reason: string, cwd?: string): Promise<{
+    epicId: string;
+    stage: string;
+    reason: string;
+    timestamp: string;
+}>;
+/**
+ * Reset a stage to pending (emergency).
+ * @task T4785
+ */
+export declare function resetStage(epicId: string, stage: string, reason: string, cwd?: string): Promise<{
+    epicId: string;
+    stage: string;
+    reason: string;
+}>;
+/**
+ * Mark a gate as passed.
+ * SQLite-native implementation - T4801
+ * @task T4785
+ * @task T4801
+ */
+export declare function passGate(epicId: string, gateName: string, agent?: string, notes?: string, cwd?: string): Promise<{
+    epicId: string;
+    gateName: string;
+    timestamp: string;
+}>;
+/**
+ * Mark a gate as failed.
+ * SQLite-native implementation - T4801
+ * @task T4785
+ * @task T4801
+ */
+export declare function failGate(epicId: string, gateName: string, reason?: string, cwd?: string): Promise<{
+    epicId: string;
+    gateName: string;
+    reason?: string;
+    timestamp: string;
+}>;
+/**
+ * List all epic IDs that have lifecycle data.
+ * @task T4785
+ */
+export declare function listEpicsWithLifecycle(cwd?: string): Promise<string[]>;
+//# sourceMappingURL=index.d.ts.map

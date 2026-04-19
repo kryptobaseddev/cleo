@@ -7,7 +7,7 @@
  * typed enum check, leaving stale / unrecognised rows in brain_page_edges.
  *
  * When adding a new edge type:
- *   1. Add it to BRAIN_EDGE_TYPES in packages/core/src/store/brain-schema.ts
+ *   1. Add it to BRAIN_EDGE_TYPES in packages/core/src/store/memory-schema.ts
  *   2. Optionally add a named constant to packages/core/src/memory/edge-types.ts
  *   3. Add the new literal to the EMITTED_EDGE_TYPES array below
  *
@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { BRAIN_EDGE_TYPES } from '../../store/brain-schema.js';
+import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
 import { EDGE_TYPES } from '../edge-types.js';
 
 // ---------------------------------------------------------------------------

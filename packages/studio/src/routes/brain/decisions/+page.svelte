@@ -51,7 +51,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch('/api/brain/decisions');
+      const res = await fetch('/api/memory/decisions');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { decisions: BrainDecision[]; total: number };
       decisions = data.decisions;

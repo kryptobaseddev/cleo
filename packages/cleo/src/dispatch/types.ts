@@ -41,7 +41,15 @@ export type {
 } from '@cleocode/contracts';
 
 /**
- * The 14 canonical domain names.
+ * The 15 canonical domain names.
+ *
+ * T964: `conduit` promoted to first-class domain (supersedes ADR-042 Decision 1).
+ * CONDUIT is agent-to-agent messaging and is semantically disjoint from
+ * ORCHESTRATE (wave planning + spawn-prompt generation). The original
+ * "exactly 10 canonical domains" invariant that justified folding CONDUIT
+ * under ORCHESTRATE has been broken multiple times (intelligence, diagnostics,
+ * docs, playbook); promoting CONDUIT aligns registry with wire-format, CLI,
+ * and core module structure at zero behavior cost.
  */
 export const CANONICAL_DOMAINS = [
   'tasks',
@@ -58,6 +66,7 @@ export const CANONICAL_DOMAINS = [
   'diagnostics',
   'docs',
   'playbook',
+  'conduit',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

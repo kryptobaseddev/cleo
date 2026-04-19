@@ -8,7 +8,7 @@
  * - Invalid entry skipping
  * - Confidence clamping
  *
- * Uses mocked Anthropic fetch and mocked brain-sqlite / store functions.
+ * Uses mocked Anthropic fetch and mocked memory-sqlite / store functions.
  *
  * @task T554
  */
@@ -36,7 +36,7 @@ const {
   mockResolveKey: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: mockGetBrainDb,
   getBrainNativeDb: mockGetBrainNativeDb,
 }));

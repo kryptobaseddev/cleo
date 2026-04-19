@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+  const { closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true });
@@ -46,10 +46,10 @@ afterEach(async () => {
 describe('extractReferencedSymbols', () => {
   it('extracts a relative TypeScript file path', async () => {
     const { extractReferencedSymbols } = await import('../decision-cross-link.js');
-    const refs = extractReferencedSymbols('Changed src/store/brain-schema.ts to add new column');
+    const refs = extractReferencedSymbols('Changed src/store/memory-schema.ts to add new column');
     const fileRefs = refs.filter((r) => r.nodeType === 'file');
     expect(fileRefs.length).toBeGreaterThanOrEqual(1);
-    expect(fileRefs.some((r) => r.raw === 'src/store/brain-schema.ts')).toBe(true);
+    expect(fileRefs.some((r) => r.raw === 'src/store/memory-schema.ts')).toBe(true);
   });
 
   it('extracts an absolute TypeScript file path', async () => {
@@ -135,7 +135,7 @@ describe('linkDecisionToTargets', () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ brain: { autoCapture: true } }));
 
-    const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb, getBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     // Initialise DB
@@ -144,10 +144,10 @@ describe('linkDecisionToTargets', () => {
     const { extractReferencedSymbols, linkDecisionToTargets } = await import(
       '../decision-cross-link.js'
     );
-    const { brainPageEdges } = await import('../../store/brain-schema.js');
+    const { brainPageEdges } = await import('../../store/memory-schema.js');
 
     const refs = extractReferencedSymbols(
-      'Refactored src/store/brain-schema.ts to add BrainPageNodes column',
+      'Refactored src/store/memory-schema.ts to add BrainPageNodes column',
     );
     expect(refs.length).toBeGreaterThan(0);
 
@@ -165,10 +165,10 @@ describe('linkDecisionToTargets', () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ brain: { autoCapture: true } }));
 
-    const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb, getBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     const db = await getBrainDb(tempDir);
-    const { brainPageEdges } = await import('../../store/brain-schema.js');
+    const { brainPageEdges } = await import('../../store/memory-schema.js');
 
     const { linkDecisionToTargets } = await import('../decision-cross-link.js');
     await linkDecisionToTargets(tempDir, 'D001', []);
@@ -184,13 +184,13 @@ describe('linkDecisionToTargets', () => {
       JSON.stringify({ brain: { autoCapture: false } }),
     );
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const { extractReferencedSymbols, linkDecisionToTargets } = await import(
       '../decision-cross-link.js'
     );
-    const refs = extractReferencedSymbols('Changed src/store/brain-schema.ts');
+    const refs = extractReferencedSymbols('Changed src/store/memory-schema.ts');
     // Should not throw even when autoCapture is off
     await expect(linkDecisionToTargets(tempDir, 'D001', refs)).resolves.toBeUndefined();
   });
@@ -217,10 +217,10 @@ describe('autoCrossLinkDecision', () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ brain: { autoCapture: true } }));
 
-    const { closeBrainDb, getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb, getBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     const db = await getBrainDb(tempDir);
-    const { brainPageEdges } = await import('../../store/brain-schema.js');
+    const { brainPageEdges } = await import('../../store/memory-schema.js');
 
     const { autoCrossLinkDecision } = await import('../decision-cross-link.js');
     await autoCrossLinkDecision(

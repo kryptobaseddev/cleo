@@ -77,7 +77,7 @@ describe('Session Memory', () => {
 
   afterEach(async () => {
     try {
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
     } catch {
       /* may not be loaded */
@@ -355,7 +355,7 @@ describe('Session Memory', () => {
 
     it('returns recent patterns', async () => {
       const { getSessionMemoryContext } = await import('../session-memory.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       // Seed a pattern (context is NOT NULL in brain_patterns schema)
       const accessor = await getBrainAccessor(tempDir);
@@ -393,7 +393,7 @@ describe('Session Memory', () => {
 
     it('respects limit parameter', async () => {
       const { getSessionMemoryContext } = await import('../session-memory.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       // Seed multiple observations directly via accessor to avoid ID collisions
       // (observeBrain uses Date.now() for IDs which can collide in tight loops)

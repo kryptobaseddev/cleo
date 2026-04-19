@@ -20,15 +20,15 @@
  * @task T644
  */
 
+import type { BrainEdge, BrainNode, BrainSubstrate } from '@cleocode/brain';
 import { describe, expect, it, vi } from 'vitest';
-import type { LBEdge, LBNode, LBSubstrate } from '../../../lib/server/living-brain/types.js';
 
 // ---------------------------------------------------------------------------
 // Inline copies of pure helpers (mirrors LivingBrainCosmograph.svelte internals)
 // These are kept in sync manually — if the component changes, update here too.
 // ---------------------------------------------------------------------------
 
-const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
   brain: '#3b82f6',
   nexus: '#22c55e',
   tasks: '#f97316',
@@ -61,7 +61,7 @@ function edgeRgba(type: string): [number, number, number, number] {
   return hexToRgba(hex, 180);
 }
 
-function nodeSize(node: LBNode): number {
+function nodeSize(node: BrainNode): number {
   const w = node.weight ?? 0.3;
   return 4 + w * 14;
 }
@@ -71,8 +71,8 @@ function nodeSize(node: LBNode): number {
  * Pure function — no DOM or WebGL required.
  */
 function buildBuffers(
-  nodes: LBNode[],
-  edges: LBEdge[],
+  nodes: BrainNode[],
+  edges: BrainEdge[],
 ): {
   positions: Float32Array;
   colors: Float32Array;
@@ -112,7 +112,7 @@ function buildBuffers(
     sizes[i] = nodeSize(nodes[i]);
   }
 
-  const validEdges: LBEdge[] = [];
+  const validEdges: BrainEdge[] = [];
   const seenEdges = new Set<string>();
   for (const e of edges) {
     if (e.source === e.target) continue;
@@ -150,9 +150,9 @@ function buildBuffers(
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
 
-function makeNode(idx: number): LBNode {
+function makeNode(idx: number): BrainNode {
   return {
     id: `node-${idx}`,
     kind: 'observation',
@@ -164,7 +164,7 @@ function makeNode(idx: number): LBNode {
   };
 }
 
-function makeEdge(src: number, tgt: number): LBEdge {
+function makeEdge(src: number, tgt: number): BrainEdge {
   return {
     source: `node-${src}`,
     target: `node-${tgt}`,
@@ -234,7 +234,7 @@ describe('nodeSize', () => {
   });
 
   it('uses default weight 0.3 when weight is undefined', () => {
-    const node: LBNode = { ...makeNode(0), weight: undefined };
+    const node: BrainNode = { ...makeNode(0), weight: undefined };
     expect(nodeSize(node)).toBeCloseTo(4 + 0.3 * 14);
   });
 });
@@ -269,7 +269,7 @@ describe('buildBuffers — empty data', () => {
 describe('buildBuffers — 100-node payload', () => {
   const nodes100 = Array.from({ length: 100 }, (_, i) => makeNode(i));
   // Connect each node to the next, plus a few random ones
-  const edges100: LBEdge[] = Array.from({ length: 80 }, (_, i) => makeEdge(i, (i + 1) % 100));
+  const edges100: BrainEdge[] = Array.from({ length: 80 }, (_, i) => makeEdge(i, (i + 1) % 100));
 
   it('produces correct buffer lengths for 100 nodes', () => {
     const { positions, colors, sizes } = buildBuffers(nodes100, edges100);
@@ -358,7 +358,7 @@ describe('onNodeClick mapping', () => {
 describe('buildBuffers — edge deduplication and self-loop filtering', () => {
   it('drops self-loops', () => {
     const nodes = [makeNode(0), makeNode(1)];
-    const selfLoop: LBEdge = {
+    const selfLoop: BrainEdge = {
       source: 'node-0',
       target: 'node-0',
       type: 'calls',
@@ -379,7 +379,7 @@ describe('buildBuffers — edge deduplication and self-loop filtering', () => {
 
   it('drops edges referencing missing nodes', () => {
     const nodes = [makeNode(0)];
-    const dangling: LBEdge = {
+    const dangling: BrainEdge = {
       source: 'node-0',
       target: 'node-999',
       type: 'calls',

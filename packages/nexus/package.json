@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/nexus",
-  "version": "2026.4.96",
+  "version": "2026.4.97",
   "private": false,
   "type": "module",
   "description": "CLEO project registry and code intelligence — unified nexus package",
@@ -52,7 +52,7 @@
   "license": "MIT",
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.8",

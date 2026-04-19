@@ -1,11 +1,11 @@
 # CLEO Conduit Protocol Specification
 
-**Version**: 2026.3.6
+**Version**: 2026.4.17
 **Status**: SPECIFIED
-**Date**: 2026-03-06
-**Task**: T5524
+**Date**: 2026-04-17
+**Task**: T5524, T964
 
-> **Implementation status**: This specification defines the PLANNED Conduit agent-to-agent relay protocol. As of v2026.4.x, `crates/conduit-core/` has wire types but the runtime broker is NOT built. ULTRAPLAN section 13 replaces the theoretical Conduit design with a ~200-line Pi extension.
+> **Implementation status**: This specification defines the PLANNED Conduit agent-to-agent relay protocol. As of v2026.4.x, `crates/conduit-core/` has wire types but the runtime broker is NOT built. ULTRAPLAN section 13 replaces the theoretical Conduit design with a ~200-line Pi extension. T964 (2026-04-17) promoted CONDUIT to its own canonical dispatch domain, superseding ADR-042 Decision 1 (the 10-domain invariant).
 
 ---
 
@@ -22,7 +22,11 @@ It is the concrete runtime contract for:
 - lease ownership
 - TypeScript and Rust IPC boundaries
 
-Conduit is a runtime form, not a new domain.
+CONDUIT is a first-class dispatch domain, registered alongside `tasks`,
+`orchestrate`, `session`, and the other canonical domains (T964 — supersedes
+ADR-042 Decision 1). The 10-domain invariant that formerly held CONDUIT under
+`orchestrate` as a runtime overlay has been retired; CONDUIT now stands as
+canonical domain #15.
 
 ---
 
@@ -30,13 +34,17 @@ Conduit is a runtime form, not a new domain.
 
 Conduit MUST obey the following constraints:
 
-1. Conduit does not create an eleventh domain.
+1. Conduit is CLEO's 15th canonical dispatch domain (T964). The five public
+   operations `conduit.status`, `conduit.peek`, `conduit.start`, `conduit.stop`,
+   and `conduit.send` resolve via `domain: 'conduit'` in the dispatch registry.
 2. Conduit uses LAFS-shaped envelopes and A2A delegation only.
 3. Conduit MUST NOT replace dispatch or the canonical domain contract.
 4. `sticky` MUST remain provisional capture and MUST NOT become the live relay lane.
 5. Cross-project relay MUST remain mediated through `nexus.share.*` and Wayfinder policy.
 6. Conduit durability MUST be owned by the runtime, not by `sticky` notes or ad-hoc files.
-7. Public inspection of Conduit state MUST surface through existing canonical domains, primarily `orchestrate`, with `session` and `nexus` views where appropriate.
+7. Public inspection of Conduit state MUST surface through the `conduit` domain's
+   own `status` and `peek` operations; legacy `orchestrate conduit-*` aliases are
+   preserved for backward compatibility but dispatch to the `conduit` domain.
 
 ---
 
@@ -86,7 +94,7 @@ Conduit frames MUST preserve the normal LAFS envelope discipline:
 
 Conduit-specific delivery details live inside `result.delivery`, `result.message`, or `error.details`. They MUST NOT replace the normal LAFS metadata contract.
 
-Conduit runtime opcodes such as `conduit.publish` and `conduit.ack` are internal IPC method names. They are not public dispatch operation names and do not create a public `conduit` domain.
+Conduit runtime opcodes such as `conduit.publish` and `conduit.ack` are internal IPC method names distinct from the public dispatch operations. The public dispatch surface is the canonical `conduit` domain (T964) with the five operations listed in Section 2; internal runtime opcodes MUST NOT be exposed through the dispatcher.
 
 ---
 

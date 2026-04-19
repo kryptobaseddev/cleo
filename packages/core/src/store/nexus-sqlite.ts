@@ -3,7 +3,7 @@
  *
  * Separate database from tasks.db and brain.db for cross-project registry
  * and audit infrastructure. Follows the same singleton + WAL + migration
- * pattern as brain-sqlite.ts.
+ * pattern as memory-sqlite.ts.
  *
  * nexus.db lives in ~/.cleo/ (global home) rather than per-project .cleo/,
  * since it stores cross-project data.
@@ -102,7 +102,7 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
  * Run drizzle migrations to create/update nexus.db tables.
  *
  * Uses IMMEDIATE transactions to prevent concurrent migration races.
- * Follows the same pattern as brain-sqlite.ts runBrainMigrations().
+ * Follows the same pattern as memory-sqlite.ts runBrainMigrations().
  *
  * @task T5365
  */

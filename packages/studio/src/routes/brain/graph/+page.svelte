@@ -64,7 +64,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch('/api/brain/graph');
+      const res = await fetch('/api/memory/graph');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as {
         nodes: BrainNode[];

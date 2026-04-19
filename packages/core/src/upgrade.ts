@@ -1292,7 +1292,7 @@ export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<D
   // ── brain.db validation ──
   if (existsSync(brainDbPath)) {
     try {
-      const { getBrainNativeDb, getBrainDb } = await import('./store/brain-sqlite.js');
+      const { getBrainNativeDb, getBrainDb } = await import('./store/memory-sqlite.js');
       await getBrainDb(options.cwd);
       const nativeDb = getBrainNativeDb();
 

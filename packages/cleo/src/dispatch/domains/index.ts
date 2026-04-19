@@ -64,7 +64,9 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('docs', new DocsHandler());
   // T935: HITL playbook runtime + approvals surface
   handlers.set('playbook', new PlaybookHandler());
-  // ADR-042: conduit ops moved to orchestrate.conduit.* — ConduitHandler
-  // is instantiated inside OrchestrateHandler; no standalone domain entry needed.
+  // T964: conduit promoted to first-class canonical domain
+  // (supersedes ADR-042 Decision 1). ConduitHandler owns agent-to-agent
+  // messaging (status, peek, start, stop, send) via pluggable transports.
+  handlers.set('conduit', new ConduitHandler());
   return handlers;
 }

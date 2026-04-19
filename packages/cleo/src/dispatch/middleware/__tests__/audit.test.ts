@@ -61,7 +61,7 @@ vi.mock('../../../../../core/src/store/sqlite.js', () => ({
 
 // T5158: sqlite-backup.ts also imports getBrainNativeDb — mock it so the
 // audit test does not have to spin up a real brain.db handle.
-vi.mock('../../../../../core/src/store/brain-sqlite.js', () => ({
+vi.mock('../../../../../core/src/store/memory-sqlite.js', () => ({
   getBrainNativeDb: vi.fn().mockReturnValue(null),
 }));
 

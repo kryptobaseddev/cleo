@@ -15,7 +15,7 @@
  * @epic T549
  */
 
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 
 // ============================================================================

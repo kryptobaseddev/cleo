@@ -44,6 +44,39 @@ export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 /** Task type in hierarchy. */
 export type TaskType = 'epic' | 'task' | 'subtask';
 
+/**
+ * Task role axis — orthogonal to {@link TaskType}, describes the intent of work.
+ * Defaults to `'work'` for backward compatibility.
+ *
+ * @task T944
+ */
+export type TaskRole = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'release';
+
+/**
+ * Task scope axis — granularity of work. Orthogonal to {@link TaskType} and
+ * {@link TaskRole}. Defaults to `'feature'`.
+ *
+ * Legacy type → scope mapping on backfill:
+ * - `type='epic'`    → `scope='project'`
+ * - `type='task'`    → `scope='feature'`
+ * - `type='subtask'` → `scope='unit'`
+ *
+ * @task T944
+ */
+export type TaskScope = 'project' | 'feature' | 'unit';
+
+/**
+ * Bug severity axis. Only meaningful when `role='bug'`; enforced by a DB-level
+ * CHECK constraint (`severity IS NULL OR (severity IN (...) AND role='bug')`).
+ *
+ * OWNER-WRITE-ONLY: severity is intended to be set through owner-authenticated
+ * paths only. This prevents a prompt-injection exploit where a compromised
+ * Tier 3 agent could downgrade a P0 bug to P3 to force-ship.
+ *
+ * @task T944
+ */
+export type TaskSeverity = 'P0' | 'P1' | 'P2' | 'P3';
+
 /** Task size (scope, NOT time). */
 export type TaskSize = 'small' | 'medium' | 'large';
 
@@ -219,6 +252,27 @@ export interface Task {
   /** Task type in hierarchy. Inferred from parent context if not specified. @defaultValue undefined */
   type?: TaskType;
 
+  /**
+   * Task role axis — intent of work, orthogonal to {@link type}.
+   * Defaults to `'work'` at the DB level. @defaultValue 'work'
+   * @task T944
+   */
+  role?: TaskRole;
+
+  /**
+   * Task scope axis — granularity of work, orthogonal to {@link type} and
+   * {@link role}. Defaults to `'feature'` at the DB level. @defaultValue 'feature'
+   * @task T944
+   */
+  scope?: TaskScope;
+
+  /**
+   * Bug severity. Only valid when {@link role} is `'bug'`. OWNER-WRITE-ONLY.
+   * @defaultValue undefined
+   * @task T944
+   */
+  severity?: TaskSeverity | null;
+
   /** ID of the parent task. `null` for root-level tasks. @defaultValue undefined */
   parentId?: string | null;
 
@@ -355,6 +409,27 @@ export interface TaskCreate {
 
   /** Task type. Inferred from parent context if not specified. @defaultValue undefined */
   type?: TaskType;
+
+  /**
+   * Task role — intent of work. Defaults to `'work'` at the DB level.
+   * @defaultValue 'work'
+   * @task T944
+   */
+  role?: TaskRole;
+
+  /**
+   * Task scope — granularity of work. Defaults to `'feature'` at the DB level.
+   * @defaultValue 'feature'
+   * @task T944
+   */
+  scope?: TaskScope;
+
+  /**
+   * Bug severity (OWNER-WRITE-ONLY). Only valid with `role='bug'`.
+   * @defaultValue undefined
+   * @task T944
+   */
+  severity?: TaskSeverity | null;
 
   /** Parent task ID for hierarchy placement. @defaultValue undefined */
   parentId?: string | null;

@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/studio",
-  "version": "2026.4.96",
+  "version": "2026.4.97",
   "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
   "type": "module",
   "private": true,
@@ -15,6 +15,9 @@
   },
   "dependencies": {
     "3d-force-graph": "^1.80.0",
+    "@cleocode/brain": "workspace:*",
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
     "@cosmograph/cosmos": "^2.0.0-beta.26",
     "@sveltejs/adapter-node": "^5.2.13",
     "@sveltejs/kit": "^2.20.6",

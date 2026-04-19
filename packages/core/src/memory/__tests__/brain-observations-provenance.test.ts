@@ -11,7 +11,7 @@
  * Fix:
  *   1. All brain migrations are now synced to packages/cleo/migrations/drizzle-brain/
  *      by the build.mjs syncMigrationsToCleoPackage() step.
- *   2. brain-sqlite.ts T626 guard now calls ensureColumns for `provenance` on
+ *   2. memory-sqlite.ts T626 guard now calls ensureColumns for `provenance` on
  *      brain_page_edges before running the UPDATE, so the guard is safe even if
  *      T528 migration somehow hasn't run yet.
  *
@@ -48,16 +48,16 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+  const { closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
-  const { resetBrainDbState } = await import('../../store/brain-sqlite.js');
+  const { resetBrainDbState } = await import('../../store/memory-sqlite.js');
   resetBrainDbState();
   delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true });
 });
 
 async function getTableColumns(tableName: string): Promise<Set<string>> {
-  const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) throw new Error('nativeDb is null after getBrainDb()');
   type PragmaRow = { name: string };
@@ -83,7 +83,7 @@ describe('T759: brain_observations provenance hotfix', () => {
 
   describe('OBS-2: brain_observations has all required columns after migration', () => {
     it('should have agent, quality_score, memory_tier, source_confidence, citation_count', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       const cols = await getTableColumns('brain_observations');
       // T417 columns
@@ -108,7 +108,7 @@ describe('T759: brain_observations provenance hotfix', () => {
 
   describe('OBS-3: brain_page_edges has provenance column after DB init', () => {
     it('should have provenance column on brain_page_edges (added by T528 migration)', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       const cols = await getTableColumns('brain_page_edges');
       expect(cols.has('provenance'), 'provenance column missing from brain_page_edges').toBe(true);
@@ -117,7 +117,7 @@ describe('T759: brain_observations provenance hotfix', () => {
 
   describe('OBS-4: T626 guard UPDATE runs without error', () => {
     it('should not throw when running the co_retrieved normalization UPDATE', async () => {
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       const nativeDb = getBrainNativeDb();
       expect(nativeDb, 'nativeDb should be set after getBrainDb()').not.toBeNull();

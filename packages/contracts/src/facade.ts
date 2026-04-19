@@ -284,13 +284,28 @@ export interface TasksAPI {
   }): Promise<unknown>;
   /** Show full details of a task. */
   show(taskId: string): Promise<unknown>;
-  /** List tasks with optional filters. */
+  /**
+   * List tasks with optional filters.
+   *
+   * @remarks
+   * - `type` narrows by {@link TaskType} (`epic` | `task` | `subtask`).
+   * - `excludeArchived` is a convenience flag that translates to
+   *   `excludeStatus: ['archived']` in the underlying query. Default `false`
+   *   for backward compatibility; pass `true` from surfaces (e.g. Studio
+   *   kanban) that must hide archived rows.
+   * - `sortByPriority` opts into `ORDER BY priority` (critical → low) instead
+   *   of the default position-based ordering. Used by Studio's /tasks and
+   *   /tasks/pipeline views to preserve the historic priority-first sort.
+   */
   list(params?: {
     status?: TaskStatus;
     priority?: TaskPriority;
+    type?: TaskType;
     parentId?: string;
     phase?: string;
     limit?: number;
+    excludeArchived?: boolean;
+    sortByPriority?: boolean;
   }): Promise<unknown>;
   /** Update task fields. */
   update(params: {
@@ -438,6 +453,54 @@ export interface LifecycleAPI {
   failGate(epicId: string, gateName: string, reason?: string): Promise<unknown>;
   /** Available pipeline stages. */
   stages: readonly string[];
+  /**
+   * Compute the canonical {@link TaskRollupPayload} for a single task.
+   *
+   * @remarks
+   * T948: exposes `computeTaskRollup` (core) through the facade so Studio
+   * and other consumers see the same projection the CLI sees. Returns
+   * `null` when the task does not exist.
+   */
+  computeRollup(taskId: string): Promise<TaskRollupPayload | null>;
+  /**
+   * Compute rollups for many tasks in a single batch.
+   *
+   * @remarks
+   * Order preserved; missing ids omitted. See `computeTaskRollups` for
+   * the underlying batched implementation.
+   */
+  computeRollupsBatch(taskIds: string[]): Promise<TaskRollupPayload[]>;
+}
+
+/**
+ * Public rollup payload shape re-exposed on the facade.
+ *
+ * Mirrors `TaskRollup` from `@cleocode/core/lifecycle/rollup`. Declared in
+ * contracts so downstream consumers (Studio, CleoOS) type their view layer
+ * without importing core.
+ *
+ * @task T948
+ */
+export interface TaskRollupPayload {
+  /** Task identifier. */
+  id: string;
+  /**
+   * Canonical execution status — mirrors `TaskStatus` plus the forward-looking
+   * `'proposed'` intake value from T947+.
+   */
+  execStatus: 'pending' | 'active' | 'blocked' | 'done' | 'cancelled' | 'archived' | 'proposed';
+  /** Pipeline stage the task is parked on, or null. */
+  pipelineStage: string | null;
+  /** Names of gates with at least one `pass` result. */
+  gatesVerified: string[];
+  /** Count of non-archived direct children whose status is `done`. */
+  childrenDone: number;
+  /** Count of non-archived direct children. */
+  childrenTotal: number;
+  /** Tokens parsed from `tasks.blocked_by`. */
+  blockedBy: string[];
+  /** ISO timestamp of the most recent activity, or null. */
+  lastActivityAt: string | null;
 }
 
 /** Release management domain API. */

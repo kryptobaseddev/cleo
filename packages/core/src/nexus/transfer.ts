@@ -12,10 +12,10 @@ import { randomUUID } from 'node:crypto';
 import { importFromPackage } from '../admin/import-tasks.js';
 import { getLogger } from '../logger.js';
 import { createLink } from '../reconciliation/link-store.js';
-import { BrainDataAccessor } from '../store/brain-accessor.js';
-import { getBrainDb } from '../store/brain-sqlite.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { exportSingle, exportSubtree } from '../store/export.js';
+import { BrainDataAccessor } from '../store/memory-accessor.js';
+import { getBrainDb } from '../store/memory-sqlite.js';
 import { requirePermission } from './permissions.js';
 import { nexusGetProject } from './registry.js';
 import type {

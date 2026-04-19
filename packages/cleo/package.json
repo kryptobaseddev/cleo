@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.4.96",
+  "version": "2026.4.97",
   "description": "CLEO CLI — the assembled product consuming @cleocode/core",
   "type": "module",
   "main": "./dist/cli/index.js",
@@ -16,6 +16,7 @@
     "postbuild": "node scripts/assert-shebang.mjs",
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
+    "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
     "postinstall": "node bin/postinstall.js"
   },
   "dependencies": {

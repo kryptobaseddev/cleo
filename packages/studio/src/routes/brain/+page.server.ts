@@ -4,13 +4,12 @@
  * Loads the **full** unified graph on first paint.  Owner mandate (2026-04-15):
  * the canvas should always look complete — no half-payload first paint.
  *
- * @note The underlying API route is `/api/living-brain` for historical reasons
- * (the route was originally served at `/living-brain`). A rename of the API
- * path is deferred to a future task to avoid churn in other consumers.
+ * @note The underlying API route is `/api/brain` (unified super-graph surface
+ * wrapping memory + nexus + tasks + conduit + signaldock substrates). Memory
+ * observations/patterns/decisions are served separately at `/api/memory/*`.
  */
 
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBGraph } from '$lib/server/living-brain/types.js';
+import { type BrainGraph, getAllSubstrates } from '@cleocode/brain';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -30,7 +29,7 @@ export const ssr = false;
 const MAX_NODES = 5000;
 
 export interface PageData {
-  graph: LBGraph;
+  graph: BrainGraph;
 }
 
 export const load: PageServerLoad = ({ locals }): PageData => {

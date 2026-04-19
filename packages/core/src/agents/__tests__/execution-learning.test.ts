@@ -16,8 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { getBrainAccessor } from '../../store/brain-accessor.js';
-import { resetBrainDbState } from '../../store/brain-sqlite.js';
+import { getBrainAccessor } from '../../store/memory-accessor.js';
+import { resetBrainDbState } from '../../store/memory-sqlite.js';
 import {
   _getAgentPerformanceHistoryWithAccessor,
   _getSelfHealingSuggestionsWithAccessor,
