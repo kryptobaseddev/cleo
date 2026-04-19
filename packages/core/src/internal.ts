@@ -566,6 +566,20 @@ export type { CreateStickyParams, ListStickiesParams, StickyNote } from './stick
 export type { DerefResult } from './store/attachment-store.js';
 // Attachment store (T760 docs domain)
 export { AttachmentIntegrityError, createAttachmentStore } from './store/attachment-store.js';
+// Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
+export type {
+  AttachmentBackend,
+  AttachmentFileInput,
+  AttachmentGetResult,
+  AttachmentListEntry,
+  AttachmentPutResult,
+  AttachmentStoreV2,
+  CreateAttachmentStoreV2Options,
+} from './store/attachment-store-v2.js';
+export {
+  createAttachmentStoreV2,
+  resolveAttachmentBackend,
+} from './store/attachment-store-v2.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle packer (T311 / T347)

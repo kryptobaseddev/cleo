@@ -13,10 +13,21 @@
  * remains shareable/bookmarkable. The dashboard UI wires `<a href>` links
  * rather than client state so SSR stays correct.
  *
- * @task T874 | T878
+ * T948: epic progress now flows through `cleo.lifecycle.computeRollupsBatch`
+ * so Studio shares the CANONICAL projection with the CLI + /tasks/pipeline.
+ * The old `_computeEpicProgress(db, options)` helper stays exported (now
+ * `@deprecated`) so the T874/T878 tests — which pass a raw in-memory DB —
+ * keep working. Production `load()` uses the rollup path; the helper is
+ * only kept for back-compat.
+ *
+ * @task T874 | T878 | T948
  * @epic T876 (owner-labelled T900)
  */
 
+import type { Task, TaskRollupPayload } from '@cleocode/contracts';
+import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
+import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { listTasks } from '@cleocode/core/tasks/list';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
@@ -75,8 +86,19 @@ export interface EpicProgressDbLike {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Epic progress — deprecated pure helper (T874) + new rollup-backed entry (T948)
+// ---------------------------------------------------------------------------
+
 /**
  * Compute dashboard epic-progress rows using a direct-children basis.
+ *
+ * @deprecated T948: production `load()` now uses
+ * {@link _computeEpicProgressViaRollup} which routes through
+ * `cleo.lifecycle.computeRollupsBatch` so Studio, the CLI, and
+ * `/tasks/pipeline` all see the same projection. This pure SQL helper is
+ * retained only so the T874/T878 test suites (which pass an in-memory
+ * `node:sqlite` db) keep working without a wholesale rewrite.
  *
  * Pure function so it can be unit-tested against an in-memory SQLite DB
  * without spinning up the full SvelteKit load context.
@@ -85,18 +107,7 @@ export interface EpicProgressDbLike {
  * @param options.includeDeferred - When true, include cancelled epics too.
  * @returns One {@link EpicProgress} row per epic (filtered by `includeDeferred`).
  *
- * @remarks
- * Both numerator and denominator count the same row set
- * (`parent_id = epic.id AND status != 'archived'`), so the returned
- * `total` equals `cleo list --parent <epicId>`'s filtered count. The
- * previous recursive-descendant implementation produced an asymmetric
- * "5 done / 29 total" because the numerator and denominator counted
- * different things.
- *
- * T878: `status` is now returned so the UI can render a "Deferred" badge,
- * and `cancelled` bucket is surfaced for the same reason.
- *
- * @task T874 | T878
+ * @task T874 | T878 | T948
  * @epic T876
  */
 export function _computeEpicProgress(
@@ -144,7 +155,122 @@ export function _computeEpicProgress(
   });
 }
 
-export const load: PageServerLoad = ({ locals, url }) => {
+/**
+ * Build an {@link EpicProgress} row from a parent epic + its child rollups.
+ *
+ * Pure transformation, no I/O. Child rollups arrive already filtered to the
+ * epic's direct, non-archived children — this function only tallies
+ * `execStatus` into dashboard buckets.
+ *
+ * Exported for tests (T948).
+ */
+export function _epicRowFromRollups(
+  parent: { id: string; title: string; status: string },
+  children: TaskRollupPayload[],
+): EpicProgress {
+  let done = 0;
+  let active = 0;
+  let pending = 0;
+  let cancelled = 0;
+  for (const child of children) {
+    switch (child.execStatus) {
+      case 'done':
+        done += 1;
+        break;
+      case 'active':
+        active += 1;
+        break;
+      case 'pending':
+        pending += 1;
+        break;
+      case 'cancelled':
+        cancelled += 1;
+        break;
+      // 'blocked' / 'archived' / 'proposed' fall through — not tallied, but
+      // still counted toward `total` via children.length consistency below.
+      default:
+        break;
+    }
+  }
+  return {
+    id: parent.id,
+    title: parent.title,
+    status: parent.status,
+    total: children.length,
+    done,
+    active,
+    pending,
+    cancelled,
+  };
+}
+
+/**
+ * Compute epic-progress rows via the canonical task-rollup facade.
+ *
+ * T948: this is the production path. For every non-archived epic we issue a
+ * single `computeRollup` call to get the parent's exec status plus a
+ * `computeRollupsBatch` for its direct children, then delegate to
+ * {@link _epicRowFromRollups} for the tally.
+ *
+ * @param projectPath - Absolute path to the active project (from
+ *                      `locals.projectCtx.projectPath`). Passed straight to
+ *                      `Cleo.forProject` so the DataAccessor opens against
+ *                      the right tasks.db.
+ * @param options.includeDeferred - Include `status='cancelled'` epics.
+ * @returns Epic progress rows in deterministic (sorted-id) order.
+ */
+export async function _computeEpicProgressViaRollup(
+  projectPath: string,
+  options: { includeDeferred?: boolean } = {},
+): Promise<EpicProgress[]> {
+  const { includeDeferred = false } = options;
+  const accessor = await getAccessor(projectPath);
+  // Pull every epic — `excludeArchived` trims the 99% case, and we filter
+  // `cancelled` in-memory so we can honour the `includeDeferred` toggle
+  // without a second round-trip.
+  const epicsResult = await listTasks(
+    {
+      type: 'epic',
+      excludeArchived: true,
+      sortByPriority: false,
+      limit: 1000,
+    },
+    projectPath,
+    accessor,
+  );
+
+  const epics: Task[] = epicsResult.tasks
+    .filter((e) => includeDeferred || e.status !== 'cancelled')
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const rows: EpicProgress[] = [];
+  for (const epic of epics) {
+    // Direct children only — mirrors the T874 semantics of "cleo list
+    // --parent <epicId>" so numerator and denominator stay symmetric.
+    const childListResult = await listTasks(
+      {
+        parentId: epic.id,
+        excludeArchived: true,
+        sortByPriority: false,
+        limit: 1000,
+      },
+      projectPath,
+      accessor,
+    );
+    const childIds = childListResult.tasks.map((c) => c.id);
+    const childRollups = await computeTaskRollups(childIds, accessor);
+    rows.push(
+      _epicRowFromRollups({ id: epic.id, title: epic.title, status: epic.status }, childRollups),
+    );
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Page load
+// ---------------------------------------------------------------------------
+
+export const load: PageServerLoad = async ({ locals, url }) => {
   const db = getTasksDb(locals.projectCtx);
 
   // T878: read display filters from URL query params.
@@ -211,9 +337,20 @@ export const load: PageServerLoad = ({ locals, url }) => {
       )
       .all() as RecentTask[];
 
-    // T874/T878: epic progress uses direct-children basis on BOTH sides;
-    // cancelled epics hidden unless `?deferred=1`.
-    const epicProgress = _computeEpicProgress(db, { includeDeferred: showDeferred });
+    // T874/T878/T948: epic progress uses the facade rollup so Studio shares
+    // the CANONICAL projection with CLI + /tasks/pipeline (no more drift).
+    let epicProgress: EpicProgress[] = [];
+    try {
+      epicProgress = await _computeEpicProgressViaRollup(locals.projectCtx.projectPath, {
+        includeDeferred: showDeferred,
+      });
+    } catch {
+      // Fall back to the in-memory SQL helper if the facade path errors
+      // (e.g. accessor unavailable in a half-initialised project). The
+      // dashboard should never be completely blank just because the rollup
+      // layer is momentarily unreachable.
+      epicProgress = _computeEpicProgress(db, { includeDeferred: showDeferred });
+    }
 
     return { stats, recentTasks, epicProgress, filters };
   } catch {

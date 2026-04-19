@@ -400,7 +400,15 @@ export function validateCancelReason(reason: string): ValidationResult {
 // Status Validation
 // ============================================================================
 
-/** Valid status transitions map. */
+/**
+ * Valid status transitions map.
+ *
+ * @remarks
+ * `'proposed'` is the forward-looking intake status (T947+). A proposed task
+ * either gets admitted to the board (→ `pending`) or rejected (→ `cancelled`).
+ * It cannot jump straight to `active`/`done` — intake must route through
+ * pending so normal orchestration gates still apply.
+ */
 const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   pending: ['active', 'blocked', 'cancelled'],
   active: ['done', 'blocked', 'pending', 'cancelled'],
@@ -408,6 +416,7 @@ const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   blocked: ['pending', 'active', 'cancelled'],
   cancelled: ['pending'],
   archived: [],
+  proposed: ['pending', 'cancelled'],
 };
 
 /**
