@@ -1,7 +1,7 @@
 /**
- * Brain tier-stats API endpoint (T748).
+ * Memory tier-stats API endpoint (T748).
  *
- * GET /api/brain/tier-stats
+ * GET /api/memory/tier-stats
  *
  * Returns:
  *   - Per-table tier distribution (short / medium / long counts)
@@ -56,7 +56,7 @@ export interface TierStatsResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/brain/tier-stats — returns tier distribution + upcoming promotions.
+ * GET /api/memory/tier-stats — returns tier distribution + upcoming promotions.
  */
 export const GET: RequestHandler = ({ locals }) => {
   const db = getBrainDb(locals.projectCtx);

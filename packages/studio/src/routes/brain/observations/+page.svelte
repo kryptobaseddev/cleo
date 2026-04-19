@@ -62,7 +62,7 @@
       if (typeFilter) params.set('type', typeFilter);
       if (minQuality) params.set('min_quality', minQuality);
 
-      const res = await fetch(`/api/brain/observations?${params.toString()}`);
+      const res = await fetch(`/api/memory/observations?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as {
         observations: BrainObservation[];

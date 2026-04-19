@@ -1,6 +1,6 @@
 /**
- * Brain decisions API endpoint.
- * GET /api/brain/decisions → { decisions: BrainDecision[] }
+ * Memory decisions API endpoint.
+ * GET /api/memory/decisions → { decisions: BrainDecision[] }
  *
  * Returns brain_decisions ordered chronologically for timeline view.
  */

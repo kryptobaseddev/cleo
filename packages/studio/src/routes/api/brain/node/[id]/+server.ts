@@ -1,7 +1,7 @@
 /**
- * Single Living Brain node + neighbors endpoint.
+ * Single BRAIN super-graph node + neighbors endpoint.
  *
- * GET /api/living-brain/node/:id
+ * GET /api/brain/node/:id
  *   → { node: LBNode, neighbors: LBNode[], edges: LBEdge[] }
  *
  * `:id` must be a substrate-prefixed node ID, e.g.:

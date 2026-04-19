@@ -1,13 +1,17 @@
 /**
- * Unified Living Brain API endpoint.
+ * Unified BRAIN super-graph API endpoint.
  *
- * GET /api/living-brain
+ * GET /api/brain
  *   → { nodes: LBNode[], edges: LBEdge[], counts, truncated }
  *
  * Query params:
  *   limit      — max nodes to return (default 500, max 2000)
  *   substrates — comma-separated: brain,nexus,tasks,conduit,signaldock (default all)
  *   min_weight — minimum quality/weight threshold 0.0–1.0 (default 0)
+ *
+ * Serves the unified super-graph wrapping memory + nexus + tasks + conduit +
+ * signaldock substrates. Individual memory observations/patterns/decisions are
+ * served under /api/memory/*.
  *
  * @see packages/brain/src/types.ts for schema
  * @see docs/plans/brain-synaptic-visualization-research.md §5.2

@@ -10,7 +10,8 @@
  *
  * These wire-format contracts are the API surface consumed by:
  * - `@cleocode/brain` (T969 — living-brain package extraction)
- * - `packages/studio/src/routes/api/living-brain/*` HTTP routes
+ * - `packages/studio/src/routes/api/brain/*` HTTP routes (T970 — renamed
+ *   from `/api/living-brain` as the canonical unified super-graph surface)
  * - CLI / SDK clients performing cross-substrate graph queries
  *
  * Node IDs are **substrate-prefixed** (`"task:T949"`, `"memory:O-abc"`,

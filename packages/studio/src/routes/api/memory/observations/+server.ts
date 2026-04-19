@@ -1,6 +1,6 @@
 /**
- * Brain observations API endpoint.
- * GET /api/brain/observations?tier=short&type=episodic&min_quality=0.5 → { observations: BrainObservation[] }
+ * Memory observations API endpoint.
+ * GET /api/memory/observations?tier=short&type=episodic&min_quality=0.5 → { observations: BrainObservation[] }
  *
  * Supports optional query filters: tier, type, min_quality.
  */
