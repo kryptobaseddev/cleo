@@ -38,6 +38,7 @@ const checkDiskSpace = checkDiskSpaceModule as unknown as (path: string) => Prom
   free: number;
   size: number;
 }>;
+
 import { patchGCState, readGCState } from './state.js';
 
 // ---------------------------------------------------------------------------
