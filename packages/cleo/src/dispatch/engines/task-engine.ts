@@ -619,6 +619,8 @@ export async function taskUpdate(
     parent?: string | null;
     type?: string;
     size?: string;
+    /** File paths associated with this task (AC.files). T1014 — parity with add. */
+    files?: string[];
     /** Pipeline stage transition target (T834 / ADR-051 Decision 4). */
     pipelineStage?: string;
   },
@@ -643,6 +645,8 @@ export async function taskUpdate(
         parentId: updates.parent,
         type: updates.type as import('@cleocode/contracts').TaskType | undefined,
         size: updates.size as import('@cleocode/contracts').TaskSize | undefined,
+        // T1014: wire --files through to core update (parity with task add).
+        files: updates.files,
         // T834 / ADR-051 Decision 4: forward pipelineStage to core update.
         pipelineStage: updates.pipelineStage,
       },

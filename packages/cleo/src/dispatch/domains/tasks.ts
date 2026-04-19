@@ -312,6 +312,8 @@ export class TasksHandler implements DomainHandler {
             parent: (params?.parent ?? params?.parentId) as string | null | undefined,
             type: params?.type as string | undefined,
             size: params?.size as string | undefined,
+            // T1014: wire --files through dispatch to engine (parity with add).
+            files: params?.files as string[] | undefined,
             // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
             pipelineStage: params?.pipelineStage as string | undefined,
           });

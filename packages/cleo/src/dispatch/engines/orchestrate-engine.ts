@@ -801,13 +801,19 @@ async function composeSpawnForTask(
     throw new Error(`Task ${taskId} not found`);
   }
 
+  // T1014: Auto-promote epics to lead role so atomicity file-scope check is
+  // bypassed. Epics coordinate atomic workers — they are inherently broad in
+  // scope and must not be blocked by the worker file-scope gate.
+  const inferredRole: AgentSpawnCapability | undefined =
+    options.role ?? (task.type === 'epic' ? 'lead' : undefined);
+
   const db = await openSignaldockDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
       tier: options.tier,
       projectRoot: root,
       sessionId: options.sessionId ?? null,
-      role: options.role,
+      role: inferredRole,
       protocol: options.protocol,
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
     });
