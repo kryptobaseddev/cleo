@@ -115,12 +115,20 @@
    * deep-link from another page). `dispose()` cleans up popstate listeners +
    * pending debounced writes on teardown.
    */
-  let filters = $state<TaskFilters | null>(null);
+  // Initialize eagerly so the Task Explorer section renders on SSR (not only
+  // after client hydration). The store is SSR-safe: it skips popstate
+  // registration + history writes when `window` is absent. Re-init in
+  // `$effect` only rebinds listeners on client-side URL changes.
+  let filters = $state<TaskFilters>(createTaskFilters(new URL($page.url)));
 
   $effect(() => {
     const next = createTaskFilters(new URL($page.url));
+    const old = filters;
     filters = next;
-    return () => next.dispose();
+    return () => {
+      next.dispose();
+      old?.dispose();
+    };
   });
 
   /**
