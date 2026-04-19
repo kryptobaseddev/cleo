@@ -4,7 +4,7 @@
  * GET /api/brain/stream
  *   → text/event-stream
  *
- * Emits `LBStreamEvent` objects encoded as `data: <JSON>\n\n`.
+ * Emits `BrainStreamEvent` objects encoded as `data: <JSON>\n\n`.
  *
  * Event types:
  *   hello          — sent immediately on connect
@@ -19,10 +19,10 @@
  *
  * The stream self-terminates when the client disconnects (AbortSignal).
  *
- * @see packages/brain/src/types.ts — LBStreamEvent
+ * @see packages/brain/src/types.ts — BrainStreamEvent
  */
 
-import type { LBNode, LBStreamEvent } from '@cleocode/brain';
+import type { BrainNode, BrainStreamEvent } from '@cleocode/brain';
 import { getBrainDb, getConduitDb, getTasksDb } from '$lib/server/db/connections.js';
 import type { ProjectContext } from '$lib/server/project-context.js';
 import type { RequestHandler } from './$types';
@@ -84,12 +84,12 @@ interface MsgRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Serialises an `LBStreamEvent` to the `data: …\n\n` SSE wire format.
+ * Serialises an `BrainStreamEvent` to the `data: …\n\n` SSE wire format.
  *
  * @param event - The event to encode.
  * @returns SSE-formatted string ready for the stream.
  */
-function sseEncode(event: LBStreamEvent): string {
+function sseEncode(event: BrainStreamEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -198,8 +198,8 @@ function initWatermarks(ctx: ProjectContext): WatermarkState {
  * @param ctx - Active project context for resolving brain.db path.
  * @returns Array of `node.create` events to emit.
  */
-function detectNewObservations(state: WatermarkState, ctx: ProjectContext): LBStreamEvent[] {
-  const events: LBStreamEvent[] = [];
+function detectNewObservations(state: WatermarkState, ctx: ProjectContext): BrainStreamEvent[] {
+  const events: BrainStreamEvent[] = [];
   try {
     const db = getBrainDb(ctx);
     if (!db) return events;
@@ -215,7 +215,7 @@ function detectNewObservations(state: WatermarkState, ctx: ProjectContext): LBSt
 
     for (const row of rows) {
       state.lastObsRowid = row.rowid;
-      const node: LBNode = {
+      const node: BrainNode = {
         id: `brain:${row.id}`,
         kind: 'observation',
         substrate: 'brain',
@@ -246,8 +246,8 @@ function detectNewObservations(state: WatermarkState, ctx: ProjectContext): LBSt
  * @param ctx - Active project context for resolving brain.db path.
  * @returns Array of `edge.strengthen` events to emit.
  */
-function detectEdgeWeightChanges(state: WatermarkState, ctx: ProjectContext): LBStreamEvent[] {
-  const events: LBStreamEvent[] = [];
+function detectEdgeWeightChanges(state: WatermarkState, ctx: ProjectContext): BrainStreamEvent[] {
+  const events: BrainStreamEvent[] = [];
   try {
     const db = getBrainDb(ctx);
     if (!db) return events;
@@ -293,8 +293,8 @@ function detectEdgeWeightChanges(state: WatermarkState, ctx: ProjectContext): LB
  * @param ctx - Active project context for resolving tasks.db path.
  * @returns Array of `task.status` events to emit.
  */
-function detectTaskStatusChanges(state: WatermarkState, ctx: ProjectContext): LBStreamEvent[] {
-  const events: LBStreamEvent[] = [];
+function detectTaskStatusChanges(state: WatermarkState, ctx: ProjectContext): BrainStreamEvent[] {
+  const events: BrainStreamEvent[] = [];
   try {
     const db = getTasksDb(ctx);
     if (!db) return events;
@@ -354,8 +354,8 @@ function detectTaskStatusChanges(state: WatermarkState, ctx: ProjectContext): LB
  * @param ctx - Active project context for resolving conduit.db path.
  * @returns Array of `message.send` events to emit.
  */
-function detectNewMessages(state: WatermarkState, ctx: ProjectContext): LBStreamEvent[] {
-  const events: LBStreamEvent[] = [];
+function detectNewMessages(state: WatermarkState, ctx: ProjectContext): BrainStreamEvent[] {
+  const events: BrainStreamEvent[] = [];
   try {
     const db = getConduitDb(ctx);
     if (!db) return events;
@@ -453,7 +453,7 @@ export const GET: RequestHandler = ({ locals, request }) => {
           return;
         }
 
-        const events: LBStreamEvent[] = [
+        const events: BrainStreamEvent[] = [
           ...detectNewObservations(watermarks, projectCtx),
           ...detectEdgeWeightChanges(watermarks, projectCtx),
           ...detectTaskStatusChanges(watermarks, projectCtx),

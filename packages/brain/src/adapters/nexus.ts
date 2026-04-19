@@ -1,7 +1,7 @@
 /**
  * NEXUS substrate adapter for the Living Brain API.
  *
- * Queries nexus.db (global) and returns LBNodes/LBEdges for code symbols and files.
+ * Queries nexus.db (global) and returns BrainNodes/BrainEdges for code symbols and files.
  * Prioritises high-in-degree nodes (most-called functions, most-imported files)
  * since the full nexus graph can exceed 10k nodes.
  *
@@ -9,7 +9,7 @@
  */
 
 import { allTyped, getNexusDb } from '../db-connections.js';
-import type { LBEdge, LBNode, LBNodeKind, LBQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainNodeKind, BrainQueryOptions } from '../types.js';
 
 /** Raw row from nexus_nodes. */
 interface NexusNodeRow {
@@ -28,14 +28,14 @@ interface NexusRelationRow {
   confidence: number | null;
 }
 
-/** Maps nexus node kinds to LBNodeKind. */
-function mapKind(nexusKind: string): LBNodeKind {
+/** Maps nexus node kinds to BrainNodeKind. */
+function mapKind(nexusKind: string): BrainNodeKind {
   if (nexusKind === 'file' || nexusKind === 'folder' || nexusKind === 'module') return 'file';
   return 'symbol';
 }
 
 /**
- * Returns all LBNodes and LBEdges sourced from nexus.db.
+ * Returns all BrainNodes and BrainEdges sourced from nexus.db.
  *
  * Fetches the highest in-degree nodes (capped at perSubstrateLimit) and
  * all relations between those nodes.
@@ -43,17 +43,17 @@ function mapKind(nexusKind: string): LBNodeKind {
  * @param options - Query options (limit, minWeight).
  * @returns Nodes and edges from the NEXUS substrate.
  */
-export function getNexusSubstrate(options: LBQueryOptions = {}): {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export function getNexusSubstrate(options: BrainQueryOptions = {}): {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
 } {
   const db = getNexusDb();
   if (!db) return { nodes: [], edges: [] };
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
+  const nodes: BrainNode[] = [];
+  const edges: BrainEdge[] = [];
 
   try {
     // Count in-degree for each node to use as weight

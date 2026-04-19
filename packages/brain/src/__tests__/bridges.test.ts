@@ -16,14 +16,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { LBEdge, LBNode } from '../types.js';
+import type { BrainEdge, BrainNode } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Synthetic fixture helpers — mirror the data shapes in brain.db
 // ---------------------------------------------------------------------------
 
-/** Creates a minimal brain LBNode with correct substrate-prefixed ID. */
-function makeBrainNode(kind: LBNode['kind'], rawId: string, label = 'test'): LBNode {
+/** Creates a minimal brain BrainNode with correct substrate-prefixed ID. */
+function makeBrainNode(kind: BrainNode['kind'], rawId: string, label = 'test'): BrainNode {
   return {
     id: `brain:${rawId}`,
     kind,
@@ -35,12 +35,12 @@ function makeBrainNode(kind: LBNode['kind'], rawId: string, label = 'test'): LBN
 }
 
 /**
- * Simulates the brain adapter's type-prefixed → LBNode ID mapping.
+ * Simulates the brain adapter's type-prefixed → BrainNode ID mapping.
  *
  * In the real adapter, this map is built from loaded nodes.
  * Here we construct it manually for testing the bridge logic.
  */
-function buildTypeIdMap(nodes: LBNode[]): Map<string, string> {
+function buildTypeIdMap(nodes: BrainNode[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const n of nodes) {
     const rawId = n.id.slice('brain:'.length);
@@ -90,11 +90,11 @@ function isTaskId(id: string): boolean {
   return id.startsWith('task:');
 }
 
-function taskRefToLBId(taskRef: string): string {
+function taskRefToBrainNodeId(taskRef: string): string {
   return `tasks:${taskRef.slice('task:'.length)}`;
 }
 
-function brainTypeIdToLBId(typeId: string): string | null {
+function brainTypeIdToBrainNodeId(typeId: string): string | null {
   const sep = typeId.indexOf(':');
   if (sep === -1) return null;
   const prefix = typeId.slice(0, sep);
@@ -111,41 +111,43 @@ function brainTypeIdToLBId(typeId: string): string | null {
 }
 
 function synthesizeBridges(
-  nodes: LBNode[],
+  nodes: BrainNode[],
   pageEdges: SyntheticPageEdge[],
   memLinks: SyntheticMemoryLink[],
   observations: SyntheticObservation[],
   decisionContextTasks: Array<{ id: string; context_task_id: string | null }>,
-): LBEdge[] {
-  const edges: LBEdge[] = [];
-  const typeIdToLBId = buildTypeIdMap(nodes);
+): BrainEdge[] {
+  const edges: BrainEdge[] = [];
+  const typeIdToBrainNodeId = buildTypeIdMap(nodes);
 
   for (const row of pageEdges) {
-    const sourceLBId = typeIdToLBId.get(row.from_id) ?? brainTypeIdToLBId(row.from_id);
-    if (!sourceLBId) continue;
+    const sourceBrainNodeId =
+      typeIdToBrainNodeId.get(row.from_id) ?? brainTypeIdToBrainNodeId(row.from_id);
+    if (!sourceBrainNodeId) continue;
 
     if (isTaskId(row.to_id)) {
       edges.push({
-        source: sourceLBId,
-        target: taskRefToLBId(row.to_id),
+        source: sourceBrainNodeId,
+        target: taskRefToBrainNodeId(row.to_id),
         type: row.edge_type,
         weight: row.weight ?? 0.5,
         substrate: 'cross',
       });
     } else if (isNexusStyleId(row.to_id)) {
       edges.push({
-        source: sourceLBId,
+        source: sourceBrainNodeId,
         target: `nexus:${row.to_id}`,
         type: row.edge_type,
         weight: row.weight ?? 0.5,
         substrate: 'cross',
       });
     } else {
-      const targetLBId = typeIdToLBId.get(row.to_id) ?? brainTypeIdToLBId(row.to_id);
-      if (targetLBId) {
+      const targetBrainNodeId =
+        typeIdToBrainNodeId.get(row.to_id) ?? brainTypeIdToBrainNodeId(row.to_id);
+      if (targetBrainNodeId) {
         edges.push({
-          source: sourceLBId,
-          target: targetLBId,
+          source: sourceBrainNodeId,
+          target: targetBrainNodeId,
           type: row.edge_type,
           weight: row.weight ?? 0.5,
           substrate: 'brain',
@@ -156,10 +158,11 @@ function synthesizeBridges(
 
   for (const row of memLinks) {
     const sourceTypeId = `${row.memory_type}:${row.memory_id}`;
-    const sourceLBId = typeIdToLBId.get(sourceTypeId) ?? brainTypeIdToLBId(sourceTypeId);
-    if (!sourceLBId) continue;
+    const sourceBrainNodeId =
+      typeIdToBrainNodeId.get(sourceTypeId) ?? brainTypeIdToBrainNodeId(sourceTypeId);
+    if (!sourceBrainNodeId) continue;
     edges.push({
-      source: sourceLBId,
+      source: sourceBrainNodeId,
       target: `tasks:${row.task_id}`,
       type: row.link_type,
       weight: 0.7,
@@ -176,11 +179,11 @@ function synthesizeBridges(
       continue;
     }
     if (!Array.isArray(filePaths)) continue;
-    const sourceLBId = `brain:${row.id}`;
+    const sourceBrainNodeId = `brain:${row.id}`;
     for (const rawPath of filePaths) {
       if (typeof rawPath !== 'string' || rawPath.length === 0) continue;
       edges.push({
-        source: sourceLBId,
+        source: sourceBrainNodeId,
         target: `nexus:${rawPath}`,
         type: 'modified_by',
         weight: 0.6,
@@ -280,7 +283,7 @@ describe('intra-brain edges from brain_page_edges', () => {
       [],
     );
 
-    // brainTypeIdToLBId returns brain:D-fff666 even if not loaded — this is by design
+    // brainTypeIdToBrainNodeId returns brain:D-fff666 even if not loaded — this is by design
     // so cross-substrate references work regardless of loading boundary.
     // The edge should still be emitted as an intra-brain stub.
     expect(edges).toHaveLength(1);
@@ -438,7 +441,7 @@ describe('cross-substrate brain → nexus bridges from code_reference edges', ()
     );
 
     // 'someword' has no colon and no slash — isNexusStyleId returns false,
-    // isTaskId returns false, brainTypeIdToLBId returns null → edge is skipped.
+    // isTaskId returns false, brainTypeIdToBrainNodeId returns null → edge is skipped.
     expect(edges).toHaveLength(0);
   });
 });
@@ -497,8 +500,8 @@ describe('brain_memory_links cross-substrate edges', () => {
   });
 
   it('skips memory link when memory node is not loaded', () => {
-    // No nodes loaded — brainTypeIdToLBId still resolves the brain: prefix,
-    // but source won't be in typeIdToLBId. brainTypeIdToLBId returns a fallback.
+    // No nodes loaded — brainTypeIdToBrainNodeId still resolves the brain: prefix,
+    // but source won't be in typeIdToBrainNodeId. brainTypeIdToBrainNodeId returns a fallback.
     const edges = synthesizeBridges(
       [],
       [],
@@ -514,8 +517,8 @@ describe('brain_memory_links cross-substrate edges', () => {
       [],
     );
 
-    // brainTypeIdToLBId resolves 'observation:O-iii009' → 'brain:O-iii009'
-    // even when not in typeIdToLBId (it's a fallback). Edge emitted.
+    // brainTypeIdToBrainNodeId resolves 'observation:O-iii009' → 'brain:O-iii009'
+    // even when not in typeIdToBrainNodeId (it's a fallback). Edge emitted.
     expect(edges).toHaveLength(1);
     expect(edges[0].source).toBe('brain:O-iii009');
   });

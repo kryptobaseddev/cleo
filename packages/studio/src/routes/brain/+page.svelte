@@ -4,14 +4,14 @@
   import LivingBrainGraph from '$lib/components/LivingBrainGraph.svelte';
   import LivingBrainCosmograph from '$lib/components/LivingBrainCosmograph.svelte';
   import LivingBrain3D from '$lib/components/LivingBrain3D.svelte';
-  import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '@cleocode/brain';
+  import type { BrainGraph, BrainNode, BrainSubstrate, BrainConnectionStatus, BrainStreamEvent } from '@cleocode/brain';
 
   // ---------------------------------------------------------------------------
   // Server-loaded data
   // ---------------------------------------------------------------------------
 
   interface PageData {
-    graph: LBGraph;
+    graph: BrainGraph;
   }
 
   let { data }: { data: PageData } = $props();
@@ -20,7 +20,7 @@
   // Runtime state
   // ---------------------------------------------------------------------------
 
-  let graph = $state<LBGraph>(data.graph);
+  let graph = $state<BrainGraph>(data.graph);
   let loading = $state(false);
   let error = $state<string | null>(null);
 
@@ -29,7 +29,7 @@
   // ---------------------------------------------------------------------------
 
   /** Current state of the SSE connection. */
-  let connectionStatus = $state<LBConnectionStatus>('connecting');
+  let connectionStatus = $state<BrainConnectionStatus>('connecting');
 
   /** Node IDs currently pulsing (cleared after pulse duration). */
   let pulsingNodes = $state<Set<string>>(new Set<string>());
@@ -84,12 +84,12 @@
   }
 
   /**
-   * Handles a parsed `LBStreamEvent` from the SSE stream.
+   * Handles a parsed `BrainStreamEvent` from the SSE stream.
    * Mutates graph state and triggers pulse animations as appropriate.
    *
    * @param event - The parsed stream event.
    */
-  function handleStreamEvent(event: LBStreamEvent): void {
+  function handleStreamEvent(event: BrainStreamEvent): void {
     switch (event.type) {
       case 'hello':
       case 'heartbeat':
@@ -126,7 +126,7 @@
         const nodeId = `tasks:${event.taskId}`;
         const idx = graph.nodes.findIndex((n) => n.id === nodeId);
         if (idx !== -1) {
-          const updatedNode: LBNode = {
+          const updatedNode: BrainNode = {
             ...graph.nodes[idx],
             meta: { ...graph.nodes[idx].meta, status: event.status },
           };
@@ -170,7 +170,7 @@
     es.onmessage = (msgEvent: MessageEvent<string>) => {
       if (!mounted) return;
       try {
-        const parsed = JSON.parse(msgEvent.data) as LBStreamEvent;
+        const parsed = JSON.parse(msgEvent.data) as BrainStreamEvent;
         handleStreamEvent(parsed);
       } catch {
         // Malformed event — ignore
@@ -224,8 +224,8 @@
   });
 
   /** Active substrate filter set (all enabled by default). */
-  let enabledSubstrates = $state<Set<LBSubstrate>>(
-    new Set(['brain', 'nexus', 'tasks', 'conduit', 'signaldock'] as LBSubstrate[]),
+  let enabledSubstrates = $state<Set<BrainSubstrate>>(
+    new Set(['brain', 'nexus', 'tasks', 'conduit', 'signaldock'] as BrainSubstrate[]),
   );
 
   /** Minimum weight threshold [0,1]. */
@@ -242,7 +242,7 @@
   let sliderIndex = $state(0);
 
   /** Side panel node detail. */
-  let selectedNode = $state<LBNode | null>(null);
+  let selectedNode = $state<BrainNode | null>(null);
   let sideLoading = $state(false);
   let sideError = $state<string | null>(null);
 
@@ -250,9 +250,9 @@
   // Visual encoding constants (must mirror LivingBrainGraph.svelte)
   // ---------------------------------------------------------------------------
 
-  const ALL_SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+  const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
 
-  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
     brain: '#3b82f6',
     nexus: '#22c55e',
     tasks: '#f97316',
@@ -281,7 +281,7 @@
   /** The date selected by the slider, or null when slider is off. */
   let filterDate = $derived(useTimeSlider ? (allDates[sliderIndex] ?? null) : null);
 
-  let filteredGraph = $derived<LBGraph>({
+  let filteredGraph = $derived<BrainGraph>({
     nodes: graph.nodes.filter((n) => {
       if (!enabledSubstrates.has(n.substrate)) return false;
       if ((n.weight ?? 1) < minWeight) return false;
@@ -295,7 +295,7 @@
     edges: graph.edges.filter((e) => {
       const srcOk =
         e.substrate === 'cross' ||
-        enabledSubstrates.has(e.substrate as LBSubstrate);
+        enabledSubstrates.has(e.substrate as BrainSubstrate);
       return srcOk;
     }),
     counts: graph.counts,
@@ -306,7 +306,7 @@
   // Substrate toggle
   // ---------------------------------------------------------------------------
 
-  function toggleSubstrate(s: LBSubstrate): void {
+  function toggleSubstrate(s: BrainSubstrate): void {
     const next = new Set(enabledSubstrates);
     if (next.has(s)) {
       next.delete(s);
@@ -343,7 +343,7 @@
     try {
       const res = await fetch('/api/brain?limit=5000');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      graph = (await res.json()) as LBGraph;
+      graph = (await res.json()) as BrainGraph;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load graph';
     } finally {
@@ -362,7 +362,7 @@
     try {
       const res = await fetch(`/api/brain/node/${encodeURIComponent(id)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { node: LBNode };
+      const body = (await res.json()) as { node: BrainNode };
       selectedNode = body.node;
     } catch (e) {
       sideError = e instanceof Error ? e.message : 'Failed to load node';

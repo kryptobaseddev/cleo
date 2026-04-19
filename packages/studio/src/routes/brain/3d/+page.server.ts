@@ -10,7 +10,7 @@
  * so no SSR content is lost.
  */
 
-import { getAllSubstrates, type LBGraph } from '@cleocode/brain';
+import { type BrainGraph, getAllSubstrates } from '@cleocode/brain';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -29,7 +29,7 @@ export const ssr = false;
 const MAX_NODES = 5000;
 
 export interface PageData {
-  graph: LBGraph;
+  graph: BrainGraph;
 }
 
 export const load: PageServerLoad = ({ locals }): PageData => {

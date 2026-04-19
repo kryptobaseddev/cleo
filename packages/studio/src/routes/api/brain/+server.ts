@@ -2,7 +2,7 @@
  * Unified BRAIN super-graph API endpoint.
  *
  * GET /api/brain
- *   → { nodes: LBNode[], edges: LBEdge[], counts, truncated }
+ *   → { nodes: BrainNode[], edges: BrainEdge[], counts, truncated }
  *
  * Query params:
  *   limit      — max nodes to return (default 500, max 2000)
@@ -17,11 +17,17 @@
  * @see docs/plans/brain-synaptic-visualization-research.md §5.2
  */
 
-import { getAllSubstrates, type LBSubstrate } from '@cleocode/brain';
+import { type BrainSubstrate, getAllSubstrates } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-const VALID_SUBSTRATES = new Set<LBSubstrate>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']);
+const VALID_SUBSTRATES = new Set<BrainSubstrate>([
+  'brain',
+  'nexus',
+  'tasks',
+  'conduit',
+  'signaldock',
+]);
 
 export const GET: RequestHandler = ({ locals, url }) => {
   const limitParam = Number(url.searchParams.get('limit') ?? '500');
@@ -32,7 +38,7 @@ export const GET: RequestHandler = ({ locals, url }) => {
     ? substratesParam
         .split(',')
         .map((s) => s.trim())
-        .filter((s): s is LBSubstrate => VALID_SUBSTRATES.has(s as LBSubstrate))
+        .filter((s): s is BrainSubstrate => VALID_SUBSTRATES.has(s as BrainSubstrate))
     : undefined;
 
   const minWeightParam = url.searchParams.get('min_weight');

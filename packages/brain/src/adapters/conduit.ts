@@ -1,7 +1,7 @@
 /**
  * CONDUIT substrate adapter for the Living Brain API.
  *
- * Queries conduit.db and returns LBNodes/LBEdges for agent-to-agent messages.
+ * Queries conduit.db and returns BrainNodes/BrainEdges for agent-to-agent messages.
  * Each message becomes a node; `from_agent_id → to_agent_id` becomes an edge.
  * Co-authoring agent pairs produce cross-substrate edges to SIGNALDOCK.
  *
@@ -10,7 +10,7 @@
 
 import { allTyped, getConduitDb } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
 /** Raw row from conduit messages table. */
 interface MessageRow {
@@ -36,7 +36,7 @@ function epochToIso(epoch: number): string | null {
 }
 
 /**
- * Returns all LBNodes and LBEdges sourced from conduit.db.
+ * Returns all BrainNodes and BrainEdges sourced from conduit.db.
  *
  * Fetches the most recent messages (capped at perSubstrateLimit).
  * Synthesizes agent→agent edges and cross-substrate agent references
@@ -45,9 +45,9 @@ function epochToIso(epoch: number): string | null {
  * @param options - Query options (limit).
  * @returns Nodes and edges from the CONDUIT substrate.
  */
-export function getConduitSubstrate(options: LBQueryOptions = {}): {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export function getConduitSubstrate(options: BrainQueryOptions = {}): {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const db = getConduitDb(ctx);
@@ -55,8 +55,8 @@ export function getConduitSubstrate(options: LBQueryOptions = {}): {
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
+  const nodes: BrainNode[] = [];
+  const edges: BrainEdge[] = [];
 
   try {
     // Most recent messages

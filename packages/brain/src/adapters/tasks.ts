@@ -1,7 +1,7 @@
 /**
  * TASKS substrate adapter for the Living Brain API.
  *
- * Queries tasks.db and returns LBNodes/LBEdges for tasks and sessions.
+ * Queries tasks.db and returns BrainNodes/BrainEdges for tasks and sessions.
  * Prioritises critical/high priority tasks and active sessions.
  *
  * Node IDs are prefixed with "tasks:" to prevent collisions.
@@ -9,7 +9,7 @@
 
 import { allTyped, getTasksDb } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
 /** Raw row from tasks table. */
 interface TaskRow {
@@ -43,7 +43,7 @@ interface TaskDepRow {
   depends_on_task_id: string;
 }
 
-/** Maps priority string to numeric weight for LBNode.weight. */
+/** Maps priority string to numeric weight for BrainNode.weight. */
 function priorityWeight(priority: string): number {
   const map: Record<string, number> = {
     critical: 1.0,
@@ -55,7 +55,7 @@ function priorityWeight(priority: string): number {
 }
 
 /**
- * Returns all LBNodes and LBEdges sourced from tasks.db.
+ * Returns all BrainNodes and BrainEdges sourced from tasks.db.
  *
  * Fetches tasks ordered by priority, plus recent sessions.
  * Synthesizes parent→child, dependency, and relation edges.
@@ -63,9 +63,9 @@ function priorityWeight(priority: string): number {
  * @param options - Query options (limit, minWeight).
  * @returns Nodes and edges from the TASKS substrate.
  */
-export function getTasksSubstrate(options: LBQueryOptions = {}): {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export function getTasksSubstrate(options: BrainQueryOptions = {}): {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const db = getTasksDb(ctx);
@@ -74,8 +74,8 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
   const minWeight = options.minWeight ?? 0;
 
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
+  const nodes: BrainNode[] = [];
+  const edges: BrainEdge[] = [];
 
   try {
     // Tasks (prioritised by severity, then recency)

@@ -1,5 +1,5 @@
 /**
- * Tests for LBNode.createdAt projection across all five substrate adapters.
+ * Tests for BrainNode.createdAt projection across all five substrate adapters.
  *
  * These tests run in isolation — no real databases are present in the test
  * environment, so each adapter returns an empty node list. The tests verify:
@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { getAllSubstrates } from '../adapters/index.js';
-import type { LBGraph, LBNode } from '../types.js';
+import type { BrainGraph, BrainNode } from '../types.js';
 
 // ISO-8601 pattern matcher (date + optional time component)
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/;
@@ -33,8 +33,8 @@ function isIsoString(value: string): boolean {
 // getAllSubstrates() — createdAt contract
 // ---------------------------------------------------------------------------
 
-describe('LBNode.createdAt contract via getAllSubstrates()', () => {
-  let graph: LBGraph;
+describe('BrainNode.createdAt contract via getAllSubstrates()', () => {
+  let graph: BrainGraph;
 
   // Run once (databases absent → empty nodes, no errors)
   graph = getAllSubstrates({ limit: 500 });
@@ -56,7 +56,7 @@ describe('LBNode.createdAt contract via getAllSubstrates()', () => {
 
   it('when createdAt is a string it is ISO-8601', () => {
     const strNodes = graph.nodes.filter(
-      (n): n is LBNode & { createdAt: string } => typeof n.createdAt === 'string',
+      (n): n is BrainNode & { createdAt: string } => typeof n.createdAt === 'string',
     );
     for (const node of strNodes) {
       expect(isIsoString(node.createdAt)).toBe(true);
@@ -65,12 +65,12 @@ describe('LBNode.createdAt contract via getAllSubstrates()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// epochToIso conversion logic (tested via LBNode construction fixtures)
+// epochToIso conversion logic (tested via BrainNode construction fixtures)
 // ---------------------------------------------------------------------------
 
-describe('createdAt field on hand-constructed LBNode fixtures', () => {
+describe('createdAt field on hand-constructed BrainNode fixtures', () => {
   it('null is accepted as a valid createdAt value', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'signaldock:agent-null',
       kind: 'agent',
       substrate: 'signaldock',
@@ -83,7 +83,7 @@ describe('createdAt field on hand-constructed LBNode fixtures', () => {
 
   it('ISO string from brain substrate passes format check', () => {
     const isoTs = '2026-04-15T07:19:32.432Z';
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'brain:O-fixture-001',
       kind: 'observation',
       substrate: 'brain',
@@ -99,7 +99,7 @@ describe('createdAt field on hand-constructed LBNode fixtures', () => {
     // Simulate what epochToIso(1744697972) would produce
     const epochSeconds = 1_744_697_972;
     const iso = new Date(epochSeconds * 1000).toISOString();
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'conduit:msg-epoch-fixture',
       kind: 'message',
       substrate: 'conduit',
@@ -115,7 +115,7 @@ describe('createdAt field on hand-constructed LBNode fixtures', () => {
 
   it('nexus indexed_at string passes format check', () => {
     const indexedAt = '2026-04-14T22:30:00';
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'nexus:sym-fixture-001',
       kind: 'symbol',
       substrate: 'nexus',
@@ -129,7 +129,7 @@ describe('createdAt field on hand-constructed LBNode fixtures', () => {
 
   it('tasks substrate uses created_at ISO string', () => {
     const createdAt = '2026-04-01T10:00:00.000Z';
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'tasks:T635',
       kind: 'task',
       substrate: 'tasks',
@@ -149,7 +149,7 @@ describe('createdAt field on hand-constructed LBNode fixtures', () => {
 
 describe('createdAt date slice for time slider', () => {
   it('YYYY-MM-DD slice is exactly 10 chars', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'brain:O-slice-test',
       kind: 'observation',
       substrate: 'brain',
@@ -162,7 +162,7 @@ describe('createdAt date slice for time slider', () => {
   });
 
   it('null createdAt produces undefined from optional chain slice', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'conduit:msg-null',
       kind: 'message',
       substrate: 'conduit',
@@ -174,7 +174,7 @@ describe('createdAt date slice for time slider', () => {
   });
 
   it('building allDates from nodes filters out nulls correctly', () => {
-    const nodes: LBNode[] = [
+    const nodes: BrainNode[] = [
       {
         id: 'brain:O-1',
         kind: 'observation',
