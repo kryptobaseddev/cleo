@@ -74,6 +74,34 @@ export default defineConfig({
         './packages/core/src/store/nexus-schema.ts',
         import.meta.url,
       ).pathname,
+      // T946 sentient daemon consumes these core subpath exports at runtime.
+      '@cleocode/core/sdk': new URL('./packages/core/src/cleo.ts', import.meta.url).pathname,
+      // T948 Studio refactor: deep subpaths like /lifecycle/rollup, /tasks/add, /tasks/list.
+      // Order matters — most specific first, then the directory-index aliases, then root.
+      '@cleocode/core/lifecycle/rollup': new URL(
+        './packages/core/src/lifecycle/rollup.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/tasks/add': new URL(
+        './packages/core/src/tasks/add.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/tasks/list': new URL(
+        './packages/core/src/tasks/list.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/store/data-accessor': new URL(
+        './packages/core/src/store/data-accessor.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/tasks': new URL(
+        './packages/core/src/tasks/index.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/lifecycle': new URL(
+        './packages/core/src/lifecycle/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,
