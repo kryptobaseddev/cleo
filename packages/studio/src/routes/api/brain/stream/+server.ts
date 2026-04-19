@@ -1,7 +1,7 @@
 /**
  * SSE Live Synapses stream endpoint.
  *
- * GET /api/living-brain/stream
+ * GET /api/brain/stream
  *   → text/event-stream
  *
  * Emits `LBStreamEvent` objects encoded as `data: <JSON>\n\n`.

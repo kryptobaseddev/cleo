@@ -1,6 +1,6 @@
 /**
- * Brain graph API endpoint.
- * GET /api/brain/graph → { nodes: BrainNode[], edges: BrainEdge[] }
+ * Memory graph API endpoint.
+ * GET /api/memory/graph → { nodes: BrainNode[], edges: BrainEdge[] }
  *
  * Returns brain_page_nodes and brain_page_edges for the force-directed graph.
  * Limits to 500 nodes for performance (highest quality first).

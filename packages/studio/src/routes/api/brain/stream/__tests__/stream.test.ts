@@ -1,5 +1,5 @@
 /**
- * Unit tests for GET /api/living-brain/stream SSE endpoint.
+ * Unit tests for GET /api/brain/stream SSE endpoint.
  *
  * Tests cover:
  * - Response has Content-Type: text/event-stream
@@ -153,7 +153,7 @@ async function importHandler(): Promise<{
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('GET /api/living-brain/stream', () => {
+describe('GET /api/brain/stream', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     getBrainDb.mockReturnValue(null);
@@ -173,7 +173,7 @@ describe('GET /api/living-brain/stream', () => {
   it('returns Content-Type: text/event-stream', async () => {
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -191,7 +191,7 @@ describe('GET /api/living-brain/stream', () => {
   it('emits hello event immediately on connect', async () => {
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -223,7 +223,7 @@ describe('GET /api/living-brain/stream', () => {
   it('emits a heartbeat event after 30 seconds', async () => {
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -272,7 +272,7 @@ describe('GET /api/living-brain/stream', () => {
 
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -355,7 +355,7 @@ describe('GET /api/living-brain/stream', () => {
 
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -420,7 +420,7 @@ describe('GET /api/living-brain/stream', () => {
 
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -487,7 +487,7 @@ describe('GET /api/living-brain/stream', () => {
 
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 
@@ -522,7 +522,7 @@ describe('GET /api/living-brain/stream', () => {
   it('closes the stream cleanly when the abort signal fires', async () => {
     const { GET } = await importHandler();
     const controller = new AbortController();
-    const req = new Request('http://localhost/api/living-brain/stream', {
+    const req = new Request('http://localhost/api/brain/stream', {
       signal: controller.signal,
     });
 

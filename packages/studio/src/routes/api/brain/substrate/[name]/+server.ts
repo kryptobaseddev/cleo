@@ -1,7 +1,7 @@
 /**
- * Substrate-filtered Living Brain endpoint.
+ * Substrate-filtered BRAIN super-graph endpoint.
  *
- * GET /api/living-brain/substrate/:name
+ * GET /api/brain/substrate/:name
  *   → { nodes: LBNode[], edges: LBEdge[], counts, truncated }
  *
  * `:name` must be one of: brain | nexus | tasks | conduit | signaldock
@@ -11,7 +11,7 @@
  *   min_weight — minimum quality/weight threshold 0.0–1.0 (default 0)
  *
  * Returns 400 for unrecognised substrate names.
- * This endpoint is equivalent to GET /api/living-brain?substrates=<name>
+ * This endpoint is equivalent to GET /api/brain?substrates=<name>
  * but provides a cleaner URL and explicit 400 on bad substrate names.
  */
 

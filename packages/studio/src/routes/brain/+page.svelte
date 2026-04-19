@@ -155,7 +155,7 @@
     if (!mounted) return;
     connectionStatus = 'connecting';
 
-    const es = new EventSource('/api/living-brain/stream');
+    const es = new EventSource('/api/brain/stream');
     eventSource = es;
 
     es.onopen = () => {
@@ -341,7 +341,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch('/api/living-brain?limit=5000');
+      const res = await fetch('/api/brain?limit=5000');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       graph = (await res.json()) as LBGraph;
     } catch (e) {
@@ -360,7 +360,7 @@
     sideError = null;
     selectedNode = null;
     try {
-      const res = await fetch(`/api/living-brain/node/${encodeURIComponent(id)}`);
+      const res = await fetch(`/api/brain/node/${encodeURIComponent(id)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = (await res.json()) as { node: LBNode };
       selectedNode = body.node;
