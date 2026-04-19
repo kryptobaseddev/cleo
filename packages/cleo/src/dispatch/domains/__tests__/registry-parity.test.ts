@@ -684,6 +684,17 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     archive: { stickyId: 'stk1' },
     purge: { stickyId: 'stk1' },
   },
+  conduit: {
+    // T964: conduit promoted to first-class domain. Handler reaches agent
+    // registry on all ops; supplying agentId keeps the test in the happy
+    // resolution path. Actual transport calls are already short-circuited by
+    // the empty @cleocode/core/internal mocks above.
+    status: { agentId: 'agent-a' },
+    peek: { agentId: 'agent-a', limit: 5 },
+    start: { agentId: 'agent-a' },
+    stop: {},
+    send: { to: 'agent-b', content: 'hello', agentId: 'agent-a' },
+  },
 };
 
 // ===========================================================================
@@ -734,7 +745,7 @@ describe('Registry-Handler Parity (T5671)', () => {
   }
 
   // Verify all canonical domains have handlers
-  it('should have handlers for all 10 canonical domains', () => {
+  it('should have handlers for all 15 canonical domains', () => {
     const expectedDomains = [
       'tasks',
       'session',
@@ -748,6 +759,8 @@ describe('Registry-Handler Parity (T5671)', () => {
       'sticky',
       // T797: docs domain added (attachment management)
       'docs',
+      // T964: conduit promoted to first-class domain (supersedes ADR-042)
+      'conduit',
     ];
     for (const domain of expectedDomains) {
       expect(handlers.has(domain), `Missing handler for domain: ${domain}`).toBe(true);

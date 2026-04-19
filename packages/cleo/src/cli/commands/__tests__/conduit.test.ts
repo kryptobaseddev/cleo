@@ -185,7 +185,7 @@ describe('conduit command group (T469)', () => {
   // 5. Dispatch wiring — correct gateway, domain, operation
   // -------------------------------------------------------------------------
 
-  it('status dispatches to query orchestrate conduit.status', async () => {
+  it('status dispatches to query conduit.status (T964)', async () => {
     const subs = await getSubCommands();
     await invokeSubCommand(subs, 'status', {});
     expect(mockDispatchFromCli).toHaveBeenCalledOnce();
@@ -195,11 +195,11 @@ describe('conduit command group (T469)', () => {
       string,
     ];
     expect(gateway).toBe('query');
-    expect(domain).toBe('orchestrate');
-    expect(operation).toBe('conduit.status');
+    expect(domain).toBe('conduit');
+    expect(operation).toBe('status');
   });
 
-  it('peek dispatches to query orchestrate conduit.peek', async () => {
+  it('peek dispatches to query conduit.peek (T964)', async () => {
     const subs = await getSubCommands();
     await invokeSubCommand(subs, 'peek', { limit: '10' });
     expect(mockDispatchFromCli).toHaveBeenCalledOnce();
@@ -209,11 +209,11 @@ describe('conduit command group (T469)', () => {
       string,
     ];
     expect(gateway).toBe('query');
-    expect(domain).toBe('orchestrate');
-    expect(operation).toBe('conduit.peek');
+    expect(domain).toBe('conduit');
+    expect(operation).toBe('peek');
   });
 
-  it('start dispatches to mutate orchestrate conduit.start', async () => {
+  it('start dispatches to mutate conduit.start (T964)', async () => {
     const subs = await getSubCommands();
     await invokeSubCommand(subs, 'start', { interval: '5000' });
     expect(mockDispatchFromCli).toHaveBeenCalledOnce();
@@ -223,11 +223,11 @@ describe('conduit command group (T469)', () => {
       string,
     ];
     expect(gateway).toBe('mutate');
-    expect(domain).toBe('orchestrate');
-    expect(operation).toBe('conduit.start');
+    expect(domain).toBe('conduit');
+    expect(operation).toBe('start');
   });
 
-  it('stop dispatches to mutate orchestrate conduit.stop', async () => {
+  it('stop dispatches to mutate conduit.stop (T964)', async () => {
     const subs = await getSubCommands();
     await invokeSubCommand(subs, 'stop', {});
     expect(mockDispatchFromCli).toHaveBeenCalledOnce();
@@ -237,11 +237,11 @@ describe('conduit command group (T469)', () => {
       string,
     ];
     expect(gateway).toBe('mutate');
-    expect(domain).toBe('orchestrate');
-    expect(operation).toBe('conduit.stop');
+    expect(domain).toBe('conduit');
+    expect(operation).toBe('stop');
   });
 
-  it('send dispatches to mutate orchestrate conduit.send with content', async () => {
+  it('send dispatches to mutate conduit.send with content (T964)', async () => {
     const subs = await getSubCommands();
     await invokeSubCommand(subs, 'send', {
       to: 'agent-b',
@@ -255,8 +255,8 @@ describe('conduit command group (T469)', () => {
       Record<string, unknown>,
     ];
     expect(gateway).toBe('mutate');
-    expect(domain).toBe('orchestrate');
-    expect(operation).toBe('conduit.send');
+    expect(domain).toBe('conduit');
+    expect(operation).toBe('send');
     expect(params.to).toBe('agent-b');
     expect(params.content).toBe('hello from test');
   });
