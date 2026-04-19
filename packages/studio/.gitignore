@@ -2,3 +2,8 @@
 build
 .turbo
 node_modules
+
+# Playwright E2E artifacts — generated per-run, not checked in
+test-results/
+playwright-report/
+e2e-results.json
