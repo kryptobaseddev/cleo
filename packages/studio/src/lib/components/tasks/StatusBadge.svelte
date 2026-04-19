@@ -84,67 +84,67 @@
   }
 
   .status-pending {
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
+    background: var(--warning-soft);
+    color: var(--status-pending);
   }
 
   .status-active {
-    background: rgba(59, 130, 246, 0.15);
-    color: #3b82f6;
+    background: var(--info-soft);
+    color: var(--status-active);
   }
 
   .status-blocked {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: var(--danger-soft);
+    color: var(--status-blocked);
   }
 
   .status-done {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    background: var(--success-soft);
+    color: var(--status-done);
   }
 
   .status-cancelled {
-    background: rgba(107, 114, 128, 0.15);
-    color: #94a3b8;
+    background: var(--neutral-soft);
+    color: var(--text-dim);
   }
 
   .status-archived {
-    background: rgba(71, 85, 105, 0.15);
-    color: #64748b;
+    background: var(--neutral-soft);
+    color: var(--status-archived);
     opacity: 0.75;
   }
 
   .status-proposed {
-    background: rgba(168, 85, 247, 0.15);
-    color: #a855f7;
+    background: var(--accent-soft);
+    color: var(--status-proposed);
   }
 
   .status-badge.compact.status-pending {
-    color: #f59e0b;
+    color: var(--status-pending);
     background: transparent;
   }
   .status-badge.compact.status-active {
-    color: #3b82f6;
+    color: var(--status-active);
     background: transparent;
   }
   .status-badge.compact.status-blocked {
-    color: #ef4444;
+    color: var(--status-blocked);
     background: transparent;
   }
   .status-badge.compact.status-done {
-    color: #22c55e;
+    color: var(--status-done);
     background: transparent;
   }
   .status-badge.compact.status-cancelled {
-    color: #94a3b8;
+    color: var(--text-dim);
     background: transparent;
   }
   .status-badge.compact.status-archived {
-    color: #64748b;
+    color: var(--status-archived);
     background: transparent;
   }
   .status-badge.compact.status-proposed {
-    color: #a855f7;
+    color: var(--status-proposed);
     background: transparent;
   }
 </style>

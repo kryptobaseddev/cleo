@@ -125,7 +125,7 @@ export const GET: RequestHandler = ({ locals }) => {
              ORDER BY ${dateCol} ASC
              LIMIT 20`,
           )
-          .all() as PromoRow[];
+          .all() as unknown as PromoRow[];
 
         for (const r of rows) {
           const entryMs = new Date(r.created_at.replace(' ', 'T') + 'Z').getTime();

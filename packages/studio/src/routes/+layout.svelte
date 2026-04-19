@@ -3,6 +3,18 @@
   import ProjectSelector from '$lib/components/ProjectSelector.svelte';
   import type { LayoutData } from './$types';
 
+  // Font faces — loaded once, globally. Fontsource emits CSS that
+  // registers @font-face rules for Inter Variable and JetBrains Mono
+  // Variable. Together they weigh ~32kb gzipped with font-display: swap.
+  import '@fontsource-variable/inter';
+  import '@fontsource-variable/jetbrains-mono';
+
+  // Design-system globals — tokens (CSS custom properties) + base
+  // reset. MUST be imported before any component-scoped style block
+  // so var(--...) resolves everywhere.
+  import '$lib/styles/tokens.css';
+  import '$lib/styles/base.css';
+
   interface Props {
     data: LayoutData;
     children: import('svelte').Snippet;
@@ -18,6 +30,8 @@
   ];
 </script>
 
+<a class="skip-link" href="#main">Skip to content</a>
+
 <div class="studio-shell">
   <header class="studio-header">
     <a href="/" class="studio-logo">
@@ -30,7 +44,7 @@
       activeProjectId={data.activeProjectId}
     />
 
-    <nav class="studio-nav">
+    <nav class="studio-nav" aria-label="Primary">
       {#each navItems as item}
         <a
           href={item.href}
@@ -39,6 +53,9 @@
             ? $page.url.pathname === item.href
             : $page.url.pathname.startsWith(item.href)}
           title={item.description}
+          aria-current={item.exact
+            ? $page.url.pathname === item.href ? 'page' : undefined
+            : $page.url.pathname.startsWith(item.href) ? 'page' : undefined}
         >
           {item.label}
         </a>
@@ -46,23 +63,20 @@
     </nav>
   </header>
 
-  <main class="studio-main">
+  <main id="main" class="studio-main" tabindex="-1">
     {@render children()}
   </main>
 </div>
 
 <style>
-  :global(*) {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
-  :global(body) {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-    background: #0f1117;
-    color: #e2e8f0;
-    min-height: 100vh;
+  /* Global focus ring — applied to every focusable element that lands
+   * focus via the keyboard (NOT via mouse). Tokens resolve to 0ms
+   * under reduced-motion so the ring still appears instantly for
+   * accessibility. */
+  :global(*:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: var(--shadow-focus);
   }
 
   .studio-shell {
@@ -74,23 +88,31 @@
   .studio-header {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0 1.5rem;
+    gap: var(--space-4);
+    padding: 0 var(--space-6);
     height: 3rem;
-    background: #1a1f2e;
-    border-bottom: 1px solid #2d3748;
+    background: var(--bg-elev-1);
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 100;
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
   }
 
   .studio-logo {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
     text-decoration: none;
-    color: #e2e8f0;
+    color: var(--text);
     flex-shrink: 0;
+  }
+
+  .studio-logo:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+    border-radius: var(--radius-sm);
   }
 
   .logo-mark {
@@ -99,48 +121,58 @@
     justify-content: center;
     width: 1.75rem;
     height: 1.75rem;
-    background: #3b82f6;
-    border-radius: 4px;
+    background: var(--accent);
+    border-radius: var(--radius-sm);
     font-weight: 700;
-    font-size: 0.875rem;
-    color: white;
+    font-size: var(--text-sm);
+    color: var(--bg);
+    font-family: var(--font-mono);
   }
 
   .logo-text {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 600;
     letter-spacing: 0.025em;
-    color: #94a3b8;
+    color: var(--text-dim);
   }
 
   .studio-nav {
     display: flex;
-    gap: 0.25rem;
+    gap: var(--space-1);
     margin-left: auto;
   }
 
   .nav-link {
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
     text-decoration: none;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
-    color: #94a3b8;
-    transition: color 0.15s, background 0.15s;
+    color: var(--text-dim);
+    transition: color var(--ease), background var(--ease);
   }
 
   .nav-link:hover {
-    color: #e2e8f0;
-    background: #2d3748;
+    color: var(--text);
+    background: var(--bg-elev-2);
   }
 
   .nav-link.active {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .nav-link:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
   .studio-main {
     flex: 1;
-    padding: 2rem 1.5rem;
+    padding: var(--space-8) var(--space-6);
+  }
+
+  .studio-main:focus {
+    outline: none;
   }
 </style>

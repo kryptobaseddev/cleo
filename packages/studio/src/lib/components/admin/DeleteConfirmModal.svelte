@@ -1,51 +1,52 @@
+<!--
+  DeleteConfirmModal — typed-word confirmation before removing a
+  project from the nexus.db registry.
+
+  Refactored onto `$lib/ui/Modal` so focus is trapped by the native
+  `<dialog>` primitive and Esc / backdrop-click close behaviour is
+  handled centrally. Matches the Wave 1E rule that every destructive
+  admin action requires typing an exact word.
+
+  @task T990
+  @wave 1E
+-->
 <script lang="ts">
+  import { Button, Modal } from '$lib/ui';
+
   interface Props {
+    open?: boolean;
     /** Display name of the project to delete. */
     projectName: string;
-    /** Called when the user confirms deletion. */
+    /** Called when the user confirms. */
     onConfirm: () => void;
-    /** Called when the modal is dismissed without action. */
-    onClose: () => void;
+    /** Called when dismissed without action. */
+    onClose?: () => void;
   }
 
-  let { projectName, onConfirm, onClose }: Props = $props();
+  let { open = $bindable(true), projectName, onConfirm, onClose }: Props = $props();
 
   let inputValue = $state('');
-
   const confirmed = $derived(inputValue === projectName);
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose();
+  function handleClose(): void {
+    open = false;
+    onClose?.();
+  }
+
+  function handleConfirm(): void {
+    if (!confirmed) return;
+    onConfirm();
   }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
-<!-- Backdrop -->
-<div
-  class="modal-backdrop"
-  role="presentation"
-  onclick={onClose}
-  onkeydown={handleKeydown}
-></div>
-
-<!-- Dialog -->
-<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
-  <div class="modal-header">
-    <h2 id="delete-modal-title" class="modal-title">Delete Project</h2>
-    <button type="button" class="close-btn" onclick={onClose} aria-label="Close">&#x2715;</button>
-  </div>
-
-  <div class="modal-body">
-    <p class="warning-text">
-      This action will remove the project from the nexus registry. It will not delete files on
-      disk.
+<Modal bind:open title="Delete project" maxWidth={28} closeOnBackdrop={false} onclose={handleClose}>
+  <div class="body">
+    <p class="warning">
+      This removes the project from the nexus registry. Files on disk are not touched.
     </p>
-
-    <p class="confirm-label">
-      Type <strong class="project-name-hint">{projectName}</strong> to confirm:
+    <p class="hint">
+      Type <strong class="keyword">{projectName}</strong> to confirm:
     </p>
-
     <input
       type="text"
       class="confirm-input"
@@ -56,157 +57,54 @@
     />
   </div>
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-cancel" onclick={onClose}>Cancel</button>
-    <button
-      type="button"
-      class="btn btn-danger"
-      onclick={onConfirm}
-      disabled={!confirmed}
-    >
+  {#snippet footer()}
+    <Button variant="ghost" onclick={handleClose}>Cancel</Button>
+    <Button variant="danger" disabled={!confirmed} onclick={handleConfirm}>
       Delete
-    </button>
-  </div>
-</div>
+    </Button>
+  {/snippet}
+</Modal>
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 100;
-  }
-
-  .modal-dialog {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 101;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    width: min(440px, 90vw);
+  .body {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: var(--space-3);
   }
 
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid #2d3748;
-  }
-
-  .modal-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #f1f5f9;
+  .warning {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    line-height: var(--leading-normal);
     margin: 0;
   }
 
-  .close-btn {
-    background: none;
-    border: none;
-    color: #64748b;
-    cursor: pointer;
-    font-size: 1rem;
-    padding: 0.25rem;
-    line-height: 1;
-  }
-
-  .close-btn:hover {
-    color: #94a3b8;
-  }
-
-  .modal-body {
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .warning-text {
-    font-size: 0.875rem;
-    color: #94a3b8;
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .confirm-label {
-    font-size: 0.875rem;
-    color: #cbd5e1;
+  .hint {
+    font-size: var(--text-sm);
+    color: var(--text);
     margin: 0;
   }
 
-  .project-name-hint {
-    color: #ef4444;
-    font-family: monospace;
-    font-weight: 600;
+  .keyword {
+    font-family: var(--font-mono);
+    color: var(--danger);
+    font-weight: 700;
   }
 
   .confirm-input {
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 5px;
-    padding: 0.5rem 0.75rem;
-    color: #f1f5f9;
-    font-size: 0.875rem;
-    font-family: monospace;
-    width: 100%;
-    box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--ease), box-shadow var(--ease);
   }
 
-  .confirm-input:focus {
-    border-color: #ef4444;
-  }
-
-  .modal-footer {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-    padding: 1rem 1.25rem;
-    border-top: 1px solid #2d3748;
-  }
-
-  .btn {
-    padding: 0.375rem 1rem;
-    border-radius: 5px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-  }
-
-  .btn-cancel {
-    background: transparent;
-    color: #94a3b8;
-    border-color: #2d3748;
-  }
-
-  .btn-cancel:hover {
-    background: #2d3748;
-    color: #e2e8f0;
-  }
-
-  .btn-danger {
-    background: #ef4444;
-    color: white;
-    border-color: #ef4444;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: #dc2626;
-    border-color: #dc2626;
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+  .confirm-input:focus-visible {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-soft);
   }
 </style>

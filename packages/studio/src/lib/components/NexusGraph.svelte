@@ -213,10 +213,10 @@
 <style>
   .nexus-graph-wrap {
     width: 100%;
-    background: #0f1117;
-    border-radius: 8px;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    border: 1px solid #2d3748;
+    border: 1px solid var(--border);
   }
 
   .nexus-graph-canvas {
@@ -227,31 +227,31 @@
   .node-tooltip {
     position: absolute;
     pointer-events: none;
-    background: #1a1f2e;
-    border: 1px solid #3b4a63;
-    border-radius: 6px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
     padding: 0.375rem 0.625rem;
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
     z-index: 50;
     max-width: 320px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-md);
   }
 
   .tooltip-label {
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 600;
-    color: #f1f5f9;
-    font-family: monospace;
+    color: var(--text);
+    font-family: var(--font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .tooltip-kind {
-    font-size: 0.6875rem;
-    color: #64748b;
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -262,7 +262,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #64748b;
-    font-size: 0.875rem;
+    color: var(--text-faint);
+    font-size: var(--text-base);
   }
 </style>

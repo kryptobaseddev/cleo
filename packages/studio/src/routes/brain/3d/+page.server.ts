@@ -1,38 +1,19 @@
 /**
- * Brain 3D canvas page server load (`/brain/3d`).
+ * Legacy `/brain/3d` route — redirects to the unified `/brain?view=3d`.
  *
- * Loads the **full** unified graph on first paint, same as `/brain`.
- * The 3D renderer (LivingBrain3D.svelte) uses the same graph data
- * as the 2D and GPU renderers.
- *
- * SSR is disabled because the 3D renderer uses THREE.js which depends on
- * WebGL — unavailable in Node.js SSR environment. The route is pure graphics
- * so no SSR content is lost.
+ * Wave 1A of T990 consolidates all three legacy brain renderers
+ * (sigma 2D, cosmos.gl GPU, 3d-force-graph) into a single canvas on
+ * `/brain` driven by `ThreeBrainRenderer`. This file keeps old
+ * bookmarks + external links alive by issuing a 301 permanent
+ * redirect.
  */
 
-import { type BrainGraph, getAllSubstrates } from '@cleocode/brain';
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-/**
- * Disable SSR for the 3D brain canvas route.
- *
- * THREE.js and 3d-force-graph depend on WebGL APIs not available in Node.js.
- * Since the route is pure 3D visualization with no SSR-friendly content,
- * disabling SSR eliminates the HTTP 500 error on direct navigation.
- *
- * The initial graph data is still loaded by the load function below and sent
- * to the browser as part of the SvelteKit serialization envelope.
- */
 export const ssr = false;
 
-/** Hard cap to prevent runaway server-side memory on enormous registries. */
-const MAX_NODES = 5000;
-
-export interface PageData {
-  graph: BrainGraph;
-}
-
-export const load: PageServerLoad = ({ locals }): PageData => {
-  const graph = getAllSubstrates({ limit: MAX_NODES, projectCtx: locals.projectCtx });
-  return { graph };
+export const load: PageServerLoad = () => {
+  // 301 permanent — legacy URL is retired.
+  throw redirect(301, '/brain?view=3d');
 };

@@ -1,4 +1,16 @@
+<!--
+  CleanModal — runs `cleo nexus projects clean` via `/api/project/clean`.
+
+  Refactored onto `$lib/ui/Modal` in Wave 1E. Preserves the safety flow:
+  Preview (dry-run) first; destructive Purge requires typing the literal
+  word `PURGE`.
+
+  @task T990
+  @wave 1E
+-->
 <script lang="ts">
+  import { Button, Input, Modal } from '$lib/ui';
+
   interface CleanResult {
     removed?: number;
     paths?: string[];
@@ -6,19 +18,19 @@
   }
 
   interface Props {
-    onClose: () => void;
+    open?: boolean;
+    onClose?: () => void;
+    onSuccess?: () => void;
   }
 
-  let { onClose }: Props = $props();
+  let { open = $bindable(true), onClose, onSuccess }: Props = $props();
 
-  // Filter toggles
   let includeTemp = $state(true);
   let includeTests = $state(false);
   let includeUnhealthy = $state(false);
   let includeNeverIndexed = $state(false);
   let pattern = $state('');
 
-  // Purge confirmation
   let purgeInput = $state('');
   const purgeConfirmed = $derived(purgeInput === 'PURGE');
 
@@ -26,11 +38,12 @@
   let result = $state<CleanResult | null>(null);
   let errorMsg = $state<string | null>(null);
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose();
+  function handleClose(): void {
+    open = false;
+    onClose?.();
   }
 
-  async function runClean(dryRun: boolean) {
+  async function runClean(dryRun: boolean): Promise<void> {
     loading = true;
     result = null;
     errorMsg = null;
@@ -62,10 +75,9 @@
         result = {
           removed: typeof data['removed'] === 'number' ? data['removed'] : undefined,
           dryRun: typeof data['dryRun'] === 'boolean' ? data['dryRun'] : dryRun,
-          paths: Array.isArray(data['paths'])
-            ? (data['paths'] as string[]).slice(0, 50)
-            : undefined,
+          paths: Array.isArray(data['paths']) ? (data['paths'] as string[]).slice(0, 50) : undefined,
         };
+        if (!dryRun) onSuccess?.();
       }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'Unexpected error';
@@ -75,62 +87,43 @@
   }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
-<div
-  class="modal-backdrop"
-  role="presentation"
-  onclick={onClose}
-  onkeydown={handleKeydown}
-></div>
-
-<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="clean-modal-title">
-  <div class="modal-header">
-    <h2 id="clean-modal-title" class="modal-title">Clean Project Registry</h2>
-    <button type="button" class="close-btn" onclick={onClose} aria-label="Close">&#x2715;</button>
-  </div>
-
-  <div class="modal-body">
-    <p class="section-label">Target filters:</p>
-
-    <div class="checkbox-group">
-      <label class="checkbox-row">
-        <input type="checkbox" class="checkbox" bind:checked={includeTemp} />
-        <span class="checkbox-label">Include <code>.temp</code> paths</span>
+<Modal bind:open title="Clean Project Registry" maxWidth={34} onclose={handleClose}>
+  <div class="clean-body">
+    <fieldset class="filters">
+      <legend class="legend">Target filters</legend>
+      <label class="row">
+        <input type="checkbox" bind:checked={includeTemp} class="check" />
+        <span>Include <code>.temp</code> paths</span>
       </label>
-      <label class="checkbox-row">
-        <input type="checkbox" class="checkbox" bind:checked={includeTests} />
-        <span class="checkbox-label">Include test / tmp / fixture / scratch / sandbox paths</span>
+      <label class="row">
+        <input type="checkbox" bind:checked={includeTests} class="check" />
+        <span>Include test / tmp / fixture / scratch / sandbox paths</span>
       </label>
-      <label class="checkbox-row">
-        <input type="checkbox" class="checkbox" bind:checked={includeUnhealthy} />
-        <span class="checkbox-label">Include unhealthy projects</span>
+      <label class="row">
+        <input type="checkbox" bind:checked={includeUnhealthy} class="check" />
+        <span>Include unhealthy projects</span>
       </label>
-      <label class="checkbox-row">
-        <input type="checkbox" class="checkbox" bind:checked={includeNeverIndexed} />
-        <span class="checkbox-label">Include never-indexed projects</span>
+      <label class="row">
+        <input type="checkbox" bind:checked={includeNeverIndexed} class="check" />
+        <span>Include never-indexed projects</span>
       </label>
-    </div>
+    </fieldset>
 
-    <div class="field">
-      <label class="field-label" for="clean-pattern">Pattern filter (optional regex)</label>
-      <input
-        id="clean-pattern"
-        type="text"
-        class="field-input"
-        placeholder="e.g. /tmp/"
-        bind:value={pattern}
-      />
-    </div>
+    <Input
+      label="Pattern filter"
+      description="Optional regex applied to project paths."
+      placeholder="e.g. /tmp/"
+      bind:value={pattern}
+    />
 
     <div class="purge-section">
-      <p class="section-label">Confirm destructive purge:</p>
+      <p class="purge-label">Confirm destructive purge</p>
       <p class="purge-hint">
-        Type <strong class="purge-keyword">PURGE</strong> below to enable the real-delete button.
+        Type <strong class="purge-keyword">PURGE</strong> to enable the red button.
       </p>
       <input
         type="text"
-        class="field-input purge-input"
+        class="purge-input"
         placeholder="PURGE"
         autocomplete="off"
         spellcheck="false"
@@ -138,389 +131,227 @@
       />
     </div>
 
-    {#if loading}
-      <div class="status-row">
-        <span class="spinner" aria-hidden="true"></span>
-        <span class="status-text">Running…</span>
-      </div>
-    {/if}
-
     {#if errorMsg}
-      <div class="error-box" role="alert">{errorMsg}</div>
+      <div class="alert" role="alert">{errorMsg}</div>
     {/if}
 
     {#if result !== null}
-      <div class="results-box" class:dry-run={result.dryRun}>
-        <div class="results-header">
+      <div class="result" class:is-dry-run={result.dryRun}>
+        <div class="result-head">
           {#if result.dryRun}
-            <span class="tag dry-run-tag">DRY RUN</span>
+            <span class="tag tag-dry">DRY RUN</span>
           {:else}
-            <span class="tag purge-tag">PURGED</span>
+            <span class="tag tag-live">PURGED</span>
           {/if}
           {#if result.removed !== undefined}
-            <span class="removed-count">{result.removed} project(s) would be removed</span>
+            <span class="result-summary">
+              {result.removed} project{result.removed === 1 ? '' : 's'}
+              {result.dryRun ? 'would be' : ''} removed
+            </span>
           {/if}
         </div>
-
         {#if result.paths && result.paths.length > 0}
-          <ul class="paths-list">
+          <ul class="paths">
             {#each result.paths as p}
-              <li class="path-item">{p}</li>
+              <li class="path">{p}</li>
             {/each}
           </ul>
         {:else}
-          <p class="no-results">No matching projects found.</p>
+          <p class="empty">No matching projects.</p>
         {/if}
       </div>
     {/if}
   </div>
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-cancel" onclick={onClose}>Close</button>
-    <button
-      type="button"
-      class="btn btn-preview"
-      onclick={() => runClean(true)}
-      disabled={loading}
-    >
-      {loading ? 'Running…' : 'Preview'}
-    </button>
-    <button
-      type="button"
-      class="btn btn-danger"
-      onclick={() => runClean(false)}
+  {#snippet footer()}
+    <Button variant="ghost" onclick={handleClose}>Close</Button>
+    <Button variant="secondary" {loading} onclick={() => runClean(true)}>
+      Preview
+    </Button>
+    <Button
+      variant="danger"
       disabled={!purgeConfirmed || loading}
+      {loading}
+      onclick={() => runClean(false)}
     >
       Purge
-    </button>
-  </div>
-</div>
+    </Button>
+  {/snippet}
+</Modal>
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 100;
-  }
-
-  .modal-dialog {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 101;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    width: min(520px, 92vw);
-    max-height: 85vh;
+  .clean-body {
     display: flex;
     flex-direction: column;
+    gap: var(--space-4);
   }
 
-  .modal-header {
+  .filters {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: var(--bg);
+  }
+
+  .legend {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0 var(--space-2);
+  }
+
+  .row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid #2d3748;
-    flex-shrink: 0;
-  }
-
-  .modal-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #f1f5f9;
-    margin: 0;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: #64748b;
-    cursor: pointer;
-    font-size: 1rem;
-    padding: 0.25rem;
-    line-height: 1;
-  }
-
-  .close-btn:hover {
-    color: #94a3b8;
-  }
-
-  .modal-body {
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    overflow-y: auto;
-  }
-
-  .section-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: #94a3b8;
-    margin: 0;
-  }
-
-  .checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text);
     cursor: pointer;
   }
 
-  .checkbox {
-    accent-color: #3b82f6;
-    width: 1rem;
-    height: 1rem;
-    cursor: pointer;
-    flex-shrink: 0;
+  .check {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
   }
 
-  .checkbox-label {
-    font-size: 0.875rem;
-    color: #cbd5e1;
-  }
-
-  .checkbox-label code {
-    font-family: monospace;
-    font-size: 0.8125rem;
-    background: #0f1117;
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-    color: #94a3b8;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .field-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: #94a3b8;
-  }
-
-  .field-input {
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 5px;
-    padding: 0.5rem 0.75rem;
-    color: #f1f5f9;
-    font-size: 0.875rem;
-    font-family: monospace;
-    width: 100%;
-    box-sizing: border-box;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .field-input:focus {
-    border-color: #3b82f6;
+  code {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    background: var(--bg-elev-1);
+    color: var(--text-dim);
+    padding: 1px 4px;
+    border-radius: var(--radius-xs);
   }
 
   .purge-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.875rem;
-    background: rgba(239, 68, 68, 0.06);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-    border-radius: 5px;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: var(--danger-soft);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+    border-radius: var(--radius-md);
+  }
+
+  .purge-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--danger);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
   }
 
   .purge-hint {
-    font-size: 0.8125rem;
-    color: #94a3b8;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
     margin: 0;
   }
 
   .purge-keyword {
-    color: #ef4444;
-    font-family: monospace;
+    font-family: var(--font-mono);
+    color: var(--danger);
   }
 
-  .purge-input:focus {
-    border-color: #ef4444;
+  .purge-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
+    outline: none;
   }
 
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  .purge-input:focus-visible {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-soft);
   }
 
-  .spinner {
-    display: inline-block;
-    width: 1rem;
-    height: 1rem;
-    border: 2px solid #2d3748;
-    border-top-color: #3b82f6;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
+  .alert {
+    background: var(--danger-soft);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
+    padding: var(--space-3);
+    font-size: var(--text-sm);
+    border-radius: var(--radius-md);
   }
 
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .status-text {
-    font-size: 0.875rem;
-    color: #64748b;
-  }
-
-  .error-box {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 5px;
-    padding: 0.75rem;
-    font-size: 0.875rem;
-    color: #fca5a5;
-  }
-
-  .results-box {
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 5px;
-    padding: 0.875rem;
+  .result {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
 
-  .results-box.dry-run {
-    border-color: #f59e0b;
+  .result.is-dry-run {
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
   }
 
-  .results-header {
+  .result-head {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-3);
     flex-wrap: wrap;
   }
 
   .tag {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-xs);
     text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
   }
 
-  .dry-run-tag {
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
-    border: 1px solid rgba(245, 158, 11, 0.3);
+  .tag-dry {
+    background: var(--warning-soft);
+    color: var(--warning);
   }
 
-  .purge-tag {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+  .tag-live {
+    background: var(--danger-soft);
+    color: var(--danger);
   }
 
-  .removed-count {
-    font-size: 0.875rem;
-    color: #cbd5e1;
+  .result-summary {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
   }
 
-  .paths-list {
+  .paths {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    max-height: 160px;
+    gap: 2px;
+    max-height: 180px;
     overflow-y: auto;
   }
 
-  .path-item {
-    font-size: 0.75rem;
-    font-family: monospace;
-    color: #94a3b8;
+  .path {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
     word-break: break-all;
-    padding: 0.125rem 0;
   }
 
-  .no-results {
-    font-size: 0.875rem;
-    color: #64748b;
+  .empty {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
     margin: 0;
-  }
-
-  .modal-footer {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-    padding: 1rem 1.25rem;
-    border-top: 1px solid #2d3748;
-    flex-shrink: 0;
-  }
-
-  .btn {
-    padding: 0.375rem 1rem;
-    border-radius: 5px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-  }
-
-  .btn-cancel {
-    background: transparent;
-    color: #94a3b8;
-    border-color: #2d3748;
-  }
-
-  .btn-cancel:hover {
-    background: #2d3748;
-    color: #e2e8f0;
-  }
-
-  .btn-preview {
-    background: transparent;
-    color: #f59e0b;
-    border-color: rgba(245, 158, 11, 0.4);
-  }
-
-  .btn-preview:hover:not(:disabled) {
-    background: rgba(245, 158, 11, 0.1);
-  }
-
-  .btn-preview:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    background: #ef4444;
-    color: white;
-    border-color: #ef4444;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: #dc2626;
-    border-color: #dc2626;
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
   }
 </style>

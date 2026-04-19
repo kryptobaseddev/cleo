@@ -322,13 +322,15 @@ describe('edge visual encoding', () => {
 // ---------------------------------------------------------------------------
 
 describe('nodeFill', () => {
-  it('returns the canonical palette for every supported status', () => {
-    expect(nodeFill('pending')).toBe('#f59e0b');
-    expect(nodeFill('active')).toBe('#3b82f6');
-    expect(nodeFill('blocked')).toBe('#ef4444');
-    expect(nodeFill('done')).toBe('#22c55e');
-    expect(nodeFill('cancelled')).toBe('#6b7280');
-    expect(nodeFill('archived')).toBe('#475569');
-    expect(nodeFill('proposed')).toBe('#a855f7');
+  it('returns token-backed `var(--status-*)` references for every status (T990 Wave 1C)', () => {
+    // Wave 1C rewrite (T990) replaced inline hex palettes with token
+    // references so theme overrides propagate without editing this file.
+    expect(nodeFill('pending')).toBe('var(--status-pending)');
+    expect(nodeFill('active')).toBe('var(--status-active)');
+    expect(nodeFill('blocked')).toBe('var(--status-blocked)');
+    expect(nodeFill('done')).toBe('var(--status-done)');
+    expect(nodeFill('cancelled')).toBe('var(--status-cancelled)');
+    expect(nodeFill('archived')).toBe('var(--status-archived)');
+    expect(nodeFill('proposed')).toBe('var(--status-proposed)');
   });
 });

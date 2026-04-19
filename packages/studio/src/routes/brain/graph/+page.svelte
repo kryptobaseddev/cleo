@@ -1,6 +1,17 @@
+<!--
+  /brain/graph — retrospective force-directed view of the memory graph.
+
+  Wave 1D pass: token-only styles + EmptyState / Spinner primitives.
+  The underlying BrainGraph canvas is preserved (a future wave wires
+  CosmosRenderer from $lib/graph/renderers).
+
+  @task T990
+  @wave 1D
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import BrainGraph from '$lib/components/BrainGraph.svelte';
+  import { Button, EmptyState, Spinner } from '$lib/ui';
 
   interface BrainNode {
     id: string;
@@ -19,65 +30,63 @@
     created_at: string;
   }
 
-  let nodes: BrainNode[] = $state([]);
-  let edges: BrainEdge[] = $state([]);
+  let nodes = $state<BrainNode[]>([]);
+  let edges = $state<BrainEdge[]>([]);
   let totalNodes = $state(0);
   let totalEdges = $state(0);
   let loading = $state(true);
-  let error: string | null = $state(null);
+  let error = $state<string | null>(null);
 
-  // Time slider
-  let allDates: string[] = $state([]);
+  let allDates = $state<string[]>([]);
   let sliderIndex = $state(0);
-  let filterDate: string | null = $state(null);
+  let filterDate = $state<string | null>(null);
   let useTimeSlider = $state(false);
 
-  const NODE_COLORS: Record<string, string> = {
-    observation: '#3b82f6',
-    decision: '#22c55e',
-    pattern: '#a855f7',
-    learning: '#f97316',
-    task: '#6b7280',
-    session: '#64748b',
-    epic: '#f59e0b',
-    sticky: '#ec4899',
+  const NODE_TINT: Record<string, string> = {
+    observation: 'var(--info)',
+    decision: 'var(--success)',
+    pattern: 'var(--accent)',
+    learning: 'var(--warning)',
+    task: 'var(--text-faint)',
+    session: 'var(--text-faint)',
+    epic: 'var(--warning)',
+    sticky: 'var(--danger)',
   };
 
-  const EDGE_COLORS: Record<string, string> = {
-    supersedes: '#ef4444',
-    applies_to: '#3b82f6',
-    derived_from: '#22c55e',
-    part_of: '#a855f7',
-    produced_by: '#f97316',
-    references: '#94a3b8',
+  const EDGE_TINT: Record<string, string> = {
+    supersedes: 'var(--danger)',
+    applies_to: 'var(--info)',
+    derived_from: 'var(--success)',
+    part_of: 'var(--accent)',
+    produced_by: 'var(--warning)',
+    references: 'var(--text-dim)',
   };
 
   function nodeColor(type: string): string {
-    return NODE_COLORS[type] ?? '#94a3b8';
+    return NODE_TINT[type] ?? 'var(--text-dim)';
   }
 
   function edgeColor(type: string): string {
-    return EDGE_COLORS[type] ?? '#475569';
+    return EDGE_TINT[type] ?? 'var(--text-faint)';
   }
 
-  async function loadGraph(): Promise<void> {
+  async function load(): Promise<void> {
     loading = true;
     error = null;
     try {
       const res = await fetch('/api/memory/graph');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as {
+      const body = (await res.json()) as {
         nodes: BrainNode[];
         edges: BrainEdge[];
         total_nodes: number;
         total_edges: number;
       };
-      nodes = data.nodes;
-      edges = data.edges;
-      totalNodes = data.total_nodes;
-      totalEdges = data.total_edges;
+      nodes = body.nodes;
+      edges = body.edges;
+      totalNodes = body.total_nodes;
+      totalEdges = body.total_edges;
 
-      // Build sorted date list for time slider
       const dates = [...new Set(nodes.map((n) => n.created_at.slice(0, 10)))].sort();
       allDates = dates;
       sliderIndex = dates.length - 1;
@@ -91,7 +100,7 @@
 
   function onSliderChange(e: Event): void {
     const target = e.target as HTMLInputElement;
-    sliderIndex = parseInt(target.value, 10);
+    sliderIndex = Number.parseInt(target.value, 10);
     filterDate = useTimeSlider ? (allDates[sliderIndex] ?? null) : null;
   }
 
@@ -100,8 +109,7 @@
     filterDate = useTimeSlider ? (allDates[sliderIndex] ?? null) : null;
   }
 
-  // Node type counts for legend
-  let nodeTypeCounts = $derived(
+  const nodeTypeCounts = $derived(
     Object.entries(
       nodes.reduce<Record<string, number>>((acc, n) => {
         acc[n.node_type] = (acc[n.node_type] ?? 0) + 1;
@@ -110,8 +118,7 @@
     ).sort((a, b) => b[1] - a[1]),
   );
 
-  // Edge type counts
-  let edgeTypeCounts = $derived(
+  const edgeTypeCounts = $derived(
     Object.entries(
       edges.reduce<Record<string, number>>((acc, e) => {
         acc[e.edge_type] = (acc[e.edge_type] ?? 0) + 1;
@@ -121,7 +128,7 @@
   );
 
   onMount(() => {
-    loadGraph();
+    void load();
   });
 </script>
 
@@ -129,18 +136,29 @@
   <title>BRAIN Graph — CLEO Studio</title>
 </svelte:head>
 
-<div class="graph-page">
-  <div class="graph-header">
-    <div class="header-left">
-      <a href="/brain/overview" class="back-link">← Overview</a>
-      <h1 class="page-title">Knowledge Graph</h1>
+<section class="page">
+  <header class="page-head">
+    <div class="head-left">
+      <a class="back" href="/brain/overview">← Overview</a>
+      <h1 class="title">Knowledge graph</h1>
       {#if !loading && !error}
-        <span class="node-count">{totalNodes} nodes · {totalEdges} edges</span>
+        <span class="count">
+          <span class="count-n">{totalNodes}</span>
+          <span class="count-div">·</span>
+          <span class="count-n">{totalEdges}</span>
+          <span class="count-label">nodes · edges</span>
+        </span>
       {/if}
     </div>
-    <div class="header-controls">
-      <button class="toggle-btn" class:active={useTimeSlider} onclick={toggleSlider}>
-        Time Slider {useTimeSlider ? 'On' : 'Off'}
+    <div class="head-right">
+      <button
+        type="button"
+        class="toggle-btn"
+        class:on={useTimeSlider}
+        aria-pressed={useTimeSlider}
+        onclick={toggleSlider}
+      >
+        Time slider {useTimeSlider ? 'on' : 'off'}
       </button>
       {#if useTimeSlider && allDates.length > 0}
         <div class="slider-wrap">
@@ -151,17 +169,34 @@
             value={sliderIndex}
             oninput={onSliderChange}
             class="time-slider"
+            aria-label="Graph date filter"
           />
           <span class="slider-date">{allDates[sliderIndex] ?? ''}</span>
         </div>
       {/if}
     </div>
-  </div>
+  </header>
 
   {#if loading}
-    <div class="loading">Loading graph data…</div>
+    <div class="state">
+      <Spinner size="md" />
+      <span>Loading graph data…</span>
+    </div>
   {:else if error}
-    <div class="error">{error}</div>
+    <EmptyState
+      title="Couldn't load graph"
+      subtitle={error}
+      variant="warning"
+    >
+      {#snippet action()}
+        <Button variant="secondary" size="sm" onclick={() => { void load(); }}>Retry</Button>
+      {/snippet}
+    </EmptyState>
+  {:else if nodes.length === 0}
+    <EmptyState
+      title="No graph data"
+      subtitle="brain.db exists but the PageIndex graph is empty. Run a session to populate it."
+    />
   {:else}
     <div class="graph-canvas">
       <BrainGraph {nodes} {edges} {filterDate} />
@@ -170,189 +205,222 @@
     <div class="legend-bar">
       <div class="legend-section">
         <span class="legend-label">Nodes</span>
-        {#each nodeTypeCounts as [type, count]}
-          <div class="legend-item">
+        {#each nodeTypeCounts as [type, count] (type)}
+          <span class="legend-item">
             <span class="legend-dot" style="background:{nodeColor(type)}"></span>
-            <span>{type}</span>
+            <span class="legend-text">{type}</span>
             <span class="legend-count">{count}</span>
-          </div>
+          </span>
         {/each}
       </div>
       <div class="legend-section">
         <span class="legend-label">Edges</span>
-        {#each edgeTypeCounts as [type, count]}
-          <div class="legend-item">
+        {#each edgeTypeCounts as [type, count] (type)}
+          <span class="legend-item">
             <span class="legend-line" style="background:{edgeColor(type)}"></span>
-            <span>{type}</span>
+            <span class="legend-text">{type}</span>
             <span class="legend-count">{count}</span>
-          </div>
+          </span>
         {/each}
       </div>
       <div class="legend-section">
         <span class="legend-label">Tiers</span>
-        <div class="legend-item">
+        <span class="legend-item">
           <span class="tier-ring thin solid"></span>
-          <span>short</span>
-        </div>
-        <div class="legend-item">
+          <span class="legend-text">short</span>
+        </span>
+        <span class="legend-item">
           <span class="tier-ring medium dashed"></span>
-          <span>medium</span>
-        </div>
-        <div class="legend-item">
+          <span class="legend-text">medium</span>
+        </span>
+        <span class="legend-item">
           <span class="tier-ring thick solid"></span>
-          <span>long</span>
-        </div>
+          <span class="legend-text">long</span>
+        </span>
       </div>
     </div>
   {/if}
-</div>
+</section>
 
 <style>
-  .graph-page {
+  .page {
     display: flex;
     flex-direction: column;
+    gap: var(--space-3);
     height: calc(100vh - 3rem - 4rem);
-    gap: 0.75rem;
+    font-family: var(--font-sans);
   }
 
-  .graph-header {
+  .page-head {
     display: flex;
-    align-items: center;
-    gap: 1rem;
+    align-items: flex-end;
+    justify-content: space-between;
     flex-wrap: wrap;
+    gap: var(--space-3);
   }
 
-  .header-left {
+  .head-left {
     display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    flex: 1;
+    align-items: baseline;
+    gap: var(--space-3);
   }
 
-  .back-link {
-    font-size: 0.8125rem;
-    color: #64748b;
+  .back {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
     text-decoration: none;
-    transition: color 0.15s;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
   }
 
-  .back-link:hover {
-    color: #22c55e;
+  .back:hover {
+    color: var(--accent);
   }
 
-  .page-title {
-    font-size: 1.125rem;
+  .title {
+    font-size: var(--text-lg);
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text);
+    margin: 0;
   }
 
-  .node-count {
-    font-size: 0.75rem;
-    color: #64748b;
+  .count {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 
-  .header-controls {
+  .count-n {
+    font-size: var(--text-sm);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .count-div {
+    color: var(--text-faint);
+  }
+
+  .count-label {
+    margin-left: var(--space-1);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .head-right {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-3);
     flex-wrap: wrap;
   }
 
   .toggle-btn {
-    padding: 0.25rem 0.75rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 500;
     background: none;
-    border: 1px solid #2d3748;
-    color: #94a3b8;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-pill);
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--ease), border-color var(--ease), background var(--ease);
   }
 
-  .toggle-btn:hover,
-  .toggle-btn.active {
-    color: #22c55e;
-    border-color: #22c55e;
+  .toggle-btn.on {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-halo);
+  }
+
+  .toggle-btn:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .toggle-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
   .slider-wrap {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
   }
 
   .time-slider {
-    width: 160px;
-    accent-color: #22c55e;
+    width: 180px;
+    accent-color: var(--accent);
   }
 
   .slider-date {
-    font-size: 0.75rem;
-    color: #94a3b8;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
     font-variant-numeric: tabular-nums;
     min-width: 80px;
   }
 
-  .loading,
-  .error {
+  .state {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: var(--space-3);
     flex: 1;
-    font-size: 0.875rem;
-    color: #64748b;
-  }
-
-  .error {
-    color: #ef4444;
+    color: var(--text-dim);
+    font-size: var(--text-sm);
   }
 
   .graph-canvas {
     flex: 1;
     min-height: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
+    border: 1px solid var(--border);
   }
 
   .legend-bar {
     display: flex;
-    gap: 1.5rem;
-    padding: 0.625rem 0.875rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
+    gap: var(--space-5);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     flex-wrap: wrap;
   }
 
   .legend-section {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: var(--space-2);
     flex-wrap: wrap;
   }
 
   .legend-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #64748b;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-right: 0.25rem;
+    letter-spacing: 0.08em;
+    margin-right: var(--space-1);
   }
 
   .legend-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: #94a3b8;
+    gap: 4px;
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
   }
 
   .legend-dot {
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     flex-shrink: 0;
   }
 
@@ -363,7 +431,7 @@
   }
 
   .legend-count {
-    color: #475569;
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
 
@@ -371,20 +439,20 @@
     display: inline-block;
     width: 10px;
     height: 10px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: none;
     flex-shrink: 0;
   }
 
   .tier-ring.thin {
-    border: 1px solid #94a3b8;
+    border: 1px solid var(--text-dim);
   }
 
   .tier-ring.medium {
-    border: 1.5px dashed #94a3b8;
+    border: 1.5px dashed var(--text-dim);
   }
 
   .tier-ring.thick {
-    border: 2.5px solid #94a3b8;
+    border: 2.5px solid var(--text-dim);
   }
 </style>
