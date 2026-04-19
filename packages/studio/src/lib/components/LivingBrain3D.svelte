@@ -3,7 +3,7 @@
   import ForceGraph3D from '3d-force-graph';
   import * as THREE from 'three';
   import { EffectComposer, RenderPass, UnrealBloomPass } from 'three-stdlib';
-  import type { LBNode, LBEdge, LBSubstrate } from '@cleocode/brain';
+  import type { BrainNode, BrainEdge, BrainSubstrate } from '@cleocode/brain';
   import { livingBrainGraphStore } from '$lib/stores/living-brain-graph.js';
   import type Graph from 'graphology';
 
@@ -16,8 +16,8 @@
    * LivingBrainCosmograph.svelte for plug-compatible rendering.
    */
   interface Props {
-    nodes: LBNode[];
-    edges: LBEdge[];
+    nodes: BrainNode[];
+    edges: BrainEdge[];
     /** Fired when the user clicks a node. Passes the node ID. */
     onNodeClick?: (id: string) => void;
     height?: string;
@@ -44,7 +44,7 @@
   // ---------------------------------------------------------------------------
 
   /** Substrate fill colour (hex). */
-  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
     brain: '#3b82f6',
     nexus: '#22c55e',
     tasks: '#f97316',
@@ -92,9 +92,9 @@
    * Derives node display size from the normalised weight value.
    * Matches the formula in LivingBrainGraph.svelte: 4 + w * 14
    *
-   * @param node - The source LBNode.
+   * @param node - The source BrainNode.
    */
-  function nodeSize(node: LBNode): number {
+  function nodeSize(node: BrainNode): number {
     const w = node.weight ?? 0.3;
     return 4 + w * 14;
   }
@@ -357,7 +357,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Build 3D force graph from shared Graphology instance or LBNode[] / LBEdge[]
+  // Build 3D force graph from shared Graphology instance or BrainNode[] / BrainEdge[]
   // ---------------------------------------------------------------------------
 
   /**
@@ -383,7 +383,7 @@
         label?: string;
         size?: number;
         color?: string;
-        substrate?: LBSubstrate;
+        substrate?: BrainSubstrate;
         kind?: string;
         weight?: number;
         x?: number;
@@ -439,7 +439,7 @@
   }
 
   /**
-   * Constructs the nodes and links data structures for ForceGraph3D from LBNode[]/LBEdge[].
+   * Constructs the nodes and links data structures for ForceGraph3D from BrainNode[]/BrainEdge[].
    * Used as fallback when shared Graphology instance is not available.
    * Returns an object with `nodes` and `links` arrays ready for `.graphData()`.
    */

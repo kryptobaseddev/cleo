@@ -2,16 +2,20 @@
  * Public entry point for `@cleocode/brain` — the unified-graph substrate for CLEO.
  *
  * Exports:
- * - Wire-format types (LBNode, LBEdge, LBGraph, LBQueryOptions, LBStreamEvent, LBConnectionStatus, LBNodeKind, LBSubstrate)
+ * - Wire-format types (BrainNode, BrainEdge, BrainGraph, BrainQueryOptions, BrainStreamEvent, BrainConnectionStatus, BrainNodeKind, BrainSubstrate)
  * - Unified query function (`getAllSubstrates`)
  * - Individual substrate adapters (`getBrainSubstrate`, `getNexusSubstrate`, `getTasksSubstrate`, `getConduitSubstrate`, `getSignaldockSubstrate`)
  * - Project context helpers (`ProjectContext`, `resolveDefaultProjectContext`)
  * - Path helpers (`getCleoHome`, `getCleoProjectDir`, `getBrainDbPath`, etc.)
  *
- * The `LB*` naming is preserved for a stable extraction diff. T973 will rename
- * to `Brain*` across contracts and studio in a separate focused change.
+ * @remarks
+ * T973 renamed the `LB*` prefix to `Brain*` to align the runtime naming with
+ * the `@cleocode/contracts/operations/brain` wire format and the operator's
+ * BRAIN super-graph mental model. The runtime shapes (fields, unions) remain
+ * intentionally distinct from the contracts shapes — these are the types
+ * produced by the substrate adapters in this package.
  *
- * @task T969
+ * @task T969 (original extraction) · T973 (LB* → Brain* rename)
  */
 
 // Substrate adapters and unified query
@@ -47,14 +51,15 @@ export {
 // Project context
 export type { ProjectContext } from './project-context.js';
 export { resolveDefaultProjectContext } from './project-context.js';
-// Wire-format types
+// Wire-format types (Brain* runtime shapes — see types.ts for the distinction
+// from the contracts wire-format types)
 export type {
-  LBConnectionStatus,
-  LBEdge,
-  LBGraph,
-  LBNode,
-  LBNodeKind,
-  LBQueryOptions,
-  LBStreamEvent,
-  LBSubstrate,
+  BrainConnectionStatus,
+  BrainEdge,
+  BrainGraph,
+  BrainNode,
+  BrainNodeKind,
+  BrainQueryOptions,
+  BrainStreamEvent,
+  BrainSubstrate,
 } from './types.js';

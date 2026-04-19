@@ -28,9 +28,9 @@ reference nodes unambiguously, e.g. `brain:O-abc` vs `nexus:sym-123`.
 ## Usage
 
 ```ts
-import { getAllSubstrates, type LBGraph } from '@cleocode/brain';
+import { getAllSubstrates, type BrainGraph } from '@cleocode/brain';
 
-const graph: LBGraph = getAllSubstrates({ limit: 500, minWeight: 0 });
+const graph: BrainGraph = getAllSubstrates({ limit: 500, minWeight: 0 });
 console.log(`${graph.nodes.length} nodes across ${Object.keys(graph.counts.nodes).length} substrates`);
 ```
 
@@ -48,19 +48,24 @@ import {
 
 ## Wire Format
 
-The wire format (types `LBNode`, `LBEdge`, `LBGraph`, `LBQueryOptions`,
-`LBStreamEvent`) is re-exported from the top-level entry point. See
-`src/types.ts` for the canonical definitions.
+The wire format (types `BrainNode`, `BrainEdge`, `BrainGraph`,
+`BrainQueryOptions`, `BrainStreamEvent`) is re-exported from the top-level
+entry point. See `src/types.ts` for the canonical definitions.
 
-Future parallel work (T968) will add a contract mirror under
-`@cleocode/contracts/operations/brain` for programmatic-API consumers.
+A parallel **contracts mirror** lives at
+`@cleocode/contracts/operations/brain` (T968) for programmatic-API
+consumers. It describes the HTTP wire format for the brain.* operations
+and is intentionally structurally distinct from these runtime types (e.g.
+contract `BrainNode` uses `type: string` + `data`, runtime uses `kind:
+BrainNodeKind` + `meta` + an optional adapter-produced `weight`).
 
 ## Naming
 
-Current exports preserve the `LB*` prefix (`LBNode`, `LBEdge`, `LBGraph`,
-`LBSubstrate`, `LBQueryOptions`, `LBStreamEvent`, `LBConnectionStatus`,
-`LBNodeKind`) for a stable extraction diff. T973 will rename these to
-`Brain*` across contracts and studio in a separate, focused change.
+All exported types carry the `Brain*` prefix (`BrainNode`, `BrainEdge`,
+`BrainGraph`, `BrainSubstrate`, `BrainQueryOptions`, `BrainStreamEvent`,
+`BrainConnectionStatus`, `BrainNodeKind`). T973 completed the LB* → Brain*
+rename started by the T969 package extraction. The `LB*` prefix is no
+longer exported by this package.
 
 ## License
 

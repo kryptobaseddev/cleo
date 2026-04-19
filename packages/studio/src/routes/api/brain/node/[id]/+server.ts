@@ -2,7 +2,7 @@
  * Single BRAIN super-graph node + neighbors endpoint.
  *
  * GET /api/brain/node/:id
- *   → { node: LBNode, neighbors: LBNode[], edges: LBEdge[] }
+ *   → { node: BrainNode, neighbors: BrainNode[], edges: BrainEdge[] }
  *
  * `:id` must be a substrate-prefixed node ID, e.g.:
  *   brain:O-abc123
@@ -15,14 +15,14 @@
  * Returns neighbors = nodes directly connected by at least one edge.
  */
 
-import { getAllSubstrates, type LBEdge, type LBNode } from '@cleocode/brain';
+import { type BrainEdge, type BrainNode, getAllSubstrates } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 export interface NodeNeighborsResponse {
-  node: LBNode;
-  neighbors: LBNode[];
-  edges: LBEdge[];
+  node: BrainNode;
+  neighbors: BrainNode[];
+  edges: BrainEdge[];
 }
 
 export const GET: RequestHandler = ({ locals, params }) => {

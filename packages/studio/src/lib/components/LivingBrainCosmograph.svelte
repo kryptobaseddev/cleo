@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Graph as CosmosGraph } from '@cosmograph/cosmos';
   import type { GraphConfigInterface } from '@cosmograph/cosmos';
-  import type { LBNode, LBEdge, LBSubstrate } from '@cleocode/brain';
+  import type { BrainNode, BrainEdge, BrainSubstrate } from '@cleocode/brain';
 
   // ---------------------------------------------------------------------------
   // Props — intentionally mirrors LivingBrainGraph.svelte's Props interface
@@ -24,8 +24,8 @@
    * are interchangeable in the page template.
    */
   interface Props {
-    nodes: LBNode[];
-    edges: LBEdge[];
+    nodes: BrainNode[];
+    edges: BrainEdge[];
     /** Fired when the user clicks a node. Passes the node ID. */
     onNodeClick?: (id: string) => void;
     height?: string;
@@ -72,7 +72,7 @@
   // ---------------------------------------------------------------------------
 
   /** Substrate fill colour (hex). */
-  const SUBSTRATE_COLOR: Record<LBSubstrate, string> = {
+  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
     brain: '#3b82f6',
     nexus: '#22c55e',
     tasks: '#f97316',
@@ -133,9 +133,9 @@
    * Matches the formula in LivingBrainGraph.svelte: 4 + w * 14, scaled to
    * cosmos.gl's point size units (which render slightly larger).
    *
-   * @param node - The source LBNode.
+   * @param node - The source BrainNode.
    */
-  function nodeSize(node: LBNode): number {
+  function nodeSize(node: BrainNode): number {
     const w = node.weight ?? 0.3;
     return 4 + w * 14;
   }
@@ -179,7 +179,7 @@
   let indexToId: string[] = [];
 
   // ---------------------------------------------------------------------------
-  // Build flat typed arrays from LBNode[] / LBEdge[]
+  // Build flat typed arrays from BrainNode[] / BrainEdge[]
   // ---------------------------------------------------------------------------
 
   /**
@@ -236,7 +236,7 @@
     }
 
     // Filter valid edges: both endpoints must exist and no self-loops
-    const validEdges: LBEdge[] = [];
+    const validEdges: BrainEdge[] = [];
     const seenEdges = new Set<string>();
     for (const e of edges) {
       if (e.source === e.target) continue;

@@ -3,7 +3,7 @@
  *
  * Re-exports individual adapter functions and provides the unified
  * `getAllSubstrates()` function that merges results from all five databases
- * into a single LBGraph.
+ * into a single BrainGraph.
  */
 
 export { getBrainSubstrate } from './brain.js';
@@ -13,7 +13,13 @@ export { getSignaldockSubstrate } from './signaldock.js';
 export { getTasksSubstrate } from './tasks.js';
 
 import { allTyped, getNexusDb } from '../db-connections.js';
-import type { LBEdge, LBGraph, LBNode, LBQueryOptions, LBSubstrate } from '../types.js';
+import type {
+  BrainEdge,
+  BrainGraph,
+  BrainNode,
+  BrainQueryOptions,
+  BrainSubstrate,
+} from '../types.js';
 import { getBrainSubstrate } from './brain.js';
 import { getConduitSubstrate } from './conduit.js';
 import { getNexusSubstrate } from './nexus.js';
@@ -21,12 +27,12 @@ import { getSignaldockSubstrate } from './signaldock.js';
 import { getTasksSubstrate } from './tasks.js';
 
 /** Substrate names ordered for iteration. */
-const ALL_SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
 
 /** Maps substrate name to its adapter function. */
 const ADAPTER_MAP: Record<
-  LBSubstrate,
-  (options: LBQueryOptions) => { nodes: LBNode[]; edges: LBEdge[] }
+  BrainSubstrate,
+  (options: BrainQueryOptions) => { nodes: BrainNode[]; edges: BrainEdge[] }
 > = {
   brain: getBrainSubstrate,
   nexus: getNexusSubstrate,
@@ -46,9 +52,9 @@ const ADAPTER_MAP: Record<
  *
  * @param loadedNodeIds - Set of already-loaded node IDs (substrate-prefixed).
  * @param edges - All edges collected from substrates (may reference unloaded targets).
- * @returns Array of stub LBNode objects for missing targets.
+ * @returns Array of stub BrainNode objects for missing targets.
  */
-function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]): LBNode[] {
+function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdge[]): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
   for (const edge of edges) {
@@ -60,13 +66,13 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]
   if (missingTargetIds.size === 0) return [];
 
   // Partition missing target IDs by substrate
-  const stubsBySubstrate = new Map<LBSubstrate, string[]>();
+  const stubsBySubstrate = new Map<BrainSubstrate, string[]>();
   for (const nodeId of missingTargetIds) {
     const sep = nodeId.indexOf(':');
     if (sep === -1) continue;
 
     const substrateStr = nodeId.slice(0, sep);
-    const substrate = substrateStr as LBSubstrate;
+    const substrate = substrateStr as BrainSubstrate;
     if (!(['brain', 'nexus', 'tasks', 'conduit', 'signaldock'] as const).includes(substrate)) {
       continue;
     }
@@ -77,7 +83,7 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]
     stubsBySubstrate.get(substrate)!.push(nodeId);
   }
 
-  const stubs: LBNode[] = [];
+  const stubs: BrainNode[] = [];
 
   // Load stubs for nexus targets (most common cross-substrate case)
   const nexusStubs = stubsBySubstrate.get('nexus');
@@ -142,7 +148,7 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]
 }
 
 /**
- * Queries all five substrates and merges the results into a unified LBGraph.
+ * Queries all five substrates and merges the results into a unified BrainGraph.
  *
  * When `options.substrates` is provided, only those substrates are queried.
  * Node IDs are substrate-prefixed, so deduplication is safe to perform
@@ -156,22 +162,22 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]
  * Stub nodes carry `meta.isStub: true` for optional UI differentiation.
  *
  * @param options - Query options forwarded to each substrate adapter.
- * @returns Merged LBGraph across all requested substrates, with stub nodes for unresolved edge targets.
+ * @returns Merged BrainGraph across all requested substrates, with stub nodes for unresolved edge targets.
  */
-export function getAllSubstrates(options: LBQueryOptions = {}): LBGraph {
+export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
   const substrates = options.substrates ?? ALL_SUBSTRATES;
   const limit = options.limit ?? 500;
 
-  const allNodes: LBNode[] = [];
-  const allEdges: LBEdge[] = [];
+  const allNodes: BrainNode[] = [];
+  const allEdges: BrainEdge[] = [];
 
   const nodeCounts = Object.fromEntries(ALL_SUBSTRATES.map((s) => [s, 0])) as Record<
-    LBSubstrate,
+    BrainSubstrate,
     number
   >;
 
   const edgeCounts = Object.fromEntries([...ALL_SUBSTRATES, 'cross'].map((s) => [s, 0])) as Record<
-    LBSubstrate | 'cross',
+    BrainSubstrate | 'cross',
     number
   >;
 
@@ -193,7 +199,7 @@ export function getAllSubstrates(options: LBQueryOptions = {}): LBGraph {
   // Deduplicate nodes by ID (substrate-prefix guarantees uniqueness across
   // substrates; duplicates can only occur within a substrate on malformed data)
   const seenIds = new Set<string>();
-  const uniqueNodes: LBNode[] = [];
+  const uniqueNodes: BrainNode[] = [];
   for (const node of allNodes) {
     if (!seenIds.has(node.id)) {
       seenIds.add(node.id);

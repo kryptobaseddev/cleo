@@ -1,7 +1,7 @@
 /**
  * BRAIN substrate adapter for the Living Brain API.
  *
- * Queries brain.db and returns LBNodes/LBEdges for all typed memory tables:
+ * Queries brain.db and returns BrainNodes/BrainEdges for all typed memory tables:
  * observations, decisions, patterns, learnings, plus the graph layer
  * (brain_page_nodes / brain_page_edges).
  *
@@ -16,7 +16,7 @@
 
 import { allTyped, getBrainDb } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
 /** Raw row from brain_observations. */
 interface ObservationRow {
@@ -76,14 +76,14 @@ interface MemoryLinkRow {
 
 /**
  * Converts a brain_page_edges type-prefixed ID (e.g. "observation:O-abc")
- * into the LBNode ID prefix (e.g. "brain:O-abc").
+ * into the BrainNode ID prefix (e.g. "brain:O-abc").
  *
  * Returns null when the prefix is not a recognised brain type.
  *
  * @param typeId - Type-prefixed ID from brain_page_edges.from_id or to_id.
- * @returns LBNode-prefixed ID or null.
+ * @returns BrainNode-prefixed ID or null.
  */
-function brainTypeIdToLBId(typeId: string): string | null {
+function brainTypeIdToBrainNodeId(typeId: string): string | null {
   const sep = typeId.indexOf(':');
   if (sep === -1) return null;
   const prefix = typeId.slice(0, sep);
@@ -127,18 +127,18 @@ function isTaskId(id: string): boolean {
 }
 
 /**
- * Converts a brain_page_edges task-reference to a tasks-substrate LBNode ID.
+ * Converts a brain_page_edges task-reference to a tasks-substrate BrainNode ID.
  * e.g. "task:T532" → "tasks:T532"
  *
  * @param taskRef - Task reference from brain_page_edges.
- * @returns tasks-substrate LBNode ID.
+ * @returns tasks-substrate BrainNode ID.
  */
-function taskRefToLBId(taskRef: string): string {
+function taskRefToBrainNodeId(taskRef: string): string {
   return `tasks:${taskRef.slice('task:'.length)}`;
 }
 
 /**
- * Returns all LBNodes and LBEdges sourced from brain.db.
+ * Returns all BrainNodes and BrainEdges sourced from brain.db.
  *
  * Pulls from all four typed memory tables plus brain_page_edges.
  * Emits intra-brain edges between loaded nodes, cross-substrate
@@ -151,9 +151,9 @@ function taskRefToLBId(taskRef: string): string {
  * @param options - Query options (limit, minWeight).
  * @returns Nodes and edges from the BRAIN substrate.
  */
-export function getBrainSubstrate(options: LBQueryOptions = {}): {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export function getBrainSubstrate(options: BrainQueryOptions = {}): {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const db = getBrainDb(ctx);
@@ -162,8 +162,8 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
   const minWeight = options.minWeight ?? 0;
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
+  const nodes: BrainNode[] = [];
+  const edges: BrainEdge[] = [];
 
   try {
     // Observations — normalise created_at to ISO-8601 with 'T' separator via strftime
@@ -280,10 +280,10 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
       });
     }
 
-    // Build lookup: type-prefixed ID (e.g. "observation:O-abc") → LBNode ID
+    // Build lookup: type-prefixed ID (e.g. "observation:O-abc") → BrainNode ID
     // (e.g. "brain:O-abc"). This is needed because brain_page_edges stores
-    // IDs in type-prefixed format while LBNode IDs use the "brain:" prefix.
-    const typeIdToLBId = new Map<string, string>();
+    // IDs in type-prefixed format while BrainNode IDs use the "brain:" prefix.
+    const typeIdToBrainNodeId = new Map<string, string>();
     for (const n of nodes) {
       const rawId = n.id.slice('brain:'.length);
       // Determine which type prefix this node would have in brain_page_edges
@@ -292,7 +292,7 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
       else if (n.kind === 'decision') typePrefix = 'decision';
       else if (n.kind === 'pattern') typePrefix = 'pattern';
       else typePrefix = 'learning';
-      typeIdToLBId.set(`${typePrefix}:${rawId}`, n.id);
+      typeIdToBrainNodeId.set(`${typePrefix}:${rawId}`, n.id);
     }
 
     // brain_page_edges: query all and classify each edge
@@ -301,14 +301,15 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
     );
 
     for (const row of pageEdgeRows) {
-      const sourceLBId = typeIdToLBId.get(row.from_id) ?? brainTypeIdToLBId(row.from_id);
-      if (!sourceLBId) continue; // source not a recognised brain node
+      const sourceBrainNodeId =
+        typeIdToBrainNodeId.get(row.from_id) ?? brainTypeIdToBrainNodeId(row.from_id);
+      if (!sourceBrainNodeId) continue; // source not a recognised brain node
 
       if (isTaskId(row.to_id)) {
         // Cross-substrate: brain → tasks
         edges.push({
-          source: sourceLBId,
-          target: taskRefToLBId(row.to_id),
+          source: sourceBrainNodeId,
+          target: taskRefToBrainNodeId(row.to_id),
           type: row.edge_type,
           weight: row.weight ?? 0.5,
           substrate: 'cross',
@@ -316,7 +317,7 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
       } else if (isNexusStyleId(row.to_id)) {
         // Cross-substrate: brain → nexus (code_reference, etc.)
         edges.push({
-          source: sourceLBId,
+          source: sourceBrainNodeId,
           target: `nexus:${row.to_id}`,
           type: row.edge_type,
           weight: row.weight ?? 0.5,
@@ -324,11 +325,12 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
         });
       } else {
         // Intra-brain: both IDs should be brain nodes
-        const targetLBId = typeIdToLBId.get(row.to_id) ?? brainTypeIdToLBId(row.to_id);
-        if (targetLBId) {
+        const targetBrainNodeId =
+          typeIdToBrainNodeId.get(row.to_id) ?? brainTypeIdToBrainNodeId(row.to_id);
+        if (targetBrainNodeId) {
           edges.push({
-            source: sourceLBId,
-            target: targetLBId,
+            source: sourceBrainNodeId,
+            target: targetBrainNodeId,
             type: row.edge_type,
             weight: row.weight ?? 0.5,
             substrate: 'brain',
@@ -347,10 +349,11 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
 
     for (const row of memLinkRows) {
       const sourceTypeId = `${row.memory_type}:${row.memory_id}`;
-      const sourceLBId = typeIdToLBId.get(sourceTypeId) ?? brainTypeIdToLBId(sourceTypeId);
-      if (!sourceLBId) continue; // source node not in loaded set
+      const sourceBrainNodeId =
+        typeIdToBrainNodeId.get(sourceTypeId) ?? brainTypeIdToBrainNodeId(sourceTypeId);
+      if (!sourceBrainNodeId) continue; // source node not in loaded set
       edges.push({
-        source: sourceLBId,
+        source: sourceBrainNodeId,
         target: `tasks:${row.task_id}`,
         type: row.link_type,
         weight: 0.7,
@@ -368,11 +371,11 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
         continue;
       }
       if (!Array.isArray(filePaths)) continue;
-      const sourceLBId = `brain:${row.id}`;
+      const sourceBrainNodeId = `brain:${row.id}`;
       for (const rawPath of filePaths) {
         if (typeof rawPath !== 'string' || rawPath.length === 0) continue;
         edges.push({
-          source: sourceLBId,
+          source: sourceBrainNodeId,
           target: `nexus:${rawPath}`,
           type: 'modified_by',
           weight: 0.6,

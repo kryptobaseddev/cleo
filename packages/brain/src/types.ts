@@ -1,5 +1,5 @@
 /**
- * Unified node and edge model for the Living Brain API.
+ * Unified node and edge model for the Brain unified-graph substrate.
  *
  * Provides a substrate-agnostic projection across all five CLEO databases:
  * BRAIN, NEXUS, TASKS, CONDUIT, SIGNALDOCK.
@@ -7,6 +7,15 @@
  * Every node carries a substrate-prefixed ID so cross-substrate edges
  * can reference nodes unambiguously, e.g. "brain:O-abc" vs "nexus:sym-123".
  *
+ * @remarks
+ * These are the **runtime** Brain types — the shape used by the substrate
+ * adapters and SSE stream in this package. Intentionally distinct from the
+ * **wire-format** Brain types in `@cleocode/contracts/operations/brain`
+ * (e.g. {@link https://github.com/cleocode/cleocode | BrainNode in contracts}
+ * uses `type: string` + `data`; these runtime types use `kind: BrainNodeKind`
+ * + `meta`, plus an optional numeric `weight` produced by the adapters).
+ *
+ * @task T973 — LB* → Brain* rename (was previously `LB*` from T969 extraction).
  * @see docs/plans/brain-synaptic-visualization-research.md §5.2
  */
 
@@ -19,7 +28,7 @@
  * - agent → SIGNALDOCK
  * - message → CONDUIT
  */
-export type LBNodeKind =
+export type BrainNodeKind =
   | 'observation'
   | 'decision'
   | 'pattern'
@@ -31,22 +40,32 @@ export type LBNodeKind =
   | 'agent'
   | 'message';
 
-/** Which database a node or edge originates from. */
-export type LBSubstrate = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
+/**
+ * Which database a node or edge originates from.
+ *
+ * @remarks
+ * Uses the literal value `'brain'` (matching the runtime db name
+ * `brain.db`). This is intentionally distinct from
+ * `@cleocode/contracts/operations/brain :: BrainSubstrateName` which uses
+ * `'memory'` in place of `'brain'` to align with the cognitive-memory
+ * naming. Callers of the runtime package should treat these literals as
+ * source-of-truth; translators convert between the two naming planes.
+ */
+export type BrainSubstrate = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
 
 /**
- * A single node in the unified Living Brain graph.
+ * A single node in the unified Brain graph.
  *
  * `id` is always substrate-prefixed: `"brain:O-abc"`, `"nexus:sym-123"`, etc.
  * This prevents collisions when merging results from multiple databases.
  */
-export interface LBNode {
+export interface BrainNode {
   /** Substrate-prefixed identifier, e.g. "brain:O-abc", "nexus:sym-123". */
   id: string;
   /** Semantic category of this node. */
-  kind: LBNodeKind;
+  kind: BrainNodeKind;
   /** Source database. */
-  substrate: LBSubstrate;
+  substrate: BrainSubstrate;
   /** Human-readable display label. */
   label: string;
   /**
@@ -73,12 +92,12 @@ export interface LBNode {
 }
 
 /**
- * A directed edge between two nodes in the unified Living Brain graph.
+ * A directed edge between two nodes in the unified Brain graph.
  *
- * Both `source` and `target` reference `LBNode.id` values (substrate-prefixed).
+ * Both `source` and `target` reference `BrainNode.id` values (substrate-prefixed).
  * Cross-substrate edges use `substrate: 'cross'`.
  */
-export interface LBEdge {
+export interface BrainEdge {
   /** Source node ID (substrate-prefixed). */
   source: string;
   /** Target node ID (substrate-prefixed). */
@@ -98,22 +117,22 @@ export interface LBEdge {
    */
   weight: number;
   /** Which substrate produced this edge, or 'cross' for synthesized edges. */
-  substrate: LBSubstrate | 'cross';
+  substrate: BrainSubstrate | 'cross';
 }
 
 /**
- * Unified graph response returned by the Living Brain API.
+ * Unified graph response returned by the Brain unified-graph API.
  *
  * `nodes` and `edges` are the combined projection.
  * `counts` breaks down how many nodes/edges each substrate contributed.
  * `truncated` is true when results were capped by the limit parameter.
  */
-export interface LBGraph {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export interface BrainGraph {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
   counts: {
-    nodes: Record<LBSubstrate, number>;
-    edges: Record<LBSubstrate | 'cross', number>;
+    nodes: Record<BrainSubstrate, number>;
+    edges: Record<BrainSubstrate | 'cross', number>;
   };
   truncated: boolean;
 }
@@ -126,9 +145,9 @@ export interface LBGraph {
  * `minWeight` excludes nodes/edges below this quality threshold.
  * `projectCtx` resolves per-project DB paths; required for correct multi-project routing.
  */
-export interface LBQueryOptions {
+export interface BrainQueryOptions {
   /** Which substrates to include. Defaults to all. */
-  substrates?: LBSubstrate[];
+  substrates?: BrainSubstrate[];
   /** Maximum number of nodes to return across all substrates. Default 500. */
   limit?: number;
   /** Minimum quality/weight to include (0.0–1.0). Default 0. */
@@ -143,7 +162,7 @@ export interface LBQueryOptions {
 
 /**
  * Discriminated union of all SSE event payloads emitted by
- * `GET /api/living-brain/stream`.
+ * `GET /api/brain/stream`.
  *
  * Every variant carries a top-level `ts` field (ISO-8601 timestamp) so
  * clients can sequence events even when they arrive out-of-order.
@@ -155,10 +174,10 @@ export interface LBQueryOptions {
  * - `task.status`     — a `tasks` row changed its `status` column.
  * - `message.send`    — a new row was inserted into `conduit messages`.
  */
-export type LBStreamEvent =
+export type BrainStreamEvent =
   | { type: 'hello'; ts: string }
   | { type: 'heartbeat'; ts: string }
-  | { type: 'node.create'; node: LBNode; ts: string }
+  | { type: 'node.create'; node: BrainNode; ts: string }
   | {
       type: 'edge.strengthen';
       fromId: string;
@@ -178,4 +197,4 @@ export type LBStreamEvent =
     };
 
 /** Connection state for the SSE client subscription. */
-export type LBConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
+export type BrainConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
