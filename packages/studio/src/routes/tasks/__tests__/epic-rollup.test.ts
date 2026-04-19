@@ -75,7 +75,7 @@ describe('_epicRowFromRollups (T948)', () => {
     expect(row.done + row.active + row.pending + row.cancelled).toBeLessThanOrEqual(row.total);
   });
 
-  it('preserves parent status on the row so the UI can render a Deferred badge', () => {
+  it('preserves parent status on the row so the UI can render a cancelled badge (T958 rename)', () => {
     const cancelledParent = { id: 'E9', title: 'Parked', status: 'cancelled' };
     const row = _epicRowFromRollups(cancelledParent, []);
     expect(row.status).toBe('cancelled');
