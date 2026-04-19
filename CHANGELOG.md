@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.97] — 2026-04-19 — T962 Clean Code SSoT + T949 Studio /tasks Explorer + T942 Sentient Foundations
+
+Three converging epics ship together.
+
+### Epic T962 — Clean Code SSoT Reconciliation
+
+- T963 Contract↔impl drift resync (16 drift bugs, commit `0119a6518`)
+- T964 CONDUIT promoted to dispatch domain #15, supersedes ADR-042 (`90534e50c`)
+- T965 `operations/brain.ts` → `operations/memory.ts`, 80 ids (`7413b6562`)
+- T966 `core/store/brain-*` → `memory-*`, 120 importers (`d4ef8be47`)
+- T967 `cli/commands/memory-brain.ts` → `memory.ts` (`85c9be327`)
+- T968 New `operations/brain.ts` for 8 unified-graph ops (`62bcdc25e`)
+- T969 `@cleocode/brain` package extracted, 69/69 tests (`725fc4231`)
+- T970+T971+T972 atomic HTTP rename `/api/living-brain→/api/brain`, `/api/brain→/api/memory` (`35aa00d34`)
+- T973 `LB*` types → `Brain*` across 27 files (`d260a7e3b`)
+- T974 `TypedDomainHandler<O>` + `typedDispatch<P,R>` adapter (`16f29c3a8`)
+- T984/T985/T986 spec docs updated + new CLEO-BRAIN-PACKAGE-SPEC.md + CLEO-DISPATCH-ADAPTER-SPEC.md
+- T975–T983 deferred to T988 (9 domain migrations, 579 casts, v2026.4.98 target)
+
+### Epic T949 — Studio /tasks Explorer (Hybrid Dashboard + 3-Tab Merge)
+
+Operator-approved Option C hybrid. `/tasks` keeps Epic Progress + Recent Activity + SSE indicator on top, embeds 3-tab Task Explorer below.
+
+- T950 8 shared Svelte 5 components (`1e534911d`)
+- T951 URL-state filter store (`5f0da1777`)
+- T952 SSR data loader (`de45aba60`)
+- T953 Hierarchy tab with virtualization (`b0a27f897`)
+- T954 Graph tab — d3-force preserved + viz UX ported (drawer, blocked halo, filters, keyboard) (`4481a8c03`)
+- T955 Kanban tab — 5 status columns + epic sub-grouping (`13a659390`)
+- T956 /tasks wired: dashboard panel above 3-tab Explorer (`a84aac01a`)
+- T957 301 redirects from /tasks/tree + /tasks/graph (`27e7e26b2`)
+- T958 Deferred filter → Cancelled epics, legacy `?deferred=1` shim (`708718a08`)
+- SSR render + dedupe fix (`9d67aa890`)
+
+### Epic T942 — Sentient Foundations (parallel orchestrator)
+
+- Wave A: rollup + ontology + graph + STABILITY + llmtxt v2026.4.9 (`7e7840950`)
+- Wave B: AgentSession + Tier 1 daemon + Studio refactor (`53e29ad56`)
+
+### Breaking changes
+
+- HTTP: `/api/living-brain/*` → `/api/brain/*`, `/api/brain/*` → `/api/memory/*`
+- Contracts: `operations/brain.ts` semantics (unified graph) — old observation ops now at `operations/memory.ts`
+- Core: `core/src/store/brain-*.ts` → `memory-*.ts`
+- CLI: `memoryBrainCommand` → `memoryCommand` (verb unchanged at surface)
+- Dispatch: CONDUIT is `CANONICAL_DOMAINS[15]` instead of under `orchestrate`
+
+### Quality gates
+
+biome clean, build clean across 15 packages, 9190 tests pass across 531 files.
+
 ## [2026.4.96] — 2026-04-18 — Hotfix: adapters harness-interop CI resolution
 
 Patch release. Packaging identical to v2026.4.95 — fixes only the CI red
