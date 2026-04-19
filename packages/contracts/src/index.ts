@@ -276,6 +276,7 @@ export type {
   SessionsAPI,
   StickyAPI,
   SyncAPI,
+  TaskRollupPayload,
   TaskStartResult,
   TasksAPI,
 } from './facade.js';
@@ -479,6 +480,10 @@ export type {
   TaskPriority,
   TaskProvenance,
   TaskRelation,
+  // T944 new axes
+  TaskRole,
+  TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskType,
   TaskVerification,

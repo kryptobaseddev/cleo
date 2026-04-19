@@ -72,7 +72,7 @@ describe('gradeSession', () => {
 
   afterEach(async () => {
     try {
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
     } catch {
       /* may not be loaded */
@@ -783,7 +783,7 @@ describe('readGrades', () => {
 
   afterEach(async () => {
     try {
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
     } catch {
       /* may not be loaded */

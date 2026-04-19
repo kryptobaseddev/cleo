@@ -39,7 +39,7 @@ import {
   BRAIN_STICKY_COLORS,
   BRAIN_STICKY_PRIORITIES,
   BRAIN_STICKY_STATUSES,
-} from './brain-schema.js';
+} from './memory-schema.js';
 
 // Status constants from the canonical registry
 import {
@@ -97,7 +97,7 @@ import {
 // These are the single source of truth for enum validation that consumers
 // (e.g. CleoOS tRPC routers) should import instead of duplicating.
 // Each wraps the corresponding `as const` array from tasks-schema.ts,
-// status-registry.ts, or brain-schema.ts.
+// status-registry.ts, or memory-schema.ts.
 
 // --- Task enums ---
 /** Zod enum schema for task statuses. */

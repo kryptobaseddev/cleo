@@ -25,7 +25,7 @@ describe('Memory Quality Feedback', () => {
   afterEach(async () => {
     // Close DB handles so temp dir can be removed on Windows
     try {
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
     } catch {
       /* may not be loaded */
@@ -44,7 +44,7 @@ describe('Memory Quality Feedback', () => {
   describe('trackMemoryUsage', () => {
     it('should insert a usage log row without throwing', async () => {
       const { trackMemoryUsage } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
       // Initialise brain DB
       await getBrainDb(tempDir);
@@ -67,7 +67,7 @@ describe('Memory Quality Feedback', () => {
 
     it('should handle used=false and default outcome', async () => {
       const { trackMemoryUsage } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
       await getBrainDb(tempDir);
       await trackMemoryUsage(tempDir, 'O-test002', false);
@@ -83,7 +83,7 @@ describe('Memory Quality Feedback', () => {
 
     it('should silently ignore empty memoryId', async () => {
       const { trackMemoryUsage } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       await expect(trackMemoryUsage(tempDir, '', true)).resolves.toBeUndefined();
     });
@@ -96,7 +96,7 @@ describe('Memory Quality Feedback', () => {
   describe('correlateOutcomes', () => {
     it('should return zero counts when DB is empty', async () => {
       const { correlateOutcomes } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
 
       const result = await correlateOutcomes(tempDir);
@@ -108,8 +108,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should boost quality score for entries used in successful tasks', async () => {
       const { trackMemoryUsage, correlateOutcomes } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const accessor = await getBrainAccessor(tempDir);
@@ -150,8 +150,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should penalise quality score for entries used in failed tasks', async () => {
       const { trackMemoryUsage, correlateOutcomes } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const accessor = await getBrainAccessor(tempDir);
@@ -189,8 +189,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should clamp quality score between 0.0 and 1.0', async () => {
       const { trackMemoryUsage, correlateOutcomes } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const accessor = await getBrainAccessor(tempDir);
@@ -227,8 +227,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should flag old zero-citation entries as prune_candidates', async () => {
       const { correlateOutcomes } = await import('../quality-feedback.js');
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const nativeDb = getBrainNativeDb();
@@ -280,7 +280,7 @@ describe('Memory Quality Feedback', () => {
   describe('getMemoryQualityReport', () => {
     it('should return zeroed report when DB is empty', async () => {
       const { getMemoryQualityReport } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
 
       const report = await getMemoryQualityReport(tempDir);
@@ -295,8 +295,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should compute quality distribution from existing entries', async () => {
       const { getMemoryQualityReport } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const accessor = await getBrainAccessor(tempDir);
@@ -368,8 +368,8 @@ describe('Memory Quality Feedback', () => {
 
     it('should list entries with zero citation_count in neverRetrieved', async () => {
       const { getMemoryQualityReport } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { getBrainAccessor } = await import('../../store/brain-accessor.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
 
       await getBrainDb(tempDir);
       const accessor = await getBrainAccessor(tempDir);
@@ -401,7 +401,7 @@ describe('Memory Quality Feedback', () => {
 
     it('should compute usageRate from brain_usage_log', async () => {
       const { trackMemoryUsage, getMemoryQualityReport } = await import('../quality-feedback.js');
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
 
       await getBrainDb(tempDir);
 

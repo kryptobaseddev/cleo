@@ -22,7 +22,7 @@ import type {
   BrainCognitiveType,
   BrainMemoryTier,
   BrainSourceConfidence,
-} from '../store/brain-schema.js';
+} from '../store/memory-schema.js';
 import { isEmbeddingAvailable } from './brain-embedding.js';
 import { searchSimilar } from './brain-similarity.js';
 import { addGraphEdge } from './graph-auto-populate.js';
@@ -170,7 +170,7 @@ async function invalidateEntry(projectRoot: string, entryId: string): Promise<vo
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return;
@@ -205,7 +205,7 @@ async function invalidateEntry(projectRoot: string, entryId: string): Promise<vo
  */
 async function incrementCitationCount(projectRoot: string, entryId: string): Promise<void> {
   try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return;
@@ -266,7 +266,7 @@ async function hashDedupCheck(
   table: HashDedupTable = 'brain_observations',
 ): Promise<{ matched: true; id: string } | { matched: false }> {
   try {
-    const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const nativeDb = getBrainNativeDb();
     if (!nativeDb) return { matched: false };

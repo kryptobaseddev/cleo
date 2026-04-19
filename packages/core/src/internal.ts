@@ -440,7 +440,13 @@ export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './r
 export type { PRResult } from './release/github-pr.js';
 export { buildPRBody, createPullRequest, isGhCliAvailable } from './release/github-pr.js';
 export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
-export { getGitFlowConfig, getPushMode, loadReleaseConfig } from './release/release-config.js';
+export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
+export {
+  getGitFlowConfig,
+  getPushMode,
+  loadReleaseConfig,
+  validateReleaseConfig,
+} from './release/release-config.js';
 export type { ReleaseListOptions, ReleaseTaskRecord } from './release/release-manifest.js';
 export {
   cancelRelease,
@@ -560,15 +566,25 @@ export type { CreateStickyParams, ListStickiesParams, StickyNote } from './stick
 export type { DerefResult } from './store/attachment-store.js';
 // Attachment store (T760 docs domain)
 export { AttachmentIntegrityError, createAttachmentStore } from './store/attachment-store.js';
+// Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
+export type {
+  AttachmentBackend,
+  AttachmentFileInput,
+  AttachmentGetResult,
+  AttachmentListEntry,
+  AttachmentPutResult,
+  AttachmentStoreV2,
+  CreateAttachmentStoreV2Options,
+} from './store/attachment-store-v2.js';
+export {
+  createAttachmentStoreV2,
+  resolveAttachmentBackend,
+} from './store/attachment-store-v2.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle packer (T311 / T347)
 export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
-export type { BrainDataAccessor } from './store/brain-accessor.js';
-// Brain accessor — for intelligence domain handler construction
-export { getBrainAccessor } from './store/brain-accessor.js';
-export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {
   detectAndRemoveLegacyGlobalFiles,
@@ -580,6 +596,10 @@ export {
   isCleoGitInitialized,
 } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
+export type { BrainDataAccessor } from './store/memory-accessor.js';
+// Brain accessor — for intelligence domain handler construction
+export { getBrainAccessor } from './store/memory-accessor.js';
+export { getBrainDb, getBrainNativeDb } from './store/memory-sqlite.js';
 export type { MigrationResult } from './store/migrate-signaldock-to-conduit.js';
 export {
   migrateSignaldockToConduit,
@@ -1066,6 +1086,15 @@ export type {
   BrainSearchHit,
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';
+// Memory — auto-populate graph hooks (T537 + T945 Stage A)
+export {
+  addGraphEdge,
+  ensureCommitNode,
+  ensureLlmtxtNode,
+  ensureMessageNode,
+  ensureTaskNode,
+  upsertGraphNode,
+} from './memory/graph-auto-populate.js';
 export {
   autoLinkMemories,
   linkMemoryToCode,

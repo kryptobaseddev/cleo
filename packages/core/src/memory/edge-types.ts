@@ -4,7 +4,7 @@
  * All code that writes or queries `brain_page_edges.edge_type` MUST use
  * these constants instead of raw string literals to prevent enum drift.
  *
- * The values here are a subset of `BRAIN_EDGE_TYPES` (brain-schema.ts).
+ * The values here are a subset of `BRAIN_EDGE_TYPES` (memory-schema.ts).
  * They are duplicated as constants so callers do not need to import the
  * schema module (which carries Drizzle + SQLite dependencies).
  *

@@ -84,6 +84,10 @@ export function wouldCreateCycle(fromId: string, toId: string, tasks: Task[]): b
 
 /**
  * Get tasks that are blocked (have unmet dependencies).
+ *
+ * Excludes tasks in terminal states (`done`, `cancelled`, `archived`) and the
+ * Tier 2 proposal queue (`proposed`) — `proposed` tasks are not part of the
+ * active execution dependency graph.
  */
 export function getBlockedTasks(tasks: Task[]): Task[] {
   const completedIds = new Set(
@@ -93,12 +97,19 @@ export function getBlockedTasks(tasks: Task[]): Task[] {
   return tasks.filter((t) => {
     if (!t.depends?.length) return false;
     if (t.status === 'done' || t.status === 'cancelled') return false;
+    if (t.status === 'archived') return false;
+    if (t.status === 'proposed') return false;
     return t.depends.some((depId) => !completedIds.has(depId));
   });
 }
 
 /**
  * Get tasks that are ready (all dependencies met).
+ *
+ * Excludes tasks in terminal states (`done`, `cancelled`, `archived`) and the
+ * Tier 2 proposal queue (`proposed`). `proposed` tasks represent agent-suggested
+ * work pending owner review and must never be auto-picked by the sentient loop
+ * or orchestrator (T946 / Round 2 audit §8).
  */
 export function getReadyTasks(tasks: Task[]): Task[] {
   const completedIds = new Set(
@@ -107,6 +118,8 @@ export function getReadyTasks(tasks: Task[]): Task[] {
 
   return tasks.filter((t) => {
     if (t.status === 'done' || t.status === 'cancelled') return false;
+    if (t.status === 'archived') return false;
+    if (t.status === 'proposed') return false;
     if (!t.depends?.length) return true;
     return t.depends.every((depId) => completedIds.has(depId));
   });

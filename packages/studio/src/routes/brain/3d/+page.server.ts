@@ -10,8 +10,7 @@
  * so no SSR content is lost.
  */
 
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBGraph } from '$lib/server/living-brain/types.js';
+import { type BrainGraph, getAllSubstrates } from '@cleocode/brain';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -30,7 +29,7 @@ export const ssr = false;
 const MAX_NODES = 5000;
 
 export interface PageData {
-  graph: LBGraph;
+  graph: BrainGraph;
 }
 
 export const load: PageServerLoad = ({ locals }): PageData => {

@@ -1046,7 +1046,7 @@ describe('T310: conduit + signaldock integration', () => {
 
     // Mock the native DB getters and path helpers
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
     vi.doMock('../signaldock-sqlite.js', () => ({
       getGlobalSignaldockNativeDb: () => sdDb,

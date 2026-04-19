@@ -1,0 +1,31 @@
+-- T945 Stage A — Universal Semantic Graph expansion
+--
+-- No structural DDL changes. The brain_page_nodes.node_type and
+-- brain_page_edges.edge_type columns are plain `text` in SQLite; the
+-- Drizzle `{ enum: [...] }` declaration is a TypeScript-level constraint
+-- only — SQLite emits no CHECK clause for enum columns in sqlite-core.
+--
+-- This migration is therefore a no-op at the SQL layer. It serves as a
+-- durable documentation anchor so operators can trace when the new edge
+-- and node prefixes entered the canonical brain schema.
+--
+-- Added NODE type prefixes (see BRAIN_NODE_TYPES in
+--   packages/core/src/store/brain-schema.ts for the authoritative list):
+--
+--   msg:<messageId>   — CONDUIT message (soft FK into conduit.db)
+--   llmtxt:<sha256>   — llmtxt attachment blob (content-addressable)
+--   commit:<sha>      — git commit (Tier 3 autonomy audit)
+--
+-- Added EDGE types (see BRAIN_EDGE_TYPES for full list):
+--
+--   blocks          — task → blocks → task (dependency: A blocks B)
+--   discusses       — msg → discusses → task/decision/epic (CONDUIT bridge)
+--   cites           — decision/observation → cites → llmtxt/file
+--   embeds          — task/observation → embeds → llmtxt (attachment ownership)
+--   touches_code    — task → touches_code → file/symbol
+--
+-- Runtime enforcement is provided by Drizzle's TS-level enum validator on
+-- INSERT/UPDATE — any write with a value outside the enum set is rejected
+-- before reaching the SQLite layer.
+
+SELECT 1;

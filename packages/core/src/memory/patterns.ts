@@ -11,7 +11,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
 import { detectSupersession, supersedeMemory } from './temporal-supersession.js';

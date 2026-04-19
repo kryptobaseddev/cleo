@@ -18,9 +18,9 @@
  * @epic T523
  */
 
-import type { BrainNodeType } from '../store/brain-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/brain-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import type { BrainNodeType } from '../store/memory-schema.js';
+import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 

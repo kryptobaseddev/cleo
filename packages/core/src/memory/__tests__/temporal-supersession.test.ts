@@ -25,7 +25,7 @@ describe('temporal-supersession', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -39,7 +39,7 @@ describe('temporal-supersession', () => {
     it('marks the old entry as invalid (sets invalid_at)', async () => {
       const { storeDecision } = await import('../decisions.js');
       const { supersedeMemory, isLatest } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const old = await storeDecision(tempDir, {
@@ -86,7 +86,7 @@ describe('temporal-supersession', () => {
       const { storeDecision } = await import('../decisions.js');
       const { supersedeMemory } = await import('../temporal-supersession.js');
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
 
@@ -141,7 +141,7 @@ describe('temporal-supersession', () => {
       const { storeLearning } = await import('../learnings.js');
       const { supersedeMemory } = await import('../temporal-supersession.js');
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
 
@@ -179,7 +179,7 @@ describe('temporal-supersession', () => {
       const { storeLearning } = await import('../learnings.js');
       const { supersedeMemory } = await import('../temporal-supersession.js');
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
 
@@ -215,7 +215,7 @@ describe('temporal-supersession', () => {
 
     it('throws when oldId equals newId', async () => {
       const { supersedeMemory } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       await expect(supersedeMemory(tempDir, 'D001', 'D001', 'self')).rejects.toThrow(
@@ -225,7 +225,7 @@ describe('temporal-supersession', () => {
 
     it('throws when reason is empty', async () => {
       const { supersedeMemory } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       await expect(supersedeMemory(tempDir, 'D001', 'D002', '')).rejects.toThrow(
@@ -236,7 +236,7 @@ describe('temporal-supersession', () => {
     it('throws when oldId is not found', async () => {
       const { storeDecision } = await import('../decisions.js');
       const { supersedeMemory } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const real = await storeDecision(tempDir, {
@@ -261,7 +261,7 @@ describe('temporal-supersession', () => {
     it('returns empty array when no similar entries exist', async () => {
       const { detectSupersession } = await import('../temporal-supersession.js');
       const { storeDecision } = await import('../decisions.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const d = await storeDecision(tempDir, {
@@ -287,7 +287,7 @@ describe('temporal-supersession', () => {
       const { storeLearning } = await import('../learnings.js');
       const { detectSupersession } = await import('../temporal-supersession.js');
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
 
@@ -340,7 +340,7 @@ describe('temporal-supersession', () => {
 
     it('returns empty array on DB unavailability (best-effort)', async () => {
       const { detectSupersession } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       // Use a non-existent project root so brain.db cannot be opened
@@ -363,7 +363,7 @@ describe('temporal-supersession', () => {
     it('returns a single-entry chain for the latest version (no predecessors)', async () => {
       const { storeDecision } = await import('../decisions.js');
       const { getSupersessionChain } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const d = await storeDecision(tempDir, {
@@ -389,7 +389,7 @@ describe('temporal-supersession', () => {
       const { storeDecision } = await import('../decisions.js');
       const { supersedeMemory, getSupersessionChain } = await import('../temporal-supersession.js');
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
 
@@ -449,11 +449,11 @@ describe('temporal-supersession', () => {
 
     it('returns empty chain for unknown entryId', async () => {
       const { getSupersessionChain } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       // Initialise the DB (needed to call getBrainDb internally)
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       closeBrainDb();
 
@@ -473,7 +473,7 @@ describe('temporal-supersession', () => {
     it('returns true for a freshly-stored entry (invalid_at IS NULL)', async () => {
       const { storeDecision } = await import('../decisions.js');
       const { isLatest } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const d = await storeDecision(tempDir, {
@@ -490,7 +490,7 @@ describe('temporal-supersession', () => {
     it('returns false after the entry is superseded', async () => {
       const { storeDecision } = await import('../decisions.js');
       const { supersedeMemory, isLatest } = await import('../temporal-supersession.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       const old = await storeDecision(tempDir, {
@@ -522,7 +522,7 @@ describe('temporal-supersession', () => {
 
     it('returns false for an unknown entryId', async () => {
       const { isLatest } = await import('../temporal-supersession.js');
-      const { getBrainDb, closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb, closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
       await getBrainDb(tempDir);

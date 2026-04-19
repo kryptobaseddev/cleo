@@ -21,7 +21,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BrainDecisionRow,
   BrainLearningRow,
@@ -29,9 +29,9 @@ import type {
   BrainPatternRow,
   NewBrainPageEdgeRow,
   NewBrainPageNodeRow,
-} from '../store/brain-schema.js';
-import * as brainSchema from '../store/brain-schema.js';
-import { getBrainDb } from '../store/brain-sqlite.js';
+} from '../store/memory-schema.js';
+import * as brainSchema from '../store/memory-schema.js';
+import { getBrainDb } from '../store/memory-sqlite.js';
 
 // ============================================================================
 // Types

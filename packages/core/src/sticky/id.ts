@@ -7,7 +7,7 @@
  * @epic T5267
  */
 
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 
 /**
  * Generate the next sticky note ID.

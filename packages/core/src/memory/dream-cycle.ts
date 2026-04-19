@@ -29,7 +29,7 @@
  * @see docs/specs/stdp-wire-up-spec.md §4.5
  */
 
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 
 // ============================================================================
 // Constants (Phase 5 hardcoded defaults; config-based tuning is Phase 6+)

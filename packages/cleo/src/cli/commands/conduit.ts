@@ -1,8 +1,8 @@
 /**
  * CLI command group for Conduit inter-agent messaging operations.
  *
- * Exposes the 5 conduit operations registered under the orchestrate domain
- * (ADR-042) as a native citty subcommand group:
+ * Exposes the 5 conduit operations registered under the canonical `conduit`
+ * domain (T964 — supersedes ADR-042) as a native citty subcommand group:
  *
  *   cleo conduit status  — check agent connection + queue depth
  *   cleo conduit peek    — one-shot poll without consuming messages
@@ -10,10 +10,10 @@
  *   cleo conduit stop    — stop the active polling loop
  *   cleo conduit send    — send a message to an agent or conversation
  *
- * All subcommands dispatch to the existing `orchestrate.conduit.*` registry
- * entries via dispatchFromCli.
+ * All subcommands dispatch to the canonical `conduit.*` registry entries
+ * via dispatchFromCli.
  *
- * @task T469
+ * @task T469, T964
  */
 
 import { defineCommand, showUsage } from 'citty';
@@ -32,8 +32,8 @@ const statusCommand = defineCommand({
   async run({ args }) {
     await dispatchFromCli(
       'query',
-      'orchestrate',
-      'conduit.status',
+      'conduit',
+      'status',
       {
         agentId: args['agent-id'] as string | undefined,
       },
@@ -63,8 +63,8 @@ const peekCommand = defineCommand({
   async run({ args }) {
     await dispatchFromCli(
       'query',
-      'orchestrate',
-      'conduit.peek',
+      'conduit',
+      'peek',
       {
         agentId: args['agent-id'] as string | undefined,
         limit: Number.parseInt(args.limit, 10),
@@ -92,8 +92,8 @@ const startCommand = defineCommand({
   async run({ args }) {
     await dispatchFromCli(
       'mutate',
-      'orchestrate',
-      'conduit.start',
+      'conduit',
+      'start',
       {
         agentId: args['agent-id'] as string | undefined,
         pollIntervalMs: Number.parseInt(args.interval, 10),
@@ -109,8 +109,8 @@ const stopCommand = defineCommand({
   async run() {
     await dispatchFromCli(
       'mutate',
-      'orchestrate',
-      'conduit.stop',
+      'conduit',
+      'stop',
       {},
       {
         command: 'conduit stop',
@@ -145,8 +145,8 @@ const sendCommand = defineCommand({
   async run({ args }) {
     await dispatchFromCli(
       'mutate',
-      'orchestrate',
-      'conduit.send',
+      'conduit',
+      'send',
       {
         to: args.to as string | undefined,
         content: args.content,
@@ -161,7 +161,7 @@ const sendCommand = defineCommand({
 /**
  * Root conduit command group — registers all 5 conduit subcommands.
  *
- * Dispatches to `orchestrate.conduit.*` registry operations (ADR-042).
+ * Dispatches to canonical `conduit.*` registry operations (T964 supersedes ADR-042).
  */
 export const conduitCommand = defineCommand({
   meta: { name: 'conduit', description: 'Manage Conduit inter-agent messaging' },

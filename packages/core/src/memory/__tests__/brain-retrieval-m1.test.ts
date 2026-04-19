@@ -6,7 +6,7 @@
  *   - session_id is persisted and readable
  *   - All four M1 columns (session_id, reward_signal, retrieval_order, delta_ms)
  *     are present in the live table after runBrainMigrations runs
- *   - The ensureColumns safety net in brain-sqlite.ts adds missing columns
+ *   - The ensureColumns safety net in memory-sqlite.ts adds missing columns
  *   - Round-trip: write entry IDs array → read back → JSON.parse yields original array
  *
  * This test MUST NOT call vi.mock for any brain or SQLite module.
@@ -37,7 +37,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -46,7 +46,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
   it(
     'M1-1: All four T673-M1 columns exist after getBrainDb initialises',
     async () => {
-      const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       await getBrainDb(tempDir);
       const nativeDb = getBrainNativeDb();
       expect(nativeDb).toBeTruthy();
@@ -68,9 +68,9 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
   it(
     'M1-2: logRetrieval stores entry_ids as JSON array (not CSV)',
     async () => {
-      // Import dynamically AFTER env is set so brain-sqlite picks up CLEO_DIR
+      // Import dynamically AFTER env is set so memory-sqlite picks up CLEO_DIR
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
       await getBrainDb(tempDir);
@@ -103,7 +103,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
     'M1-3: Round-trip — JSON.stringify write produces JSON.parse-readable output',
     async () => {
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
       await getBrainDb(tempDir);
@@ -135,7 +135,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
     'M1-4: session_id backfill pattern — ses_backfill_ rows are skippable',
     async () => {
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
       await getBrainDb(tempDir);
@@ -177,7 +177,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
     'M1-5: reward_signal column accepts NULL and numeric values',
     async () => {
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
       await getBrainDb(tempDir);
@@ -226,7 +226,7 @@ describe('T673-M1: brain_retrieval_log schema expansion', () => {
     'M1-6: indexes idx_retrieval_log_reward and idx_retrieval_log_session exist',
     async () => {
       const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb();
       await getBrainDb(tempDir);

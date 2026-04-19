@@ -9,10 +9,10 @@
  * @epic T5149
  */
 
-import { getBrainAccessor } from '../store/brain-accessor.js';
-import type { BrainDecisionRow } from '../store/brain-schema.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
+import type { BrainDecisionRow } from '../store/memory-schema.js';
 import type { BrainDecisionNode } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
@@ -186,7 +186,7 @@ export async function reasonSimilar(
   const maxResults = limit ?? 10;
 
   // Load the source entry's text — initialize brain.db before accessor use
-  const { getBrainDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const accessor = await getBrainAccessor(projectRoot);
 

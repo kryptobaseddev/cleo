@@ -14,12 +14,14 @@
  * and the lower-level interfaces at
  *   packages/contracts/src/conduit.ts (Conduit, ConduitMessage, ...).
  *
- * Registry note (ADR-042): the dispatcher currently registers these
- * operations under `domain: 'orchestrate'` with the `operation: 'conduit.*'`
- * identifier. The public/HTTP identifier is still `conduit.*` — that is the
- * stable wire-format surface and what these contracts describe.
+ * Registry note (T964 — supersedes ADR-042 Decision 1): the dispatcher
+ * registers these operations under `domain: 'conduit'` with short operation
+ * names (`status`, `peek`, `start`, `stop`, `send`). The public/HTTP identifier
+ * `conduit.<op>` remains the stable wire-format surface and what these
+ * contracts describe; CLI and HTTP adapters map between the two forms.
  *
  * @task T910 — Orchestration Coherence v4 (contract surface completion)
+ * @task T964 — CONDUIT promotion to canonical domain #15
  * @see packages/cleo/src/dispatch/domains/conduit.ts
  * @see packages/contracts/src/conduit.ts
  */

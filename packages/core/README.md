@@ -1,6 +1,8 @@
 # @cleocode/core
 
-CLEO core business logic kernel - tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store.
+CLEO core business logic kernel **and canonical SDK surface** — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store.
+
+> **`@cleocode/core` IS the CLEO SDK.** There is no separate `@cleocode/cleo-sdk` package. The facade (`Cleo`), domain namespaces (`tasks`, `sessions`, `memory`, …), and flat free functions are all exposed through per-subpath exports that follow a SemVer-within-CalVer stability contract. See [STABILITY.md](./STABILITY.md) for the full contract, `.dts-snapshots/` for the enforced baseline, and `scripts/generate-dts-snapshots.sh` for the regen tool.
 
 ## Overview
 
@@ -14,6 +16,36 @@ This package contains the complete business logic implementation for the CLEO ec
 - **Compliance & Validation**: Protocol enforcement, rule checking
 
 The package includes a bundled SQLite store via Drizzle ORM for persistence.
+
+## Who consumes this package?
+
+| Consumer | Recommended subpath | Why |
+|---|---|---|
+| **CLI** (`@cleocode/cleo`) | `@cleocode/core/internal` | Full flat free-function surface used by the dispatch engine. |
+| **Studio UI panels** | `@cleocode/core/sdk` | `Cleo` facade — project-bound, domain-grouped. |
+| **External agents & SDK consumers** (incl. OpenClaw, issue #97) | `@cleocode/core/sdk` | Stable facade with a minimal import cost. |
+| **Type-only tools (validators, docs)** | `@cleocode/core/contracts` | Pure re-export of `@cleocode/contracts` types. |
+| **Memory-only helpers** | `@cleocode/core/memory` | Narrow brain / timeline / STDP surface. |
+| **Task-scoped scripts** | `@cleocode/core/tasks` | CRUD, hierarchy, graph-ops. |
+
+## Subpath contract (`STABILITY.md`)
+
+Every stable subpath is enforced by two CI gates:
+
+1. **Type-baseline snapshots** under `.dts-snapshots/` — run `./scripts/generate-dts-snapshots.sh` to regenerate, `--check` to diff in CI.
+2. **Contract test** at `src/__tests__/subpath-contract.test.ts` — verifies every declared subpath resolves, `import('@cleocode/core/sdk')` returns `Cleo`, and every stable subpath has a snapshot.
+
+Breaking changes to a **stable** subpath require a **CalVer month bump** (e.g. `2026.5.x`) and a one-release-cycle deprecation notice in `STABILITY.md`. See [STABILITY.md](./STABILITY.md) for the full policy.
+
+### Quick SDK example
+
+```typescript
+// Narrow — recommended for external consumers
+import { Cleo } from '@cleocode/core/sdk';
+
+const cleo = await Cleo.init('./my-project');
+await cleo.tasks.add({ title: 'Ship subpath contract' });
+```
 
 ## Installation
 

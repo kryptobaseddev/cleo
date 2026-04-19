@@ -38,7 +38,7 @@ let tempDir: string;
 
 async function setupDb(dir: string) {
   const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -108,7 +108,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -242,7 +242,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
           )
           .get() as { weight: number } | undefined;
 
-        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/memory-sqlite.js');
         closeBrainDb();
 
         process.env['CLEO_DIR'] = join(tempSession, '.cleo');
@@ -294,7 +294,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
         expect(nearEdge!.weight).toBeGreaterThan(0);
         expect(sessionEdge!.weight).toBeGreaterThan(0);
       } finally {
-        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/memory-sqlite.js');
         closeBrainDb();
         process.env['CLEO_DIR'] = join(tempDir, '.cleo');
         await rm(tempNear, { recursive: true, force: true }).catch(() => {});
@@ -484,7 +484,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
           )
           .get() as { weight: number } | undefined;
 
-        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/memory-sqlite.js');
         closeBrainDb();
 
         // Setup B: r=+0.5
@@ -520,7 +520,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
         // r=+0.5: deltaW * (1+0.5) * 1.5 = deltaW * 2.25 (capped at A_pre*k_novelty)
         expect(edgePos!.weight).toBeGreaterThanOrEqual(edgeNull!.weight);
       } finally {
-        const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+        const { closeBrainDb } = await import('../../store/memory-sqlite.js');
         closeBrainDb();
         process.env['CLEO_DIR'] = join(tempDir, '.cleo');
         await rm(tempA, { recursive: true, force: true }).catch(() => {});
@@ -752,7 +752,7 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
       // Re-run plasticity: existing edge should get reinforcement_count incremented.
       // Must re-open DB after applyStdpPlasticity since it manages its own connection.
       const { closeBrainDb: closeBrainDb2, getBrainNativeDb: getNativeDb2 } = await import(
-        '../../store/brain-sqlite.js'
+        '../../store/memory-sqlite.js'
       );
       closeBrainDb2();
       await applyStdpPlasticity(tempDir, { lookbackDays: 30, pairingWindowMs: 24 * 3600_000 });

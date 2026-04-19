@@ -18,8 +18,8 @@
 
 import { randomBytes } from 'node:crypto';
 import type { Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
-import type { BrainDataAccessor } from '../store/brain-accessor.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import type { BrainDataAccessor } from '../store/memory-accessor.js';
 import { predictValidationOutcome } from './prediction.js';
 import type { ValidationPrediction } from './types.js';
 

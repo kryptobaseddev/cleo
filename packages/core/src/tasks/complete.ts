@@ -9,6 +9,7 @@ import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
+import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -33,11 +34,30 @@ export interface CompleteTaskOptions {
   changeset?: string;
 }
 
+/**
+ * Summary of the llmtxt ContributionReceipt emitted when wrapping
+ * completion in an AgentSession (T947). The full receipt is persisted
+ * to `.cleo/audit/receipts.jsonl`; here we surface only the
+ * correlation fields the CLI needs for display.
+ */
+export interface TaskCompletionReceiptSummary {
+  /** 128-bit unguessable session id from llmtxt. */
+  receiptId: string;
+  /** Ed25519 signature (present for RemoteBackend; stub until llmtxt T461). */
+  signature?: string;
+}
+
 /** Result of completing a task. */
 export interface CompleteTaskResult {
   task: Task;
   autoCompleted?: string[];
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
+  /**
+   * llmtxt ContributionReceipt correlation (T947). Absent when the
+   * AgentSession adapter degraded to a no-op (peer deps missing) or
+   * when running in VITEST with no audit layer.
+   */
+  receipt?: TaskCompletionReceiptSummary;
 }
 
 interface CompletionEnforcement {
@@ -221,93 +241,131 @@ export async function completeTask(
   const now = new Date().toISOString();
   const before = { ...task };
 
-  // Auto-advance pipelineStage: IVTR execution stages → release (T719)
-  // When a task is completed, advance from implementation/validation/testing to release.
-  // This mirrors the lifecycle model: completing work exits the IVTR phase.
-  const completionStage = task.pipelineStage;
-  if (
-    completionStage &&
-    isValidPipelineStage(completionStage) &&
-    EXECUTION_STAGES_FOR_RELEASE.has(completionStage)
-  ) {
-    task.pipelineStage = 'release';
-  }
-
-  // T871: Always sync pipelineStage to a terminal value on completion.
-  // `contribution` is the natural terminal stage (RCASD-IVTR+C). This keeps
-  // `status=done` and `pipelineStage=contribution` aligned so downstream
-  // consumers (Studio Pipeline Kanban, dashboards) can rely on either signal
-  // without drift. The write is below so it always wins over the
-  // `implementation/validation/testing → release` nudge above — completed
-  // tasks should never linger in a pre-terminal stage.
-  if (!isTerminalPipelineStage(task.pipelineStage)) {
-    task.pipelineStage = 'contribution';
-  }
-
-  // Update task
-  task.status = 'done';
-  task.completedAt = now;
-  task.updatedAt = now;
-
-  if (options.notes) {
-    const timestampedNote = `${new Date()
-      .toISOString()
-      .replace('T', ' ')
-      .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
-    if (!task.notes) task.notes = [];
-    task.notes.push(timestampedNote);
-  }
-
-  if (options.changeset) {
-    if (!task.notes) task.notes = [];
-    task.notes.push(`Changeset: ${options.changeset}`);
-  }
-
-  // Check if parent epic should auto-complete
+  // ── T947 Step 2: wrap state mutation + transaction in an AgentSession ──
+  //
+  // Every CLEO task completion is a "contribution" in llmtxt vocabulary.
+  // `wrapWithAgentSession` opens a standalone llmtxt backend, calls
+  // session.contribute(fn), then closes and persists the signed
+  // ContributionReceipt to `.cleo/audit/receipts.jsonl`. When the
+  // llmtxt peer dependencies (`better-sqlite3`, `drizzle-orm/better-sqlite3`)
+  // are absent, the wrapper degrades to invoking `fn` unwrapped and
+  // returning `receipt: null` — observable behaviour is unchanged.
+  //
+  // The closure below holds the ORIGINAL state-write logic verbatim.
+  // We only promote the `autoCompleted` / `autoCompletedTasks` arrays
+  // out of the closure scope so the post-transaction return block can
+  // still read them. This preserves ADR-051 evidence-gate semantics
+  // and the existing transaction contract (tx.upsertSingleTask +
+  // tx.appendLog).
   const autoCompleted: string[] = [];
   const autoCompletedTasks: Task[] = [];
-  if (task.parentId) {
-    const parent = await acc.loadSingleTask(task.parentId);
-    if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
-      const siblings = await acc.getChildren(parent.id);
-      // Guard: only auto-complete if the epic has at least one registered child.
-      // An empty siblings list means no children are recorded in the DB, which
-      // would vacuously satisfy .every() and incorrectly auto-complete the epic.
-      // The current task is not yet 'done' in DB, so match it by ID.
-      const allDone =
-        siblings.length > 0 &&
-        siblings.every((c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled');
-      if (allDone) {
-        parent.status = 'done';
-        parent.completedAt = now;
-        parent.updatedAt = now;
-        // T871: Auto-completed epics must also reach a terminal pipelineStage.
-        if (!isTerminalPipelineStage(parent.pipelineStage)) {
-          parent.pipelineStage = 'contribution';
-        }
-        autoCompleted.push(parent.id);
-        autoCompletedTasks.push(parent);
-      }
-    }
-  }
 
-  // Wrap writes in a transaction for TOCTOU safety (T023)
-  await acc.transaction(async (tx) => {
-    await tx.upsertSingleTask(task);
-    for (const parentTask of autoCompletedTasks) {
-      await tx.upsertSingleTask(parentTask);
-    }
-    await tx.appendLog({
-      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      action: 'task_completed',
-      taskId: options.taskId,
-      actor: 'system',
-      details: { title: task.title, previousStatus: before.status },
-      before: null,
-      after: { title: task.title, previousStatus: before.status },
-    });
-  });
+  const { receipt } = await wrapWithAgentSession(
+    {
+      sessionId:
+        typeof process.env.CLEO_SESSION_ID === 'string' && process.env.CLEO_SESSION_ID.length > 0
+          ? process.env.CLEO_SESSION_ID
+          : undefined,
+      agentId: process.env.CLEO_AGENT_ID ?? 'cleo',
+      projectRoot: cwd ?? process.cwd(),
+      label: `complete:${options.taskId}`,
+    },
+    async () => {
+      // Auto-advance pipelineStage: IVTR execution stages → release (T719)
+      // When a task is completed, advance from implementation/validation/testing to release.
+      // This mirrors the lifecycle model: completing work exits the IVTR phase.
+      const completionStage = task.pipelineStage;
+      if (
+        completionStage &&
+        isValidPipelineStage(completionStage) &&
+        EXECUTION_STAGES_FOR_RELEASE.has(completionStage)
+      ) {
+        task.pipelineStage = 'release';
+      }
+
+      // T871: Always sync pipelineStage to a terminal value on completion.
+      // `contribution` is the natural terminal stage (RCASD-IVTR+C). This keeps
+      // `status=done` and `pipelineStage=contribution` aligned so downstream
+      // consumers (Studio Pipeline Kanban, dashboards) can rely on either signal
+      // without drift. The write is below so it always wins over the
+      // `implementation/validation/testing → release` nudge above — completed
+      // tasks should never linger in a pre-terminal stage.
+      if (!isTerminalPipelineStage(task.pipelineStage)) {
+        task.pipelineStage = 'contribution';
+      }
+
+      // Update task
+      task.status = 'done';
+      task.completedAt = now;
+      task.updatedAt = now;
+
+      if (options.notes) {
+        const timestampedNote = `${new Date()
+          .toISOString()
+          .replace('T', ' ')
+          .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
+        if (!task.notes) task.notes = [];
+        task.notes.push(timestampedNote);
+      }
+
+      if (options.changeset) {
+        if (!task.notes) task.notes = [];
+        task.notes.push(`Changeset: ${options.changeset}`);
+      }
+
+      // Check if parent epic should auto-complete
+      if (task.parentId) {
+        const parent = await acc.loadSingleTask(task.parentId);
+        if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
+          const siblings = await acc.getChildren(parent.id);
+          // Guard: only auto-complete if the epic has at least one registered child.
+          // An empty siblings list means no children are recorded in the DB, which
+          // would vacuously satisfy .every() and incorrectly auto-complete the epic.
+          // The current task is not yet 'done' in DB, so match it by ID.
+          const allDone =
+            siblings.length > 0 &&
+            siblings.every(
+              (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
+            );
+          if (allDone) {
+            parent.status = 'done';
+            parent.completedAt = now;
+            parent.updatedAt = now;
+            // T871: Auto-completed epics must also reach a terminal pipelineStage.
+            if (!isTerminalPipelineStage(parent.pipelineStage)) {
+              parent.pipelineStage = 'contribution';
+            }
+            autoCompleted.push(parent.id);
+            autoCompletedTasks.push(parent);
+          }
+        }
+      }
+
+      // Wrap writes in a transaction for TOCTOU safety (T023)
+      await acc.transaction(async (tx) => {
+        await tx.upsertSingleTask(task);
+        for (const parentTask of autoCompletedTasks) {
+          await tx.upsertSingleTask(parentTask);
+        }
+        await tx.appendLog({
+          id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+          timestamp: new Date().toISOString(),
+          action: 'task_completed',
+          taskId: options.taskId,
+          actor: 'system',
+          details: { title: task.title, previousStatus: before.status },
+          before: null,
+          after: { title: task.title, previousStatus: before.status },
+        });
+      });
+
+      // llmtxt tracks `documentIds` when contribute() returns a shape
+      // matching `{ documentId?: string }`. CLEO tasks are not llmtxt
+      // documents, so we return an empty object here — eventCount still
+      // ticks to 1 on success, which is the signal the receipt needs.
+      return {};
+    },
+  );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
   const dependents = await acc.getDependents(options.taskId);
@@ -396,9 +454,23 @@ export async function completeTask(
     /* Hook registry unavailable — non-fatal */
   }
 
+  // T947 Step 2: surface the llmtxt ContributionReceipt summary on
+  // the return envelope so CLI / agents can reference `receiptId` for
+  // audit queries. When the AgentSession adapter degraded to a no-op
+  // (peer deps missing), `receipt` is null and we omit the field to
+  // preserve backward-compatible shape.
+  const receiptSummary: TaskCompletionReceiptSummary | undefined =
+    receipt !== null
+      ? {
+          receiptId: receipt.sessionId,
+          ...(receipt.signature ? { signature: receipt.signature } : {}),
+        }
+      : undefined;
+
   return {
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
+    ...(receiptSummary ? { receipt: receiptSummary } : {}),
   };
 }

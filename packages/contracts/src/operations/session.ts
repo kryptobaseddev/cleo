@@ -29,10 +29,33 @@ export interface SessionOp {
 
 // session.status
 export type SessionStatusParams = Record<string, never>;
+/**
+ * Result of `session.status`.
+ *
+ * @remarks
+ * Re-synced to match the envelope returned by `sessionStatus` in
+ * `packages/cleo/src/dispatch/engines/session-engine.ts`. The legacy
+ * contract's `{current, hasStartedTask, startedTask}` shape predated the
+ * current engine and never matched dispatch output — agents reading the
+ * contract would never find their data.
+ *
+ * @task T963 — contract↔impl drift reconciliation (T910 audit)
+ */
 export interface SessionStatusResult {
-  current: SessionOp | null;
-  hasStartedTask: boolean;
-  startedTask?: string;
+  /** True when a session is currently active. @task T963 */
+  hasActiveSession: boolean;
+  /**
+   * Active session record (full shape per `Session` contract) or `null`
+   * when none active.
+   * @task T963
+   */
+  session?: SessionOp | null;
+  /**
+   * Current task work state from `meta.focus_state` — tracks the
+   * task the orchestrator is focused on within the session.
+   * @task T963
+   */
+  taskWork?: import('../task.js').TaskWorkState | null;
 }
 
 // session.list

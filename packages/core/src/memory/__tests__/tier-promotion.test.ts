@@ -52,7 +52,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   // Close and reset the brain.db singleton before removing the temp dir
-  const { resetBrainDbState } = await import('../../store/brain-sqlite.js');
+  const { resetBrainDbState } = await import('../../store/memory-sqlite.js');
   resetBrainDbState();
   delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true });
@@ -72,7 +72,7 @@ interface SeedObservationArgs {
 }
 
 async function seedObservation(args: SeedObservationArgs): Promise<void> {
-  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   await getBrainDb(tempDir);
   const db = getBrainNativeDb()!;
   db.prepare(`
@@ -92,7 +92,7 @@ async function seedObservation(args: SeedObservationArgs): Promise<void> {
 }
 
 async function seedDecision(args: SeedObservationArgs): Promise<void> {
-  const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   await getBrainDb(tempDir);
   const db = getBrainNativeDb()!;
   db.prepare(`
@@ -112,7 +112,7 @@ async function seedDecision(args: SeedObservationArgs): Promise<void> {
 }
 
 async function getTier(table: string, id: string): Promise<string | null> {
-  const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   const db = getBrainNativeDb();
   if (!db) return null;
   const row = db.prepare(`SELECT memory_tier FROM ${table} WHERE id = ?`).get(id) as
@@ -122,7 +122,7 @@ async function getTier(table: string, id: string): Promise<string | null> {
 }
 
 async function getInvalidAt(table: string, id: string): Promise<string | null> {
-  const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   const db = getBrainNativeDb();
   if (!db) return null;
   const row = db.prepare(`SELECT invalid_at FROM ${table} WHERE id = ?`).get(id) as
@@ -495,7 +495,7 @@ describe('runTierPromotion — real SQLite', () => {
       });
 
       // Seed pattern and learning via raw SQL (they have different columns)
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const db = getBrainNativeDb()!;
 
       db.prepare(`
@@ -533,7 +533,7 @@ describe('runTierPromotion — real SQLite', () => {
 
   it('returns empty result when no qualifying entries exist', async () => {
     // Initialize DB without seeding
-    const { getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
     await getBrainDb(tempDir);
 
     const { runTierPromotion } = await import('../brain-lifecycle.js');

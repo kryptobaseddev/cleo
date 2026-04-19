@@ -20,8 +20,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // another file's vi.mock('../../paths.js') already poisoned the module registry.
 vi.mock('../../paths.js', async () => await vi.importActual('../../paths.js'));
 vi.mock(
-  '../../store/brain-sqlite.js',
-  async () => await vi.importActual('../../store/brain-sqlite.js'),
+  '../../store/memory-sqlite.js',
+  async () => await vi.importActual('../../store/memory-sqlite.js'),
 );
 vi.mock(
   '../../store/nexus-sqlite.js',
@@ -42,7 +42,7 @@ describe('graph-memory-bridge', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     const { resetNexusDbState } = await import('../../store/nexus-sqlite.js');
     closeBrainDb();
     resetNexusDbState();
@@ -62,15 +62,15 @@ describe('graph-memory-bridge', () => {
     nodeType = 'observation',
     qualityScore = 0.7,
   ): Promise<void> {
-    const { getBrainDb } = await import('../../store/brain-sqlite.js');
-    const { brainPageNodes } = await import('../../store/brain-schema.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
+    const { brainPageNodes } = await import('../../store/memory-schema.js');
     const db = await getBrainDb(tempDir);
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     await db
       .insert(brainPageNodes)
       .values({
         id,
-        nodeType: nodeType as import('../../store/brain-schema.js').BrainNodeType,
+        nodeType: nodeType as import('../../store/memory-schema.js').BrainNodeType,
         label,
         qualityScore,
         contentHash: null,
@@ -119,20 +119,20 @@ describe('graph-memory-bridge', () => {
 
     it('creates a code_reference edge when both nodes exist', async () => {
       const { linkMemoryToCode } = await import('../graph-memory-bridge.js');
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
       await seedBrainNode('observation:O-abc', 'Test observation');
       await seedNexusNode(
-        'src/store/brain-sqlite.ts::getBrainDb',
+        'src/store/memory-sqlite.ts::getBrainDb',
         'getBrainDb',
         'getBrainDb',
-        'src/store/brain-sqlite.ts',
+        'src/store/memory-sqlite.ts',
       );
 
       const result = await linkMemoryToCode(
         tempDir,
         'observation:O-abc',
-        'src/store/brain-sqlite.ts::getBrainDb',
+        'src/store/memory-sqlite.ts::getBrainDb',
       );
 
       expect(result).toBe(true);
@@ -144,7 +144,7 @@ describe('graph-memory-bridge', () => {
           `SELECT from_id, to_id, edge_type, weight FROM brain_page_edges
            WHERE from_id = ? AND to_id = ? AND edge_type = 'code_reference'`,
         )
-        .get('observation:O-abc', 'src/store/brain-sqlite.ts::getBrainDb') as
+        .get('observation:O-abc', 'src/store/memory-sqlite.ts::getBrainDb') as
         | { from_id: string; to_id: string; edge_type: string; weight: number }
         | undefined;
 
@@ -155,7 +155,7 @@ describe('graph-memory-bridge', () => {
 
     it('is idempotent — calling twice does not duplicate the edge', async () => {
       const { linkMemoryToCode } = await import('../graph-memory-bridge.js');
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
       await seedBrainNode('observation:O-dup', 'Dup test');
       await seedNexusNode('src/file.ts::myFunc', 'myFunc', 'myFunc', 'src/file.ts');
@@ -202,10 +202,10 @@ describe('graph-memory-bridge', () => {
       );
 
       await seedNexusNode(
-        'src/store/brain-sqlite.ts::getBrainDb',
+        'src/store/memory-sqlite.ts::getBrainDb',
         'getBrainDb',
         'getBrainDb',
-        'src/store/brain-sqlite.ts',
+        'src/store/memory-sqlite.ts',
         'function',
       );
 
@@ -226,16 +226,16 @@ describe('graph-memory-bridge', () => {
 
       await seedBrainNode(
         'decision:D-fp1',
-        'Modified src/store/brain-sqlite.ts to add WAL mode support',
+        'Modified src/store/memory-sqlite.ts to add WAL mode support',
         'decision',
         0.9,
       );
 
       await seedNexusNode(
-        'src/store/brain-sqlite.ts',
-        'brain-sqlite.ts',
+        'src/store/memory-sqlite.ts',
+        'memory-sqlite.ts',
         null,
-        'src/store/brain-sqlite.ts',
+        'src/store/memory-sqlite.ts',
         'file',
       );
 
@@ -243,7 +243,7 @@ describe('graph-memory-bridge', () => {
 
       expect(result.linked).toBeGreaterThanOrEqual(1);
       const link = result.links.find(
-        (l) => l.brainNodeId === 'decision:D-fp1' && l.nexusNodeId === 'src/store/brain-sqlite.ts',
+        (l) => l.brainNodeId === 'decision:D-fp1' && l.nexusNodeId === 'src/store/memory-sqlite.ts',
       );
       expect(link).toBeDefined();
       expect(link?.matchStrategy).toBe('exact-file');
@@ -254,14 +254,18 @@ describe('graph-memory-bridge', () => {
 
       await seedBrainNode('observation:O-pre', 'calls getBrainDb directly', 'observation', 0.8);
       await seedNexusNode(
-        'src/store/brain-sqlite.ts::getBrainDb',
+        'src/store/memory-sqlite.ts::getBrainDb',
         'getBrainDb',
         'getBrainDb',
-        'src/store/brain-sqlite.ts',
+        'src/store/memory-sqlite.ts',
       );
 
       // Pre-link manually
-      await linkMemoryToCode(tempDir, 'observation:O-pre', 'src/store/brain-sqlite.ts::getBrainDb');
+      await linkMemoryToCode(
+        tempDir,
+        'observation:O-pre',
+        'src/store/memory-sqlite.ts::getBrainDb',
+      );
 
       // Auto-link should count it as already linked
       const result = await autoLinkMemories(tempDir);

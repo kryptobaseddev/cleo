@@ -1217,7 +1217,7 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
   if (existsSync(dbPath)) {
     // Ensure FTS5 tables exist even for pre-existing brain.db (T5698)
     try {
-      const { getBrainNativeDb } = await import('./store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('./store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       if (nativeDb) {
         const { ensureFts5Tables } = await import('./memory/brain-search.js');
@@ -1230,7 +1230,7 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
   }
 
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('./store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('./store/memory-sqlite.js');
     await getBrainDb(projectRoot);
 
     // Create FTS5 virtual tables eagerly so search works immediately (T5698)

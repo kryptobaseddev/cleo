@@ -46,7 +46,7 @@ describe('system/backup', () => {
       if (match) writeFileSync(match[1]!, 'vacuumed-brain');
     });
 
-    // createBackup dynamically imports sqlite.js / brain-sqlite.js to
+    // createBackup dynamically imports sqlite.js / memory-sqlite.js to
     // ensure the DBs are open before snapshotting; mocks must cover both
     // the `getDb`/`getBrainDb` open entry points AND the
     // `getNativeDb`/`getBrainNativeDb` handle accessors.
@@ -54,7 +54,7 @@ describe('system/backup', () => {
       getDb: vi.fn().mockResolvedValue({}),
       getNativeDb: () => ({ exec: tasksExec }),
     }));
-    vi.doMock('../../store/brain-sqlite.js', () => ({
+    vi.doMock('../../store/memory-sqlite.js', () => ({
       getBrainDb: vi.fn().mockResolvedValue({}),
       getBrainNativeDb: () => ({ exec: brainExec }),
     }));
@@ -107,7 +107,7 @@ describe('system/backup', () => {
       getDb: vi.fn().mockResolvedValue({}),
       getNativeDb: () => null,
     }));
-    vi.doMock('../../store/brain-sqlite.js', () => ({
+    vi.doMock('../../store/memory-sqlite.js', () => ({
       getBrainDb: vi.fn().mockResolvedValue({}),
       getBrainNativeDb: () => null,
     }));

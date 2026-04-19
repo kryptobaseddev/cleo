@@ -12,8 +12,8 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import type { BrainDataAccessor } from '../store/brain-accessor.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import type { BrainDataAccessor } from '../store/memory-accessor.js';
 import type { LearningContext, RiskAssessment, RiskFactor, ValidationPrediction } from './types.js';
 
 // ============================================================================
