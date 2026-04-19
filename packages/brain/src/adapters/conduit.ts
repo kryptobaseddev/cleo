@@ -8,8 +8,8 @@
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
-import { getConduitDb } from '../../db/connections.js';
-import { resolveDefaultProjectContext } from '../../project-context.js';
+import { allTyped, getConduitDb } from '../db-connections.js';
+import { resolveDefaultProjectContext } from '../project-context.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from conduit messages table. */
@@ -60,14 +60,15 @@ export function getConduitSubstrate(options: LBQueryOptions = {}): {
 
   try {
     // Most recent messages
-    const msgRows = db
-      .prepare(
+    const msgRows = allTyped<MessageRow>(
+      db.prepare(
         `SELECT id, content, from_agent_id, to_agent_id, created_at, conversation_id
          FROM messages
          ORDER BY created_at DESC
          LIMIT ?`,
-      )
-      .all(perSubstrateLimit) as MessageRow[];
+      ),
+      perSubstrateLimit,
+    );
 
     const agentPairs = new Map<string, { count: number; from: string; to: string }>();
 

@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -153,7 +153,7 @@ jobs:
           npm pack --dry-run > /tmp/core-pack-list.txt 2>&1
           REQUIRED_FILES=(
             "dist/store/nexus-sqlite.js"
-            "dist/store/brain-sqlite.js"
+            "dist/store/memory-sqlite.js"
             "dist/index.js"
             "dist/internal.js"
             "dist/memory/transcript-scanner.js"
@@ -467,15 +467,17 @@ jobs:
           }
 
           # Publish in dependency order:
-          #   contracts → lafs → core → caamp/cant → runtime → adapters → agents → skills → playbooks → cleo → cleo-os
+          #   contracts → lafs → core → caamp/cant → nexus/brain → runtime → adapters → agents → skills → playbooks → cleo → cleo-os
           # cleo-os depends on cleo + cant (workspace:*), so it must publish LAST.
           # playbooks depends on contracts + core, so it publishes after those.
+          # brain depends on contracts only; publishes alongside nexus (both are graph substrates).
           publish_pkg contracts
           publish_pkg lafs
           publish_pkg core
           publish_pkg caamp
           publish_pkg cant
           publish_pkg nexus
+          publish_pkg brain
           publish_pkg runtime
           publish_pkg adapters
           publish_pkg agents

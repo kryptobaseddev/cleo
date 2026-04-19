@@ -8,7 +8,7 @@
  * Node IDs are prefixed with "nexus:" to prevent collisions.
  */
 
-import { getNexusDb } from '../../db/connections.js';
+import { allTyped, getNexusDb } from '../db-connections.js';
 import type { LBEdge, LBNode, LBNodeKind, LBQueryOptions } from '../types.js';
 
 /** Raw row from nexus_nodes. */
@@ -57,8 +57,8 @@ export function getNexusSubstrate(options: LBQueryOptions = {}): {
 
   try {
     // Count in-degree for each node to use as weight
-    const nodeRows = db
-      .prepare(
+    const nodeRows = allTyped<NexusNodeRow>(
+      db.prepare(
         `SELECT n.id, n.kind, n.name, n.indexed_at,
                 COUNT(r.target_id) AS in_degree
          FROM nexus_nodes n
@@ -70,8 +70,9 @@ export function getNexusSubstrate(options: LBQueryOptions = {}): {
          GROUP BY n.id
          ORDER BY in_degree DESC
          LIMIT ?`,
-      )
-      .all(perSubstrateLimit) as NexusNodeRow[];
+      ),
+      perSubstrateLimit,
+    );
 
     for (const row of nodeRows) {
       nodes.push({
@@ -93,14 +94,16 @@ export function getNexusSubstrate(options: LBQueryOptions = {}): {
     const placeholders = [...rawIds].map(() => '?').join(',');
     if (rawIds.size === 0) return { nodes, edges };
 
-    const relRows = db
-      .prepare(
+    const relRows = allTyped<NexusRelationRow>(
+      db.prepare(
         `SELECT source_id, target_id, type, confidence
          FROM nexus_relations
          WHERE source_id IN (${placeholders})
            AND target_id IN (${placeholders})`,
-      )
-      .all(...rawIds, ...rawIds) as NexusRelationRow[];
+      ),
+      ...rawIds,
+      ...rawIds,
+    );
 
     for (const row of relRows) {
       edges.push({

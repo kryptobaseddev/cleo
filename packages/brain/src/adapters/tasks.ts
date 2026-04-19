@@ -7,8 +7,8 @@
  * Node IDs are prefixed with "tasks:" to prevent collisions.
  */
 
-import { getTasksDb } from '../../db/connections.js';
-import { resolveDefaultProjectContext } from '../../project-context.js';
+import { allTyped, getTasksDb } from '../db-connections.js';
+import { resolveDefaultProjectContext } from '../project-context.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from tasks table. */
@@ -79,8 +79,8 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
 
   try {
     // Tasks (prioritised by severity, then recency)
-    const taskRows = db
-      .prepare(
+    const taskRows = allTyped<TaskRow>(
+      db.prepare(
         `SELECT id, title, status, priority, type, parent_id, created_at
          FROM tasks
          WHERE status NOT IN ('archived', 'cancelled')
@@ -90,8 +90,9 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
            END,
            created_at DESC
          LIMIT ?`,
-      )
-      .all(Math.ceil(perSubstrateLimit * 0.8)) as TaskRow[];
+      ),
+      Math.ceil(perSubstrateLimit * 0.8),
+    );
 
     const taskIds = new Set<string>();
     for (const row of taskRows) {
@@ -116,14 +117,15 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
     }
 
     // Sessions (most recent)
-    const sessionRows = db
-      .prepare(
+    const sessionRows = allTyped<SessionRow>(
+      db.prepare(
         `SELECT id, status, started_at, ended_at
          FROM sessions
          ORDER BY started_at DESC
          LIMIT ?`,
-      )
-      .all(Math.ceil(perSubstrateLimit * 0.2)) as SessionRow[];
+      ),
+      Math.ceil(perSubstrateLimit * 0.2),
+    );
 
     const sessionIds = new Set<string>();
     for (const row of sessionRows) {
@@ -159,14 +161,16 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
     // Task relations
     if (taskIds.size > 0) {
       const placeholders = [...taskIds].map(() => '?').join(',');
-      const relRows = db
-        .prepare(
+      const relRows = allTyped<TaskRelationRow>(
+        db.prepare(
           `SELECT task_id, related_task_id, relation_type
            FROM task_relations
            WHERE task_id IN (${placeholders})
              AND related_task_id IN (${placeholders})`,
-        )
-        .all(...taskIds, ...taskIds) as TaskRelationRow[];
+        ),
+        ...taskIds,
+        ...taskIds,
+      );
 
       for (const row of relRows) {
         edges.push({
@@ -179,14 +183,16 @@ export function getTasksSubstrate(options: LBQueryOptions = {}): {
       }
 
       // Task dependencies
-      const depRows = db
-        .prepare(
+      const depRows = allTyped<TaskDepRow>(
+        db.prepare(
           `SELECT task_id, depends_on_task_id
            FROM task_dependencies
            WHERE task_id IN (${placeholders})
              AND depends_on_task_id IN (${placeholders})`,
-        )
-        .all(...taskIds, ...taskIds) as TaskDepRow[];
+        ),
+        ...taskIds,
+        ...taskIds,
+      );
 
       for (const row of depRows) {
         edges.push({

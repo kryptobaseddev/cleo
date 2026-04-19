@@ -3,7 +3,7 @@
   import ForceGraph3D from '3d-force-graph';
   import * as THREE from 'three';
   import { EffectComposer, RenderPass, UnrealBloomPass } from 'three-stdlib';
-  import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
+  import type { LBNode, LBEdge, LBSubstrate } from '@cleocode/brain';
   import { livingBrainGraphStore } from '$lib/stores/living-brain-graph.js';
   import type Graph from 'graphology';
 

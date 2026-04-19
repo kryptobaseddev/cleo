@@ -10,8 +10,7 @@
  * so no SSR content is lost.
  */
 
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBGraph } from '$lib/server/living-brain/types.js';
+import { getAllSubstrates, type LBGraph } from '@cleocode/brain';
 import type { PageServerLoad } from './$types';
 
 /**
