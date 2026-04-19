@@ -6,13 +6,14 @@
     - Direct-children basis per T874 (numerator + denominator symmetric).
     - Per-epic progress bar shows `done / total` on direct children only.
     - Row click navigates to `/tasks/tree/{epic.id}` (existing deep-link).
-    - `includeDeferred` toggle via `?deferred=1` is honoured at data-loader
-      level; this component just renders whatever rows it receives.
+    - `includeCancelled` toggle via `?cancelled=1` is honoured at the
+      data-loader level (T958 rename from the legacy `?deferred=1`); this
+      component just renders whatever rows it receives.
 
   This component is presentational — no API calls. Data shape matches the
   `EpicProgress` server-shape returned by `_computeEpicProgressViaRollup`.
 
-  @task T950
+  @task T950 | T958
   @epic T949
 -->
 <script lang="ts">
@@ -29,7 +30,7 @@
     id: string;
     /** Epic title. */
     title: string;
-    /** Epic's own status (used to render the `deferred` badge). */
+    /** Epic's own status (used to render the `cancelled` badge). */
     status: string;
     /** Total count of direct non-archived children. */
     total: number;
@@ -45,13 +46,24 @@
 
   /**
    * Props for {@link EpicProgressCard}.
+   *
+   * T958: `includingDeferred` renamed to `includingCancelled` to match the
+   * canonical URL param (`?cancelled=1`). The deprecated prop name is still
+   * accepted for one release so external consumers do not break.
    */
   interface Props {
     /** One row per epic, already filtered by the server load. */
     epics: EpicProgressRow[];
     /**
-     * When true, show the `(including deferred)` subtitle and render
-     * cancelled epics with reduced opacity + a `deferred` badge.
+     * When true, show the `(including cancelled)` subtitle and render
+     * cancelled epics with reduced opacity + a `cancelled` badge.
+     *
+     * T958 — canonical name. Prefer this over {@link Props.includingDeferred}.
+     */
+    includingCancelled?: boolean;
+    /**
+     * @deprecated T958 — use {@link Props.includingCancelled}. Still honoured
+     * for one release to keep pre-rename callers working.
      */
     includingDeferred?: boolean;
     /**
@@ -62,7 +74,15 @@
     hrefFor?: (epic: EpicProgressRow) => string;
   }
 
-  let { epics, includingDeferred = false, hrefFor }: Props = $props();
+  let {
+    epics,
+    includingCancelled = false,
+    includingDeferred = false,
+    hrefFor,
+  }: Props = $props();
+
+  // T958 back-compat: if only the deprecated prop was passed, honour it.
+  const showingCancelled = $derived(includingCancelled || includingDeferred);
 
   function defaultHref(ep: EpicProgressRow): string {
     return `/tasks/tree/${ep.id}`;
@@ -75,8 +95,8 @@
   <section class="epic-progress panel">
     <h2 class="panel-title">
       Epic Progress
-      {#if includingDeferred}
-        <span class="panel-sub">(including deferred)</span>
+      {#if showingCancelled}
+        <span class="panel-sub">(including cancelled)</span>
       {/if}
     </h2>
     <div class="epic-list">
@@ -85,13 +105,14 @@
         <a
           href={resolveHref(ep)}
           class="epic-row"
-          class:epic-deferred={ep.status === 'cancelled'}
+          class:epic-cancelled={ep.status === 'cancelled'}
         >
           <div class="epic-header-row">
             <span class="epic-id">{ep.id}</span>
             <span class="epic-title">{ep.title}</span>
             {#if ep.status === 'cancelled'}
-              <span class="epic-status-badge badge-cancelled">deferred</span>
+              <!-- T958: badge renamed from 'deferred' to 'cancelled' -->
+              <span class="epic-status-badge badge-cancelled">cancelled</span>
             {/if}
             <span class="epic-counts">{ep.done}/{ep.total}</span>
             <span class="epic-pct">{pct}%</span>
@@ -165,11 +186,12 @@
     border-bottom: none;
   }
 
-  .epic-row.epic-deferred {
+  /* T958: cancelled epic styling (was .epic-deferred). */
+  .epic-row.epic-cancelled {
     opacity: 0.7;
   }
 
-  .epic-row.epic-deferred .epic-title {
+  .epic-row.epic-cancelled .epic-title {
     color: #94a3b8;
   }
 
