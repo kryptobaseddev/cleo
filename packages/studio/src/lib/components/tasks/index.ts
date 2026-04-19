@@ -29,6 +29,8 @@ export {
   statusClass,
   statusIcon,
 } from './format.js';
+export { default as GraphTab } from './GraphTab.svelte';
+export { default as HierarchyTab } from './HierarchyTab.svelte';
 export { default as KanbanTab } from './KanbanTab.svelte';
 export {
   applyKanbanFilters,
