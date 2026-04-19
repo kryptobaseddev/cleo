@@ -14,16 +14,24 @@
   const stats = data.stats;
   const recentTasks: RecentTask[] = data.recentTasks ?? [];
   const epicProgress: EpicProgress[] = data.epicProgress ?? [];
-  // T878: display filter state (?deferred=1 / ?archived=1) driven from the URL.
-  const filters: DashboardFilters = data.filters ?? { showDeferred: false, showArchived: false };
+  // T878 / T958: display filter state (?cancelled=1 / ?archived=1) driven
+  // from the URL. `?deferred=1` is the legacy alias honoured for one release.
+  const filters: DashboardFilters = data.filters ?? { showCancelled: false, showArchived: false };
 
   /**
    * Build a toggle URL that flips one filter flag while preserving the other.
    * We round-trip through the URL so the dashboard stays SSR-correct and the
    * toggle state is bookmarkable / shareable.
+   *
+   * T958: `cancelled` is the canonical param name. When activating the filter
+   * we also strip any legacy `?deferred=1` alias the URL might still carry so
+   * the resulting link canonicalises on the new name.
    */
-  function toggleUrl(flag: 'deferred' | 'archived'): string {
+  function toggleUrl(flag: 'cancelled' | 'archived'): string {
     const next = new URL($page.url);
+    // Always scrub the legacy alias so toggling the filter leaves the URL in
+    // the post-T958 canonical shape.
+    next.searchParams.delete('deferred');
     const current = next.searchParams.get(flag) === '1';
     if (current) {
       next.searchParams.delete(flag);
@@ -343,17 +351,17 @@
     <div class="no-db">tasks.db not found — start CLEO in the project directory</div>
   {/if}
 
-  <!-- T878: dashboard filter toggles -->
+  <!-- T878 / T958: dashboard filter toggles ("Deferred" → "Cancelled epics" rename). -->
   <div class="filter-bar" aria-label="Dashboard filters">
     <a
-      href={toggleUrl('deferred')}
+      href={toggleUrl('cancelled')}
       class="filter-chip"
-      class:active={filters.showDeferred}
+      class:active={filters.showCancelled}
       data-sveltekit-noscroll
-      title="Show deferred / cancelled epics in the Epic Progress panel"
+      title="Include epics with status='cancelled' in the Epic Progress rollups (previously labelled 'Deferred'). URL: ?cancelled=1"
     >
-      <span class="chip-check">{filters.showDeferred ? '✓' : ' '}</span>
-      Show deferred epics
+      <span class="chip-check">{filters.showCancelled ? '✓' : ' '}</span>
+      Show cancelled epics
     </a>
     <a
       href={toggleUrl('archived')}
@@ -372,8 +380,8 @@
       <section class="panel">
         <h2 class="panel-title">
           Epic Progress
-          {#if filters.showDeferred}
-            <span class="panel-sub">(including deferred)</span>
+          {#if filters.showCancelled}
+            <span class="panel-sub">(including cancelled)</span>
           {/if}
         </h2>
         <div class="epic-list">
@@ -381,13 +389,14 @@
             <a
               href="/tasks/tree/{ep.id}"
               class="epic-row"
-              class:epic-deferred={ep.status === 'cancelled'}
+              class:epic-cancelled={ep.status === 'cancelled'}
             >
               <div class="epic-header-row">
                 <span class="epic-id">{ep.id}</span>
                 <span class="epic-title">{ep.title}</span>
                 {#if ep.status === 'cancelled'}
-                  <span class="epic-status-badge badge-cancelled">deferred</span>
+                  <!-- T958: row badge renamed from 'deferred' to 'cancelled' -->
+                  <span class="epic-status-badge badge-cancelled">cancelled</span>
                 {/if}
                 <span class="epic-counts">{ep.done}/{ep.total}</span>
                 <span class="epic-pct">{progressPct(ep)}%</span>
@@ -799,11 +808,11 @@
     letter-spacing: 0;
   }
 
-  /* T878: deferred epic styling */
-  .epic-row.epic-deferred {
+  /* T878 / T958: cancelled epic styling (was .epic-deferred). */
+  .epic-row.epic-cancelled {
     opacity: 0.7;
   }
-  .epic-row.epic-deferred .epic-title {
+  .epic-row.epic-cancelled .epic-title {
     color: #94a3b8;
   }
   .epic-status-badge {

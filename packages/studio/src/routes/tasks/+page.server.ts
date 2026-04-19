@@ -5,7 +5,7 @@
  * and denominator (see `_computeEpicProgress`).
  *
  * T878 (T900): adds two URL-driven display filters:
- *   - `?deferred=1`  — include cancelled epics in the Epic Progress panel
+ *   - `?cancelled=1` — include cancelled epics in the Epic Progress panel
  *                      (default: hidden; prevents clutter from long-term-parked epics)
  *   - `?archived=1`  — include archived tasks in Recent Activity and surface
  *                      an `archived` count on stats. Default: hidden.
@@ -20,8 +20,21 @@
  * keep working. Production `load()` uses the rollup path; the helper is
  * only kept for back-compat.
  *
- * @task T874 | T878 | T948
- * @epic T876 (owner-labelled T900)
+ * T958: rename — "Deferred" was a UI label for `status='cancelled'` on epics,
+ * NOT a DB field. The canonical URL param is now `?cancelled=1`; legacy
+ * `?deferred=1` still maps to the same behaviour for one release (with a
+ * one-time `console.warn`). The `includeDeferred` option was renamed to
+ * `includeCancelled` across the helper surface.
+ *
+ * T956: hybrid layout — the loader now returns BOTH the dashboard bundle
+ * (stats, epicProgress, recentTasks, filters) AND the shared
+ * {@link ExplorerBundle} (tasks, deps, epicProgress map, labels) so the
+ * `/tasks` page can embed the 3-tab Task Explorer (Hierarchy / Graph /
+ * Kanban) below the preserved dashboard panel. One server round-trip,
+ * both surfaces hydrated.
+ *
+ * @task T874 | T878 | T948 | T956 | T958
+ * @epic T876 (owner-labelled T900) | T949
  */
 
 import type { Task, TaskRollupPayload } from '@cleocode/contracts';
@@ -29,7 +42,10 @@ import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
 import { getAccessor } from '@cleocode/core/store/data-accessor';
 import { listTasks } from '@cleocode/core/tasks/list';
 import { getTasksDb } from '$lib/server/db/connections.js';
+import { type ExplorerBundle, loadExplorerBundle } from '$lib/server/tasks/explorer-loader.js';
 import type { PageServerLoad } from './$types';
+
+export type { ExplorerBundle };
 
 export interface DashboardStats {
   total: number;
@@ -69,8 +85,13 @@ export interface EpicProgress {
 }
 
 export interface DashboardFilters {
-  /** Include cancelled epics in the Epic Progress panel (?deferred=1). */
-  showDeferred: boolean;
+  /**
+   * Include cancelled epics in the Epic Progress panel (`?cancelled=1`).
+   *
+   * T958: renamed from `showDeferred`. Legacy `?deferred=1` still maps here
+   * for one release via the server-side deprecation shim below.
+   */
+  showCancelled: boolean;
   /** Include archived tasks in Recent Activity and surface archived count (?archived=1). */
   showArchived: boolean;
 }
@@ -91,6 +112,34 @@ export interface EpicProgressDbLike {
 // ---------------------------------------------------------------------------
 
 /**
+ * Options accepted by the epic-progress helpers.
+ *
+ * T958: `includeCancelled` is the canonical name; `includeDeferred` is a
+ * deprecated alias kept for one release to avoid breaking callers that
+ * pre-dated the rename. When both are set, `includeCancelled` wins.
+ */
+export interface DeprecatedEpicProgressOptions {
+  /** Include `status='cancelled'` epics in the output (T958 canonical name). */
+  includeCancelled?: boolean;
+  /**
+   * @deprecated T958 — use {@link DeprecatedEpicProgressOptions.includeCancelled}.
+   * Still honoured for one release.
+   */
+  includeDeferred?: boolean;
+}
+
+/**
+ * Resolve the canonical "include cancelled epics" flag from a possibly-legacy
+ * options bag, preferring {@link DeprecatedEpicProgressOptions.includeCancelled}
+ * over the deprecated `includeDeferred`.
+ */
+function resolveIncludeCancelled(options: DeprecatedEpicProgressOptions): boolean {
+  if (typeof options.includeCancelled === 'boolean') return options.includeCancelled;
+  if (typeof options.includeDeferred === 'boolean') return options.includeDeferred;
+  return false;
+}
+
+/**
  * Compute dashboard epic-progress rows using a direct-children basis.
  *
  * @deprecated T948: production `load()` now uses
@@ -103,22 +152,29 @@ export interface EpicProgressDbLike {
  * Pure function so it can be unit-tested against an in-memory SQLite DB
  * without spinning up the full SvelteKit load context.
  *
- * @param db - SQLite DB handle (better-sqlite3-compatible).
- * @param options.includeDeferred - When true, include cancelled epics too.
- * @returns One {@link EpicProgress} row per epic (filtered by `includeDeferred`).
+ * T958: `options.includeDeferred` renamed to `options.includeCancelled`
+ * since "deferred" was only ever a UI label for `status='cancelled'` on
+ * epics — not a real DB field. The legacy option name is still accepted
+ * for one release via {@link DeprecatedEpicProgressOptions}.
  *
- * @task T874 | T878 | T948
- * @epic T876
+ * @param db - SQLite DB handle (better-sqlite3-compatible).
+ * @param options.includeCancelled - When true, include cancelled epics too.
+ * @param options.includeDeferred - Deprecated alias for `includeCancelled`.
+ * @returns One {@link EpicProgress} row per epic (filtered by `includeCancelled`).
+ *
+ * @task T874 | T878 | T948 | T958
+ * @epic T876 | T949
  */
 export function _computeEpicProgress(
   db: EpicProgressDbLike,
-  options: { includeDeferred?: boolean } = {},
+  options: DeprecatedEpicProgressOptions = {},
 ): EpicProgress[] {
-  const { includeDeferred = false } = options;
+  const includeCancelled = resolveIncludeCancelled(options);
 
   // By default: hide archived AND cancelled epics. Cancelled epics are the
-  // "deferred / parked" bucket the owner flagged in the T900 brief.
-  const epicFilter = includeDeferred
+  // bucket previously surfaced as "deferred" in the dashboard UI (see T900 /
+  // T958 — owner-confirmed rename).
+  const epicFilter = includeCancelled
     ? `status != 'archived'`
     : `status NOT IN ('archived','cancelled')`;
 
@@ -212,21 +268,25 @@ export function _epicRowFromRollups(
  * `computeRollupsBatch` for its direct children, then delegate to
  * {@link _epicRowFromRollups} for the tally.
  *
+ * T958: `options.includeDeferred` renamed to `options.includeCancelled`. The
+ * deprecated key is still accepted for one release.
+ *
  * @param projectPath - Absolute path to the active project (from
  *                      `locals.projectCtx.projectPath`). Passed straight to
  *                      `Cleo.forProject` so the DataAccessor opens against
  *                      the right tasks.db.
- * @param options.includeDeferred - Include `status='cancelled'` epics.
+ * @param options.includeCancelled - Include `status='cancelled'` epics.
+ * @param options.includeDeferred - Deprecated alias for `includeCancelled`.
  * @returns Epic progress rows in deterministic (sorted-id) order.
  */
 export async function _computeEpicProgressViaRollup(
   projectPath: string,
-  options: { includeDeferred?: boolean } = {},
+  options: DeprecatedEpicProgressOptions = {},
 ): Promise<EpicProgress[]> {
-  const { includeDeferred = false } = options;
+  const includeCancelled = resolveIncludeCancelled(options);
   const accessor = await getAccessor(projectPath);
   // Pull every epic — `excludeArchived` trims the 99% case, and we filter
-  // `cancelled` in-memory so we can honour the `includeDeferred` toggle
+  // `cancelled` in-memory so we can honour the `includeCancelled` toggle
   // without a second round-trip.
   const epicsResult = await listTasks(
     {
@@ -240,7 +300,7 @@ export async function _computeEpicProgressViaRollup(
   );
 
   const epics: Task[] = epicsResult.tasks
-    .filter((e) => includeDeferred || e.status !== 'cancelled')
+    .filter((e) => includeCancelled || e.status !== 'cancelled')
     .sort((a, b) => a.id.localeCompare(b.id));
 
   const rows: EpicProgress[] = [];
@@ -267,19 +327,108 @@ export async function _computeEpicProgressViaRollup(
 }
 
 // ---------------------------------------------------------------------------
+// Legacy `?deferred=1` deprecation shim (T958)
+// ---------------------------------------------------------------------------
+
+/**
+ * One-time guard so the server only warns about a legacy `?deferred=1` URL
+ * once per process lifetime, regardless of how many `/tasks` page loads see
+ * the param. Mirrors the client-side guard in
+ * `packages/studio/src/lib/stores/task-filters.svelte.ts`.
+ */
+let legacyDeferredWarningEmitted = false;
+
+/**
+ * Emit a one-time `console.warn` flagging `?deferred=1` as deprecated.
+ *
+ * @internal
+ */
+function warnLegacyDeferredParamOnce(): void {
+  if (legacyDeferredWarningEmitted) return;
+  legacyDeferredWarningEmitted = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[tasks/+page.server] ?deferred=1 is deprecated; use ?cancelled=1. ' +
+      'Alias removal tracked as a follow-up to T958.',
+  );
+}
+
+/**
+ * @internal
+ * Test-only hook to reset the one-time `?deferred=1` warning guard so
+ * repeated test cases can observe the warning firing exactly once per
+ * scenario.
+ */
+export function __resetLegacyDeferredParamWarningForTests(): void {
+  legacyDeferredWarningEmitted = false;
+}
+
+// ---------------------------------------------------------------------------
 // Page load
 // ---------------------------------------------------------------------------
+
+/**
+ * Empty explorer-bundle stub returned whenever the shared loader cannot
+ * produce a payload (missing tasks.db, half-initialised project, or the
+ * loader threw). The hybrid `/tasks` page can still render the dashboard
+ * panel and show an "Explorer empty" message without crashing.
+ */
+function emptyExplorerBundle(): ExplorerBundle {
+  return {
+    tasks: [],
+    deps: [],
+    epicProgress: {},
+    labels: [],
+    loadedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Load the shared Task Explorer payload side-by-side with the dashboard.
+ *
+ * Extracted as its own helper so the try/catch around the explorer loader
+ * stays surgical — an Explorer failure must NOT blank the dashboard panel.
+ *
+ * @param ctx - Active project context (from `locals.projectCtx`).
+ * @param includeArchived - Pass through the dashboard archived toggle.
+ * @returns The explorer bundle, or an empty stub on any failure.
+ *
+ * @internal
+ */
+async function loadExplorerSafe(
+  ctx: Parameters<typeof loadExplorerBundle>[0]['projectCtx'],
+  includeArchived: boolean,
+): Promise<ExplorerBundle> {
+  try {
+    return await loadExplorerBundle({ projectCtx: ctx, includeArchived });
+  } catch {
+    return emptyExplorerBundle();
+  }
+}
 
 export const load: PageServerLoad = async ({ locals, url }) => {
   const db = getTasksDb(locals.projectCtx);
 
-  // T878: read display filters from URL query params.
-  const showDeferred = url.searchParams.get('deferred') === '1';
+  // T878 / T958: read display filters from URL query params.
+  //   - `?cancelled=1` is the canonical name (T958 rename).
+  //   - `?deferred=1` is the legacy alias, honoured for one release.
+  const cancelledParam = url.searchParams.get('cancelled') === '1';
+  const legacyDeferredParam = url.searchParams.get('deferred') === '1';
+  if (legacyDeferredParam) {
+    warnLegacyDeferredParamOnce();
+  }
+  const showCancelled = cancelledParam || legacyDeferredParam;
   const showArchived = url.searchParams.get('archived') === '1';
-  const filters: DashboardFilters = { showDeferred, showArchived };
+  const filters: DashboardFilters = { showCancelled, showArchived };
+
+  // T956: always load the shared Explorer bundle in parallel with the
+  // dashboard queries. The 3 Explorer tabs project the same bundle
+  // client-side; switching tabs does NOT re-query the server.
+  const explorerPromise = loadExplorerSafe(locals.projectCtx, showArchived);
 
   if (!db) {
-    return { stats: null, recentTasks: [], epicProgress: [], filters };
+    const explorer = await explorerPromise;
+    return { stats: null, recentTasks: [], epicProgress: [], filters, explorer };
   }
 
   try {
@@ -337,23 +486,27 @@ export const load: PageServerLoad = async ({ locals, url }) => {
       )
       .all() as RecentTask[];
 
-    // T874/T878/T948: epic progress uses the facade rollup so Studio shares
-    // the CANONICAL projection with CLI + /tasks/pipeline (no more drift).
+    // T874/T878/T948/T958: epic progress uses the facade rollup so Studio
+    // shares the CANONICAL projection with CLI + /tasks/pipeline (no more
+    // drift). `includeCancelled` supersedes the legacy `includeDeferred`.
     let epicProgress: EpicProgress[] = [];
     try {
       epicProgress = await _computeEpicProgressViaRollup(locals.projectCtx.projectPath, {
-        includeDeferred: showDeferred,
+        includeCancelled: showCancelled,
       });
     } catch {
       // Fall back to the in-memory SQL helper if the facade path errors
       // (e.g. accessor unavailable in a half-initialised project). The
       // dashboard should never be completely blank just because the rollup
       // layer is momentarily unreachable.
-      epicProgress = _computeEpicProgress(db, { includeDeferred: showDeferred });
+      epicProgress = _computeEpicProgress(db, { includeCancelled: showCancelled });
     }
 
-    return { stats, recentTasks, epicProgress, filters };
+    const explorer = await explorerPromise;
+
+    return { stats, recentTasks, epicProgress, filters, explorer };
   } catch {
-    return { stats: null, recentTasks: [], epicProgress: [], filters };
+    const explorer = await explorerPromise;
+    return { stats: null, recentTasks: [], epicProgress: [], filters, explorer };
   }
 };
