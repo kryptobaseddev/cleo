@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import LivingBrain3D from '$lib/components/LivingBrain3D.svelte';
-  import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '$lib/server/living-brain/types.js';
+  import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '@cleocode/brain';
 
   // ---------------------------------------------------------------------------
   // Server-loaded data

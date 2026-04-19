@@ -15,9 +15,8 @@
  * Returns neighbors = nodes directly connected by at least one edge.
  */
 
+import { getAllSubstrates, type LBEdge, type LBNode } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBEdge, LBNode } from '$lib/server/living-brain/types.js';
 import type { RequestHandler } from './$types';
 
 export interface NodeNeighborsResponse {

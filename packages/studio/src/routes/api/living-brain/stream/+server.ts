@@ -19,11 +19,11 @@
  *
  * The stream self-terminates when the client disconnects (AbortSignal).
  *
- * @see packages/studio/src/lib/server/living-brain/types.ts — LBStreamEvent
+ * @see packages/brain/src/types.ts — LBStreamEvent
  */
 
+import type { LBNode, LBStreamEvent } from '@cleocode/brain';
 import { getBrainDb, getConduitDb, getTasksDb } from '$lib/server/db/connections.js';
-import type { LBNode, LBStreamEvent } from '$lib/server/living-brain/types.js';
 import type { ProjectContext } from '$lib/server/project-context.js';
 import type { RequestHandler } from './$types';
 

@@ -5,7 +5,7 @@
   import { EdgeArrowProgram } from 'sigma/rendering';
   import type { NodeLabelDrawingFunction } from 'sigma/rendering';
   import forceAtlas2 from 'graphology-layout-forceatlas2';
-  import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
+  import type { LBNode, LBEdge, LBSubstrate } from '@cleocode/brain';
   import { livingBrainGraphStore } from '$lib/stores/living-brain-graph.js';
 
   // ---------------------------------------------------------------------------

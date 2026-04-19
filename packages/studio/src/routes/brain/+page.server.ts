@@ -9,8 +9,7 @@
  * path is deferred to a future task to avoid churn in other consumers.
  */
 
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBGraph } from '$lib/server/living-brain/types.js';
+import { getAllSubstrates, type LBGraph } from '@cleocode/brain';
 import type { PageServerLoad } from './$types';
 
 /**

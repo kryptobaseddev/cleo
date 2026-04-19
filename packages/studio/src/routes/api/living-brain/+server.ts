@@ -9,13 +9,12 @@
  *   substrates — comma-separated: brain,nexus,tasks,conduit,signaldock (default all)
  *   min_weight — minimum quality/weight threshold 0.0–1.0 (default 0)
  *
- * @see packages/studio/src/lib/server/living-brain/types.ts for schema
+ * @see packages/brain/src/types.ts for schema
  * @see docs/plans/brain-synaptic-visualization-research.md §5.2
  */
 
+import { getAllSubstrates, type LBSubstrate } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBSubstrate } from '$lib/server/living-brain/types.js';
 import type { RequestHandler } from './$types';
 
 const VALID_SUBSTRATES = new Set<LBSubstrate>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']);

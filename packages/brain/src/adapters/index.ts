@@ -12,7 +12,7 @@ export { getNexusSubstrate } from './nexus.js';
 export { getSignaldockSubstrate } from './signaldock.js';
 export { getTasksSubstrate } from './tasks.js';
 
-import { getNexusDb } from '../../db/connections.js';
+import { allTyped, getNexusDb } from '../db-connections.js';
 import type { LBEdge, LBGraph, LBNode, LBQueryOptions, LBSubstrate } from '../types.js';
 import { getBrainSubstrate } from './brain.js';
 import { getConduitSubstrate } from './conduit.js';
@@ -89,13 +89,14 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: LBEdge[]
         const placeholders = rawNexusIds.map(() => '?').join(',');
 
         // Query minimal node data: id, kind, name
-        const stubRows = db
-          .prepare(
+        const stubRows = allTyped<{ id: string; kind: string; name: string }>(
+          db.prepare(
             `SELECT id, kind, name
              FROM nexus_nodes
              WHERE id IN (${placeholders})`,
-          )
-          .all(...rawNexusIds) as Array<{ id: string; kind: string; name: string }>;
+          ),
+          ...rawNexusIds,
+        );
 
         for (const row of stubRows) {
           const kind =

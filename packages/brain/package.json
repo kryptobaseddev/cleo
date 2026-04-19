@@ -1,0 +1,58 @@
+{
+  "name": "@cleocode/brain",
+  "version": "2026.4.96",
+  "private": false,
+  "type": "module",
+  "description": "CLEO unified-graph Brain substrate — BRAIN + NEXUS + TASKS + CONDUIT + SIGNALDOCK projection",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/src/adapters/index.d.ts",
+      "import": "./dist/src/adapters/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/brain"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "cleo",
+    "brain",
+    "living-brain",
+    "graph",
+    "substrate",
+    "memory"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
+  "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

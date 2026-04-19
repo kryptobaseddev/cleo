@@ -4,7 +4,7 @@
   import LivingBrainGraph from '$lib/components/LivingBrainGraph.svelte';
   import LivingBrainCosmograph from '$lib/components/LivingBrainCosmograph.svelte';
   import LivingBrain3D from '$lib/components/LivingBrain3D.svelte';
-  import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '$lib/server/living-brain/types.js';
+  import type { LBGraph, LBNode, LBSubstrate, LBConnectionStatus, LBStreamEvent } from '@cleocode/brain';
 
   // ---------------------------------------------------------------------------
   // Server-loaded data

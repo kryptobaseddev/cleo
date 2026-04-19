@@ -14,8 +14,8 @@
  * All DB calls are mocked via vi.mock so no real databases are required.
  */
 
+import type { LBStreamEvent } from '@cleocode/brain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LBStreamEvent } from '$lib/server/living-brain/types.js';
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be called before any imports of the mocked module

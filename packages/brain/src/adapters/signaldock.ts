@@ -9,7 +9,7 @@
  * (assignee), CONDUIT (from/to), and BRAIN (source agent).
  */
 
-import { getSignaldockDb } from '../../db/connections.js';
+import { allTyped, getSignaldockDb } from '../db-connections.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from agents table. */
@@ -64,15 +64,16 @@ export function getSignaldockSubstrate(options: LBQueryOptions = {}): {
 
   try {
     // Active agents
-    const agentRows = db
-      .prepare(
+    const agentRows = allTyped<AgentRow>(
+      db.prepare(
         `SELECT agent_id, name, status, created_at
          FROM agents
          WHERE status != 'deleted'
          ORDER BY created_at DESC
          LIMIT ?`,
-      )
-      .all(perSubstrateLimit) as AgentRow[];
+      ),
+      perSubstrateLimit,
+    );
 
     const agentIds = new Set<string>();
     for (const row of agentRows) {
@@ -94,14 +95,16 @@ export function getSignaldockSubstrate(options: LBQueryOptions = {}): {
     // Agent connections (declared social graph)
     if (agentIds.size > 0) {
       const placeholders = [...agentIds].map(() => '?').join(',');
-      const connRows = db
-        .prepare(
+      const connRows = allTyped<AgentConnectionRow>(
+        db.prepare(
           `SELECT from_agent_id, to_agent_id, connection_type, strength
            FROM agent_connections
            WHERE from_agent_id IN (${placeholders})
              AND to_agent_id IN (${placeholders})`,
-        )
-        .all(...agentIds, ...agentIds) as AgentConnectionRow[];
+        ),
+        ...agentIds,
+        ...agentIds,
+      );
 
       for (const row of connRows) {
         edges.push({

@@ -20,8 +20,8 @@
  * @task T644
  */
 
+import type { LBEdge, LBNode, LBSubstrate } from '@cleocode/brain';
 import { describe, expect, it, vi } from 'vitest';
-import type { LBEdge, LBNode, LBSubstrate } from '../../../lib/server/living-brain/types.js';
 
 // ---------------------------------------------------------------------------
 // Inline copies of pure helpers (mirrors LivingBrainCosmograph.svelte internals)

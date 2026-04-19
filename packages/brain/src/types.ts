@@ -138,7 +138,7 @@ export interface LBQueryOptions {
    * Per-project substrates (brain, tasks, conduit) use this to resolve DB paths.
    * When absent, adapters fall back to the process-default paths.
    */
-  projectCtx?: import('../project-context.js').ProjectContext;
+  projectCtx?: import('./project-context.js').ProjectContext;
 }
 
 /**
