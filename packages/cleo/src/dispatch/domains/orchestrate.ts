@@ -46,16 +46,12 @@ import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
-import { ConduitHandler } from './conduit.js';
 import { IvtrHandler } from './ivtr.js';
 import {
   acquirePlaybookDb,
   listPendingApprovalsForDispatch,
   lookupApprovalByTokenForDispatch,
 } from './playbook.js';
-
-/** Shared ConduitHandler instance for conduit.* sub-operations (ADR-042). */
-const conduitHandler = new ConduitHandler();
 
 /** Shared IvtrHandler instance for ivtr.* sub-operations (T811). */
 const ivtrHandler = new IvtrHandler();
@@ -290,12 +286,6 @@ export class OrchestrateHandler implements DomainHandler {
             page: page.page,
           };
         }
-
-        // ADR-042: conduit sub-operations routed through orchestrate domain
-        case 'conduit.status':
-          return conduitHandler.query('status', params);
-        case 'conduit.peek':
-          return conduitHandler.query('peek', params);
 
         // T811: IVTR orchestration harness sub-operations
         case 'ivtr.status':
@@ -578,14 +568,6 @@ export class OrchestrateHandler implements DomainHandler {
           };
         }
 
-        // ADR-042: conduit sub-operations routed through orchestrate domain
-        case 'conduit.start':
-          return conduitHandler.mutate('start', params);
-        case 'conduit.stop':
-          return conduitHandler.mutate('stop', params);
-        case 'conduit.send':
-          return conduitHandler.mutate('send', params);
-
         // T811: IVTR orchestration harness sub-operations
         case 'ivtr.start':
           return ivtrHandler.mutate('start', params);
@@ -637,9 +619,6 @@ export class OrchestrateHandler implements DomainHandler {
         // Wave 7a (T379)
         'classify',
         'fanout.status',
-        // ADR-042: conduit sub-operations
-        'conduit.status',
-        'conduit.peek',
         // T811: IVTR orchestration harness
         'ivtr.status',
         // T935: HITL approval gate listing
@@ -655,10 +634,6 @@ export class OrchestrateHandler implements DomainHandler {
         'tessera.instantiate',
         // Wave 7a (T379)
         'fanout',
-        // ADR-042: conduit sub-operations
-        'conduit.start',
-        'conduit.stop',
-        'conduit.send',
         // T811: IVTR orchestration harness
         'ivtr.start',
         'ivtr.next',
