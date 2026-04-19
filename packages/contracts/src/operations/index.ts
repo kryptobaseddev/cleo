@@ -5,8 +5,11 @@
  * to avoid name collisions with canonical domain types.
  */
 
+export * from './brain.js';
+export * from './conduit.js';
 export * from './issues.js';
 export * from './lifecycle.js';
+export * from './nexus.js';
 export * from './orchestrate.js';
 export * from './params.js';
 export * from './release.js';
