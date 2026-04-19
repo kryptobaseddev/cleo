@@ -2,7 +2,7 @@
  * Unit tests for the content-addressed attachment store.
  *
  * Each test uses an isolated temporary directory so the tasks.db singleton is
- * reset between runs (same pattern as brain-accessor.test.ts).
+ * reset between runs (same pattern as memory-accessor.test.ts).
  *
  * @epic T760
  * @task T796
