@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.setConfig({ testTimeout: 30_000 });
 
-// We do NOT mock brain-sqlite.js — this is a functional test.
+// We do NOT mock memory-sqlite.js — this is a functional test.
 
 let tempDir: string;
 
@@ -40,12 +40,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+  const { closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true });
   // Reset module singleton so next test gets a fresh DB
-  const { resetBrainDbState } = await import('../../store/brain-sqlite.js');
+  const { resetBrainDbState } = await import('../../store/memory-sqlite.js');
   resetBrainDbState();
 });
 
@@ -53,7 +53,7 @@ afterEach(async () => {
 // Helper: get PRAGMA table_info columns as a name→type map
 // ---------------------------------------------------------------------------
 async function getTableColumns(tableName: string): Promise<Map<string, string>> {
-  const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) throw new Error('nativeDb is null');
   type PragmaRow = { name: string; type: string };
@@ -69,7 +69,7 @@ async function getTableColumns(tableName: string): Promise<Map<string, string>> 
 // Helper: initialize brain DB (runs migrations, returns db handle)
 // ---------------------------------------------------------------------------
 async function openDb() {
-  const { getBrainDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../../store/memory-sqlite.js');
   return getBrainDb(tempDir);
 }
 
@@ -98,7 +98,7 @@ describe('M2 — brain_plasticity_events expansion', () => {
 
   it('M2-2: INSERT with all new columns round-trips correctly', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     nativeDb
@@ -144,7 +144,7 @@ describe('M2 — brain_plasticity_events expansion', () => {
 
   it('M2-3: INSERT without new columns succeeds (nulls for new cols)', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     // Old-style INSERT — no new columns
@@ -184,7 +184,7 @@ describe('M2 — brain_plasticity_events expansion', () => {
 
   it('M2-4: indexes on new columns exist', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     type IndexRow = { name: string };
@@ -225,7 +225,7 @@ describe('M3 — brain_page_edges plasticity columns', () => {
 
   it('M3-2: INSERT with all new plasticity columns round-trips correctly', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     // First insert nodes (brain_page_edges requires from_id/to_id but NOT FK constrained)
@@ -270,7 +270,7 @@ describe('M3 — brain_page_edges plasticity columns', () => {
 
   it('M3-3: INSERT without new columns uses correct defaults (0, static)', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     // Old-style INSERT — no plasticity columns
@@ -309,7 +309,7 @@ describe('M3 — brain_page_edges plasticity columns', () => {
 
   it('M3-4: plasticity_class accepts all three valid enum values', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     const cases = [
@@ -354,7 +354,7 @@ describe('M3 — brain_page_edges plasticity columns', () => {
     // after opening, a manually-inserted co_retrieved edge can be updated
     // to 'hebbian' as the seed would — and that the column exists with correct default.
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     // Insert co_retrieved edge (gets default 'static')
@@ -395,7 +395,7 @@ describe('M3 — brain_page_edges plasticity columns', () => {
 
   it('M3-6: indexes on new plasticity columns exist', async () => {
     await openDb();
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     const nativeDb = getBrainNativeDb()!;
 
     type IndexRow = { name: string };

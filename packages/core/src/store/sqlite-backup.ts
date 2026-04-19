@@ -27,9 +27,9 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir, getCleoHome } from '../paths.js';
-import { getBrainNativeDb } from './brain-sqlite.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
+import { getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusNativeDb } from './nexus-sqlite.js';
 import { getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { getNativeDb } from './sqlite.js';

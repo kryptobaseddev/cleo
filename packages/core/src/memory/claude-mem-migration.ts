@@ -13,8 +13,8 @@ import { createRequire } from 'node:module';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getClaudeMemDbPath } from '../paths.js';
-import type { BRAIN_OBSERVATION_TYPES } from '../store/brain-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import type { BRAIN_OBSERVATION_TYPES } from '../store/memory-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import type { BrainIdCheckRow } from './brain-row-types.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 

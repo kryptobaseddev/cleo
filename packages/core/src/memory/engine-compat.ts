@@ -16,9 +16,9 @@
 import type { BrainEntrySummary, ContradictionDetail, SupersededEntry } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
-// BRAIN accessor for direct table queries (T5241)
-import { getBrainAccessor } from '../store/brain-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+// BRAIN accessor for direct table queries (T5241)
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 // BRAIN retrieval imports (T5131-T5135)
 import {
@@ -194,7 +194,7 @@ export async function memoryShow(entryId: string, projectRoot?: string): Promise
 export async function memoryBrainStats(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 
@@ -274,7 +274,7 @@ export async function memoryDecisionFind(
     const accessor = await getBrainAccessor(root);
 
     if (params.query) {
-      const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+      const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
       await getBrainDb(root);
       const nativeDb = getBrainNativeDb();
 
@@ -814,7 +814,7 @@ export async function memoryLearningStats(projectRoot?: string): Promise<EngineR
 export async function memoryContradictions(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 
@@ -1022,7 +1022,7 @@ export async function memorySuperseded(
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(root);
     const nativeDb = getBrainNativeDb();
 
@@ -1339,7 +1339,7 @@ export async function memoryGraphAdd(
         fromId: params.fromId,
         toId: params.toId,
         edgeType:
-          params.edgeType as typeof import('../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
+          params.edgeType as typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number],
         weight: params.weight,
       });
       return { success: true, data: { type: 'edge', edge } };
@@ -1350,7 +1350,7 @@ export async function memoryGraphAdd(
       const node = await accessor.addPageNode({
         id: params.nodeId,
         nodeType:
-          params.nodeType as typeof import('../store/brain-schema.js').BRAIN_NODE_TYPES[number],
+          params.nodeType as typeof import('../store/memory-schema.js').BRAIN_NODE_TYPES[number],
         label: params.label,
         metadataJson: params.metadataJson,
       });
@@ -1456,7 +1456,7 @@ export async function memoryGraphNeighbors(
     const neighbors = await accessor.getNeighbors(
       params.nodeId,
       params.edgeType as
-        | typeof import('../store/brain-schema.js').BRAIN_EDGE_TYPES[number]
+        | typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number]
         | undefined,
     );
     return { success: true, data: { neighbors, total: neighbors.length } };
@@ -1821,7 +1821,7 @@ export async function memoryGraphRemove(
       await accessor.removePageEdge(
         params.fromId,
         params.toId,
-        params.edgeType as typeof import('../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
+        params.edgeType as typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number],
       );
       return {
         success: true,

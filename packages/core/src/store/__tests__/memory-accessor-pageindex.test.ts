@@ -29,15 +29,15 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
   });
 
   it('addPageNode creates node and returns it', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -60,8 +60,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('getPageNode returns node by ID', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -80,8 +80,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('getPageNode returns null for non-existent ID', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -90,8 +90,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('findPageNodes filters by nodeType', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -114,8 +114,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('findPageNodes filters by minQualityScore', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -147,8 +147,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('addPageEdge creates edge and returns it', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -171,8 +171,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('addPageEdge supports provenance field', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -191,8 +191,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('getPageEdges returns in/out/both edges', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -218,8 +218,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('getNeighbors returns connected nodes', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -241,8 +241,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('removePageNode cascades to remove edges', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();
@@ -271,8 +271,8 @@ describe('BrainDataAccessor PageIndex', () => {
   });
 
   it('removePageEdge removes specific edge', async () => {
-    const { getBrainAccessor } = await import('../brain-accessor.js');
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { getBrainAccessor } = await import('../memory-accessor.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
 
     const accessor = await getBrainAccessor();

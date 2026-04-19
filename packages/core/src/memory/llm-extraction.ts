@@ -193,7 +193,7 @@ async function storeExtracted(
     const dedupResult = await checkHashDedup(projectRoot, memory.content, 'brain_decisions');
     if (dedupResult.matched) {
       // Already exists — bump citation count (fire-and-forget) and report merged.
-      const { getBrainNativeDb, getBrainDb } = await import('../store/brain-sqlite.js');
+      const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
       getBrainDb(projectRoot)
         .then(() => {
           const db = getBrainNativeDb();

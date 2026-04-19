@@ -195,7 +195,7 @@ describe('reconcileJournal — Scenario 3 (T417: partially-applied migration)', 
     const { openNativeDatabase } = await import('../sqlite.js');
     const { reconcileJournal, migrateWithRetry } = await import('../migration-manager.js');
     const { drizzle } = await import('drizzle-orm/node-sqlite');
-    const brainSchema = await import('../brain-schema.js');
+    const brainSchema = await import('../memory-schema.js');
 
     const dbPath = join(tempDir, 'brain-full.db');
     const nativeDb = openNativeDatabase(dbPath);

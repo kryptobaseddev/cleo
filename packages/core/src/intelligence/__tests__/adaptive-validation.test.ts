@@ -10,13 +10,13 @@
 
 import type { Task, TaskVerification } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BrainDataAccessor } from '../../store/brain-accessor.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import type { BrainDataAccessor } from '../../store/memory-accessor.js';
 import type {
   BrainLearningRow,
   BrainObservationRow,
   BrainPatternRow,
-} from '../../store/brain-schema.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+} from '../../store/memory-schema.js';
 import {
   predictAndStore,
   scoreVerificationConfidence,

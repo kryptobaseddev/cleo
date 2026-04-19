@@ -32,7 +32,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { resolveAnthropicApiKey } from './anthropic-key-resolver.js';
 import { storeLearning } from './learnings.js';
@@ -304,7 +304,7 @@ function cosineSimilarity(a: Buffer | null, b: Buffer | null): number {
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicatesResult> {
-  const { getBrainDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return { merged: 0, llmDecisions: 0 };
@@ -443,7 +443,7 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepPruneStale(projectRoot: string): Promise<PruneStaleResult> {
-  const { getBrainDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return { pruned: 0, preserved: 0 };
@@ -554,7 +554,7 @@ async function stepPruneStale(projectRoot: string): Promise<PruneStaleResult> {
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPatternsResult> {
-  const { getBrainDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return { synthesized: 0, patternsGenerated: 0 };
@@ -669,7 +669,7 @@ async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPa
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepGenerateInsights(projectRoot: string): Promise<GenerateInsightsResult> {
-  const { getBrainDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return { clustersProcessed: 0, insightsStored: 0 };

@@ -298,7 +298,7 @@ export async function smokeProvider(
 
   const taskDbPath = coreInternal.getTaskPath(projectRoot);
   // getBrainDbPath is not re-exported from @cleocode/core/internal; derive directly
-  // via the same formula used in brain-sqlite.ts: join(cleoDirAbsolute, BRAIN_DB_FILENAME).
+  // via the same formula used in memory-sqlite.ts: join(cleoDirAbsolute, BRAIN_DB_FILENAME).
   const brainPath = join(projectCleoDir, BRAIN_DB_FILENAME);
   const conduitDbPath = coreInternal.getConduitDbPath(projectRoot);
   const nexusDbPath = coreInternal.getNexusDbPath();

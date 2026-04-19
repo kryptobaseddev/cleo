@@ -2,7 +2,7 @@
  * SQLite store for telemetry.db via drizzle-orm/node-sqlite + node:sqlite.
  *
  * Stores opt-in command telemetry in ~/.local/share/cleo/telemetry.db.
- * Follows the same singleton + WAL + migration pattern as brain-sqlite.ts.
+ * Follows the same singleton + WAL + migration pattern as memory-sqlite.ts.
  * Telemetry is disabled by default — check isTelemetryEnabled() before writing.
  *
  * @task T624

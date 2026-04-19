@@ -45,7 +45,7 @@ let tempDir: string;
 
 async function setupDb(dir: string) {
   const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -123,7 +123,7 @@ describe('T690 — applyHomeostaticDecay (Step 9c, real SQLite)', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -329,7 +329,7 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -345,7 +345,7 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
     // are independent. The beforeEach tempDir is used for the SMALL run; a second
     // temp dir is created inline for the LARGE run and cleaned up before the test ends.
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     const { applyStdpPlasticity } = await import('../brain-stdp.js');
 
     // Helper: populate a fresh DB with numSessions × rowsPerSession retrieval rows
@@ -554,7 +554,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -575,7 +575,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
       secondsAgo: 10,
     });
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const { runConsolidation } = await import('../brain-lifecycle.js');
@@ -666,7 +666,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
       lastReinforcedSql: "datetime('now', '-60 days')",
     });
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const { runConsolidation } = await import('../brain-lifecycle.js');
@@ -700,7 +700,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
     const nativeDb = await setupDb(tempDir);
     // Intentionally empty DB — no retrieval rows, no edges
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const { runConsolidation } = await import('../brain-lifecycle.js');
@@ -718,7 +718,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
   it('T694-4: brain_consolidation_events trigger field matches parameter', async () => {
     const nativeDb = await setupDb(tempDir);
 
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const { runConsolidation } = await import('../brain-lifecycle.js');
@@ -745,7 +745,7 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
     }
 
     // Run again with 'manual' trigger — should create a second row
-    const { closeBrainDb: close2 } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb: close2 } = await import('../../store/memory-sqlite.js');
     close2();
 
     const nativeDb3 = await setupDb(tempDir);

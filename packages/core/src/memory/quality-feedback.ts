@@ -92,7 +92,7 @@ export interface CorrelateOutcomesResult {
  * CREATE TABLE IF NOT EXISTS. Returns silently on error (best-effort).
  */
 async function ensureUsageLogTable(projectRoot: string): Promise<void> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;
@@ -136,7 +136,7 @@ async function ensureUsageLogTable(projectRoot: string): Promise<void> {
  * Added lazily so existing schemas are not broken.
  */
 async function ensurePruneCandidateColumn(projectRoot: string): Promise<void> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;
@@ -185,7 +185,7 @@ export async function trackMemoryUsage(
 
   await ensureUsageLogTable(projectRoot);
 
-  const { getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return;
 
@@ -222,7 +222,7 @@ function tableForId(id: string): string | null {
  * Apply a quality delta (+0.05 or -0.05) to a brain entry, clamped to [0.0, 1.0].
  */
 function applyQualityDelta(
-  nativeDb: ReturnType<typeof import('../store/brain-sqlite.js')['getBrainNativeDb']>,
+  nativeDb: ReturnType<typeof import('../store/memory-sqlite.js')['getBrainNativeDb']>,
   table: string,
   id: string,
   delta: number,
@@ -266,7 +266,7 @@ export async function correlateOutcomes(projectRoot: string): Promise<CorrelateO
   await ensureUsageLogTable(projectRoot);
   await ensurePruneCandidateColumn(projectRoot);
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -371,7 +371,7 @@ export async function correlateOutcomes(projectRoot: string): Promise<CorrelateO
 export async function getMemoryQualityReport(projectRoot: string): Promise<MemoryQualityReport> {
   await ensureUsageLogTable(projectRoot);
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

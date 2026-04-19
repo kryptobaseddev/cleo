@@ -249,7 +249,7 @@ describe('T308: CleoOS Database Topology Integration', () => {
 
     // Mock the native DB getters so vacuumIntoBackupAll finds live handles.
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => nexusDb }));
 
     const { vacuumIntoBackupAll, vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
@@ -312,7 +312,7 @@ describe('T308: CleoOS Database Topology Integration', () => {
     // Open a live handle and snapshot it.
     const tasksDb = new DatabaseSync(tasksPath);
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
     await vacuumIntoBackupAll({ cwd: tmpRoot, force: true });

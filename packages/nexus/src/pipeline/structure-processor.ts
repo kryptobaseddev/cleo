@@ -34,7 +34,7 @@ import type { KnowledgeGraph } from './knowledge-graph.js';
  * Build a stable node ID for a File node.
  *
  * The ID is the relative file path (forward-slash separated), matching the
- * format expected by nexus_nodes: `packages/core/src/store/brain-schema.ts`.
+ * format expected by nexus_nodes: `packages/core/src/store/memory-schema.ts`.
  *
  * @param relativePath - File path relative to the repository root
  */

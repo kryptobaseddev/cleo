@@ -585,10 +585,6 @@ export { createBackup, listBackups, restoreFromBackup } from './store/backup.js'
 // Backup portability — bundle packer (T311 / T347)
 export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
-export type { BrainDataAccessor } from './store/brain-accessor.js';
-// Brain accessor — for intelligence domain handler construction
-export { getBrainAccessor } from './store/brain-accessor.js';
-export { getBrainDb, getBrainNativeDb } from './store/brain-sqlite.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {
   detectAndRemoveLegacyGlobalFiles,
@@ -600,6 +596,10 @@ export {
   isCleoGitInitialized,
 } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
+export type { BrainDataAccessor } from './store/memory-accessor.js';
+// Brain accessor — for intelligence domain handler construction
+export { getBrainAccessor } from './store/memory-accessor.js';
+export { getBrainDb, getBrainNativeDb } from './store/memory-sqlite.js';
 export type { MigrationResult } from './store/migrate-signaldock-to-conduit.js';
 export {
   migrateSignaldockToConduit,

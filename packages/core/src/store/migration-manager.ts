@@ -3,7 +3,7 @@
  *
  * Consolidates duplicated reconciliation, bootstrap, retry, and column-safety
  * logic that was previously copy-pasted between sqlite.ts (tasks.db) and
- * brain-sqlite.ts (brain.db). Both modules now delegate to these shared functions.
+ * memory-sqlite.ts (brain.db). Both modules now delegate to these shared functions.
  *
  * @task T132
  * @see https://github.com/anthropics/cleo/issues/82
@@ -281,7 +281,7 @@ export function reconcileJournal(
         // and INSERTed all local migrations as applied WITHOUT running their SQL.
         // That meant ALTER TABLE migrations (T417 agent, T528 provenance, etc.)
         // got marked applied but their columns were never added — forcing
-        // ensureColumns band-aids in brain-sqlite.ts to patch the missing schema.
+        // ensureColumns band-aids in memory-sqlite.ts to patch the missing schema.
         //
         // Real fix: clear orphaned entries, then PROBE each local migration's
         // DDL. Mark applied ONLY if the DDL targets already exist in the schema.
@@ -379,7 +379,7 @@ export function reconcileJournal(
       // We do NOT attempt to run DROP TABLE / CREATE TABLE statements from the migration
       // (e.g., T528's brain_page_edges table recreation for weight NOT NULL), because
       // the table already has data-compatible columns from the partial apply. The
-      // ensureColumns call in brain-sqlite.ts provides any remaining structural safety net.
+      // ensureColumns call in memory-sqlite.ts provides any remaining structural safety net.
       if (existingColumns.length > 0 && missingColumns.length > 0) {
         const log = getLogger(logSubsystem);
         log.warn(
