@@ -15,9 +15,8 @@
  * but provides a cleaner URL and explicit 400 on bad substrate names.
  */
 
+import { getAllSubstrates, type LBSubstrate } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
-import { getAllSubstrates } from '$lib/server/living-brain/adapters/index.js';
-import type { LBSubstrate } from '$lib/server/living-brain/types.js';
 import type { RequestHandler } from './$types';
 
 const VALID_SUBSTRATES = new Set<LBSubstrate>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']);

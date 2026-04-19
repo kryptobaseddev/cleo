@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "3d-force-graph": "^1.80.0",
+    "@cleocode/brain": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
     "@cosmograph/cosmos": "^2.0.0-beta.26",

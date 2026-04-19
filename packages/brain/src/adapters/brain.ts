@@ -14,8 +14,8 @@
  * Node IDs are prefixed with "brain:" to prevent collisions.
  */
 
-import { getBrainDb } from '../../db/connections.js';
-import { resolveDefaultProjectContext } from '../../project-context.js';
+import { allTyped, getBrainDb } from '../db-connections.js';
+import { resolveDefaultProjectContext } from '../project-context.js';
 import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
 
 /** Raw row from brain_observations. */
@@ -167,8 +167,8 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
 
   try {
     // Observations — normalise created_at to ISO-8601 with 'T' separator via strftime
-    const obsRows = db
-      .prepare(
+    const obsRows = allTyped<ObservationRow>(
+      db.prepare(
         `SELECT id, title, quality_score, memory_tier,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at,
                 source_session_id, files_modified_json
@@ -176,8 +176,10 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      )
-      .all(minWeight, Math.ceil(perSubstrateLimit * 0.4)) as ObservationRow[];
+      ),
+      minWeight,
+      Math.ceil(perSubstrateLimit * 0.4),
+    );
 
     for (const row of obsRows) {
       nodes.push({
@@ -196,16 +198,18 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
     }
 
     // Decisions — normalise created_at to ISO-8601 with 'T' separator via strftime
-    const decRows = db
-      .prepare(
+    const decRows = allTyped<DecisionRow>(
+      db.prepare(
         `SELECT id, decision, quality_score, context_task_id,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
          FROM brain_decisions
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      )
-      .all(minWeight, Math.ceil(perSubstrateLimit * 0.25)) as DecisionRow[];
+      ),
+      minWeight,
+      Math.ceil(perSubstrateLimit * 0.25),
+    );
 
     for (const row of decRows) {
       nodes.push({
@@ -224,16 +228,18 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
 
     // Patterns — uses 'pattern' text column (not 'title') and 'extracted_at' (not 'created_at').
     // SQLite strftime is used to normalise the timestamp to ISO-8601 with 'T' separator.
-    const patRows = db
-      .prepare(
+    const patRows = allTyped<PatternRow>(
+      db.prepare(
         `SELECT id, pattern, type, quality_score,
                 strftime('%Y-%m-%dT%H:%M:%S', extracted_at) AS extracted_at
          FROM brain_patterns
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, extracted_at DESC
          LIMIT ?`,
-      )
-      .all(minWeight, Math.ceil(perSubstrateLimit * 0.2)) as PatternRow[];
+      ),
+      minWeight,
+      Math.ceil(perSubstrateLimit * 0.2),
+    );
 
     for (const row of patRows) {
       nodes.push({
@@ -249,16 +255,18 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
 
     // Learnings — uses 'insight' text column (not 'title').
     // Normalise created_at to ISO-8601 with 'T' separator via strftime.
-    const learnRows = db
-      .prepare(
+    const learnRows = allTyped<LearningRow>(
+      db.prepare(
         `SELECT id, insight, quality_score,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
          FROM brain_learnings
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      )
-      .all(minWeight, Math.ceil(perSubstrateLimit * 0.15)) as LearningRow[];
+      ),
+      minWeight,
+      Math.ceil(perSubstrateLimit * 0.15),
+    );
 
     for (const row of learnRows) {
       nodes.push({
@@ -288,9 +296,9 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
     }
 
     // brain_page_edges: query all and classify each edge
-    const pageEdgeRows = db
-      .prepare(`SELECT from_id, to_id, edge_type, weight FROM brain_page_edges`)
-      .all() as PageEdgeRow[];
+    const pageEdgeRows = allTyped<PageEdgeRow>(
+      db.prepare(`SELECT from_id, to_id, edge_type, weight FROM brain_page_edges`),
+    );
 
     for (const row of pageEdgeRows) {
       const sourceLBId = typeIdToLBId.get(row.from_id) ?? brainTypeIdToLBId(row.from_id);
@@ -330,12 +338,12 @@ export function getBrainSubstrate(options: LBQueryOptions = {}): {
     }
 
     // brain_memory_links: cross-substrate edges from typed memory nodes to tasks
-    const memLinkRows = db
-      .prepare(
+    const memLinkRows = allTyped<MemoryLinkRow>(
+      db.prepare(
         `SELECT memory_type, memory_id, task_id, link_type
          FROM brain_memory_links`,
-      )
-      .all() as MemoryLinkRow[];
+      ),
+    );
 
     for (const row of memLinkRows) {
       const sourceTypeId = `${row.memory_type}:${row.memory_id}`;

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Graph as CosmosGraph } from '@cosmograph/cosmos';
   import type { GraphConfigInterface } from '@cosmograph/cosmos';
-  import type { LBNode, LBEdge, LBSubstrate } from '$lib/server/living-brain/types.js';
+  import type { LBNode, LBEdge, LBSubstrate } from '@cleocode/brain';
 
   // ---------------------------------------------------------------------------
   // Props — intentionally mirrors LivingBrainGraph.svelte's Props interface
