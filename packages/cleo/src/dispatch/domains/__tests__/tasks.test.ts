@@ -755,6 +755,39 @@ describe('TasksHandler', () => {
       );
     });
 
+    it('update - forwards files to engine (T1014 — parity with add)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T1014',
+            title: 'Fix update --files',
+            description: 'test',
+            status: 'active',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+            files: ['packages/core/src/memory/brain-retrieval.ts'],
+          },
+          changes: ['files'],
+        },
+      });
+
+      const result = await handler.mutate('update', {
+        taskId: 'T1014',
+        files: ['packages/core/src/memory/brain-retrieval.ts'],
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T1014',
+        expect.objectContaining({
+          files: ['packages/core/src/memory/brain-retrieval.ts'],
+        }),
+      );
+    });
+
     it('delete - delegates to taskDelete', async () => {
       vi.mocked(taskDelete).mockResolvedValue({
         success: true,

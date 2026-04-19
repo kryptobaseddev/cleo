@@ -40,6 +40,7 @@ interface SeededTask {
   parentId?: string;
   depends?: string[];
   files?: string[];
+  type?: string;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -96,10 +97,25 @@ const READY_WORKER_NO_SCOPE: SeededTask = {
   updatedAt: null,
 };
 
+/**
+ * T1014: Epic task with no files. Must auto-promote to role=lead so atomicity
+ * gate is bypassed (leads have broad scope by design).
+ */
+const EPIC_NO_FILES: SeededTask = {
+  id: 'T932EP',
+  title: 'T932 standalone epic with no files',
+  description: 'Epic for T1014 role auto-promotion test',
+  type: 'epic',
+  status: 'active',
+  priority: 'high',
+  createdAt: '2026-04-17T00:00:00Z',
+  updatedAt: null,
+};
+
 describe('T932 — orchestrate-engine integration with composeSpawnPayload', () => {
   beforeEach(async () => {
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-t932-'));
-    await seedTasks(TEST_ROOT, [PARENT_EPIC, READY_WORKER, READY_WORKER_NO_SCOPE]);
+    await seedTasks(TEST_ROOT, [PARENT_EPIC, READY_WORKER, READY_WORKER_NO_SCOPE, EPIC_NO_FILES]);
   });
 
   afterEach(async () => {
@@ -159,5 +175,25 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
 
     const details = result.error?.details as { atomicity?: { allowed: boolean } } | undefined;
     expect(details?.atomicity?.allowed).toBe(false);
+  });
+
+  it('T1014 — epic spawn auto-promotes to role=lead, bypassing atomicity file-scope gate', async () => {
+    // T932EP is type=epic with no files declared. Without the T1014 fix this
+    // would return E_ATOMICITY_NO_SCOPE because the default resolved role is
+    // worker (cleo-subagent.orchLevel = 2). With the fix the engine detects
+    // task.type === 'epic' and forces role=lead before entering the atomicity
+    // gate (leads pass through unconditionally).
+    const result = await orchestrateSpawn('T932EP', undefined, TEST_ROOT);
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      role: string;
+      atomicity: { allowed: boolean };
+      prompt: string;
+    };
+    expect(data.role).toBe('lead');
+    expect(data.atomicity.allowed).toBe(true);
+    // Prompt contains the task id so we know the right task was rendered.
+    expect(data.prompt).toContain('T932EP');
   });
 });
