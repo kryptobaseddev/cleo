@@ -2311,7 +2311,7 @@ const tierCommand = defineCommand({
  *
  * Dispatches to `memory.*` registry operations.
  */
-export const memoryBrainCommand = defineCommand({
+export const memoryCommand = defineCommand({
   meta: { name: 'memory', description: 'BRAIN memory operations (patterns, learnings)' },
   subCommands: {
     store: storeCommand,
