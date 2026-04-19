@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   appendForceBypassLine,
   appendGateAuditLine,
+  appendSignedGateAuditLine,
   getForceBypassPath,
   getGateAuditPath,
+  verifyAuditHistory,
 } from '../gate-audit.js';
 
 describe('gate-audit (T832)', () => {
@@ -98,6 +100,69 @@ describe('gate-audit (T832)', () => {
     // There MUST be exactly one newline at the end.
     const lines = content.split('\n');
     expect(lines.filter((l) => l.length > 0)).toHaveLength(1);
+  });
+
+  it('appendSignedGateAuditLine attaches a _sig envelope (T947)', async () => {
+    // Use deterministic seed so the test does not touch homedir / OS CSPRNG.
+    process.env['CLEO_IDENTITY_SEED'] = '1'.repeat(64);
+    try {
+      const record = {
+        timestamp: '2026-04-17T00:00:00.000Z',
+        taskId: 'T947',
+        gate: 'implemented' as const,
+        action: 'set' as const,
+        agent: 'test',
+        sessionId: null,
+        passed: true,
+        override: false,
+      };
+      const sig = await appendSignedGateAuditLine(tmpDir, record);
+      expect(sig.sig).toMatch(/^[0-9a-f]{128}$/);
+      expect(sig.pub).toMatch(/^[0-9a-f]{64}$/);
+
+      const content = await readFile(getGateAuditPath(tmpDir), 'utf-8');
+      const parsed = JSON.parse(content.trim());
+      expect(parsed._sig).toBeDefined();
+      expect(parsed._sig.sig).toBe(sig.sig);
+      expect(parsed._sig.pub).toBe(sig.pub);
+    } finally {
+      delete process.env['CLEO_IDENTITY_SEED'];
+    }
+  });
+
+  it('verifyAuditHistory counts signed vs unsigned entries (T947)', async () => {
+    process.env['CLEO_IDENTITY_SEED'] = '2'.repeat(64);
+    try {
+      // Unsigned entry
+      await appendGateAuditLine(tmpDir, {
+        timestamp: new Date().toISOString(),
+        taskId: 'T100',
+        gate: 'implemented',
+        action: 'set',
+        agent: 'legacy',
+        sessionId: null,
+        passed: true,
+        override: false,
+      });
+      // Signed entry
+      await appendSignedGateAuditLine(tmpDir, {
+        timestamp: new Date().toISOString(),
+        taskId: 'T947',
+        gate: 'testsPassed',
+        action: 'set',
+        agent: 'test',
+        sessionId: null,
+        passed: true,
+        override: false,
+      });
+      const report = await verifyAuditHistory(tmpDir);
+      expect(report.total).toBe(2);
+      expect(report.signed).toBe(1);
+      expect(report.verified).toBe(1);
+      expect(report.unsigned).toBe(1);
+    } finally {
+      delete process.env['CLEO_IDENTITY_SEED'];
+    }
   });
 
   it('appends force-bypass records with pid + command', async () => {

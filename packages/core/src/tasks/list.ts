@@ -49,6 +49,26 @@ export interface ListTasksOptions {
   children?: boolean;
   limit?: number;
   offset?: number;
+  /**
+   * When `true`, omit rows with `status='archived'` from the result set.
+   *
+   * @remarks
+   * T948: convenience flag used by Studio surfaces that must never render
+   * archived tasks (kanban, /tasks API). Translates to `excludeStatus:
+   * ['archived']` at the accessor layer. Ignored when `status` is already
+   * set to a non-archived value.
+   */
+  excludeArchived?: boolean;
+  /**
+   * When `true`, order results by priority (critical → high → medium → low)
+   * instead of the default position-based order.
+   *
+   * @remarks
+   * T948: preserves the historic priority-first ordering of Studio's
+   * `/api/tasks` and `/api/tasks/pipeline` endpoints, whose raw SQL used
+   * `ORDER BY CASE priority WHEN 'critical' …`.
+   */
+  sortByPriority?: boolean;
 }
 
 /** Result of listing tasks. */
@@ -78,7 +98,7 @@ export async function listTasks(
 
   // Build targeted query filters
   const queryFilters: TaskQueryFilters = {
-    orderBy: 'position',
+    orderBy: options.sortByPriority ? 'priority' : 'position',
   };
   if (options.status) queryFilters.status = options.status;
   if (options.priority) queryFilters.priority = options.priority;
@@ -86,6 +106,9 @@ export async function listTasks(
   if (options.parentId) queryFilters.parentId = options.parentId;
   if (options.phase) queryFilters.phase = options.phase;
   if (options.label) queryFilters.label = options.label;
+  if (options.excludeArchived && options.status !== 'archived') {
+    queryFilters.excludeStatus = 'archived';
+  }
 
   const queryResult = await dataAccessor.queryTasks(queryFilters);
   const filtered = queryResult.tasks;

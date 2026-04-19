@@ -112,9 +112,15 @@ export interface CleoBlobAttachResult {
  * Lazy-loaded Drizzle ctor + better-sqlite3 ctor bundle.
  * Cached at module scope so a second instantiation does not re-require
  * the native modules.
+ *
+ * Note: drizzle-orm v1.0.0-beta requires `drizzle({ client: nativeDb })` —
+ * the v0.x positional-arg form `drizzle(nativeDb)` silently opens a fresh
+ * in-memory connection, which would cause "no such table" errors at query
+ * time even though the bootstrap DDL succeeded. We pass the config object
+ * form below to stay compatible with v1.0.
  */
 let _drizzleCtor: {
-  drizzle: (db: unknown) => unknown;
+  drizzle: (config: { client: unknown }) => unknown;
   BetterSqlite3Database: new (filename: string) => unknown;
 } | null = null;
 
@@ -146,10 +152,10 @@ async function loadDrizzle(): Promise<NonNullable<typeof _drizzleCtor>> {
       `CleoBlobStore requires the optional peer dep "better-sqlite3" when no db is injected. Install it with: pnpm add better-sqlite3. Cause: ${cause}`,
     );
   }
-  let drizzleMod: { drizzle: (db: unknown) => unknown };
+  let drizzleMod: { drizzle: (config: { client: unknown }) => unknown };
   try {
     drizzleMod = (await import(drizzleBetterSqlite3Id)) as {
-      drizzle: (db: unknown) => unknown;
+      drizzle: (config: { client: unknown }) => unknown;
     };
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
@@ -234,7 +240,9 @@ export class CleoBlobStore {
       await mkdir(path.dirname(manifestDbPath), { recursive: true });
       const nativeDb = new BetterSqlite3Database(manifestDbPath);
       this.ownedNativeDb = nativeDb as { close(): void };
-      db = drizzle(nativeDb);
+      // drizzle v1.0 API — must pass `{ client: nativeDb }` to reuse the
+      // already-opened native handle. Positional form opens a new DB.
+      db = drizzle({ client: nativeDb });
       // Bootstrap the `blob_attachments` table. BlobFsAdapter imports the
       // schema from llmtxt's local module; we replicate the DDL so tests +
       // fresh installs work without running llmtxt's migration pipeline.

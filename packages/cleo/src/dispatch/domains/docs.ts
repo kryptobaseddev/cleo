@@ -27,11 +27,14 @@ import type {
   UrlAttachment,
 } from '@cleocode/core/internal';
 import {
+  type AttachmentBackend,
   createAttachmentStore,
+  createAttachmentStoreV2,
   type DerefResult,
   generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
+  resolveAttachmentBackend,
 } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp } from './_base.js';
@@ -133,11 +136,19 @@ export class DocsHandler implements DomainHandler {
           }
 
           const ownerType = inferOwnerType(ownerId);
+          // Legacy store still drives the envelope because it tracks URL and
+          // llms-txt kinds the v2 interface does not expose. `backend` metadata
+          // reports the path that FUTURE writes would take, so operators can
+          // observe llmtxt adoption without changing the data contract.
           const store = createAttachmentStore();
           const attachments = await store.listByOwner(ownerType, ownerId);
+          const backend: AttachmentBackend = await resolveAttachmentBackend();
 
           return {
-            meta: dispatchMeta('query', 'docs', operation, startTime),
+            meta: {
+              ...dispatchMeta('query', 'docs', operation, startTime),
+              attachmentBackend: backend,
+            },
             success: true,
             data: {
               ownerId,
@@ -303,8 +314,13 @@ export class DocsHandler implements DomainHandler {
           const bytesBase64 =
             result.bytes.length <= MAX_INLINE ? result.bytes.toString('base64') : undefined;
 
+          const backend: AttachmentBackend = await resolveAttachmentBackend();
+
           return {
-            meta: dispatchMeta('query', 'docs', operation, startTime),
+            meta: {
+              ...dispatchMeta('query', 'docs', operation, startTime),
+              attachmentBackend: backend,
+            },
             success: true,
             data: {
               metadata,
@@ -396,6 +412,24 @@ export class DocsHandler implements DomainHandler {
 
             const meta = await store.put(bytes, attachment, ownerType, ownerId, attachedBy);
 
+            // T947 Wave B — also mirror the write through the unified v2 store
+            // so llmtxt-backed manifests learn about the attachment. The v2
+            // store is the future SSoT; the legacy put above remains the
+            // authoritative write path until Wave C retires it.
+            let backend: AttachmentBackend = 'legacy';
+            try {
+              const v2 = createAttachmentStoreV2(getProjectRoot());
+              const v2Result = await v2.put(ownerId, {
+                name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
+                data: new Uint8Array(bytes),
+                contentType: mime,
+              });
+              backend = v2Result.backend;
+            } catch {
+              // Mirror write is best-effort — never fail docs add on it.
+              backend = await resolveAttachmentBackend();
+            }
+
             // T945 Stage A — mint `llmtxt:<sha256>` graph node + `embeds` edge
             // from owner to blob. Best-effort: wrapped in fire-and-forget so
             // graph-layer failure never blocks the attachment write path.
@@ -413,7 +447,10 @@ export class DocsHandler implements DomainHandler {
               });
 
             return {
-              meta: dispatchMeta('mutate', 'docs', operation, startTime),
+              meta: {
+                ...dispatchMeta('mutate', 'docs', operation, startTime),
+                attachmentBackend: backend,
+              },
               success: true,
               data: {
                 attachmentId: meta.id,
@@ -449,8 +486,14 @@ export class DocsHandler implements DomainHandler {
                 /* Graph population is best-effort — never fail docs add. */
               });
 
+            // URL writes stay legacy-only; v2 focuses on local-file / blob kinds.
+            const backend: AttachmentBackend = 'legacy';
+
             return {
-              meta: dispatchMeta('mutate', 'docs', operation, startTime),
+              meta: {
+                ...dispatchMeta('mutate', 'docs', operation, startTime),
+                attachmentBackend: backend,
+              },
               success: true,
               data: {
                 attachmentId: meta.id,
@@ -537,8 +580,24 @@ export class DocsHandler implements DomainHandler {
           const blobPurged = derefResult.status === 'removed';
           const refCountAfter = derefResult.status === 'derefd' ? derefResult.refCountAfter : 0;
 
+          // T947 Wave B — mirror the remove through v2 so llmtxt manifests
+          // also soft-delete. Best-effort: the llmtxt path keys by blob name,
+          // and we only know the attachment id here, so the mirror only hits
+          // when v2 has already indexed this id (e.g. earlier put in same
+          // process). Legacy refcount remains the authoritative truth.
+          try {
+            const v2 = createAttachmentStoreV2(getProjectRoot());
+            await v2.remove(attachmentId, fromOwner);
+          } catch {
+            /* Mirror remove is best-effort. */
+          }
+          const backend: AttachmentBackend = await resolveAttachmentBackend();
+
           return {
-            meta: dispatchMeta('mutate', 'docs', operation, startTime),
+            meta: {
+              ...dispatchMeta('mutate', 'docs', operation, startTime),
+              attachmentBackend: backend,
+            },
             success: true,
             data: {
               removed: blobPurged,

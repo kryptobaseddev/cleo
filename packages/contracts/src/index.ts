@@ -276,6 +276,7 @@ export type {
   SessionsAPI,
   StickyAPI,
   SyncAPI,
+  TaskRollupPayload,
   TaskStartResult,
   TasksAPI,
 } from './facade.js';

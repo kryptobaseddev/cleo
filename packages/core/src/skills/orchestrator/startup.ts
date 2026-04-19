@@ -355,7 +355,10 @@ export async function analyzeDependencies(
     .sort(([a], [b]) => a - b)
     .map(([wave, tasks]) => ({ wave, tasks }));
 
-  // Find ready tasks (pending with all deps done or outside epic)
+  // Find ready tasks (pending with all deps done or outside epic).
+  // The `status === 'pending'` check implicitly excludes the Tier-2 proposal
+  // queue ('proposed') — those tasks are not part of the Tier-1 execution set
+  // (T946 / Round 2 audit §8). See also dependency-check.ts:getReadyTasks.
   const readyToSpawn = epicTasks
     .filter((t) => {
       if (t.status !== 'pending') return false;
@@ -370,7 +373,7 @@ export async function analyzeDependencies(
       wave: waveMap.get(t.id) ?? 0,
     }));
 
-  // Find blocked tasks
+  // Find blocked tasks (pending-only; 'proposed' Tier-2 queue implicitly excluded).
   const blockedTasks = epicTasks
     .filter((t) => {
       if (t.status !== 'pending') return false;

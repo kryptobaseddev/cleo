@@ -52,6 +52,12 @@ export default defineConfig({
         '../../packages/core/src/store/nexus-schema.ts',
         import.meta.url,
       ).pathname,
+      // T946 sentient daemon consumes these subpath exports at runtime.
+      '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
+      '@cleocode/core/tasks': new URL(
+        '../../packages/core/src/tasks/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
     },
