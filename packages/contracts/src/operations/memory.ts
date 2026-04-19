@@ -1,19 +1,24 @@
 /**
- * Brain Domain Operations (31 operations)
+ * Memory Domain Operations (31 operations)
  *
  * Query operations: 21
  * Mutate operations: 10
  *
- * BRAIN is the cognitive memory subsystem backed by `brain.db` (SQLite + FTS5
+ * memory is the cognitive memory subsystem backed by `brain.db` (SQLite + FTS5
  * + vector + graph). It surfaces observations, decisions, patterns, learnings,
  * a PageIndex graph, RRF hybrid search, causal reasoning, and quality/health
- * telemetry. CLI identifiers start with `brain.*`; the dispatch registry
- * routes these through the `memory` domain handler (legacy alias).
+ * telemetry. CLI identifiers start with `memory.*` and are routed through the
+ * `memory` domain handler.
+ *
+ * Distinct from BRAIN (super-domain) — a NEW `operations/brain.ts` will be
+ * authored in T962 Wave B for the unified cross-substrate graph operations
+ * (wraps memory + nexus + tasks + conduit + signaldock).
  *
  * SYNC: Canonical implementations at packages/core/src/memory/*.
  * Wire-format types live here; they are the contract for CLI + HTTP dispatch.
  *
  * @task T910 — Orchestration Coherence v4 (contract surface completion)
+ * @task T965 — operations/brain.ts → operations/memory.ts rename
  * @see packages/cleo/src/dispatch/domains/memory.ts
  * @see packages/contracts/src/brain.ts
  */
@@ -22,21 +27,21 @@ import type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence } from 
 import type { LAFSPage } from '../lafs.js';
 
 // ============================================================================
-// Shared Brain types (API wire format)
+// Shared Memory types (API wire format)
 // ============================================================================
 
 /**
- * Cognitive type of a brain entry.
+ * Cognitive type of a memory entry.
  *
  * @remarks
- * Mirrors the CLI-facing taxonomy accepted by `brain.observe`. Distinct from
+ * Mirrors the CLI-facing taxonomy accepted by `memory.observe`. Distinct from
  * `BrainCognitiveType` from `../brain.js` which carries the 3-axis
  * semantic/episodic/procedural cognitive model used internally.
  */
-export type BrainEntryType = 'observation' | 'decision' | 'pattern' | 'learning' | 'reference';
+export type MemoryEntryType = 'observation' | 'decision' | 'pattern' | 'learning' | 'reference';
 
-/** Brain observation subtype categories (from `brain_observations.type`). */
-export type BrainObservationKind =
+/** Memory observation subtype categories (from `brain_observations.type`). */
+export type MemoryObservationKind =
   | 'discovery'
   | 'change'
   | 'feature'
@@ -45,7 +50,7 @@ export type BrainObservationKind =
   | 'refactor';
 
 /** Origin tag distinguishing where an observation was captured. */
-export type BrainObservationSourceType =
+export type MemoryObservationSourceType =
   | 'manual'
   | 'session-debrief'
   | 'observer'
@@ -53,14 +58,14 @@ export type BrainObservationSourceType =
   | 'transcript';
 
 /** Pattern taxonomy (from `brain_patterns.type`). */
-export type BrainPatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
+export type MemoryPatternType = 'workflow' | 'blocker' | 'success' | 'failure' | 'optimization';
 
 /** Severity/impact level for a stored pattern. */
-export type BrainPatternImpact = 'low' | 'medium' | 'high';
+export type MemoryPatternImpact = 'low' | 'medium' | 'high';
 
-/** Compact hit returned from `brain.find` / `brain.search.hybrid` layer-0 search. */
-export interface BrainCompactHit {
-  /** Brain entry identifier (e.g. `O-abc123`, `D-def456`). */
+/** Compact hit returned from `memory.find` / `memory.search.hybrid` layer-0 search. */
+export interface MemoryCompactHit {
+  /** Memory entry identifier (e.g. `O-abc123`, `D-def456`). */
   id: string;
   /** Table this hit was drawn from. */
   type: 'decision' | 'pattern' | 'learning' | 'observation';
@@ -76,9 +81,9 @@ export interface BrainCompactHit {
   bm25Score?: number;
 }
 
-/** Full brain entry body returned by `brain.fetch` (layer-2 retrieval). */
-export interface BrainFetchedEntry {
-  /** Brain entry identifier. */
+/** Full memory entry body returned by `memory.fetch` (layer-2 retrieval). */
+export interface MemoryFetchedEntry {
+  /** Memory entry identifier. */
   id: string;
   /** Table the entry was drawn from. */
   type: string;
@@ -86,9 +91,9 @@ export interface BrainFetchedEntry {
   data: unknown;
 }
 
-/** Timeline neighbor tuple returned by `brain.timeline`. */
-export interface BrainTimelineNeighbor {
-  /** Brain entry identifier. */
+/** Timeline neighbor tuple returned by `memory.timeline`. */
+export interface MemoryTimelineNeighbor {
+  /** Memory entry identifier. */
   id: string;
   /** Entry table type. */
   type: string;
@@ -97,10 +102,10 @@ export interface BrainTimelineNeighbor {
 }
 
 /** Anchor entry (shape is table-dependent). */
-export type BrainAnchor = Record<string, unknown>;
+export type MemoryAnchor = Record<string, unknown>;
 
 /** PageIndex graph node (projection of `brain_page_nodes`). */
-export interface BrainGraphNode {
+export interface MemoryGraphNode {
   /** Node identifier. */
   id: string;
   /** Node type classification (e.g. `symbol`, `file`, `concept`). */
@@ -122,7 +127,7 @@ export interface BrainGraphNode {
 }
 
 /** PageIndex graph edge (projection of `brain_page_edges`). */
-export interface BrainGraphEdge {
+export interface MemoryGraphEdge {
   /** Source node id. */
   fromId: string;
   /** Target node id. */
@@ -138,7 +143,7 @@ export interface BrainGraphEdge {
 }
 
 /** Decision node returned by reasoning queries. */
-export interface BrainDecisionNode {
+export interface MemoryDecisionNode {
   /** Decision entry identifier (`D-...`). */
   id: string;
   /** The decision statement. */
@@ -152,17 +157,17 @@ export interface BrainDecisionNode {
 // ============================================================================
 
 // --------------------------------------------------------------------------
-// brain.find → cross-table FTS5 / RRF search (handler: memory.find)
+// memory.find → cross-table FTS5 / RRF search (handler: memory.find)
 // --------------------------------------------------------------------------
 
 /**
- * Parameters for `brain.find`.
+ * Parameters for `memory.find`.
  *
  * @remarks
  * Preconditions: `query` must be non-empty. Returns compact hits suitable for
- * follow-up `brain.fetch` batching (3-layer retrieval: find → filter → fetch).
+ * follow-up `memory.fetch` batching (3-layer retrieval: find → filter → fetch).
  */
-export interface BrainFindParams {
+export interface MemoryFindParams {
   /** Full-text query string (required). */
   query: string;
   /** Max results to return. */
@@ -178,10 +183,10 @@ export interface BrainFindParams {
   /** When true (default), apply Reciprocal Rank Fusion across FTS + vector sources. */
   useRRF?: boolean;
 }
-/** Result of `brain.find`. */
-export interface BrainFindResult {
+/** Result of `memory.find`. */
+export interface MemoryFindResult {
   /** Ranked matches. */
-  results: BrainCompactHit[];
+  results: MemoryCompactHit[];
   /** Total match count (may exceed `results.length` when limit applied). */
   total: number;
   /** Estimated token weight of the payload. */
@@ -189,11 +194,11 @@ export interface BrainFindResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.timeline → chronological context around anchor
+// memory.timeline → chronological context around anchor
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.timeline`. */
-export interface BrainTimelineParams {
+/** Parameters for `memory.timeline`. */
+export interface MemoryTimelineParams {
   /** Anchor entry id (required). */
   anchor: string;
   /** Number of entries to retrieve before the anchor. */
@@ -201,29 +206,29 @@ export interface BrainTimelineParams {
   /** Number of entries to retrieve after the anchor. */
   depthAfter?: number;
 }
-/** Result of `brain.timeline`. */
-export interface BrainTimelineResult {
+/** Result of `memory.timeline`. */
+export interface MemoryTimelineResult {
   /** The anchor entry (or null if not found). */
-  anchor: BrainAnchor | null;
+  anchor: MemoryAnchor | null;
   /** Entries preceding the anchor (chronological). */
-  before: BrainTimelineNeighbor[];
+  before: MemoryTimelineNeighbor[];
   /** Entries following the anchor (chronological). */
-  after: BrainTimelineNeighbor[];
+  after: MemoryTimelineNeighbor[];
 }
 
 // --------------------------------------------------------------------------
-// brain.fetch → batch fetch by IDs (layer-2 retrieval)
+// memory.fetch → batch fetch by IDs (layer-2 retrieval)
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.fetch`. */
-export interface BrainFetchParams {
-  /** One or more brain entry IDs to retrieve. Must be non-empty. */
+/** Parameters for `memory.fetch`. */
+export interface MemoryFetchParams {
+  /** One or more memory entry IDs to retrieve. Must be non-empty. */
   ids: string[];
 }
-/** Result of `brain.fetch`. */
-export interface BrainFetchResult {
+/** Result of `memory.fetch`. */
+export interface MemoryFetchResult {
   /** Full entry bodies. */
-  results: BrainFetchedEntry[];
+  results: MemoryFetchedEntry[];
   /** IDs that could not be located. */
   notFound: string[];
   /** Estimated token weight of the payload. */
@@ -231,11 +236,11 @@ export interface BrainFetchResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.decision.find → decision memory search
+// memory.decision.find → decision memory search
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.decision.find`. */
-export interface BrainDecisionFindParams {
+/** Parameters for `memory.decision.find`. */
+export interface MemoryDecisionFindParams {
   /** Optional free-text filter. */
   query?: string;
   /** Filter decisions linked to a specific task. */
@@ -244,7 +249,7 @@ export interface BrainDecisionFindParams {
   limit?: number;
 }
 /** A single decision entry returned by the API. */
-export interface BrainDecisionEntry {
+export interface MemoryDecisionEntry {
   /** Decision id (`D-...`). */
   id: string;
   /** Decision statement. */
@@ -264,19 +269,19 @@ export interface BrainDecisionEntry {
   /** Source confidence (T549). */
   sourceConfidence?: BrainSourceConfidence;
 }
-/** Result of `brain.decision.find`. */
-export type BrainDecisionFindResult = BrainDecisionEntry[];
+/** Result of `memory.decision.find`. */
+export type MemoryDecisionFindResult = MemoryDecisionEntry[];
 
 // --------------------------------------------------------------------------
-// brain.pattern.find → pattern memory search
+// memory.pattern.find → pattern memory search
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.pattern.find`. */
-export interface BrainPatternFindParams {
+/** Parameters for `memory.pattern.find`. */
+export interface MemoryPatternFindParams {
   /** Filter by pattern type. */
-  type?: BrainPatternType;
+  type?: MemoryPatternType;
   /** Filter by pattern impact. */
-  impact?: BrainPatternImpact;
+  impact?: MemoryPatternImpact;
   /** Optional free-text query. */
   query?: string;
   /** Minimum reinforcement frequency. */
@@ -285,17 +290,17 @@ export interface BrainPatternFindParams {
   limit?: number;
 }
 /** A single pattern entry returned by the API. */
-export interface BrainPatternEntry {
+export interface MemoryPatternEntry {
   /** Pattern id (`P-...`). */
   id: string;
   /** Pattern classification. */
-  type: BrainPatternType;
+  type: MemoryPatternType;
   /** Pattern description. */
   pattern: string;
   /** Surrounding context. */
   context: string;
   /** Impact level. */
-  impact: BrainPatternImpact;
+  impact: MemoryPatternImpact;
   /** Anti-pattern counter-example (if applicable). */
   antiPattern?: string;
   /** Mitigation guidance (if applicable). */
@@ -309,20 +314,20 @@ export interface BrainPatternEntry {
   /** ISO 8601 creation timestamp. */
   createdAt: string;
 }
-/** Result of `brain.pattern.find`. */
-export interface BrainPatternFindResult {
+/** Result of `memory.pattern.find`. */
+export interface MemoryPatternFindResult {
   /** Matching pattern entries. */
-  patterns: BrainPatternEntry[];
+  patterns: MemoryPatternEntry[];
   /** Count of matches. */
   total: number;
 }
 
 // --------------------------------------------------------------------------
-// brain.learning.find → learning memory search
+// memory.learning.find → learning memory search
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.learning.find`. */
-export interface BrainLearningFindParams {
+/** Parameters for `memory.learning.find`. */
+export interface MemoryLearningFindParams {
   /** Optional free-text query. */
   query?: string;
   /** Minimum confidence threshold [0..1]. */
@@ -335,7 +340,7 @@ export interface BrainLearningFindParams {
   limit?: number;
 }
 /** A single learning entry returned by the API. */
-export interface BrainLearningEntry {
+export interface MemoryLearningEntry {
   /** Learning id (`L-...`). */
   id: string;
   /** Insight statement. */
@@ -353,39 +358,39 @@ export interface BrainLearningEntry {
   /** ISO 8601 creation timestamp. */
   createdAt: string;
 }
-/** Result of `brain.learning.find`. */
-export type BrainLearningFindResult = BrainLearningEntry[];
+/** Result of `memory.learning.find`. */
+export type MemoryLearningFindResult = MemoryLearningEntry[];
 
 // --------------------------------------------------------------------------
-// brain.graph.* → PageIndex graph queries
+// memory.graph.* → PageIndex graph queries
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.graph.show`. */
-export interface BrainGraphShowParams {
+/** Parameters for `memory.graph.show`. */
+export interface MemoryGraphShowParams {
   /** Node identifier. */
   nodeId: string;
 }
-/** Result of `brain.graph.show`. */
-export interface BrainGraphShowResult {
+/** Result of `memory.graph.show`. */
+export interface MemoryGraphShowResult {
   /** The node, if found. */
-  node: BrainGraphNode | null;
+  node: MemoryGraphNode | null;
   /** In-edges (node is target). */
-  inEdges: BrainGraphEdge[];
+  inEdges: MemoryGraphEdge[];
   /** Out-edges (node is source). */
-  outEdges: BrainGraphEdge[];
+  outEdges: MemoryGraphEdge[];
 }
 
-/** Parameters for `brain.graph.neighbors`. */
-export interface BrainGraphNeighborsParams {
+/** Parameters for `memory.graph.neighbors`. */
+export interface MemoryGraphNeighborsParams {
   /** Node identifier. */
   nodeId: string;
   /** Optional filter to a single edge type. */
   edgeType?: string;
 }
-/** Result of `brain.graph.neighbors`. */
-export interface BrainGraphNeighbor {
+/** Result of `memory.graph.neighbors`. */
+export interface MemoryGraphNeighbor {
   /** The neighbor node. */
-  node: BrainGraphNode;
+  node: MemoryGraphNode;
   /** Edge type connecting the query node to this neighbor. */
   edgeType: string;
   /** Relative to the queried node: `out` = outbound, `in` = inbound. */
@@ -393,55 +398,55 @@ export interface BrainGraphNeighbor {
   /** Edge weight/confidence. */
   weight: number;
 }
-/** Result payload for `brain.graph.neighbors`. */
-export type BrainGraphNeighborsResult = BrainGraphNeighbor[];
+/** Result payload for `memory.graph.neighbors`. */
+export type MemoryGraphNeighborsResult = MemoryGraphNeighbor[];
 
-/** Parameters for `brain.graph.trace` (BFS traversal). */
-export interface BrainGraphTraceParams {
+/** Parameters for `memory.graph.trace` (BFS traversal). */
+export interface MemoryGraphTraceParams {
   /** Seed node identifier. */
   nodeId: string;
   /** Max traversal depth. */
   maxDepth?: number;
 }
 /** A node visited during BFS traversal. */
-export interface BrainGraphTraceNode extends BrainGraphNode {
+export interface MemoryGraphTraceNode extends MemoryGraphNode {
   /** Distance from the seed (0 = seed itself). */
   depth: number;
 }
-/** Result of `brain.graph.trace`. */
-export type BrainGraphTraceResult = BrainGraphTraceNode[];
+/** Result of `memory.graph.trace`. */
+export type MemoryGraphTraceResult = MemoryGraphTraceNode[];
 
-/** Parameters for `brain.graph.related` (1-hop typed neighbors). */
-export interface BrainGraphRelatedParams {
+/** Parameters for `memory.graph.related` (1-hop typed neighbors). */
+export interface MemoryGraphRelatedParams {
   /** Node identifier. */
   nodeId: string;
   /** Optional filter to a single edge type. */
   edgeType?: string;
 }
-/** Result of `brain.graph.related`. */
-export type BrainGraphRelatedResult = BrainGraphNeighbor[];
+/** Result of `memory.graph.related`. */
+export type MemoryGraphRelatedResult = MemoryGraphNeighbor[];
 
-/** Parameters for `brain.graph.context` (360-degree view). */
-export interface BrainGraphContextParams {
+/** Parameters for `memory.graph.context` (360-degree view). */
+export interface MemoryGraphContextParams {
   /** Node identifier. */
   nodeId: string;
 }
-/** Result of `brain.graph.context`. */
-export interface BrainGraphContextResult {
+/** Result of `memory.graph.context`. */
+export interface MemoryGraphContextResult {
   /** The node itself. */
-  node: BrainGraphNode;
+  node: MemoryGraphNode;
   /** In-edges (this node is target). */
-  inEdges: BrainGraphEdge[];
+  inEdges: MemoryGraphEdge[];
   /** Out-edges (this node is source). */
-  outEdges: BrainGraphEdge[];
+  outEdges: MemoryGraphEdge[];
   /** Deduplicated neighbour list with direction + edge metadata. */
-  neighbors: BrainGraphNeighbor[];
+  neighbors: MemoryGraphNeighbor[];
 }
 
-/** Parameters for `brain.graph.stats` — none. */
-export type BrainGraphStatsParams = Record<string, never>;
-/** Result of `brain.graph.stats`. */
-export interface BrainGraphStatsResult {
+/** Parameters for `memory.graph.stats` — none. */
+export type MemoryGraphStatsParams = Record<string, never>;
+/** Result of `memory.graph.stats`. */
+export interface MemoryGraphStatsResult {
   /** Per-type node counts. */
   nodesByType: Array<{ nodeType: string; count: number }>;
   /** Per-type edge counts. */
@@ -453,16 +458,16 @@ export interface BrainGraphStatsResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.reason.* → causal / similarity reasoning
+// memory.reason.* → causal / similarity reasoning
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.reason.why` (causal trace). */
-export interface BrainReasonWhyParams {
+/** Parameters for `memory.reason.why` (causal trace). */
+export interface MemoryReasonWhyParams {
   /** Task identifier whose blocker chain should be traced. */
   taskId: string;
 }
 /** A single blocker in a causal trace. */
-export interface BrainBlockerNode {
+export interface MemoryBlockerNode {
   /** Blocking task identifier. */
   taskId: string;
   /** Task status at time of trace. */
@@ -470,29 +475,29 @@ export interface BrainBlockerNode {
   /** Free-text reason (if captured). */
   reason?: string;
   /** Decisions linked to this blocker. */
-  decisions: BrainDecisionNode[];
+  decisions: MemoryDecisionNode[];
 }
-/** Result of `brain.reason.why`. */
-export interface BrainReasonWhyResult {
+/** Result of `memory.reason.why`. */
+export interface MemoryReasonWhyResult {
   /** Root task ID that triggered the trace. */
   taskId: string;
   /** Walk of unresolved blockers (depth-ordered). */
-  blockers: BrainBlockerNode[];
+  blockers: MemoryBlockerNode[];
   /** Leaf blocker IDs flagged as root causes. */
   rootCauses: string[];
   /** Maximum traversal depth reached. */
   depth: number;
 }
 
-/** Parameters for `brain.reason.similar`. */
-export interface BrainReasonSimilarParams {
+/** Parameters for `memory.reason.similar`. */
+export interface MemoryReasonSimilarParams {
   /** Source entry id to compare against. */
   entryId: string;
   /** Maximum results to return. */
   limit?: number;
 }
 /** A similar entry with a distance score. */
-export interface BrainSimilarEntry {
+export interface MemorySimilarEntry {
   /** Matched entry id. */
   id: string;
   /** Cosine / vector distance (lower = more similar). */
@@ -504,15 +509,15 @@ export interface BrainSimilarEntry {
   /** Truncated text preview. */
   text: string;
 }
-/** Result of `brain.reason.similar`. */
-export type BrainReasonSimilarResult = BrainSimilarEntry[];
+/** Result of `memory.reason.similar`. */
+export type MemoryReasonSimilarResult = MemorySimilarEntry[];
 
 // --------------------------------------------------------------------------
-// brain.search.hybrid → FTS + vector + graph fusion (RRF)
+// memory.search.hybrid → FTS + vector + graph fusion (RRF)
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.search.hybrid`. */
-export interface BrainSearchHybridParams {
+/** Parameters for `memory.search.hybrid`. */
+export interface MemorySearchHybridParams {
   /** Query string (required). */
   query: string;
   /** RRF weight for FTS results [0..1]. */
@@ -525,8 +530,8 @@ export interface BrainSearchHybridParams {
   limit?: number;
 }
 /** A fused result from hybrid search. */
-export interface BrainHybridHit {
-  /** Brain entry id. */
+export interface MemoryHybridHit {
+  /** Memory entry id. */
   id: string;
   /** Fused RRF score. */
   score: number;
@@ -543,17 +548,17 @@ export interface BrainHybridHit {
   /** Rank from vector source (0-based; undefined if absent). */
   vecRank?: number;
 }
-/** Result of `brain.search.hybrid`. */
-export type BrainSearchHybridResult = BrainHybridHit[];
+/** Result of `memory.search.hybrid`. */
+export type MemorySearchHybridResult = MemoryHybridHit[];
 
 // --------------------------------------------------------------------------
-// brain.quality → memory quality report
+// memory.quality → memory quality report
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.quality` — none. */
-export type BrainQualityParams = Record<string, never>;
-/** Result of `brain.quality`. */
-export interface BrainQualityResult {
+/** Parameters for `memory.quality` — none. */
+export type MemoryQualityParams = Record<string, never>;
+/** Result of `memory.quality`. */
+export interface MemoryQualityResult {
   /** Per-tier entry counts. */
   tierDistribution: Record<BrainMemoryTier, number>;
   /** Per-cognitive-type counts. */
@@ -572,13 +577,13 @@ export interface BrainQualityResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.code.* → code_reference edges between brain & nexus
+// memory.code.* → code_reference edges between memory & nexus
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.code.links` — none. */
-export type BrainCodeLinksParams = Record<string, never>;
+/** Parameters for `memory.code.links` — none. */
+export type MemoryCodeLinksParams = Record<string, never>;
 /** A single code_reference edge. */
-export interface BrainCodeLink {
+export interface MemoryCodeLink {
   /** Memory entry id. */
   memoryId: string;
   /** Nexus code symbol identifier. */
@@ -586,29 +591,29 @@ export interface BrainCodeLink {
   /** ISO 8601 creation timestamp. */
   createdAt: string;
 }
-/** Result of `brain.code.links`. */
-export type BrainCodeLinksResult = BrainCodeLink[];
+/** Result of `memory.code.links`. */
+export type MemoryCodeLinksResult = MemoryCodeLink[];
 
-/** Parameters for `brain.code.memories-for-code`. */
-export interface BrainCodeMemoriesForCodeParams {
+/** Parameters for `memory.code.memories-for-code`. */
+export interface MemoryCodeMemoriesForCodeParams {
   /** Code symbol identifier. */
   symbol: string;
 }
-/** Result of `brain.code.memories-for-code`. */
-export interface BrainCodeMemoriesForCodeResult {
+/** Result of `memory.code.memories-for-code`. */
+export interface MemoryCodeMemoriesForCodeResult {
   /** Code symbol that was queried. */
   symbol: string;
   /** Memory entries referencing this symbol. */
   memories: Array<{ id: string; type: string; title: string }>;
 }
 
-/** Parameters for `brain.code.for-memory`. */
-export interface BrainCodeForMemoryParams {
+/** Parameters for `memory.code.for-memory`. */
+export interface MemoryCodeForMemoryParams {
   /** Memory entry id. */
   memoryId: string;
 }
-/** Result of `brain.code.for-memory`. */
-export interface BrainCodeForMemoryResult {
+/** Result of `memory.code.for-memory`. */
+export interface MemoryCodeForMemoryResult {
   /** Memory entry id that was queried. */
   memoryId: string;
   /** Code symbols referenced by this memory. */
@@ -616,13 +621,13 @@ export interface BrainCodeForMemoryResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.llm-status → LLM extraction backend status
+// memory.llm-status → LLM extraction backend status
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.llm-status` — none. */
-export type BrainLlmStatusParams = Record<string, never>;
-/** Result of `brain.llm-status`. */
-export interface BrainLlmStatusResult {
+/** Parameters for `memory.llm-status` — none. */
+export type MemoryLlmStatusParams = Record<string, never>;
+/** Result of `memory.llm-status`. */
+export interface MemoryLlmStatusResult {
   /** Where the Anthropic API key was resolved from (env, config, keychain, etc.). */
   resolvedSource: string;
   /** True when LLM-assisted extraction is wired and key is present. */
@@ -634,18 +639,18 @@ export interface BrainLlmStatusResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.pending-verify → unverified-but-cited entries queue
+// memory.pending-verify → unverified-but-cited entries queue
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.pending-verify`. */
-export interface BrainPendingVerifyParams {
+/** Parameters for `memory.pending-verify`. */
+export interface MemoryPendingVerifyParams {
   /** Minimum citation count to surface an entry (default 5). */
   minCitations?: number;
   /** Max entries to return (default 50). */
   limit?: number;
 }
 /** A single pending-verify row. */
-export interface BrainPendingEntry {
+export interface MemoryPendingEntry {
   /** Entry id (prefix varies by table). */
   id: string;
   /** Normalized display title. */
@@ -661,14 +666,14 @@ export interface BrainPendingEntry {
   /** Source table name (e.g. `observations`, `decisions`). */
   table: string;
 }
-/** Result of `brain.pending-verify`. */
-export interface BrainPendingVerifyResult {
+/** Result of `memory.pending-verify`. */
+export interface MemoryPendingVerifyResult {
   /** Count of entries returned. */
   count: number;
   /** Minimum citation threshold applied. */
   minCitations: number;
   /** Pending entries ordered by citation count desc. */
-  items: BrainPendingEntry[];
+  items: MemoryPendingEntry[];
   /** Human-readable next-step hint. */
   hint: string;
 }
@@ -678,34 +683,34 @@ export interface BrainPendingVerifyResult {
 // ============================================================================
 
 // --------------------------------------------------------------------------
-// brain.observe → save observation
+// memory.observe → save observation
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.observe`. */
-export interface BrainObserveParams {
+/** Parameters for `memory.observe`. */
+export interface MemoryObserveParams {
   /** Observation text body (required). */
   text: string;
   /** Short display title. */
   title?: string;
   /** Observation kind (default inferred from content). */
-  type?: BrainObservationKind;
+  type?: MemoryObservationKind;
   /** Project context override. */
   project?: string;
   /** Originating session id. */
   sourceSessionId?: string;
   /** Observation source classification. */
-  sourceType?: BrainObservationSourceType;
+  sourceType?: MemoryObservationSourceType;
   /** Agent that captured this observation (T417 mental models). */
   agent?: string;
   /** Source confidence override (T549). */
   sourceConfidence?: BrainSourceConfidence;
   /** Attachment SHA-256 refs to link to this observation (T799). */
   attachmentRefs?: string[];
-  /** Cross-reference to other brain or external IDs (T794). */
+  /** Cross-reference to other memory or external IDs (T794). */
   crossRef?: string[];
 }
-/** Result of `brain.observe`. */
-export interface BrainObserveResult {
+/** Result of `memory.observe`. */
+export interface MemoryObserveResult {
   /** Newly-created observation id (`O-...`). */
   id: string;
   /** Entry table this was written to. */
@@ -715,11 +720,11 @@ export interface BrainObserveResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.decision.store → store a decision
+// memory.decision.store → store a decision
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.decision.store`. */
-export interface BrainDecisionStoreParams {
+/** Parameters for `memory.decision.store`. */
+export interface MemoryDecisionStoreParams {
   /** Decision statement (required). */
   decision: string;
   /** Rationale for the decision (required). */
@@ -735,8 +740,8 @@ export interface BrainDecisionStoreParams {
   /** Phase context. */
   contextPhase?: string;
 }
-/** Result of `brain.decision.store`. */
-export interface BrainDecisionStoreResult {
+/** Result of `memory.decision.store`. */
+export interface MemoryDecisionStoreResult {
   /** New decision id (`D-...` or sequential `D001`). */
   id: string;
   /** ISO 8601 creation timestamp. */
@@ -744,19 +749,19 @@ export interface BrainDecisionStoreResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.pattern.store → store a pattern
+// memory.pattern.store → store a pattern
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.pattern.store`. */
-export interface BrainPatternStoreParams {
+/** Parameters for `memory.pattern.store`. */
+export interface MemoryPatternStoreParams {
   /** Pattern description (required). */
   pattern: string;
   /** Surrounding context (required). */
   context: string;
   /** Pattern classification (default `workflow`). */
-  type?: BrainPatternType;
+  type?: MemoryPatternType;
   /** Pattern impact level. */
-  impact?: BrainPatternImpact;
+  impact?: MemoryPatternImpact;
   /** Counter-example anti-pattern. */
   antiPattern?: string;
   /** Mitigation guidance. */
@@ -768,8 +773,8 @@ export interface BrainPatternStoreParams {
   /** Origin tag (e.g. `auto`, `agent`). Routes source confidence. */
   source?: string;
 }
-/** Result of `brain.pattern.store`. */
-export interface BrainPatternStoreResult {
+/** Result of `memory.pattern.store`. */
+export interface MemoryPatternStoreResult {
   /** New pattern id (`P-...`). */
   id: string;
   /** True when this store call incremented frequency on a duplicate match. */
@@ -779,11 +784,11 @@ export interface BrainPatternStoreResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.learning.store → store a learning
+// memory.learning.store → store a learning
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.learning.store`. */
-export interface BrainLearningStoreParams {
+/** Parameters for `memory.learning.store`. */
+export interface MemoryLearningStoreParams {
   /** Insight statement (required). */
   insight: string;
   /** Source reference for the insight (required). */
@@ -797,8 +802,8 @@ export interface BrainLearningStoreParams {
   /** Types/domains this learning applies to. */
   applicableTypes?: string[];
 }
-/** Result of `brain.learning.store`. */
-export interface BrainLearningStoreResult {
+/** Result of `memory.learning.store`. */
+export interface MemoryLearningStoreResult {
   /** New learning id (`L-...`). */
   id: string;
   /** True when this store call updated an existing duplicate. */
@@ -808,18 +813,18 @@ export interface BrainLearningStoreResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.link → link brain entry to a task
+// memory.link → link memory entry to a task
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.link`. */
-export interface BrainLinkParams {
+/** Parameters for `memory.link`. */
+export interface MemoryLinkParams {
   /** Task id to link. */
   taskId: string;
-  /** Brain entry id to link. */
+  /** Memory entry id to link. */
   entryId: string;
 }
-/** Result of `brain.link`. */
-export interface BrainLinkResult {
+/** Result of `memory.link`. */
+export interface MemoryLinkResult {
   /** Task id that was linked. */
   taskId: string;
   /** Entry id that was linked. */
@@ -829,18 +834,18 @@ export interface BrainLinkResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.graph.add / brain.graph.remove → PageIndex graph mutations
+// memory.graph.add / memory.graph.remove → PageIndex graph mutations
 // --------------------------------------------------------------------------
 
 /**
- * Parameters for `brain.graph.add`.
+ * Parameters for `memory.graph.add`.
  *
  * @remarks
  * Either a node-insert shape (`nodeId` + `nodeType` + `label`) or an
  * edge-insert shape (`fromId` + `toId` + `edgeType`). Caller MUST supply
  * exactly one of those two variants.
  */
-export interface BrainGraphAddParams {
+export interface MemoryGraphAddParams {
   /** Node id (node-insert mode). */
   nodeId?: string;
   /** Node type classification (node-insert mode). */
@@ -858,8 +863,8 @@ export interface BrainGraphAddParams {
   /** Edge weight [0..1] (edge-insert mode). */
   weight?: number;
 }
-/** Result of `brain.graph.add`. */
-export interface BrainGraphAddResult {
+/** Result of `memory.graph.add`. */
+export interface MemoryGraphAddResult {
   /** Variant applied. */
   mode: 'node' | 'edge';
   /** Id of the node or `fromId:toId:edgeType` edge key. */
@@ -868,8 +873,8 @@ export interface BrainGraphAddResult {
   createdAt: string;
 }
 
-/** Parameters for `brain.graph.remove`. */
-export interface BrainGraphRemoveParams {
+/** Parameters for `memory.graph.remove`. */
+export interface MemoryGraphRemoveParams {
   /** Node id (node-remove mode). */
   nodeId?: string;
   /** Source node id (edge-remove mode). */
@@ -879,8 +884,8 @@ export interface BrainGraphRemoveParams {
   /** Edge type (edge-remove mode). */
   edgeType?: string;
 }
-/** Result of `brain.graph.remove`. */
-export interface BrainGraphRemoveResult {
+/** Result of `memory.graph.remove`. */
+export interface MemoryGraphRemoveResult {
   /** Variant applied. */
   mode: 'node' | 'edge';
   /** Number of rows deleted. */
@@ -888,26 +893,26 @@ export interface BrainGraphRemoveResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.code.link / brain.code.auto-link → code_reference edges
+// memory.code.link / memory.code.auto-link → code_reference edges
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.code.link`. */
-export interface BrainCodeLinkParams {
+/** Parameters for `memory.code.link`. */
+export interface MemoryCodeLinkParams {
   /** Memory entry id. */
   memoryId: string;
   /** Nexus code symbol identifier. */
   codeSymbol: string;
 }
-/** Result of `brain.code.link`. */
-export interface BrainCodeLinkResult {
+/** Result of `memory.code.link`. */
+export interface MemoryCodeLinkResult {
   /** True when the edge was newly created (false when it already existed). */
   linked: boolean;
 }
 
-/** Parameters for `brain.code.auto-link` — none. */
-export type BrainCodeAutoLinkParams = Record<string, never>;
-/** Result of `brain.code.auto-link`. */
-export interface BrainCodeAutoLinkResult {
+/** Parameters for `memory.code.auto-link` — none. */
+export type MemoryCodeAutoLinkParams = Record<string, never>;
+/** Result of `memory.code.auto-link`. */
+export interface MemoryCodeAutoLinkResult {
   /** Count of memory entries scanned. */
   scanned: number;
   /** Count of new edges created by the scan. */
@@ -917,18 +922,18 @@ export interface BrainCodeAutoLinkResult {
 }
 
 // --------------------------------------------------------------------------
-// brain.verify → ground-truth promote (owner / cleo-prime only)
+// memory.verify → ground-truth promote (owner / cleo-prime only)
 // --------------------------------------------------------------------------
 
-/** Parameters for `brain.verify`. */
-export interface BrainVerifyParams {
-  /** Brain entry id to promote to verified=1. */
+/** Parameters for `memory.verify`. */
+export interface MemoryVerifyParams {
+  /** Memory entry id to promote to verified=1. */
   id: string;
   /** Caller identity (`cleo-prime` or `owner`). Omit for terminal invocation. */
   agent?: string;
 }
-/** Result of `brain.verify`. */
-export interface BrainVerifyResult {
+/** Result of `memory.verify`. */
+export interface MemoryVerifyResult {
   /** Entry id that was verified. */
   id: string;
   /** Table the entry lives in. */
@@ -944,7 +949,7 @@ export interface BrainVerifyResult {
 // ============================================================================
 
 /** Generic paginated envelope reused by future list variants. */
-export interface BrainPagedResult<T> {
+export interface MemoryPagedResult<T> {
   /** Items for this page. */
   items: T[];
   /** Total count across all pages. */
