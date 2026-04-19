@@ -2,7 +2,7 @@
  * Substrate-filtered BRAIN super-graph endpoint.
  *
  * GET /api/brain/substrate/:name
- *   → { nodes: LBNode[], edges: LBEdge[], counts, truncated }
+ *   → { nodes: BrainNode[], edges: BrainEdge[], counts, truncated }
  *
  * `:name` must be one of: brain | nexus | tasks | conduit | signaldock
  *
@@ -15,14 +15,20 @@
  * but provides a cleaner URL and explicit 400 on bad substrate names.
  */
 
-import { getAllSubstrates, type LBSubstrate } from '@cleocode/brain';
+import { type BrainSubstrate, getAllSubstrates } from '@cleocode/brain';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-const VALID_SUBSTRATES = new Set<LBSubstrate>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']);
+const VALID_SUBSTRATES = new Set<BrainSubstrate>([
+  'brain',
+  'nexus',
+  'tasks',
+  'conduit',
+  'signaldock',
+]);
 
 export const GET: RequestHandler = ({ locals, params, url }) => {
-  const name = params.name as LBSubstrate;
+  const name = params.name as BrainSubstrate;
   if (!VALID_SUBSTRATES.has(name)) {
     return json(
       {

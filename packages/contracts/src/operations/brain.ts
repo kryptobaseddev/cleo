@@ -21,14 +21,18 @@
  * `Record<string, unknown>` is legitimate — super-graph callers treat
  * it opaquely; individual substrate adapters own the concrete shape.
  *
- * SYNC: Canonical runtime implementation lives today at
- * `packages/studio/src/lib/server/living-brain/` (LBNode, LBEdge,
- * LBGraph, adapters, SSE stream). T969 extracts it to
- * `@cleocode/brain`; these contracts are that extraction's wire format.
+ * SYNC: Canonical runtime implementation now lives at
+ * `@cleocode/brain` (BrainNode, BrainEdge, BrainGraph, adapters, SSE
+ * stream). The runtime shapes there are intentionally structurally
+ * distinct from these wire-format contracts — runtime `BrainNode` uses
+ * `kind: BrainNodeKind` + `meta` + optional adapter-produced `weight`,
+ * whereas contract `BrainNode` below uses `type: string` + `data`.
  *
  * @task T962 — Orchestration Coherence v4 (BRAIN super-domain)
  * @task T968 — operations/brain.ts contract authoring (Wave B)
- * @see packages/studio/src/lib/server/living-brain/types.ts
+ * @task T969 — `@cleocode/brain` package extraction
+ * @task T973 — runtime LB* → Brain* rename
+ * @see packages/brain/src/types.ts (runtime shapes)
  * @see packages/contracts/src/operations/memory.ts (distinct domain)
  */
 
@@ -40,11 +44,13 @@
  * Substrate name enum — which underlying database a node/edge came from.
  *
  * @remarks
- * Matches `packages/studio/src/lib/server/living-brain/types.ts :: LBSubstrate`
- * (which T969 will extract to `@cleocode/brain`). `memory` here refers to the
- * `brain.db`-backed cognitive-memory substrate (observations/patterns/
- * decisions/learnings/PageIndex), aligning with the rename that produced
- * `./memory.ts` in T965.
+ * Intentionally distinct from the runtime
+ * `@cleocode/brain :: BrainSubstrate` type — the contracts layer uses
+ * `memory` (aligning with the cognitive-memory domain rename produced by
+ * `./memory.ts` in T965), while the runtime layer uses the legacy
+ * `brain` literal to match the on-disk `brain.db` file name. Callers
+ * translate between the two naming planes when bridging API wire format
+ * to live adapter output.
  *
  * @task T962 / T968
  */
@@ -337,8 +343,8 @@ export interface BrainSubstrateResult {
  * - `task.status`    — shortcut for tasks-substrate status changes.
  * - `message.send`   — shortcut for conduit-substrate message inserts.
  *
- * Mirrors `packages/studio/src/lib/server/living-brain/types.ts :: LBStreamEvent`
- * with super-graph-aligned identifiers (ids are substrate-prefixed).
+ * Mirrors `@cleocode/brain :: BrainStreamEvent` with super-graph-aligned
+ * identifiers (ids are substrate-prefixed).
  *
  * @task T962 / T968
  */

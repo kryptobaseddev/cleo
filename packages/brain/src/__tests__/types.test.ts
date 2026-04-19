@@ -1,24 +1,24 @@
 /**
- * Unit tests for the Living Brain unified type system.
+ * Unit tests for the Brain unified-graph type system.
  *
  * Tests verify:
- * - LBNodeKind covers all expected values
- * - LBSubstrate covers all five substrates
- * - LBNode and LBEdge structural contracts
- * - getAllSubstrates() returns a valid LBGraph shape
+ * - BrainNodeKind covers all expected values
+ * - BrainSubstrate covers all five substrates
+ * - BrainNode and BrainEdge structural contracts
+ * - getAllSubstrates() returns a valid BrainGraph shape
  * - Substrate adapter functions return correct node kinds
  * - Node IDs are correctly substrate-prefixed
  */
 
 import { describe, expect, it } from 'vitest';
 import { getAllSubstrates } from '../adapters/index.js';
-import type { LBEdge, LBGraph, LBNode, LBNodeKind, LBSubstrate } from '../types.js';
+import type { BrainEdge, BrainGraph, BrainNode, BrainNodeKind, BrainSubstrate } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Type constants for assertion helpers
 // ---------------------------------------------------------------------------
 
-const ALL_NODE_KINDS: LBNodeKind[] = [
+const ALL_NODE_KINDS: BrainNodeKind[] = [
   'observation',
   'decision',
   'pattern',
@@ -31,33 +31,33 @@ const ALL_NODE_KINDS: LBNodeKind[] = [
   'message',
 ];
 
-const ALL_SUBSTRATES: LBSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
 
 // ---------------------------------------------------------------------------
-// LBNodeKind
+// BrainNodeKind
 // ---------------------------------------------------------------------------
 
-describe('LBNodeKind', () => {
+describe('BrainNodeKind', () => {
   it('has exactly 10 distinct values', () => {
     expect(new Set(ALL_NODE_KINDS).size).toBe(10);
   });
 
   it('includes all memory-layer kinds', () => {
-    const memoryKinds: LBNodeKind[] = ['observation', 'decision', 'pattern', 'learning'];
+    const memoryKinds: BrainNodeKind[] = ['observation', 'decision', 'pattern', 'learning'];
     for (const kind of memoryKinds) {
       expect(ALL_NODE_KINDS).toContain(kind);
     }
   });
 
   it('includes all work-layer kinds', () => {
-    const workKinds: LBNodeKind[] = ['task', 'session'];
+    const workKinds: BrainNodeKind[] = ['task', 'session'];
     for (const kind of workKinds) {
       expect(ALL_NODE_KINDS).toContain(kind);
     }
   });
 
   it('includes all code-layer kinds', () => {
-    const codeKinds: LBNodeKind[] = ['symbol', 'file'];
+    const codeKinds: BrainNodeKind[] = ['symbol', 'file'];
     for (const kind of codeKinds) {
       expect(ALL_NODE_KINDS).toContain(kind);
     }
@@ -70,10 +70,10 @@ describe('LBNodeKind', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LBSubstrate
+// BrainSubstrate
 // ---------------------------------------------------------------------------
 
-describe('LBSubstrate', () => {
+describe('BrainSubstrate', () => {
   it('has exactly 5 values', () => {
     expect(ALL_SUBSTRATES).toHaveLength(5);
   });
@@ -88,12 +88,12 @@ describe('LBSubstrate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LBNode structural contract
+// BrainNode structural contract
 // ---------------------------------------------------------------------------
 
-describe('LBNode structural contract', () => {
+describe('BrainNode structural contract', () => {
   it('satisfies required fields', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'brain:O-abc123',
       kind: 'observation',
       substrate: 'brain',
@@ -110,7 +110,7 @@ describe('LBNode structural contract', () => {
   });
 
   it('allows optional weight field', () => {
-    const withWeight: LBNode = {
+    const withWeight: BrainNode = {
       id: 'nexus:sym-456',
       kind: 'symbol',
       substrate: 'nexus',
@@ -121,7 +121,7 @@ describe('LBNode structural contract', () => {
     };
     expect(withWeight.weight).toBe(0.85);
 
-    const withoutWeight: LBNode = {
+    const withoutWeight: BrainNode = {
       id: 'conduit:msg-789',
       kind: 'message',
       substrate: 'conduit',
@@ -133,7 +133,7 @@ describe('LBNode structural contract', () => {
   });
 
   it('stores arbitrary meta fields', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'tasks:T626',
       kind: 'task',
       substrate: 'tasks',
@@ -148,7 +148,7 @@ describe('LBNode structural contract', () => {
   });
 
   it('accepts null createdAt for substrates without a timestamp', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'signaldock:agent-abc',
       kind: 'agent',
       substrate: 'signaldock',
@@ -160,7 +160,7 @@ describe('LBNode structural contract', () => {
   });
 
   it('accepts ISO-8601 string for createdAt', () => {
-    const node: LBNode = {
+    const node: BrainNode = {
       id: 'brain:O-xyz',
       kind: 'observation',
       substrate: 'brain',
@@ -173,12 +173,12 @@ describe('LBNode structural contract', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LBEdge structural contract
+// BrainEdge structural contract
 // ---------------------------------------------------------------------------
 
-describe('LBEdge structural contract', () => {
+describe('BrainEdge structural contract', () => {
   it('satisfies required fields', () => {
-    const edge: LBEdge = {
+    const edge: BrainEdge = {
       source: 'brain:D-001',
       target: 'tasks:T626',
       type: 'applies_to',
@@ -194,7 +194,7 @@ describe('LBEdge structural contract', () => {
   });
 
   it('accepts in-substrate edges', () => {
-    const intraEdge: LBEdge = {
+    const intraEdge: BrainEdge = {
       source: 'nexus:file-a.ts::funcA',
       target: 'nexus:file-b.ts::funcB',
       type: 'calls',
@@ -207,14 +207,14 @@ describe('LBEdge structural contract', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getAllSubstrates() returns valid LBGraph shape
+// getAllSubstrates() returns valid BrainGraph shape
 // ---------------------------------------------------------------------------
 
 describe('getAllSubstrates()', () => {
-  it('returns a valid LBGraph structure even when all databases are absent', () => {
+  it('returns a valid BrainGraph structure even when all databases are absent', () => {
     // In the test environment, none of the real databases are available.
     // The function should return an empty-but-valid graph rather than throwing.
-    const graph: LBGraph = getAllSubstrates({ limit: 10 });
+    const graph: BrainGraph = getAllSubstrates({ limit: 10 });
 
     expect(graph).toBeDefined();
     expect(Array.isArray(graph.nodes)).toBe(true);
@@ -259,7 +259,7 @@ describe('getAllSubstrates()', () => {
     }
   });
 
-  it('all node kinds are valid LBNodeKind values', () => {
+  it('all node kinds are valid BrainNodeKind values', () => {
     const graph = getAllSubstrates();
     const validKinds = new Set<string>(ALL_NODE_KINDS);
     for (const node of graph.nodes) {

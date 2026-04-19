@@ -1,7 +1,7 @@
 /**
  * SIGNALDOCK substrate adapter for the Living Brain API.
  *
- * Queries signaldock.db (global) and returns LBNodes/LBEdges for agents
+ * Queries signaldock.db (global) and returns BrainNodes/BrainEdges for agents
  * and agent-to-agent social connections.
  *
  * Node IDs are prefixed with "signaldock:" to prevent collisions.
@@ -10,7 +10,7 @@
  */
 
 import { allTyped, getSignaldockDb } from '../db-connections.js';
-import type { LBEdge, LBNode, LBQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
 /** Raw row from agents table. */
 interface AgentRow {
@@ -42,7 +42,7 @@ interface AgentConnectionRow {
 }
 
 /**
- * Returns all LBNodes and LBEdges sourced from signaldock.db.
+ * Returns all BrainNodes and BrainEdges sourced from signaldock.db.
  *
  * Fetches all active agents plus their declared connections.
  * Agent nodes serve as the cross-substrate identity anchors.
@@ -50,17 +50,17 @@ interface AgentConnectionRow {
  * @param options - Query options (limit).
  * @returns Nodes and edges from the SIGNALDOCK substrate.
  */
-export function getSignaldockSubstrate(options: LBQueryOptions = {}): {
-  nodes: LBNode[];
-  edges: LBEdge[];
+export function getSignaldockSubstrate(options: BrainQueryOptions = {}): {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
 } {
   const db = getSignaldockDb();
   if (!db) return { nodes: [], edges: [] };
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
+  const nodes: BrainNode[] = [];
+  const edges: BrainEdge[] = [];
 
   try {
     // Active agents

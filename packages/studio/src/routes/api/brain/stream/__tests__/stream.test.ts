@@ -14,7 +14,7 @@
  * All DB calls are mocked via vi.mock so no real databases are required.
  */
 
-import type { LBStreamEvent } from '@cleocode/brain';
+import type { BrainStreamEvent } from '@cleocode/brain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -88,13 +88,13 @@ function makeMockDb(responses: Record<string, { get?: unknown; all?: unknown[] }
  *
  * @param stream - ReadableStream from Response.body.
  * @param maxEvents - Stop collecting after this many events.
- * @returns Parsed LBStreamEvent array.
+ * @returns Parsed BrainStreamEvent array.
  */
 async function collectEvents(
   stream: ReadableStream<Uint8Array>,
   maxEvents: number,
-): Promise<LBStreamEvent[]> {
-  const events: LBStreamEvent[] = [];
+): Promise<BrainStreamEvent[]> {
+  const events: BrainStreamEvent[] = [];
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -111,7 +111,7 @@ async function collectEvents(
       const trimmed = line.trim();
       if (trimmed.startsWith('data: ')) {
         try {
-          const parsed = JSON.parse(trimmed.slice(6)) as LBStreamEvent;
+          const parsed = JSON.parse(trimmed.slice(6)) as BrainStreamEvent;
           events.push(parsed);
           if (events.length >= maxEvents) break;
         } catch {

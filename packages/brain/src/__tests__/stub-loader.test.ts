@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { LBEdge, LBNode } from '../types.js';
+import type { BrainEdge, BrainNode, BrainSubstrate } from '../types.js';
 
 /**
  * Synthetic implementation of loadStubNodesForEdgeTargets for testing.
@@ -25,9 +25,9 @@ import type { LBEdge, LBNode } from '../types.js';
  */
 function loadStubNodesForEdgeTargets(
   loadedNodeIds: Set<string>,
-  edges: LBEdge[],
+  edges: BrainEdge[],
   nexusDbNodes?: Map<string, { kind: string; name: string }>,
-): LBNode[] {
+): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
   for (const edge of edges) {
@@ -55,7 +55,7 @@ function loadStubNodesForEdgeTargets(
     stubsBySubstrate.get(substrateStr)!.push(nodeId);
   }
 
-  const stubs: LBNode[] = [];
+  const stubs: BrainNode[] = [];
 
   // Load stubs for nexus targets (most common cross-substrate case)
   // In real code this queries nexus.db; here we mock with a Map.
@@ -88,7 +88,9 @@ function loadStubNodesForEdgeTargets(
       stubs.push({
         id: nodeId,
         kind: 'observation', // generic fallback kind
-        substrate: substrate as any,
+        // Safe: the enclosing loop only runs for keys already validated
+        // against the BrainSubstrate literal set above.
+        substrate: substrate as BrainSubstrate,
         label: rawId,
         weight: undefined,
         createdAt: null,
@@ -107,7 +109,7 @@ function loadStubNodesForEdgeTargets(
 describe('loadStubNodesForEdgeTargets', () => {
   it('returns empty array when all edge targets are already loaded', () => {
     const loaded = new Set(['nexus:foo', 'nexus:bar']);
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-123',
         target: 'nexus:foo',
@@ -130,7 +132,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('creates stub nodes for missing nexus targets', () => {
     const loaded = new Set(['brain:O-123']);
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-123',
         target: 'nexus:packages/foo.ts::bar',
@@ -158,7 +160,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('creates stub nodes for missing tasks targets without DB query', () => {
     const loaded = new Set(['brain:O-123']);
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-123',
         target: 'tasks:T456',
@@ -184,7 +186,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('deduplicates multiple edges targeting the same missing node', () => {
     const loaded = new Set(['brain:O-123', 'brain:O-456']);
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-123',
         target: 'tasks:T789',
@@ -210,7 +212,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('handles mixed substrate targets in a single edge set', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'tasks:T222',
@@ -256,7 +258,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('recognizes file nodes in nexus and sets kind correctly', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'nexus:packages/foo/bar.ts',
@@ -277,7 +279,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('skips nodes with malformed IDs (no substrate prefix)', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'malformed-id-no-colon',
@@ -294,7 +296,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('skips targets with unknown substrate prefix', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'unknown:something',
@@ -311,7 +313,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('continues gracefully when nexus DB lookup fails for a node', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'nexus:nonexistent.ts::Missing',
@@ -333,7 +335,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('marks all stubs with isStub: true for UI differentiation', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'tasks:T222',
@@ -361,7 +363,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('handles signaldock substrate targets', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
         target: 'signaldock:agent-abc',
@@ -381,7 +383,7 @@ describe('loadStubNodesForEdgeTargets', () => {
 
   it('handles brain substrate targets (edge case)', () => {
     const loaded = new Set<string>();
-    const edges: LBEdge[] = [
+    const edges: BrainEdge[] = [
       {
         source: 'nexus:packages/foo.ts::bar',
         target: 'brain:O-999',
