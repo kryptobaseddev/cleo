@@ -9,7 +9,7 @@
  * - stepGenerateInsights: too few observations, cluster + insight stored
  * - All LLM call failures are caught and result in graceful degradation
  *
- * Uses mocked Anthropic fetch and mocked brain-sqlite / store functions.
+ * Uses mocked Anthropic fetch and mocked memory-sqlite / store functions.
  *
  * @task T555
  * @epic T549
@@ -37,7 +37,7 @@ const {
   mockResolveKey: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: mockGetBrainDb,
   getBrainNativeDb: mockGetBrainNativeDb,
 }));

@@ -11,8 +11,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getBrainAccessor } from '../store/brain-accessor.js';
-import type { NewBrainLearningRow, NewBrainPatternRow } from '../store/brain-schema.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
+import type { NewBrainLearningRow, NewBrainPatternRow } from '../store/memory-schema.js';
 
 /** Result from a migration run. */
 export interface BrainMigrationResult {

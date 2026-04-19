@@ -52,7 +52,7 @@ let tempDir: string;
  * This triggers runBrainMigrations (including ensureColumns safety net).
  */
 async function initBrainDb(dir: string): Promise<void> {
-  const { getBrainDb, closeBrainDb } = await import('../../store/brain-sqlite.js');
+  const { getBrainDb, closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   await getBrainDb(dir);
   closeBrainDb();
@@ -72,7 +72,7 @@ async function insertObservations(
   offsetSecondsAgo = 60,
 ): Promise<void> {
   const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -99,7 +99,7 @@ async function insertObservations(
  */
 async function insertRetrievalLog(dir: string, minutesAgo: number): Promise<void> {
   const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -120,7 +120,7 @@ async function insertRetrievalLog(dir: string, minutesAgo: number): Promise<void
  */
 async function countConsolidationEvents(dir: string): Promise<number> {
   const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -147,7 +147,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+  const { closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   const { _resetDreamState } = await import('../dream-cycle.js');
   _resetDreamState();
@@ -332,7 +332,7 @@ describe('Dream Cycle — T628 auto-dream (real SQLite, no mocks)', () => {
     await initBrainDb(tempDir);
     await insertObservations(tempDir, 7);
     // Re-open DB so synchronous trigger helper can read it
-    const { getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
     await getBrainDb(tempDir);
 
     const { checkVolumeTrigger } = await import('../dream-cycle.js');
@@ -346,7 +346,7 @@ describe('Dream Cycle — T628 auto-dream (real SQLite, no mocks)', () => {
     // Insert log row 60 minutes ago
     await insertRetrievalLog(tempDir, 60);
     // Re-open DB so synchronous trigger helper can read it
-    const { getBrainDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
     await getBrainDb(tempDir);
 
     const { checkIdleTrigger } = await import('../dream-cycle.js');

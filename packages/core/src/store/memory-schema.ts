@@ -735,7 +735,7 @@ export type BrainEdgeType = (typeof BRAIN_EDGE_TYPES)[number];
  * for the authoritative prefix list.
  *
  * Examples: 'decision:D-abc123', 'observation:O-mntphoj6-0',
- *           'task:T523', 'symbol:src/store/brain-schema.ts::brainPageNodes',
+ *           'task:T523', 'symbol:src/store/memory-schema.ts::brainPageNodes',
  *           'msg:msg_abc123', 'llmtxt:9f2a...sha256', 'commit:04021568a'
  */
 export const brainPageNodes = sqliteTable(

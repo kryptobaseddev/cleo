@@ -17,13 +17,13 @@ let cleoDir: string;
 
 describe('BrainDataAccessor', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-brain-accessor-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-memory-accessor-'));
     cleoDir = join(tempDir, '.cleo');
     process.env['CLEO_DIR'] = cleoDir;
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -35,8 +35,8 @@ describe('BrainDataAccessor', () => {
 
   describe('decisions', () => {
     it('addDecision and getDecision roundtrip', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -61,8 +61,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('getDecision returns null for non-existent ID', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -71,8 +71,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('findDecisions filters by type', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -97,8 +97,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('findDecisions filters by confidence and limits results', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -117,8 +117,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('updateDecision sets updatedAt and modifies fields', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -148,8 +148,8 @@ describe('BrainDataAccessor', () => {
 
   describe('patterns', () => {
     it('addPattern and getPattern roundtrip', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -170,8 +170,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('getPattern returns null for non-existent ID', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -180,8 +180,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('findPatterns filters by type and impact', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -213,8 +213,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('findPatterns filters by minFrequency', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -239,8 +239,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('updatePattern modifies fields and sets updatedAt', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -269,8 +269,8 @@ describe('BrainDataAccessor', () => {
 
   describe('learnings', () => {
     it('addLearning and getLearning roundtrip', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -294,8 +294,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('getLearning returns null for non-existent ID', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -304,8 +304,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('findLearnings filters by minConfidence and actionable', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -340,8 +340,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('updateLearning modifies fields and sets updatedAt', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -372,8 +372,8 @@ describe('BrainDataAccessor', () => {
 
   describe('memory links', () => {
     it('addLink and getLinksForMemory roundtrip', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -402,8 +402,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('getLinksForTask returns all links for a task', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();
@@ -434,8 +434,8 @@ describe('BrainDataAccessor', () => {
     });
 
     it('removeLink deletes a specific link', async () => {
-      const { getBrainAccessor } = await import('../brain-accessor.js');
-      const { closeBrainDb } = await import('../brain-sqlite.js');
+      const { getBrainAccessor } = await import('../memory-accessor.js');
+      const { closeBrainDb } = await import('../memory-sqlite.js');
       closeBrainDb();
 
       const accessor = await getBrainAccessor();

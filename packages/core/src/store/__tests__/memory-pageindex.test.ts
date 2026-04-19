@@ -24,7 +24,7 @@ describe('brain.db PageIndex graph tables', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -35,7 +35,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -58,7 +58,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -82,7 +82,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -118,7 +118,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -160,7 +160,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -192,7 +192,7 @@ describe('brain.db PageIndex graph tables', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();

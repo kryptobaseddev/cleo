@@ -9,13 +9,13 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BrainDecisionRow,
   BrainLearningRow,
   BrainObservationRow,
   BrainPatternRow,
-} from '../store/brain-schema.js';
+} from '../store/memory-schema.js';
 import { typedAll } from '../store/typed-query.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
@@ -286,7 +286,7 @@ export async function searchBrain(
   }
 
   // Ensure brain.db is initialized
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

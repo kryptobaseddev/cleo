@@ -8,7 +8,7 @@
  */
 
 import type { Session } from '@cleocode/contracts';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { ConvertedTarget } from './types.js';
 
 /**

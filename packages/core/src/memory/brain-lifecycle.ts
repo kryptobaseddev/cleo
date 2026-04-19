@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import type { BrainConsolidationObservationRow } from './brain-row-types.js';
 import { EDGE_TYPES } from './edge-types.js';
@@ -50,7 +50,7 @@ export async function applyTemporalDecay(
   const olderThanDays = options?.olderThanDays ?? 30;
 
   // Ensure brain.db is initialized
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -243,7 +243,7 @@ export async function consolidateMemories(
   const olderThanDays = options?.olderThanDays ?? 90;
   const minClusterSize = options?.minClusterSize ?? 3;
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -325,7 +325,7 @@ export async function consolidateMemories(
     await accessor.addObservation({
       id,
       type: cluster[0]!
-        .type as typeof import('../store/brain-schema.js').BRAIN_OBSERVATION_TYPES[number],
+        .type as typeof import('../store/memory-schema.js').BRAIN_OBSERVATION_TYPES[number],
       title: summaryTitle,
       narrative: summaryNarrative,
       contentHash,
@@ -403,7 +403,7 @@ export interface PromotionResult {
  * @returns Lists of promoted and evicted entries
  */
 export async function runTierPromotion(projectRoot: string): Promise<PromotionResult> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -799,7 +799,7 @@ export async function runConsolidation(
   // Captures trigger, session_id, per-step stats, duration for pipeline observability.
   // Best-effort — a logging failure MUST NOT abort the pipeline or throw.
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const nativeDb = getBrainNativeDb();
 
@@ -877,7 +877,7 @@ export async function runConsolidation(
  * @returns Count of merged/evicted duplicate entries
  */
 async function deduplicateByEmbedding(projectRoot: string): Promise<number> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return 0;
@@ -957,7 +957,7 @@ async function deduplicateByEmbedding(projectRoot: string): Promise<number> {
  * @returns Count of entries updated
  */
 async function recomputeQualityScores(projectRoot: string): Promise<number> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return 0;
@@ -1015,7 +1015,7 @@ async function recomputeQualityScores(projectRoot: string): Promise<number> {
  * @returns Count of entries soft-evicted
  */
 async function softEvictLowQualityMedium(projectRoot: string): Promise<number> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return 0;
@@ -1073,7 +1073,7 @@ async function softEvictLowQualityMedium(projectRoot: string): Promise<number> {
  * @returns Count of edges strengthened
  */
 async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
   if (!nativeDb) return 0;

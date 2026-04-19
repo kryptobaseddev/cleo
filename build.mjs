@@ -124,7 +124,7 @@ const coreBuildOptions = {
     // them as explicit entry points guarantees they are always emitted. (T721)
     { in: 'packages/core/src/store/nexus-sqlite.ts', out: 'store/nexus-sqlite' },
     { in: 'packages/core/src/store/nexus-schema.ts', out: 'store/nexus-schema' },
-    { in: 'packages/core/src/store/brain-sqlite.ts', out: 'store/brain-sqlite' },
+    { in: 'packages/core/src/store/memory-sqlite.ts', out: 'store/memory-sqlite' },
     // Transcript subpath entry points — imported dynamically by packages/cleo/src/cli/commands/transcript.ts
     // via `@cleocode/core/memory/transcript-scanner.js` and `@cleocode/core/memory/transcript-extractor.js`.
     // Must exist as standalone .js files in dist/memory/ to match the package.json subpath exports. (T755)

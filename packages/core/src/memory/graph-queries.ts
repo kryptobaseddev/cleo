@@ -12,8 +12,8 @@
  * @epic T523
  */
 
-import type { BrainEdgeType, BrainPageEdgeRow, BrainPageNodeRow } from '../store/brain-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../store/brain-sqlite.js';
+import type { BrainEdgeType, BrainPageEdgeRow, BrainPageNodeRow } from '../store/memory-schema.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 
 // ---------------------------------------------------------------------------
 // Return types

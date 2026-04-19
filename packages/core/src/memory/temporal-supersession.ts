@@ -25,7 +25,7 @@
  * @task T739
  */
 
-import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../store/brain-sqlite.js';
+import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../store/memory-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
 
 // ============================================================================

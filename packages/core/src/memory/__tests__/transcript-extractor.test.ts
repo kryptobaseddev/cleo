@@ -44,7 +44,7 @@ vi.mock('../brain-retrieval.js', () => ({
     .mockResolvedValue({ id: 'O-mock', type: 'discovery', createdAt: '2026-04-15' }),
 }));
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: vi.fn().mockResolvedValue({}),
   getBrainNativeDb: vi.fn().mockReturnValue({
     prepare: vi.fn().mockReturnValue({
@@ -199,7 +199,7 @@ describe('extractTranscript', () => {
     } as Awaited<ReturnType<typeof generateObject>>);
 
     // Default: no tombstone present (allow extraction to proceed)
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     vi.mocked(getBrainNativeDb).mockReturnValue({
       prepare: vi.fn().mockReturnValue({
         all: vi.fn().mockReturnValue([]), // empty = no existing tombstone
@@ -371,7 +371,7 @@ describe('extractTranscript', () => {
 
   it('skips already-extracted sessions (tombstone check)', async () => {
     // Mock tombstone check to return existing record
-    const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     vi.mocked(getBrainNativeDb).mockReturnValue({
       prepare: vi.fn().mockReturnValue({
         all: vi.fn().mockReturnValue([{ id: 'O-existing' }]),

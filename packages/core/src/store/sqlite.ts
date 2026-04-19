@@ -580,7 +580,7 @@ export async function closeAllDatabases(): Promise<void> {
 
   // Close brain.db (dynamic import to avoid circular deps)
   try {
-    const { closeBrainDb } = await import('./brain-sqlite.js');
+    const { closeBrainDb } = await import('./memory-sqlite.js');
     closeBrainDb();
   } catch {
     /* module may not be loaded */

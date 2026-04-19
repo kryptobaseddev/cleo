@@ -38,7 +38,7 @@ export interface ExtractedRef {
  * Regex patterns used to locate file paths and symbol names inside text.
  *
  * File-path pattern — matches:
- *   - Relative paths:   `src/store/brain-schema.ts`
+ *   - Relative paths:   `src/store/memory-schema.ts`
  *   - Absolute paths:   `/mnt/projects/cleocode/packages/core/src/…`
  *   - Extension-gated:  only `.ts`, `.tsx`, `.js`, `.jsx`, `.rs`, `.json`
  *

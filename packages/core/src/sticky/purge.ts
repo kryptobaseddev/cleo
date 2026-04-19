@@ -6,8 +6,8 @@
  * @task T5363
  */
 
-import { getBrainAccessor } from '../store/brain-accessor.js';
-import type { BrainStickyNoteRow } from '../store/brain-schema.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
+import type { BrainStickyNoteRow } from '../store/memory-schema.js';
 import type { StickyNote } from './types.js';
 
 /**

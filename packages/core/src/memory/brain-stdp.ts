@@ -493,7 +493,7 @@ export async function shouldRunPlasticity(
   sessionId: string | null = null,
   minRetrievalsForPlasticity = 2,
 ): Promise<boolean> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -619,7 +619,7 @@ export async function applyStdpPlasticity(
     pairingWindowMs = options.pairingWindowMs ?? DEFAULT_PAIRING_WINDOW_MS;
   }
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -856,7 +856,7 @@ export async function applyStdpPlasticity(
   );
 
   // T679: brain_weight_history INSERT per spec §2.1.4.
-  // Table is guaranteed by brain-sqlite.ts ensureColumns guard — safe to INSERT.
+  // Table is guaranteed by memory-sqlite.ts ensureColumns guard — safe to INSERT.
   let prepareLogWeightHistory: ReturnType<typeof nativeDb.prepare> | null = null;
   try {
     nativeDb.prepare('SELECT 1 FROM brain_weight_history LIMIT 1').get();
@@ -1203,7 +1203,7 @@ export async function getPlasticityStats(
   projectRoot: string,
   limit = 20,
 ): Promise<PlasticityStatsSummary> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 
@@ -1468,7 +1468,7 @@ export async function backfillRewardSignals(
   // Separate connection from tasks.db — no ATTACH, per spec §4.3.
 
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
     const nativeDb = getBrainNativeDb();
 
@@ -1638,7 +1638,7 @@ export async function applyHomeostaticDecay(
 
   const result: HomeostaticDecayResult = { edgesDecayed: 0, edgesPruned: 0 };
 
-  const { getBrainDb, getBrainNativeDb } = await import('../store/brain-sqlite.js');
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
 

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoDirAbsolute } from '../paths.js';
-import * as brainSchema from './brain-schema.js';
+import * as brainSchema from './memory-schema.js';
 import {
   createSafetyBackup,
   ensureColumns,
