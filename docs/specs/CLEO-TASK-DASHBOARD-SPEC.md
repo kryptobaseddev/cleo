@@ -1,15 +1,15 @@
 # CLEO Studio Task Dashboard Specification
 
-**Version**: 1.0.0
-**Status**: AUTHORITY (UI-level contract — binding on the merge PR)
+**Version**: 1.1.0
+**Status**: **SHIPPED** — v2026.4.97 (2026-04-19)
 **Scope**: `packages/studio/src/routes/tasks/**`
-**Approach**: Option C hybrid — operator-approved (2026-04-17)
+**Approach**: Option C hybrid — operator-approved 2026-04-17, shipped 2026-04-19
 **Authority pointer**: `docs/specs/CLEO-API-AUTHORITY.md` §2 (row: Studio UI)
 
-This spec defines the target state of the `/tasks` surface in Studio after
-the standalone `/tmp/task-viz/` proof-of-concept is merged. It is binding on
-the merge PR — every preservation-checklist item MUST ship or the merge is
-rejected.
+This spec defines the `/tasks` surface in Studio after the standalone
+`/tmp/task-viz/` proof-of-concept was merged. All design decisions below are
+SHIPPED as of v2026.4.97. Design rationale is preserved alongside shipped
+reality; see §0 Shipped Matrix for commit traceability.
 
 > **Companion specs**:
 > - `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` — HTTP endpoints the UI consumes
@@ -20,6 +20,34 @@ rejected.
 > - `.cleo/agent-outputs/T910-docs-audit/studio-tasks-ui-audit.md`
 > - `.cleo/agent-outputs/T910-docs-audit/studio-tasks-architecture.md`
 > - `.cleo/agent-outputs/T910-docs-audit/task-schema-audit.md` (deferred semantics)
+
+---
+
+## 0. Shipped
+
+T949 shipped in v2026.4.97 (merge commit `14e5d0986`, preceded by release
+commit `ff984706d`). All 12 children done:
+
+| Task | Subject | Commit |
+|------|---------|--------|
+| T950 | 8 shared Svelte 5 components | `1e534911d` |
+| T951 | URL-state filter store | `5f0da1777` |
+| T952 | SSR data loader (`_computeExplorerPayload`) | `de45aba60` |
+| T953 | Hierarchy tab | `b0a27f897` |
+| T954 | Graph tab (d3-force + ported viz UX) | `4481a8c03` |
+| T955 | Kanban tab (status columns + epic sub-grouping) | `13a659390` |
+| T956 | `/tasks` hybrid wiring (dashboard + 3-tab Explorer) | `a84aac01a` |
+| T957 | 301 redirects from `/tasks/tree` + `/tasks/graph` | `27e7e26b2` |
+| T958 | Deferred → Cancelled rename (T910 audit finding) | `708718a08` |
+| — | SSR render + dedupe hotfix (GraphTab each_key + filters eager init) | `9d67aa890` |
+| T959 | E2E playwright tests | landed on `main` post-release |
+| T960 | This spec update | this commit |
+
+Shipped state: `/tasks` is the hybrid page (dashboard on top, 3-tab Task
+Explorer below); `/tasks/pipeline` unchanged; `/tasks/tree` and
+`/tasks/graph` 301-redirect to `/tasks?view=…`; `/tasks/tree/<id>` stays as
+a deep-link target; the Deferred filter chip and CSS class are renamed to
+Cancelled while `?deferred=1` still parses via a one-shot-warn shim.
 
 ---
 
@@ -48,26 +76,27 @@ Rationale (from
 
 ---
 
-## 2. Route Map (post-merge)
+## 2. Route Map (shipped)
 
 ```
 /                                PORTAL (unchanged)
-/tasks                           DASHBOARD + TASK EXPLORER (hybrid, NEW)
+/tasks                           DASHBOARD + TASK EXPLORER (hybrid) — SHIPPED T956
 /tasks/[id]                      DETAIL (unchanged)
 /tasks/pipeline                  RCASD-IVTR+C KANBAN (unchanged — by pipeline_stage)
 /tasks/sessions                  SESSION HISTORY (unchanged)
 /tasks/tree/[epicId]             DEEP-LINK EPIC TREE (unchanged — shareable)
 
-DEPRECATED (301 redirect, preserve query params):
+301 REDIRECT (shipped T957 · commit 27e7e26b2 — preserve query params):
 /tasks/graph        → /tasks?view=graph                 (preserve ?archived, ?epic)
 /tasks/tree         → /tasks?view=hierarchy             (no epicId)
-/tasks/tree/<id>    → stays (deep-link), but UI surfaces "Open in Explorer →"
+/tasks/tree/<id>    → stays (deep-link); UI surfaces "Open in Explorer →"
                      linking to /tasks?view=hierarchy&epic=<id>
 ```
 
 Source: merge of
 `.cleo/agent-outputs/T910-docs-audit/studio-tasks-ui-audit.md` §6 and
-`studio-tasks-architecture.md` §3.1, operator-approved.
+`studio-tasks-architecture.md` §3.1, operator-approved and shipped
+2026-04-19 in v2026.4.97.
 
 ---
 
@@ -396,7 +425,7 @@ Shared across the Task Explorer (NOT the top dashboard panel):
 | `↑ / ↓ / ← / →` | Tab-specific navigation (see §5.2, §5.3, §5.4) |
 | `Enter` | Open detail drawer for focused node/row/card |
 | `Space` | Toggle expand/collapse (hierarchy only) |
-| `Ctrl/Cmd + K` | Global search palette (future — @HITL) |
+| `Ctrl/Cmd + K` | Global search palette — deferred follow-up (see §12 Q5) |
 
 Source: viz baseline
 (`/tmp/task-viz/index.html:1510-1518`).
@@ -433,64 +462,69 @@ Redirect rules (301, preserve query string):
 
 ---
 
-## 9. Preservation Checklist (BINDING)
+## 9. Preservation Checklist (SHIPPED)
 
-Every item below MUST ship or the merge PR is rejected.
+Every item below SHIPPED in v2026.4.97. The checklist is retained as
+verified ship evidence; boxes are checked to reflect merged state.
 
-### Priority 1 — non-negotiable
+### Priority 1 — non-negotiable (SHIPPED)
 
-- [ ] **Epic Progress panel** (direct-children per T874, deferred toggle,
+- [x] **Epic Progress panel** (direct-children per T874, cancelled toggle,
   per-epic progress bar). Source:
-  `packages/studio/src/routes/tasks/+page.svelte:371-409`.
-- [ ] **Recent Activity feed** (last 20 by `updated_at`, `formatTime()`).
-  Source: `+page.svelte:412-434`.
-- [ ] **Live SSE indicator** (2s poll, heartbeat). Source:
-  `+page.svelte:186-202` + `/api/tasks/events`.
-- [ ] **URL-round-tripped filter state** (`?deferred`, `?archived`, `?epic`).
-  SSR-correct, shareable.
-- [ ] **Full task detail page** `/tasks/[id]` (1436 lines incl. verification
-  gates, MANIFEST, linked commits, acceptance criteria) — unchanged.
-- [ ] **Three-kind edges in graph** (parent / blocks / depends with distinct
-  dash styles). Source: `graph/+page.server.ts:130-178`.
-- [ ] **Dep badges with counts** `↑N / ↓N` on hierarchy nodes.
-- [ ] **I/T/Q gate icons** on hierarchy AND kanban cards.
-- [ ] **RCASD-IVTR+C Pipeline Board at `/tasks/pipeline`** — unchanged.
-- [ ] **"Design / ADR" label override** for `architecture_decision` (T880).
-  Source: `pipeline/+page.server.ts:58`.
-- [ ] **Terminal-status column resolver** — `status = 'done'` wins over
-  `pipeline_stage = 'research'`. Source: `pipeline/+page.server.ts:97-111`.
-- [ ] **Server-side recursive CTE with 500-task cap** on hierarchy. Source:
-  `tree/[epicId]/+page.server.ts:118-150`.
-- [ ] **Arrow-key card navigation** on pipeline kanban.
-- [ ] **Epic Progress rows link to `/tasks/tree/{id}`**, NOT the new
-  Explorer (keeps existing deep-link target).
+  `packages/studio/src/routes/tasks/+page.svelte`. Ship: T956 `a84aac01a`.
+- [x] **Recent Activity feed** (last 20 by `updated_at`, `formatTime()`).
+  Ship: T956 `a84aac01a`.
+- [x] **Live SSE indicator** (2s poll, heartbeat) + `/api/tasks/events`.
+  Ship: T956 `a84aac01a`.
+- [x] **URL-round-tripped filter state** (`?deferred`/`?cancelled`,
+  `?archived`, `?epic`). SSR-correct, shareable. Ship: T951 `5f0da1777`.
+- [x] **Full task detail page** `/tasks/[id]` — unchanged.
+- [x] **Three-kind edges in graph** (parent / blocks / depends). Ship: T954
+  `4481a8c03`.
+- [x] **Dep badges with counts** `↑N / ↓N` on hierarchy nodes. Ship: T950
+  `1e534911d` (DepBadges.svelte) + T953 `b0a27f897`.
+- [x] **I/T/Q gate icons** on hierarchy AND kanban cards. Ship: T950
+  `1e534911d` (GateBadges.svelte) + T955 `13a659390`.
+- [x] **RCASD-IVTR+C Pipeline Board at `/tasks/pipeline`** — unchanged.
+- [x] **"Design / ADR" label override** for `architecture_decision` (T880)
+  — unchanged.
+- [x] **Terminal-status column resolver** (`status = 'done'` wins over
+  `pipeline_stage = 'research'`) — unchanged.
+- [x] **Server-side recursive CTE with 500-task cap** on hierarchy —
+  unchanged; `_computeExplorerPayload` layers above. Ship: T952 `de45aba60`.
+- [x] **Arrow-key card navigation** on pipeline kanban — unchanged.
+- [x] **Epic Progress rows link to `/tasks/tree/{id}`** — unchanged deep-link.
 
-### Priority 2 — nice to keep
+### Priority 2 — nice to keep (SHIPPED)
 
-- [ ] Mini Sigma graph in tree side-panel (at
-  `/tasks/tree/[epicId]` deep-link view).
-- [ ] Stats cards with border-color per status.
-- [ ] Priority horizontal bars.
-- [ ] `/tasks/sessions` route — unchanged.
-- [ ] Search with 250ms debounce + AbortController + navigate-on-exact-id.
-- [ ] Graph hover tooltip panel top-right.
+- [x] Mini Sigma graph in tree side-panel (`/tasks/tree/[epicId]` view).
+- [x] Stats cards with border-color per status.
+- [x] Priority horizontal bars.
+- [x] `/tasks/sessions` route — unchanged.
+- [x] Search with 250ms debounce + AbortController + navigate-on-exact-id.
+  Ship: T951 `5f0da1777`.
+- [x] Graph hover tooltip panel. Ship: T954 `4481a8c03`.
 
-### Priority 3 — new features from viz
+### Priority 3 — new features from viz (SHIPPED)
 
-- [ ] **Pinned detail drawer** (replaces full-page nav on Explorer tabs).
-- [ ] **Labels filter** end-to-end.
-- [ ] **Status + priority chip multi-select**.
-- [ ] **Global hierarchy view** (all tasks, not epic-scoped).
-- [ ] **Blocked halo** on graph.
-- [ ] **Live "X of Y tasks" counter** in header.
-- [ ] **Keyboard shortcuts** (§7).
-- [ ] **Status-kanban tab** (distinct from pipeline-kanban).
-- [ ] **Unparented tasks surfaced** in global hierarchy.
-- [ ] **Epic nodes as rounded rectangles** on graph.
+- [x] **Pinned detail drawer** (replaces full-page nav on Explorer tabs).
+  Ship: T950 `1e534911d` (TaskDetailDrawer.svelte).
+- [x] **Labels filter** end-to-end. Ship: T951 `5f0da1777` + T952 `de45aba60`.
+- [x] **Status + priority chip multi-select**. Ship: T950 `1e534911d`
+  (TaskFilterBar.svelte).
+- [x] **Global hierarchy view** (all tasks, not epic-scoped). Ship: T953
+  `b0a27f897`.
+- [x] **Blocked halo** on graph. Ship: T954 `4481a8c03`.
+- [x] **Live "X of Y tasks" counter** in header. Ship: T956 `a84aac01a`.
+- [x] **Keyboard shortcuts** (§7). Ship: T950 + T953 + T954 + T955.
+- [x] **Status-kanban tab** (distinct from pipeline-kanban). Ship: T955
+  `13a659390`.
+- [x] **Unparented tasks surfaced** in global hierarchy. Ship: T953 `b0a27f897`.
+- [x] **Epic nodes as rounded rectangles** on graph. Ship: T954 `4481a8c03`.
 
 ---
 
-## 10. Deferred Label — Rename Recommendation
+## 10. Deferred Label — Rename (SHIPPED T958 · `708718a08`)
 
 Per `docs/specs/CLEO-TASKS-API-SPEC.md` §4 and the evidence at
 `.cleo/agent-outputs/T910-docs-audit/task-schema-audit.md`:
@@ -499,7 +533,7 @@ Per `docs/specs/CLEO-TASKS-API-SPEC.md` §4 and the evidence at
 - It is a Studio-UI-only synonym for `status = 'cancelled'` applied to
   `type = 'epic'`, toggled by `?deferred=1`.
 
-**MUST ship** in this merge:
+**Shipped in T958** (`708718a08`):
 
 - UI text change: filter chip label "Show deferred epics" → **"Show
   cancelled epics"**.
@@ -507,17 +541,18 @@ Per `docs/specs/CLEO-TASKS-API-SPEC.md` §4 and the evidence at
   "deferred").
 - CSS class rename: `.epic-deferred` → `.epic-cancelled`.
 
-**MUST NOT change** in this merge (backward compatibility):
+**Unchanged** (backward compatibility — shipped):
 
-- URL query param `?deferred=1` still parsed (aliased to the cancelled filter).
+- URL query param `?deferred=1` still parses (aliased to the cancelled
+  filter) via a one-shot-warn shim.
 - Existing bookmarks continue to work.
-- Server-side log records BOTH names during the deprecation window.
+- Server-side log records both names during the deprecation window.
 
 **Deprecation window**: one release cycle. In the following release, the URL
 param MAY be renamed to `?cancelled=1`, with a redirect from the old name.
 
-Filed as `@HITL` Q1 in `CLEO-TASKS-API-SPEC.md` §11 — the operator
-approved the direction on 2026-04-17.
+Filed as `@HITL` Q1 in `CLEO-TASKS-API-SPEC.md` §11 — operator approved
+2026-04-17; shipped 2026-04-19.
 
 ---
 
@@ -541,55 +576,88 @@ top panel and each Explorer tab.
 
 ---
 
-## 12. Open UX Questions
+## 12. UX Questions — Resolved at Ship (v2026.4.97)
 
-These are `@HITL` items that surfaced from the audits. Each has a
-recommendation; operator override supersedes.
+All `@HITL` items surfaced in the audits were resolved prior to merge.
+Recorded here for decision traceability; originals preserved in
+`.cleo/agent-outputs/T910-docs-audit/`.
 
-- **Q1 — Detail drawer vs full-page nav default** (`@HITL`). Primary click
-  opens drawer; secondary or `Ctrl`-click opens `/tasks/{id}` in a new tab.
-  Recommended: YES to drawer-first.
-- **Q2 — Virtualization threshold** (`@HITL`). Hierarchy virtualizes above
-  N nodes. What N? Recommended: 1000 per
-  `studio-tasks-architecture.md` §Q5.
-- **Q3 — Labels in the graph tab** (`@HITL`). Label pills on nodes
-  (crowded) vs label dropdown filter only? Recommended: dropdown only.
-- **Q4 — Sessions in Explorer** (`@HITL`). Should sessions become a 4th
-  Explorer tab or stay at `/tasks/sessions`? Recommended: stay.
-- **Q5 — Global search palette** (`@HITL`). Add `Ctrl/Cmd+K` palette
-  spanning all projects? Out of scope for this PR; track as follow-up.
-- **Q6 — Unparented task policy** (`@HITL`). Surface them under a
-  separate "Unparented" bucket in Hierarchy, or hide them? Recommended:
-  surface — data-quality signal worth seeing.
-- **Q7 — vis-network revisit** (`@HITL`). Post-ship, if operators ask for
-  richer graph UX (pinning, annotation), revisit vis-network vs
-  d3-force + `<rect>`. Not in this PR.
+- **Q1 — Detail drawer vs full-page nav default.** RESOLVED: drawer-first.
+  Primary click opens the pinned drawer; the drawer includes an "Open full
+  page →" button that navigates to `/tasks/{id}`. Shipped in T950
+  (`1e534911d`, `TaskDetailDrawer.svelte`).
+- **Q2 — Virtualization threshold.** RESOLVED: 1000 nodes. Hierarchy tab
+  virtualizes when the visible set exceeds 1000. Shipped in T953
+  (`b0a27f897`).
+- **Q3 — Labels in the graph tab.** RESOLVED: dropdown filter only. No
+  label pills rendered on graph nodes (kept readable). Shipped in T954
+  (`4481a8c03`).
+- **Q4 — Sessions in Explorer.** RESOLVED: stay at `/tasks/sessions`. Not
+  added as a 4th Explorer tab.
+- **Q5 — Global search palette (`Ctrl/Cmd+K`).** DEFERRED — not in T949
+  scope. Tracked as a follow-up initiative.
+- **Q6 — Unparented task policy.** RESOLVED: surface under an "Unparented"
+  root bucket in Hierarchy (data-quality signal worth seeing). Shipped in
+  T953 (`b0a27f897`).
+- **Q7 — vis-network revisit.** DEFERRED. d3-force with `<rect>` epic nodes
+  was sufficient; vis-network switch not needed. Revisit only if operators
+  request richer graph UX (pinning, annotation) post-ship.
 
 ---
 
-## 13. Migration Plan
+## 12A. Lessons Learned (ship-time surprises)
+
+Captured from commit `9d67aa890` (SSR render + dedupe hotfix) and the
+Svelte 5 rune-module migration surfaced during the T955/T956 merge.
+
+- **GraphTab `{#each simNodes as n (n.id)}` needed dedupe.** ExplorerBundle
+  can yield duplicate `id` values at boundary conditions (e.g. a task that
+  is both parent-resolved and depends-resolved through the same hop).
+  Svelte 5's `each_key_duplicate` check is strict; the each-key uniqueness
+  invariant was silently assumed. Fix landed in `9d67aa890`: dedupe by
+  `Map<id, node>` before projection into d3-force.
+- **`{#if filters}` guard with `filters` only set in `$effect` meant zero
+  SSR render for the Explorer.** The Task Explorer initially mounted no
+  content during SSR because `filters` was populated lazily by an effect
+  that never runs on the server. Fix: (a) move filter initialization to an
+  eager `$state` value derived from `url.searchParams`, so SSR gets the
+  tabs; (b) make the filter store SSR-safe by skipping `popstate` subscription
+  and `history.replaceState` when `window` is undefined.
+- **Svelte 5 runes in `.ts` modules require the `.svelte.ts` suffix** plus
+  the vitest svelte plugin configured for that extension. Hit during T951
+  when the filter store was first written as `filters.ts`; renamed to
+  `filters.svelte.ts` to get rune support.
+
+---
+
+## 13. Migration Plan — Execution Record
 
 Per
-`.cleo/agent-outputs/T910-docs-audit/studio-tasks-architecture.md` §3:
+`.cleo/agent-outputs/T910-docs-audit/studio-tasks-architecture.md` §3.
+All steps SHIPPED in v2026.4.97.
 
-1. **Extract shared helpers** to `lib/tasks/format.ts` (deduplicate
-   `priorityClass` / `statusIcon` / `statusClass` / `gatesFromJson` /
-   `formatTime`).
-2. **Extract existing components** (`EpicProgressCard`,
-   `RecentActivityFeed`, `LiveIndicator`) under
-   `lib/components/tasks/`.
-3. **Build new components** (`TaskFilterBar`, `TaskDetailDrawer`,
+1. [x] **Shared helpers** at `lib/tasks/format.ts`. Ship: T950 `1e534911d`.
+2. [x] **Extract existing components** (`EpicProgressCard`,
+   `RecentActivityFeed`, `LiveIndicator`) under `lib/components/tasks/`.
+   Ship: T950 `1e534911d`.
+3. [x] **Build new components** (`TaskFilterBar`, `TaskDetailDrawer`,
    `DependencyGraph`, `HierarchyTree`, `StatusKanban`, `TaskCard`,
-   `StatusBadge`, `PriorityBadge`, `GateBadges`, `DepBadges`,
-   `TasksNav`).
-4. **Add `_computeExplorerPayload(db, filters)`** in `+page.server.ts`.
-5. **Wire Explorer into `+page.svelte`** below the dashboard panel.
-6. **Implement redirects** (`/tasks/graph` → `/tasks?view=graph`, etc.).
-7. **Update filter label** per §10 (Deferred → Cancelled).
-8. **Add axe-core smoke test** per §11.
-9. **Add preservation-checklist tests** covering every item in §9.
-10. **Update `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §2** with any new
-    endpoints introduced (likely `/api/tasks/label.list` for Labels filter).
+   `StatusBadge`, `PriorityBadge`, `GateBadges`, `DepBadges`, `TasksNav`).
+   Ship: T950 `1e534911d` (8 shared Svelte 5 components).
+4. [x] **`_computeExplorerPayload(db, filters)`** in `+page.server.ts`.
+   Ship: T952 `de45aba60`.
+5. [x] **Wire Explorer into `+page.svelte`** below the dashboard panel.
+   Ship: T956 `a84aac01a`.
+6. [x] **Redirects** (`/tasks/graph` → `/tasks?view=graph`, `/tasks/tree` →
+   `/tasks?view=hierarchy`). Ship: T957 `27e7e26b2`.
+7. [x] **Filter label** per §10 (Deferred → Cancelled). Ship: T958
+   `708718a08`.
+8. [x] **axe-core smoke test** per §11. Ship: T959 (e2e playwright +
+   accessibility smoke).
+9. [x] **Preservation-checklist tests** covering every item in §9. Ship:
+   T959.
+10. [x] **Companion spec updates** (`CLEO-STUDIO-HTTP-SPEC.md` for
+    `/api/tasks/label.list`). Ship: T962.
 
 ---
 
