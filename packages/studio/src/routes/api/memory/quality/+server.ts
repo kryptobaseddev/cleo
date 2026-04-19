@@ -1,6 +1,6 @@
 /**
- * Brain quality distribution API endpoint.
- * GET /api/brain/quality → quality distribution stats across all brain tables.
+ * Memory quality distribution API endpoint.
+ * GET /api/memory/quality → quality distribution stats across all brain tables.
  */
 
 import { json } from '@sveltejs/kit';

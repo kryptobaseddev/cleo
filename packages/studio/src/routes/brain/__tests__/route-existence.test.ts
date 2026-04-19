@@ -97,8 +97,16 @@ describe('route tree — T649 route rename', () => {
       expect(existsSync(route('tasks'))).toBe(true);
     });
 
-    it('API routes untouched — /api/living-brain still present', () => {
-      expect(existsSync(route('api/living-brain'))).toBe(true);
+    it('API super-graph route renamed — /api/brain present (formerly /api/living-brain)', () => {
+      expect(existsSync(route('api/brain'))).toBe(true);
+    });
+
+    it('API super-graph route — /api/living-brain is gone (renamed to /api/brain)', () => {
+      expect(existsSync(route('api/living-brain'))).toBe(false);
+    });
+
+    it('API memory surface present — /api/memory (formerly /api/brain for observations)', () => {
+      expect(existsSync(route('api/memory'))).toBe(true);
     });
   });
 });

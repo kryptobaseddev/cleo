@@ -4,9 +4,9 @@
  * Loads the **full** unified graph on first paint.  Owner mandate (2026-04-15):
  * the canvas should always look complete — no half-payload first paint.
  *
- * @note The underlying API route is `/api/living-brain` for historical reasons
- * (the route was originally served at `/living-brain`). A rename of the API
- * path is deferred to a future task to avoid churn in other consumers.
+ * @note The underlying API route is `/api/brain` (unified super-graph surface
+ * wrapping memory + nexus + tasks + conduit + signaldock substrates). Memory
+ * observations/patterns/decisions are served separately at `/api/memory/*`.
  */
 
 import { getAllSubstrates, type LBGraph } from '@cleocode/brain';
