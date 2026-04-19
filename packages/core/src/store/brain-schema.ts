@@ -628,7 +628,29 @@ export const brainSchemaMeta = sqliteTable('brain_schema_meta', {
  * Node types for the graph-native memory model.
  * Mirrors typed tables (decision, pattern, learning, observation, sticky),
  * adds task provenance (task, session, epic), codebase bridging (file, symbol),
- * and abstract/synthesized types (concept, summary).
+ * abstract/synthesized types (concept, summary), cross-substrate bridges
+ * (msg, llmtxt, commit), and fills in the universal semantic graph for T945.
+ *
+ * Node ID format: `<type>:<source-id>`.
+ *
+ * Supported prefixes:
+ * - `decision:D-<hash>`         — brain_decisions row
+ * - `pattern:P-<hash>`          — brain_patterns row
+ * - `learning:L-<hash>`         — brain_learnings row
+ * - `observation:O-<hash>-<n>`  — brain_observations row
+ * - `sticky:<id>`               — brain_sticky row (scratchpad)
+ * - `task:T###`                 — tasks.db row (soft FK)
+ * - `session:ses_<ts>_<rand>`   — tasks.db session row (soft FK)
+ * - `epic:T###`                 — tasks.db epic row (soft FK)
+ * - `file:<relative-path>`      — nexus.db file node (soft FK)
+ * - `symbol:<path>::<name>`     — nexus.db symbol node (soft FK)
+ * - `concept:<slug>`            — abstract concept (synthesized)
+ * - `summary:<hash>`            — synthesized summary node
+ * - `msg:<messageId>`           — CONDUIT message (T945 Stage A) — soft FK into conduit.db
+ * - `llmtxt:<sha256>`           — llmtxt blob attachment (T945 Stage A) — content-addressable
+ * - `commit:<sha>`              — git commit (T945 Stage A) — Tier 3 autonomy audit
+ *
+ * @task T945
  */
 export const BRAIN_NODE_TYPES = [
   // Memory entity types (mirror typed tables)
@@ -647,6 +669,10 @@ export const BRAIN_NODE_TYPES = [
   // Abstract / synthesized
   'concept',
   'summary',
+  // Cross-substrate bridges (T945 Stage A — universal semantic graph)
+  'msg', // CONDUIT message node — `msg:<messageId>`
+  'llmtxt', // llmtxt attachment blob — `llmtxt:<sha256>` (content-addressable)
+  'commit', // git commit node — `commit:<sha>` (Tier 3 autonomy audit)
 ] as const;
 
 /** Discriminated union of all supported brain graph node types. */
@@ -655,8 +681,14 @@ export type BrainNodeType = (typeof BRAIN_NODE_TYPES)[number];
 /**
  * Edge types for the graph-native memory model.
  * Covers provenance/derivation, semantic relationships, structural links,
- * graph bridging between memory entities and codebase nodes, and plastic
- * Hebbian/STDP edges.
+ * graph bridging between memory entities and codebase nodes, plastic
+ * Hebbian/STDP edges, and T945 Stage A cross-substrate relationships.
+ *
+ * Directionality convention: `from_id` is the source/subject; `to_id` is
+ * the target/object. The edge type phrase reads naturally left-to-right
+ * (e.g. `task:T1 → blocks → task:T2` means T1 blocks T2).
+ *
+ * @task T945
  */
 export const BRAIN_EDGE_TYPES = [
   // Provenance / derivation
@@ -680,6 +712,12 @@ export const BRAIN_EDGE_TYPES = [
   'mentions', // observation → mentions → symbol name (weak reference)
   // Plasticity (Hebbian + STDP co-retrieval)
   'co_retrieved', // A → co_retrieved → B (Hebbian: frequently retrieved together)
+  // T945 Stage A — universal semantic graph
+  'blocks', // task → blocks → task (dependency: A blocks B = B waits on A)
+  'discusses', // msg → discusses → task/decision/epic (CONDUIT message bridge)
+  'cites', // decision/observation → cites → llmtxt/file (research citation)
+  'embeds', // task/observation → embeds → llmtxt (attachment ownership)
+  'touches_code', // task → touches_code → file/symbol (more specific than code_reference)
 ] as const;
 
 /** Discriminated union of all supported brain graph edge types. */
@@ -693,9 +731,12 @@ export type BrainEdgeType = (typeof BRAIN_EDGE_TYPES)[number];
  * the source of truth; the graph node is the index entry for traversal
  * and cross-entity reasoning.
  *
- * Node ID convention: '<type>:<source-id>'
+ * Node ID convention: '<type>:<source-id>' — see BRAIN_NODE_TYPES docstring
+ * for the authoritative prefix list.
+ *
  * Examples: 'decision:D-abc123', 'observation:O-mntphoj6-0',
- *           'task:T523', 'symbol:src/store/brain-schema.ts::brainPageNodes'
+ *           'task:T523', 'symbol:src/store/brain-schema.ts::brainPageNodes',
+ *           'msg:msg_abc123', 'llmtxt:9f2a...sha256', 'commit:04021568a'
  */
 export const brainPageNodes = sqliteTable(
   'brain_page_nodes',

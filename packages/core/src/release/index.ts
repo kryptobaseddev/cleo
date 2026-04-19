@@ -69,6 +69,7 @@ export { checkDoubleListing, checkEpicCompleteness } from './guards.js';
 export type {
   ChannelConfig,
   GitFlowConfig,
+  ProjectReleaseConfig,
   PushMode,
   ReleaseConfig,
   ReleaseGate,

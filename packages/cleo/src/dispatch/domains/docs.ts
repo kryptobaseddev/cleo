@@ -396,6 +396,22 @@ export class DocsHandler implements DomainHandler {
 
             const meta = await store.put(bytes, attachment, ownerType, ownerId, attachedBy);
 
+            // T945 Stage A — mint `llmtxt:<sha256>` graph node + `embeds` edge
+            // from owner to blob. Best-effort: wrapped in fire-and-forget so
+            // graph-layer failure never blocks the attachment write path.
+            import('@cleocode/core/internal')
+              .then(({ ensureLlmtxtNode }) =>
+                ensureLlmtxtNode(
+                  getProjectRoot(),
+                  meta.sha256,
+                  `${ownerType}:${ownerId}`,
+                  absPath.split('/').pop() ?? meta.sha256.slice(0, 12),
+                ),
+              )
+              .catch(() => {
+                /* Graph population is best-effort — never fail docs add. */
+              });
+
             return {
               meta: dispatchMeta('mutate', 'docs', operation, startTime),
               success: true,
@@ -422,6 +438,16 @@ export class DocsHandler implements DomainHandler {
             // For URL-only attachments, use the URL as content so we have a sha256
             const urlBytes = Buffer.from(url, 'utf-8');
             const meta = await store.put(urlBytes, attachment, ownerType, ownerId, attachedBy);
+
+            // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge for the
+            // URL attachment (the URL itself is the content-addressable identity).
+            import('@cleocode/core/internal')
+              .then(({ ensureLlmtxtNode }) =>
+                ensureLlmtxtNode(getProjectRoot(), meta.sha256, `${ownerType}:${ownerId}`, url),
+              )
+              .catch(() => {
+                /* Graph population is best-effort — never fail docs add. */
+              });
 
             return {
               meta: dispatchMeta('mutate', 'docs', operation, startTime),

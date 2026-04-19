@@ -80,6 +80,53 @@ export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
 /** Task types matching DB CHECK constraint on tasks.type. */
 export const TASK_TYPES = ['epic', 'task', 'subtask'] as const;
 
+/**
+ * Task role axis — orthogonal to {@link TASK_TYPES}, describes the intent of the
+ * work rather than its position in the hierarchy.
+ *
+ * Added by T944 as an additive second axis so `type` (hierarchy) and `role`
+ * (intent) can vary independently. Defaults to `'work'` to preserve existing
+ * semantics for the ~948 tasks already in production.
+ *
+ * @task T944
+ */
+export const TASK_ROLES = ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const;
+
+/** Union type for {@link TASK_ROLES}. */
+export type TaskRole = (typeof TASK_ROLES)[number];
+
+/**
+ * Task scope axis — describes the granularity of the work (project-wide vs.
+ * feature-scoped vs. unit-scoped). Orthogonal to type and role.
+ *
+ * Backfill mapping from legacy `type` during migration:
+ * - `type='epic'`    → `scope='project'`
+ * - `type='task'`    → `scope='feature'` (also used for NULL legacy rows)
+ * - `type='subtask'` → `scope='unit'`
+ *
+ * @task T944
+ */
+export const TASK_SCOPES = ['project', 'feature', 'unit'] as const;
+
+/** Union type for {@link TASK_SCOPES}. */
+export type TaskScope = (typeof TASK_SCOPES)[number];
+
+/**
+ * Bug severity axis — ONLY applies when `role='bug'`. Enforced by a composite
+ * CHECK constraint (`severity IS NULL OR (severity IN (...) AND role='bug')`).
+ *
+ * OWNER-WRITE-ONLY (T944 / owner mandate): severity is meant to be set through
+ * owner-authenticated paths only, not by Tier 3 agents. This prevents a
+ * prompt-injection exploit where a compromised agent could mark a P0 bug as
+ * P3 to force-ship.
+ *
+ * @task T944
+ */
+export const TASK_SEVERITIES = ['P0', 'P1', 'P2', 'P3'] as const;
+
+/** Union type for {@link TASK_SEVERITIES}. */
+export type TaskSeverity = (typeof TASK_SEVERITIES)[number];
+
 /** Task size values matching DB CHECK constraint on tasks.size. */
 export const TASK_SIZES = ['small', 'medium', 'large'] as const;
 
@@ -151,6 +198,21 @@ export const tasks = sqliteTable(
       .notNull()
       .default('medium'),
     type: text('type', { enum: TASK_TYPES }),
+    /**
+     * Task role axis — orthogonal to `type`. Defaults to `'work'`.
+     * See {@link TASK_ROLES}. Added by T944.
+     */
+    role: text('role', { enum: TASK_ROLES }).notNull().default('work'),
+    /**
+     * Task scope axis — granularity of the work. Defaults to `'feature'`.
+     * See {@link TASK_SCOPES}. Added by T944.
+     */
+    scope: text('scope', { enum: TASK_SCOPES }).notNull().default('feature'),
+    /**
+     * Bug severity. ONLY valid when `role='bug'`. NULL otherwise.
+     * OWNER-WRITE-ONLY. See {@link TASK_SEVERITIES}. Added by T944.
+     */
+    severity: text('severity', { enum: TASK_SEVERITIES }),
     parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id, {
       onDelete: 'set null',
     }),
@@ -215,6 +277,10 @@ export const tasks = sqliteTable(
     index('idx_tasks_status_priority').on(table.status, table.priority),
     index('idx_tasks_type_phase').on(table.type, table.phase),
     index('idx_tasks_status_archive_reason').on(table.status, table.archiveReason),
+    // T944 role/scope axes
+    index('idx_tasks_role').on(table.role),
+    index('idx_tasks_scope').on(table.scope),
+    index('idx_tasks_role_status').on(table.role, table.status),
   ],
 );
 
@@ -969,6 +1035,46 @@ export const attachmentRefs = sqliteTable(
   ],
 );
 
+// === EXPERIMENTS SIDE-TABLE (T944) ===
+
+/**
+ * Experiment metadata side-table, keyed 1:1 to `tasks.id` for rows where
+ * `tasks.role='experiment'`.
+ *
+ * Tracks sandbox/branch state and metrics delta for experimental work so the
+ * main `tasks` table stays clean and sparse. Cascades on task deletion.
+ *
+ * @task T944
+ */
+export const experiments = sqliteTable(
+  'experiments',
+  {
+    /** Owning task ID. Primary key + cascade FK to {@link tasks}. */
+    taskId: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Git branch used as the experiment sandbox (nullable until created). */
+    sandboxBranch: text('sandbox_branch'),
+    /** Baseline commit SHA the experiment forked from. */
+    baselineCommit: text('baseline_commit'),
+    /** ISO 8601 timestamp when the experiment merged back (null = open). */
+    mergedAt: text('merged_at'),
+    /** Optional receipt ID linking to an audit/receipt record. */
+    receiptId: text('receipt_id'),
+    /** JSON-serialised metrics delta between baseline and experiment. */
+    metricsDeltaJson: text('metrics_delta_json'),
+    /** ISO 8601 timestamp of row creation. */
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    /** ISO 8601 timestamp of last update. */
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index('idx_experiments_merged').on(table.mergedAt)],
+);
+
 // === TYPE EXPORTS ===
 
 export type AttachmentRow = typeof attachments.$inferSelect;
@@ -1010,6 +1116,9 @@ export type ReleaseManifestRow = typeof releaseManifests.$inferSelect;
 export type NewReleaseManifestRow = typeof releaseManifests.$inferInsert;
 export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;
 export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
+// T944 experiments side-table row types
+export type ExperimentRow = typeof experiments.$inferSelect;
+export type NewExperimentRow = typeof experiments.$inferInsert;
 
 // agent_credentials REMOVED from tasks.db — T234 clean-cut.
 // Agent data (identity, credentials, capabilities, skills) now lives
