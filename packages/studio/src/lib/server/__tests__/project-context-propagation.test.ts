@@ -62,30 +62,41 @@ const OTHER_CTX = {
 // Hook handler import
 // ---------------------------------------------------------------------------
 
-type HandleFn = (args: {
-  event: {
-    cookies: { get: (name: string) => string | undefined };
-    locals: Record<string, unknown>;
+interface StubEvent {
+  cookies: {
+    get: (name: string) => string | undefined;
+    set: (name: string, value: string, opts: Record<string, unknown>) => void;
   };
-  resolve: () => Promise<Response>;
-}) => Promise<Response>;
+  locals: Record<string, unknown>;
+  url: URL;
+  request: Request;
+}
+
+type HandleFn = (args: { event: StubEvent; resolve: () => Promise<Response> }) => Promise<Response>;
 
 async function importHandle(): Promise<{ handle: HandleFn }> {
-  return import('../../../hooks.server.js') as Promise<{ handle: HandleFn }>;
+  return import('../../../hooks.server.js') as unknown as Promise<{ handle: HandleFn }>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Builds a minimal event object with a cookie jar and empty locals. */
-function makeEvent(cookieValue: string | undefined): {
-  cookies: { get: (name: string) => string | undefined };
-  locals: Record<string, unknown>;
-} {
+/**
+ * Builds a minimal event object the hook consumes:
+ *   - cookies.get returns the supplied cookie value
+ *   - cookies.set is a no-op stub (required by refreshCsrfToken in Wave 1E)
+ *   - url + request are benign GETs to a non-guarded path
+ */
+function makeEvent(cookieValue: string | undefined): StubEvent {
   return {
-    cookies: { get: () => cookieValue },
+    cookies: {
+      get: () => cookieValue,
+      set: () => undefined,
+    },
     locals: {},
+    url: new URL('http://localhost:3456/'),
+    request: new Request('http://localhost:3456/', { method: 'GET' }),
   };
 }
 

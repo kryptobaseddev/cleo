@@ -79,31 +79,31 @@
   }
 
   .priority-critical .stripe {
-    background: #f43f5e;
-    box-shadow: 0 0 4px rgba(244, 63, 94, 0.5);
+    background: var(--priority-critical);
+    box-shadow: 0 0 4px color-mix(in srgb, var(--priority-critical) 50%, transparent);
   }
   .priority-critical {
-    color: #fca5a5;
+    color: color-mix(in srgb, var(--priority-critical) 65%, var(--text));
   }
 
   .priority-high .stripe {
-    background: #ef4444;
+    background: var(--priority-high);
   }
   .priority-high {
-    color: #fca5a5;
+    color: color-mix(in srgb, var(--priority-high) 65%, var(--text));
   }
 
   .priority-medium .stripe {
-    background: #f59e0b;
+    background: var(--priority-medium);
   }
   .priority-medium {
-    color: #f59e0b;
+    color: var(--priority-medium);
   }
 
   .priority-low .stripe {
-    background: #6b7280;
+    background: var(--priority-low);
   }
   .priority-low {
-    color: #9ca3af;
+    color: var(--text-dim);
   }
 </style>

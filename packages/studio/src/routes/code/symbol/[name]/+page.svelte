@@ -1,457 +1,728 @@
+<!--
+  /code/symbol/[name] — ego network (2-hop).
+
+  Two color modes:
+    1. Hop — center amber, hop-1 blue, hop-2 slate (default)
+    2. Kind — substrate-native palette (kit default)
+
+  Edge styling is always kind-driven; node colour is the toggle.
+
+  @task T990
+  @wave 1B
+-->
 <script lang="ts">
   import type { PageData } from './$types';
-  import NexusGraph from '$lib/components/NexusGraph.svelte';
+  import { goto } from '$app/navigation';
+
+  import CosmosRenderer from '$lib/graph/renderers/CosmosRenderer.svelte';
+  import {
+    mapNexusRelationToEdgeKind,
+    type NexusNodeRow,
+  } from '$lib/graph/adapters/nexus-adapter.js';
+  import { EDGE_STYLE, describeEdgeKind } from '$lib/graph/edge-kinds.js';
+  import type { EdgeKind, GraphEdge, GraphNode } from '$lib/graph/types.js';
+  import { Breadcrumb, Card, Tabs, TabPanel } from '$lib/ui';
 
   interface Props {
     data: PageData;
   }
   let { data }: Props = $props();
 
-  const HOP_COLORS: Record<number, string> = {
-    0: '#f59e0b', // center — amber
-    1: '#3b82f6', // hop 1 — blue
-    2: '#475569', // hop 2 — muted
+  // ---------------------------------------------------------------
+  // Color modes
+  // ---------------------------------------------------------------
+
+  type ColorMode = 'hop' | 'kind';
+  let colorMode = $state<ColorMode>('hop');
+
+  /**
+   * Hop colour → semantic CSS token.
+   *    hop 0 — amber  (self)
+   *    hop 1 — info   (direct neighbours)
+   *    hop 2 — faint  (two-hop ring)
+   */
+  const HOP_TOKEN: Record<number, string> = {
+    0: 'var(--warning)',
+    1: 'var(--info)',
+    2: 'var(--text-faint)',
   };
 
-  const graphNodes = $derived(
-    data.egoNodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      kind: n.kind,
-      color: HOP_COLORS[n.hop] ?? '#475569',
-      callerCount: n.callerCount,
-      filePath: n.filePath,
-      hop: n.hop,
-    })),
-  );
+  // ---------------------------------------------------------------
+  // Adapt the server payload into the kit shape — we do this
+  // manually (rather than calling adaptNexusRows) because hop
+  // information is first-class here.
+  // ---------------------------------------------------------------
 
-  const graphEdges = $derived(
-    data.egoEdges.map((e) => ({
-      source: e.source,
-      target: e.target,
-      type: e.type,
-    })),
-  );
+  const graphModel = $derived.by(() => {
+    const nodes: GraphNode[] = data.nodes.map((n) => {
+      const tint = colorMode === 'hop' ? HOP_TOKEN[n.hop] : undefined;
+      const meta: Record<string, unknown> = {
+        hop: n.hop,
+        filePath: n.filePath,
+        callerCount: n.callerCount,
+      };
+      if (tint) meta.colorOverride = tint;
+      return {
+        id: n.id,
+        substrate: 'nexus' as const,
+        kind: n.kind || 'symbol',
+        label: n.label,
+        category: n.communityId ?? null,
+        weight: Math.min(1, Math.log10(n.callerCount + 1) / 3),
+        meta,
+      };
+    });
 
-  const centerNode = $derived(data.egoNodes.find((n) => n.hop === 0));
-
-  /** Callers: hop-1 nodes where the edge comes *into* the center. */
-  const callerNodes = $derived(
-    data.egoNodes.filter((n) => {
-      if (n.hop !== 1) return false;
-      return data.egoEdges.some((e) => e.target === centerNode?.id && e.source === n.id);
-    }),
-  );
-
-  /** Callees: hop-1 nodes where the edge goes *out from* the center. */
-  const calleeNodes = $derived(
-    data.egoNodes.filter((n) => {
-      if (n.hop !== 1) return false;
-      return data.egoEdges.some((e) => e.source === centerNode?.id && e.target === n.id);
-    }),
-  );
-
-  /** Nodes that are connected to center but direction is ambiguous (both or neither). */
-  const otherHop1 = $derived(
-    data.egoNodes.filter((n) => {
-      if (n.hop !== 1) return false;
-      const isCaller = data.egoEdges.some((e) => e.target === centerNode?.id && e.source === n.id);
-      const isCallee = data.egoEdges.some((e) => e.source === centerNode?.id && e.target === n.id);
-      return !isCaller && !isCallee;
-    }),
-  );
-
-  /** Human-readable community label for the breadcrumb. */
-  const communityBreadcrumb = $derived((): string => {
-    const commId = centerNode?.communityId;
-    if (!commId) return '';
-    const clusterNum = commId.replace('comm_', '');
-    return `Cluster ${clusterNum}`;
+    const validIds = new Set(nodes.map((n) => n.id));
+    const edges: GraphEdge[] = data.edges
+      .filter((e) => validIds.has(e.source) && validIds.has(e.target) && e.source !== e.target)
+      .map((e, idx) => {
+        const kind = mapNexusRelationToEdgeKind(e.type);
+        return {
+          id: `ego-${idx}-${e.source}-${e.target}-${kind}`,
+          source: e.source,
+          target: e.target,
+          kind,
+          directional: true,
+        };
+      });
+    return { nodes, edges };
   });
+
+  const graphNodes = $derived(graphModel.nodes);
+  const graphEdges = $derived(graphModel.edges);
+
+  // ---------------------------------------------------------------
+  // Edge-kind filter
+  // ---------------------------------------------------------------
+  const EGO_EDGE_KINDS: readonly EdgeKind[] = [
+    'calls',
+    'extends',
+    'implements',
+    'defines',
+    'imports',
+    'has_method',
+    'has_property',
+    'accesses',
+    'references',
+  ];
+
+  let visibleEdgeKinds = $state<Set<EdgeKind>>(new Set(EGO_EDGE_KINDS));
+
+  function toggleEdge(kind: EdgeKind): void {
+    const next = new Set(visibleEdgeKinds);
+    if (next.has(kind)) next.delete(kind);
+    else next.add(kind);
+    visibleEdgeKinds = next;
+  }
+
+  // ---------------------------------------------------------------
+  // Derived categories for the side panel
+  // ---------------------------------------------------------------
+
+  const callerNodes = $derived(
+    data.nodes.filter((n) => {
+      if (n.hop !== 1) return false;
+      return data.edges.some((e) => e.target === data.center?.id && e.source === n.id);
+    }),
+  );
+
+  const calleeNodes = $derived(
+    data.nodes.filter((n) => {
+      if (n.hop !== 1) return false;
+      return data.edges.some((e) => e.source === data.center?.id && e.target === n.id);
+    }),
+  );
+
+  const hop2Count = $derived(data.nodes.filter((n) => n.hop === 2).length);
+
+  function onNodeClick(node: GraphNode): void {
+    if (node.id !== data.center?.id) {
+      void goto(`/code/symbol/${encodeURIComponent(node.label)}`);
+    }
+  }
+
+  const edgeKindCounts = $derived.by(() => {
+    const counts = new Map<EdgeKind, number>();
+    for (const e of graphEdges) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+    return counts;
+  });
+
+  function shortPath(filePath: string): string {
+    const parts = filePath.split('/');
+    return parts.slice(-2).join('/');
+  }
+
+  const breadcrumbs = $derived([
+    { label: 'Studio', href: '/' },
+    { label: 'Code', href: '/code' },
+    ...(data.center?.communityId && data.communityLabel
+      ? [
+          {
+            label: data.communityLabel,
+            href: `/code/community/${encodeURIComponent(data.center.communityId)}`,
+          },
+        ]
+      : []),
+    { label: data.symbolName },
+  ]);
 </script>
 
 <svelte:head>
   <title>{data.symbolName} — Code — CLEO Studio</title>
 </svelte:head>
 
-<div class="symbol-view">
-  <div class="breadcrumb">
-    <a href="/code" class="breadcrumb-link">Code</a>
-    <span class="breadcrumb-sep">/</span>
-    {#if centerNode?.communityId}
-      <a
-        href="/code/community/{encodeURIComponent(centerNode.communityId)}"
-        class="breadcrumb-link"
-      >
-        {communityBreadcrumb}
-      </a>
-      <span class="breadcrumb-sep">/</span>
-    {/if}
-    <span class="breadcrumb-current">{data.symbolName}</span>
-  </div>
-
-  <!-- Context strip: callers / callees summary with back link -->
-  <div class="context-strip">
-    <div class="context-card">
-      <span class="context-card-label">Callers</span>
-      <span class="context-card-value callers-value">{callerNodes.length}</span>
-    </div>
-    <div class="context-card">
-      <span class="context-card-label">Callees</span>
-      <span class="context-card-value callees-value">{calleeNodes.length}</span>
-    </div>
-    <div class="context-card">
-      <span class="context-card-label">Hop-2 nodes</span>
-      <span class="context-card-value">{data.egoNodes.filter((n) => n.hop === 2).length}</span>
-    </div>
-    <div class="context-card">
-      <span class="context-card-label">Edges visible</span>
-      <span class="context-card-value">{data.egoEdges.length}</span>
-    </div>
-    <a
-      href="/brain?scope=nexus"
-      class="canvas-pill"
-    >
-      Open in Canvas &rarr;
-    </a>
-    {#if centerNode?.communityId}
-      <a
-        href="/code/community/{encodeURIComponent(centerNode.communityId)}"
-        class="context-back-link"
-      >
-        <span class="back-arrow">&#8592;</span> Back to {communityBreadcrumb}
-      </a>
-    {:else}
-      <a href="/code" class="context-back-link">
-        <span class="back-arrow">&#8592;</span> Back to Code
-      </a>
-    {/if}
-  </div>
-
-  <div class="page-header">
-    <div>
-      <h1 class="view-title symbol-title">{data.symbolName}</h1>
-      <p class="view-subtitle">
-        {data.egoNodes.length} nodes in ego network &mdash;
-        {centerNode?.kind ?? ''} &mdash;
-        {centerNode?.filePath ?? ''}
-      </p>
-    </div>
-  </div>
-
-  <div class="legend">
-    <span class="legend-item">
-      <span class="legend-dot" style="background: #f59e0b;"></span>
-      Center
-    </span>
-    <span class="legend-item">
-      <span class="legend-dot" style="background: #3b82f6;"></span>
-      Hop 1 (direct)
-    </span>
-    <span class="legend-item">
-      <span class="legend-dot" style="background: #475569;"></span>
-      Hop 2
-    </span>
-    <span class="legend-item legend-edge-hint">
-      <span class="legend-edge-sample"></span>
-      Arrow = calls direction
-    </span>
-  </div>
-
-  <div class="graph-container">
-    <NexusGraph
-      nodes={graphNodes}
-      edges={graphEdges}
-      drillDownBase="/code/symbol/:id"
-      height="calc(100vh - 360px)"
-    />
-  </div>
-
-  {#if callerNodes.length > 0}
-    <div class="context-section">
-      <h2 class="section-title">Callers ({callerNodes.length})</h2>
-      <div class="node-chips">
-        {#each callerNodes as node}
-          <a href="/code/symbol/{encodeURIComponent(node.label)}" class="node-chip chip-caller">
-            <span class="chip-label">{node.label}</span>
-            <span class="chip-kind">{node.kind}</span>
-          </a>
-        {/each}
+<section class="symbol-view" aria-labelledby="symbol-title">
+  <header class="page-head">
+    <Breadcrumb items={breadcrumbs} />
+    <div class="title-row">
+      <div>
+        <span class="eyebrow">NEXUS · Ego</span>
+        <h1 id="symbol-title" class="sym-title">{data.symbolName}</h1>
+        <p class="subtitle">
+          {#if data.center}
+            <span class="kind-badge">{data.center.kind}</span>
+            {#if data.center.filePath}
+              <span class="sep" aria-hidden="true">·</span>
+              <span class="path">{data.center.filePath}</span>
+            {/if}
+          {/if}
+        </p>
+      </div>
+      <div class="stat-row">
+        <div class="stat callers-stat">
+          <span class="stat-num">{callerNodes.length}</span>
+          <span class="stat-lbl">Callers</span>
+        </div>
+        <div class="stat callees-stat">
+          <span class="stat-num">{calleeNodes.length}</span>
+          <span class="stat-lbl">Callees</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{hop2Count}</span>
+          <span class="stat-lbl">Hop-2</span>
+        </div>
       </div>
     </div>
-  {/if}
+  </header>
 
-  {#if calleeNodes.length > 0}
-    <div class="context-section">
-      <h2 class="section-title">Callees ({calleeNodes.length})</h2>
-      <div class="node-chips">
-        {#each calleeNodes as node}
-          <a href="/code/symbol/{encodeURIComponent(node.label)}" class="node-chip chip-callee">
-            <span class="chip-label">{node.label}</span>
-            <span class="chip-kind">{node.kind}</span>
-          </a>
-        {/each}
-      </div>
-    </div>
-  {/if}
+  <div class="workbench">
+    <div class="stage" class:mode-hop={colorMode === 'hop'}>
+      <div class="stage-scanlines" aria-hidden="true"></div>
 
-  {#if otherHop1.length > 0}
-    <div class="context-section">
-      <h2 class="section-title">Direct Connections ({otherHop1.length})</h2>
-      <div class="node-chips">
-        {#each otherHop1 as node}
-          <a href="/code/symbol/{encodeURIComponent(node.label)}" class="node-chip">
-            <span class="chip-label">{node.label}</span>
-            <span class="chip-kind">{node.kind}</span>
-          </a>
-        {/each}
-      </div>
+      {#if colorMode === 'hop'}
+        <div class="hop-rings" aria-hidden="true">
+          <span class="ring ring-1"></span>
+          <span class="ring ring-2"></span>
+        </div>
+      {/if}
+
+      <CosmosRenderer
+        nodes={graphNodes}
+        edges={graphEdges}
+        visibleEdgeKinds={visibleEdgeKinds}
+        onNodeClick={onNodeClick}
+        showClusterLabels={false}
+        height="calc(100vh - 220px)"
+        baseAlpha={0.94}
+      />
+
+      <footer class="legend-dock" aria-label="Edge legend">
+        <span class="legend-eyebrow">EDGES</span>
+        <ul>
+          {#each EGO_EDGE_KINDS as kind (kind)}
+            {@const style = EDGE_STYLE[kind]}
+            {@const active = visibleEdgeKinds.has(kind)}
+            {@const count = edgeKindCounts.get(kind) ?? 0}
+            <li>
+              <button
+                type="button"
+                class="legend-item"
+                class:active
+                class:disabled={count === 0}
+                disabled={count === 0}
+                aria-pressed={active}
+                onclick={() => toggleEdge(kind)}
+                title={describeEdgeKind(kind)}
+              >
+                <span
+                  class="swatch"
+                  style:background={style.color}
+                  class:dashed={Boolean(style.dash)}
+                  aria-hidden="true"
+                ></span>
+                <span>{kind}</span>
+                <span class="legend-count">{count}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </footer>
     </div>
-  {/if}
-</div>
+
+    <aside class="side-panel" aria-label="Ego network details">
+      <Card elevation={1} padding="cozy">
+        {#snippet children()}
+          <div class="panel-stack">
+            <Tabs
+              items={[
+                { value: 'hop', label: 'Hop coloring' },
+                { value: 'kind', label: 'Kind coloring' },
+              ]}
+              value={colorMode}
+              onchange={(v) => { colorMode = v === 'kind' ? 'kind' : 'hop'; }}
+            />
+            <TabPanel value="hop" active={colorMode}>
+              {#snippet children()}
+                <p class="panel-hint">
+                  Center = amber · hop-1 = blue · hop-2 = slate.
+                </p>
+              {/snippet}
+            </TabPanel>
+            <TabPanel value="kind" active={colorMode}>
+              {#snippet children()}
+                <p class="panel-hint">
+                  Substrate-native palette — matches macro + community views.
+                </p>
+              {/snippet}
+            </TabPanel>
+
+            {#if callerNodes.length > 0}
+              <div class="panel-section">
+                <h2 class="panel-head">
+                  <span class="dot dot-caller" aria-hidden="true"></span>
+                  Callers ({callerNodes.length})
+                </h2>
+                <ul class="chip-list">
+                  {#each callerNodes as node (node.id)}
+                    <li>
+                      <a href={`/code/symbol/${encodeURIComponent(node.label)}`} class="chip chip-caller">
+                        <span class="chip-label">{node.label}</span>
+                        <span class="chip-kind">{node.kind}</span>
+                      </a>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+
+            {#if calleeNodes.length > 0}
+              <div class="panel-section">
+                <h2 class="panel-head">
+                  <span class="dot dot-callee" aria-hidden="true"></span>
+                  Callees ({calleeNodes.length})
+                </h2>
+                <ul class="chip-list">
+                  {#each calleeNodes as node (node.id)}
+                    <li>
+                      <a href={`/code/symbol/${encodeURIComponent(node.label)}`} class="chip chip-callee">
+                        <span class="chip-label">{node.label}</span>
+                        <span class="chip-kind">{node.kind}</span>
+                      </a>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+
+            {#if data.center?.filePath}
+              <div class="panel-section">
+                <h2 class="panel-head">File</h2>
+                <p class="file-path" title={data.center.filePath}>
+                  {shortPath(data.center.filePath)}
+                </p>
+              </div>
+            {/if}
+          </div>
+        {/snippet}
+      </Card>
+    </aside>
+  </div>
+</section>
 
 <style>
   .symbol-view {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    max-width: 1400px;
-    margin: 0 auto;
+    gap: var(--space-4);
+    padding-bottom: var(--space-8);
   }
 
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    color: #64748b;
-  }
-
-  .breadcrumb-link {
-    color: #3b82f6;
-    text-decoration: none;
-  }
-
-  .breadcrumb-link:hover {
-    text-decoration: underline;
-  }
-
-  .breadcrumb-sep {
-    color: #475569;
-  }
-
-  .breadcrumb-current {
-    color: #94a3b8;
-    font-family: monospace;
-  }
-
-  /* Context strip */
-  .context-strip {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    background: #141820;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    flex-wrap: wrap;
-  }
-
-  .context-card {
+  .page-head {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
-    padding: 0.375rem 0.75rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    min-width: 72px;
+    gap: var(--space-3);
   }
 
-  .context-card-label {
-    font-size: 0.625rem;
-    color: #475569;
+  .title-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-5);
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .eyebrow {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.18em;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    color: var(--warning);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-xs);
+    background: var(--warning-soft);
   }
 
-  .context-card-value {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #e2e8f0;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .callers-value {
-    color: #f59e0b;
-  }
-
-  .callees-value {
-    color: #3b82f6;
-  }
-
-  .canvas-pill {
-    padding: 0.25rem 0.875rem;
-    border-radius: 999px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: #3b82f6;
-    text-decoration: none;
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    background: rgba(59, 130, 246, 0.08);
-    transition:
-      background 0.15s,
-      border-color 0.15s;
-    white-space: nowrap;
-  }
-
-  .canvas-pill:hover {
-    background: rgba(59, 130, 246, 0.18);
-    border-color: #3b82f6;
-  }
-
-  .context-back-link {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-left: auto;
-    font-size: 0.8125rem;
-    color: #3b82f6;
-    text-decoration: none;
-    padding: 0.375rem 0.625rem;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    background: #1a1f2e;
-    transition: background 0.15s;
-  }
-
-  .context-back-link:hover {
-    background: #222736;
-    border-color: #3b82f6;
-  }
-
-  .back-arrow {
-    font-size: 0.875rem;
-  }
-
-  .page-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .view-title {
-    font-size: 1.5rem;
+  .sym-title {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xl);
     font-weight: 700;
-    color: #f1f5f9;
-  }
-
-  .symbol-title {
-    font-family: monospace;
-  }
-
-  .view-subtitle {
-    font-size: 0.875rem;
-    color: #64748b;
-    font-family: monospace;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    margin: var(--space-2) 0;
     word-break: break-all;
   }
 
-  .legend {
-    display: flex;
-    gap: 1.25rem;
-    font-size: 0.8125rem;
-    color: #64748b;
-    flex-wrap: wrap;
+  .subtitle {
+    display: inline-flex;
     align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+  }
+
+  .subtitle .sep {
+    color: var(--text-faint);
+  }
+
+  .kind-badge {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .path {
+    color: var(--text-faint);
+  }
+
+  .stat-row {
+    display: inline-flex;
+    gap: var(--space-3);
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-elev-1);
+    min-width: 84px;
+  }
+
+  .stat-num {
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  .stat-lbl {
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .callers-stat .stat-num {
+    color: var(--warning);
+  }
+
+  .callees-stat .stat-num {
+    color: var(--info);
+  }
+
+  .workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 72fr) minmax(0, 28fr);
+    gap: var(--space-4);
+  }
+
+  @media (max-width: 960px) {
+    .workbench {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+  }
+
+  .stage-scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 2px,
+      color-mix(in srgb, var(--border) 22%, transparent) 2px,
+      color-mix(in srgb, var(--border) 22%, transparent) 3px
+    );
+    mix-blend-mode: overlay;
+    opacity: 0.3;
+    z-index: 2;
+  }
+
+  /* Concentric rings overlay — only in hop mode */
+  .hop-rings {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+  }
+
+  .ring {
+    position: absolute;
+    border: 1px dashed color-mix(in srgb, var(--info) 35%, transparent);
+    border-radius: 50%;
+  }
+
+  .ring-1 {
+    width: 34%;
+    aspect-ratio: 1;
+  }
+
+  .ring-2 {
+    width: 68%;
+    aspect-ratio: 1;
+    border-color: color-mix(in srgb, var(--text-faint) 30%, transparent);
+  }
+
+  /* Legend dock */
+  .legend-dock {
+    position: absolute;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-3);
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    background: color-mix(in srgb, var(--bg-elev-2) 88%, transparent);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
+    z-index: 3;
+    overflow-x: auto;
+  }
+
+  .legend-eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .legend-dock ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    gap: var(--space-1);
   }
 
   .legend-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 6px;
+    padding: 4px var(--space-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    white-space: nowrap;
   }
 
-  .legend-dot {
-    width: 0.625rem;
-    height: 0.625rem;
-    border-radius: 50%;
-    flex-shrink: 0;
+  .legend-item:hover:not(:disabled) {
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-elev-2) 75%, transparent);
   }
 
-  .legend-edge-hint {
-    color: #475569;
-    font-size: 0.75rem;
+  .legend-item:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
-  .legend-edge-sample {
+  .legend-item.active {
+    color: var(--text);
+    border-color: var(--border);
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+  }
+
+  .legend-item:not(.active) .swatch {
+    opacity: 0.3;
+  }
+
+  .legend-item.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .swatch {
+    width: 18px;
+    height: 2px;
     display: inline-block;
-    width: 1.25rem;
-    height: 1px;
-    background: rgba(148, 163, 184, 0.5);
-    flex-shrink: 0;
+    border-radius: 1px;
   }
 
-  .graph-container {
-    width: 100%;
-    min-height: 400px;
+  .swatch.dashed {
+    background-image: repeating-linear-gradient(
+      90deg,
+      currentColor 0,
+      currentColor 3px,
+      transparent 3px,
+      transparent 6px
+    );
   }
 
-  .section-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.75rem;
+  .legend-count {
+    font-size: 0.625rem;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
   }
 
-  .context-section {
+  .side-panel {
     display: flex;
     flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
   }
 
-  .node-chips {
+  .panel-stack {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: var(--space-4);
   }
 
-  .node-chip {
+  .panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .panel-head {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.625rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 4px;
-    text-decoration: none;
-    transition: background 0.15s;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0;
   }
 
-  .node-chip:hover {
-    background: #222736;
-    border-color: #3b4a63;
+  .panel-hint {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    margin: 0;
+    line-height: var(--leading-normal);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot-caller {
+    background: var(--warning);
+    box-shadow: 0 0 10px var(--warning);
+  }
+
+  .dot-callee {
+    background: var(--info);
+    box-shadow: 0 0 10px var(--info);
+  }
+
+  .chip-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--border);
+    border-left-width: 2px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elev-1);
+    color: var(--text);
+    text-decoration: none;
+    transition: background var(--ease), border-color var(--ease);
+  }
+
+  .chip:hover,
+  .chip:focus-visible {
+    background: var(--bg-elev-2);
+    border-color: var(--accent);
+    outline: none;
   }
 
   .chip-caller {
-    border-left: 2px solid #f59e0b;
+    border-left-color: var(--warning);
   }
 
   .chip-callee {
-    border-left: 2px solid #3b82f6;
+    border-left-color: var(--info);
   }
 
   .chip-label {
-    font-family: monospace;
-    font-size: 0.8125rem;
-    color: #3b82f6;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text);
   }
 
   .chip-kind {
     font-size: 0.625rem;
-    color: #475569;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+  }
+
+  .file-path {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

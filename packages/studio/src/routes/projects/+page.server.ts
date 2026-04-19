@@ -1,10 +1,13 @@
 /**
  * Projects page server load — lists all projects registered in the
- * global nexus.db registry and resolves the active project context.
+ * global nexus.db registry, resolves the active context, and primes
+ * the audit log panel.
  *
- * @task T622
+ * @task T990
+ * @wave 1E
  */
 
+import { readAuditLog } from '$lib/server/audit-log.js';
 import {
   clearActiveProjectId,
   getActiveProjectId,
@@ -13,13 +16,16 @@ import {
 } from '$lib/server/project-context.js';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ cookies }) => {
+export const load: PageServerLoad = ({ cookies, locals }) => {
   const activeProjectId = getActiveProjectId(cookies);
   const projects = listRegisteredProjects();
+  const auditEntries = readAuditLog(locals.projectCtx.projectPath, 80);
 
   return {
     projects,
     activeProjectId,
+    auditEntries,
+    activeProjectName: locals.projectCtx.name,
   };
 };
 

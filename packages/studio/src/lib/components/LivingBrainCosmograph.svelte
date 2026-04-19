@@ -1,58 +1,64 @@
+<!--
+  LivingBrainCosmograph — cosmos.gl GPU-accelerated Flat 2D renderer.
+
+  Post-T990-Wave-1A rebuild: this component now consumes the shared
+  kit types ({@link GraphNode} / {@link GraphEdge}) directly — the
+  unified /brain page passes kit data from the same adapter the 3D
+  renderer uses, so there is a single source of truth for the graph
+  shape across both renderers.
+
+  Colours are resolved from tokens at runtime via `getComputedStyle`
+  (same trick as `edge-kinds.ts`) — NO hex literals live in this
+  file.  Background, fallback dot colour, and edge hues all come from
+  `tokens.css`.
+
+  @task T990
+-->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { Graph as CosmosGraph } from '@cosmograph/cosmos';
   import type { GraphConfigInterface } from '@cosmograph/cosmos';
-  import type { BrainNode, BrainEdge, BrainSubstrate } from '@cleocode/brain';
+  import {
+    ALL_SUBSTRATES,
+    type EdgeKind,
+    type GraphEdge,
+    type GraphNode,
+    type SubstrateId,
+    resolveEdgeStyleForWebGL,
+  } from '$lib/graph/index.js';
 
   // ---------------------------------------------------------------------------
-  // Props — intentionally mirrors LivingBrainGraph.svelte's Props interface
-  //
-  // Trade-off note (cosmos.gl 2.0):
-  //   GPU layout + rendering supports up to ~1M nodes, making it the right
-  //   choice for graphs above 2 000 nodes.  However, the v2 API is index-based
-  //   (Float32Array positions/colors/sizes + numeric onClick index), so
-  //   per-node pulse animation requires a full color buffer update rather than
-  //   a single node mutation.  LivingBrainGraph (sigma 3) remains the default
-  //   renderer for <2 000 nodes where tooltip fidelity and pulse UX matter more.
-  //
-  //   The /brain page toggle auto-activates GPU mode when filteredGraph.nodes.length
-  //   exceeds 2 000; users can also opt in manually below that threshold.
+  // Props — kit types.  The parent passes the same {@link GraphNode} +
+  // {@link GraphEdge} arrays it feeds into {@link ThreeBrainRenderer}.
   // ---------------------------------------------------------------------------
 
   /**
-   * Props interface matching LivingBrainGraph.svelte so the two renderers
-   * are interchangeable in the page template.
+   * Props for {@link LivingBrainCosmograph}.
    */
   interface Props {
-    nodes: BrainNode[];
-    edges: BrainEdge[];
-    /** Fired when the user clicks a node. Passes the node ID. */
-    onNodeClick?: (id: string) => void;
+    /** Nodes (kit contract). */
+    nodes: GraphNode[];
+    /** Edges (kit contract). */
+    edges: GraphEdge[];
+    /** Fired when the user clicks a node. Passes the node. */
+    onNodeSelect?: (node: GraphNode) => void;
+    /** Fired when the user clicks empty canvas. */
+    onCanvasClear?: () => void;
+    /** CSS height of the canvas. */
     height?: string;
     /**
      * Set of node IDs currently pulsing (new/updated).
      *
-     * In cosmos.gl 2.0 there is no per-node animation API; when this set is
-     * non-empty the component does a `fitView` on the first pulsing node as a
-     * best-effort visual cue and schedules a full color-buffer re-upload after
-     * the pulse duration.  This is a known trade-off relative to sigma's
-     * per-node pulse; documented here for future improvement.
+     * cosmos.gl 2.0 has no per-node animation API; when the set is
+     * non-empty we `zoomToPointByIndex` on the first pulsing node and
+     * briefly brighten its colour, restoring after
+     * {@link PULSE_DURATION_MS}.
      */
     pulsingNodes?: Set<string>;
     /**
-     * Set of edge keys (`${source}|${target}`) currently pulsing.
-     *
-     * cosmos.gl 2.0 does not support per-link animation; this prop is accepted
-     * for API parity but has no visible effect.  A full link-color buffer
-     * re-upload would be required for visual feedback.
-     */
-    pulsingEdges?: Set<string>;
-    /**
-     * Called when the cosmos.gl renderer fails to initialise (e.g. WebGL
-     * unavailable).  The parent page should use this to revert to the Standard
-     * renderer so the user never sees a blank canvas.
-     *
-     * @param reason - Human-readable failure description.
+     * Called when cosmos.gl fails to initialise (e.g. no WebGL).  The
+     * parent page should fall back to the 3D renderer so the operator
+     * never sees a blank canvas.
      */
     onInitFailed?: (reason: string) => void;
   }
@@ -60,137 +66,134 @@
   let {
     nodes,
     edges,
-    onNodeClick,
+    onNodeSelect,
+    onCanvasClear,
     height = '100%',
     pulsingNodes = new Set<string>(),
-    pulsingEdges: _pulsingEdges = new Set<string>(),
     onInitFailed,
   }: Props = $props();
 
   // ---------------------------------------------------------------------------
-  // Visual encoding maps (must mirror LivingBrainGraph.svelte)
+  // Tokens — resolved at runtime
   // ---------------------------------------------------------------------------
 
-  /** Substrate fill colour (hex). */
-  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
-    brain: '#3b82f6',
-    nexus: '#22c55e',
-    tasks: '#f97316',
-    conduit: '#a855f7',
-    signaldock: '#ef4444',
+  /** Substrate accent tokens. */
+  const SUBSTRATE_TOKEN: Record<SubstrateId, string> = {
+    brain: 'var(--info)',
+    nexus: 'var(--success)',
+    tasks: 'var(--warning)',
+    conduit: 'var(--accent)',
+    signaldock: 'var(--danger)',
   };
 
-  /** Edge type colour (hex). */
-  const EDGE_COLOR: Record<string, string> = {
-    supersedes: '#ef4444',
-    affects: '#3b82f6',
-    applies_to: '#22c55e',
-    calls: '#94a3b8',
-    co_retrieved: '#a855f7',
-    mentions: '#eab308',
-  };
-
-  /** Fallback edge colour for unknown types. */
-  const EDGE_FALLBACK = '#94a3b8';
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  /**
+   * RGBA tuple in cosmos.gl 2.x wire format for `setPointColors` /
+   * `setLinkColors` buffers: RGB + alpha all in `[0..1]`.
+   *
+   * Verified against the 2.0-beta.26 source (`dist/index.js` `updatePointColor`
+   * and `sr()` helper): the Float32Array passed via `setPointColors` is used
+   * **directly** as the WebGL texture without further normalisation. The
+   * internal config-default resolver (`sr(string)`) divides 0-255 CSS values
+   * by 255 before writing, so both paths end at `[0..1]`. The migration
+   * guide example (`0.5, 0.5, 1, 1`) reflects this; the d.ts docstring
+   * example using `255, 0, 0, 1` was misleading and produced the
+   * "white blob" regression because values >1 clamp to 1.0 in the shader.
+   */
+  type Rgba = [number, number, number, number];
 
   /**
-   * Parses a hex colour string (e.g. '#3b82f6') into an RGBA tuple in 0.0–1.0
-   * range expected by cosmos.gl's Float32Array color buffers.
-   *
-   * cosmos.gl's setPointColors / setLinkColors accept Float32Arrays where each
-   * RGBA component is a WebGL float in [0.0, 1.0].  Values outside this range
-   * clamp to 1.0 in the shader, producing white/invisible geometry.
-   *
-   * @param hex - Six-digit hex colour, with or without '#'.
-   * @param alpha - Alpha component in the 0.0–1.0 range (default: 1.0).
-   * @returns RGBA tuple [r, g, b, a] with each value in [0.0, 1.0].
+   * Resolve a CSS colour expression to cosmos.gl 2.x's wire format
+   * (`RGB ∈ [0..1]`, `alpha ∈ [0..1]`) by letting the browser compute
+   * the value against `:root`. Returns a neutral mid-grey in SSR /
+   * non-DOM contexts.
    */
-  function hexToRgba(hex: string, alpha = 1.0): [number, number, number, number] {
-    const h = hex.replace('#', '');
-    const r = Number.parseInt(h.slice(0, 2), 16) / 255;
-    const g = Number.parseInt(h.slice(2, 4), 16) / 255;
-    const b = Number.parseInt(h.slice(4, 6), 16) / 255;
-    return [r, g, b, alpha];
+  function resolveCssColor(expr: string, alpha = 0.9): Rgba {
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      return [0.5, 0.5, 0.5, alpha];
+    }
+    const probe = document.createElement('span');
+    probe.style.color = expr;
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    document.body.appendChild(probe);
+    const computed = window.getComputedStyle(probe).color;
+    document.body.removeChild(probe);
+    const m = /rgba?\(([^)]+)\)/i.exec(computed);
+    if (!m) return [1, 1, 1, alpha];
+    const parts = m[1].split(/[,\s/]+/).filter((p) => p.length > 0);
+    return [
+      Number.parseFloat(parts[0]) / 255,
+      Number.parseFloat(parts[1]) / 255,
+      Number.parseFloat(parts[2]) / 255,
+      alpha,
+    ];
   }
 
-  /**
-   * Returns an RGBA tuple (0.0–1.0) for the given edge type string.
-   *
-   * @param type - Edge type key (e.g. 'calls', 'supersedes').
-   */
-  function edgeRgba(type: string): [number, number, number, number] {
-    const hex = EDGE_COLOR[type] ?? EDGE_FALLBACK;
-    return hexToRgba(hex, 0.7);
-  }
+  /** Cache resolved substrate colours — rebuilt per initCosmos. */
+  const substrateRgba = new Map<SubstrateId, Rgba>();
 
-  /**
-   * Derives node display size from the normalised weight value.
-   *
-   * Matches the formula in LivingBrainGraph.svelte: 4 + w * 14, scaled to
-   * cosmos.gl's point size units (which render slightly larger).
-   *
-   * @param node - The source BrainNode.
-   */
-  function nodeSize(node: BrainNode): number {
+  /** Derives the node display size from its weight. */
+  function nodeSize(node: GraphNode): number {
     const w = node.weight ?? 0.3;
     return 4 + w * 14;
   }
 
-  // ---------------------------------------------------------------------------
-  // Pulse duration (ms) — matches the constant in LivingBrainGraph.svelte
-  // ---------------------------------------------------------------------------
-
-  /** Duration of a pulse animation in milliseconds. */
+  /** Pulse duration (ms) — mirrors ThreeBrainRenderer. */
   const PULSE_DURATION_MS = 1_500;
 
   // ---------------------------------------------------------------------------
   // DOM ref + cosmos instance
   // ---------------------------------------------------------------------------
 
-  let container: HTMLDivElement;
+  let container = $state<HTMLDivElement | null>(null);
   let cosmos: CosmosGraph | null = null;
 
-  /**
-   * Whether cosmos failed to initialise (WebGL2 unavailable or constructor
-   * threw).  When true, the fallback message is rendered and the parent page
-   * receives a signal to revert to the Standard renderer.
-   */
+  /** Whether cosmos failed to initialise. */
   let initFailed = $state(false);
-
-  /**
-   * Human-readable reason for the init failure, shown in the fallback banner.
-   */
+  /** Human-readable reason for the init failure. */
   let failureReason = $state('');
 
   /**
-   * Tracks whether the component has mounted (guards reactive effects from
-   * firing before the DOM container is ready).
+   * Whether the component has mounted. Plain boolean — NOT `$state`.
+   *
+   * This must not be reactive. Making it `$state` caused the data-change
+   * `$effect` to access it (triggering tracking) and the first time
+   * `initCosmos` set `cosmosInitialized = true` the effect re-evaluated,
+   * which called `initCosmos` again, destroying and recreating cosmos in
+   * an infinite loop that froze the browser.
    */
   let mounted = false;
 
   /**
-   * Index-keyed lookup: maps numeric point index → string node ID.
-   * Rebuilt whenever the data changes.
+   * Whether cosmos has been initialised at least once for this mount.
+   * Plain boolean — NOT `$state` for the same reason as `mounted`.
+   * The data-change `$effect` must never track this value.
    */
+  let cosmosInitialized = false;
+
+  /** ResizeObserver reference so we can rebuild on size change. */
+  let resizeObs: ResizeObserver | null = null;
+  /** indexToId lookup, rebuilt on every data refresh. */
   let indexToId: string[] = [];
+  /** indexToNode lookup, so onClick can hand the parent a full node. */
+  let indexToNode: GraphNode[] = [];
+
+  /**
+   * Snapshot of the node + edge counts last seen by the data-change
+   * `$effect`.  When the arrays do not change identity, this prevents
+   * spurious rebuilds.
+   */
+  let lastNodeCount = -1;
+  let lastEdgeCount = -1;
 
   // ---------------------------------------------------------------------------
-  // Build flat typed arrays from BrainNode[] / BrainEdge[]
+  // Build flat typed arrays from GraphNode[] / GraphEdge[]
   // ---------------------------------------------------------------------------
 
   /**
-   * Converts the current `nodes` and `edges` props into the flat Float32Array
-   * buffers expected by cosmos.gl v2.
-   *
-   * All colour values are normalised to 0.0–1.0 as required by the WebGL
-   * attribute buffers; passing 0–255 clamps every channel to white.
-   *
-   * @returns An object with positions, colors, sizes (points) and links, linkColors,
-   *   linkWidths arrays, plus the rebuilt indexToId map.
+   * Flatten the current props into cosmos.gl v2 buffers.  All colours
+   * are in [0..1] (WebGL range).  Edges are de-duplicated and
+   * endpoint-verified; self-loops are dropped.
    */
   function buildBuffers(): {
     positions: Float32Array;
@@ -201,42 +204,58 @@
     linkWidths: Float32Array;
     idToIndex: Map<string, number>;
     idxToId: string[];
+    idxToNode: GraphNode[];
   } {
     const idToIndex = new Map<string, number>();
     const idxToId: string[] = [];
+    const idxToNode: GraphNode[] = [];
 
-    // Assign stable indices for all nodes
     nodes.forEach((n, i) => {
       idToIndex.set(n.id, i);
       idxToId.push(n.id);
+      idxToNode.push(n);
     });
 
-    // Point positions: random initial layout (cosmos simulates from here)
+    // Initial positions: tight 1% cluster at the center of the space,
+    // matching the pattern used by cosmos.gl 2.x's own `beginners/basic-
+    // set-up` example (`src/stories/beginners/basic-set-up/data-gen.ts`).
+    // The simulation's repulsion force then spreads them outward over the
+    // first ~50 frames into the organic layout.
+    //
+    // Seeding with a WIDE random spread (our prior attempt) defeated the
+    // sim: gravity pulled them all back to centre anyway and the
+    // simulation energy burned off before they could re-separate, leaving
+    // everything stacked on top of each other — the exact regression the
+    // operator reported.
+    const SPACE_SIZE = 4096;
+    const CENTER = SPACE_SIZE / 2;
+    const SPREAD = SPACE_SIZE * 0.01; // 1% of spaceSize
     const positions = new Float32Array(nodes.length * 2);
     for (let i = 0; i < nodes.length; i++) {
-      positions[i * 2] = Math.random() * 800 - 400;
-      positions[i * 2 + 1] = Math.random() * 600 - 300;
+      positions[i * 2] = CENTER + (Math.random() - 0.5) * SPREAD;
+      positions[i * 2 + 1] = CENTER + (Math.random() - 0.5) * SPREAD;
     }
 
-    // Point colours: [r, g, b, a, ...] — all values in 0.0–1.0 (WebGL range)
+    // Cosmos.gl 2.x expects RGB in [0..255], alpha in [0..1]. The
+    // substrateRgba cache is already in that format; the fallback grey
+    // below is `(128, 128, 128, 0.9)`, not `(0.5, 0.5, 0.5, 0.9)`.
     const colors = new Float32Array(nodes.length * 4);
     for (let i = 0; i < nodes.length; i++) {
-      const hex = SUBSTRATE_COLOR[nodes[i].substrate] ?? '#64748b';
-      const [r, g, b, a] = hexToRgba(hex, 0.9);
-      colors[i * 4] = r;
-      colors[i * 4 + 1] = g;
-      colors[i * 4 + 2] = b;
-      colors[i * 4 + 3] = a;
+      const rgba = substrateRgba.get(nodes[i].substrate) ?? [0.5, 0.5, 0.5, 0.9];
+      colors[i * 4] = rgba[0];
+      colors[i * 4 + 1] = rgba[1];
+      colors[i * 4 + 2] = rgba[2];
+      colors[i * 4 + 3] = rgba[3];
     }
 
-    // Point sizes
     const sizes = new Float32Array(nodes.length);
     for (let i = 0; i < nodes.length; i++) {
       sizes[i] = nodeSize(nodes[i]);
     }
 
-    // Filter valid edges: both endpoints must exist and no self-loops
-    const validEdges: BrainEdge[] = [];
+    // Filter valid edges: both endpoints must exist, no self-loops,
+    // no duplicate src|tgt pairs.
+    const validEdges: GraphEdge[] = [];
     const seenEdges = new Set<string>();
     for (const e of edges) {
       if (e.source === e.target) continue;
@@ -247,9 +266,7 @@
       validEdges.push(e);
     }
 
-    // Link index pairs: [src0, tgt0, src1, tgt1, ...]
     const links = new Float32Array(validEdges.length * 2);
-    // Link colours: [r, g, b, a, ...] — all values in 0.0–1.0 (WebGL range)
     const linkColors = new Float32Array(validEdges.length * 4);
     const linkWidths = new Float32Array(validEdges.length);
 
@@ -260,55 +277,42 @@
       links[i * 2] = srcIdx;
       links[i * 2 + 1] = tgtIdx;
 
-      const [r, g, b, a] = edgeRgba(e.type);
-      linkColors[i * 4] = r;
-      linkColors[i * 4 + 1] = g;
-      linkColors[i * 4 + 2] = b;
-      linkColors[i * 4 + 3] = a;
+      // resolveEdgeStyleForWebGL returns RGB in [0..1] — the same scale
+      // cosmos.gl 2.x's setLinkColors buffer expects. Pass through directly.
+      const rgb = resolveEdgeStyleForWebGL(e.kind satisfies EdgeKind);
+      linkColors[i * 4] = rgb[0];
+      linkColors[i * 4 + 1] = rgb[1];
+      linkColors[i * 4 + 2] = rgb[2];
+      linkColors[i * 4 + 3] = 0.7;
 
       linkWidths[i] = 0.5 + (e.weight ?? 0.5) * 2.5;
     }
 
-    return { positions, colors, sizes, links, linkColors, linkWidths, idToIndex, idxToId };
+    return { positions, colors, sizes, links, linkColors, linkWidths, idToIndex, idxToId, idxToNode };
   }
 
   // ---------------------------------------------------------------------------
-  // Pulse handling
-  //
-  // cosmos.gl v2 has no per-node animation API.  We approximate pulse feedback
-  // by zooming to the first pulsing node (if any) and re-uploading the color
-  // buffer with pulsing nodes brightened to white, then restoring after
-  // PULSE_DURATION_MS.  This is a best-effort trade-off relative to sigma's
-  // frame-by-frame pulse; documented in the Props TSDoc.
+  // Pulse handling — best-effort per-node flash via colour-buffer re-upload.
   // ---------------------------------------------------------------------------
 
   /**
-   * Applies a best-effort pulse visual for nodes in `pulsingNodes`.
-   *
-   * Uploads a modified color buffer with pulsing nodes set to white, then
-   * schedules restoration after `PULSE_DURATION_MS`.
-   *
-   * @param idToIndex - Current ID→index map.
+   * Brighten pulsing nodes to near-white, re-upload the colour buffer,
+   * then restore after {@link PULSE_DURATION_MS}.
    */
   function applyPulses(idToIndex: Map<string, number>): void {
     if (!cosmos || pulsingNodes.size === 0) return;
-
-    // Rebuild base colors in 0.0–1.0 range, override pulsing nodes to white
+    const white = resolveCssColor('var(--text)', 1);
     const colors = new Float32Array(nodes.length * 4);
     for (let i = 0; i < nodes.length; i++) {
       const isPulsing = pulsingNodes.has(nodes[i].id);
-      const hex = isPulsing ? '#ffffff' : (SUBSTRATE_COLOR[nodes[i].substrate] ?? '#64748b');
-      const alpha = isPulsing ? 1.0 : 0.9;
-      const [r, g, b, a] = hexToRgba(hex, alpha);
-      colors[i * 4] = r;
-      colors[i * 4 + 1] = g;
-      colors[i * 4 + 2] = b;
-      colors[i * 4 + 3] = a;
+      const rgba = isPulsing ? white : (substrateRgba.get(nodes[i].substrate) ?? [0.5, 0.5, 0.5, 0.9]);
+      colors[i * 4] = rgba[0];
+      colors[i * 4 + 1] = rgba[1];
+      colors[i * 4 + 2] = rgba[2];
+      colors[i * 4 + 3] = isPulsing ? 1 : rgba[3];
     }
-
     cosmos.setPointColors(colors);
 
-    // Zoom to the first pulsing node's position as a visual beacon
     const firstId = [...pulsingNodes][0];
     if (firstId !== undefined) {
       const idx = idToIndex.get(firstId);
@@ -317,17 +321,15 @@
       }
     }
 
-    // Restore base colors after pulse duration
     setTimeout(() => {
       if (!cosmos) return;
       const restored = new Float32Array(nodes.length * 4);
       for (let i = 0; i < nodes.length; i++) {
-        const hex = SUBSTRATE_COLOR[nodes[i].substrate] ?? '#64748b';
-        const [r, g, b, a] = hexToRgba(hex, 0.9);
-        restored[i * 4] = r;
-        restored[i * 4 + 1] = g;
-        restored[i * 4 + 2] = b;
-        restored[i * 4 + 3] = a;
+        const rgba = substrateRgba.get(nodes[i].substrate) ?? [0.5, 0.5, 0.5, 0.9];
+        restored[i * 4] = rgba[0];
+        restored[i * 4 + 1] = rgba[1];
+        restored[i * 4 + 2] = rgba[2];
+        restored[i * 4 + 3] = rgba[3];
       }
       cosmos.setPointColors(restored);
     }, PULSE_DURATION_MS);
@@ -337,12 +339,7 @@
   // WebGL2 availability check
   // ---------------------------------------------------------------------------
 
-  /**
-   * Returns true when the browser can create a WebGL2 context.
-   *
-   * cosmos.gl uses regl which falls back to WebGL1, but an early check lets us
-   * show a meaningful fallback rather than a silent blank canvas.
-   */
+  /** Returns true when the browser can create a WebGL(2) context. */
   function checkWebGl(): boolean {
     try {
       const testCanvas = document.createElement('canvas');
@@ -357,23 +354,14 @@
   // Initialise cosmos
   // ---------------------------------------------------------------------------
 
-  /**
-   * Builds all buffer arrays and creates (or recreates) the cosmos.gl GPU
-   * renderer.  Destroys any existing instance first to avoid canvas leaks.
-   *
-   * Wrapped in try/catch: on any failure (WebGL unavailable, API mismatch,
-   * etc.) `initFailed` is set and a user-visible fallback is rendered.
-   */
   function initCosmos(): void {
     if (!mounted || !container) return;
 
-    // Destroy previous instance
     if (cosmos) {
       cosmos.destroy();
       cosmos = null;
     }
 
-    // Pre-flight: confirm WebGL is available before handing control to regl
     if (!checkWebGl()) {
       initFailed = true;
       failureReason = 'WebGL not available in this browser';
@@ -381,34 +369,65 @@
       return;
     }
 
+    // Refresh substrate colour cache against the current theme.
+    substrateRgba.clear();
+    for (const s of ALL_SUBSTRATES) substrateRgba.set(s, resolveCssColor(SUBSTRATE_TOKEN[s], 0.9));
+
     try {
-      const { positions, colors, sizes, links, linkColors, linkWidths, idToIndex, idxToId } =
+      const { positions, colors, sizes, links, linkColors, linkWidths, idToIndex, idxToId, idxToNode } =
         buildBuffers();
 
       indexToId = idxToId;
+      indexToNode = idxToNode;
 
+      // Resolve config colours from tokens.  `backgroundColor` accepts
+      // a CSS string; we hand through the tokens.css definition so
+      // theme swaps flow through.
+      const bgExpr = getComputedStyleRootValue('--bg', 'black');
+      const fallbackPoint = getComputedStyleRootValue('--text-dim', 'gray');
+      const fallbackLink = getComputedStyleRootValue('--border-strong', 'gray');
+      const hoverRing = getComputedStyleRootValue('--text', 'white');
+
+      // Physics tuned to match cosmos.gl 2.x's own reference `beginners/
+      // basic-set-up` example (copied verbatim from
+      // `node_modules/@cosmograph/cosmos/src/stories/beginners/
+      // basic-set-up/index.ts`). Every prior home-grown tune collapsed
+      // the graph into a single blob because we didn't realise:
+      //
+      //   1. `simulationLinkDistance` is NOT a pixel distance — at
+      //      `1` it means "try to keep linked points close"; the
+      //      repulsion force spreads them anyway.
+      //   2. `simulationDecay: 100000` is intentionally huge so the
+      //      simulation stays live for minutes, not seconds — it keeps
+      //      the "breathing" motion going.
+      //   3. `pointSize: 4` with `pointSizeScale: 1` (default) is what
+      //      cosmos ships for dense graphs; 6 looked right on 200-node
+      //      demos but clumped visually at 1500+.
       const config: GraphConfigInterface = {
-        backgroundColor: '#0a0d14',
+        backgroundColor: bgExpr,
         spaceSize: 4096,
-        pointColor: '#64748b',
-        pointSize: 6,
+        pointColor: fallbackPoint,
+        pointSize: 4,
         renderHoveredPointRing: true,
-        hoveredPointRingColor: '#ffffff',
+        hoveredPointRingColor: hoverRing,
         hoveredPointCursor: 'pointer',
-        linkColor: '#94a3b8',
-        linkWidth: 1,
+        linkColor: fallbackLink,
+        linkWidth: 0.1,
+        linkGreyoutOpacity: 0,
         renderLinks: true,
-        simulationGravity: 0.25,
-        simulationRepulsion: 1.0,
-        simulationLinkSpring: 1.0,
-        simulationLinkDistance: 10,
-        simulationFriction: 0.85,
-        fitViewDelay: 800,
-        fitViewPadding: 0.15,
+        curvedLinks: true,
+        simulationLinkDistance: 1,
+        simulationLinkSpring: 2,
+        simulationRepulsion: 0.2,
+        simulationGravity: 0.1,
+        simulationDecay: 100000,
         onClick: (index: number | undefined) => {
-          if (index === undefined) return;
-          const id = indexToId[index];
-          if (id !== undefined) onNodeClick?.(id);
+          if (index === undefined) {
+            onCanvasClear?.();
+            return;
+          }
+          const node = indexToNode[index];
+          if (node !== undefined) onNodeSelect?.(node);
         },
       };
 
@@ -421,25 +440,20 @@
       cosmos.setLinkColors(linkColors);
       cosmos.setLinkWidths(linkWidths);
 
-      // CRITICAL: cosmos.gl 2.0 requires `render()` — not `start()` — as the
-      // very first call after setting data via set*() methods.
-      //
-      // Root cause (T685): after `new CosmosGraph(container, config)` and before
-      // any data upload, `graph.pointPositions` is undefined, so
-      // `graph.pointsNumber` returns `undefined` (falsy).  `start()` guards on
-      // `this.graph.pointsNumber` and silently does NOTHING when it is falsy.
-      //
-      // `render(alpha)` calls `this.graph.update()` first, which copies
-      // `inputPointPositions → pointPositions` (making `pointsNumber` valid),
-      // then calls `this.update(alpha)` which runs `create()` + `initPrograms()`
-      // + `start(alpha)` — the full initialisation sequence.
-      //
-      // On subsequent data refreshes the component calls `initCosmos()` which
-      // destroys the old instance and creates a fresh one, so this first-render
-      // path is always exercised for every mount.
-      cosmos.render(1.0);
+      // Call pattern copied verbatim from the cosmos.gl 2.x reference
+      // example (`beginners/basic-set-up`): `zoom(0.9); render();`
+      // without passing a simulation alpha. The library decides the
+      // starting alpha internally against its `simulationDecay` config.
+      // Calling `render(1.0)` explicitly (our prior approach) over-ran
+      // the alpha and caused the simulation to peak instantly then
+      // decay before nodes had time to spread.
+      cosmos.zoom(0.9);
+      cosmos.render();
 
-      // Apply any initial pulses
+      // Mark initialized BEFORE scheduling pulse or fit callbacks so that
+      // any re-entrant code that checks cosmosInitialized sees the right state.
+      cosmosInitialized = true;
+
       if (pulsingNodes.size > 0) {
         const idToIdx = new Map<string, number>();
         for (let i = 0; i < idxToId.length; i++) {
@@ -449,24 +463,20 @@
         applyPulses(idToIdx);
       }
 
-      // Fit the camera to the simulated layout. We schedule three attempts:
-      //   - 500ms (after first paint cycle when CSS grid has computed dimensions)
-      //   - immediate via requestAnimationFrame (in case simulation settled fast)
-      //   - 1.5s later (after most force-layout convergence)
+      // One late fit once the simulation has had ~3s to spread nodes
+      // naturally. Calling fitView any earlier zooms to a transient
+      // tight cluster, then the camera stays pinned there as nodes
+      // spread out — the "nodes flash then vanish" symptom. Single
+      // late fit avoids the race without fighting `simulationDecay`.
       setTimeout(() => {
-        if (cosmos) cosmos.fitView(500, 0.15);
-      }, 500);
-      requestAnimationFrame(() => {
-        if (cosmos) cosmos.fitView(800, 0.15);
-      });
-      setTimeout(() => {
-        if (cosmos) cosmos.fitView(500, 0.15);
-      }, 1_500);
+        if (cosmos) cosmos.fitView(800, 0.18);
+      }, 3000);
 
       initFailed = false;
       failureReason = '';
     } catch (err) {
       cosmos = null;
+      cosmosInitialized = false;
       initFailed = true;
       const reason =
         err instanceof Error ? err.message : 'cosmos.gl renderer failed to initialise';
@@ -475,39 +485,107 @@
     }
   }
 
+  /**
+   * Look up a custom property on `:root` and return its value as a CSS
+   * string the browser can parse.  Falls back to the given neutral
+   * default in SSR.
+   */
+  function getComputedStyleRootValue(varName: string, fallback: string): string {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return fallback;
+    const value = window.getComputedStyle(document.documentElement).getPropertyValue(varName);
+    return value.trim() || fallback;
+  }
+
   // ---------------------------------------------------------------------------
   // Mount / destroy
   // ---------------------------------------------------------------------------
 
+  /**
+   * Waits until the container has a non-zero layout size, then initialises
+   * cosmos. Without this, `new CosmosGraph(container, ...)` can measure a
+   * 0×0 container during the `{#if}` branch swap and produce a zero-sized
+   * canvas that never renders. ResizeObserver fires synchronously on the
+   * first layout pass.
+   *
+   * Note: cosmos.gl 2.x also calls `resizeCanvas()` on every animation
+   * frame, so a 0×0 init will self-heal once the layout settles, but
+   * waiting for a non-zero size gives a cleaner first frame.
+   */
+  function initWhenSized(): void {
+    if (!container) return;
+    const el = container;
+    if (el.clientWidth > 0 && el.clientHeight > 0) {
+      initCosmos();
+      return;
+    }
+    resizeObs?.disconnect();
+    resizeObs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height: h } = entry.contentRect;
+        if (width > 0 && h > 0) {
+          resizeObs?.disconnect();
+          resizeObs = null;
+          initCosmos();
+          return;
+        }
+      }
+    });
+    resizeObs.observe(el);
+  }
+
   onMount(() => {
     mounted = true;
-    initCosmos();
+    // Double rAF gives the browser one full layout + paint cycle after the
+    // `{#if}` branch swap before we measure the container.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (mounted) initWhenSized();
+      });
+    });
   });
 
   onDestroy(() => {
     mounted = false;
+    cosmosInitialized = false;
+    resizeObs?.disconnect();
+    resizeObs = null;
     cosmos?.destroy();
     cosmos = null;
   });
 
   // ---------------------------------------------------------------------------
-  // React to data changes — rebuild entire renderer
+  // React to data changes — rebuild the renderer only when data actually
+  // changes after initial mount.
   //
-  // The effect explicitly reads `nodes` and `edges` to track them as reactive
-  // deps.  It only calls initCosmos when mounted (container is available);
-  // this prevents a double-init on the initial mount tick.
+  // CRITICAL: this `$effect` must NOT read `mounted` or `cosmosInitialized`
+  // (both are plain booleans, not `$state`).  If either were `$state`, the
+  // effect would track them: setting `cosmosInitialized = true` inside
+  // `initCosmos()` would re-trigger the effect, which would call `initCosmos()`
+  // again, creating an infinite destroy-recreate loop that freezes the browser.
+  //
+  // The effect only tracks `nodes.length` and `edges.length`.  Initial mount
+  // is handled exclusively by `onMount` → `initWhenSized` → `initCosmos`.
+  // Subsequent data-driven rebuilds are handled here, gated by
+  // `cosmosInitialized` (plain boolean, not tracked by Svelte).
   // ---------------------------------------------------------------------------
 
   $effect(() => {
-    // Capture reactive deps: any change to nodes or edges triggers this block.
-    // Using void casts prevents the linter from complaining about unused reads.
-    void nodes;
-    void edges;
-    // Only re-init after the component has fully mounted so that `container`
-    // is bound.  The onMount handler covers the initial init.
-    if (mounted && cosmos !== null) {
-      initCosmos();
-    }
+    const nodeCount = nodes.length;
+    const edgeCount = edges.length;
+
+    // Guard: only rebuild after the initial mount has completed. We read
+    // `cosmosInitialized` as a plain (non-reactive) boolean — Svelte will NOT
+    // track it, so this check does not create a feedback cycle.
+    if (!cosmosInitialized) return;
+
+    // Guard: skip if the counts haven't actually changed.  This avoids a
+    // spurious rebuild when Svelte re-runs the effect for unrelated reasons.
+    if (nodeCount === lastNodeCount && edgeCount === lastEdgeCount) return;
+
+    lastNodeCount = nodeCount;
+    lastEdgeCount = edgeCount;
+
+    initCosmos();
   });
 
   // ---------------------------------------------------------------------------
@@ -515,8 +593,8 @@
   // ---------------------------------------------------------------------------
 
   $effect(() => {
-    if (!cosmos || pulsingNodes.size === 0) return;
-    // Build current idToIndex on demand (indexToId is always in sync post-init)
+    const pulseCount = pulsingNodes.size;
+    if (pulseCount === 0 || !cosmosInitialized) return;
     const idToIndex = new Map<string, number>();
     for (let i = 0; i < indexToId.length; i++) {
       const id = indexToId[i];
@@ -532,7 +610,7 @@
     <div class="lbc-fallback">
       <span class="lbc-fallback-icon">!</span>
       <span class="lbc-fallback-msg">
-        GPU renderer unavailable — using Standard
+        GPU renderer unavailable — using 3D
         {#if failureReason}
           <span class="lbc-fallback-reason">({failureReason})</span>
         {/if}
@@ -555,10 +633,10 @@
     width: 100%;
     height: 100%;
     min-height: 0;
-    background: #0a0d14;
-    border-radius: 8px;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    border: 1px solid #2d3748;
+    border: 1px solid var(--border);
     position: relative;
   }
 
@@ -581,20 +659,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #64748b;
-    font-size: 0.875rem;
+    color: var(--text-faint);
+    font-size: var(--text-base);
   }
 
   .lbc-badge {
     position: absolute;
-    bottom: 0.5rem;
-    right: 0.625rem;
+    bottom: var(--space-2);
+    right: var(--space-2);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: rgba(168, 85, 247, 0.15);
-    border: 1px solid rgba(168, 85, 247, 0.4);
-    color: #a855f7;
-    font-size: 0.625rem;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     pointer-events: none;
@@ -608,12 +686,12 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 1rem;
-    background: rgba(239, 68, 68, 0.06);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 8px;
-    color: #ef4444;
-    font-size: 0.8125rem;
+    padding: var(--space-4);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-lg);
+    color: var(--danger);
+    font-size: var(--text-sm);
     font-weight: 500;
   }
 
@@ -624,14 +702,14 @@
     width: 1.25rem;
     height: 1.25rem;
     border-radius: 50%;
-    border: 1.5px solid #ef4444;
-    font-size: 0.75rem;
+    border: 1.5px solid var(--danger);
+    font-size: var(--text-xs);
     font-weight: 700;
     flex-shrink: 0;
   }
 
   .lbc-fallback-reason {
-    color: #f87171;
+    color: var(--danger);
     font-weight: 400;
     font-style: italic;
     margin-left: 0.25rem;

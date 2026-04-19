@@ -1,18 +1,46 @@
+<!--
+  Project Registry — Wave 1E admin surface.
+
+  Layout:
+    - HeroHeader with active project chip + global action toolbar
+    - Project cards grid (two-column ≥1200px) with per-project
+      stats grid, health badge and Switch / Reindex / Doctor / Backup /
+      Delete actions
+    - Right rail (≥1200px) with AuditLogPanel
+
+  All global modals mount at document root; per-project delete reuses
+  the same primitive.
+
+  @task T990
+  @wave 1E
+-->
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import DeleteConfirmModal from '$lib/components/admin/DeleteConfirmModal.svelte';
-  import ScanModal from '$lib/components/admin/ScanModal.svelte';
+  import AuditLogPanel from '$lib/components/admin/AuditLogPanel.svelte';
+  import BackupModal from '$lib/components/admin/BackupModal.svelte';
   import CleanModal from '$lib/components/admin/CleanModal.svelte';
+  import DeleteConfirmModal from '$lib/components/admin/DeleteConfirmModal.svelte';
+  import DoctorModal from '$lib/components/admin/DoctorModal.svelte';
+  import GcModal from '$lib/components/admin/GcModal.svelte';
+  import MigrationModal from '$lib/components/admin/MigrationModal.svelte';
+  import ScanModal from '$lib/components/admin/ScanModal.svelte';
+  import HeroHeader from '$lib/components/shell/HeroHeader.svelte';
+  import { Badge, Button, Card } from '$lib/ui';
   import type { PageData } from './$types';
 
   interface Props {
     data: PageData;
   }
+
   let { data }: Props = $props();
 
-  // ---- Toolbar modals ----
+  // ---- Toolbar modal open-state ----
   let showScan = $state(false);
   let showClean = $state(false);
+  let showBackup = $state(false);
+  let showDoctor = $state(false);
+  let showMigration = $state(false);
+  let showGc = $state(false);
 
   // ---- Per-row delete modal ----
   let deleteTarget = $state<{ projectId: string; name: string } | null>(null);
@@ -33,34 +61,83 @@
     healthStatus: string;
   }
 
-  let projects = $state<ProjectRow[]>(data.projects as ProjectRow[]);
+  const initialProjects: ProjectRow[] = data.projects;
+  let projects = $state<ProjectRow[]>([...initialProjects]);
 
   const rowStates = $state<Record<string, RowState>>({});
   const rowErrors = $state<Record<string, string>>({});
 
-  // ----- helpers -----
+  // ---- Bulk reindex state ----
+  let bulkRunning = $state(false);
+  let bulkSummary = $state<{
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    total: number;
+  } | null>(null);
+  let bulkError = $state<string | null>(null);
 
   function formatCount(n: number): string {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return String(n);
   }
 
-  function formatDate(iso: string | null): string {
+  /**
+   * Relative-time formatter with ISO tooltip. Audit item #1 — "Last
+   * Indexed" now shows full precision rather than date-only.
+   */
+  function formatRelative(iso: string | null): string {
     if (!iso) return 'never';
-    return iso.slice(0, 10);
+    try {
+      const t = new Date(iso).getTime();
+      const delta = Date.now() - t;
+      if (delta < 60_000) return 'just now';
+      if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+      if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
+      const days = Math.floor(delta / 86_400_000);
+      if (days < 30) return `${days}d ago`;
+      if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+      return `${Math.floor(days / 365)}y ago`;
+    } catch {
+      return iso;
+    }
+  }
+
+  function formatIso(iso: string | null): string {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toISOString();
+    } catch {
+      return iso;
+    }
   }
 
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-  /** Returns true when lastIndexed is more than 7 days old. */
   function isStale(lastIndexed: string | null): boolean {
     if (!lastIndexed) return false;
     return Date.now() - new Date(lastIndexed).getTime() > SEVEN_DAYS_MS;
   }
 
-  // ----- index / re-index -----
+  function healthTone(
+    status: string,
+    stale: boolean,
+  ): 'success' | 'warning' | 'danger' | 'neutral' {
+    if (status === 'unhealthy') return 'danger';
+    if (stale) return 'warning';
+    if (status === 'healthy') return 'success';
+    return 'neutral';
+  }
 
-  async function handleIndex(projectId: string, action: 'index' | 'reindex') {
+  function healthLabel(status: string, stale: boolean, neverIndexed: boolean): string {
+    if (status === 'unhealthy') return 'unhealthy';
+    if (neverIndexed) return 'unindexed';
+    if (stale) return 'stale';
+    if (status === 'healthy') return 'healthy';
+    return status;
+  }
+
+  async function handleIndex(projectId: string, action: 'index' | 'reindex'): Promise<void> {
     rowStates[projectId] = 'loading';
     rowErrors[projectId] = '';
 
@@ -72,10 +149,9 @@
 
       if (envelope.success) {
         rowStates[projectId] = 'success';
-        // Refresh lastIndexed optimistically
         const idx = projects.findIndex((p) => p.projectId === projectId);
         if (idx >= 0) {
-          projects[idx] = { ...projects[idx], lastIndexed: new Date().toISOString() };
+          projects[idx] = { ...projects[idx]!, lastIndexed: new Date().toISOString() };
         }
       } else {
         rowStates[projectId] = 'error';
@@ -86,7 +162,6 @@
       rowErrors[projectId] = err instanceof Error ? err.message : 'Unexpected error';
     }
 
-    // Clear success badge after 3s
     if (rowStates[projectId] === 'success') {
       setTimeout(() => {
         rowStates[projectId] = 'idle';
@@ -94,9 +169,7 @@
     }
   }
 
-  // ----- delete -----
-
-  async function confirmDelete() {
+  async function confirmDelete(): Promise<void> {
     if (!deleteTarget) return;
 
     const { projectId } = deleteTarget;
@@ -112,7 +185,6 @@
       const envelope = (await res.json()) as { success: boolean; error?: { message: string } };
 
       if (envelope.success) {
-        // Remove row from local state — no full page reload needed
         projects = projects.filter((p) => p.projectId !== projectId);
       } else {
         rowStates[projectId] = 'error';
@@ -123,19 +195,75 @@
       rowErrors[projectId] = err instanceof Error ? err.message : 'Unexpected error';
     }
   }
+
+  async function runBulkReindex(): Promise<void> {
+    if (!confirm('Re-index every registered project serially? This can take a while.')) {
+      return;
+    }
+    bulkRunning = true;
+    bulkError = null;
+    bulkSummary = null;
+    try {
+      const res = await fetch('/api/project/reindex-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const env = (await res.json()) as {
+        success: boolean;
+        data?: {
+          total: number;
+          succeeded: number;
+          failed: number;
+          skipped: number;
+        };
+        error?: { message: string };
+      };
+      if (env.success && env.data) {
+        bulkSummary = {
+          total: env.data.total,
+          succeeded: env.data.succeeded,
+          failed: env.data.failed,
+          skipped: env.data.skipped,
+        };
+      } else {
+        bulkError = env.error?.message ?? 'Bulk reindex failed';
+      }
+    } catch (err) {
+      bulkError = err instanceof Error ? err.message : 'Unexpected error';
+    } finally {
+      bulkRunning = false;
+    }
+  }
 </script>
 
 <svelte:head>
-  <title>Projects — CLEO Studio</title>
+  <title>Admin — CLEO Studio</title>
 </svelte:head>
 
-<!-- Global modals (outside the card list) -->
+<!-- Global modals ----------------------------------------------- -->
 {#if showScan}
-  <ScanModal onClose={() => (showScan = false)} />
+  <ScanModal bind:open={showScan} onClose={() => (showScan = false)} />
 {/if}
 
 {#if showClean}
-  <CleanModal onClose={() => (showClean = false)} />
+  <CleanModal bind:open={showClean} onClose={() => (showClean = false)} />
+{/if}
+
+{#if showBackup}
+  <BackupModal bind:open={showBackup} onClose={() => (showBackup = false)} />
+{/if}
+
+{#if showDoctor}
+  <DoctorModal bind:open={showDoctor} onClose={() => (showDoctor = false)} />
+{/if}
+
+{#if showMigration}
+  <MigrationModal bind:open={showMigration} onClose={() => (showMigration = false)} />
+{/if}
+
+{#if showGc}
+  <GcModal bind:open={showGc} onClose={() => (showGc = false)} />
 {/if}
 
 {#if deleteTarget}
@@ -146,461 +274,361 @@
   />
 {/if}
 
-<div class="projects-view">
-  <div class="view-header">
-    <div class="view-icon projects-icon">P</div>
-    <div class="view-header-text">
-      <h1 class="view-title">Projects</h1>
-      <p class="view-subtitle">Multi-Project Registry</p>
-    </div>
+<div class="admin-view">
+  <HeroHeader
+    eyebrow="PROJECT REGISTRY"
+    title="Admin"
+    subtitle="Scan · index · doctor · backup. Every mutation is audited."
+    meta={data.activeProjectName}
+  >
+    {#snippet actions()}
+      <Button variant="secondary" size="sm" onclick={() => (showScan = true)}>Scan</Button>
+      <Button variant="secondary" size="sm" onclick={() => (showBackup = true)}>Backup</Button>
+      <Button variant="secondary" size="sm" onclick={() => (showDoctor = true)}>Doctor</Button>
+      <Button variant="secondary" size="sm" onclick={() => (showMigration = true)}>
+        Schema
+      </Button>
+      <Button variant="secondary" size="sm" onclick={() => (showGc = true)}>GC</Button>
+      <Button variant="ghost" size="sm" onclick={runBulkReindex} loading={bulkRunning}>
+        Reindex all
+      </Button>
+      <Button variant="danger" size="sm" onclick={() => (showClean = true)}>Clean</Button>
+    {/snippet}
+  </HeroHeader>
 
-    <div class="toolbar">
-      <button type="button" class="btn btn-toolbar" onclick={() => (showScan = true)}>
-        Scan
-      </button>
-      <button type="button" class="btn btn-toolbar btn-toolbar-danger" onclick={() => (showClean = true)}>
-        Clean&hellip;
-      </button>
-    </div>
-  </div>
+  {#if bulkError}
+    <div class="bulk-alert" role="alert">Bulk reindex failed: {bulkError}</div>
+  {/if}
 
-  {#if projects.length === 0}
-    <div class="empty-state">
-      <p class="empty-text">No projects registered</p>
-      <p class="empty-detail">
-        Run <code>cleo nexus projects register</code> or <code>cleo nexus analyze</code> to
-        register the current project, or use the <strong>Scan</strong> button above.
-      </p>
-    </div>
-  {:else}
-    <div class="projects-list">
-      {#each projects as project (project.projectId)}
-        {@const isActive = data.activeProjectId === project.projectId}
-        {@const rowState = rowStates[project.projectId] ?? 'idle'}
-        {@const rowError = rowErrors[project.projectId] ?? ''}
-        {@const neverIndexed = project.lastIndexed === null}
-        {@const stale = isStale(project.lastIndexed)}
-
-        <div class="project-card" class:active={isActive}>
-          <div class="project-header">
-            <div class="project-name-row">
-              <span class="project-name">{project.name}</span>
-              {#if isActive}
-                <span class="active-badge">active</span>
-              {/if}
-              {#if stale && !neverIndexed}
-                <span class="stale-dot" title="Index is older than 7 days"></span>
-              {/if}
-            </div>
-            <span class="project-path">{project.projectPath}</span>
-          </div>
-
-          <div class="project-stats">
-            <div class="stat">
-              <span class="stat-value">{formatCount(project.taskCount)}</span>
-              <span class="stat-label">Tasks</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{formatCount(project.nodeCount)}</span>
-              <span class="stat-label">Symbols</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{formatCount(project.relationCount)}</span>
-              <span class="stat-label">Relations</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{formatDate(project.lastIndexed)}</span>
-              <span class="stat-label">Last Indexed</span>
-            </div>
-          </div>
-
-          <div class="project-actions">
-            <!-- Switch / Clear -->
-            {#if !isActive}
-              <form method="POST" action="?/switchProject" use:enhance>
-                <input type="hidden" name="projectId" value={project.projectId} />
-                <button type="submit" class="btn btn-primary">Switch to Project</button>
-              </form>
-            {:else}
-              <form method="POST" action="?/clearProject" use:enhance>
-                <button type="submit" class="btn btn-secondary">Clear Selection</button>
-              </form>
-            {/if}
-
-            <!-- Index (only when never indexed) -->
-            {#if neverIndexed}
-              <button
-                type="button"
-                class="btn btn-action"
-                disabled={rowState === 'loading'}
-                onclick={() => handleIndex(project.projectId, 'index')}
-              >
-                {rowState === 'loading' ? '' : 'Index'}
-                {#if rowState === 'loading'}
-                  <span class="spinner" aria-hidden="true"></span>
-                {/if}
-              </button>
-            {:else}
-              <!-- Re-Index (when already indexed) -->
-              <button
-                type="button"
-                class="btn btn-action"
-                class:stale-btn={stale}
-                disabled={rowState === 'loading'}
-                onclick={() => handleIndex(project.projectId, 'reindex')}
-              >
-                {rowState === 'loading' ? '' : 'Re-Index'}
-                {#if rowState === 'loading'}
-                  <span class="spinner" aria-hidden="true"></span>
-                {/if}
-              </button>
-            {/if}
-
-            <!-- Delete -->
-            <button
-              type="button"
-              class="btn btn-delete"
-              disabled={rowState === 'loading'}
-              onclick={() => (deleteTarget = { projectId: project.projectId, name: project.name })}
-            >
-              Delete
-            </button>
-
-            <!-- Inline status feedback -->
-            {#if rowState === 'success'}
-              <span class="status-badge success" role="status">Done</span>
-            {/if}
-            {#if rowState === 'error' && rowError}
-              <span class="status-badge error" title={rowError} role="alert">Error</span>
-            {/if}
-          </div>
-        </div>
-      {/each}
+  {#if bulkSummary}
+    <div class="bulk-summary" role="status">
+      <Badge tone={bulkSummary.failed === 0 ? 'success' : 'warning'} size="md">
+        {bulkSummary.succeeded}/{bulkSummary.total} reindexed
+      </Badge>
+      {#if bulkSummary.failed > 0}
+        <span class="bulk-failed">{bulkSummary.failed} failed</span>
+      {/if}
+      {#if bulkSummary.skipped > 0}
+        <span class="bulk-skipped">{bulkSummary.skipped} skipped</span>
+      {/if}
     </div>
   {/if}
+
+  <div class="admin-layout">
+    <section class="admin-main">
+      {#if projects.length === 0}
+        <div class="empty-state">
+          <p class="empty-title">No projects registered</p>
+          <p class="empty-detail">
+            Run <code>cleo nexus projects register</code> or use the <strong>Scan</strong> button
+            above.
+          </p>
+        </div>
+      {:else}
+        <div class="project-grid">
+          {#each projects as project (project.projectId)}
+            {@const isActive = data.activeProjectId === project.projectId}
+            {@const rowState = rowStates[project.projectId] ?? 'idle'}
+            {@const rowError = rowErrors[project.projectId] ?? ''}
+            {@const neverIndexed = project.lastIndexed === null}
+            {@const stale = isStale(project.lastIndexed)}
+
+            <Card padding="cozy" class={isActive ? 'project-card is-active' : 'project-card'}>
+              {#snippet header()}
+                <div class="card-head">
+                  <div class="card-identity">
+                    <span class="card-name">{project.name}</span>
+                    {#if isActive}
+                      <Badge tone="success" size="sm">ACTIVE</Badge>
+                    {/if}
+                    <Badge
+                      tone={healthTone(project.healthStatus, stale)}
+                      size="sm"
+                    >
+                      {healthLabel(project.healthStatus, stale, neverIndexed)}
+                    </Badge>
+                  </div>
+                  <code class="card-path">{project.projectPath}</code>
+                </div>
+              {/snippet}
+
+              <div class="card-stats">
+                <div class="card-stat">
+                  <span class="card-stat-value">{formatCount(project.taskCount)}</span>
+                  <span class="card-stat-label">Tasks</span>
+                </div>
+                <div class="card-stat">
+                  <span class="card-stat-value">{formatCount(project.nodeCount)}</span>
+                  <span class="card-stat-label">Symbols</span>
+                </div>
+                <div class="card-stat">
+                  <span class="card-stat-value">{formatCount(project.relationCount)}</span>
+                  <span class="card-stat-label">Relations</span>
+                </div>
+                <div class="card-stat">
+                  <span class="card-stat-value" title={formatIso(project.lastIndexed)}>
+                    {formatRelative(project.lastIndexed)}
+                  </span>
+                  <span class="card-stat-label">Last indexed</span>
+                </div>
+              </div>
+
+              {#snippet footer()}
+                <div class="card-actions">
+                  {#if !isActive}
+                    <form method="POST" action="?/switchProject" use:enhance>
+                      <input type="hidden" name="projectId" value={project.projectId} />
+                      <Button type="submit" variant="primary" size="sm">Switch</Button>
+                    </form>
+                  {:else}
+                    <form method="POST" action="?/clearProject" use:enhance>
+                      <Button type="submit" variant="ghost" size="sm">Clear</Button>
+                    </form>
+                  {/if}
+
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={rowState === 'loading'}
+                    loading={rowState === 'loading'}
+                    onclick={() =>
+                      handleIndex(project.projectId, neverIndexed ? 'index' : 'reindex')}
+                  >
+                    {neverIndexed ? 'Index' : 'Re-index'}
+                  </Button>
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onclick={() => {
+                      showDoctor = true;
+                    }}
+                  >
+                    Doctor
+                  </Button>
+
+                  <div class="card-actions-right">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      disabled={rowState === 'loading'}
+                      onclick={() =>
+                        (deleteTarget = { projectId: project.projectId, name: project.name })}
+                    >
+                      Delete
+                    </Button>
+
+                    {#if rowState === 'success'}
+                      <Badge tone="success" size="sm">done</Badge>
+                    {/if}
+                    {#if rowState === 'error' && rowError}
+                      <Badge tone="danger" size="sm">
+                        <span title={rowError}>error</span>
+                      </Badge>
+                    {/if}
+                  </div>
+                </div>
+              {/snippet}
+            </Card>
+          {/each}
+        </div>
+      {/if}
+    </section>
+
+    <aside class="admin-rail" aria-label="Audit trail">
+      <AuditLogPanel initial={data.auditEntries} />
+    </aside>
+  </div>
 </div>
 
 <style>
-  .projects-view {
-    max-width: 900px;
+  .admin-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    max-width: 1400px;
     margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
   }
 
-  .view-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
+  .admin-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
   }
 
-  .view-header-text {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .toolbar {
-    display: flex;
-    gap: 0.5rem;
-    margin-left: auto;
-  }
-
-  .view-icon {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 1.25rem;
-    flex-shrink: 0;
-  }
-
-  .projects-icon {
-    background: rgba(16, 185, 129, 0.15);
-    color: #10b981;
-  }
-
-  .view-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #f1f5f9;
-  }
-
-  .view-subtitle {
-    font-size: 0.875rem;
-    color: #64748b;
-  }
-
-  .empty-state {
-    padding: 2rem;
-    background: #1a1f2e;
-    border: 1px dashed #2d3748;
-    border-radius: 8px;
-    text-align: center;
-  }
-
-  .empty-text {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #64748b;
-    margin-bottom: 0.75rem;
-  }
-
-  .empty-detail {
-    font-size: 0.875rem;
-    color: #475569;
-    line-height: 1.6;
-  }
-
-  .empty-detail code {
-    font-family: monospace;
-    background: #2d3748;
-    padding: 0.125rem 0.375rem;
-    border-radius: 3px;
-    color: #94a3b8;
-    font-size: 0.8125rem;
-  }
-
-  .projects-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .project-card {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    transition: border-color 0.15s;
-  }
-
-  .project-card.active {
-    border-color: #10b981;
-    background: rgba(16, 185, 129, 0.05);
-  }
-
-  .project-card:not(.active):hover {
-    border-color: #3d4f6a;
-  }
-
-  .project-header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .project-name-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .project-name {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #f1f5f9;
-  }
-
-  .active-badge {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    border-radius: 3px;
-    padding: 0.125rem 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .stale-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #f97316;
-    flex-shrink: 0;
-    display: inline-block;
-  }
-
-  .project-path {
-    font-size: 0.75rem;
-    color: #475569;
-    font-family: monospace;
-    word-break: break-all;
-  }
-
-  .project-stats {
-    display: flex;
-    gap: 1.5rem;
-    flex-wrap: wrap;
-  }
-
-  .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    min-width: 80px;
-  }
-
-  .stat-value {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #e2e8f0;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stat-label {
-    font-size: 0.6875rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .project-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .btn {
-    padding: 0.375rem 1rem;
-    border-radius: 5px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: #3b82f6;
-    color: white;
-    border-color: #3b82f6;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #2563eb;
-    border-color: #2563eb;
-  }
-
-  .btn-secondary {
-    background: transparent;
-    color: #94a3b8;
-    border-color: #2d3748;
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: #2d3748;
-    color: #e2e8f0;
-  }
-
-  .btn-action {
-    background: transparent;
-    color: #60a5fa;
-    border-color: rgba(96, 165, 250, 0.3);
-  }
-
-  .btn-action:hover:not(:disabled) {
-    background: rgba(96, 165, 250, 0.1);
-    border-color: rgba(96, 165, 250, 0.5);
-  }
-
-  .btn-action.stale-btn {
-    color: #f97316;
-    border-color: rgba(249, 115, 22, 0.35);
-  }
-
-  .btn-action.stale-btn:hover:not(:disabled) {
-    background: rgba(249, 115, 22, 0.1);
-    border-color: rgba(249, 115, 22, 0.55);
-  }
-
-  .btn-delete {
-    background: transparent;
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.3);
-    margin-left: auto;
-  }
-
-  .btn-delete:hover:not(:disabled) {
-    background: rgba(248, 113, 113, 0.1);
-    border-color: rgba(248, 113, 113, 0.5);
-  }
-
-  .btn-toolbar {
-    background: #1a1f2e;
-    color: #94a3b8;
-    border-color: #2d3748;
-    font-size: 0.8125rem;
-  }
-
-  .btn-toolbar:hover {
-    background: #2d3748;
-    color: #e2e8f0;
-  }
-
-  .btn-toolbar-danger {
-    color: #fca5a5;
-    border-color: rgba(248, 113, 113, 0.3);
-  }
-
-  .btn-toolbar-danger:hover {
-    background: rgba(248, 113, 113, 0.08);
-  }
-
-  .spinner {
-    display: inline-block;
-    width: 0.875rem;
-    height: 0.875rem;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.65s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
+  @media (min-width: 1200px) {
+    .admin-layout {
+      grid-template-columns: minmax(0, 1fr) 360px;
     }
   }
 
-  .status-badge {
-    font-size: 0.6875rem;
+  .admin-main {
+    min-width: 0;
+  }
+
+  .admin-rail {
+    min-width: 0;
+  }
+
+  .project-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  @media (min-width: 720px) and (max-width: 1199px) {
+    .project-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .admin-main :global(.project-card.is-active) {
+    border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+    background: color-mix(in srgb, var(--success-soft) 30%, var(--bg-elev-1));
+  }
+
+  .card-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    width: 100%;
+  }
+
+  .card-identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .card-name {
+    font-size: var(--text-md);
     font-weight: 600;
-    padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  .card-path {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    word-break: break-all;
+  }
+
+  .card-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+  }
+
+  @media (max-width: 480px) {
+    .card-stats {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .card-stat {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .card-stat-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-stat-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
 
-  .status-badge.success {
-    background: rgba(16, 185, 129, 0.15);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.3);
+  .card-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    width: 100%;
   }
 
-  .status-badge.error {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    cursor: help;
+  .card-actions-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
+  .empty-state {
+    padding: var(--space-10);
+    text-align: center;
+    background: var(--bg-elev-1);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .empty-title {
+    font-size: var(--text-md);
+    color: var(--text);
+    margin: 0 0 var(--space-2) 0;
+    font-weight: 600;
+  }
+
+  .empty-detail {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    margin: 0;
+    line-height: var(--leading-normal);
+  }
+
+  .empty-detail code {
+    font-family: var(--font-mono);
+    background: var(--bg);
+    color: var(--accent);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-xs);
+    font-size: var(--text-xs);
+  }
+
+  .bulk-alert {
+    background: var(--danger-soft);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
+    padding: var(--space-3);
+    font-size: var(--text-sm);
+    border-radius: var(--radius-md);
+  }
+
+  .bulk-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+  }
+
+  .bulk-failed {
+    color: var(--danger);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+
+  .bulk-skipped {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
   }
 </style>

@@ -1,43 +1,34 @@
+<!--
+  /brain/overview — landing page for the memory surface.
+
+  Wave 1D: tokenized, navigable action cards, pulled all data through the
+  /api/memory/* layer (kills direct-SQL drift), added promotion-countdown
+  + latest-N observations/decisions panels, and wired the VerifyQueuePanel.
+
+  @task T990
+  @wave 1D
+-->
 <script lang="ts">
+  import { Badge, Card, EmptyState } from '$lib/ui';
+  import {
+    PromotionCountdown,
+    QualityBar,
+    TierBadge,
+    VerifyQueuePanel,
+  } from '$lib/components/memory';
   import type { PageData } from './$types';
 
   interface Props {
     data: PageData;
   }
+
   let { data }: Props = $props();
 
-  const NODE_COLORS: Record<string, string> = {
-    observation: '#3b82f6',
-    decision: '#22c55e',
-    pattern: '#a855f7',
-    learning: '#f97316',
-    task: '#6b7280',
-    session: '#64748b',
-    epic: '#f59e0b',
-    sticky: '#ec4899',
-  };
-
-  const TIER_COLORS: Record<string, string> = {
-    short: '#64748b',
-    medium: '#3b82f6',
-    long: '#22c55e',
-    unknown: '#475569',
-  };
-
-  function nodeColor(type: string): string {
-    return NODE_COLORS[type] ?? '#94a3b8';
+  function tableShort(t: string): string {
+    return t.replace('brain_', '');
   }
 
-  function tierColor(tier: string): string {
-    return TIER_COLORS[tier] ?? '#475569';
-  }
-
-  // T748: Tier distribution bar chart helpers
-  function tableShortName(tbl: string): string {
-    return tbl.replace('brain_', '');
-  }
-
-  function barMaxCount(dist: typeof data.tierDistribution): number {
+  function barMax(dist: typeof data.tierDistribution): number {
     let max = 1;
     for (const d of dist) {
       const total = d.short + d.medium + d.long;
@@ -50,677 +41,666 @@
     if (max === 0) return 0;
     return Math.round((value / max) * 100);
   }
-
-  function formatDays(days: number): string {
-    if (days < 0.1) return 'eligible now';
-    if (days < 1) return `${Math.round(days * 24)}h`;
-    return `${days.toFixed(1)}d`;
-  }
 </script>
 
 <svelte:head>
   <title>BRAIN — CLEO Studio</title>
 </svelte:head>
 
-<div class="brain-overview">
-  <div class="view-header">
-    <div class="view-icon brain-icon">B</div>
-    <div>
-      <h1 class="view-title">BRAIN View</h1>
-      <p class="view-subtitle">Knowledge Graph &amp; Memory Tiers</p>
+<section class="overview">
+  <header class="view-head">
+    <div class="view-ident">
+      <div class="view-icon" aria-hidden="true">B</div>
+      <div>
+        <h1 class="view-title">BRAIN</h1>
+        <p class="view-sub">Cognitive memory · observations · decisions · patterns · learnings</p>
+      </div>
     </div>
-    <div class="header-nav">
-      <a href="/brain" class="nav-pill nav-pill--canvas">Open in Canvas &rarr;</a>
-      <a href="/brain/graph" class="nav-pill">Graph</a>
-      <a href="/brain/decisions" class="nav-pill">Decisions</a>
-      <a href="/brain/observations" class="nav-pill">Observations</a>
+    <nav class="view-nav" aria-label="Brain navigation">
+      <a href="/brain" class="nav-pill nav-pill--canvas">Open in Canvas →</a>
+      <a href="/brain/search" class="nav-pill">Search</a>
+      <a href="/brain/causal" class="nav-pill">Causal</a>
+      <a href="/brain/tier-stats" class="nav-pill">Tier stats</a>
       <a href="/brain/quality" class="nav-pill">Quality</a>
-    </div>
-  </div>
+      <a href="/brain/graph" class="nav-pill">Graph</a>
+    </nav>
+  </header>
 
   {#if !data.stats}
-    <div class="no-data">
-      <p>brain.db not found. Start a CLEO session to populate memory.</p>
-    </div>
+    <EmptyState
+      title="brain.db not found"
+      subtitle="Start a CLEO session to populate memory; this view will light up as entries are recorded."
+    />
   {:else}
+    <!-- Stats -->
     <div class="stats-grid">
-      {#each data.stats as stat}
-        <div class="stat-card">
+      {#each data.stats as stat (stat.label)}
+        <article class="stat">
           <span class="stat-value">{stat.value}</span>
           <span class="stat-label">{stat.label}</span>
-        </div>
+        </article>
       {/each}
     </div>
 
-    <div class="panels">
-      {#if data.nodeTypeCounts.length > 0}
-        <div class="panel">
-          <h2 class="panel-title">Node Types</h2>
-          <div class="type-list">
-            {#each data.nodeTypeCounts as item}
-              <div class="type-row">
-                <span class="type-dot" style="background:{nodeColor(item.node_type)}"></span>
-                <span class="type-name">{item.node_type}</span>
-                <span class="type-count">{item.count}</span>
-              </div>
-            {/each}
+    <!-- Tier distribution -->
+    {#if data.tierDistribution.length > 0}
+      {@const maxCount = barMax(data.tierDistribution)}
+      <Card>
+        {#snippet header()}
+          <div class="panel-head">
+            <h2 class="panel-title">Tier distribution by table</h2>
+            <div class="legend">
+              <TierBadge tier="short" />
+              <TierBadge tier="medium" />
+              <TierBadge tier="long" />
+            </div>
           </div>
-        </div>
-      {/if}
-
-      {#if data.tierCounts.length > 0}
-        <div class="panel">
-          <h2 class="panel-title">Memory Tiers</h2>
-          <div class="tier-list">
-            {#each data.tierCounts as item}
-              <div class="tier-row">
-                <span class="tier-dot" style="background:{tierColor(item.tier)}"></span>
-                <span class="tier-name">{item.tier}</span>
-                <span class="tier-count">{item.count}</span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if data.recentNodes.length > 0}
-        <div class="panel panel-wide">
-          <h2 class="panel-title">Recent Activity</h2>
-          <div class="recent-list">
-            {#each data.recentNodes as node}
-              <div class="recent-row">
-                <span class="recent-dot" style="background:{nodeColor(node.node_type)}"></span>
-                <span class="recent-label">{node.label}</span>
-                <span class="recent-type">{node.node_type}</span>
-                <span class="recent-quality">{(node.quality_score ?? 0).toFixed(2)}</span>
-                <span class="recent-date">{node.created_at.slice(0, 10)}</span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
-
-    <!-- T748: Per-table tier distribution bar chart -->
-    {#if data.tierDistribution && data.tierDistribution.length > 0}
-      {@const maxCount = barMaxCount(data.tierDistribution)}
-      <div class="tier-chart-panel">
-        <h2 class="panel-title">Tier Distribution by Table</h2>
-        <div class="tier-chart-legend">
-          <span class="legend-item"><span class="legend-swatch" style="background:#64748b"></span>Short</span>
-          <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6"></span>Medium</span>
-          <span class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span>Long</span>
-        </div>
-        <div class="tier-chart-rows">
-          {#each data.tierDistribution as dist}
-            <div class="chart-row">
-              <span class="chart-label">{tableShortName(dist.table)}</span>
-              <div class="chart-bars">
+        {/snippet}
+        <div class="chart-rows">
+          {#each data.tierDistribution as dist (dist.table)}
+            <a class="chart-row" href={`/brain/${tableShort(dist.table)}`}>
+              <span class="chart-label">{tableShort(dist.table)}</span>
+              <div class="chart-bars" aria-hidden="true">
                 {#if dist.short > 0}
-                  <div
-                    class="chart-bar chart-bar--short"
-                    style="width:{pct(dist.short, maxCount)}%"
-                    title="short: {dist.short}"
-                  >
-                    {#if pct(dist.short, maxCount) > 12}<span class="bar-label">{dist.short}</span>{/if}
-                  </div>
+                  <span class="seg seg-short" style="width:{pct(dist.short, maxCount)}%">
+                    {#if pct(dist.short, maxCount) > 12}<span class="seg-n">{dist.short}</span>{/if}
+                  </span>
                 {/if}
                 {#if dist.medium > 0}
-                  <div
-                    class="chart-bar chart-bar--medium"
-                    style="width:{pct(dist.medium, maxCount)}%"
-                    title="medium: {dist.medium}"
-                  >
-                    {#if pct(dist.medium, maxCount) > 12}<span class="bar-label">{dist.medium}</span>{/if}
-                  </div>
+                  <span class="seg seg-medium" style="width:{pct(dist.medium, maxCount)}%">
+                    {#if pct(dist.medium, maxCount) > 12}<span class="seg-n">{dist.medium}</span>{/if}
+                  </span>
                 {/if}
                 {#if dist.long > 0}
-                  <div
-                    class="chart-bar chart-bar--long"
-                    style="width:{pct(dist.long, maxCount)}%"
-                    title="long: {dist.long}"
-                  >
-                    {#if pct(dist.long, maxCount) > 12}<span class="bar-label">{dist.long}</span>{/if}
-                  </div>
+                  <span class="seg seg-long" style="width:{pct(dist.long, maxCount)}%">
+                    {#if pct(dist.long, maxCount) > 12}<span class="seg-n">{dist.long}</span>{/if}
+                  </span>
                 {/if}
                 {#if dist.short === 0 && dist.medium === 0 && dist.long === 0}
-                  <span class="chart-empty">empty</span>
+                  <span class="seg-empty">empty</span>
                 {/if}
               </div>
               <span class="chart-total">{dist.short + dist.medium + dist.long}</span>
-            </div>
+            </a>
           {/each}
         </div>
-      </div>
+      </Card>
     {/if}
 
-    <!-- T748: Long-tier promotion countdown -->
-    {#if data.upcomingPromotions && data.upcomingPromotions.length > 0}
-      <div class="promo-panel">
-        <h2 class="panel-title">Upcoming Long-Tier Promotions</h2>
-        <p class="promo-subtitle">Medium entries eligible for long-tier after 7-day gate</p>
-        <div class="promo-list">
-          {#each data.upcomingPromotions as promo}
-            <div class="promo-row">
-              <span class="promo-table">{tableShortName(promo.table)}</span>
-              <span class="promo-id">{promo.id}</span>
-              <span class="promo-track">{promo.track}</span>
-              <span class="promo-countdown" class:promo-ready={promo.daysUntil < 0.1}>
-                {formatDays(promo.daysUntil)}
-              </span>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {:else if data.stats}
-      <div class="promo-panel promo-panel--empty">
-        <h2 class="panel-title">Long-Tier Promotions</h2>
-        <p class="promo-empty-msg">No entries currently qualify for long-tier promotion. Entries need 7 days age + citation&nbsp;&ge;&nbsp;5 or owner-verified.</p>
-      </div>
-    {/if}
+    <!-- Dual column: promotions + verify queue -->
+    <div class="dual">
+      <Card>
+        {#snippet header()}
+          <div>
+            <h2 class="panel-title">Upcoming long-tier promotions</h2>
+            <span class="panel-sub">Medium entries eligible after the 7-day citation gate</span>
+          </div>
+        {/snippet}
+        {#if data.upcomingPromotions.length === 0}
+          <EmptyState
+            title="Nothing queued"
+            subtitle="Entries need ≥ 7 days age plus citation ≥ 5 (or owner-verified) to promote."
+          />
+        {:else}
+          <ul class="promo-list">
+            {#each data.upcomingPromotions as promo (promo.id)}
+              <li class="promo-row">
+                <code class="promo-id">{promo.id}</code>
+                <span class="promo-table">{tableShort(promo.table)}</span>
+                <Badge tone="accent" size="sm" subtle>{promo.track}</Badge>
+                <div class="promo-end">
+                  <PromotionCountdown daysUntil={promo.daysUntil} />
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </Card>
 
-    <div class="action-cards">
-      <a href="/brain/graph" class="action-card">
-        <div class="action-icon" style="background:rgba(59,130,246,0.15);color:#3b82f6">G</div>
-        <div>
-          <div class="action-title">Knowledge Graph</div>
-          <div class="action-desc">Force-directed neural network with {data.stats[0].value} nodes</div>
-        </div>
+      <VerifyQueuePanel limit={6} />
+    </div>
+
+    <!-- Recent observations & decisions -->
+    <div class="dual">
+      <Card>
+        {#snippet header()}
+          <div class="panel-head">
+            <h2 class="panel-title">Recent observations</h2>
+            <a class="panel-link" href="/brain/observations">See all →</a>
+          </div>
+        {/snippet}
+        {#if data.recentObservations.length === 0}
+          <EmptyState title="No observations yet" />
+        {:else}
+          <ul class="recent-list">
+            {#each data.recentObservations as o (o.id)}
+              <li class="recent-row">
+                <span class="recent-head">
+                  <code class="recent-id">{o.id}</code>
+                  <TierBadge tier={o.memory_tier} />
+                  <Badge tone="info" size="sm" subtle>{o.type}</Badge>
+                  <span class="recent-date">{o.created_at.slice(0, 10)}</span>
+                </span>
+                <span class="recent-body">
+                  <span class="recent-title">{o.title}</span>
+                  <QualityBar score={o.quality_score} width={60} showLabel={false} />
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </Card>
+
+      <Card>
+        {#snippet header()}
+          <div class="panel-head">
+            <h2 class="panel-title">Recent decisions</h2>
+            <a class="panel-link" href="/brain/decisions">See all →</a>
+          </div>
+        {/snippet}
+        {#if data.recentDecisions.length === 0}
+          <EmptyState title="No decisions yet" />
+        {:else}
+          <ul class="recent-list">
+            {#each data.recentDecisions as d (d.id)}
+              <li class="recent-row">
+                <span class="recent-head">
+                  <code class="recent-id">{d.id}</code>
+                  <TierBadge tier={d.memory_tier} />
+                  <Badge tone={d.confidence === 'high' ? 'success' : d.confidence === 'low' ? 'danger' : 'warning'} size="sm">{d.confidence ?? 'unknown'}</Badge>
+                  <span class="recent-date">{d.created_at.slice(0, 10)}</span>
+                </span>
+                <span class="recent-body">
+                  <span class="recent-title">{d.decision}</span>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </Card>
+    </div>
+
+    <!-- Action cards -->
+    <div class="actions">
+      <a href="/brain/graph" class="action">
+        <span class="action-icon">G</span>
+        <span class="action-body">
+          <span class="action-title">Knowledge graph</span>
+          <span class="action-desc">Force-directed view of the full substrate</span>
+        </span>
       </a>
-      <a href="/brain/decisions" class="action-card">
-        <div class="action-icon" style="background:rgba(34,197,94,0.15);color:#22c55e">D</div>
-        <div>
-          <div class="action-title">Decisions Timeline</div>
-          <div class="action-desc">Chronological decision history with rationale</div>
-        </div>
+      <a href="/brain/decisions" class="action">
+        <span class="action-icon">D</span>
+        <span class="action-body">
+          <span class="action-title">Decisions</span>
+          <span class="action-desc">Timeline with rationale + outcomes</span>
+        </span>
       </a>
-      <a href="/brain/observations" class="action-card">
-        <div class="action-icon" style="background:rgba(168,85,247,0.15);color:#a855f7">O</div>
-        <div>
-          <div class="action-title">Observations</div>
-          <div class="action-desc">Filter by tier, type, and quality score</div>
-        </div>
+      <a href="/brain/observations" class="action">
+        <span class="action-icon">O</span>
+        <span class="action-body">
+          <span class="action-title">Observations</span>
+          <span class="action-desc">Filter by tier, type, and quality</span>
+        </span>
       </a>
-      <a href="/brain/quality" class="action-card">
-        <div class="action-icon" style="background:rgba(249,115,22,0.15);color:#f97316">Q</div>
-        <div>
-          <div class="action-title">Quality Distribution</div>
-          <div class="action-desc">Score histograms and tier breakdowns</div>
-        </div>
+      <a href="/brain/patterns" class="action">
+        <span class="action-icon">P</span>
+        <span class="action-body">
+          <span class="action-title">Patterns</span>
+          <span class="action-desc">Recurring workflow signals</span>
+        </span>
+      </a>
+      <a href="/brain/learnings" class="action">
+        <span class="action-icon">L</span>
+        <span class="action-body">
+          <span class="action-title">Learnings</span>
+          <span class="action-desc">Actionable insights with confidence</span>
+        </span>
+      </a>
+      <a href="/brain/search" class="action">
+        <span class="action-icon">S</span>
+        <span class="action-body">
+          <span class="action-title">Search</span>
+          <span class="action-desc">Cross-table FTS retrieval</span>
+        </span>
+      </a>
+      <a href="/brain/causal" class="action">
+        <span class="action-icon">C</span>
+        <span class="action-body">
+          <span class="action-title">Causal reasoning</span>
+          <span class="action-desc">Trace blocker chains to the root</span>
+        </span>
+      </a>
+      <a href="/brain/tier-stats" class="action">
+        <span class="action-icon">T</span>
+        <span class="action-body">
+          <span class="action-title">Tier stats</span>
+          <span class="action-desc">Retention split + verify queue</span>
+        </span>
       </a>
     </div>
   {/if}
-</div>
+</section>
 
 <style>
-  .brain-overview {
-    max-width: 1000px;
+  .overview {
+    max-width: 1150px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: var(--space-6);
+    font-family: var(--font-sans);
   }
 
-  .view-header {
+  .view-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .view-ident {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
+    gap: var(--space-3);
   }
 
   .view-icon {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 8px;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-xl);
     font-weight: 700;
-    font-size: 1.25rem;
-    flex-shrink: 0;
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    color: var(--accent);
+    background: var(--accent-halo);
+    border: 1px solid var(--accent);
   }
 
   .view-title {
-    font-size: 1.5rem;
+    margin: 0;
+    font-size: var(--text-2xl);
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text);
+    letter-spacing: -0.01em;
   }
 
-  .view-subtitle {
-    font-size: 0.875rem;
-    color: #64748b;
+  .view-sub {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
   }
 
-  .header-nav {
+  .view-nav {
     display: flex;
-    gap: 0.5rem;
-    margin-left: auto;
+    align-items: center;
+    gap: var(--space-2);
     flex-wrap: wrap;
   }
 
   .nav-pill {
-    padding: 0.25rem 0.875rem;
-    border-radius: 999px;
-    font-size: 0.8125rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
     font-weight: 500;
-    color: #94a3b8;
+    color: var(--text-dim);
     text-decoration: none;
-    border: 1px solid #2d3748;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
+    border: 1px solid var(--border);
+    transition: color var(--ease), border-color var(--ease), background var(--ease);
   }
 
   .nav-pill:hover {
-    color: #22c55e;
-    border-color: #22c55e;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .nav-pill:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
   .nav-pill--canvas {
-    color: #3b82f6;
-    border-color: rgba(59, 130, 246, 0.4);
-    background: rgba(59, 130, 246, 0.08);
+    color: var(--info);
+    border-color: color-mix(in srgb, var(--info) 40%, transparent);
+    background: var(--info-soft);
   }
 
   .nav-pill--canvas:hover {
-    color: #3b82f6;
-    border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.18);
-  }
-
-  .no-data {
-    padding: 2rem;
-    background: #1a1f2e;
-    border: 1px dashed #2d3748;
-    border-radius: 8px;
-    text-align: center;
-    color: #64748b;
-    font-size: 0.875rem;
+    color: var(--info);
+    border-color: var(--info);
+    background: color-mix(in srgb, var(--info) 25%, transparent);
   }
 
   .stats-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-3);
   }
 
-  .stat-card {
+  .stat {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.75rem 1rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    min-width: 110px;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
 
   .stat-value {
-    font-size: 1.375rem;
+    font-size: var(--text-xl);
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text);
     font-variant-numeric: tabular-nums;
   }
 
   .stat-label {
-    font-size: 0.6875rem;
-    color: #64748b;
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.08em;
   }
 
-  .panels {
+  .panel-head {
     display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
-  .panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 1rem;
-    flex: 1;
-    min-width: 200px;
-  }
-
-  .panel-wide {
-    flex: 2;
-    min-width: 320px;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
   }
 
   .panel-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #94a3b8;
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.75rem;
+    letter-spacing: 0.08em;
   }
 
-  .type-list,
-  .tier-list {
+  .panel-sub {
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .panel-link {
+    font-size: var(--text-2xs);
+    color: var(--accent);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+
+  .panel-link:hover {
+    text-decoration: underline;
+  }
+
+  .legend {
+    display: inline-flex;
+    gap: var(--space-1);
+  }
+
+  .chart-rows {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .type-row,
-  .tier-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-  }
-
-  .type-dot,
-  .tier-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .type-name,
-  .tier-name {
-    flex: 1;
-    color: #e2e8f0;
-  }
-
-  .type-count,
-  .tier-count {
-    color: #64748b;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .recent-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .recent-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    padding: 0.25rem 0;
-    border-bottom: 1px solid #1e2535;
-  }
-
-  .recent-row:last-child {
-    border-bottom: none;
-  }
-
-  .recent-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .recent-label {
-    flex: 1;
-    color: #e2e8f0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 220px;
-  }
-
-  .recent-type {
-    color: #64748b;
-    font-size: 0.6875rem;
-    min-width: 70px;
-  }
-
-  .recent-quality {
-    color: #94a3b8;
-    font-variant-numeric: tabular-nums;
-    min-width: 35px;
-    text-align: right;
-  }
-
-  .recent-date {
-    color: #475569;
-    white-space: nowrap;
-  }
-
-  .action-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 0.75rem;
-  }
-
-  /* T748: Tier distribution bar chart */
-  .tier-chart-panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 1rem;
-  }
-
-  .tier-chart-legend {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.75rem;
-    color: #94a3b8;
-  }
-
-  .legend-swatch {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
-
-  .tier-chart-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
   }
 
   .chart-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 100px 1fr 42px;
     align-items: center;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .chart-row:first-child {
+    border-top: none;
+  }
+
+  .chart-row:hover .chart-label {
+    color: var(--accent);
   }
 
   .chart-label {
-    width: 90px;
-    flex-shrink: 0;
-    color: #94a3b8;
-    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    transition: color var(--ease);
   }
 
   .chart-bars {
-    flex: 1;
     display: flex;
     gap: 2px;
-    height: 22px;
+    height: 20px;
     align-items: stretch;
     min-width: 0;
   }
 
-  .chart-bar {
+  .seg {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     min-width: 4px;
-    transition: width 0.2s;
+    transition: width var(--ease-slow);
     overflow: hidden;
   }
 
-  .chart-bar--short {
-    background: #64748b;
+  .seg-short {
+    background: var(--text-faint);
   }
 
-  .chart-bar--medium {
-    background: #3b82f6;
+  .seg-medium {
+    background: var(--info);
   }
 
-  .chart-bar--long {
-    background: #22c55e;
+  .seg-long {
+    background: var(--success);
   }
 
-  .bar-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
-    padding: 0 4px;
-    white-space: nowrap;
+  .seg-n {
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: var(--bg);
   }
 
-  .chart-empty {
-    color: #475569;
-    font-size: 0.75rem;
+  .seg-empty {
+    color: var(--text-faint);
+    font-size: var(--text-2xs);
     align-self: center;
+    font-style: italic;
   }
 
   .chart-total {
-    width: 40px;
     text-align: right;
-    color: #475569;
-    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
   }
 
-  /* T748: Promotion countdown */
-  .promo-panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 1rem;
+  .dual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
   }
 
-  .promo-panel--empty {
-    border-style: dashed;
-  }
-
-  .promo-subtitle {
-    font-size: 0.75rem;
-    color: #475569;
-    margin-bottom: 0.75rem;
-  }
-
-  .promo-empty-msg {
-    font-size: 0.8125rem;
-    color: #475569;
+  @media (max-width: 800px) {
+    .dual {
+      grid-template-columns: 1fr;
+    }
   }
 
   .promo-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
   }
 
   .promo-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    padding: 0.25rem 0;
-    border-bottom: 1px solid #1e2535;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
   }
 
-  .promo-row:last-child {
-    border-bottom: none;
-  }
-
-  .promo-table {
-    width: 80px;
-    flex-shrink: 0;
-    font-size: 0.6875rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+  .promo-row:first-child {
+    border-top: none;
   }
 
   .promo-id {
-    flex: 1;
-    color: #94a3b8;
-    font-family: monospace;
-    font-size: 0.75rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text);
+    background: var(--bg-elev-2);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
   }
 
-  .promo-track {
-    color: #64748b;
-    font-size: 0.6875rem;
-    white-space: nowrap;
-    flex-shrink: 0;
+  .promo-table {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
   }
 
-  .promo-countdown {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #3b82f6;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    flex-shrink: 0;
-    min-width: 60px;
+  .promo-end {
     text-align: right;
   }
 
-  .promo-countdown.promo-ready {
-    color: #22c55e;
+  .recent-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
   }
 
-  .action-card {
+  .recent-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .recent-row:first-child {
+    border-top: none;
+  }
+
+  .recent-head {
     display: flex;
     align-items: center;
-    gap: 0.875rem;
-    padding: 1rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    text-decoration: none;
-    transition:
-      border-color 0.15s,
-      background 0.15s;
+    gap: var(--space-2);
+    flex-wrap: wrap;
   }
 
-  .action-card:hover {
-    border-color: #22c55e;
-    background: #1c2130;
+  .recent-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    background: var(--bg);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+  }
+
+  .recent-date {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+  }
+
+  .recent-body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .recent-title {
+    flex: 1;
+    font-size: var(--text-sm);
+    color: var(--text);
+    line-height: var(--leading-normal);
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    text-decoration: none;
+    transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
+  }
+
+  .action:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-1px);
+  }
+
+  .action:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 
   .action-icon {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 6px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
     font-weight: 700;
-    font-size: 1rem;
+    color: var(--accent);
+    background: var(--accent-halo);
+    border: 1px solid var(--accent);
     flex-shrink: 0;
   }
 
+  .action-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
   .action-title {
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 600;
-    color: #e2e8f0;
-    margin-bottom: 0.25rem;
+    color: var(--text);
   }
 
   .action-desc {
-    font-size: 0.75rem;
-    color: #64748b;
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
   }
 </style>

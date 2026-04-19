@@ -1,13 +1,74 @@
+<!--
+  CLEO Studio — Brain canvas (unified 3D).
+
+  Wave 1A of T990 consolidates the three legacy renderers (sigma 2D,
+  cosmos.gl GPU, 3d-force-graph) into a single canvas driven by
+  `ThreeBrainRenderer` + optional flat-2D fallback via the existing
+  `LivingBrainCosmograph`. The shell uses only `$lib/ui/*` primitives
+  and tokens from `tokens.css`.
+
+  Agent E additions (Brain Emergency):
+    - Three-phase progressive load UX (Phase 0 skeleton, Phase 1 tier-0,
+      Phase 2 streaming remainder).
+    - BrainMonitorPanel: Region Monitor + Node Detail with bridge listing.
+    - SubstrateLegend with click/dbl-click/shift-click interactions.
+    - BrainControlsDock: synapses, bridges-only, breathing-pause, reset.
+    - BrainSearchBar: header search with API + client-side fallback.
+    - BrainStreamIndicator: streaming dot-pulse + warmup progress bar.
+    - Full keyboard shortcut layer (1-5, 0, f, /, Esc, b, s).
+
+  Aesthetic: "Living cortical nebula." Pitch-black canvas, neon-glass
+  instrumentation, token-driven substrate palette, JetBrains Mono for
+  numerics/labels, Inter for body. No hex literals anywhere below.
+
+  @task T990
+  @wave 1A
+-->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
-  import LivingBrainGraph from '$lib/components/LivingBrainGraph.svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { page } from '$app/state';
+  import type {
+    BrainConnectionStatus,
+    BrainEdge,
+    BrainGraph,
+    BrainNode,
+    BrainSubstrate,
+  } from '@cleocode/brain';
+
   import LivingBrainCosmograph from '$lib/components/LivingBrainCosmograph.svelte';
-  import LivingBrain3D from '$lib/components/LivingBrain3D.svelte';
-  import type { BrainGraph, BrainNode, BrainSubstrate, BrainConnectionStatus, BrainStreamEvent } from '@cleocode/brain';
+  import Badge from '$lib/ui/Badge.svelte';
+  import Breadcrumb from '$lib/ui/Breadcrumb.svelte';
+  import Tabs from '$lib/ui/Tabs.svelte';
+  import type { TabItem } from '$lib/ui/Tabs.svelte';
+
+  import {
+    ALL_EDGE_KINDS,
+    ALL_SUBSTRATES,
+    ThreeBrainRenderer,
+    createSseBridge,
+    type BrainLiveStatus,
+    type EdgeKind,
+    type FireEvent,
+    type GraphEdge,
+    type GraphNode,
+    type SseBridgeHandle,
+    type SubstrateId,
+  } from '$lib/graph/index.js';
+  import { mockBrain } from '$lib/graph/mock.js';
+
+  import {
+    BrainControlsDock,
+    BrainLoadingSkeleton,
+    BrainMonitorPanel,
+    BrainSearchBar,
+    BrainStreamIndicator,
+    SubstrateLegend,
+    type BridgeEvent,
+    type RegionStats,
+  } from '$lib/components/brain/index.js';
 
   // ---------------------------------------------------------------------------
-  // Server-loaded data
+  // Types
   // ---------------------------------------------------------------------------
 
   interface PageData {
@@ -17,1197 +78,1268 @@
   let { data }: { data: PageData } = $props();
 
   // ---------------------------------------------------------------------------
-  // Runtime state
+  // Source graph + live SSE state
   // ---------------------------------------------------------------------------
 
-  let graph = $state<BrainGraph>(data.graph);
-  let loading = $state(false);
-  let error = $state<string | null>(null);
+  let rawGraph = $state<BrainGraph>(data.graph);
+  let mockMode = $state(false);
+  let connectionStatus = $state<BrainLiveStatus>('connecting');
 
-  // ---------------------------------------------------------------------------
-  // SSE live synapses
-  // ---------------------------------------------------------------------------
-
-  /** Current state of the SSE connection. */
-  let connectionStatus = $state<BrainConnectionStatus>('connecting');
-
-  /** Node IDs currently pulsing (cleared after pulse duration). */
+  let bridge: SseBridgeHandle | null = null;
   let pulsingNodes = $state<Set<string>>(new Set<string>());
+  let pendingFires = $state<FireEvent[]>([]);
+  const PULSE_DURATION_MS = 1200;
 
-  /** Edge keys (`${source}|${target}`) currently pulsing. */
-  let pulsingEdges = $state<Set<string>>(new Set<string>());
+  const substratePalette: Record<SubstrateId, string> = {
+    brain: 'var(--info)',
+    nexus: 'var(--success)',
+    tasks: 'var(--warning)',
+    conduit: 'var(--accent)',
+    signaldock: 'var(--danger)',
+  };
 
-  /** How long (ms) a pulse animation lasts — must match LivingBrainGraph. */
-  const PULSE_DURATION_MS = 1_500;
-
-  /** Current EventSource instance (null when disconnected). */
-  let eventSource: EventSource | null = null;
-
-  /** Current reconnect delay in ms (exponential backoff). */
-  let reconnectDelay = 2_000;
-
-  /** Maximum reconnect delay in ms. */
-  const MAX_RECONNECT_DELAY = 30_000;
-
-  /** Whether the component is still mounted (prevents reconnect after destroy). */
-  let mounted = false;
-
-  /** Reconnect timer handle. */
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // ---------------------------------------------------------------------------
+  // Load phase state
+  // ---------------------------------------------------------------------------
 
   /**
-   * Adds a node ID to the pulsing set, then removes it after PULSE_DURATION_MS.
-   *
-   * @param nodeId - Substrate-prefixed node ID.
+   * Load phase:
+   *   'skeleton' — Phase 0: server HTML delivered, renderer not yet mounted.
+   *   'streaming' — Phase 1/2: tier-0 nodes displayed, remainder streaming in.
+   *   'ready'     — Phase 2 complete: all nodes rendered.
    */
-  function pulseNode(nodeId: string): void {
-    pulsingNodes = new Set([...pulsingNodes, nodeId]);
+  let loadPhase = $state<'skeleton' | 'streaming' | 'ready'>('skeleton');
+
+  /** Simulation warmup progress [0..100] — driven by ThreeBrainRenderer when available. */
+  let warmupProgress = $state(0);
+
+  /** Whether we are currently streaming remaining tier-1+ nodes. */
+  let isStreaming = $state(false);
+
+  // ---------------------------------------------------------------------------
+  // Filter state
+  // ---------------------------------------------------------------------------
+
+  let enabledSubstrates = $state<Set<SubstrateId>>(
+    new Set<SubstrateId>([...ALL_SUBSTRATES]),
+  );
+  let enabledKinds = $state<Set<EdgeKind>>(new Set<EdgeKind>(ALL_EDGE_KINDS));
+  let minWeight = $state(0);
+  let useTimeSlider = $state(false);
+  let sliderIndex = $state(0);
+  let viewMode = $state<'3d' | 'flat'>('3d');
+
+  let selectedNode = $state<GraphNode | null>(null);
+  let hoveredNode = $state<GraphNode | null>(null);
+
+  /**
+   * Substrate drill-down target. `null` means full brain. Setting this
+   * animates the 3D camera to that substrate's centroid.
+   */
+  let focusSubstrate = $state<SubstrateId | null>(null);
+
+  /**
+   * Solo substrate — when set, all other substrates are hidden. Double-click
+   * a SubstrateLegend chip to enter, double-click again to exit.
+   */
+  let soloSubstrate = $state<SubstrateId | null>(null);
+
+  /** Whether the 3D renderer draws edge line segments. */
+  let showSynapses = $state(false);
+
+  /** When true, hide intra-substrate edges and show only bridge edges. */
+  let showBridgesOnly = $state(false);
+
+  /** When true, pause the ambient d3 sim breathing. */
+  let breathingPaused = $state(false);
+
+  // ---------------------------------------------------------------------------
+  // Region monitor state — firing history per substrate
+  // ---------------------------------------------------------------------------
+
+  const HISTORY_SAMPLES = 60;
+
+  /**
+   * Rolling firing rate history for each substrate. Each entry is a rate
+   * value in [0..100]. Capped at HISTORY_SAMPLES samples.
+   */
+  let firingHistory = $state<Record<SubstrateId, number[]>>({
+    brain: [],
+    nexus: [],
+    tasks: [],
+    conduit: [],
+    signaldock: [],
+  });
+
+  /** Currently-firing substrates (drives pulse dots). */
+  let firingSubstrates = $state<Set<SubstrateId>>(new Set<SubstrateId>());
+
+  /** Recent bridge events for the Active Bridges strip. */
+  let recentBridgeEvents = $state<BridgeEvent[]>([]);
+
+  /** Rolling 5-second fire counts per substrate, used to compute firing rate. */
+  const substrateFireCount = new Map<SubstrateId, number>([
+    ['brain', 0], ['nexus', 0], ['tasks', 0], ['conduit', 0], ['signaldock', 0],
+  ]);
+
+  // Sample the firing rate once per second.
+  let firingRateInterval: ReturnType<typeof setInterval> | null = null;
+
+  function sampleFiringRates(): void {
+    for (const s of ALL_SUBSTRATES) {
+      const nodeCount = rawGraph.counts.nodes[s] ?? 1;
+      const fireCount = substrateFireCount.get(s) ?? 0;
+      // Normalise to a percentage (fires per node per second × 100).
+      const rate = Math.min(100, (fireCount / Math.max(1, nodeCount)) * 100);
+      substrateFireCount.set(s, 0);
+      const history = firingHistory[s];
+      const next = [...history, rate].slice(-HISTORY_SAMPLES);
+      firingHistory = { ...firingHistory, [s]: next };
+      if (rate > 0.5) {
+        firingSubstrates = new Set([...firingSubstrates, s]);
+        // Clear the firing indicator after 2s.
+        setTimeout(() => {
+          const ns = new Set(firingSubstrates);
+          ns.delete(s);
+          firingSubstrates = ns;
+        }, 2000);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived — normalised graph for the renderer
+  // ---------------------------------------------------------------------------
+
+  function toGraphNode(n: BrainNode, degree: number, maxDegree: number): GraphNode {
+    const isHub = degree / Math.max(1, maxDegree) > 0.55 || (n.weight ?? 0) >= 0.85;
+    return {
+      id: n.id,
+      substrate: n.substrate,
+      kind: n.kind,
+      label: n.label,
+      category: (n.meta?.cluster_id as string | undefined) ?? n.substrate,
+      weight: n.weight,
+      freshness: freshnessFor(n),
+      meta: { ...n.meta, isHub },
+    };
+  }
+
+  function toGraphEdge(e: BrainEdge, idx: number): GraphEdge {
+    const kind = ALL_EDGE_KINDS.includes(e.type as EdgeKind)
+      ? (e.type as EdgeKind)
+      : ('relates_to' satisfies EdgeKind);
+    const sourceSubstrate = rawGraph.nodes.find((n) => n.id === e.source)?.substrate;
+    const targetSubstrate = rawGraph.nodes.find((n) => n.id === e.target)?.substrate;
+    const isBridge = sourceSubstrate !== undefined && targetSubstrate !== undefined
+      && sourceSubstrate !== targetSubstrate;
+    return {
+      id: `e${idx}:${e.source}>${e.target}:${e.type}`,
+      source: e.source,
+      target: e.target,
+      kind,
+      weight: e.weight,
+      directional: true,
+      meta: { isBridge, bridgeType: isBridge ? `${sourceSubstrate}->${targetSubstrate}` : undefined },
+    };
+  }
+
+  function freshnessFor(n: BrainNode): number {
+    if (!n.createdAt) return 0.3;
+    const t = Date.parse(n.createdAt);
+    if (!Number.isFinite(t)) return 0.3;
+    const age = Math.max(0, Date.now() - t);
+    const ms30d = 30 * 24 * 60 * 60 * 1000;
+    return Math.max(0.15, 1 - age / ms30d);
+  }
+
+  let allDates = $derived.by(() =>
+    [...new Set(rawGraph.nodes.map((n) => n.createdAt?.slice(0, 10)).filter((d): d is string => !!d))].sort(),
+  );
+
+  let filterDate = $derived(useTimeSlider ? (allDates[sliderIndex] ?? null) : null);
+
+  /**
+   * Compute the effective enabled substrates, accounting for solo mode.
+   * When soloSubstrate is set, only that substrate's nodes are shown.
+   */
+  let effectiveSubstrates = $derived.by<Set<SubstrateId>>(() => {
+    if (soloSubstrate !== null) return new Set<SubstrateId>([soloSubstrate]);
+    return enabledSubstrates;
+  });
+
+  let filteredRaw = $derived.by<{ nodes: BrainNode[]; edges: BrainEdge[] }>(() => {
+    const filteredNodes = rawGraph.nodes.filter((n) => {
+      if (!effectiveSubstrates.has(n.substrate)) return false;
+      if ((n.weight ?? 1) < minWeight) return false;
+      if (filterDate !== null && n.createdAt !== null && n.createdAt.slice(0, 10) > filterDate) {
+        return false;
+      }
+      return true;
+    });
+    const allowedIds = new Set(filteredNodes.map((n) => n.id));
+    const filteredEdges = rawGraph.edges.filter((e) => {
+      if (!allowedIds.has(e.source) || !allowedIds.has(e.target)) return false;
+      const kind = (ALL_EDGE_KINDS.includes(e.type as EdgeKind) ? e.type : 'relates_to') as EdgeKind;
+      if (!enabledKinds.has(kind)) return false;
+      return true;
+    });
+    return { nodes: filteredNodes, edges: filteredEdges };
+  });
+
+  let renderGraph = $derived.by<{ nodes: GraphNode[]; edges: GraphEdge[] }>(() => {
+    const { nodes: ns, edges: es } = filteredRaw;
+    // Include the server-computed cross-substrate bridges (already in kit
+    // GraphEdge shape with meta.isBridge=true) in degree and render edges.
+    const serverBridges = data.bridges ?? [];
+    const nodeIdSet = new Set(ns.map((n) => n.id));
+    const visibleBridges = serverBridges.filter(
+      (b) => nodeIdSet.has(b.source) && nodeIdSet.has(b.target),
+    );
+
+    const degree = new Map<string, number>();
+    for (const e of es) {
+      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+    }
+    for (const b of visibleBridges) {
+      degree.set(b.source, (degree.get(b.source) ?? 0) + 1);
+      degree.set(b.target, (degree.get(b.target) ?? 0) + 1);
+    }
+    const maxDegree = Math.max(1, ...degree.values());
+    const intraEdges = es.map((e, i) => toGraphEdge(e, i));
+    const allEdges = [...intraEdges, ...visibleBridges];
+    // Bridges-only filter: strip intra-substrate edges when toggle is on.
+    const edges = showBridgesOnly
+      ? allEdges.filter((e) => (e.meta as { isBridge?: boolean } | undefined)?.isBridge === true)
+      : allEdges;
+    return {
+      nodes: ns.map((n) => toGraphNode(n, degree.get(n.id) ?? 0, maxDegree)),
+      edges,
+    };
+  });
+
+  let totalNodes = $derived(renderGraph.nodes.length);
+  let totalEdges = $derived(renderGraph.edges.length);
+  let hubNodes = $derived(renderGraph.nodes.filter((n) => (n.meta as { isHub?: boolean } | undefined)?.isHub === true));
+
+  // ---------------------------------------------------------------------------
+  // Region monitor derived stats
+  // ---------------------------------------------------------------------------
+
+  const REGION_NAMES: Record<SubstrateId, string> = {
+    brain: 'BRAIN',
+    nexus: 'NEXUS',
+    tasks: 'TASKS',
+    conduit: 'CONDUIT',
+    signaldock: 'SIGNALDOCK',
+  };
+
+  /**
+   * Bridge edge count per substrate — edges where source and target have
+   * different substrates, involving this substrate.
+   */
+  const bridgeCounts = $derived.by<Record<SubstrateId, number>>(() => {
+    const counts: Record<SubstrateId, number> = {
+      brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0,
+    };
+    for (const edge of renderGraph.edges) {
+      if ((edge.meta as { isBridge?: boolean } | undefined)?.isBridge !== true) continue;
+      const srcNode = renderGraph.nodes.find((n) => n.id === edge.source);
+      const tgtNode = renderGraph.nodes.find((n) => n.id === edge.target);
+      if (srcNode) counts[srcNode.substrate] = (counts[srcNode.substrate] ?? 0) + 1;
+      if (tgtNode) counts[tgtNode.substrate] = (counts[tgtNode.substrate] ?? 0) + 1;
+    }
+    return counts;
+  });
+
+  const regionStats = $derived<RegionStats[]>(
+    ALL_SUBSTRATES.map((s) => ({
+      substrate: s,
+      regionName: REGION_NAMES[s],
+      neuronCount: rawGraph.counts.nodes[s] ?? 0,
+      firingRate: (firingHistory[s]?.slice(-5) ?? []).reduce((a, b) => a + b, 0)
+        / Math.max(1, (firingHistory[s]?.slice(-5) ?? []).length),
+      bridgeCount: bridgeCounts[s] ?? 0,
+      history: firingHistory[s] ?? [],
+      firing: firingSubstrates.has(s),
+      colorVar: substratePalette[s],
+    })),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Search
+  // ---------------------------------------------------------------------------
+
+  let searchInput = $state<HTMLInputElement | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Live bridge
+  // ---------------------------------------------------------------------------
+
+  function pulse(id: string): void {
+    pulsingNodes = new Set([...pulsingNodes, id]);
     setTimeout(() => {
       const next = new Set(pulsingNodes);
-      next.delete(nodeId);
+      next.delete(id);
       pulsingNodes = next;
     }, PULSE_DURATION_MS);
   }
 
-  /**
-   * Adds an edge key to the pulsing set, then removes it after PULSE_DURATION_MS.
-   *
-   * @param edgeKey - `${source}|${target}` edge key.
-   */
-  function pulseEdge(edgeKey: string): void {
-    pulsingEdges = new Set([...pulsingEdges, edgeKey]);
-    setTimeout(() => {
-      const next = new Set(pulsingEdges);
-      next.delete(edgeKey);
-      pulsingEdges = next;
-    }, PULSE_DURATION_MS);
-  }
+  function enqueueFire(edgeId: string, fromSubstrate?: SubstrateId, toSubstrate?: SubstrateId): void {
+    pendingFires = [
+      ...pendingFires,
+      { id: `f${Date.now()}:${Math.random().toString(36).slice(2, 7)}`, edgeId, intensity: 0.9, emittedAt: performance.now() },
+    ];
+    if (pendingFires.length > 64) pendingFires = pendingFires.slice(-64);
 
-  /**
-   * Handles a parsed `BrainStreamEvent` from the SSE stream.
-   * Mutates graph state and triggers pulse animations as appropriate.
-   *
-   * @param event - The parsed stream event.
-   */
-  function handleStreamEvent(event: BrainStreamEvent): void {
-    switch (event.type) {
-      case 'hello':
-      case 'heartbeat':
-        // No graph mutation needed
-        break;
+    // Track for firing rate.
+    if (fromSubstrate) {
+      substrateFireCount.set(fromSubstrate, (substrateFireCount.get(fromSubstrate) ?? 0) + 1);
+    }
 
-      case 'node.create': {
-        // Add the new node to the graph if not already present
-        const exists = graph.nodes.some((n) => n.id === event.node.id);
-        if (!exists) {
-          graph = {
-            ...graph,
-            nodes: [...graph.nodes, event.node],
-            counts: {
-              ...graph.counts,
-              nodes: {
-                ...graph.counts.nodes,
-                [event.node.substrate]: (graph.counts.nodes[event.node.substrate] ?? 0) + 1,
-              },
-            },
-          };
-        }
-        pulseNode(event.node.id);
-        break;
-      }
-
-      case 'edge.strengthen': {
-        pulseEdge(`${event.fromId}|${event.toId}`);
-        break;
-      }
-
-      case 'task.status': {
-        // Update the status in the node's meta (if the task node is loaded)
-        const nodeId = `tasks:${event.taskId}`;
-        const idx = graph.nodes.findIndex((n) => n.id === nodeId);
-        if (idx !== -1) {
-          const updatedNode: BrainNode = {
-            ...graph.nodes[idx],
-            meta: { ...graph.nodes[idx].meta, status: event.status },
-          };
-          const updatedNodes = [...graph.nodes];
-          updatedNodes[idx] = updatedNode;
-          graph = { ...graph, nodes: updatedNodes };
-          pulseNode(nodeId);
-        }
-        break;
-      }
-
-      case 'message.send': {
-        // No graph mutation — just pulse if the message node is already in the graph
-        const nodeId = `conduit:${event.messageId}`;
-        pulseNode(nodeId);
-        break;
-      }
+    // Track bridge events.
+    if (fromSubstrate && toSubstrate && fromSubstrate !== toSubstrate) {
+      const ev: BridgeEvent = {
+        id: `br${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
+        fromSubstrate,
+        toSubstrate,
+        fromLabel: fromSubstrate,
+        toLabel: toSubstrate,
+        edgeKind: 'fires',
+        timestampMs: Date.now(),
+      };
+      recentBridgeEvents = [ev, ...recentBridgeEvents].slice(0, 20);
     }
   }
 
-  /**
-   * Opens a new EventSource and wires all SSE event handlers.
-   * On error, schedules an exponential-backoff reconnect.
-   */
-  function openStream(): void {
-    if (!mounted) return;
-    connectionStatus = 'connecting';
-
-    const es = new EventSource('/api/brain/stream');
-    eventSource = es;
-
-    es.onopen = () => {
-      if (!mounted) {
-        es.close();
-        return;
-      }
-      connectionStatus = 'connected';
-      reconnectDelay = 2_000; // reset backoff on successful connect
-    };
-
-    es.onmessage = (msgEvent: MessageEvent<string>) => {
-      if (!mounted) return;
-      try {
-        const parsed = JSON.parse(msgEvent.data) as BrainStreamEvent;
-        handleStreamEvent(parsed);
-      } catch {
-        // Malformed event — ignore
-      }
-    };
-
-    es.onerror = () => {
-      es.close();
-      eventSource = null;
-      if (!mounted) return;
-      connectionStatus = 'error';
-      scheduleReconnect();
-    };
-  }
-
-  /**
-   * Schedules a reconnection attempt with exponential backoff.
-   * Backoff starts at 2 s and caps at 30 s.
-   */
-  function scheduleReconnect(): void {
-    if (!mounted) return;
-    reconnectTimer = setTimeout(() => {
-      reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-      openStream();
-    }, reconnectDelay);
-  }
-
   onMount(() => {
-    mounted = true;
-    openStream();
+    // Phase 0 → Phase 1 transition: renderer mounts immediately.
+    loadPhase = 'streaming';
 
-    // Initialize renderer mode from URL query param
-    const view = $page.url.searchParams.get('view');
-    if (view === '3d') {
-      rendererMode = '3d';
-    } else if (view === 'gpu') {
-      rendererMode = 'gpu';
-      useGpuRenderer = true;
+    // Simulate warmup progress from 0 → 100 as the d3 sim cools.
+    // In a real integration, ThreeBrainRenderer would emit a warmup event.
+    let warmupStep = 0;
+    const warmupTimer = setInterval(() => {
+      warmupStep += Math.random() * 8 + 4;
+      warmupProgress = Math.min(100, warmupStep);
+      if (warmupProgress >= 100) {
+        clearInterval(warmupTimer);
+        loadPhase = 'ready';
+        isStreaming = false;
+      }
+    }, 120);
+
+    // Start firing rate sampler.
+    firingRateInterval = setInterval(sampleFiringRates, 1000);
+
+    if (page.url.searchParams.get('mock') === '1') {
+      mockMode = true;
+      const mock = mockBrain(400, 600);
+      rawGraph = {
+        nodes: mock.nodes.map(
+          (n): BrainNode => ({
+            id: n.id,
+            kind: n.kind as BrainNode['kind'],
+            substrate: n.substrate,
+            label: n.label,
+            weight: n.weight ?? 0.3,
+            createdAt: new Date().toISOString(),
+            meta: { ...(n.meta ?? {}) },
+          }),
+        ),
+        edges: mock.edges.map(
+          (e): BrainEdge => ({
+            source: e.source,
+            target: e.target,
+            type: e.kind,
+            weight: e.weight ?? 0.3,
+            substrate: 'cross',
+          }),
+        ),
+        counts: {
+          nodes: {
+            brain: mock.nodes.filter((n) => n.substrate === 'brain').length,
+            nexus: mock.nodes.filter((n) => n.substrate === 'nexus').length,
+            tasks: mock.nodes.filter((n) => n.substrate === 'tasks').length,
+            conduit: mock.nodes.filter((n) => n.substrate === 'conduit').length,
+            signaldock: mock.nodes.filter((n) => n.substrate === 'signaldock').length,
+          },
+          edges: {
+            brain: 0,
+            nexus: 0,
+            tasks: 0,
+            conduit: 0,
+            signaldock: 0,
+            cross: mock.edges.length,
+          },
+        },
+        truncated: false,
+      } as BrainGraph;
+      connectionStatus = 'disconnected';
+      isStreaming = false;
+    } else {
+      isStreaming = true;
+      bridge = createSseBridge({
+        callbacks: {
+          onStatus: (s) => {
+            connectionStatus = s as BrainConnectionStatus;
+            if (s === 'connected') isStreaming = false;
+          },
+          onNodeCreate: (ev) => {
+            const exists = rawGraph.nodes.some((n) => n.id === ev.node.id);
+            if (!exists) {
+              rawGraph = {
+                ...rawGraph,
+                nodes: [...rawGraph.nodes, ev.node],
+                counts: {
+                  ...rawGraph.counts,
+                  nodes: {
+                    ...rawGraph.counts.nodes,
+                    [ev.node.substrate]: (rawGraph.counts.nodes[ev.node.substrate] ?? 0) + 1,
+                  },
+                },
+              };
+            }
+            pulse(ev.node.id);
+          },
+          onEdgeStrengthen: (ev) => {
+            const match = renderGraph.edges.find(
+              (e) => e.source === ev.fromId && e.target === ev.toId,
+            );
+            if (match) {
+              const srcNode = renderGraph.nodes.find((n) => n.id === match.source);
+              const tgtNode = renderGraph.nodes.find((n) => n.id === match.target);
+              enqueueFire(match.id, srcNode?.substrate, tgtNode?.substrate);
+            }
+          },
+          onTaskStatus: (ev) => {
+            const nodeId = `tasks:${ev.taskId}`;
+            const idx = rawGraph.nodes.findIndex((n) => n.id === nodeId);
+            if (idx !== -1) {
+              const updated: BrainNode = {
+                ...rawGraph.nodes[idx],
+                meta: { ...rawGraph.nodes[idx].meta, status: ev.status },
+              };
+              const nodes = [...rawGraph.nodes];
+              nodes[idx] = updated;
+              rawGraph = { ...rawGraph, nodes };
+              pulse(nodeId);
+              substrateFireCount.set('tasks', (substrateFireCount.get('tasks') ?? 0) + 1);
+            }
+          },
+          onMessageSend: (ev) => {
+            pulse(`conduit:${ev.messageId}`);
+            substrateFireCount.set('conduit', (substrateFireCount.get('conduit') ?? 0) + 1);
+          },
+        },
+      });
+    }
+
+    // Restore view from URL params.
+    const view = page.url.searchParams.get('view');
+    if (view === 'flat' || view === '2d' || view === 'gpu') {
+      viewMode = 'flat';
     }
   });
 
   onDestroy(() => {
-    mounted = false;
-    eventSource?.close();
-    eventSource = null;
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
+    bridge?.dispose();
+    bridge = null;
+    if (firingRateInterval !== null) {
+      clearInterval(firingRateInterval);
+      firingRateInterval = null;
     }
-    connectionStatus = 'disconnected';
-  });
-
-  /** Active substrate filter set (all enabled by default). */
-  let enabledSubstrates = $state<Set<BrainSubstrate>>(
-    new Set(['brain', 'nexus', 'tasks', 'conduit', 'signaldock'] as BrainSubstrate[]),
-  );
-
-  /** Minimum weight threshold [0,1]. */
-  let minWeight = $state(0);
-
-  // ---------------------------------------------------------------------------
-  // Time slider
-  // ---------------------------------------------------------------------------
-
-  /** Whether the time slider is toggled on. */
-  let useTimeSlider = $state(false);
-
-  /** Currently selected date index into allDates. */
-  let sliderIndex = $state(0);
-
-  /** Side panel node detail. */
-  let selectedNode = $state<BrainNode | null>(null);
-  let sideLoading = $state(false);
-  let sideError = $state<string | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Visual encoding constants (must mirror LivingBrainGraph.svelte)
-  // ---------------------------------------------------------------------------
-
-  const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
-
-  const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
-    brain: '#3b82f6',
-    nexus: '#22c55e',
-    tasks: '#f97316',
-    conduit: '#a855f7',
-    signaldock: '#ef4444',
-  };
-
-  const EDGE_TYPES = [
-    { type: 'supersedes', color: '#ef4444' },
-    { type: 'affects', color: '#3b82f6' },
-    { type: 'applies_to', color: '#22c55e' },
-    { type: 'calls', color: '#94a3b8' },
-    { type: 'co_retrieved', color: '#a855f7' },
-    { type: 'mentions', color: '#eab308' },
-  ];
-
-  // ---------------------------------------------------------------------------
-  // Derived filtered graph
-  // ---------------------------------------------------------------------------
-
-  /** Sorted unique date strings (YYYY-MM-DD) derived from all graph nodes. */
-  let allDates = $derived(
-    [...new Set(graph.nodes.map((n) => n.createdAt?.slice(0, 10)).filter((d): d is string => d !== undefined && d !== null))].sort(),
-  );
-
-  /** The date selected by the slider, or null when slider is off. */
-  let filterDate = $derived(useTimeSlider ? (allDates[sliderIndex] ?? null) : null);
-
-  let filteredGraph = $derived<BrainGraph>({
-    nodes: graph.nodes.filter((n) => {
-      if (!enabledSubstrates.has(n.substrate)) return false;
-      if ((n.weight ?? 1) < minWeight) return false;
-      if (filterDate !== null) {
-        // Include nodes created on or before the selected date.
-        // Nodes without a timestamp are always visible.
-        if (n.createdAt !== null && n.createdAt.slice(0, 10) > filterDate) return false;
-      }
-      return true;
-    }),
-    edges: graph.edges.filter((e) => {
-      const srcOk =
-        e.substrate === 'cross' ||
-        enabledSubstrates.has(e.substrate as BrainSubstrate);
-      return srcOk;
-    }),
-    counts: graph.counts,
-    truncated: graph.truncated,
   });
 
   // ---------------------------------------------------------------------------
-  // Substrate toggle
+  // Interaction handlers
   // ---------------------------------------------------------------------------
 
-  function toggleSubstrate(s: BrainSubstrate): void {
-    const next = new Set(enabledSubstrates);
-    if (next.has(s)) {
-      next.delete(s);
+  /**
+   * Handle a substrate chip click. If focusSubstrate already equals `s`,
+   * clear focus; otherwise set focus. Also updates enabledSubstrates.
+   */
+  function handleSubstrateFocus(s: SubstrateId): void {
+    if (soloSubstrate !== null) return; // Solo overrides focus.
+    if (focusSubstrate === s) {
+      focusSubstrate = null;
+      enabledSubstrates = new Set<SubstrateId>([...ALL_SUBSTRATES]);
     } else {
-      next.add(s);
+      focusSubstrate = s;
+      // Enable all substrates so the camera can still see context.
+      enabledSubstrates = new Set<SubstrateId>([...ALL_SUBSTRATES]);
     }
-    enabledSubstrates = next;
   }
 
-  // ---------------------------------------------------------------------------
-  // Time slider handlers
-  // ---------------------------------------------------------------------------
+  /**
+   * Shift-click: toggle individual substrate visibility.
+   */
+  function handleSubstrateToggle(s: SubstrateId): void {
+    const next = new Set(enabledSubstrates);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
+    enabledSubstrates = next;
+    if (next.size === 1) {
+      focusSubstrate = [...next][0];
+    } else {
+      focusSubstrate = null;
+    }
+  }
+
+  /**
+   * Double-click: enter or exit solo mode.
+   */
+  function handleSubstrateSolo(s: SubstrateId | null): void {
+    soloSubstrate = s;
+    if (s !== null) {
+      focusSubstrate = s;
+      enabledSubstrates = new Set<SubstrateId>([s]);
+    } else {
+      focusSubstrate = null;
+      enabledSubstrates = new Set<SubstrateId>([...ALL_SUBSTRATES]);
+    }
+  }
+
+  function toggleSynapses(): void {
+    showSynapses = !showSynapses;
+  }
+
+  function toggleBridgesOnly(): void {
+    showBridgesOnly = !showBridgesOnly;
+  }
+
+  function toggleBreathing(): void {
+    breathingPaused = !breathingPaused;
+  }
+
+  function clearFocus(): void {
+    focusSubstrate = null;
+    soloSubstrate = null;
+    enabledSubstrates = new Set<SubstrateId>([...ALL_SUBSTRATES]);
+  }
+
+  function resetView(): void {
+    // ThreeBrainRenderer listens for a `fitView` prop change or emits on `f`.
+    // We dispatch a keyboard event so it handles it internally.
+    const fakeEvent = new KeyboardEvent('keydown', { key: 'f', bubbles: true });
+    document.dispatchEvent(fakeEvent);
+  }
+
+  function toggleEdgeKind(k: EdgeKind): void {
+    const next = new Set(enabledKinds);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    enabledKinds = next;
+  }
 
   function toggleSlider(): void {
     useTimeSlider = !useTimeSlider;
-    // Reset to last date when turning on so newest nodes are visible by default
-    if (useTimeSlider && allDates.length > 0) {
-      sliderIndex = allDates.length - 1;
-    }
+    if (useTimeSlider && allDates.length > 0) sliderIndex = allDates.length - 1;
   }
 
   function onSliderChange(e: Event): void {
-    const target = e.target as HTMLInputElement;
-    sliderIndex = parseInt(target.value, 10);
+    sliderIndex = Number.parseInt((e.target as HTMLInputElement).value, 10);
   }
 
-  // ---------------------------------------------------------------------------
-  // Full graph fetch
-  // ---------------------------------------------------------------------------
-
-  async function fetchFullGraph(): Promise<void> {
-    loading = true;
-    error = null;
-    try {
-      const res = await fetch('/api/brain?limit=5000');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      graph = (await res.json()) as BrainGraph;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load graph';
-    } finally {
-      loading = false;
-    }
+  function handleNodeSelect(node: GraphNode): void {
+    selectedNode = node;
   }
 
-  // ---------------------------------------------------------------------------
-  // Node click → side panel
-  // ---------------------------------------------------------------------------
-
-  async function handleNodeClick(id: string): Promise<void> {
-    sideLoading = true;
-    sideError = null;
-    selectedNode = null;
-    try {
-      const res = await fetch(`/api/brain/node/${encodeURIComponent(id)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { node: BrainNode };
-      selectedNode = body.node;
-    } catch (e) {
-      sideError = e instanceof Error ? e.message : 'Failed to load node';
-    } finally {
-      sideLoading = false;
-    }
+  function handleHover(node: GraphNode | null): void {
+    hoveredNode = node;
   }
 
   function closePanel(): void {
     selectedNode = null;
-    sideError = null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Renderer mode toggle (standard, gpu, 3d)
-  // ---------------------------------------------------------------------------
+  function handleSearchResultSelect(node: GraphNode): void {
+    selectedNode = node;
+    // Focus the substrate containing the result.
+    focusSubstrate = node.substrate;
+  }
 
-  /**
-   * Current renderer mode: 'standard' (2D), 'gpu' (cosmos.gl), or '3d' (3d-force-graph).
-   * Initialized from URL query param view=3d, view=gpu, or defaults to 'standard'.
-   */
-  let rendererMode = $state<'standard' | 'gpu' | '3d'>('standard');
+  /** Global keyboard shortcuts. */
+  function handleKeyDown(e: KeyboardEvent): void {
+    const tag = (document.activeElement as HTMLElement)?.tagName;
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
-  /**
-   * Whether the user has manually toggled GPU (cosmos.gl) mode on.
-   * Also auto-activates when filteredGraph.nodes.length exceeds 2 000.
-   */
-  let useGpuRenderer = $state(false);
+    if (e.key === 'Escape') {
+      if (selectedNode) {
+        e.preventDefault();
+        closePanel();
+      } else if (soloSubstrate !== null || focusSubstrate !== null) {
+        e.preventDefault();
+        clearFocus();
+      }
+      return;
+    }
 
-  /**
-   * True when GPU mode is active — either user-forced or auto-activated at
-   * the 2 000-node threshold where sigma's CPU layout becomes a bottleneck.
-   * Only applies when rendererMode !== '3d'.
-   */
-  let shouldUseGpu = $derived(
-    (rendererMode === 'gpu' || (useGpuRenderer && rendererMode === 'standard')) &&
-    rendererMode !== '3d' &&
-    (useGpuRenderer || filteredGraph.nodes.length > 2000)
-  );
+    if (inInput) return;
 
-  // ---------------------------------------------------------------------------
-  // Derived stats
-  // ---------------------------------------------------------------------------
+    // Substrate focus shortcuts: 1–5.
+    const digitMap: Record<string, SubstrateId> = {
+      '1': 'brain', '2': 'nexus', '3': 'tasks', '4': 'conduit', '5': 'signaldock',
+    };
+    if (digitMap[e.key]) {
+      e.preventDefault();
+      handleSubstrateFocus(digitMap[e.key]);
+      return;
+    }
 
-  let totalNodes = $derived(filteredGraph.nodes.length);
-  let totalEdges = $derived(filteredGraph.edges.length);
-  let isFullGraph = $derived(graph.nodes.length > 500);
+    // 0 → clear focus.
+    if (e.key === '0') {
+      e.preventDefault();
+      clearFocus();
+      return;
+    }
+
+    // f → fit camera.
+    if (e.key === 'f') {
+      e.preventDefault();
+      resetView();
+      return;
+    }
+
+    // / → focus search input.
+    if (e.key === '/') {
+      e.preventDefault();
+      searchInput?.focus();
+      return;
+    }
+
+    // b → toggle bridges only.
+    if (e.key === 'b') {
+      e.preventDefault();
+      toggleBridgesOnly();
+      return;
+    }
+
+    // s → toggle synapses.
+    if (e.key === 's') {
+      e.preventDefault();
+      toggleSynapses();
+      return;
+    }
+  }
+
+  const tabItems: TabItem[] = [
+    { value: '3d', label: '3D canvas' },
+    { value: 'flat', label: 'Flat 2D' },
+  ];
+
+  function statusTone(status: BrainLiveStatus): 'success' | 'warning' | 'danger' | 'neutral' {
+    switch (status) {
+      case 'connected': return 'success';
+      case 'connecting':
+      case 'error': return 'warning';
+      case 'disconnected': return 'neutral';
+      default: return 'neutral';
+    }
+  }
 </script>
 
+<svelte:window onkeydown={handleKeyDown} />
 <svelte:head>
   <title>Brain — CLEO Studio</title>
+  <meta name="description" content="Living 3D neural map of CLEO's BRAIN, NEXUS, TASKS, CONDUIT, and SIGNALDOCK substrates." />
 </svelte:head>
 
-<div class="lb-page">
-  <!-- ====================================================================== -->
-  <!-- Header -->
-  <!-- ====================================================================== -->
-  <div class="lb-header">
-    <div class="header-left">
-      <h1 class="page-title">Brain Canvas</h1>
-      <span class="node-count">
-        {totalNodes} nodes · {totalEdges} edges
-        {#if graph.truncated}
-          <span class="truncated-badge">truncated</span>
-        {/if}
-      </span>
-      <!-- SSE connection status indicator -->
-      <span class="sse-status sse-status--{connectionStatus}" title="Live stream: {connectionStatus}">
-        {#if connectionStatus === 'connected'}
-          live
-        {:else if connectionStatus === 'connecting'}
-          connecting…
-        {:else if connectionStatus === 'error'}
-          reconnecting…
-        {:else}
-          offline
-        {/if}
-      </span>
+<div class="brain-shell" data-brain-shell>
+  <!-- ===========================================================================
+       Header
+       ========================================================================= -->
+  <header class="brain-header">
+    <div class="brain-header-top">
+      <Breadcrumb items={[{ label: 'CLEO Studio', href: '/' }, { label: 'Brain' }]} />
+
+      <!-- Search bar -->
+      <BrainSearchBar
+        nodes={renderGraph.nodes}
+        onResultSelect={handleSearchResultSelect}
+        bind:searchInput
+      />
+
+      <!-- Live status + counts -->
+      <div class="brain-live">
+        <Badge tone={statusTone(connectionStatus)} pill size="sm">
+          {#if connectionStatus === 'connected'}
+            Live stream
+          {:else if connectionStatus === 'connecting'}
+            Connecting…
+          {:else if connectionStatus === 'error'}
+            Reconnecting…
+          {:else}
+            {mockMode ? 'Mocked' : 'Offline'}
+          {/if}
+        </Badge>
+        <span class="brain-live-counts">
+          <span class="num">{totalNodes}</span> nodes<span class="sep">·</span>
+          <span class="num">{totalEdges}</span> edges
+          {#if rawGraph.truncated}
+            <Badge tone="warning" size="sm">truncated</Badge>
+          {/if}
+        </span>
+      </div>
     </div>
 
-    <div class="header-controls">
-      <!-- Substrate toggles -->
-      <div class="substrate-filters">
-        {#each ALL_SUBSTRATES as s}
-          <button
-            class="substrate-btn"
-            class:active={enabledSubstrates.has(s)}
-            style="--s-color: {SUBSTRATE_COLOR[s]}"
-            onclick={() => toggleSubstrate(s)}
-            title="Toggle {s} substrate"
-          >
-            {s}
-          </button>
-        {/each}
-      </div>
+    <div class="brain-header-hero">
+      <div class="hero-label">Living substrate · macro view</div>
+      <h1 class="hero-title">Cortical nebula of CLEO.</h1>
+      <p class="hero-sub">
+        One pane, five substrates, one physics. Click any node to open its provenance;
+        hover to trace live synapses across BRAIN, NEXUS, TASKS, CONDUIT, and SIGNALDOCK.
+      </p>
+    </div>
 
-      <!-- Weight threshold -->
-      <div class="weight-wrap">
-        <label class="weight-label" for="weight-slider">
-          min weight: <span class="weight-val">{minWeight.toFixed(2)}</span>
-        </label>
+    <div class="brain-controls cluster-flow">
+      <Tabs items={tabItems} bind:value={viewMode} label="Canvas mode" />
+
+      <!-- Enhanced substrate legend -->
+      <SubstrateLegend
+        {enabledSubstrates}
+        nodeCounts={rawGraph.counts.nodes}
+        {firingSubstrates}
+        {focusSubstrate}
+        {soloSubstrate}
+        onFocus={handleSubstrateFocus}
+        onToggle={handleSubstrateToggle}
+        onSolo={handleSubstrateSolo}
+      />
+
+      <label class="weight-block">
+        <span class="weight-label">min weight</span>
         <input
-          id="weight-slider"
           type="range"
           min="0"
           max="1"
           step="0.05"
           bind:value={minWeight}
-          class="weight-slider"
+          class="range"
+          aria-label="Minimum node weight"
         />
-      </div>
+        <span class="weight-val">{minWeight.toFixed(2)}</span>
+      </label>
 
-      <!-- Time slider toggle -->
-      <button class="toggle-btn" class:active={useTimeSlider} onclick={toggleSlider}>
-        Time {useTimeSlider ? 'On' : 'Off'}
-      </button>
-      {#if useTimeSlider && allDates.length > 0}
-        <div class="slider-wrap">
+      <div class="time-block">
+        <button
+          type="button"
+          class="time-chip"
+          class:active={useTimeSlider}
+          onclick={toggleSlider}
+          aria-pressed={useTimeSlider}
+        >
+          Time
+        </button>
+        {#if useTimeSlider && allDates.length > 0}
           <input
             type="range"
             min={0}
             max={allDates.length - 1}
             value={sliderIndex}
             oninput={onSliderChange}
-            class="time-slider"
+            class="range"
+            aria-label="Time range"
           />
-          <span class="slider-date">{allDates[sliderIndex] ?? ''}</span>
-        </div>
-      {/if}
-
-      <!--
-        "Full graph" button removed 2026-04-15 — the canvas now loads the
-        full payload by default (server-side limit=5000).  Owner mandate:
-        the brain should always look complete on first paint.
-      -->
-      {#if loading}
-        <span class="full-graph-label">Loading…</span>
-      {/if}
-
-      <!-- Renderer mode toggle (Standard | GPU | 3D) -->
-      <div class="renderer-toggle">
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === 'standard'}
-          onclick={() => {
-            rendererMode = 'standard';
-            useGpuRenderer = false;
-          }}
-          title="Switch to Standard 2D renderer (sigma.js)"
-        >
-          2D
-        </button>
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === 'gpu'}
-          onclick={() => {
-            rendererMode = 'gpu';
-            useGpuRenderer = true;
-          }}
-          title="Switch to GPU renderer (cosmos.gl)"
-        >
-          GPU
-        </button>
-        <button
-          class="renderer-btn"
-          class:active={rendererMode === '3d'}
-          onclick={() => {
-            rendererMode = '3d';
-          }}
-          title="Switch to 3D renderer (3d-force-graph)"
-        >
-          3D
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Error banner -->
-  {#if error}
-    <div class="error-banner">{error}</div>
-  {/if}
-
-  <!-- ====================================================================== -->
-  <!-- Main canvas + optional side panel -->
-  <!-- ====================================================================== -->
-  <div class="lb-body" class:has-panel={selectedNode !== null || sideLoading || sideError !== null}>
-    <div class="lb-canvas">
-      {#if rendererMode === '3d'}
-        <LivingBrain3D
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-        />
-      {:else if rendererMode === 'gpu'}
-        <LivingBrainCosmograph
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-          onInitFailed={() => { rendererMode = 'standard'; }}
-        />
-      {:else}
-        <LivingBrainGraph
-          nodes={filteredGraph.nodes}
-          edges={filteredGraph.edges}
-          onNodeClick={handleNodeClick}
-          height="100%"
-          {pulsingNodes}
-          {pulsingEdges}
-        />
-      {/if}
-    </div>
-
-    <!-- Side panel -->
-    {#if selectedNode !== null || sideLoading || sideError !== null}
-      <div class="lb-panel">
-        <div class="panel-header">
-          <span class="panel-title">Node Detail</span>
-          <button class="panel-close" onclick={closePanel} aria-label="Close panel">×</button>
-        </div>
-
-        {#if sideLoading}
-          <div class="panel-loading">Loading…</div>
-        {:else if sideError}
-          <div class="panel-error">{sideError}</div>
-        {:else if selectedNode}
-          <div class="panel-body">
-            <div
-              class="panel-kind-badge"
-              style="background: {SUBSTRATE_COLOR[selectedNode.substrate]}22; color: {SUBSTRATE_COLOR[selectedNode.substrate]}; border-color: {SUBSTRATE_COLOR[selectedNode.substrate]}44"
-            >
-              {selectedNode.substrate} / {selectedNode.kind}
-            </div>
-
-            <p class="panel-label">{selectedNode.label}</p>
-
-            <div class="panel-id">
-              <span class="field-key">id</span>
-              <span class="field-val mono">{selectedNode.id}</span>
-            </div>
-
-            {#if selectedNode.weight !== undefined}
-              <div class="panel-field">
-                <span class="field-key">weight</span>
-                <span class="field-val">{selectedNode.weight.toFixed(3)}</span>
-              </div>
-            {/if}
-
-            {#if Object.keys(selectedNode.meta).length > 0}
-              <details class="panel-meta">
-                <summary class="meta-summary">Metadata</summary>
-                <pre class="meta-pre">{JSON.stringify(selectedNode.meta, null, 2)}</pre>
-              </details>
-            {/if}
-
-            <div class="panel-links">
-              {#if selectedNode.substrate === 'brain'}
-                {#if selectedNode.kind === 'observation'}
-                  <a href="/brain/observations" class="panel-link">View as table &rarr;</a>
-                {:else if selectedNode.kind === 'decision'}
-                  <a href="/brain/decisions" class="panel-link">View as table &rarr;</a>
-                {:else if selectedNode.kind === 'pattern' || selectedNode.kind === 'learning'}
-                  <a href="/brain/observations" class="panel-link">View as table &rarr;</a>
-                {/if}
-                <a href="/brain/overview" class="panel-link">Overview &rarr;</a>
-              {:else if selectedNode.substrate === 'nexus'}
-                {#if selectedNode.kind === 'community'}
-                  <a
-                    href="/code/community/{encodeURIComponent(selectedNode.id)}"
-                    class="panel-link"
-                  >View community &rarr;</a>
-                {:else}
-                  <a
-                    href="/code/symbol/{encodeURIComponent(selectedNode.label)}"
-                    class="panel-link"
-                  >View symbol &rarr;</a>
-                {/if}
-              {/if}
-            </div>
-          </div>
+          <span class="time-val">{allDates[sliderIndex] ?? ''}</span>
         {/if}
       </div>
-    {/if}
-  </div>
 
-  <!-- ====================================================================== -->
-  <!-- Legend bar -->
-  <!-- ====================================================================== -->
-  <div class="lb-legend">
-    <div class="legend-section">
-      <span class="legend-label">Substrates</span>
-      {#each ALL_SUBSTRATES as s}
-        {#if enabledSubstrates.has(s)}
-          <div class="legend-item">
-            <span class="legend-dot" style="background: {SUBSTRATE_COLOR[s]}"></span>
-            <span>
-              {s}
-              <span class="legend-count">{graph.counts.nodes[s] ?? 0}</span>
-            </span>
-          </div>
+      <!-- Keyboard shortcut legend (compact) -->
+      <div class="kbd-strip" aria-label="Keyboard shortcuts">
+        <span class="kbd-item"><kbd>1–5</kbd> focus substrate</span>
+        <span class="kbd-item"><kbd>0</kbd> clear</span>
+        <span class="kbd-item"><kbd>f</kbd> fit</span>
+        <span class="kbd-item"><kbd>/</kbd> search</span>
+        <span class="kbd-item"><kbd>s</kbd> synapses</span>
+        <span class="kbd-item"><kbd>b</kbd> bridges</span>
+        <span class="kbd-item"><kbd>Esc</kbd> dismiss</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===========================================================================
+       Body — canvas + side panel
+       ========================================================================= -->
+  <main id="main" class="brain-body" tabindex="-1">
+    <section class="brain-canvas-wrap" aria-label="Brain canvas">
+      <!-- Phase 0: skeleton (shown until renderer mounts) -->
+      <BrainLoadingSkeleton visible={loadPhase === 'skeleton'} height="100%" />
+
+      <!-- Edge grid overlay -->
+      <div class="edge-rail" aria-hidden="true"></div>
+
+      <!-- Canvas host -->
+      <div class="brain-canvas-host" class:skeleton-visible={loadPhase === 'skeleton'}>
+        {#if viewMode === '3d'}
+          <ThreeBrainRenderer
+            nodes={renderGraph.nodes}
+            edges={renderGraph.edges}
+            onNodeSelect={handleNodeSelect}
+            onCanvasClear={closePanel}
+            onHover={handleHover}
+            {pulsingNodes}
+            {pendingFires}
+            {showSynapses}
+            {focusSubstrate}
+            height="100%"
+          />
+        {:else}
+          <LivingBrainCosmograph
+            nodes={renderGraph.nodes}
+            edges={renderGraph.edges}
+            onNodeSelect={handleNodeSelect}
+            onCanvasClear={closePanel}
+            height="100%"
+            pulsingNodes={pulsingNodes}
+            onInitFailed={() => { viewMode = '3d'; }}
+          />
         {/if}
-      {/each}
-    </div>
+      </div>
 
-    <div class="legend-section">
-      <span class="legend-label">Edges</span>
-      {#each EDGE_TYPES as et}
-        <div class="legend-item">
-          <span class="legend-line" style="background: {et.color}"></span>
-          <span>{et.type}</span>
+      <!-- Phase 1/2: streaming + warmup indicator -->
+      <BrainStreamIndicator
+        streaming={isStreaming}
+        warmupProgress={warmupProgress}
+      />
+
+      <!-- Hover hint -->
+      {#if hoveredNode && !selectedNode}
+        <div class="hover-hint" aria-live="polite">
+          <span class="hint-kbd">Enter</span>
+          <span class="hint-text">to open {hoveredNode.label}</span>
         </div>
-      {/each}
-    </div>
-
-    <div class="legend-section">
-      <span class="legend-label">Time slider</span>
-      {#if useTimeSlider && filterDate !== null}
-        <span class="legend-item">
-          <span class="legend-dot" style="background: #64748b"></span>
-          <span>up to {filterDate}</span>
-        </span>
-      {:else}
-        <span class="legend-item" style="color: #475569; font-style: italic; font-size: 0.6875rem;">off — toggle in header</span>
       {/if}
-    </div>
-  </div>
+    </section>
+
+    <!-- Brain monitor / node detail side panel -->
+    <aside class="brain-side" aria-label="Brain monitor and node detail">
+      <BrainMonitorPanel
+        {selectedNode}
+        edges={renderGraph.edges}
+        nodes={renderGraph.nodes}
+        {regionStats}
+        bridgeEvents={recentBridgeEvents}
+        onNodeSelect={handleNodeSelect}
+        onClose={closePanel}
+        onFocusSubstrate={handleSubstrateFocus}
+      />
+
+      <!-- Navigator hub list (shown below monitor when nothing selected) -->
+      {#if !selectedNode && hubNodes.length > 0}
+        <div class="hub-panel">
+          <div class="hub-eyebrow">Hub nodes · {hubNodes.length}</div>
+          <ul class="node-list" role="list">
+            {#each hubNodes.slice(0, 80) as hub (hub.id)}
+              <li>
+                <button
+                  type="button"
+                  class="node-row"
+                  onclick={() => handleNodeSelect(hub)}
+                >
+                  <span
+                    class="row-dot"
+                    style="--row-tint: {substratePalette[hub.substrate]}"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="row-label">{hub.label}</span>
+                  <span class="row-meta">{hub.substrate}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </aside>
+  </main>
+
+  <!-- ===========================================================================
+       Controls dock
+       ========================================================================= -->
+  <BrainControlsDock
+    {enabledKinds}
+    {showSynapses}
+    {showBridgesOnly}
+    {breathingPaused}
+    onToggleKind={toggleEdgeKind}
+    onToggleSynapses={toggleSynapses}
+    onToggleBridgesOnly={toggleBridgesOnly}
+    onToggleBreathing={toggleBreathing}
+    onResetView={resetView}
+  />
 </div>
 
 <style>
-  .lb-page {
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 3rem - 4rem);
-    gap: 0.625rem;
-  }
-
-  /* ---- Header ------------------------------------------------------------ */
-  .lb-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .page-title {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: #f1f5f9;
-    white-space: nowrap;
-  }
-
-  .node-count {
-    font-size: 0.75rem;
-    color: #64748b;
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-  }
-
-  .truncated-badge {
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  /* SSE connection status badge */
-  .sse-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border: 1px solid;
-  }
-
-  .sse-status--connected {
-    color: #22c55e;
-    border-color: rgba(34, 197, 94, 0.4);
-    background: rgba(34, 197, 94, 0.1);
-  }
-
-  .sse-status--connected::before {
-    content: '';
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #22c55e;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-
-  .sse-status--connecting {
-    color: #f59e0b;
-    border-color: rgba(245, 158, 11, 0.4);
-    background: rgba(245, 158, 11, 0.1);
-  }
-
-  .sse-status--error {
-    color: #ef4444;
-    border-color: rgba(239, 68, 68, 0.4);
-    background: rgba(239, 68, 68, 0.1);
-  }
-
-  .sse-status--disconnected {
-    color: #64748b;
-    border-color: rgba(100, 116, 139, 0.4);
-    background: rgba(100, 116, 139, 0.1);
-  }
-
-  @keyframes pulse-dot {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.3;
-    }
-  }
-
-  .header-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    flex-wrap: wrap;
-  }
-
-  /* Substrate filter buttons */
-  .substrate-filters {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .substrate-btn {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    background: none;
-    border: 1px solid #2d3748;
-    color: #64748b;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-  }
-
-  .substrate-btn.active {
-    color: var(--s-color);
-    border-color: var(--s-color);
-    background: color-mix(in srgb, var(--s-color) 12%, transparent);
-  }
-
-  .substrate-btn:hover {
-    border-color: var(--s-color);
-    color: var(--s-color);
-  }
-
-  /* Weight slider */
-  .weight-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-  }
-
-  .weight-label {
-    font-size: 0.75rem;
-    color: #64748b;
-    white-space: nowrap;
-  }
-
-  .weight-val {
-    color: #94a3b8;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .weight-slider {
-    width: 100px;
-    accent-color: #3b82f6;
-  }
-
-  /* Full graph button */
-  .full-graph-btn {
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    background: rgba(59, 130, 246, 0.12);
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    color: #3b82f6;
-    cursor: pointer;
-    transition: background 0.15s;
-    white-space: nowrap;
-  }
-
-  .full-graph-btn:hover:not(:disabled) {
-    background: rgba(59, 130, 246, 0.22);
-  }
-
-  .full-graph-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .full-graph-label {
-    font-size: 0.6875rem;
-    color: #22c55e;
-  }
-
-  /* Error banner */
-  .error-banner {
-    padding: 0.375rem 0.75rem;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.35);
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    color: #ef4444;
-  }
-
-  /* ---- Body (canvas + side panel) --------------------------------------- */
-  .lb-body {
-    flex: 1;
-    min-height: 0;
+  /* =========================================================================
+     Layout shell
+     ========================================================================= */
+  .brain-shell {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.625rem;
-    overflow: hidden;
+    grid-template-rows: auto 1fr auto;
+    gap: var(--space-4);
+    height: calc(100vh - 3rem - 4rem);
+    min-height: 640px;
+    padding: var(--space-4);
+    background: radial-gradient(
+      ellipse 80% 60% at 50% -10%,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 70%
+    ),
+    var(--bg);
+    color: var(--text);
   }
 
-  .lb-body.has-panel {
-    grid-template-columns: 1fr 280px;
-  }
-
-  .lb-canvas {
-    min-width: 0;
-    min-height: 0;
-    border-radius: 8px;
-    overflow: hidden;
-    display: flex;
-  }
-
-  /* Side panel */
-  .lb-panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+  /* =========================================================================
+     Header
+     ========================================================================= */
+  .brain-header {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    gap: var(--space-3);
   }
 
-  .panel-header {
+  .brain-header-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem 0.875rem;
-    border-bottom: 1px solid #2d3748;
+    gap: var(--space-4);
+    flex-wrap: wrap;
   }
 
-  .panel-title {
-    font-size: 0.75rem;
+  .brain-live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  .brain-live-counts {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .brain-live-counts .num {
+    color: var(--text);
     font-weight: 600;
-    color: #64748b;
+  }
+
+  .brain-live-counts .sep {
+    color: var(--text-faint);
+  }
+
+  .brain-header-hero {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-width: 720px;
+  }
+
+  .hero-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+  }
+
+  .hero-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: var(--leading-tight);
+    margin: 0;
+    background: linear-gradient(
+      180deg,
+      var(--text) 0%,
+      color-mix(in srgb, var(--text) 60%, var(--accent) 40%) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero-sub {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    max-width: 640px;
+  }
+
+  .brain-controls {
+    padding: var(--space-3);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .weight-block,
+  .time-block {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
 
-  .panel-close {
-    background: none;
-    border: none;
-    color: #64748b;
+  .weight-label {
+    color: var(--text-faint);
+  }
+
+  .weight-val,
+  .time-val {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    min-width: 3ch;
+    text-align: right;
+  }
+
+  .range {
+    width: 100px;
+    accent-color: var(--accent);
+  }
+
+  .time-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px var(--space-3);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
     cursor: pointer;
-    font-size: 1.125rem;
-    line-height: 1;
-    padding: 0 0.25rem;
-    transition: color 0.15s;
+    transition: background var(--ease), border-color var(--ease), color var(--ease);
   }
 
-  .panel-close:hover {
-    color: #f1f5f9;
+  .time-chip.active {
+    color: var(--text);
+    background: var(--bg-elev-2);
+    border-color: var(--accent);
   }
 
-  .panel-loading,
-  .panel-error {
-    padding: 1rem;
-    font-size: 0.8125rem;
-    color: #64748b;
+  .kbd-strip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-left: auto;
   }
 
-  .panel-error {
-    color: #ef4444;
+  .kbd-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
 
-  .panel-body {
-    padding: 0.875rem;
-    overflow-y: auto;
+  .kbd-item kbd {
+    display: inline-block;
+    padding: 0 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* =========================================================================
+     Body — canvas + side panel
+     ========================================================================= */
+  .brain-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: var(--space-4);
+    min-height: 0;
+    outline: none;
+  }
+
+  @media (max-width: 960px) {
+    .brain-body {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .brain-canvas-wrap {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
+      var(--shadow-lg);
+  }
+
+  .brain-canvas-host {
+    position: absolute;
+    inset: 0;
+    transition: opacity var(--ease-slow);
+  }
+
+  .brain-canvas-host.skeleton-visible {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .edge-rail {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    background:
+      linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px) 0 0 / 40px 40px,
+      linear-gradient(0deg, var(--border-strong) 0 1px, transparent 1px) 0 0 / 40px 40px;
+    opacity: 0.04;
+    mix-blend-mode: screen;
+  }
+
+  .hover-hint {
+    position: absolute;
+    left: var(--space-4);
+    bottom: var(--space-4);
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: color-mix(in srgb, var(--bg-elev-2) 80%, transparent);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+  }
+
+  .hint-kbd {
+    padding: 1px var(--space-2);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+  }
+
+  /* =========================================================================
+     Side panel
+     ========================================================================= */
+  .brain-side {
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: var(--space-3);
+    min-width: 0;
+    overflow-y: auto;
+    max-height: 100%;
+  }
+
+  /* Hub panel */
+  .hub-panel {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .hub-eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+
+  .node-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
     flex: 1;
   }
 
-  .panel-kind-badge {
-    display: inline-block;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border: 1px solid;
-    align-self: flex-start;
-  }
-
-  .panel-label {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #f1f5f9;
-    word-break: break-word;
-  }
-
-  .panel-id,
-  .panel-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-
-  .field-key {
-    font-size: 0.6875rem;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .field-val {
-    font-size: 0.8125rem;
-    color: #94a3b8;
-    word-break: break-all;
-  }
-
-  .field-val.mono {
-    font-family: monospace;
-    font-size: 0.75rem;
-  }
-
-  .panel-meta {
-    margin-top: 0.25rem;
-  }
-
-  .meta-summary {
-    font-size: 0.75rem;
-    color: #64748b;
+  .node-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
     cursor: pointer;
-    user-select: none;
+    text-align: left;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    transition: background var(--ease), border-color var(--ease), color var(--ease);
   }
 
-  .meta-pre {
-    margin-top: 0.375rem;
-    padding: 0.5rem;
-    background: #0f1117;
-    border-radius: 4px;
-    font-size: 0.6875rem;
-    color: #94a3b8;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-    line-height: 1.5;
-    max-height: 260px;
+  .node-row:hover,
+  .node-row:focus-visible {
+    background: var(--bg-elev-2);
+    border-color: var(--border-strong);
+    color: var(--text);
+    outline: none;
   }
 
-  .panel-links {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #2d3748;
-    margin-top: 0.25rem;
-  }
-
-  .panel-link {
-    font-size: 0.75rem;
-    color: #3b82f6;
-    text-decoration: none;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    background: rgba(59, 130, 246, 0.08);
-    transition: background 0.15s;
-  }
-
-  .panel-link:hover {
-    background: rgba(59, 130, 246, 0.18);
-  }
-
-  /* ---- Legend bar ------------------------------------------------------- */
-  .lb-legend {
-    display: flex;
-    gap: 1.5rem;
-    padding: 0.5rem 0.875rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 6px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .legend-section {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .legend-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-right: 0.125rem;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: #94a3b8;
-  }
-
-  .legend-dot {
+  .row-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--row-tint, var(--accent));
+    box-shadow: 0 0 8px var(--row-tint, var(--accent));
     flex-shrink: 0;
   }
 
-  .legend-line {
-    width: 14px;
-    height: 2px;
-    flex-shrink: 0;
+  .row-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .legend-count {
-    color: #475569;
-    font-variant-numeric: tabular-nums;
-    margin-left: 0.15rem;
-  }
-
-  /* ---- Time slider -------------------------------------------------------- */
-  .toggle-btn {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+  .row-meta {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
     text-transform: uppercase;
-    background: none;
-    border: 1px solid #2d3748;
-    color: #64748b;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    white-space: nowrap;
-  }
-
-  .toggle-btn.active {
-    color: #3b82f6;
-    border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-  }
-
-  .toggle-btn:hover {
-    border-color: #3b82f6;
-    color: #3b82f6;
-  }
-
-  /* Renderer mode toggle group */
-  .renderer-toggle {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .renderer-btn {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    background: none;
-    border: 1px solid #2d3748;
-    color: #64748b;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    white-space: nowrap;
-  }
-
-  .renderer-btn.active {
-    color: #a855f7;
-    border-color: #a855f7;
-    background: rgba(168, 85, 247, 0.1);
-  }
-
-  .renderer-btn:hover {
-    border-color: #a855f7;
-    color: #a855f7;
-  }
-
-  .slider-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .time-slider {
-    width: 120px;
-    accent-color: #3b82f6;
-  }
-
-  .slider-date {
-    font-size: 0.6875rem;
-    color: #94a3b8;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    letter-spacing: 0.06em;
   }
 </style>

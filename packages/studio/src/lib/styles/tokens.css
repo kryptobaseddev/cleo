@@ -1,0 +1,191 @@
+/**
+ * CLEO Studio — Design Tokens (single source of truth)
+ *
+ * Ported verbatim from the operator-approved reference viz at
+ * `/tmp/task-viz/index.html` L16-46 and expanded in the T990 design-system
+ * audit §8b. Consumed by every Svelte scoped `<style>` block via `var(--…)`
+ * references. The companion `base.css` file applies global resets and
+ * selection / skip-link styling.
+ *
+ * @task T990
+ * @wave 0
+ * @see /mnt/projects/cleocode/.cleo/agent-outputs/T990-design-research/design-system-audit.md
+ */
+
+:root {
+  /* -----------------------------------------------------------------
+   * Surface — background layers, elevation 0 → 2
+   * --------------------------------------------------------------- */
+  --bg:           #0b0d12;
+  --bg-elev-1:    #151822;
+  --bg-elev-2:    #1b1f2c;
+
+  /* -----------------------------------------------------------------
+   * Border — hairlines and stronger separators
+   * --------------------------------------------------------------- */
+  --border:        #2a2e3d;
+  --border-strong: #3a4055;
+
+  /* -----------------------------------------------------------------
+   * Text — primary (body), dim (meta), faint (placeholders / icons)
+   * --------------------------------------------------------------- */
+  --text:       #e7eaf3;
+  --text-dim:   #9aa3b2;
+  --text-faint: #6b7280;
+
+  /* -----------------------------------------------------------------
+   * Accent — brand violet, single source of truth (AAA on --bg)
+   * --------------------------------------------------------------- */
+  --accent:      #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.2);
+  --accent-halo: rgba(167, 139, 250, 0.12);
+
+  /* -----------------------------------------------------------------
+   * Semantic — success / warning / danger / info / neutral
+   * --------------------------------------------------------------- */
+  --success:      #10b981;
+  --success-soft: rgba(16, 185, 129, 0.2);
+  --warning:      #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.2);
+  --danger:       #ef4444;
+  --danger-soft:  rgba(239, 68, 68, 0.2);
+  --info:         #3b82f6;
+  --info-soft:    rgba(59, 130, 246, 0.2);
+  --neutral:      #6b7280;
+  --neutral-soft: rgba(107, 114, 128, 0.2);
+
+  /* -----------------------------------------------------------------
+   * Status — TaskStatus palette (StatusBadge consumes these)
+   * --------------------------------------------------------------- */
+  --status-pending:    var(--warning);
+  --status-active:     var(--info);
+  --status-blocked:    var(--danger);
+  --status-done:       var(--success);
+  --status-cancelled:  var(--neutral);
+  --status-archived:   #64748b;
+  --status-proposed:   var(--accent);
+
+  /* -----------------------------------------------------------------
+   * Priority — TaskPriority palette (PriorityBadge consumes these)
+   * --------------------------------------------------------------- */
+  --priority-critical: #f43f5e;
+  --priority-high:     var(--danger);
+  --priority-medium:   var(--warning);
+  --priority-low:      var(--neutral);
+
+  /* -----------------------------------------------------------------
+   * Edge palette — consumed by $lib/graph/edge-kinds.ts via
+   * `var(--edge-*)`. Families mirror the operator-approved GitNexus
+   * reference: structural=green, definition/import=cyan/blue,
+   * call=violet, extends/implements=warm, workflow=amber/red,
+   * knowledge=rose, citation=slate, dynamic=accent.
+   * --------------------------------------------------------------- */
+  --edge-structural:       var(--success);
+  --edge-structural-soft:  rgba(16, 185, 129, 0.55);
+  --edge-definition:       #22d3ee;
+  --edge-import:           var(--info);
+  --edge-import-soft:      rgba(59, 130, 246, 0.55);
+  --edge-call:             var(--accent);
+  --edge-extends:          #f97316;
+  --edge-implements:       #ec4899;
+  --edge-workflow:         var(--danger);
+  --edge-workflow-soft:    var(--warning);
+  --edge-knowledge:        #fb7185;
+  --edge-knowledge-soft:   rgba(251, 113, 133, 0.55);
+  --edge-contradicts:      var(--danger);
+  --edge-citation:         var(--text-faint);
+  --edge-citation-soft:    rgba(107, 114, 128, 0.55);
+  --edge-fires:            var(--accent);
+  --edge-cofires:          rgba(167, 139, 250, 0.7);
+  --edge-messages:         var(--info);
+  --edge-relates:          var(--border-strong);
+
+  /* -----------------------------------------------------------------
+   * Shape — radii (2 / 4 / 6 / 8 / pill)
+   * --------------------------------------------------------------- */
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-pill: 999px;
+
+  /* -----------------------------------------------------------------
+   * Spacing — 4-pt grid (NO rem/px mixing in consumers)
+   * --------------------------------------------------------------- */
+  --space-1:  0.25rem;  /*  4px */
+  --space-2:  0.5rem;   /*  8px */
+  --space-3:  0.75rem;  /* 12px */
+  --space-4:  1rem;     /* 16px */
+  --space-5:  1.25rem;  /* 20px */
+  --space-6:  1.5rem;   /* 24px */
+  --space-8:  2rem;     /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+
+  /* -----------------------------------------------------------------
+   * Typography — font stacks + size scale + line-heights
+   * --------------------------------------------------------------- */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo,
+               Consolas, "Liberation Mono", monospace;
+
+  --text-2xs:  0.6875rem;  /* 11px — chip labels, uppercase eyebrows */
+  --text-xs:   0.75rem;    /* 12px — secondary UI */
+  --text-sm:   0.8125rem;  /* 13px — body-ui default */
+  --text-base: 0.875rem;   /* 14px — paragraph body */
+  --text-md:   1rem;       /* 16px — subheads */
+  --text-lg:   1.125rem;   /* 18px — section heads */
+  --text-xl:   1.25rem;    /* 20px — page heads */
+  --text-2xl:  1.5rem;     /* 24px — hero heads */
+  --text-3xl:  2.25rem;    /* 36px — landing only */
+
+  --leading-tight:  1.25;
+  --leading-normal: 1.5;
+
+  /* -----------------------------------------------------------------
+   * Motion — 4-tier easing scale + enter/exit durations.
+   *
+   * Every animated surface in Studio MUST use one of these tokens.
+   * `prefers-reduced-motion` override at the bottom of this file
+   * neutralises them to 0ms / none.
+   *
+   * T990 extension (see §10a of the audit + the Wave 0 brief):
+   *   - ease         : 150ms, hover / focus / colour swaps
+   *   - ease-slow    : 250ms, modal + drawer enter / exit
+   *   - ease-spring  : 400ms spring, card lift / success celebration
+   *   - ease-pulse   : 1200ms loop, synapse firing
+   *   - ease-breathe : 4000ms loop, ambient node breathing
+   * --------------------------------------------------------------- */
+  --ease:            150ms ease;
+  --ease-slow:       250ms ease;
+  --ease-spring:     400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-pulse:      1200ms ease-in-out infinite;
+  --ease-breathe:    4000ms ease-in-out infinite;
+  --duration-enter:  250ms;
+  --duration-exit:   200ms;
+
+  /* -----------------------------------------------------------------
+   * Elevation — shadows
+   * --------------------------------------------------------------- */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:    0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 0 0 1px var(--border-strong),
+                  0 8px 24px rgba(167, 139, 250, 0.1);
+  --shadow-lg:    0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-focus: 0 0 0 3px var(--accent-halo);
+}
+
+/* Honour user motion preference — override every motion token so that
+ * transitions, spring curves, and looping pulses resolve to a no-op. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ease:            0ms;
+    --ease-slow:       0ms;
+    --ease-spring:     0ms;
+    --ease-pulse:      0ms;
+    --ease-breathe:    0ms;
+    --duration-enter:  0ms;
+    --duration-exit:   0ms;
+  }
+}

@@ -1,11 +1,20 @@
 /**
- * Brain overview page server load — fetches stats for the dashboard.
+ * /brain/overview server load (T990 Wave 1D rewrite).
  *
- * T748: Added per-table tier distribution chart data and upcoming long-tier
- * promotion countdown.
+ * Kills the pre-Wave-1D SQL drift by consuming the API surface instead of
+ * re-querying brain.db directly. Parallel-fetches the four data sources
+ * it needs, falling back gracefully when the brain.db is missing.
+ *
+ * Sources:
+ *   - /api/memory/tier-stats             — per-table tier split + upcoming promos
+ *   - /api/memory/quality                — verified / prune counts, buckets
+ *   - /api/memory/observations?limit=5   — recent observations
+ *   - /api/memory/decisions              — recent decisions (limited client-side)
+ *
+ * @task T990
+ * @wave 1D
  */
 
-import { getBrainDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
 interface Stat {
@@ -13,33 +22,30 @@ interface Stat {
   label: string;
 }
 
-interface RecentItem {
+interface RecentObservation {
   id: string;
-  label: string;
-  node_type: string;
-  quality_score: number;
+  title: string;
+  type: string;
+  quality_score: number | null;
+  memory_tier: string | null;
   created_at: string;
 }
 
-interface NodeTypeCount {
-  node_type: string;
-  count: number;
+interface RecentDecision {
+  id: string;
+  decision: string;
+  confidence: string;
+  memory_tier: string | null;
+  created_at: string;
 }
 
-interface TierCount {
-  tier: string;
-  count: number;
-}
-
-/** Per-table tier distribution for the bar chart. */
-interface TableTierDistribution {
+interface TierDistRow {
   table: string;
   short: number;
   medium: number;
   long: number;
 }
 
-/** Entry approaching long-tier promotion eligibility. */
 interface UpcomingPromotion {
   id: string;
   table: string;
@@ -47,158 +53,129 @@ interface UpcomingPromotion {
   track: string;
 }
 
+interface TierStatsShape {
+  tables: TierDistRow[];
+  upcomingLongPromotions: UpcomingPromotion[];
+}
+
+interface QualityShape {
+  observations: {
+    verified_count: number;
+    prune_count: number;
+    invalidated_count: number;
+  };
+  decisions: { verified_count: number };
+  patterns: { verified_count: number };
+  learnings: { verified_count: number };
+}
+
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ fetch }) => {
   let stats: Stat[] | null = null;
-  let recentNodes: RecentItem[] = [];
-  let nodeTypeCounts: NodeTypeCount[] = [];
-  let tierCounts: TierCount[] = [];
-  const tierDistribution: TableTierDistribution[] = [];
+  let tierDistribution: TierDistRow[] = [];
   let upcomingPromotions: UpcomingPromotion[] = [];
+  let recentObservations: RecentObservation[] = [];
+  let recentDecisions: RecentDecision[] = [];
+  let quality: QualityShape | null = null;
 
   try {
-    const db = getBrainDb(locals.projectCtx);
-    if (db) {
-      const nodeRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_page_nodes').get() as {
-        cnt: number;
-      };
-      const edgeRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_page_edges').get() as {
-        cnt: number;
-      };
-      const obsRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_observations').get() as {
-        cnt: number;
-      };
-      const decRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_decisions').get() as {
-        cnt: number;
-      };
-      const patRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_patterns').get() as {
-        cnt: number;
-      };
-      const learnRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_learnings').get() as {
-        cnt: number;
-      };
-      const verifiedRow = db
-        .prepare('SELECT COUNT(*) as cnt FROM brain_observations WHERE verified = 1')
-        .get() as { cnt: number };
-      const pruneRow = db
-        .prepare('SELECT COUNT(*) as cnt FROM brain_observations WHERE prune_candidate = 1')
-        .get() as { cnt: number };
+    const [tierRes, qualityRes, obsRes, decRes] = await Promise.all([
+      fetch('/api/memory/tier-stats'),
+      fetch('/api/memory/quality'),
+      fetch('/api/memory/observations?limit=5'),
+      fetch('/api/memory/decisions'),
+    ]);
 
-      stats = [
-        { value: formatCount(nodeRow.cnt), label: 'Graph Nodes' },
-        { value: formatCount(edgeRow.cnt), label: 'Graph Edges' },
-        { value: formatCount(obsRow.cnt), label: 'Observations' },
-        { value: formatCount(decRow.cnt), label: 'Decisions' },
-        { value: formatCount(patRow.cnt), label: 'Patterns' },
-        { value: formatCount(learnRow.cnt), label: 'Learnings' },
-        { value: formatCount(verifiedRow.cnt), label: 'Verified' },
-        { value: formatCount(pruneRow.cnt), label: 'Prune Candidates' },
-      ];
-
-      recentNodes = db
-        .prepare(
-          `SELECT id, label, node_type, quality_score, created_at
-           FROM brain_page_nodes
-           ORDER BY last_activity_at DESC, created_at DESC
-           LIMIT 10`,
-        )
-        .all() as RecentItem[];
-
-      nodeTypeCounts = db
-        .prepare(
-          `SELECT node_type, COUNT(*) as count
-           FROM brain_page_nodes
-           GROUP BY node_type
-           ORDER BY count DESC`,
-        )
-        .all() as NodeTypeCount[];
-
-      tierCounts = db
-        .prepare(
-          `SELECT COALESCE(memory_tier, 'unknown') as tier, COUNT(*) as count
-           FROM brain_observations
-           GROUP BY memory_tier
-           ORDER BY count DESC`,
-        )
-        .all() as TierCount[];
-
-      // T748: Per-table tier distribution for bar chart
-      const brainTables = [
-        { name: 'brain_observations', dateCol: 'created_at' },
-        { name: 'brain_learnings', dateCol: 'created_at' },
-        { name: 'brain_patterns', dateCol: 'extracted_at' },
-        { name: 'brain_decisions', dateCol: 'created_at' },
-      ] as const;
-
-      for (const { name: tblName } of brainTables) {
-        try {
-          const rows = db
-            .prepare(
-              `SELECT COALESCE(memory_tier, 'short') as tier, COUNT(*) as cnt
-               FROM ${tblName}
-               WHERE invalid_at IS NULL
-               GROUP BY memory_tier`,
-            )
-            .all() as Array<{ tier: string; cnt: number }>;
-
-          const dist: TableTierDistribution = { table: tblName, short: 0, medium: 0, long: 0 };
-          for (const r of rows) {
-            if (r.tier === 'short') dist.short = r.cnt;
-            else if (r.tier === 'medium') dist.medium = r.cnt;
-            else if (r.tier === 'long') dist.long = r.cnt;
-          }
-          tierDistribution.push(dist);
-        } catch {
-          tierDistribution.push({ table: tblName, short: 0, medium: 0, long: 0 });
-        }
-      }
-
-      // T748: Upcoming long-tier promotions countdown
-      const age7dMs = 7 * 24 * 60 * 60 * 1000;
-      const nowMs = Date.now();
-      const allUpcoming: UpcomingPromotion[] = [];
-
-      for (const { name: tblName, dateCol } of brainTables) {
-        try {
-          const rows = db
-            .prepare(
-              `SELECT id, ${dateCol} as created_at, citation_count, verified
-               FROM ${tblName}
-               WHERE memory_tier = 'medium'
-                 AND invalid_at IS NULL
-                 AND (citation_count >= 5 OR verified = 1)
-               ORDER BY ${dateCol} ASC
-               LIMIT 20`,
-            )
-            .all() as Array<{
-            id: string;
-            created_at: string;
-            citation_count: number;
-            verified: number;
-          }>;
-
-          for (const r of rows) {
-            const entryMs = new Date(r.created_at.replace(' ', 'T') + 'Z').getTime();
-            const promotionMs = entryMs + age7dMs;
-            const daysUntil = Math.max(0, (promotionMs - nowMs) / (24 * 60 * 60 * 1000));
-            const track = r.citation_count >= 5 ? `citation (${r.citation_count})` : 'verified';
-            allUpcoming.push({ id: r.id, table: tblName, daysUntil, track });
-          }
-        } catch {
-          // Table unavailable
-        }
-      }
-
-      allUpcoming.sort((a, b) => a.daysUntil - b.daysUntil);
-      upcomingPromotions = allUpcoming.slice(0, 5);
+    if (tierRes.ok) {
+      const body = (await tierRes.json()) as TierStatsShape;
+      tierDistribution = body.tables;
+      upcomingPromotions = body.upcomingLongPromotions;
     }
+
+    if (qualityRes.ok) {
+      quality = (await qualityRes.json()) as QualityShape;
+    }
+
+    if (obsRes.ok) {
+      const body = (await obsRes.json()) as {
+        observations: Array<{
+          id: string;
+          title: string;
+          type: string;
+          quality_score: number | null;
+          memory_tier: string | null;
+          created_at: string;
+        }>;
+      };
+      recentObservations = body.observations.slice(0, 5);
+    }
+
+    if (decRes.ok) {
+      const body = (await decRes.json()) as {
+        decisions: Array<{
+          id: string;
+          decision: string;
+          confidence: string;
+          memory_tier: string | null;
+          created_at: string;
+        }>;
+      };
+      recentDecisions = body.decisions
+        .slice()
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, 5);
+    }
+
+    const tierTotals = tierDistribution.reduce(
+      (acc, row) => ({
+        entries: acc.entries + row.short + row.medium + row.long,
+        long: acc.long + row.long,
+      }),
+      { entries: 0, long: 0 },
+    );
+
+    const observationRow = tierDistribution.find((r) => r.table === 'brain_observations');
+    const decisionRow = tierDistribution.find((r) => r.table === 'brain_decisions');
+    const patternRow = tierDistribution.find((r) => r.table === 'brain_patterns');
+    const learningRow = tierDistribution.find((r) => r.table === 'brain_learnings');
+
+    const obsTotal = observationRow
+      ? observationRow.short + observationRow.medium + observationRow.long
+      : 0;
+    const decTotal = decisionRow ? decisionRow.short + decisionRow.medium + decisionRow.long : 0;
+    const patTotal = patternRow ? patternRow.short + patternRow.medium + patternRow.long : 0;
+    const learnTotal = learningRow ? learningRow.short + learningRow.medium + learningRow.long : 0;
+
+    stats = [
+      { value: formatCount(tierTotals.entries), label: 'Entries' },
+      { value: formatCount(tierTotals.long), label: 'Long-tier' },
+      { value: formatCount(obsTotal), label: 'Observations' },
+      { value: formatCount(decTotal), label: 'Decisions' },
+      { value: formatCount(patTotal), label: 'Patterns' },
+      { value: formatCount(learnTotal), label: 'Learnings' },
+      {
+        value: formatCount(quality?.observations.verified_count ?? 0),
+        label: 'Verified',
+      },
+      {
+        value: formatCount(quality?.observations.prune_count ?? 0),
+        label: 'Prune candidates',
+      },
+    ];
   } catch {
-    // Database unavailable or schema mismatch
+    // All optional — Page renders an empty state.
   }
 
-  return { stats, recentNodes, nodeTypeCounts, tierCounts, tierDistribution, upcomingPromotions };
+  return {
+    stats,
+    tierDistribution,
+    upcomingPromotions,
+    recentObservations,
+    recentDecisions,
+    quality,
+  };
 };

@@ -151,20 +151,20 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     padding: 0.5rem 0.875rem;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--ease), box-shadow var(--ease);
   }
 
   .search-box:focus-within {
-    border-color: rgba(168, 85, 247, 0.5);
-    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-focus);
   }
 
   .search-icon {
-    color: #475569;
+    color: var(--text-faint);
     font-size: 1.125rem;
     line-height: 1;
     flex-shrink: 0;
@@ -176,14 +176,14 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #f1f5f9;
-    font-size: 0.875rem;
+    color: var(--text);
+    font-size: var(--text-base);
     min-width: 0;
     font-family: inherit;
   }
 
   .search-input::placeholder {
-    color: #475569;
+    color: var(--text-faint);
   }
 
   /* Hide the native clear button on type=search */
@@ -196,11 +196,11 @@
     align-items: center;
     justify-content: center;
     font-size: 0.7rem;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    color: #64748b;
-    background: #0f1117;
-    border: 1px solid #2d3748;
-    border-radius: 3px;
+    font-family: var(--font-mono);
+    color: var(--text-faint);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
     padding: 1px 5px;
     line-height: 1.2;
     flex-shrink: 0;
@@ -213,17 +213,17 @@
   .search-clear {
     background: none;
     border: none;
-    color: #475569;
+    color: var(--text-faint);
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     padding: 0.125rem 0.25rem;
-    border-radius: 3px;
-    transition: color 0.15s;
+    border-radius: var(--radius-xs);
+    transition: color var(--ease);
     flex-shrink: 0;
     font-family: inherit;
   }
 
   .search-clear:hover {
-    color: #94a3b8;
+    color: var(--text-dim);
   }
 </style>

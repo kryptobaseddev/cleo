@@ -136,26 +136,26 @@
 
 <style>
   .panel {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     overflow: hidden;
   }
 
   .panel-title {
     padding: 0.75rem 1rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 600;
-    color: #94a3b8;
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid #2d3748;
+    border-bottom: 1px solid var(--border);
     margin: 0;
   }
 
   .panel-sub {
     font-size: 0.7rem;
-    color: #64748b;
+    color: var(--text-faint);
     font-weight: 400;
     margin-left: 0.5rem;
     text-transform: none;
@@ -172,14 +172,14 @@
     flex-direction: column;
     gap: 0.375rem;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #1e2435;
+    border-bottom: 1px solid var(--border);
     text-decoration: none;
     color: inherit;
-    transition: background 0.15s;
+    transition: background var(--ease);
   }
 
   .epic-row:hover {
-    background: #21273a;
+    background: var(--bg-elev-2);
   }
 
   .epic-row:last-child {
@@ -192,7 +192,7 @@
   }
 
   .epic-row.epic-cancelled .epic-title {
-    color: #94a3b8;
+    color: var(--text-dim);
   }
 
   .epic-header-row {
@@ -203,14 +203,14 @@
 
   .epic-id {
     font-size: 0.7rem;
-    color: #a855f7;
+    color: var(--accent);
     font-weight: 600;
     flex-shrink: 0;
   }
 
   .epic-title {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
+    font-size: var(--text-sm);
+    color: var(--text);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -223,39 +223,39 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 0.1rem 0.375rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     flex-shrink: 0;
   }
 
   .badge-cancelled {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: var(--danger-soft);
+    color: var(--danger);
   }
 
   .epic-counts {
-    font-size: 0.75rem;
-    color: #22c55e;
+    font-size: var(--text-xs);
+    color: var(--success);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
 
   .epic-pct {
-    font-size: 0.75rem;
-    color: #94a3b8;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
 
   .epic-progress-bar {
     height: 4px;
-    background: #2d3748;
+    background: var(--border);
     border-radius: 2px;
     overflow: hidden;
   }
 
   .epic-done-bar {
     height: 100%;
-    background: #22c55e;
+    background: var(--success);
     border-radius: 2px;
     transition: width 0.3s ease;
   }
@@ -267,15 +267,15 @@
   }
 
   .sub-done {
-    color: #22c55e;
+    color: var(--success);
   }
   .sub-active {
-    color: #3b82f6;
+    color: var(--info);
   }
   .sub-pending {
-    color: #64748b;
+    color: var(--text-faint);
   }
   .sub-cancelled {
-    color: #ef4444;
+    color: var(--danger);
   }
 </style>

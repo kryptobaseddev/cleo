@@ -158,12 +158,12 @@
     flex-direction: column;
     gap: 0.375rem;
     padding: 0.625rem;
-    background: #0f1117;
-    border: 1px solid #1e2435;
-    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     text-align: left;
     color: inherit;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--ease), background var(--ease);
     font: inherit;
     cursor: pointer;
     width: 100%;
@@ -174,18 +174,18 @@
   }
 
   .task-card:not(.inert):hover {
-    border-color: #3d4a60;
-    background: #13182a;
+    border-color: var(--border-strong);
+    background: var(--bg-elev-1);
   }
 
   .task-card:not(.inert):focus-visible {
-    outline: 2px solid rgba(168, 85, 247, 0.6);
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
 
   .task-card.focused {
-    border-color: #a855f7;
-    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.3);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-soft);
   }
 
   .card-top {
@@ -197,14 +197,14 @@
 
   .card-id {
     font-size: 0.675rem;
-    color: #a855f7;
+    color: var(--accent);
     font-weight: 600;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   .card-title {
-    font-size: 0.8125rem;
-    color: #e2e8f0;
+    font-size: var(--text-sm);
+    color: var(--text);
     line-height: 1.4;
     margin: 0;
     display: -webkit-box;
@@ -227,11 +227,11 @@
   }
 
   .size-chip {
-    font-size: 0.625rem;
-    color: #475569;
-    background: #1e2435;
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    background: var(--bg-elev-1);
     padding: 0.1rem 0.3rem;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     text-transform: lowercase;
   }
 
@@ -248,15 +248,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 2px;
-    background: #1e2435;
-    color: #2d3748;
+    border-radius: var(--radius-xs);
+    background: var(--bg-elev-1);
+    color: var(--border);
     font-weight: 700;
   }
 
   .g-dot.g-pass {
-    background: rgba(34, 197, 94, 0.12);
-    color: #22c55e;
+    background: var(--success-soft);
+    color: var(--success);
   }
 
   .labels-row {
@@ -267,12 +267,12 @@
   }
 
   .label-pill {
-    font-size: 0.625rem;
-    background: #1e2435;
-    border: 1px solid #2d3748;
-    color: #94a3b8;
+    font-size: var(--text-2xs);
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
     padding: 2px 7px;
-    border-radius: 999px;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
   }
 </style>
