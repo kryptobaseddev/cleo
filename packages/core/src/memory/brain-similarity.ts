@@ -9,7 +9,7 @@
  * @epic T5149
  */
 
-import { getBrainAccessor } from '../store/brain-accessor.js';
+import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type { BrainKnnRow } from './brain-row-types.js';
@@ -72,7 +72,7 @@ export async function searchSimilar(
 
   // Ensure brain.db is initialized
   const { getBrainDb, getBrainNativeDb, isBrainVecLoaded } = await import(
-    '../store/brain-sqlite.js'
+    '../store/memory-sqlite.js'
   );
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();

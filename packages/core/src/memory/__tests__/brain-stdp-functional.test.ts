@@ -92,7 +92,7 @@ let tempDir: string;
  */
 async function setupBrainDb(dir: string) {
   const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   // Reset any lingering singleton from a previous test run.
   closeBrainDb();
@@ -174,7 +174,7 @@ describe('T682 — STDP Phase 5 Functional Test (real CLI, real brain.db)', () =
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -254,7 +254,7 @@ describe('T682 — STDP Phase 5 Functional Test (real CLI, real brain.db)', () =
     // Step 4: Re-open the DB to assert the persisted state.
     process.env['CLEO_DIR'] = cleoDirAbsolute;
     const { getBrainDb: getBrainDb2, getBrainNativeDb: getBrainNativeDb2 } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     await getBrainDb2(tempDir);
     const nativeDb2 = getBrainNativeDb2()!;
@@ -390,7 +390,7 @@ describe('T682 — STDP Phase 5 Functional Test (real CLI, real brain.db)', () =
     // Verify delta_w in the DB
     process.env['CLEO_DIR'] = cleoDirAbsolute;
     const { getBrainDb: getBrainDb3, getBrainNativeDb: getBrainNativeDb3 } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     await getBrainDb3(tempDir);
     const nativeDb3 = getBrainNativeDb3()!;

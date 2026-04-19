@@ -94,7 +94,7 @@ beforeEach(async () => {
 afterEach(async () => {
   clearEmbeddingProvider();
   try {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
   } catch {
     /* may not be loaded */
@@ -174,7 +174,7 @@ describe('initDefaultProvider', () => {
 describe.skipIf(!isSqliteVecAvailable())('brain_embeddings vec0 table', () => {
   it('isBrainVecLoaded is true after getBrainDb when sqlite-vec is installed', async () => {
     const { getBrainDb, isBrainVecLoaded, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
 
@@ -184,7 +184,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain_embeddings vec0 table', () => {
 
   it('brain_embeddings vec0 table exists after getBrainDb', async () => {
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
 
@@ -201,7 +201,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain_embeddings vec0 table', () => {
 
   it('vec_version() returns a version string', async () => {
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
 
@@ -214,7 +214,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain_embeddings vec0 table', () => {
 
   it('can insert and retrieve a Float32Array vector in brain_embeddings', async () => {
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
 
@@ -254,7 +254,7 @@ describe.skipIf(!isSqliteVecAvailable())('searchSimilar with mock provider', () 
   it('returns results when embedding provider is registered and vec table has entries', async () => {
     // Setup brain db
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
     await getBrainDb(tempDir);
@@ -308,7 +308,7 @@ describe.skipIf(!isSqliteVecAvailable())('populateEmbeddings backfill', () => {
   it('backfills vectors for observations missing embeddings', async () => {
     // Setup brain db
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
     await getBrainDb(tempDir);
@@ -355,7 +355,7 @@ describe.skipIf(!isSqliteVecAvailable())('populateEmbeddings backfill', () => {
 
   it('skips observations without narrative', async () => {
     const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
-      '../../store/brain-sqlite.js'
+      '../../store/memory-sqlite.js'
     );
     closeBrainDb();
     await getBrainDb(tempDir);

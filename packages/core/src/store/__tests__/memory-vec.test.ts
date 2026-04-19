@@ -36,7 +36,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -47,7 +47,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
       getBrainDb,
       isBrainVecLoaded,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -59,7 +59,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -80,7 +80,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -97,7 +97,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();
@@ -129,7 +129,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
       getBrainDb,
       isBrainVecLoaded,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     await getBrainDb();

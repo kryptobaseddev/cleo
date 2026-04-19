@@ -11,7 +11,7 @@
  *   - LTD never creates edges: depression only weakens existing ones
  *   - Stats query: getPlasticityStats returns correct aggregates
  *
- * NOTE: These tests mock the brain-sqlite module (unit tests for SQL logic).
+ * NOTE: These tests mock the memory-sqlite module (unit tests for SQL logic).
  * Real integration tests (no mocks) are in brain-stdp-w2.test.ts per owner mandate.
  *
  * @task T626
@@ -30,7 +30,7 @@ const { mockGetBrainDb, mockGetBrainNativeDb } = vi.hoisted(() => ({
   mockGetBrainNativeDb: vi.fn(),
 }));
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: mockGetBrainDb,
   getBrainNativeDb: mockGetBrainNativeDb,
 }));

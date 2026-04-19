@@ -322,7 +322,7 @@ describe('sqlite-backup global tier', () => {
     const conduitDb = new DatabaseSync(conduitDbPath);
 
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../signaldock-sqlite.js', () => ({
@@ -477,7 +477,7 @@ describe('sqlite-backup global tier', () => {
     const conduitDb = new DatabaseSync(conduitDbPath);
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: () => null }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../signaldock-sqlite.js', () => ({
       getGlobalSignaldockNativeDb: () => null,
@@ -516,7 +516,7 @@ describe('sqlite-backup global tier', () => {
     writeFileSync(join(backupDir, 'conduit-20260101-120000.db'), 'fake-conduit');
 
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: () => null }));
-    vi.doMock('../brain-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => null }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../signaldock-sqlite.js', () => ({

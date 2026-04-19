@@ -50,7 +50,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { getBrainNativeDb } from '../store/brain-sqlite.js';
+import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { addGraphEdge } from './graph-auto-populate.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
@@ -581,7 +581,7 @@ export async function runObserver(
 
   // Gate 3: Ensure brain.db is initialized
   try {
-    const { getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
   } catch {
     return empty;
@@ -715,7 +715,7 @@ export async function runReflector(
 
   // Gate 3: Ensure brain.db is initialized
   try {
-    const { getBrainDb } = await import('../store/brain-sqlite.js');
+    const { getBrainDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
   } catch {
     return empty;

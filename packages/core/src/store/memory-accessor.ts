@@ -3,7 +3,7 @@
  * learnings, and memory links.
  *
  * Wraps drizzle ORM queries over the brain.db singleton. All methods are
- * async (sqlite-proxy) and return typed rows from brain-schema.ts.
+ * async (sqlite-proxy) and return typed rows from memory-schema.ts.
  *
  * @epic T5149
  * @task T5128
@@ -34,9 +34,9 @@ import type {
   NewBrainPageNodeRow,
   NewBrainPatternRow,
   NewBrainStickyNoteRow,
-} from './brain-schema.js';
-import * as brainSchema from './brain-schema.js';
-import { getBrainDb } from './brain-sqlite.js';
+} from './memory-schema.js';
+import * as brainSchema from './memory-schema.js';
+import { getBrainDb } from './memory-sqlite.js';
 
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase<typeof brainSchema>) {}

@@ -32,7 +32,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -44,12 +44,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
   describe('brain_weight_history', () => {
     it('T697-1: table exists after DB initialisation', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare(
@@ -60,7 +60,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-2: insert and select back all required columns', async () => {
-      const { insertWeightHistoryRow } = await import('../../store/brain-accessor.js');
+      const { insertWeightHistoryRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertWeightHistoryRow(tempDir, {
         edgeFromId: 'observation:obs-A',
@@ -87,7 +87,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-3: default changedAt is populated by SQLite', async () => {
-      const { insertWeightHistoryRow } = await import('../../store/brain-accessor.js');
+      const { insertWeightHistoryRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertWeightHistoryRow(tempDir, {
         edgeFromId: 'observation:A',
@@ -105,7 +105,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-4: weightBefore is nullable (new edge INSERT path)', async () => {
-      const { insertWeightHistoryRow } = await import('../../store/brain-accessor.js');
+      const { insertWeightHistoryRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertWeightHistoryRow(tempDir, {
         edgeFromId: 'observation:novel-A',
@@ -122,7 +122,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-5: all six event_kind values are accepted', async () => {
-      const { insertWeightHistoryRow } = await import('../../store/brain-accessor.js');
+      const { insertWeightHistoryRow } = await import('../../store/memory-accessor.js');
       const kinds = ['ltp', 'ltd', 'hebbian', 'decay', 'prune', 'external'] as const;
 
       for (const kind of kinds) {
@@ -140,7 +140,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-6: reward_signal and FK columns are nullable', async () => {
-      const { insertWeightHistoryRow } = await import('../../store/brain-accessor.js');
+      const { insertWeightHistoryRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertWeightHistoryRow(tempDir, {
         edgeFromId: 'obs:X',
@@ -161,12 +161,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T697-7: all six expected indexes exist', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const indexes = nativeDb
         ?.prepare(
@@ -192,12 +192,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
   describe('brain_modulators', () => {
     it('T699-1: table exists after DB initialisation', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='brain_modulators'`)
@@ -206,7 +206,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T699-2: insert and select back all required columns', async () => {
-      const { insertModulatorRow } = await import('../../store/brain-accessor.js');
+      const { insertModulatorRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertModulatorRow(tempDir, {
         modulatorType: 'task_completed',
@@ -228,7 +228,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T699-3: magnitude defaults to 1.0 when not provided', async () => {
-      const { insertModulatorRow } = await import('../../store/brain-accessor.js');
+      const { insertModulatorRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertModulatorRow(tempDir, {
         modulatorType: 'task_cancelled',
@@ -239,7 +239,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T699-4: valence accepts full [-1.0, +1.0] range', async () => {
-      const { insertModulatorRow } = await import('../../store/brain-accessor.js');
+      const { insertModulatorRow } = await import('../../store/memory-accessor.js');
       const valences = [-1.0, -0.5, 0.0, 0.5, 1.0];
 
       for (const valence of valences) {
@@ -252,7 +252,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T699-5: optional fields are nullable', async () => {
-      const { insertModulatorRow } = await import('../../store/brain-accessor.js');
+      const { insertModulatorRow } = await import('../../store/memory-accessor.js');
 
       const inserted = await insertModulatorRow(tempDir, {
         modulatorType: 'session_success',
@@ -265,12 +265,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T699-6: all five expected indexes exist', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const indexes = nativeDb
         ?.prepare(
@@ -295,12 +295,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
   describe('brain_consolidation_events', () => {
     it('T701-1: table exists after DB initialisation', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare(
@@ -312,7 +312,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T701-2: logConsolidationStart inserts a row with correct trigger', async () => {
-      const { logConsolidationStart } = await import('../../store/brain-accessor.js');
+      const { logConsolidationStart } = await import('../../store/memory-accessor.js');
 
       const id = await logConsolidationStart(tempDir, 'session_end', 'ses_test_T701');
 
@@ -320,7 +320,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
       expect(id).toBeGreaterThan(0);
 
       // Verify the row exists in the DB
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare('SELECT * FROM brain_consolidation_events WHERE id = ?')
@@ -335,7 +335,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
     it('T701-3: logConsolidationComplete updates the row with final results', async () => {
       const { logConsolidationStart, logConsolidationComplete } = await import(
-        '../../store/brain-accessor.js'
+        '../../store/memory-accessor.js'
       );
 
       const id = await logConsolidationStart(tempDir, 'manual', 'ses_test_complete');
@@ -353,11 +353,11 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T701-4: succeeded defaults to true', async () => {
-      const { logConsolidationStart } = await import('../../store/brain-accessor.js');
+      const { logConsolidationStart } = await import('../../store/memory-accessor.js');
 
       const id = await logConsolidationStart(tempDir, 'scheduled', undefined);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare('SELECT succeeded FROM brain_consolidation_events WHERE id = ?')
@@ -368,11 +368,11 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T701-5: session_id and duration_ms are nullable', async () => {
-      const { logConsolidationStart } = await import('../../store/brain-accessor.js');
+      const { logConsolidationStart } = await import('../../store/memory-accessor.js');
 
       const id = await logConsolidationStart(tempDir, 'manual', undefined);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const row = nativeDb
         ?.prepare('SELECT session_id, duration_ms FROM brain_consolidation_events WHERE id = ?')
@@ -383,7 +383,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T701-6: all four trigger values are accepted', async () => {
-      const { logConsolidationStart } = await import('../../store/brain-accessor.js');
+      const { logConsolidationStart } = await import('../../store/memory-accessor.js');
       const triggers = ['session_end', 'maintenance', 'scheduled', 'manual'] as const;
 
       for (const trigger of triggers) {
@@ -391,7 +391,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
         expect(id).toBeGreaterThan(0);
       }
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const count = (
         nativeDb?.prepare('SELECT COUNT(*) as cnt FROM brain_consolidation_events').get() as {
@@ -402,12 +402,12 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
     });
 
     it('T701-7: all three expected indexes exist', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
       await getBrainDb(tempDir);
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       const indexes = nativeDb
         ?.prepare(
@@ -425,7 +425,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
     it('T701-8: failed consolidation records succeeded=false', async () => {
       const { logConsolidationStart, logConsolidationComplete } = await import(
-        '../../store/brain-accessor.js'
+        '../../store/memory-accessor.js'
       );
 
       const id = await logConsolidationStart(tempDir, 'session_end', 'ses_fail_test');
@@ -449,7 +449,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
   describe('Cross-table isolation', () => {
     it('all three tables are independent — inserts to one do not affect others', async () => {
       const { insertWeightHistoryRow, insertModulatorRow, logConsolidationStart } = await import(
-        '../../store/brain-accessor.js'
+        '../../store/memory-accessor.js'
       );
 
       await insertWeightHistoryRow(tempDir, {
@@ -469,7 +469,7 @@ describe('Brain Schema M4 — plasticity aux tables (real SQLite, no mocks)', ()
 
       await logConsolidationStart(tempDir, 'session_end', 'ses_isolation_test');
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
 
       const whCount = (

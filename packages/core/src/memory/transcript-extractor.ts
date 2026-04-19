@@ -468,11 +468,11 @@ async function storeExtractedMemory(
  */
 async function checkTombstone(projectRoot: string, sessionId: string): Promise<boolean> {
   try {
-    const { getBrainNativeDb } = await import('../store/brain-sqlite.js');
+    const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
     const db = getBrainNativeDb();
     if (!db) {
       // Brain DB not initialised yet — initialise it via getBrainDb first
-      const { getBrainDb } = await import('../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../store/memory-sqlite.js');
       await getBrainDb(projectRoot);
     }
     const nativeDb = getBrainNativeDb();

@@ -19,20 +19,20 @@ let cleoDir: string;
 
 describe('brain.db schema', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-brain-schema-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-memory-schema-'));
     cleoDir = join(tempDir, '.cleo');
     process.env['CLEO_DIR'] = cleoDir;
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../brain-sqlite.js');
+    const { closeBrainDb } = await import('../memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
   });
 
   it('creates brain.db file and .cleo directory on first getBrainDb call', async () => {
-    const { getBrainDb, getBrainDbPath, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const { getBrainDb, getBrainDbPath, closeBrainDb: close } = await import('../memory-sqlite.js');
     close();
     expect(existsSync(cleoDir)).toBe(false);
 
@@ -46,7 +46,7 @@ describe('brain.db schema', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
@@ -70,7 +70,7 @@ describe('brain.db schema', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
@@ -103,7 +103,7 @@ describe('brain.db schema', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
@@ -121,7 +121,7 @@ describe('brain.db schema', () => {
       getBrainDb,
       getBrainNativeDb,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
     await getBrainDb();
     const nativeDb = getBrainNativeDb();
@@ -132,7 +132,7 @@ describe('brain.db schema', () => {
   });
 
   it('getBrainDb returns same singleton on repeated calls', async () => {
-    const { getBrainDb, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const { getBrainDb, closeBrainDb: close } = await import('../memory-sqlite.js');
     close();
     const db1 = await getBrainDb();
     const db2 = await getBrainDb();
@@ -140,7 +140,7 @@ describe('brain.db schema', () => {
   });
 
   it('closeBrainDb releases resources', async () => {
-    const { getBrainDb, closeBrainDb: close, getBrainDbPath } = await import('../brain-sqlite.js');
+    const { getBrainDb, closeBrainDb: close, getBrainDbPath } = await import('../memory-sqlite.js');
     close();
     await getBrainDb();
     const dbPath = getBrainDbPath();
@@ -158,7 +158,7 @@ describe('brain.db schema', () => {
       getBrainNativeDb,
       resetBrainDbState,
       closeBrainDb: close,
-    } = await import('../brain-sqlite.js');
+    } = await import('../memory-sqlite.js');
     close();
 
     const db1 = await getBrainDb();
@@ -178,7 +178,7 @@ describe('brain.db schema', () => {
   });
 
   it('resetBrainDbState is safe to call multiple times', async () => {
-    const { resetBrainDbState, closeBrainDb: close } = await import('../brain-sqlite.js');
+    const { resetBrainDbState, closeBrainDb: close } = await import('../memory-sqlite.js');
     close();
 
     expect(() => resetBrainDbState()).not.toThrow();

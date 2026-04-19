@@ -11,9 +11,9 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { BrainDataAccessor } from '../store/brain-accessor.js';
-import type { BrainPatternRow } from '../store/brain-schema.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import type { BrainDataAccessor } from '../store/memory-accessor.js';
+import type { BrainPatternRow } from '../store/memory-schema.js';
 import type {
   DetectedPattern,
   PatternExtractionOptions,

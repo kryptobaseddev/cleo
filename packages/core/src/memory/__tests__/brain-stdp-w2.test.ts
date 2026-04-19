@@ -33,7 +33,7 @@ let tempDir: string;
 
 async function setupDb(dir: string) {
   const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
-    '../../store/brain-sqlite.js'
+    '../../store/memory-sqlite.js'
   );
   closeBrainDb();
   await getBrainDb(dir);
@@ -47,7 +47,7 @@ describe('STDP W2 — T679 functional tests (real SQLite, no mocks)', () => {
   });
 
   afterEach(async () => {
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true });
@@ -282,7 +282,7 @@ describe('STDP W2 — T679 functional tests (real SQLite, no mocks)', () => {
 
     // Verify: same rows would produce 0 events with old 5-min lookback behavior
     // (simulated by passing a tiny lookbackDays that excludes 24h-old rows)
-    const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+    const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
 
     const tempDir2 = await mkdtemp(join(tmpdir(), 'cleo-stdp-w2-old-'));
@@ -314,7 +314,7 @@ describe('STDP W2 — T679 functional tests (real SQLite, no mocks)', () => {
 
       expect(resultOld.ltpEvents).toBe(0); // confirms BUG-1 root cause
     } finally {
-      const { closeBrainDb: close2 } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb: close2 } = await import('../../store/memory-sqlite.js');
       close2();
       await rm(tempDir2, { recursive: true, force: true });
       process.env['CLEO_DIR'] = join(tempDir, '.cleo');

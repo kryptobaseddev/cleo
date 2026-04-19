@@ -17,12 +17,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { BrainEdgeType, BrainNodeType } from '../store/brain-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/brain-schema.js';
-import { getBrainDb } from '../store/brain-sqlite.js';
+import type { BrainEdgeType, BrainNodeType } from '../store/memory-schema.js';
+import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
+import { getBrainDb } from '../store/memory-sqlite.js';
 
 // Re-export types so callers can import them from this module without
-// reaching into brain-schema directly.
+// reaching into memory-schema directly.
 export type { BrainEdgeType, BrainNodeType };
 
 // ---------------------------------------------------------------------------

@@ -56,7 +56,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const { closeBrainDb, resetBrainDbState } = await import('../../store/brain-sqlite.js');
+  const { closeBrainDb, resetBrainDbState } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   resetBrainDbState();
   delete process.env['CLEO_DIR'];
@@ -146,10 +146,10 @@ async function applyT528NodesOnlyAlteration(dbPath: string): Promise<void> {
 describe('T920: T528 duplicate-column migration guard', () => {
   describe('T920-1: fresh brain.db — all migrations run without error', () => {
     it('should initialise brain.db from scratch without duplicate-column error', async () => {
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await expect(getBrainDb(tempDir)).resolves.toBeDefined();
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       expect(nativeDb).not.toBeNull();
 
@@ -205,10 +205,10 @@ describe('T920: T528 duplicate-column migration guard', () => {
       nativeDb.close();
 
       // getBrainDb must succeed (Scenario 3 marks T528 as applied)
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await expect(getBrainDb(tempDir)).resolves.toBeDefined();
 
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeAfter = getBrainNativeDb();
       expect(nativeAfter).not.toBeNull();
 
@@ -248,11 +248,11 @@ describe('T920: T528 duplicate-column migration guard', () => {
       verifyDb.close();
 
       // getBrainDb must succeed with the T920 fix
-      const { getBrainDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainDb } = await import('../../store/memory-sqlite.js');
       await expect(getBrainDb(tempDir)).resolves.toBeDefined();
 
       // After fix: brain_page_edges must have provenance
-      const { getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
       const nativeAfter = getBrainNativeDb();
       expect(nativeAfter).not.toBeNull();
 

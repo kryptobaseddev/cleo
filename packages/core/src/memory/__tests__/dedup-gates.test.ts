@@ -62,7 +62,7 @@ const {
 // Module mocks (top-level, hoisted by vitest)
 // ============================================================================
 
-vi.mock('../../store/brain-sqlite.js', () => ({
+vi.mock('../../store/memory-sqlite.js', () => ({
   getBrainDb: mockGetBrainDb,
   getBrainNativeDb: mockGetBrainNativeDb,
 }));
@@ -114,19 +114,19 @@ const PROJECT_ROOT = '/fake/project';
 
 describe('T746 — Drizzle schema DEFAULT values', () => {
   it('brain_decisions.memoryTier has Drizzle DEFAULT medium', async () => {
-    const { brainDecisions } = await import('../../store/brain-schema.js');
+    const { brainDecisions } = await import('../../store/memory-schema.js');
     const col = (brainDecisions as unknown as Record<string, { default?: unknown }>).memoryTier;
     expect(col?.default).toBe('medium');
   });
 
   it('brain_patterns.memoryTier has Drizzle DEFAULT medium', async () => {
-    const { brainPatterns } = await import('../../store/brain-schema.js');
+    const { brainPatterns } = await import('../../store/memory-schema.js');
     const col = (brainPatterns as unknown as Record<string, { default?: unknown }>).memoryTier;
     expect(col?.default).toBe('medium');
   });
 
   it('brain_learnings.memoryTier retains DEFAULT short (learnings start short)', async () => {
-    const { brainLearnings } = await import('../../store/brain-schema.js');
+    const { brainLearnings } = await import('../../store/memory-schema.js');
     const col = (brainLearnings as unknown as Record<string, { default?: unknown }>).memoryTier;
     // learnings legitimately start at 'short' — only decisions/patterns are fixed to 'medium'
     expect(col?.default).toBe('short');
@@ -139,32 +139,32 @@ describe('T746 — Drizzle schema DEFAULT values', () => {
 
 describe('T741 — tier_promoted_at + tier_promotion_reason columns exist in schema', () => {
   it('brain_decisions has tierPromotedAt column', async () => {
-    const { brainDecisions } = await import('../../store/brain-schema.js');
+    const { brainDecisions } = await import('../../store/memory-schema.js');
     expect(brainDecisions.tierPromotedAt).toBeDefined();
   });
 
   it('brain_decisions has tierPromotionReason column', async () => {
-    const { brainDecisions } = await import('../../store/brain-schema.js');
+    const { brainDecisions } = await import('../../store/memory-schema.js');
     expect(brainDecisions.tierPromotionReason).toBeDefined();
   });
 
   it('brain_patterns has tierPromotedAt column', async () => {
-    const { brainPatterns } = await import('../../store/brain-schema.js');
+    const { brainPatterns } = await import('../../store/memory-schema.js');
     expect(brainPatterns.tierPromotedAt).toBeDefined();
   });
 
   it('brain_patterns has tierPromotionReason column', async () => {
-    const { brainPatterns } = await import('../../store/brain-schema.js');
+    const { brainPatterns } = await import('../../store/memory-schema.js');
     expect(brainPatterns.tierPromotionReason).toBeDefined();
   });
 
   it('brain_learnings has tierPromotedAt column', async () => {
-    const { brainLearnings } = await import('../../store/brain-schema.js');
+    const { brainLearnings } = await import('../../store/memory-schema.js');
     expect(brainLearnings.tierPromotedAt).toBeDefined();
   });
 
   it('brain_observations has tierPromotedAt column', async () => {
-    const { brainObservations } = await import('../../store/brain-schema.js');
+    const { brainObservations } = await import('../../store/memory-schema.js');
     expect(brainObservations.tierPromotedAt).toBeDefined();
   });
 });
@@ -416,8 +416,8 @@ describe('T743 — runTierPromotion persists tier_promoted_at + tier_promotion_r
     mockGetBrainNativeDbPromo.mockReturnValue(mockDb);
     mockGetBrainDbPromo.mockResolvedValue({});
 
-    // Use brain-sqlite mock with promo-specific mocks
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    // Use memory-sqlite mock with promo-specific mocks
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     vi.mocked(getBrainDb).mockResolvedValue(
       {} as ReturnType<typeof getBrainDb> extends Promise<infer T> ? T : never,
     );
@@ -450,7 +450,7 @@ describe('T743 — runTierPromotion persists tier_promoted_at + tier_promotion_r
       })),
     };
 
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/brain-sqlite.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
     vi.mocked(getBrainDb).mockResolvedValue(
       {} as ReturnType<typeof getBrainDb> extends Promise<infer T> ? T : never,
     );

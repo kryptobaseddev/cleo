@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeBrainDb } from '../../store/brain-sqlite.js';
+import { closeBrainDb } from '../../store/memory-sqlite.js';
 import { archiveSticky } from '../archive.js';
 import { addSticky } from '../create.js';
 import { purgeSticky } from '../purge.js';

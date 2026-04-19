@@ -41,7 +41,7 @@ describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
 
   afterEach(async () => {
     try {
-      const { closeBrainDb } = await import('../../store/brain-sqlite.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
     } catch {
       /* may not be loaded */
