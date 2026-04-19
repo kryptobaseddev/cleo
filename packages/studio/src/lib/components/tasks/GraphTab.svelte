@@ -193,10 +193,16 @@
     tasks: readonly Task[],
     deps: readonly TaskDependencyEdge[],
   ): GraphNode[] {
+    // De-dupe on task id — the `#each` block keys by `n.id`, so duplicate
+    // rows from the loader (e.g. if two pages streamed the same id into the
+    // ExplorerBundle) would throw Svelte's each_key_duplicate at runtime.
+    // Deterministic: keep the first occurrence of each id.
     const byId = new Map<string, Task>();
-    for (const t of tasks) byId.set(t.id, t);
-    const out: GraphNode[] = [];
     for (const t of tasks) {
+      if (!byId.has(t.id)) byId.set(t.id, t);
+    }
+    const out: GraphNode[] = [];
+    for (const t of byId.values()) {
       out.push({
         id: t.id,
         title: t.title,
