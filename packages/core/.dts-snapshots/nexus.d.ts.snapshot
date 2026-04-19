@@ -1,0 +1,21 @@
+/**
+ * NEXUS - Cross-project intelligence system for CLEO.
+ *
+ * Provides project registration, permission enforcement,
+ * cross-project query resolution, and global dependency analysis.
+ *
+ * @task T4574
+ * @epic T4540
+ */
+export { type BlockingAnalysisResult, blockingAnalysis, buildGlobalGraph, type CriticalPathResult, criticalPath, type DepsEntry, type DepsResult, invalidateGraphCache, type NexusGlobalGraph, type NexusGraphEdge, type NexusGraphNode, nexusDeps, type OrphanEntry, orphanDetection, resolveCrossDeps, } from './deps.js';
+export { type DiscoverResult, discoverRelated, extractKeywords, type NexusDiscoverResult, type NexusSearchResult, type SearchResult, searchAcrossProjects, } from './discover.js';
+export { generateProjectHash } from './hash.js';
+export { canExecute, canRead, canWrite, checkPermission, checkPermissionDetail, getPermission, type PermissionCheckResult, permissionLevel, requirePermission, setPermission, } from './permissions.js';
+export { getCurrentProject, getProjectFromQuery, type NexusParsedQuery, type NexusResolvedTask, parseQuery, resolveProjectPath, resolveTask, validateSyntax, } from './query.js';
+export { getNexusCacheDir, getNexusHome, type NexusHealthStatus, type NexusPermissionLevel, type NexusProject, type NexusProjectStats, type NexusRegistryFile, nexusGetProject, nexusInit, nexusList, nexusProjectExists, nexusReconcile, nexusRegister, nexusSetPermission, nexusSync, nexusSyncAll, nexusUnregister, nexusUpdateIndexStats, readRegistry, readRegistryRequired, resetNexusDbState, } from './registry.js';
+export { getSharingStatus, type SharingStatus, syncGitignore, } from './sharing/index.js';
+export { executeTransfer, previewTransfer } from './transfer.js';
+export type { ImportFromPackageOptions, ImportFromPackageResult, TransferManifest, TransferManifestEntry, TransferMode, TransferOnConflict, TransferOnMissingDep, TransferParams, TransferResult, TransferScope, } from './transfer-types.js';
+export type { ParsedDirective, ProjectACL, RouteResult, WorkspaceAgent, WorkspaceProjectSummary, WorkspaceStatus, } from './workspace.js';
+export { parseDirective, routeDirective, workspaceAgents, workspaceStatus, } from './workspace.js';
+//# sourceMappingURL=index.d.ts.map

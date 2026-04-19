@@ -479,6 +479,10 @@ export type {
   TaskPriority,
   TaskProvenance,
   TaskRelation,
+  // T944 new axes
+  TaskRole,
+  TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskType,
   TaskVerification,

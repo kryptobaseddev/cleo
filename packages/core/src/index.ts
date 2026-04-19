@@ -287,6 +287,13 @@ export type {
 export { Cleo } from './cleo.js';
 // Hooks
 export { HookRegistry, hooks } from './hooks/registry.js';
+// Lifecycle
+export {
+  computeTaskRollup,
+  computeTaskRollups,
+  type RollupExecStatus,
+  type TaskRollup,
+} from './lifecycle/rollup.js';
 export type {
   PopulateEmbeddingsOptions,
   PopulateEmbeddingsResult,
