@@ -148,9 +148,10 @@ describe('Parity Group 1: Registry completeness', () => {
     //       + orchestrate.{approve,reject} (mutate) — +3 query / +4 mutate / +7 total.
     // T997/T999/T1004: memory.promote-explain + memory.bridge (query) + memory.precompact-flush (mutate) — +2 query / +1 mutate / +3 total.
     // T1006: memory.digest + memory.recent + memory.diary + memory.watch + nexus.top-entries + check.verify.explain (query) + memory.diary.write (mutate) — +6 query / +1 mutate / +7 total.
-    expect(queryCount).toBe(171);
-    expect(mutateCount).toBe(117);
-    expect(OPERATIONS.length).toBe(288);
+    // T1003: memory.backfill.list (query) + memory.backfill.run/approve/rollback (mutate) — +1 query / +3 mutate / +4 total.
+    expect(queryCount).toBe(172);
+    expect(mutateCount).toBe(120);
+    expect(OPERATIONS.length).toBe(292);
   });
 
   it('all operations have valid gateway values', () => {
