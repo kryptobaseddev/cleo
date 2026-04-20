@@ -91,6 +91,8 @@ export {
   enforceThinAgent,
   THIN_AGENT_SPAWN_TOOLS,
 } from './thin-agent.js';
+export type { SpawnTierValue, TierSelectInput } from './tier-selector.js';
+export { resolveEffectiveTier, selectTier } from './tier-selector.js';
 
 /** Orchestrator session state. */
 export interface OrchestratorSession {

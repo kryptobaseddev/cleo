@@ -11,6 +11,9 @@ import type {
   SessionStats,
   Task,
   TaskPriority,
+  TaskRole,
+  TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskStatus,
   TaskType,
@@ -58,6 +61,10 @@ export function rowToTask(row: TaskRow): Task {
         : undefined,
     pipelineStage: row.pipelineStage ?? undefined,
     assignee: row.assignee ?? undefined,
+    // T944: orthogonal axes — role (intent) and scope (granularity)
+    role: (row.role as TaskRole) ?? undefined,
+    scope: (row.scope as TaskScope) ?? undefined,
+    severity: (row.severity as TaskSeverity) ?? undefined,
   };
 }
 
@@ -110,6 +117,10 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     sessionId: task.provenance?.sessionId ?? null,
     pipelineStage,
     assignee: task.assignee ?? null,
+    // T944: orthogonal axes — use undefined so Drizzle applies the column default
+    role: task.role ?? undefined,
+    scope: task.scope ?? undefined,
+    severity: task.severity ?? undefined,
   };
 }
 
