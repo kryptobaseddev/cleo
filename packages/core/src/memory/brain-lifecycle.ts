@@ -578,6 +578,203 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
 }
 
 // ============================================================================
+// Typed Promotion (T1001) — composite 6-signal scorer
+// ============================================================================
+
+/** One promoted observation record from promoteObservationsToTyped. */
+export interface TypedPromotionRecord {
+  /** brain_observations.id */
+  observationId: string;
+  /** Observation type (e.g. 'discovery', 'decision', 'feature') */
+  observationType: string;
+  /** Target typed table tier ('learning' | 'pattern') */
+  toTier: string;
+  /** Composite score that crossed the threshold */
+  score: number;
+  /** ID of the row written to brain_promotion_log */
+  logId: string;
+}
+
+/** Result from promoteObservationsToTyped. */
+export interface TypedPromotionResult {
+  /** Observations that crossed the threshold and were logged for promotion */
+  promoted: TypedPromotionRecord[];
+  /** Observations that were evaluated but did not cross the threshold */
+  skippedCount: number;
+  /** Observations already logged in brain_promotion_log (skipped for idempotency) */
+  alreadyPromotedCount: number;
+}
+
+/**
+ * Scan unpromoted brain_observations and promote eligible entries via composite scoring.
+ *
+ * Uses a 6-signal composite scorer (promotion-score.ts) instead of the legacy 3-rule
+ * OR union. Entries that cross the threshold get an audit row in brain_promotion_log.
+ * Re-running is idempotent — observations already in brain_promotion_log are skipped.
+ *
+ * Signal weights (see promotion-score.ts for exact values):
+ *  1. citation_count    — normalised retrieval frequency
+ *  2. quality_score     — content richness at insert time
+ *  3. stability_score   — biological-analog consolidation metric
+ *  4. recency           — inverse age decay
+ *  5. user_verified     — hard boost for owner-verified entries
+ *  6. outcome_correlated — tied to a completed task outcome
+ *
+ * This function writes to brain_promotion_log only — it does NOT insert rows
+ * into brain_learnings or brain_patterns. The actual typed-table insert is
+ * the responsibility of a downstream step (e.g. a nightly consolidation pass
+ * that reads brain_promotion_log rows with decided_by='composite-scorer').
+ *
+ * @param projectRoot - Project root directory for brain.db resolution
+ * @param limit - Maximum number of observations to scan per run (default 100)
+ * @param threshold - Minimum composite score to trigger promotion (default 0.6)
+ * @returns Summary of promoted, skipped, and already-promoted observations
+ *
+ * @task T1001
+ * @epic T1000
+ */
+export async function promoteObservationsToTyped(
+  projectRoot: string,
+  limit = 100,
+  threshold?: number,
+): Promise<TypedPromotionResult> {
+  const {
+    computePromotionScore,
+    computePromotionRationale,
+    mapObservationTypeToTier,
+    PROMOTION_THRESHOLD,
+  } = await import('./promotion-score.js');
+
+  const effectiveThreshold = threshold ?? PROMOTION_THRESHOLD;
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) {
+    return { promoted: [], skippedCount: 0, alreadyPromotedCount: 0 };
+  }
+
+  const promoted: TypedPromotionRecord[] = [];
+  let skippedCount = 0;
+  let alreadyPromotedCount = 0;
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // Fetch candidates: observations not yet in brain_promotion_log, not in 'long' tier.
+  interface ObsRow {
+    id: string;
+    type: string;
+    citation_count: number;
+    quality_score: number | null;
+    stability_score: number | null;
+    created_at: string;
+    verified: number;
+    memory_tier: string | null;
+    invalid_at: string | null;
+  }
+
+  let candidates: ObsRow[] = [];
+  try {
+    candidates = typedAll<ObsRow>(
+      nativeDb.prepare(`
+        SELECT
+          o.id,
+          o.type,
+          o.citation_count,
+          o.quality_score,
+          o.stability_score,
+          o.created_at,
+          o.verified,
+          o.memory_tier,
+          o.invalid_at
+        FROM brain_observations o
+        WHERE o.invalid_at IS NULL
+          AND (o.memory_tier IS NULL OR o.memory_tier != 'long')
+          AND NOT EXISTS (
+            SELECT 1 FROM brain_promotion_log p
+            WHERE p.observation_id = o.id
+          )
+        ORDER BY o.created_at DESC
+        LIMIT ?
+      `),
+      limit,
+    );
+  } catch {
+    // Table or column may not exist yet on older DBs — best-effort
+    return { promoted: [], skippedCount: 0, alreadyPromotedCount: 0 };
+  }
+
+  for (const row of candidates) {
+    // Check idempotency: skip if already logged (shouldn't reach here due to NOT EXISTS above,
+    // but guards concurrent callers)
+    let alreadyLogged = false;
+    try {
+      const existing = nativeDb
+        .prepare('SELECT id FROM brain_promotion_log WHERE observation_id = ? LIMIT 1')
+        .get(row.id) as { id: string } | undefined;
+      if (existing) {
+        alreadyPromotedCount++;
+        alreadyLogged = true;
+      }
+    } catch {
+      /* brain_promotion_log may not exist yet — continue */
+    }
+    if (alreadyLogged) continue;
+
+    const signals = {
+      citationCount: row.citation_count ?? 0,
+      qualityScore: row.quality_score,
+      stabilityScore: row.stability_score,
+      createdAt: row.created_at,
+      userVerified: row.verified ?? 0,
+      outcomeCorrelated: 0, // future: wire to task outcome correlation
+    };
+
+    const score = computePromotionScore(signals);
+
+    if (score < effectiveThreshold) {
+      skippedCount++;
+      continue;
+    }
+
+    const toTier = mapObservationTypeToTier(row.type);
+    const rationale = computePromotionRationale(signals, effectiveThreshold);
+    const logId = `promo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+    try {
+      nativeDb
+        .prepare(
+          `INSERT OR IGNORE INTO brain_promotion_log
+            (id, observation_id, from_tier, to_tier, score, decided_at, decided_by, rationale_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          logId,
+          row.id,
+          'observation',
+          toTier,
+          score,
+          now,
+          'composite-scorer',
+          JSON.stringify(rationale),
+        );
+
+      promoted.push({
+        observationId: row.id,
+        observationType: row.type,
+        toTier,
+        score,
+        logId,
+      });
+    } catch {
+      /* best-effort — brain_promotion_log may not exist yet on older installs */
+    }
+  }
+
+  return { promoted, skippedCount, alreadyPromotedCount };
+}
+
+// ============================================================================
 // Extended Consolidation (T549 Wave 3-D)
 // ============================================================================
 
@@ -641,6 +838,16 @@ export interface RunConsolidationResult {
     patternsGenerated: number;
     insightsStored: number;
   };
+  /**
+   * Hard-sweeper result from Step 9f (T995).
+   * Deletes confirmed noise: prune_candidate=1 AND quality<0.2 AND citations=0 AND age>30d.
+   * Populated when the step ran (always in runConsolidation — best-effort).
+   */
+  pruneSweep?: {
+    deleted: number;
+    wouldDelete: number;
+    dryRun: boolean;
+  };
 }
 
 /**
@@ -663,6 +870,7 @@ export interface RunConsolidationResult {
  *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal (T679)
  *   9c. Homeostatic decay — synaptic scaling + pruning (T690)
  *   9e. Consolidation event log — INSERT into brain_consolidation_events (T694)
+ *   9f. Hard-sweeper — DELETE prune_candidate=1 + quality<0.2 + citations=0 + age>30d (T995)
  *
  * All steps are BEST-EFFORT — any step failure is caught and logged to console.warn.
  *
@@ -880,6 +1088,22 @@ export async function runConsolidation(
     }
   } catch (err) {
     console.warn('[consolidation] Step 9e consolidation event log failed:', err);
+  }
+
+  // Step 9f: Hard-sweeper — autonomous DELETE for prune candidates (T995)
+  // Deletes rows satisfying ALL: prune_candidate=1 AND quality_score<0.2
+  // AND citation_count=0 AND age>30d. Runs AFTER Step 9e (event log) so that
+  // the audit event captures the pre-sweep state. Best-effort — never blocks.
+  try {
+    const { runPruneSweep } = await import('./brain-maintenance.js');
+    const sweepResult = await runPruneSweep(projectRoot);
+    result.pruneSweep = {
+      deleted: sweepResult.deleted,
+      wouldDelete: sweepResult.wouldDelete,
+      dryRun: sweepResult.dryRun,
+    };
+  } catch (err) {
+    console.warn('[consolidation] Step 9f prune sweep failed:', err);
   }
 
   // Step 10: LLM-driven sleep consolidation (T734)
