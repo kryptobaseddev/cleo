@@ -2,18 +2,19 @@
  * CLI command group: `cleo sentient` — Tier-1 and Tier-2 autonomous loop management.
  *
  * Subcommands:
- *   cleo sentient start          — spawn detached daemon background process
- *   cleo sentient stop           — flip killSwitch + send SIGTERM
- *   cleo sentient status         — print pid / stats / killSwitch state
- *   cleo sentient resume         — clear killSwitch (does NOT restart the process)
- *   cleo sentient tick           — run a single tick in-process (for testing / owner verify)
- *   cleo sentient propose list   — list all Tier-2 proposals (status='proposed')
- *   cleo sentient propose accept — accept a proposal (proposed → pending)
- *   cleo sentient propose reject — reject a proposal (proposed → cancelled)
- *   cleo sentient propose diff   — show what a proposal would change (Tier-3 stub)
- *   cleo sentient propose run    — manually trigger a propose tick in-process
- *   cleo sentient propose enable — enable Tier-2 proposal generation
- *   cleo sentient propose disable— disable Tier-2 proposal generation
+ *   cleo sentient start             — spawn detached daemon background process
+ *   cleo sentient stop              — flip killSwitch + send SIGTERM
+ *   cleo sentient status            — print pid / stats / killSwitch state
+ *   cleo sentient resume            — clear killSwitch (does NOT restart the process)
+ *   cleo sentient tick              — run a single tick in-process (for testing / owner verify)
+ *   cleo sentient propose list      — list all Tier-2 proposals (status='proposed')
+ *   cleo sentient propose accept    — accept a proposal (proposed → pending)
+ *   cleo sentient propose reject    — reject a proposal (proposed → cancelled)
+ *   cleo sentient propose diff      — show what a proposal would change (Tier-3 stub)
+ *   cleo sentient propose run       — manually trigger a propose tick in-process
+ *   cleo sentient propose enable    — enable Tier-2 proposal generation
+ *   cleo sentient propose disable   — disable Tier-2 proposal generation
+ *   cleo sentient baseline capture  — capture signed baseline event (Tier-3, pre-worktree)
  *
  * All subcommands emit LAFS-compliant envelopes when `--json` is set.
  *
@@ -24,6 +25,7 @@
  * @see docs/sentient-loop.md
  * @task T946
  * @task T1008
+ * @task T1021
  */
 
 import { join } from 'node:path';
@@ -582,6 +584,68 @@ const proposeSub = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// baseline capture (Tier-3 — T1021)
+// ---------------------------------------------------------------------------
+
+const baselineCaptureSub = defineCommand({
+  meta: {
+    name: 'capture',
+    description:
+      'Capture a signed baseline event for a commit SHA (must predate experiment worktree creation)',
+  },
+  args: {
+    ...projectArgs,
+    sha: {
+      type: 'positional' as const,
+      description: 'Git commit SHA to anchor the baseline to (40 hex chars)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const projectRoot = resolveProjectRoot(args.project as string | undefined);
+    const jsonMode = args.json === true;
+    const commitSha = args.sha as string;
+
+    try {
+      const { captureBaseline } = await import('@cleocode/core/sentient/baseline.js');
+      const baseline = await captureBaseline(projectRoot, commitSha);
+      emitSuccess(
+        baseline,
+        jsonMode,
+        `Baseline captured: receipt=${baseline.receiptId} commit=${baseline.commitSha} pub=${baseline.publicKey.slice(0, 16)}...`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      emitFailure('E_SENTIENT_BASELINE_CAPTURE', message, jsonMode);
+    }
+  },
+});
+
+/**
+ * `cleo sentient baseline` — Tier-3 baseline management.
+ *
+ * @task T1021
+ */
+const baselineSub = defineCommand({
+  meta: {
+    name: 'baseline',
+    description: 'Tier-3 baseline management (capture signed pre-experiment baseline)',
+  },
+  args: projectArgs,
+  subCommands: {
+    capture: baselineCaptureSub,
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    emitSuccess(
+      { message: 'Use: cleo sentient baseline capture <sha>' },
+      jsonMode,
+      'Usage: cleo sentient baseline capture <sha>',
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
 
@@ -602,6 +666,7 @@ export const sentientCommand = defineCommand({
     resume: resumeSub,
     tick: tickSub,
     propose: proposeSub,
+    baseline: baselineSub,
   },
   async run({ args }) {
     const projectRoot = resolveProjectRoot(args.project as string | undefined);
