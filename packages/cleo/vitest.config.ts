@@ -68,6 +68,49 @@ export default defineConfig({
         '../../packages/core/src/memory/brain-backfill.ts',
         import.meta.url,
       ).pathname,
+      // T1015: sentient + gc daemons relocated from cleo → core
+      '@cleocode/core/sentient/daemon.js': new URL(
+        '../../packages/core/src/sentient/daemon.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/sentient/state.js': new URL(
+        '../../packages/core/src/sentient/state.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/sentient/tick.js': new URL(
+        '../../packages/core/src/sentient/tick.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/sentient/propose-tick.js': new URL(
+        '../../packages/core/src/sentient/propose-tick.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/sentient/proposal-rate-limiter.js': new URL(
+        '../../packages/core/src/sentient/proposal-rate-limiter.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/sentient': new URL(
+        '../../packages/core/src/sentient/index.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/gc/daemon.js': new URL(
+        '../../packages/core/src/gc/daemon.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/gc/runner.js': new URL(
+        '../../packages/core/src/gc/runner.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/gc/state.js': new URL(
+        '../../packages/core/src/gc/state.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/gc/transcript.js': new URL(
+        '../../packages/core/src/gc/transcript.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/gc': new URL('../../packages/core/src/gc/index.ts', import.meta.url)
+        .pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
     },

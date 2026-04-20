@@ -12,7 +12,7 @@
  *
  * Running `cleo daemon` without a subcommand is equivalent to `cleo daemon status`.
  *
- * @see packages/cleo/src/gc/daemon.ts for spawn implementation
+ * @see packages/core/src/gc/daemon.ts for spawn implementation
  * @see ADR-047 — Autonomous GC and Disk Safety
  * @task T731
  * @epic T726
@@ -20,8 +20,8 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getGCDaemonStatus, spawnGCDaemon, stopGCDaemon } from '@cleocode/core/gc/daemon.js';
 import { defineCommand } from 'citty';
-import { getGCDaemonStatus, spawnGCDaemon, stopGCDaemon } from '../../gc/daemon.js';
 
 /**
  * Display the daemon status to stdout.

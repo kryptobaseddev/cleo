@@ -20,7 +20,7 @@
  * Scoped OUT:
  *   - `cleo sentient sandbox` (Tier-3 auto-merge — blocked on T992+T993+T995)
  *
- * @see packages/cleo/src/sentient/daemon.ts
+ * @see packages/core/src/sentient/daemon.ts
  * @see docs/sentient-loop.md
  * @task T946
  * @task T1008
@@ -28,17 +28,17 @@
 
 import { join } from 'node:path';
 import { cwd as processCwd } from 'node:process';
-import { defineCommand } from 'citty';
 import {
   getSentientDaemonStatus,
   resumeSentientDaemon,
   SENTIENT_STATE_FILE,
   spawnSentientDaemon,
   stopSentientDaemon,
-} from '../../sentient/daemon.js';
-import { safeRunProposeTick } from '../../sentient/propose-tick.js';
-import { patchSentientState, readSentientState } from '../../sentient/state.js';
-import { safeRunTick } from '../../sentient/tick.js';
+} from '@cleocode/core/sentient/daemon.js';
+import { safeRunProposeTick } from '@cleocode/core/sentient/propose-tick.js';
+import { patchSentientState, readSentientState } from '@cleocode/core/sentient/state.js';
+import { safeRunTick } from '@cleocode/core/sentient/tick.js';
+import { defineCommand } from 'citty';
 
 // ---------------------------------------------------------------------------
 // Shared arg spec

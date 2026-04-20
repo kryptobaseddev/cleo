@@ -312,8 +312,8 @@ export class SentientHandler implements DomainHandler {
     projectRoot: string,
     params?: Record<string, unknown>,
   ): Promise<{ success: boolean; data?: unknown }> {
-    const { safeRunProposeTick } = await import('../../sentient/propose-tick.js');
-    const { SENTIENT_STATE_FILE } = await import('../../sentient/daemon.js');
+    const { safeRunProposeTick } = await import('@cleocode/core/sentient/propose-tick.js');
+    const { SENTIENT_STATE_FILE } = await import('@cleocode/core/sentient/daemon.js');
 
     const statePath = join(projectRoot, SENTIENT_STATE_FILE);
     const outcome = await safeRunProposeTick({ projectRoot, statePath });
@@ -331,8 +331,8 @@ export class SentientHandler implements DomainHandler {
     projectRoot: string,
     enabled: boolean,
   ): Promise<{ success: boolean; data?: unknown }> {
-    const { patchSentientState } = await import('../../sentient/state.js');
-    const { SENTIENT_STATE_FILE } = await import('../../sentient/daemon.js');
+    const { patchSentientState } = await import('@cleocode/core/sentient/state.js');
+    const { SENTIENT_STATE_FILE } = await import('@cleocode/core/sentient/daemon.js');
 
     const statePath = join(projectRoot, SENTIENT_STATE_FILE);
     const updated = await patchSentientState(statePath, { tier2Enabled: enabled });
@@ -393,8 +393,10 @@ async function incrementTier2Stat(
   field: 'proposalsAccepted' | 'proposalsRejected' | 'proposalsGenerated',
 ): Promise<void> {
   try {
-    const { patchSentientState, readSentientState } = await import('../../sentient/state.js');
-    const { SENTIENT_STATE_FILE } = await import('../../sentient/daemon.js');
+    const { patchSentientState, readSentientState } = await import(
+      '@cleocode/core/sentient/state.js'
+    );
+    const { SENTIENT_STATE_FILE } = await import('@cleocode/core/sentient/daemon.js');
 
     const statePath = join(projectRoot, SENTIENT_STATE_FILE);
     const state = await readSentientState(statePath);
