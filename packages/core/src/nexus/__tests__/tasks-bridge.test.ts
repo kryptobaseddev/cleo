@@ -15,8 +15,8 @@ import type DatabaseSync from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
-import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { closeBrainDb, getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
+import { closeNexusDb, getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
 import { getSymbolsForTask, getTasksForSymbol, linkTaskToSymbols } from '../tasks-bridge.js';
 
 describe('tasks-bridge', () => {
@@ -39,10 +39,10 @@ describe('tasks-bridge', () => {
     expect(brainDb).toBeDefined();
     expect(nexusDb).toBeDefined();
 
-    // Insert test symbols into nexus
+    // Insert test symbols into nexus (OR REPLACE to tolerate duplicate IDs across runs)
     nexusDb
       .prepare(
-        `INSERT INTO nexus_nodes
+        `INSERT OR REPLACE INTO nexus_nodes
          (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
@@ -58,7 +58,7 @@ describe('tasks-bridge', () => {
 
     nexusDb
       .prepare(
-        `INSERT INTO nexus_nodes
+        `INSERT OR REPLACE INTO nexus_nodes
          (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
@@ -66,7 +66,7 @@ describe('tasks-bridge', () => {
 
     nexusDb
       .prepare(
-        `INSERT INTO nexus_nodes
+        `INSERT OR REPLACE INTO nexus_nodes
          (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
@@ -82,6 +82,9 @@ describe('tasks-bridge', () => {
   });
 
   afterEach(() => {
+    // Reset DB singletons so the next beforeEach gets fresh DBs with no colliding node IDs
+    closeBrainDb();
+    closeNexusDb();
     // Clean up temp directory
     rmSync(projectRoot, { recursive: true, force: true });
   });
