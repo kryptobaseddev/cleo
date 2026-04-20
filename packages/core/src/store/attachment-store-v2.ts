@@ -237,7 +237,14 @@ export function createAttachmentStoreV2(
       await store.open();
       llmtxtStore = store;
       return store;
-    } catch {
+    } catch (err) {
+      // Observability: llmtxt backend silently fell back to legacy for months in CI
+      // because the bindings error was swallowed. Log to stderr (never stdout —
+      // stdout is reserved for LAFS envelope).
+      console.error(
+        '[attachment-store-v2] llmtxt backend unavailable, falling back to legacy:',
+        err instanceof Error ? err.message : String(err),
+      );
       llmtxtStore = false;
       return null;
     }
