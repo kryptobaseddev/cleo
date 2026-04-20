@@ -58,7 +58,6 @@ interface RawNexusNode {
   file_path: string | null;
   label: string;
   community_id: string | null;
-  weight: number | null;
 }
 
 interface RawNexusRelation {
@@ -179,7 +178,7 @@ export async function getSymbolFullContext(
       // Try exact match on id first; fall back to name lookup
       let symbolNode = typedGet<RawNexusNode>(
         nexusNative.prepare(
-          `SELECT id, project_id, kind, name, file_path, label, community_id, weight
+          `SELECT id, project_id, kind, name, file_path, label, community_id
            FROM nexus_nodes WHERE id = ? LIMIT 1`,
         ),
         symbolId,
@@ -189,7 +188,7 @@ export async function getSymbolFullContext(
         // Fuzzy match on name (case-insensitive)
         symbolNode = typedGet<RawNexusNode>(
           nexusNative.prepare(
-            `SELECT id, project_id, kind, name, file_path, label, community_id, weight
+            `SELECT id, project_id, kind, name, file_path, label, community_id
              FROM nexus_nodes
              WHERE LOWER(name) = LOWER(?) AND kind NOT IN ('community', 'process', 'folder')
              LIMIT 1`,
