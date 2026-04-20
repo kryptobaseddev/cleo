@@ -546,6 +546,22 @@ export const brainObservations = sqliteTable(
      * CLEO does not enforce referential integrity here.
      */
     attachmentsJson: text('attachments_json'),
+
+    /**
+     * T1001: Biological-analog stability score: 0.0 (unstable) – 1.0 (consolidated).
+     *
+     * Mirrors brain_page_edges.stability_score but tracks observation-level consolidation
+     * rather than edge-level plasticity. Used as one of the 6 signals in the composite
+     * promotion scorer (promotion-score.ts).
+     *
+     * Default 0.5 = neutral/unknown stability on new observations.
+     * Updated by runConsolidation decay pass and STDP backfill.
+     *
+     * Added via ensureColumns() in runBrainMigrations() — idempotent.
+     *
+     * @task T1001
+     */
+    stabilityScore: real('stability_score').default(0.5),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -570,6 +586,8 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_source_conf').on(table.sourceConfidence),
     // T726 indexes
     index('idx_brain_observations_tier_promoted_at').on(table.tierPromotedAt),
+    // T1001 indexes
+    index('idx_brain_observations_stability_score').on(table.stabilityScore),
   ],
 );
 
@@ -1278,7 +1296,136 @@ export const brainConsolidationEvents = sqliteTable(
   ],
 );
 
+// ============================================================================
+// BRAIN TRANSCRIPT EVENTS — full-fidelity Claude session ingestion (T1002)
+// ============================================================================
+
+/**
+ * Full-fidelity transcript event store for Claude session JSONL ingestion.
+ *
+ * Each row represents one content block from a Claude session transcript:
+ * text, tool_use, tool_result, thinking, or system entries. Blocks that
+ * contain secrets are flagged via redacted_at before persistence.
+ *
+ * The (session_id, seq) pair is unique — re-ingesting the same session is
+ * idempotent via INSERT OR IGNORE.
+ *
+ * @task T1002
+ * @epic T1000
+ */
+export const brainTranscriptEvents = sqliteTable(
+  'brain_transcript_events',
+  {
+    id: text('id').primaryKey(),
+    /** Session ID sourced from the JSONL filename (ses_YYYYMMDD_xxxxx). */
+    sessionId: text('session_id').notNull(),
+    /** Ordinal position of this block within the session (0-based). */
+    seq: integer('seq').notNull(),
+    /**
+     * Message role: 'user' | 'assistant' | 'system'.
+     * Matches the 'role' field from the Claude message object.
+     */
+    role: text('role').notNull(),
+    /**
+     * Content block type: 'text' | 'tool_use' | 'tool_result' | 'thinking'.
+     * Preserved exactly from the Claude JSONL block.type field.
+     */
+    blockType: text('block_type').notNull(),
+    /**
+     * Serialised block content. For text blocks this is the raw string.
+     * For tool_use / tool_result / thinking blocks this is JSON.stringify of
+     * the block minus any redacted fields.
+     */
+    content: text('content').notNull(),
+    /** Approximate token count for the block (null when not computable). */
+    tokens: integer('tokens'),
+    /**
+     * ISO 8601 timestamp when this row was redacted (PII/secret scrub applied).
+     * Null = block was clean and stored as-is.
+     */
+    redactedAt: text('redacted_at'),
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_transcript_events_session').on(table.sessionId),
+    index('idx_transcript_events_role').on(table.role),
+    index('idx_transcript_events_block_type').on(table.blockType),
+    index('idx_transcript_events_created_at').on(table.createdAt),
+  ],
+);
+
+// ============================================================================
+// BRAIN PROMOTION LOG — typed promotion audit trail (T1001)
+// ============================================================================
+
+/**
+ * Audit log for observation-to-typed-entry promotions.
+ *
+ * Every time promoteObservationsToTyped() promotes a brain_observations row
+ * to a typed entry (brain_learnings, brain_patterns), one row is written here
+ * to record what was promoted, why, and the full composite score breakdown.
+ *
+ * Pairs with T997 promote-explain CLI which reads this table.
+ *
+ * @task T1001
+ * @epic T1000
+ */
+export const brainPromotionLog = sqliteTable(
+  'brain_promotion_log',
+  {
+    /** Unique promotion event ID. Format: `promo-<timestamp36>-<rand>`. */
+    id: text('id').primaryKey(),
+
+    /** ID of the brain_observations row that was evaluated. */
+    observationId: text('observation_id').notNull(),
+
+    /**
+     * Source tier (always 'observation' for this table — reserved for future
+     * multi-source promotion pipelines).
+     */
+    fromTier: text('from_tier').notNull(),
+
+    /**
+     * Target typed entity: 'learning' | 'pattern' | 'decision' | 'diary'.
+     * Determines which table the promoted entry lands in.
+     */
+    toTier: text('to_tier').notNull(),
+
+    /**
+     * Composite promotion score at the time of promotion (0.0–1.0).
+     * Computed by computePromotionScore() in promotion-score.ts.
+     */
+    score: real('score').notNull(),
+
+    /** ISO 8601 timestamp when this promotion was decided. */
+    decidedAt: text('decided_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * Who or what made the promotion decision.
+     * 'composite-scorer' = automatic via promoteObservationsToTyped.
+     * 'owner' = manually triggered via `cleo memory promote`.
+     */
+    decidedBy: text('decided_by').notNull().default('composite-scorer'),
+
+    /**
+     * JSON-serialized PromotionRationale from promotion-score.ts.
+     * Contains per-signal breakdowns and weighted contributions.
+     * Null for legacy rows.
+     */
+    rationaleJson: text('rationale_json'),
+  },
+  (table) => [
+    index('idx_promotion_log_observation').on(table.observationId),
+    index('idx_promotion_log_decided_at').on(table.decidedAt),
+    index('idx_promotion_log_to_tier').on(table.toTier),
+    index('idx_promotion_log_score').on(table.score),
+  ],
+);
+
 // === TYPE EXPORTS ===
+
+export type BrainTranscriptEventRow = typeof brainTranscriptEvents.$inferSelect;
+export type NewBrainTranscriptEventRow = typeof brainTranscriptEvents.$inferInsert;
 
 export type BrainRetrievalLogRow = typeof brainRetrievalLog.$inferSelect;
 export type NewBrainRetrievalLogRow = typeof brainRetrievalLog.$inferInsert;
@@ -1315,5 +1462,10 @@ export type BrainModulatorInsert = typeof brainModulators.$inferInsert;
 export type BrainConsolidationEventRow = typeof brainConsolidationEvents.$inferSelect;
 /** Row type for brain_consolidation_events INSERT operations. */
 export type BrainConsolidationEventInsert = typeof brainConsolidationEvents.$inferInsert;
+
+/** Row type for brain_promotion_log SELECT queries. */
+export type BrainPromotionLogRow = typeof brainPromotionLog.$inferSelect;
+/** Row type for brain_promotion_log INSERT operations. */
+export type BrainPromotionLogInsert = typeof brainPromotionLog.$inferInsert;
 
 // BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.

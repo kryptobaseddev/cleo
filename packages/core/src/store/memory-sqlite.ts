@@ -259,6 +259,78 @@ function runBrainMigrations(
     `CREATE INDEX IF NOT EXISTS idx_consolidation_events_started_at
       ON brain_consolidation_events (started_at)`,
   );
+
+  // T1002: brain_transcript_events — full-fidelity Claude session block store.
+  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_transcript_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      block_type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tokens INTEGER,
+      redacted_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_events_session_seq
+      ON brain_transcript_events (session_id, seq)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_transcript_events_session
+      ON brain_transcript_events (session_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_transcript_events_role
+      ON brain_transcript_events (role)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_transcript_events_block_type
+      ON brain_transcript_events (block_type)`,
+  );
+
+  // T1001: stability_score column on brain_observations (distinct from brain_page_edges.stability_score).
+  // Added via ensureColumns — idempotent, safe on existing databases.
+  ensureColumns(
+    nativeDb,
+    'brain_observations',
+    [{ name: 'stability_score', ddl: 'real DEFAULT 0.5' }],
+    'brain',
+  );
+
+  // T1001: brain_promotion_log — typed promotion audit trail.
+  // One row per observation evaluated (and promoted) by promoteObservationsToTyped().
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_promotion_log (
+      id TEXT PRIMARY KEY,
+      observation_id TEXT NOT NULL,
+      from_tier TEXT NOT NULL,
+      to_tier TEXT NOT NULL,
+      score REAL NOT NULL,
+      decided_at TEXT NOT NULL DEFAULT (datetime('now')),
+      decided_by TEXT NOT NULL DEFAULT 'composite-scorer',
+      rationale_json TEXT
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_promotion_log_observation
+      ON brain_promotion_log (observation_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_promotion_log_decided_at
+      ON brain_promotion_log (decided_at)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_promotion_log_to_tier
+      ON brain_promotion_log (to_tier)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_promotion_log_score
+      ON brain_promotion_log (score)`,
+  );
 }
 
 /**
