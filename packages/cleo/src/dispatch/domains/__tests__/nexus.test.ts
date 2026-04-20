@@ -977,6 +977,8 @@ describe('NexusHandler', () => {
         'discover',
         'search',
         'transfer.preview',
+        // T1006 — highest-weight symbols/nodes from brain_page_nodes
+        'top-entries',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',

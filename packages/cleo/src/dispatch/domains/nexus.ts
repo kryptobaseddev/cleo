@@ -11,7 +11,13 @@
  * @task T5704
  */
 
-import { getLogger, getProjectRoot, type NexusPermissionLevel } from '@cleocode/core/internal';
+import {
+  getBrainDb,
+  getBrainNativeDb,
+  getLogger,
+  getProjectRoot,
+  type NexusPermissionLevel,
+} from '@cleocode/core/internal';
 import {
   nexusBlockers,
   nexusCriticalPath,
@@ -244,6 +250,94 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
+        // T1006 — highest-weight symbols by quality_score from brain_page_nodes.
+        // Falls back to sorting by lastActivityAt if quality_score is not meaningful.
+        // NOTE: will prefer a `weight` column when T998 ships it; uses quality_score until then.
+        case 'top-entries': {
+          const limitVal = (params?.limit as number | undefined) ?? 20;
+          const nodeTypeFilter = params?.nodeType as string | undefined;
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'nexus',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            interface TopEntryRow {
+              id: string;
+              node_type: string;
+              label: string;
+              quality_score: number;
+              last_activity_at: string;
+              metadata_json: string | null;
+            }
+
+            const clauses: string[] = [];
+            const bindArgs: (string | number)[] = [];
+
+            if (nodeTypeFilter) {
+              clauses.push('node_type = ?');
+              bindArgs.push(nodeTypeFilter);
+            }
+            bindArgs.push(limitVal);
+
+            const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+            let entries: TopEntryRow[] = [];
+            try {
+              const rawRows = nativeDb
+                .prepare(
+                  `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+                   FROM brain_page_nodes
+                   ${whereClause}
+                   ORDER BY quality_score DESC, last_activity_at DESC
+                   LIMIT ?`,
+                )
+                .all(...bindArgs);
+              entries = rawRows.map((raw) => {
+                const r = raw as Record<string, unknown>;
+                return {
+                  id: String(r['id'] ?? ''),
+                  node_type: String(r['node_type'] ?? ''),
+                  label: String(r['label'] ?? ''),
+                  quality_score: Number(r['quality_score'] ?? 0),
+                  last_activity_at: String(r['last_activity_at'] ?? ''),
+                  metadata_json: r['metadata_json'] != null ? String(r['metadata_json']) : null,
+                };
+              });
+            } catch {
+              // brain_page_nodes table may not exist on uninitialized DBs
+            }
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: entries.length,
+                  limit: limitVal,
+                  nodeType: nodeTypeFilter ?? null,
+                  entries,
+                  note: 'Sorted by quality_score DESC. Will use weight column once T998 lands.',
+                },
+              },
+              'query',
+              'nexus',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
+          }
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -437,6 +531,8 @@ export class NexusHandler implements DomainHandler {
         'discover',
         'search',
         'transfer.preview',
+        // T1006 — highest-weight symbols/nodes from brain_page_nodes
+        'top-entries',
       ],
       mutate: [
         'share.snapshot.export',
