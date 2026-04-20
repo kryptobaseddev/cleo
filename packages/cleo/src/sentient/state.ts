@@ -15,6 +15,7 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { Tier2Stats } from '@cleocode/contracts';
 
 /** Schema version for sentient-state.json. Bump on breaking field changes. */
 export const SENTIENT_STATE_SCHEMA_VERSION = '1.0' as const;
@@ -91,6 +92,22 @@ export interface SentientState {
    * Enables `status` to show the in-progress task during a long-running tick.
    */
   activeTaskId: string | null;
+  /**
+   * Tier-2 proposal queue enabled flag.
+   *
+   * Default: `false` — Tier 2 is OFF by default to prevent surprise proposal
+   * floods on first daemon start. Owner enables via `cleo sentient propose enable`
+   * (patches this flag). See ADR-054 §Tier-2.
+   *
+   * @task T1008
+   */
+  tier2Enabled: boolean;
+  /**
+   * Rolling counters for Tier-2 proposal activity.
+   *
+   * @task T1008
+   */
+  tier2Stats: Tier2Stats;
 }
 
 /** Default (empty) sentient state for fresh initialisation. */
@@ -111,6 +128,12 @@ export const DEFAULT_SENTIENT_STATE: SentientState = {
   stuckTasks: {},
   stuckTimestamps: [],
   activeTaskId: null,
+  tier2Enabled: false,
+  tier2Stats: {
+    proposalsGenerated: 0,
+    proposalsAccepted: 0,
+    proposalsRejected: 0,
+  },
 };
 
 /**
@@ -131,6 +154,8 @@ export async function readSentientState(statePath: string): Promise<SentientStat
       stats: { ...DEFAULT_SENTIENT_STATE.stats, ...(parsed.stats ?? {}) },
       stuckTasks: parsed.stuckTasks ?? {},
       stuckTimestamps: parsed.stuckTimestamps ?? [],
+      tier2Enabled: parsed.tier2Enabled ?? false,
+      tier2Stats: { ...DEFAULT_SENTIENT_STATE.tier2Stats, ...(parsed.tier2Stats ?? {}) },
     };
   } catch {
     return { ...DEFAULT_SENTIENT_STATE };

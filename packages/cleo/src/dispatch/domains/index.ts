@@ -21,6 +21,7 @@ import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { PlaybookHandler } from './playbook.js';
 import { SessionHandler } from './session.js';
+import { SentientHandler } from './sentient.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
 import { ToolsHandler } from './tools.js';
@@ -38,6 +39,7 @@ export {
   PipelineHandler,
   PlaybookHandler,
   SessionHandler,
+  SentientHandler,
   StickyHandler,
   TasksHandler,
   ToolsHandler,
@@ -68,5 +70,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   // (supersedes ADR-042 Decision 1). ConduitHandler owns agent-to-agent
   // messaging (status, peek, start, stop, send) via pluggable transports.
   handlers.set('conduit', new ConduitHandler());
+  // T1008: sentient domain — Tier-2 proposal queue management.
+  handlers.set('sentient', new SentientHandler());
   return handlers;
 }

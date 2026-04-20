@@ -404,6 +404,13 @@ export type {
   TaskRefPriority,
   TaskSummary,
 } from './results.js';
+// === Sentient Tier-2 Types (T1008) ===
+export type {
+  ProposalCandidate,
+  ProposalSource,
+  ProposedTaskMeta,
+  Tier2Stats,
+} from './sentient.js';
 // === Session Start Result ===
 export type {
   Session,

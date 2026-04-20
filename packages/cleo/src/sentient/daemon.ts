@@ -28,6 +28,7 @@ import { type FileHandle, open as fsOpen, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
+import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
 import { safeRunTick, type TickOptions } from './tick.js';
 
@@ -41,8 +42,18 @@ export const SENTIENT_STATE_FILE = '.cleo/sentient-state.json' as const;
 /** Relative subpath for the daemon lockfile. */
 export const SENTIENT_LOCK_FILE = '.cleo/sentient.lock' as const;
 
-/** Cron expression: every 5 minutes. */
+/** Cron expression: every 5 minutes (Tier-1 tick). */
 export const SENTIENT_CRON_EXPR = '*/5 * * * *';
+
+/**
+ * Cron expression: every 2 hours (Tier-2 propose tick).
+ *
+ * Separate from the Tier-1 cron to avoid proposal flooding.
+ * Only fires when `tier2Enabled = true` in sentient-state.json.
+ *
+ * @task T1008
+ */
+export const SENTIENT_PROPOSE_CRON_EXPR = '0 */2 * * *';
 
 /** Subdirectory for daemon logs. */
 export const SENTIENT_LOG_DIR = '.cleo/logs' as const;
@@ -222,6 +233,7 @@ export async function bootstrapDaemon(projectRoot: string): Promise<void> {
       `(task=${outcome.taskId ?? 'n/a'}) ${outcome.detail}\n`,
   );
 
+  // Tier-1: every 5 minutes
   cron.schedule(
     SENTIENT_CRON_EXPR,
     async () => {
@@ -235,6 +247,28 @@ export async function bootstrapDaemon(projectRoot: string): Promise<void> {
       timezone: 'UTC',
       noOverlap: true,
       name: 'cleo-sentient',
+    },
+  );
+
+  // Tier-2: every 2 hours (only when tier2Enabled = true)
+  // Runs under the same advisory lock as the Tier-1 cron — the lock is held
+  // for the lifetime of the daemon process, so both crons run inside it.
+  const proposeOptions: ProposeTickOptions = { projectRoot, statePath };
+  cron.schedule(
+    SENTIENT_PROPOSE_CRON_EXPR,
+    async () => {
+      const state = await readSentientState(statePath);
+      if (!state.tier2Enabled) return;
+      const result = await safeRunProposeTick(proposeOptions);
+      process.stdout.write(
+        `[CLEO SENTIENT T2] propose: ${result.kind} ` +
+          `(written=${result.written}, count=${result.count}) ${result.detail}\n`,
+      );
+    },
+    {
+      timezone: 'UTC',
+      noOverlap: true,
+      name: 'cleo-sentient-propose',
     },
   );
 }

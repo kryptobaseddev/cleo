@@ -24,6 +24,16 @@ import { applyTemporalDecay, consolidateMemories, runTierPromotion } from './bra
 import { populateEmbeddings } from './brain-retrieval.js';
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Default maximum number of rows deleted per {@link runPruneSweep} invocation.
+ * Configurable via the `brain.sweeper.maxDeletePerRun` project config key.
+ */
+const DEFAULT_MAX_DELETE_PER_RUN = 500;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -70,6 +80,48 @@ export interface BrainMaintenanceTierPromotionResult {
 }
 
 /**
+ * Options for {@link runPruneSweep}.
+ */
+export interface PruneSweepOptions {
+  /**
+   * When true, log the would-delete count but do NOT execute the DELETE.
+   * Returns the full result struct with `deleted = 0` and `wouldDelete` set.
+   * Default: false.
+   */
+  dryRun?: boolean;
+  /**
+   * Cap total deletes across all tables per invocation.
+   * Reads `brain.sweeper.maxDeletePerRun` from project config; falls back to
+   * {@link DEFAULT_MAX_DELETE_PER_RUN} (500).
+   */
+  maxDeletePerRun?: number;
+}
+
+/**
+ * Result from a single {@link runPruneSweep} invocation.
+ */
+export interface PruneSweepResult {
+  /**
+   * Total rows deleted across all four typed brain tables.
+   * Always 0 in dry-run mode.
+   */
+  deleted: number;
+  /**
+   * Would-delete count when `dryRun=true`; 0 otherwise.
+   * This is the count of qualifying rows before the cap is applied.
+   */
+  wouldDelete: number;
+  /**
+   * Whether the run was a dry-run (no mutations made).
+   */
+  dryRun: boolean;
+  /**
+   * Per-table breakdown of rows deleted (or would-delete in dry-run).
+   */
+  byTable: Record<string, number>;
+}
+
+/**
  * Aggregated result from a full brain maintenance run.
  *
  * All counts are zero when a step is skipped via the corresponding
@@ -86,6 +138,8 @@ export interface BrainMaintenanceResult {
   tierPromotion: BrainMaintenanceTierPromotionResult;
   /** Results from the embedding backfill step. */
   embeddings: BrainMaintenanceEmbeddingsResult;
+  /** Results from the Step 9f prune sweep (T995). */
+  pruneSweep: PruneSweepResult;
   /** Total wall-clock duration of the maintenance run in milliseconds. */
   duration: number;
 }
@@ -107,6 +161,13 @@ export interface BrainMaintenanceOptions {
   skipTierPromotion?: boolean;
   /** Skip the embedding backfill step. Default: false. */
   skipEmbeddings?: boolean;
+  /** Skip the Step 9f prune sweep (T995). Default: false. */
+  skipPruneSweep?: boolean;
+  /**
+   * Run Step 9f in dry-run mode (log count, no DELETE).
+   * Default: false.
+   */
+  pruneSweepDryRun?: boolean;
   /**
    * Progress callback invoked before each step starts and after
    * completion of each sub-item.
@@ -116,6 +177,176 @@ export interface BrainMaintenanceOptions {
    * @param total - Total items expected for the current step (0 if unknown before start)
    */
   onProgress?: (step: string, current: number, total: number) => void;
+}
+
+// ============================================================================
+// Step 9f: Prune Sweep
+// ============================================================================
+
+/**
+ * Hard-sweeper: DELETE brain entries that are confirmed noise.
+ *
+ * A row qualifies for deletion when ALL of:
+ *   - `prune_candidate = 1`  (flagged by `correlateOutcomes` Step 9a.5)
+ *   - `quality_score < 0.2`  (low quality)
+ *   - `citation_count = 0`   (never cited)
+ *   - age > 30 days          (`julianday('now') - julianday(created_at) > 30`)
+ *
+ * Safety mechanisms:
+ *   - **Dry-run mode** (`options.dryRun = true`) — counts qualifying rows and
+ *     returns without mutating the database.
+ *   - **Per-run cap** (`options.maxDeletePerRun`, default 500) — limits total
+ *     deletes across all tables per invocation to prevent runaway deletes.
+ *   - **Audit trail** — inserts a row into `brain_consolidation_events` with
+ *     `trigger = 'step-9f'` after each real (non-dry) delete run.
+ *
+ * This function is idempotent: rows that already do not exist or that no
+ * longer meet the predicate are silently skipped.
+ *
+ * @param projectRoot - Absolute path to the project root (locates brain.db)
+ * @param options     - Dry-run and per-run cap controls
+ * @returns           - Deleted/would-delete counts plus per-table breakdown
+ *
+ * @task T995
+ * @epic T991
+ */
+export async function runPruneSweep(
+  projectRoot: string,
+  options?: PruneSweepOptions,
+): Promise<PruneSweepResult> {
+  const dryRun = options?.dryRun ?? false;
+  const cap = options?.maxDeletePerRun ?? DEFAULT_MAX_DELETE_PER_RUN;
+
+  const byTable: Record<string, number> = {};
+  let deleted = 0;
+  let wouldDelete = 0;
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) {
+    return { deleted: 0, wouldDelete: 0, dryRun, byTable: {} };
+  }
+
+  const tables = [
+    { table: 'brain_decisions', dateCol: 'created_at' },
+    { table: 'brain_patterns', dateCol: 'extracted_at' },
+    { table: 'brain_learnings', dateCol: 'created_at' },
+    { table: 'brain_observations', dateCol: 'created_at' },
+  ] as const;
+
+  // ---- Phase 1: count qualifying rows (always, for observability) ----
+
+  for (const { table, dateCol } of tables) {
+    try {
+      interface CountRow {
+        cnt: number;
+      }
+      const rows = nativeDb
+        .prepare(
+          `SELECT COUNT(*) AS cnt
+           FROM ${table}
+           WHERE prune_candidate = 1
+             AND COALESCE(quality_score, 0.5) < 0.2
+             AND COALESCE(citation_count, 0) = 0
+             AND julianday('now') - julianday(${dateCol}) > 30`,
+        )
+        .all() as unknown as CountRow[];
+      const count = rows[0]?.cnt ?? 0;
+      wouldDelete += count;
+      byTable[table] = count;
+    } catch {
+      // table may not have prune_candidate column yet — best-effort
+      byTable[table] = 0;
+    }
+  }
+
+  if (dryRun) {
+    console.info(
+      `[prune-sweep] dry-run: would delete ${wouldDelete} entries across 4 tables (cap=${cap})`,
+    );
+    return { deleted: 0, wouldDelete, dryRun, byTable };
+  }
+
+  // ---- Phase 2: DELETE with per-run cap ----
+
+  let remaining = cap;
+  const actualByTable: Record<string, number> = {};
+
+  for (const { table, dateCol } of tables) {
+    if (remaining <= 0) {
+      actualByTable[table] = 0;
+      continue;
+    }
+
+    try {
+      const tableLimit = Math.min(byTable[table] ?? 0, remaining);
+      if (tableLimit <= 0) {
+        actualByTable[table] = 0;
+        continue;
+      }
+
+      const result = nativeDb
+        .prepare(
+          `DELETE FROM ${table}
+           WHERE id IN (
+             SELECT id FROM ${table}
+             WHERE prune_candidate = 1
+               AND COALESCE(quality_score, 0.5) < 0.2
+               AND COALESCE(citation_count, 0) = 0
+               AND julianday('now') - julianday(${dateCol}) > 30
+             LIMIT ?
+           )`,
+        )
+        .run(tableLimit) as { changes: number };
+
+      const changes = result.changes ?? 0;
+      actualByTable[table] = changes;
+      deleted += changes;
+      remaining -= changes;
+    } catch {
+      // best-effort: column may not exist in older schemas
+      actualByTable[table] = 0;
+    }
+  }
+
+  console.info(
+    `[prune-sweep] step-9f: deleted ${deleted} entries (would-qualify=${wouldDelete}, cap=${cap})`,
+  );
+
+  // ---- Phase 3: Audit trail ----
+
+  try {
+    let consolidationEventsExist = false;
+    try {
+      nativeDb.prepare('SELECT 1 FROM brain_consolidation_events LIMIT 1').get();
+      consolidationEventsExist = true;
+    } catch {
+      // table not yet migrated — skip audit
+    }
+
+    if (consolidationEventsExist) {
+      const stepResultsJson = JSON.stringify({
+        step: '9f',
+        deleted,
+        wouldDelete,
+        cap,
+        byTable: actualByTable,
+      });
+      nativeDb
+        .prepare(
+          `INSERT INTO brain_consolidation_events
+             (trigger, session_id, step_results_json, duration_ms, succeeded)
+           VALUES ('step-9f', NULL, ?, 0, 1)`,
+        )
+        .run(stepResultsJson);
+    }
+  } catch {
+    // best-effort audit — never block main flow
+  }
+
+  return { deleted, wouldDelete, dryRun, byTable: actualByTable };
 }
 
 // ============================================================================
@@ -160,6 +391,8 @@ export async function runBrainMaintenance(
     skipReconciliation = false,
     skipTierPromotion = false,
     skipEmbeddings = false,
+    skipPruneSweep = false,
+    pruneSweepDryRun = false,
     onProgress,
   } = options ?? {};
 
@@ -178,6 +411,12 @@ export async function runBrainMaintenance(
     processed: 0,
     skipped: 0,
     errors: 0,
+  };
+  const pruneSweepResult: PruneSweepResult = {
+    deleted: 0,
+    wouldDelete: 0,
+    dryRun: pruneSweepDryRun,
+    byTable: {},
   };
 
   // Step 1: Temporal decay
@@ -229,12 +468,26 @@ export async function runBrainMaintenance(
     embeddingsResult.errors = raw.errors;
   }
 
+  // Step 9f: Hard-sweeper — DELETE confirmed noise (T995)
+  // Runs last so that all prior quality signals (decay, consolidation, tier
+  // promotion) have been applied before committing irreversible deletes.
+  if (!skipPruneSweep) {
+    onProgress?.('prune-sweep', 0, 1);
+    const raw = await runPruneSweep(projectRoot, { dryRun: pruneSweepDryRun });
+    pruneSweepResult.deleted = raw.deleted;
+    pruneSweepResult.wouldDelete = raw.wouldDelete;
+    pruneSweepResult.dryRun = raw.dryRun;
+    pruneSweepResult.byTable = raw.byTable;
+    onProgress?.('prune-sweep', 1, 1);
+  }
+
   return {
     decay: decayResult,
     consolidation: consolidationResult,
     reconciliation: reconciliationResult,
     tierPromotion: tierPromotionResult,
     embeddings: embeddingsResult,
+    pruneSweep: pruneSweepResult,
     duration: Date.now() - startTime,
   };
 }

@@ -504,7 +504,7 @@ export {
   validateEnum,
 } from './security/input-sanitization.js';
 // Sequence
-export { repairSequence } from './sequence/index.js';
+export { allocateNextTaskId, repairSequence } from './sequence/index.js';
 export { recordAssumption } from './sessions/assumptions.js';
 export type { SessionBriefing } from './sessions/briefing.js';
 export { computeBriefing } from './sessions/briefing.js';
@@ -1169,8 +1169,8 @@ export {
 } from './skills/precedence-integration.js';
 // Spawn
 export { initializeDefaultAdapters, spawnRegistry } from './spawn/adapter-registry.js';
-// Nexus DB path (global tier)
-export { getNexusDbPath } from './store/nexus-sqlite.js';
+// Nexus DB path (global tier) + native handle for Tier-2 ingesters (T1008)
+export { getNexusDbPath, getNexusNativeDb } from './store/nexus-sqlite.js';
 // System — backup (different from store/backup.ts)
 export { createBackup as systemCreateBackup } from './system/backup.js';
 export type { DoctorReport, FixResult } from './system/health.js';
