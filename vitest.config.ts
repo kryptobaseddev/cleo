@@ -1,6 +1,25 @@
+import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // ---------------------------------------------------------------------------
+  // Svelte plugin — required so that `.svelte` component files imported by
+  // packages/studio tests (GraphTab.test.ts, HierarchyTab.test.ts) are
+  // compiled by the Svelte compiler before vite:import-analysis sees them.
+  //
+  // Without this plugin the CI sharded runner (`pnpm exec vitest run --shard`)
+  // which uses this root config — not the per-package vitest.config.ts — would
+  // fail with "content contains invalid JS syntax" on every `.svelte` import.
+  //
+  // `runes: true` matches the studio package's compiler options; without it
+  // Svelte 5 rune syntax in `.svelte.ts` modules is rejected at compile time.
+  // ---------------------------------------------------------------------------
+  plugins: [
+    svelte({
+      preprocess: vitePreprocess(),
+      compilerOptions: { runes: true },
+    }),
+  ],
   test: {
     globals: true,
     environment: 'node',
@@ -61,8 +80,8 @@ export default defineConfig({
     // TypeScript so Vitest can import them without a build step.
     alias: {
       // SvelteKit $lib alias for studio package tests (run from root with --shard).
-      // The root vitest config does not have svelte-kit's vite plugin, so this
-      // explicit alias is required for CI to resolve $lib/server/* imports.
+      // The Svelte plugin (above) handles .svelte/.svelte.ts compilation; this
+      // alias is still required so vitest resolves $lib/server/* imports correctly.
       '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
@@ -161,6 +180,14 @@ export default defineConfig({
       // from src/code/index.ts and src/internal.ts, which caused orchestrate-engine
       // tests to fail with "Failed to resolve entry for package @cleocode/nexus".
       '@cleocode/nexus': new URL('./packages/nexus/src/index.ts', import.meta.url).pathname,
+    },
+    server: {
+      deps: {
+        // Svelte runes-in-TS modules (.svelte.ts) must be inlined so the
+        // Svelte plugin transforms them before vite:import-analysis runs.
+        // Matches the inline rule in packages/studio/vitest.config.ts.
+        inline: [/\.svelte\.ts$/],
+      },
     },
   },
 });
