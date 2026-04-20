@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getNexusDb, nexusSchema } from '../../store/nexus-sqlite.js';
 import { getRouteMap, shapeCheck } from '../route-analysis.js';
@@ -16,6 +17,17 @@ describe('route-analysis', () => {
   beforeAll(async () => {
     projectId = `test-project-${randomUUID().slice(0, 8)}`;
     db = await getNexusDb();
+
+    // Clean up any stale rows from a previous run that share the same fixed node IDs
+    const fixedNodeIds = [
+      'src/routes/tasks.ts::getTasksRoute',
+      'src/handlers/taskHandler.ts::handleGetTasks',
+      'src/tests/tasks.test.ts::testGetTasks',
+      'src/client/client.ts::fetchTasks',
+    ];
+    for (const nodeId of fixedNodeIds) {
+      db.delete(nexusSchema.nexusNodes).where(eq(nexusSchema.nexusNodes.id, nodeId)).run();
+    }
 
     // Create synthetic test data: route nodes + handlers + relations
 
@@ -151,28 +163,27 @@ describe('route-analysis', () => {
 
   afterAll(async () => {
     // Clean up: delete test data
-    const db = await getNexusDb();
-    const testNodes = db
+    const cleanDb = await getNexusDb();
+    const testNodes = cleanDb
       .select()
       .from(nexusSchema.nexusNodes)
-      .where((q) => q.eq(nexusSchema.nexusNodes.projectId, projectId))
+      .where(eq(nexusSchema.nexusNodes.projectId, projectId))
       .all();
 
     for (const node of testNodes) {
-      db.delete(nexusSchema.nexusNodes)
-        .where((q) => q.eq(nexusSchema.nexusNodes.id, node.id))
-        .run();
+      cleanDb.delete(nexusSchema.nexusNodes).where(eq(nexusSchema.nexusNodes.id, node.id)).run();
     }
 
-    const testRelations = db
+    const testRelations = cleanDb
       .select()
       .from(nexusSchema.nexusRelations)
-      .where((q) => q.eq(nexusSchema.nexusRelations.projectId, projectId))
+      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
       .all();
 
     for (const rel of testRelations) {
-      db.delete(nexusSchema.nexusRelations)
-        .where((q) => q.eq(nexusSchema.nexusRelations.id, rel.id))
+      cleanDb
+        .delete(nexusSchema.nexusRelations)
+        .where(eq(nexusSchema.nexusRelations.id, rel.id))
         .run();
     }
   });
