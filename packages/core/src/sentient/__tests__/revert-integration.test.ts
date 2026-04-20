@@ -108,7 +108,6 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('revert integration — 3 sentient commits', () => {
-  // TODO(T1074): unskip once state-pause subsystem ships.
   it('reverts 3 sentient merge commits to a single squash commit and sets global pause', async () => {
     // Step 1: Create 3 sentient commits and record their SHAs.
     const sha1 = await sentientCommit(tmpDir, 'alpha.ts');

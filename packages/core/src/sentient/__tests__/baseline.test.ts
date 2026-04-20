@@ -212,7 +212,6 @@ describe('captureBaseline — success path', () => {
 // ---------------------------------------------------------------------------
 
 describe('captureBaseline — anti-gaming guard', () => {
-  // TODO(T1074): unskip once state-pause subsystem ships.
   it('rejects a commit that is too recent (< 5s old)', async () => {
     // Create a minimal git repo in tmpDir with a brand-new commit.
     await execFileAsync('git', ['init', tmpDir], { cwd: tmpDir });
@@ -230,13 +229,11 @@ describe('captureBaseline — anti-gaming guard', () => {
     );
   });
 
-  // TODO(T1074): unskip once state-pause subsystem ships.
   it('rejects a non-existent commit SHA', async () => {
     const fakeSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
     await expect(captureBaseline(REPO_ROOT, fakeSha)).rejects.toThrow(/E_COMMIT_NOT_FOUND/);
   });
 
-  // TODO(T1074): unskip once state-pause subsystem ships.
   it('rejects a malformed SHA (not hex)', async () => {
     await expect(captureBaseline(REPO_ROOT, 'not-a-sha!!')).rejects.toThrow(
       /Invalid commit SHA format/,
