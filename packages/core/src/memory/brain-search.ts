@@ -626,7 +626,7 @@ export interface RrfResult {
   title: string;
   text: string;
   /** Which retrieval sources contributed to this result. */
-  sources: Array<'fts' | 'vec' | 'graph'>;
+  sources: Array<'fts' | 'vec' | 'graph' | 'code'>;
   /** BM25-derived FTS rank (0-based) — undefined if not in FTS results. */
   ftsRank?: number;
   /** Vector distance rank (0-based) — undefined if not in vector results. */
@@ -661,7 +661,7 @@ export interface RrfResult {
  */
 export function reciprocalRankFusion(
   sources: Array<{
-    source: 'fts' | 'vec' | 'graph';
+    source: 'fts' | 'vec' | 'graph' | 'code';
     hits: RrfHit[];
   }>,
   k: number = RRF_K,
@@ -674,7 +674,7 @@ export function reciprocalRankFusion(
       type: string;
       title: string;
       text: string;
-      sources: Set<'fts' | 'vec' | 'graph'>;
+      sources: Set<'fts' | 'vec' | 'graph' | 'code'>;
       ftsRank?: number;
       vecRank?: number;
     }
@@ -712,7 +712,7 @@ export function reciprocalRankFusion(
       type: data.type,
       title: data.title,
       text: data.text,
-      sources: [...data.sources] as Array<'fts' | 'vec' | 'graph'>,
+      sources: [...data.sources] as Array<'fts' | 'vec' | 'graph' | 'code'>,
       ftsRank: data.ftsRank,
       vecRank: data.vecRank,
     }))
@@ -731,7 +731,7 @@ export interface HybridResult {
   type: string;
   title: string;
   text: string;
-  sources: Array<'fts' | 'vec' | 'graph'>;
+  sources: Array<'fts' | 'vec' | 'graph' | 'code'>;
   /** Raw FTS rank (0-based) for transparency — undefined if FTS did not return this item. */
   ftsRank?: number;
   /** Raw vector rank (0-based) for transparency — undefined if vector did not return this item. */
@@ -746,25 +746,34 @@ export interface HybridSearchOptions {
    * Larger k flattens rank differences; smaller k amplifies top-rank advantage.
    */
   rrfK?: number;
+  /**
+   * When true, also search code symbols via @cleocode/nexus smartSearch.
+   * Default: false. Code symbol hits are mapped to memory-compatible type/title.
+   *
+   * @task T1058
+   */
+  includeCode?: boolean;
 }
 
 /**
- * Hybrid search across FTS5, vector similarity, and graph neighbors using
- * Reciprocal Rank Fusion (RRF) for result combination.
+ * Hybrid search across FTS5, vector similarity, graph neighbors, and optionally code symbols.
+ * Uses Reciprocal Rank Fusion (RRF) for result combination.
  *
  * Algorithm:
- * 1. Run FTS5 search and vector similarity search in parallel.
+ * 1. Run FTS5 search, vector similarity search, and optionally code symbol search in parallel.
  * 2. Optionally expand via graph neighbors (best-effort).
- * 3. Fuse all ranked lists with RRF: score = Σ 1/(rank+60).
+ * 3. Fuse all ranked lists with RRF: score = Σ 1/(rank+rrfK).
  * 4. Return top-N sorted by fused RRF score.
  *
- * Graceful degradation: vector and graph sources are silently skipped when
+ * Graceful degradation: vector, graph, and code sources are silently skipped when
  * unavailable — RRF naturally handles partial source lists.
  *
  * @param query - Search query text
  * @param projectRoot - Project root directory
- * @param options - Limit and RRF tuning
+ * @param options - Limit, RRF tuning, and includeCode flag for code symbol search
  * @returns Array of hybrid results ranked by RRF score descending
+ *
+ * @task T5130 (hybrid search), T1058 (code symbol integration)
  */
 export async function hybridSearch(
   query: string,
@@ -775,9 +784,10 @@ export async function hybridSearch(
 
   const maxResults = options?.limit ?? 10;
   const rrfK = options?.rrfK ?? RRF_K;
+  const includeCode = options?.includeCode ?? false;
 
-  // --- 1. Run FTS5 and vector in parallel ---
-  const [ftsResults, vecResults] = await Promise.all([
+  // --- 1. Run FTS5, vector, and code symbol search in parallel ---
+  const searches: Promise<unknown>[] = [
     searchBrain(projectRoot, query, { limit: maxResults * 3 }).catch(() => ({
       decisions: [],
       patterns: [],
@@ -785,7 +795,42 @@ export async function hybridSearch(
       observations: [],
     })),
     searchSimilar(query, projectRoot, maxResults * 3).catch(() => [] as SimilarityResult[]),
-  ]);
+  ];
+
+  // Optionally search code symbols
+  let codeSearchPromise: Promise<
+    Array<{ id: string; title: string; kind: string; score: number }>
+  > | null = null;
+  if (includeCode) {
+    codeSearchPromise = (async () => {
+      try {
+        const { smartSearch } = await import('@cleocode/nexus');
+        const results = smartSearch(query, {
+          maxResults: maxResults * 2,
+          rootDir: projectRoot,
+        });
+        return results.map((r) => ({
+          id: `code:${r.symbol.filePath}:${r.symbol.name}:${r.symbol.startLine}`,
+          title: r.symbol.name,
+          kind: r.symbol.kind,
+          score: r.score,
+        }));
+      } catch {
+        return [];
+      }
+    })();
+    searches.push(codeSearchPromise);
+  }
+
+  const allResults = await Promise.all(searches);
+  const ftsResults = allResults[0] as typeof ftsResults;
+  const vecResults = allResults[1] as SimilarityResult[];
+  const codeResults = (includeCode ? (allResults[2] ?? []) : []) as Array<{
+    id: string;
+    title: string;
+    kind: string;
+    score: number;
+  }>;
 
   // --- 2. Project FTS results into ranked RrfHit list ---
   const ftsHits: RrfHit[] = [];
@@ -825,12 +870,21 @@ export async function hybridSearch(
     text: r.text,
   }));
 
-  // --- 4. Build source list for RRF ---
-  const rrfSources: Array<{ source: 'fts' | 'vec' | 'graph'; hits: RrfHit[] }> = [];
+  // --- 4. Project code symbol results into RrfHit list ---
+  const codeHits: RrfHit[] = codeResults.map((r) => ({
+    id: r.id,
+    type: 'code-symbol',
+    title: r.title,
+    text: `${r.title} (${r.kind})`,
+  }));
+
+  // --- 5. Build source list for RRF ---
+  const rrfSources: Array<{ source: 'fts' | 'vec' | 'graph' | 'code'; hits: RrfHit[] }> = [];
   if (ftsHits.length > 0) rrfSources.push({ source: 'fts', hits: ftsHits });
   if (vecHits.length > 0) rrfSources.push({ source: 'vec', hits: vecHits });
+  if (codeHits.length > 0) rrfSources.push({ source: 'code', hits: codeHits });
 
-  // --- 5. Graph neighbor expansion (best-effort) ---
+  // --- 6. Graph neighbor expansion (best-effort) ---
   try {
     const accessor = await getBrainAccessor(projectRoot);
     const possibleNodeIds = [
@@ -858,7 +912,7 @@ export async function hybridSearch(
     // Graph unavailable — RRF handles gracefully with remaining sources
   }
 
-  // --- 6. Fuse with RRF and return top-N ---
+  // --- 7. Fuse with RRF and return top-N ---
   const fused = reciprocalRankFusion(rrfSources, rrfK);
 
   return fused.slice(0, maxResults).map((r) => ({
