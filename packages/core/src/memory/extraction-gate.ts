@@ -97,6 +97,29 @@ const SIMILAR_THRESHOLD = 0.3;
 const MINIMUM_CONFIDENCE = 0.4;
 
 /**
+ * Title prefixes that identify known-noise entries (task lifecycle chatter,
+ * session scaffolding, evidence bookkeeping, etc.).
+ *
+ * Check A0 in verifyCandidate rejects any candidate whose title starts with
+ * one of these prefixes before any expensive hash/similarity work runs.
+ *
+ * Ported from brain-purge.ts:207-248 janitor classifier so this becomes the
+ * single source of truth. brain-purge.ts should import this const if it needs
+ * the same list (follow-on cleanup tracked separately).
+ *
+ * @task T993
+ */
+export const BRAIN_NOISE_PREFIXES: readonly string[] = [
+  'Task start:',
+  'Session note:',
+  'Started work on:',
+  'Fix evidence:',
+  'Verified:',
+  'Completed:',
+  'Auto-generated:',
+] as const;
+
+/**
  * Negation markers used in polarity-flip contradiction detection.
  * A contradiction is signalled when exactly one of two related entries
  * contains one of these markers near shared keyword overlap.
@@ -329,6 +352,7 @@ export async function checkHashDedup(
  * Run a MemoryCandidate through the verification gate.
  *
  * Checks (in order):
+ *   A0. Title-prefix blocklist (T993) — rejects known-noise titles before any DB work
  *   A. Content-hash deduplication (always; degrades to observations-only when DB unavailable)
  *   B. Cosine similarity deduplication + contradiction detection (skipped for trusted sources)
  *   C. Confidence threshold >= 0.40 (always)
@@ -348,6 +372,15 @@ export async function verifyCandidate(
   candidate: MemoryCandidate,
 ): Promise<GateResult> {
   try {
+    // -----------------------------------------------------------------------
+    // Check A0: Title-prefix blocklist (T993) — fastest possible rejection.
+    // Rejects known-noise titles before any hash/similarity work runs.
+    // -----------------------------------------------------------------------
+    const candidateTitle = candidate.title ?? '';
+    if (BRAIN_NOISE_PREFIXES.some((prefix) => candidateTitle.startsWith(prefix))) {
+      return { action: 'rejected', id: null, reason: 'noise-prefix' };
+    }
+
     // -----------------------------------------------------------------------
     // Check A: Content-hash dedup (always, fast)
     // T737: Route to the correct typed table based on the candidate's memory type.
