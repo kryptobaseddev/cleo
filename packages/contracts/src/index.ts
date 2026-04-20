@@ -451,6 +451,8 @@ export type {
   SessionShowParams,
   SessionShowResult,
   SessionStartParams,
+  SessionStatusParams,
+  SessionStatusResult,
   SessionSuspendParams,
   SessionSuspendResult,
 } from './operations/session.js';

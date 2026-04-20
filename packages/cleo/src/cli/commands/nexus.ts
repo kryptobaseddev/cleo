@@ -3775,7 +3775,7 @@ const fullContextCommand = defineCommand({
         process.stdout.write(
           `  Callers (${n.callers.length}): ${
             n.callers
-              .map((c) => c.name)
+              .map((c: { name: string }) => c.name)
               .slice(0, 10)
               .join(', ') || '—'
           }\n`,
@@ -3783,7 +3783,7 @@ const fullContextCommand = defineCommand({
         process.stdout.write(
           `  Callees (${n.callees.length}): ${
             n.callees
-              .map((c) => c.name)
+              .map((c: { name: string }) => c.name)
               .slice(0, 10)
               .join(', ') || '—'
           }\n`,
@@ -3957,7 +3957,7 @@ const brainAnchorsCommand = defineCommand({
         `\n### Tasks for Nodes (${result.tasksForNodes.length} nodes with task links)\n`,
       );
       for (const entry of result.tasksForNodes.slice(0, 10)) {
-        const taskList = entry.tasks.map((t) => t.taskId).join(', ');
+        const taskList = entry.tasks.map((t: { taskId: string }) => t.taskId).join(', ');
         process.stdout.write(`  ${entry.nexusNodeId}: ${taskList}\n`);
       }
       if (result.tasksForNodes.length === 0) process.stdout.write(`  (none)\n`);

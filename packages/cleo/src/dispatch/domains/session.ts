@@ -352,6 +352,9 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
       // Best-effort: never block session end on bridge refresh failure
     }
 
+    if (!endResult.data) {
+      return lafsError('E_INTERNAL', 'session.end returned no data', 'end');
+    }
     return lafsSuccess(endResult.data, 'end');
   },
 
