@@ -351,6 +351,20 @@ export type {
   MemoryBridgeContent,
   SessionSummary,
 } from './memory.js';
+// === Nexus Query DSL (recursive CTE operations) ===
+export type {
+  NexusCteAlias,
+  NexusCteMarkdownTable,
+  NexusCteParams,
+  NexusCtePlaceholder,
+  NexusCteResult,
+} from './nexus-query-ops.js';
+export type {
+  GitLogLinkerResult,
+  LinkTaskResult,
+  SymbolReference,
+  TaskReference,
+} from './nexus-tasks-bridge-ops.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience
