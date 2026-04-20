@@ -27,6 +27,10 @@ export const EDGE_TYPES = {
   DOCUMENTS: 'documents',
   // Memory node → nexus symbol/file (T645)
   CODE_REFERENCE: 'code_reference',
+  // Conduit message → nexus symbol mention (T1071)
+  CONDUIT_MENTIONS_SYMBOL: 'conduit_mentions_symbol',
+  // Task → nexus symbol touched in files (T1067)
+  TASK_TOUCHES_SYMBOL: 'task_touches_symbol',
 } as const;
 
 /** Discriminated union of the canonical edge type constant values. */
