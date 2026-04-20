@@ -7,6 +7,7 @@
  *  - Auto-detect requires BOTH `CLAUDECODE=1` AND `CLAUDE_CODE_ENTRYPOINT`.
  *  - `claude-code` resolution populates the dedup budget.
  *  - `generic` / `bare` resolution leave the dedup budget at zero.
+ *  - `CLEO_HARNESS_LOADS_AGENTS_MD=1` resolves to `claude-code` (T893).
  *  - `persistHarnessProfile` + `loadHarnessProfile` round-trip on disk.
  *
  * All tests use a real tmpdir — no filesystem mocks, no environment mutation
@@ -95,6 +96,33 @@ describe('resolveHarnessHint — cascade precedence', () => {
       env: { CLEO_HARNESS: 'malformed-value' },
     });
     // Falls through to default since env value didn't match the allowed set.
+    expect(result.hint).toBe('generic');
+    expect(result.source).toBe('default');
+  });
+
+  // T893: CLEO_HARNESS_LOADS_AGENTS_MD dedup env var
+  it('CLEO_HARNESS_LOADS_AGENTS_MD=1 resolves to claude-code (T893)', () => {
+    const result = resolveHarnessHint({
+      env: { CLEO_HARNESS_LOADS_AGENTS_MD: '1' },
+    });
+    expect(result.hint).toBe('claude-code');
+    expect(result.source).toBe('env');
+    expect(result.dedupSavedChars).toBe(DEDUP_EMBED_CHARS);
+  });
+
+  it('CLEO_HARNESS takes precedence over CLEO_HARNESS_LOADS_AGENTS_MD (T893)', () => {
+    const result = resolveHarnessHint({
+      env: { CLEO_HARNESS: 'generic', CLEO_HARNESS_LOADS_AGENTS_MD: '1' },
+    });
+    // CLEO_HARNESS checked first, so 'generic' wins.
+    expect(result.hint).toBe('generic');
+    expect(result.source).toBe('env');
+  });
+
+  it('CLEO_HARNESS_LOADS_AGENTS_MD=0 does NOT trigger dedup (must be exactly "1")', () => {
+    const result = resolveHarnessHint({
+      env: { CLEO_HARNESS_LOADS_AGENTS_MD: '0' },
+    });
     expect(result.hint).toBe('generic');
     expect(result.source).toBe('default');
   });
