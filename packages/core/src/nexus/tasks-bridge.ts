@@ -266,7 +266,9 @@ export async function getSymbolsForTask(
     const results: SymbolReference[] = [];
     for (const edge of edgeRows) {
       const symbol = typedGet<RawNexusNode>(
-        nexusNative.prepare(`SELECT id, label, file_path, kind FROM nexus_nodes WHERE id = ? LIMIT 1`),
+        nexusNative.prepare(
+          `SELECT id, label, file_path, kind FROM nexus_nodes WHERE id = ? LIMIT 1`,
+        ),
         edge.to_id,
       );
 
