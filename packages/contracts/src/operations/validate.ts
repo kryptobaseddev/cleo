@@ -1,13 +1,12 @@
 /**
- * Validate Domain Operations (11 operations)
+ * Validate / Check Domain Operations
  *
- * Query operations: 9
- * Mutate operations: 2
+ * T982 extension: Added new types for gate, archive, coherence, compliance-sync,
+ * chain, grade, canon, workflow-compliance, verify-explain, and all protocol subtypes.
  */
 
-/**
- * Common validation types
- */
+import type { WarpChain } from '../warp-chain.js';
+
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
 export interface ValidationViolation {
@@ -29,14 +28,11 @@ export interface ComplianceMetrics {
   bySeverity: Record<ValidationSeverity, number>;
 }
 
-/**
- * Query Operations
- */
-
-// validate.schema
 export interface ValidateSchemaParams {
-  fileType: 'todo' | 'config' | 'archive' | 'log' | 'manifest';
+  fileType?: 'todo' | 'config' | 'archive' | 'log' | 'manifest';
   filePath?: string;
+  type?: string;
+  data?: unknown;
 }
 export interface ValidateSchemaResult {
   valid: boolean;
@@ -44,35 +40,55 @@ export interface ValidateSchemaResult {
   violations: ValidationViolation[];
 }
 
-// validate.protocol
-export interface ValidateProtocolParams {
-  taskId: string;
-  protocolType:
-    | 'research'
-    | 'consensus'
-    | 'specification'
-    | 'decomposition'
-    | 'implementation'
-    | 'contribution'
-    | 'release';
+export interface ValidateProtocolBaseParams {
+  mode?: 'task' | 'manifest';
+  taskId?: string;
+  manifestFile?: string;
+  strict?: boolean;
 }
+
+export interface ValidateProtocolParams extends ValidateProtocolBaseParams {
+  protocolType?: string;
+  votingMatrixFile?: string;
+  epicId?: string;
+  specFile?: string;
+  hasCodeChanges?: boolean;
+  adrContent?: string;
+  status?: 'proposed' | 'accepted' | 'superseded' | 'deprecated';
+  hitlReviewed?: boolean;
+  downstreamFlagged?: boolean;
+  persistedInDb?: boolean;
+  specMatchConfirmed?: boolean;
+  testSuitePassed?: boolean;
+  protocolComplianceChecked?: boolean;
+  framework?: string;
+  testsRun?: number;
+  testsPassed?: number;
+  testsFailed?: number;
+  coveragePercent?: number;
+  coverageThreshold?: number;
+  ivtLoopConverged?: boolean;
+  ivtLoopIterations?: number;
+  version?: string;
+  hasChangelog?: boolean;
+  artifactType?: string;
+  buildPassed?: boolean;
+  hasAttestation?: boolean;
+  hasSbom?: boolean;
+}
+
 export interface ValidateProtocolResult {
   taskId: string;
   protocol: string;
   passed: boolean;
   score: number;
   violations: ValidationViolation[];
-  requirements: {
-    total: number;
-    met: number;
-    failed: number;
-  };
+  requirements: { total: number; met: number; failed: number };
 }
 
-// validate.task
 export interface ValidateTaskParams {
   taskId: string;
-  checkMode: 'basic' | 'strict' | 'anti-hallucination';
+  checkMode?: 'basic' | 'strict' | 'anti-hallucination';
 }
 export interface ValidateTaskResult {
   taskId: string;
@@ -87,24 +103,18 @@ export interface ValidateTaskResult {
   };
 }
 
-// validate.manifest
 export interface ValidateManifestParams {
   entry?: string;
   taskId?: string;
 }
 export interface ValidateManifestResult {
   valid: boolean;
-  entry: {
-    id: string;
-    file: string;
-    exists: boolean;
-  };
+  entry: { id: string; file: string; exists: boolean };
   violations: ValidationViolation[];
 }
 
-// validate.output
 export interface ValidateOutputParams {
-  taskId: string;
+  taskId?: string;
   filePath: string;
 }
 export interface ValidateOutputResult {
@@ -121,32 +131,30 @@ export interface ValidateOutputResult {
   violations: ValidationViolation[];
 }
 
-// validate.compliance.summary
 export interface ValidateComplianceSummaryParams {
   scope?: string;
   since?: string;
+  detail?: boolean;
+  limit?: number;
+  type?: string;
+  taskId?: string;
+  days?: number;
+  global?: unknown;
 }
 export type ValidateComplianceSummaryResult = ComplianceMetrics;
 
-// validate.compliance.violations
 export interface ValidateComplianceViolationsParams {
   severity?: ValidationSeverity;
   protocol?: string;
 }
 export interface ValidateComplianceViolationsResult {
-  violations: Array<
-    ValidationViolation & {
-      taskId: string;
-      protocol: string;
-      timestamp: string;
-    }
-  >;
+  violations: Array<ValidationViolation & { taskId: string; protocol: string; timestamp: string }>;
   total: number;
 }
 
-// validate.test.status
 export interface ValidateTestStatusParams {
   taskId?: string;
+  format?: string;
 }
 export interface ValidateTestStatusResult {
   total: number;
@@ -157,7 +165,6 @@ export interface ValidateTestStatusResult {
   byTask?: Record<string, { passed: number; failed: number }>;
 }
 
-// validate.test.coverage
 export interface ValidateTestCoverageParams {
   taskId?: string;
 }
@@ -170,14 +177,109 @@ export interface ValidateTestCoverageResult {
   meetsThreshold: boolean;
 }
 
-/**
- * Mutate Operations
- */
+export interface ValidateCoherenceParams {
+  taskId?: string;
+}
+export interface ValidateCoherenceResult {
+  passed: boolean;
+  issues: string[];
+  warnings: string[];
+}
 
-// validate.compliance.record
+export interface ValidateGateParams {
+  taskId: string;
+  gate?: string;
+  value?: boolean;
+  agent?: string;
+  all?: boolean;
+  reset?: boolean;
+  evidence?: string;
+  sessionId?: string;
+}
+export interface ValidateGateResult {
+  taskId: string;
+  gates: Record<string, boolean>;
+  passed: boolean;
+  round: number;
+}
+
+export interface ValidateVerifyExplainParams {
+  taskId: string;
+}
+export interface ValidateVerifyExplainResult {
+  taskId: string;
+  title?: string;
+  status?: string;
+  passed: boolean;
+  round: number;
+  gates: Record<string, boolean>;
+  evidence: Record<string, unknown[]>;
+  requiredGates: string[];
+  missingGates: string[];
+  explanation: string;
+}
+
+export type ArchiveReportTypeAlias =
+  | 'summary'
+  | 'by-phase'
+  | 'by-label'
+  | 'by-priority'
+  | 'cycle-times'
+  | 'trends';
+
+export interface ValidateArchiveStatsParams {
+  period?: number;
+  report?: ArchiveReportTypeAlias;
+  since?: string;
+  until?: string;
+}
+export type ValidateArchiveStatsResult = Record<string, unknown>;
+
+export interface ValidateChainParams {
+  chain: WarpChain;
+}
+export interface ValidateChainResult {
+  wellFormed: boolean;
+  gateSatisfiable: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ValidateGradeParams {
+  sessionId: string;
+}
+export type ValidateGradeResult = Record<string, unknown>;
+
+export interface ValidateGradeListParams {
+  sessionId?: string;
+  limit?: number;
+  offset?: number;
+}
+export interface ValidateGradeListResult {
+  grades: unknown[];
+  total: number;
+  filtered: number;
+}
+
+export interface ValidateCanonParams {
+  taskId?: string;
+}
+export interface ValidateCanonResult {
+  passed: boolean;
+  violations: unknown[];
+  assertions: Array<{ passed: boolean }>;
+}
+
+export interface ValidateWorkflowComplianceParams {
+  since?: string;
+}
+export type ValidateWorkflowComplianceResult = Record<string, unknown>;
+
 export interface ValidateComplianceRecordParams {
   taskId: string;
-  result: ValidateProtocolResult;
+  result: string;
+  protocol?: string;
+  violations?: Array<{ code: string; message: string; severity: 'error' | 'warning' }>;
 }
 export interface ValidateComplianceRecordResult {
   taskId: string;
@@ -185,7 +287,6 @@ export interface ValidateComplianceRecordResult {
   metrics: ComplianceMetrics;
 }
 
-// validate.test.run
 export interface ValidateTestRunParams {
   scope?: string;
   pattern?: string;
@@ -197,3 +298,8 @@ export interface ValidateTestRunResult {
   duration: string;
   output?: string;
 }
+
+export interface ValidateComplianceSyncParams {
+  force?: boolean;
+}
+export type ValidateComplianceSyncResult = Record<string, unknown>;

@@ -352,6 +352,39 @@ export type {
   ParamType,
 } from './operations/params.js';
 export { paramsToCittyArgs } from './operations/params.js';
+// Session operation param/result types — re-exported at top level for typed-dispatch consumers
+// (T975 Wave D · ADR-051 migration)
+export type {
+  DecisionRecord,
+  SessionBriefingShowParams,
+  SessionBriefingShowResult,
+  SessionContextDriftParams,
+  SessionContextDriftResult,
+  SessionDecisionLogParams,
+  SessionDecisionLogResult,
+  SessionEndParams,
+  SessionEndResult,
+  SessionFindParams,
+  SessionFindResult,
+  SessionGcParams,
+  SessionGcResult,
+  SessionHandoffShowParams,
+  SessionHandoffShowResult,
+  SessionListParams,
+  SessionListResult,
+  SessionOps,
+  SessionRecordAssumptionParams,
+  SessionRecordAssumptionResult,
+  SessionRecordDecisionParams,
+  SessionRecordDecisionResult,
+  SessionResumeParams,
+  SessionResumeResult,
+  SessionShowParams,
+  SessionShowResult,
+  SessionStartParams,
+  SessionSuspendParams,
+  SessionSuspendResult,
+} from './operations/session.js';
 // === Orchestration Hierarchy ===
 export {
   type AgentHierarchy,
