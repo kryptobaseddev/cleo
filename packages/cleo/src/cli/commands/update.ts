@@ -8,7 +8,8 @@
  * This command mutates task-row columns (title, status, priority, etc.).
  * Accepts up to 20 options covering title, status, priority, type, size,
  * phase, description, labels, dependencies, notes, acceptance criteria,
- * files, blocked-by, parent, auto-complete control, and pipeline stage.
+ * files, blocked-by, parent, auto-complete control, pipeline stage,
+ * role, and scope.
  *
  * @task T4461
  * @epic T4454
@@ -116,6 +117,26 @@ export const updateCommand = defineCommand({
       description:
         'Set pipeline stage (forward-only: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution)',
     },
+    /**
+     * Task role axis — intent of work.
+     * Values: work | research | experiment | bug | spike | release
+     * @task T944
+     */
+    role: {
+      type: 'string',
+      description:
+        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
+    },
+    /**
+     * Task scope axis — granularity of work.
+     * Values: project | feature | unit
+     * @task T944
+     */
+    scope: {
+      type: 'string',
+      description:
+        'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
+    },
   },
   async run({ args, cmd }) {
     if (!args.taskId) {
@@ -152,6 +173,9 @@ export const updateCommand = defineCommand({
     if (args.parent !== undefined) params['parent'] = args.parent;
     if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
+    // T944: orthogonal axes
+    if (args.role !== undefined) params['role'] = args.role;
+    if (args.scope !== undefined) params['scope'] = args.scope;
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

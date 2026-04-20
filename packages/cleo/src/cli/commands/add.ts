@@ -19,6 +19,9 @@ import { cliOutput } from '../renderers/index.js';
  * directly to the `tasks.add` operation parameters.  Pipe-separated
  * acceptance criteria (`--acceptance "AC1|AC2"`) and JSON array format are
  * both supported.
+ *
+ * T944 additions: `--role` (intent axis) and `--scope` (granularity axis).
+ * `--kind` is accepted as a backward-compatible alias for `--role`.
  */
 export const addCommand = defineCommand({
   meta: {
@@ -106,6 +109,43 @@ export const addCommand = defineCommand({
       type: 'boolean',
       description: 'Show what would be created without making changes',
     },
+    /**
+     * Task role axis — intent of work.
+     * Values: work | research | experiment | bug | spike | release
+     * @task T944
+     */
+    role: {
+      type: 'string',
+      description:
+        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
+    },
+    /**
+     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
+     * @task T944
+     */
+    kind: {
+      type: 'string',
+      description: 'Alias for --role (T944 fractal-ontology compat)',
+    },
+    /**
+     * Task scope axis — granularity of work.
+     * Values: project | feature | unit
+     * @task T944
+     */
+    scope: {
+      type: 'string',
+      description:
+        'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
+    },
+    /**
+     * Bug severity. Only valid when --role bug.
+     * Values: P0 | P1 | P2 | P3
+     * @task T944
+     */
+    severity: {
+      type: 'string',
+      description: 'Bug severity (P0|P1|P2|P3) — only valid with --role bug (T944)',
+    },
   },
   async run({ args, cmd }) {
     if (!args.title) {
@@ -157,6 +197,11 @@ export const addCommand = defineCommand({
       params['position'] = Number.parseInt(args.position as string, 10);
     if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];
     if (args['parent-search'] !== undefined) params['parentSearch'] = args['parent-search'];
+    // T944: orthogonal axes — --kind is an alias for --role
+    if (args.role !== undefined) params['role'] = args.role;
+    if (args.kind !== undefined) params['kind'] = args.kind;
+    if (args.scope !== undefined) params['scope'] = args.scope;
+    if (args.severity !== undefined) params['severity'] = args.severity;
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 

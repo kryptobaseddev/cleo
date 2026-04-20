@@ -9,6 +9,9 @@ import type {
   ProjectMeta,
   Task,
   TaskPriority,
+  TaskRole,
+  TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskStatus,
   TaskType,
@@ -56,6 +59,23 @@ export interface AddTaskOptions {
   dryRun?: boolean;
   /** RCASD-IVTR+C pipeline stage to assign. Auto-resolved if not provided. @task T060 */
   pipelineStage?: string;
+  /**
+   * Task role axis — intent of work, orthogonal to {@link type}.
+   * Defaults to `'work'` at the DB level.
+   * @task T944
+   */
+  role?: TaskRole;
+  /**
+   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link role}.
+   * Defaults to `'feature'` at the DB level.
+   * @task T944
+   */
+  scope?: TaskScope;
+  /**
+   * Bug severity. OWNER-WRITE-ONLY. Only valid when {@link role} is `'bug'`.
+   * @task T944
+   */
+  severity?: TaskSeverity;
 }
 
 /** Result of adding a task. */
@@ -954,6 +974,9 @@ export async function addTask(
       updatedAt: previewNow,
     };
     if (phase) previewTask.phase = phase;
+    if (options.role !== undefined) previewTask.role = options.role;
+    if (options.scope !== undefined) previewTask.scope = options.scope;
+    if (options.severity !== undefined) previewTask.severity = options.severity;
     if (options.labels?.length) previewTask.labels = options.labels.map((l) => l.trim());
     if (options.files?.length) previewTask.files = options.files.map((f) => f.trim());
     if (options.acceptance?.length)
@@ -1046,6 +1069,11 @@ export async function addTask(
 
   // Assign pipeline stage (always set — auto-assigned if not explicit) (T060)
   task.pipelineStage = resolvedPipelineStage;
+
+  // T944: wire orthogonal axes
+  if (options.role !== undefined) task.role = options.role;
+  if (options.scope !== undefined) task.scope = options.scope;
+  if (options.severity !== undefined) task.severity = options.severity;
 
   // Add optional fields
   if (phase) task.phase = phase;

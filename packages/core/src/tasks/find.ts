@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskQueryFilters, TaskStatus } from '@cleocode/contracts';
+import type { Task, TaskQueryFilters, TaskRole, TaskStatus } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { NextDirectives } from '../mvi-helpers.js';
@@ -39,6 +39,11 @@ export interface FindTasksOptions {
   includeArchive?: boolean;
   limit?: number;
   offset?: number;
+  /**
+   * Filter by task role axis. Accepts any valid {@link TaskRole} value.
+   * @task T944
+   */
+  role?: TaskRole;
 }
 
 /** Result of finding tasks. */
@@ -130,6 +135,11 @@ export async function findTasks(
       }
       allTasks = [...allTasks, ...archivedTasks];
     }
+  }
+
+  // T944: role filter — applied after status/archive resolution
+  if (options.role) {
+    allTasks = allTasks.filter((t) => t.role === options.role);
   }
 
   let results: FindResult[];

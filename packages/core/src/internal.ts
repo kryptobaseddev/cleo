@@ -396,6 +396,8 @@ export {
   computeProgress,
   computeStartupSummary,
 } from './orchestration/status.js';
+export type { SpawnTierValue, TierSelectInput } from './orchestration/tier-selector.js';
+export { resolveEffectiveTier, selectTier } from './orchestration/tier-selector.js';
 export { getUnblockOpportunities } from './orchestration/unblock.js';
 export { validateSpawnReadiness } from './orchestration/validate-spawn.js';
 export { getEnrichedWaves } from './orchestration/waves.js';
