@@ -8,20 +8,16 @@
  * - runGitLogTaskLinker: git-log sweeper + idempotency
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import DatabaseSync from 'better-sqlite3';
-import {
-  getSymbolsForTask,
-  getTasksForSymbol,
-  linkTaskToSymbols,
-} from '../tasks-bridge.js';
+import type DatabaseSync from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { getSymbolsForTask, getTasksForSymbol, linkTaskToSymbols } from '../tasks-bridge.js';
 
 describe('tasks-bridge', () => {
   let projectRoot: string;
@@ -50,7 +46,15 @@ describe('tasks-bridge', () => {
          (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
-      .run('src/file.ts::myFunction', 'test-project', 'function', 'myFunction', 'src/file.ts', 'myFunction', 1);
+      .run(
+        'src/file.ts::myFunction',
+        'test-project',
+        'function',
+        'myFunction',
+        'src/file.ts',
+        'myFunction',
+        1,
+      );
 
     nexusDb
       .prepare(
@@ -66,7 +70,15 @@ describe('tasks-bridge', () => {
          (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
-      .run('src/other.ts::helperFunction', 'test-project', 'function', 'helperFunction', 'src/other.ts', 'helperFunction', 0);
+      .run(
+        'src/other.ts::helperFunction',
+        'test-project',
+        'function',
+        'helperFunction',
+        'src/other.ts',
+        'helperFunction',
+        0,
+      );
   });
 
   afterEach(() => {

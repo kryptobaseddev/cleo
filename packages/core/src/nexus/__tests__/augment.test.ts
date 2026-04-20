@@ -4,7 +4,7 @@
  * Tests BM25 search and result formatting for PreToolUse hook injection.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { augmentSymbol, formatAugmentResults } from '../augment.js';
 
 describe('augmentSymbol', () => {

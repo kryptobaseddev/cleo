@@ -349,6 +349,8 @@ export {
   showTokenUsage,
   summarizeTokenUsage,
 } from './metrics/token-service.js';
+// Nexus
+export { augmentSymbol, formatAugmentResults } from './nexus/augment.js';
 export {
   blockingAnalysis,
   buildGlobalGraph,
@@ -356,10 +358,8 @@ export {
   nexusDeps,
   orphanDetection,
 } from './nexus/deps.js';
-// Nexus
-export { augmentSymbol, formatAugmentResults } from './nexus/augment.js';
-export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 export { searchAcrossProjects } from './nexus/discover.js';
+export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 export { setPermission } from './nexus/permissions.js';
 export { resolveTask, validateSyntax } from './nexus/query.js';
 export type { NexusPermissionLevel, NexusProject, NexusProjectStats } from './nexus/registry.js';

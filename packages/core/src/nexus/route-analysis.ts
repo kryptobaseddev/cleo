@@ -9,13 +9,13 @@
  * @task T1064 — Route-Map and Shape-Check Commands
  */
 
-import { and, eq } from 'drizzle-orm';
 import type {
   RouteMapEntry,
   RouteMapResult,
   ShapeCheckCaller,
   ShapeCheckResult,
 } from '@cleocode/contracts/nexus-route-ops.js';
+import { and, eq } from 'drizzle-orm';
 import type { NexusNodeRow, NexusRelationRow } from '../store/nexus-schema.js';
 
 /**
@@ -30,7 +30,10 @@ import type { NexusNodeRow, NexusRelationRow } from '../store/nexus-schema.js';
  * @param _projectRoot - Root directory of the project (unused, kept for signature)
  * @returns Promise resolving to route map entries
  */
-export async function getRouteMap(projectId: string, _projectRoot: string): Promise<RouteMapResult> {
+export async function getRouteMap(
+  projectId: string,
+  _projectRoot: string,
+): Promise<RouteMapResult> {
   const { getNexusDb, nexusSchema } = await import('../store/nexus-sqlite.js');
   const db = await getNexusDb();
 
@@ -39,7 +42,12 @@ export async function getRouteMap(projectId: string, _projectRoot: string): Prom
     const routeNodes: NexusNodeRow[] = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(and(eq(nexusSchema.nexusNodes.projectId, projectId), eq(nexusSchema.nexusNodes.kind, 'route')))
+      .where(
+        and(
+          eq(nexusSchema.nexusNodes.projectId, projectId),
+          eq(nexusSchema.nexusNodes.kind, 'route'),
+        ),
+      )
       .all();
 
     const routes: RouteMapEntry[] = [];
@@ -171,7 +179,12 @@ export async function shapeCheck(
     const routeNode: NexusNodeRow | undefined = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(and(eq(nexusSchema.nexusNodes.projectId, projectId), eq(nexusSchema.nexusNodes.id, routeSymbol)))
+      .where(
+        and(
+          eq(nexusSchema.nexusNodes.projectId, projectId),
+          eq(nexusSchema.nexusNodes.id, routeSymbol),
+        ),
+      )
       .get();
 
     if (!routeNode || routeNode.kind !== 'route') {
@@ -300,6 +313,8 @@ export async function shapeCheck(
       recommendation,
     };
   } catch (err) {
-    throw new Error(`Failed to check shape for route ${routeSymbol}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to check shape for route ${routeSymbol}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

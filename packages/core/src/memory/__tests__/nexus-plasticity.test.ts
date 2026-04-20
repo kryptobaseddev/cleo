@@ -579,9 +579,9 @@ describe('T998 — NEXUS plasticity', () => {
     it('applies decay to edges with last_accessed_at set', async () => {
       insertEdge(db, 'e-decay', 'nodeA', 'nodeB', 0.8, 10);
       // Set last_accessed_at to a past date (simulating unused edge)
-      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-7 days") WHERE id = ?').run(
-        'e-decay',
-      );
+      db.prepare(
+        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-7 days") WHERE id = ?',
+      ).run('e-decay');
 
       const result = await applyPlasticityDecay();
       expect(result.updated).toBeGreaterThan(0);
@@ -594,7 +594,9 @@ describe('T998 — NEXUS plasticity', () => {
 
     it('respects CLEO_PLASTICITY_HALFLIFE_DAYS environment variable', async () => {
       insertEdge(db, 'e-env', 'nodeA', 'nodeB', 1.0, 5);
-      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-1 day") WHERE id = ?').run('e-env');
+      db.prepare(
+        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-1 day") WHERE id = ?',
+      ).run('e-env');
 
       // Set custom half-life: 2 days
       process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'] = '2';
@@ -615,9 +617,9 @@ describe('T998 — NEXUS plasticity', () => {
     it('clamps weight to 0.0 minimum (no negative weights)', async () => {
       insertEdge(db, 'e-clamp', 'nodeA', 'nodeB', 0.01, 5);
       // Set to very old date (90 days)
-      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-90 days") WHERE id = ?').run(
-        'e-clamp',
-      );
+      db.prepare(
+        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-90 days") WHERE id = ?',
+      ).run('e-clamp');
 
       const result = await applyPlasticityDecay();
       const row = readEdge(db, 'e-clamp');

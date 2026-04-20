@@ -8,15 +8,15 @@ import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
-import { getProjectRoot } from '../paths.js';
 import { CleoError } from '../errors.js';
+import { getProjectRoot } from '../paths.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
-import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
+import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 
 /**
  * IVTR execution stages — tasks in these stages auto-advance to 'release'
@@ -235,8 +235,7 @@ export async function completeTask(
       gateResult.exitCode ?? ExitCode.NEXUS_IMPACT_CRITICAL,
       gateResult.error ?? 'CRITICAL impact risk detected',
       {
-        fix:
-          'Either fix the CRITICAL symbols or pass --acknowledge-risk "<reason>" to bypass the gate',
+        fix: 'Either fix the CRITICAL symbols or pass --acknowledge-risk "<reason>" to bypass the gate',
         details: {
           field: 'criticalSymbols',
           criticalSymbols: gateResult.criticalSymbols?.map((s) => ({
@@ -250,7 +249,11 @@ export async function completeTask(
   }
 
   // If gate passed or worker acknowledged risk, optionally audit the acknowledgment
-  if (options.acknowledgeRisk && gateResult.criticalSymbols && gateResult.criticalSymbols.length > 0) {
+  if (
+    options.acknowledgeRisk &&
+    gateResult.criticalSymbols &&
+    gateResult.criticalSymbols.length > 0
+  ) {
     // Write acknowledgment to audit file
     try {
       const { appendNexusRiskAck } = await import('./nexus-risk-audit.js');
