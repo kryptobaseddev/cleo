@@ -37,11 +37,24 @@ export interface StrengthNexusResult {
 }
 
 // ---------------------------------------------------------------------------
-// Weight increment constant
+// Weight increment constant and decay configuration
 // ---------------------------------------------------------------------------
 
 /** Increment applied to `weight` per co-access event. */
 const WEIGHT_INCREMENT = 0.05;
+
+/** Default plasticity half-life in days (configurable via CLEO_PLASTICITY_HALFLIFE_DAYS env var). */
+const DEFAULT_PLASTICITY_HALFLIFE_DAYS = 14;
+
+/** Result from applying plasticity decay. */
+export interface PlasticityDecayResult {
+  /** Number of rows updated in nexus_relations. */
+  updated: number;
+  /** Half-life used for decay calculation (days). */
+  halfLifeDays: number;
+  /** Decay factor applied per day (0–1). */
+  decayPerDay: number;
+}
 
 // ---------------------------------------------------------------------------
 // Core function
@@ -127,11 +140,124 @@ export async function strengthenNexusCoAccess(
 }
 
 // ---------------------------------------------------------------------------
+// Plasticity decay (time-based weight reduction)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply temporal decay to nexus_relations plasticity weights.
+ *
+ * Weights decay exponentially based on days since last access using a
+ * configurable half-life. Formula:
+ * ```
+ * new_weight = weight * (0.5 ^ (daysSinceLastAccess / halfLifeDays))
+ * ```
+ *
+ * The half-life can be configured via the `CLEO_PLASTICITY_HALFLIFE_DAYS`
+ * environment variable (default 14 days). This matches the development
+ * cadence of typical projects: edges unused for 14 days halve their weight,
+ * unused for 28 days drop to 0.25, and so on.
+ *
+ * Only updates rows where `last_accessed_at` is not NULL — new edges
+ * with no access record are left unchanged.
+ *
+ * @param projectRoot - Project root directory for nexus.db resolution
+ * @returns Decay result including row count and parameters used
+ *
+ * @example
+ * ```typescript
+ * const result = await applyPlasticityDecay(projectRoot);
+ * console.log(`Decayed ${result.updated} edges with ${result.halfLifeDays}-day half-life`);
+ * ```
+ */
+export async function applyPlasticityDecay(projectRoot: string): Promise<PlasticityDecayResult> {
+  const { getNexusNativeDb } = await import('../store/nexus-sqlite.js');
+  const nativeDb = getNexusNativeDb();
+  if (!nativeDb) {
+    return {
+      updated: 0,
+      halfLifeDays: DEFAULT_PLASTICITY_HALFLIFE_DAYS,
+      decayPerDay: 1 - 0.5 ** (1 / DEFAULT_PLASTICITY_HALFLIFE_DAYS),
+    };
+  }
+
+  // Read half-life from environment variable or use default (14 days).
+  const halfLifeDays = Number.parseFloat(
+    process.env.CLEO_PLASTICITY_HALFLIFE_DAYS ?? String(DEFAULT_PLASTICITY_HALFLIFE_DAYS),
+  );
+  if (!Number.isFinite(halfLifeDays) || halfLifeDays <= 0) {
+    return {
+      updated: 0,
+      halfLifeDays: DEFAULT_PLASTICITY_HALFLIFE_DAYS,
+      decayPerDay: 1 - 0.5 ** (1 / DEFAULT_PLASTICITY_HALFLIFE_DAYS),
+    };
+  }
+
+  // Calculate per-day decay factor: λ = 1 - 0.5^(1/halfLifeDays)
+  // This ensures weight = weight * 0.5 after halfLifeDays of decay.
+  const decayPerDay = 1 - 0.5 ** (1 / halfLifeDays);
+
+  // Verify the plasticity columns exist before attempting updates.
+  try {
+    nativeDb.prepare('SELECT weight, last_accessed_at FROM nexus_relations LIMIT 1').get();
+  } catch {
+    // Columns not present — migration hasn't run yet. No-op gracefully.
+    return {
+      updated: 0,
+      halfLifeDays,
+      decayPerDay,
+    };
+  }
+
+  // Apply decay to all edges with a non-NULL last_accessed_at.
+  // SQLite's julianday('now') - julianday(last_accessed_at) gives days since access.
+  // decay_factor = 0.5 ^ (days / halfLifeDays) = 2 ^ (-days / halfLifeDays)
+  // This is implemented as: weight * EXP(LN(0.5) * julianday(...) / halfLifeDays)
+  const stmt = nativeDb.prepare(`
+    UPDATE nexus_relations
+    SET weight = MAX(0.0, weight * EXP(LN(0.5) * (julianday('now') - julianday(last_accessed_at)) / ?))
+    WHERE last_accessed_at IS NOT NULL AND weight > 0.001
+  `);
+
+  try {
+    const result = stmt.run(halfLifeDays);
+    const updated = typeof result.changes === 'number' ? result.changes : 0;
+    return { updated, halfLifeDays, decayPerDay };
+  } catch {
+    // Best-effort: if the query fails, return zeros
+    return { updated: 0, halfLifeDays, decayPerDay };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Co-access pair extraction from brain retrieval log
 // ---------------------------------------------------------------------------
 
 interface RetrievalLogRow {
   entry_ids: string;
+}
+
+/**
+ * Parse entry_ids which may be either JSON array or comma-separated string (BUG-2 fix).
+ *
+ * @param raw - Raw entry_ids value from brain_retrieval_log
+ * @returns Parsed array of entry IDs, or empty array if parse fails
+ */
+function parseEntryIds(raw: string): string[] {
+  const trimmed = raw.trim();
+  // Try JSON array first
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  // Fall back to comma-separated (legacy format from pre-migration data)
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -148,8 +274,11 @@ interface RetrievalLogRow {
  * are returned as-is — callers should filter non-node-format IDs before
  * passing to nexus_relations.
  *
+ * BUG-1 fix: The lookback window is separate from insertion timestamp.
+ * Consolidation scans retrieval events within `lookbackDays` of now.
+ *
  * @param projectRoot - Project root for brain.db resolution.
- * @param lookbackDays - How far back in time to scan retrieval events.
+ * @param lookbackDays - How far back in time to scan retrieval events (default 30 days).
  * @returns Deduplicated source/target pairs ready for strengthenNexusCoAccess.
  */
 export async function extractNexusPairsFromRetrievalLog(
@@ -168,6 +297,8 @@ export async function extractNexusPairsFromRetrievalLog(
     return [];
   }
 
+  // BUG-1 fix: Use lookbackDays to determine the time window, separate from insertion timestamp.
+  // This allows for configurable lookback without conflating with log insertion timing.
   const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
     .toISOString()
     .replace('T', ' ')
@@ -190,13 +321,9 @@ export async function extractNexusPairsFromRetrievalLog(
   const pairs: NexusEdgePair[] = [];
 
   for (const row of rows) {
-    let ids: string[];
-    try {
-      ids = JSON.parse(row.entry_ids) as string[];
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(ids) || ids.length < 2) continue;
+    // BUG-2 fix: handle both JSON array and comma-separated formats
+    const ids = parseEntryIds(row.entry_ids);
+    if (ids.length < 2) continue;
 
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {

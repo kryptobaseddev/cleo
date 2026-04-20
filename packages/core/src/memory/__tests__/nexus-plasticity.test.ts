@@ -119,7 +119,11 @@ function readEdge(
 // Import under test (after mocks)
 // ===========================================================================
 
-import { extractNexusPairsFromRetrievalLog, strengthenNexusCoAccess } from '../nexus-plasticity.js';
+import {
+  applyPlasticityDecay,
+  extractNexusPairsFromRetrievalLog,
+  strengthenNexusCoAccess,
+} from '../nexus-plasticity.js';
 
 // ===========================================================================
 // Tests
@@ -447,6 +451,202 @@ describe('T998 — NEXUS plasticity', () => {
         closeBrainDb();
         delete process.env['CLEO_DIR'];
         await rm(tempDir3, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Test 10 — BUG-2 Fix: parseEntryIds handles both JSON and comma-separated
+  // -----------------------------------------------------------------------
+  describe('10. extractNexusPairsFromRetrievalLog handles both JSON and comma-separated formats (BUG-2)', () => {
+    it('parses JSON array format', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'cleo-bug2-json-'));
+      process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+
+      const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
+        '../../store/memory-sqlite.js'
+      );
+      closeBrainDb();
+      await getBrainDb(tempDir);
+      const brainDb = getBrainNativeDb();
+
+      try {
+        if (brainDb) {
+          brainDb.exec(`
+            CREATE TABLE IF NOT EXISTS brain_retrieval_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              query TEXT NOT NULL DEFAULT '',
+              entry_ids TEXT NOT NULL,
+              entry_count INTEGER DEFAULT 0,
+              source TEXT DEFAULT 'find',
+              tokens_used INTEGER DEFAULT 0,
+              session_id TEXT,
+              created_at TEXT DEFAULT (datetime('now'))
+            )
+          `);
+          // Insert row with JSON array format (modern)
+          brainDb
+            .prepare(
+              `INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source)
+               VALUES ('test', ?, 3, 'find')`,
+            )
+            .run(JSON.stringify(['D-123', 'L-456', 'O-789']));
+        }
+
+        const pairs = await extractNexusPairsFromRetrievalLog(tempDir);
+        // Should extract pairs from the 3 entries
+        expect(pairs.length).toBeGreaterThan(0);
+        // Verify we got a pair from the 3-entry set
+        expect(pairs.some((p) => p.sourceId === 'D-123' && p.targetId === 'L-456')).toBe(true);
+      } finally {
+        closeBrainDb();
+        delete process.env['CLEO_DIR'];
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('parses comma-separated format (legacy, BUG-2 scenario)', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'cleo-bug2-comma-'));
+      process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+
+      const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
+        '../../store/memory-sqlite.js'
+      );
+      closeBrainDb();
+      await getBrainDb(tempDir);
+      const brainDb = getBrainNativeDb();
+
+      try {
+        if (brainDb) {
+          brainDb.exec(`
+            CREATE TABLE IF NOT EXISTS brain_retrieval_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              query TEXT NOT NULL DEFAULT '',
+              entry_ids TEXT NOT NULL,
+              entry_count INTEGER DEFAULT 0,
+              source TEXT DEFAULT 'find',
+              tokens_used INTEGER DEFAULT 0,
+              session_id TEXT,
+              created_at TEXT DEFAULT (datetime('now'))
+            )
+          `);
+          // Insert row with comma-separated format (legacy pre-migration)
+          brainDb
+            .prepare(
+              `INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source)
+               VALUES ('test', ?, 3, 'find')`,
+            )
+            .run('D-123, L-456, O-789');
+        }
+
+        const pairs = await extractNexusPairsFromRetrievalLog(tempDir);
+        // Should extract pairs from the 3 comma-separated entries
+        expect(pairs.length).toBeGreaterThan(0);
+        // Verify we got a pair from the 3-entry set
+        expect(pairs.some((p) => p.sourceId === 'D-123' && p.targetId === 'L-456')).toBe(true);
+      } finally {
+        closeBrainDb();
+        delete process.env['CLEO_DIR'];
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Test 11 — Plasticity decay (T1072)
+  // -----------------------------------------------------------------------
+  describe('11. applyPlasticityDecay implements time-based weight reduction', () => {
+    let db: DatabaseSync;
+
+    beforeEach(() => {
+      db = createTestNexusDb();
+      mockGetNexusNativeDb.mockReturnValue(db);
+    });
+
+    afterEach(() => {
+      db.close();
+      mockGetNexusNativeDb.mockReturnValue(null);
+    });
+
+    it('returns zero updates when no rows have last_accessed_at', async () => {
+      insertEdge(db, 'e-no-access', 'nodeA', 'nodeB', 0.5, 10);
+      // last_accessed_at is NULL by default
+      const result = await applyPlasticityDecay('.');
+      expect(result.updated).toBe(0);
+      expect(result.halfLifeDays).toBe(14); // default
+    });
+
+    it('applies decay to edges with last_accessed_at set', async () => {
+      insertEdge(db, 'e-decay', 'nodeA', 'nodeB', 0.8, 10);
+      // Set last_accessed_at to a past date (simulating unused edge)
+      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-7 days") WHERE id = ?').run(
+        'e-decay',
+      );
+
+      const result = await applyPlasticityDecay('.');
+      expect(result.updated).toBeGreaterThan(0);
+
+      // After 7 days with 14-day half-life, weight should be 0.8 * 0.5^(7/14) = 0.8 * sqrt(0.5) ≈ 0.566
+      const row = readEdge(db, 'e-decay');
+      expect(row.weight).toBeLessThan(0.8); // Definitely decayed
+      expect(row.weight).toBeCloseTo(0.8 * Math.sqrt(0.5), 1); // Close to half-life decay
+    });
+
+    it('respects CLEO_PLASTICITY_HALFLIFE_DAYS environment variable', async () => {
+      insertEdge(db, 'e-env', 'nodeA', 'nodeB', 1.0, 5);
+      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-1 day") WHERE id = ?').run('e-env');
+
+      // Set custom half-life: 2 days
+      process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'] = '2';
+
+      try {
+        const result = await applyPlasticityDecay('.');
+        expect(result.halfLifeDays).toBe(2);
+        expect(result.updated).toBeGreaterThan(0);
+
+        // After 1 day with 2-day half-life, weight should be 1.0 * 0.5^(1/2) = 1.0 * sqrt(0.5) ≈ 0.707
+        const row = readEdge(db, 'e-env');
+        expect(row.weight).toBeCloseTo(0.707, 1);
+      } finally {
+        delete process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'];
+      }
+    });
+
+    it('clamps weight to 0.0 minimum (no negative weights)', async () => {
+      insertEdge(db, 'e-clamp', 'nodeA', 'nodeB', 0.01, 5);
+      // Set to very old date (90 days)
+      db.prepare('UPDATE nexus_relations SET last_accessed_at = datetime("now", "-90 days") WHERE id = ?').run(
+        'e-clamp',
+      );
+
+      const result = await applyPlasticityDecay('.');
+      const row = readEdge(db, 'e-clamp');
+      expect(row.weight).toBeGreaterThanOrEqual(0.0);
+      expect(row.weight).toBeLessThanOrEqual(0.01);
+    });
+
+    it('returns sensible defaults when no db is available', async () => {
+      mockGetNexusNativeDb.mockReturnValue(null);
+      const result = await applyPlasticityDecay('.');
+      expect(result.updated).toBe(0);
+      expect(result.halfLifeDays).toBe(14);
+      expect(result.decayPerDay).toBeCloseTo(1 - 0.5 ** (1 / 14), 4);
+    });
+
+    it('returns sensible defaults when weight column is missing', async () => {
+      db.close();
+      mockGetNexusNativeDb.mockReturnValue(null);
+
+      const preDb = createPreMigrationDb();
+      mockGetNexusNativeDb.mockReturnValue(preDb);
+
+      try {
+        const result = await applyPlasticityDecay('.');
+        expect(result.updated).toBe(0);
+        expect(result.halfLifeDays).toBe(14);
+      } finally {
+        preDb.close();
+        mockGetNexusNativeDb.mockReturnValue(null);
       }
     });
   });
