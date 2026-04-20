@@ -27,12 +27,7 @@ import { resumeSentientDaemon, SENTIENT_STATE_FILE } from '../daemon.js';
 import { appendSentientEvent, type MergePayload, querySentientEvents } from '../events.js';
 import { executeSquashedRevert, SENTIENT_AUTHOR_EMAIL } from '../revert-executor.js';
 import { collectMergeCommits } from '../revert-walker.js';
-import {
-  DEFAULT_SENTIENT_STATE,
-  E_OWNER_ATTESTATION_REQUIRED,
-  readSentientState,
-  writeSentientState,
-} from '../state.js';
+import { E_OWNER_ATTESTATION_REQUIRED, readSentientState } from '../state.js';
 
 const execAsync = promisify(execFile);
 
