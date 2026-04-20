@@ -209,7 +209,6 @@ function buildOptions(
 // Disabled / cadence tests
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — disabled', () => {
   let ctx: TestContext;
 
@@ -263,7 +262,6 @@ describe('runTier3Tick — disabled', () => {
 // No eligible tasks
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — no eligible tasks', () => {
   let ctx: TestContext;
 
@@ -303,7 +301,6 @@ describe('runTier3Tick — no eligible tasks', () => {
 // Kill-switch — pre-pick
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — kill switch at pre-pick', () => {
   let ctx: TestContext;
 
@@ -348,7 +345,6 @@ describe('runTier3Tick — kill switch at pre-pick', () => {
 // Kill-switch — post-pick (mid-tick kill)
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — kill switch fires mid-tick at post-pick', () => {
   let ctx: TestContext;
 
@@ -386,7 +382,6 @@ describe('runTier3Tick — kill switch fires mid-tick at post-pick', () => {
 // Verify-failed path
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — verify failed', () => {
   let ctx: TestContext;
 
@@ -452,7 +447,6 @@ describe('runTier3Tick — verify failed', () => {
 // FF-failed path
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — FF merge failed', () => {
   let ctx: TestContext;
 
@@ -532,7 +526,6 @@ describe('runTier3Tick — FF merge failed', () => {
 // Happy path (full merge with mocked sandbox + git)
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — happy path (mocked FF merge via real git)', () => {
   let ctx: TestContext;
   let repoDir: string;
@@ -677,7 +670,6 @@ describe('runTier3Tick — happy path (mocked FF merge via real git)', () => {
 // Kill-switch fires at pre-verify (step 4/5 boundary — mid-tick)
 // ---------------------------------------------------------------------------
 
-// TODO(T1074): unskip once state-pause subsystem ships.
 describe('runTier3Tick — kill switch fires at pre-verify (halt before merge)', () => {
   let ctx: TestContext;
 
