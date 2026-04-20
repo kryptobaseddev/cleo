@@ -271,11 +271,12 @@ describe('CLI Adapter', () => {
       await dispatchFromCli('query', 'session', 'list', {}, { command: 'session' });
 
       expect(cliOutput).toHaveBeenCalledWith(
-        expect.anything(),
+        expect.objectContaining({
+          sessions: [],
+        }),
         expect.objectContaining({
           command: 'session',
           operation: 'session.list',
-          page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 },
         }),
       );
     });
