@@ -29,8 +29,14 @@ import { typedAll } from '../store/typed-query.js';
 // Types
 // ============================================================================
 
-/** Outcome of a task that used a retrieved memory. */
-export type MemoryOutcome = 'success' | 'failure' | 'unknown';
+/**
+ * Outcome of a task that used a retrieved memory.
+ * - `success`  — task completed successfully (boosts quality score).
+ * - `failure`  — task failed (penalises quality score).
+ * - `verified` — gate verification triggered (neutral; records lifecycle touch).
+ * - `unknown`  — outcome not yet resolved.
+ */
+export type MemoryOutcome = 'success' | 'failure' | 'verified' | 'unknown';
 
 /** A single row in brain_usage_log. */
 export interface UsageLogRow {
