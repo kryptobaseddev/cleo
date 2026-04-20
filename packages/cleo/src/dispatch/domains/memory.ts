@@ -537,6 +537,383 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1006 — summarized top-N observations as session briefing digest
+        case 'digest': {
+          const limitVal = (params?.limit as number | undefined) ?? 10;
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            interface DigestRow {
+              id: string;
+              title: string | null;
+              text: string;
+              citation_count: number;
+              quality_score: number | null;
+              memory_tier: string | null;
+              created_at: string;
+            }
+
+            let rows: DigestRow[] = [];
+            try {
+              const rawRows = nativeDb
+                .prepare(
+                  `SELECT id,
+                          title,
+                          text,
+                          citation_count,
+                          quality_score,
+                          memory_tier,
+                          created_at
+                   FROM brain_observations
+                   WHERE invalid_at IS NULL
+                   ORDER BY citation_count DESC, quality_score DESC
+                   LIMIT ?`,
+                )
+                .all(limitVal);
+              rows = rawRows.map((raw) => {
+                const r = raw as Record<string, unknown>;
+                return {
+                  id: String(r['id'] ?? ''),
+                  title: r['title'] != null ? String(r['title']) : null,
+                  text: String(r['text'] ?? ''),
+                  citation_count: Number(r['citation_count'] ?? 0),
+                  quality_score: r['quality_score'] != null ? Number(r['quality_score']) : null,
+                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                  created_at: String(r['created_at'] ?? ''),
+                };
+              });
+            } catch {
+              // brain_observations may not exist yet — return empty digest
+            }
+
+            // Build a brief text summary from the top entries
+            const summaryLines = rows.map((r, i) => {
+              const label = r.title ?? r.id;
+              const snippet = r.text.slice(0, 80).replace(/\n/g, ' ');
+              return `${i + 1}. [${r.id}] ${label} — ${snippet}${r.text.length > 80 ? '…' : ''}`;
+            });
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: rows.length,
+                  limit: limitVal,
+                  summary: summaryLines.join('\n'),
+                  observations: rows,
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'memory', operation, dbErr, startTime);
+          }
+        }
+
+        // T1006 — tail recent observations with optional filters
+        case 'recent': {
+          const limitVal = (params?.limit as number | undefined) ?? 20;
+          const sinceParam = params?.since as string | undefined;
+          const typeFilter = params?.type as string | undefined;
+          const sessionFilter = params?.session as string | undefined;
+          const tierFilter = params?.tier as string | undefined;
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            // Parse `since` as an ISO duration (e.g. "24h", "7d", "30m") or ISO timestamp
+            let sinceIso: string | undefined;
+            if (sinceParam) {
+              const durationMatch = /^(\d+)(m|h|d|w)$/i.exec(sinceParam);
+              if (durationMatch) {
+                const amount = Number(durationMatch[1]);
+                const unit = durationMatch[2].toLowerCase();
+                const ms =
+                  unit === 'm'
+                    ? amount * 60_000
+                    : unit === 'h'
+                      ? amount * 3_600_000
+                      : unit === 'd'
+                        ? amount * 86_400_000
+                        : amount * 7 * 86_400_000;
+                sinceIso = new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
+              } else {
+                // Assume it's an ISO timestamp or SQLite datetime string
+                sinceIso = sinceParam;
+              }
+            }
+
+            interface RecentRow {
+              id: string;
+              title: string | null;
+              text: string;
+              type: string | null;
+              source_session_id: string | null;
+              memory_tier: string | null;
+              created_at: string;
+            }
+
+            const clauses: string[] = ['invalid_at IS NULL'];
+            const bindArgs: (string | number)[] = [];
+
+            if (sinceIso) {
+              clauses.push('created_at >= ?');
+              bindArgs.push(sinceIso);
+            }
+            if (typeFilter) {
+              clauses.push('type = ?');
+              bindArgs.push(typeFilter);
+            }
+            if (sessionFilter) {
+              clauses.push('source_session_id = ?');
+              bindArgs.push(sessionFilter);
+            }
+            if (tierFilter) {
+              clauses.push('memory_tier = ?');
+              bindArgs.push(tierFilter);
+            }
+            bindArgs.push(limitVal);
+
+            const whereClause = clauses.join(' AND ');
+
+            let rows: RecentRow[] = [];
+            try {
+              const rawRows = nativeDb
+                .prepare(
+                  `SELECT id, title, text, type, source_session_id, memory_tier, created_at
+                   FROM brain_observations
+                   WHERE ${whereClause}
+                   ORDER BY created_at DESC
+                   LIMIT ?`,
+                )
+                .all(...bindArgs);
+              rows = rawRows.map((raw) => {
+                const r = raw as Record<string, unknown>;
+                return {
+                  id: String(r['id'] ?? ''),
+                  title: r['title'] != null ? String(r['title']) : null,
+                  text: String(r['text'] ?? ''),
+                  type: r['type'] != null ? String(r['type']) : null,
+                  source_session_id:
+                    r['source_session_id'] != null ? String(r['source_session_id']) : null,
+                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                  created_at: String(r['created_at'] ?? ''),
+                };
+              });
+            } catch {
+              // brain_observations may not have all columns — return empty
+            }
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: rows.length,
+                  limit: limitVal,
+                  since: sinceIso ?? null,
+                  observations: rows,
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'memory', operation, dbErr, startTime);
+          }
+        }
+
+        // T1006 — read diary-typed observations
+        case 'diary': {
+          const limitVal = (params?.limit as number | undefined) ?? 20;
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            interface DiaryRow {
+              id: string;
+              title: string | null;
+              text: string;
+              source_session_id: string | null;
+              memory_tier: string | null;
+              created_at: string;
+            }
+
+            let rows: DiaryRow[] = [];
+            try {
+              const rawRows = nativeDb
+                .prepare(
+                  `SELECT id, title, text, source_session_id, memory_tier, created_at
+                   FROM brain_observations
+                   WHERE type = 'diary'
+                     AND invalid_at IS NULL
+                   ORDER BY created_at DESC
+                   LIMIT ?`,
+                )
+                .all(limitVal);
+              rows = rawRows.map((raw) => {
+                const r = raw as Record<string, unknown>;
+                return {
+                  id: String(r['id'] ?? ''),
+                  title: r['title'] != null ? String(r['title']) : null,
+                  text: String(r['text'] ?? ''),
+                  source_session_id:
+                    r['source_session_id'] != null ? String(r['source_session_id']) : null,
+                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                  created_at: String(r['created_at'] ?? ''),
+                };
+              });
+            } catch {
+              // brain_observations may not have type column — return empty
+            }
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: rows.length,
+                  limit: limitVal,
+                  type: 'diary',
+                  entries: rows,
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'memory', operation, dbErr, startTime);
+          }
+        }
+
+        // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
+        // Returns the latest N observations created after an optional cursor.
+        // Clients call this in a loop, advancing the cursor with the returned `nextCursor`.
+        case 'watch': {
+          const cursorParam = params?.cursor as string | undefined;
+          const limitVal = (params?.limit as number | undefined) ?? 10;
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            interface WatchRow {
+              id: string;
+              title: string | null;
+              text: string;
+              type: string | null;
+              memory_tier: string | null;
+              created_at: string;
+            }
+
+            const clauses: string[] = ['invalid_at IS NULL'];
+            const bindArgs: (string | number)[] = [];
+
+            if (cursorParam) {
+              clauses.push('created_at > ?');
+              bindArgs.push(cursorParam);
+            }
+            bindArgs.push(limitVal);
+
+            let rows: WatchRow[] = [];
+            try {
+              const rawRows = nativeDb
+                .prepare(
+                  `SELECT id, title, text, type, memory_tier, created_at
+                   FROM brain_observations
+                   WHERE ${clauses.join(' AND ')}
+                   ORDER BY created_at ASC
+                   LIMIT ?`,
+                )
+                .all(...bindArgs);
+              rows = rawRows.map((raw) => {
+                const r = raw as Record<string, unknown>;
+                return {
+                  id: String(r['id'] ?? ''),
+                  title: r['title'] != null ? String(r['title']) : null,
+                  text: String(r['text'] ?? ''),
+                  type: r['type'] != null ? String(r['type']) : null,
+                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                  created_at: String(r['created_at'] ?? ''),
+                };
+              });
+            } catch {
+              // brain_observations may not exist yet
+            }
+
+            const nextCursor =
+              rows.length > 0 ? rows[rows.length - 1]!.created_at : (cursorParam ?? null);
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: rows.length,
+                  cursor: cursorParam ?? null,
+                  nextCursor,
+                  events: rows,
+                  hint: 'Poll again with cursor=nextCursor to stream new writes',
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'memory', operation, dbErr, startTime);
+          }
+        }
+
         // T999 — stream brain.db memory-bridge content directly (cli mode default)
         case 'bridge': {
           const content = await generateMemoryBridgeContent(projectRoot);
@@ -1135,6 +1512,32 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1006 — write a diary-typed observation (thin wrapper over observe)
+        case 'diary.write': {
+          const text = params?.text as string;
+          if (!text) {
+            return errorResult(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'text is required',
+              startTime,
+            );
+          }
+          const result = await memoryObserve(
+            {
+              text,
+              title: params?.title as string | undefined,
+              type: 'diary',
+              sourceSessionId: params?.sourceSessionId as string | undefined,
+              agent: params?.agent as string | undefined,
+            },
+            projectRoot,
+          );
+          return wrapResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
         // T1004 — flush in-flight observations + WAL checkpoint before context compaction
         case 'precompact-flush': {
           try {
@@ -1201,6 +1604,14 @@ export class MemoryHandler implements DomainHandler {
         'bridge',
         // T997 — read-only explainability view for promotion decisions
         'promote-explain',
+        // T1006 — summarized top-N observations as session briefing digest
+        'digest',
+        // T1006 — tail recent observations with optional filters
+        'recent',
+        // T1006 — diary-typed observations (requires diary enum from T1005)
+        'diary',
+        // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
+        'watch',
       ],
       mutate: [
         'observe',
@@ -1216,6 +1627,8 @@ export class MemoryHandler implements DomainHandler {
         'verify',
         // T1004 — flush in-flight observations + WAL checkpoint before context compaction
         'precompact-flush',
+        // T1006 — write a diary-typed observation
+        'diary.write',
       ],
     };
   }
