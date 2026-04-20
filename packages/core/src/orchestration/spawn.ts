@@ -31,6 +31,12 @@ import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleo
 import { ThinAgentViolationError } from '@cleocode/contracts';
 import { resolveAgent } from '../store/agent-resolver.js';
 import { type AtomicityResult, checkAtomicity } from './atomicity.js';
+import {
+  CLASSIFY_CONFIDENCE_FLOOR,
+  CLASSIFY_FALLBACK_AGENT_ID,
+  type ClassifyResult,
+  classifyTask,
+} from './classify.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
 import { autoDispatch } from './index.js';
 import { buildSpawnPrompt, type SpawnProtocolPhase, type SpawnTier } from './spawn-prompt.js';
@@ -169,6 +175,33 @@ export interface SpawnPayload {
 }
 
 /**
+ * Persona classification metadata attached to {@link SpawnPayloadMeta}.
+ *
+ * Sourced from {@link classifyTask}. Callers can surface this in spawn
+ * manifests and telemetry to audit the classify→route decision.
+ *
+ * @task T891 CANT persona wiring
+ */
+export interface SpawnPayloadPersonaMeta {
+  /** Resolved agent id chosen by the classifier. */
+  readonly agentId: string;
+  /** Spawn role the classifier assigned. */
+  readonly role: 'orchestrator' | 'lead' | 'worker';
+  /** Confidence score in [0, 1]. */
+  readonly confidence: number;
+  /** Human-readable explanation of the routing decision. */
+  readonly reason: string;
+  /**
+   * `true` when the classifier demoted the result to `cleo-subagent` because
+   * no rule cleared the {@link CLASSIFY_CONFIDENCE_FLOOR}. Callers SHOULD
+   * surface the accompanying `warning` in telemetry.
+   */
+  readonly usedFallback: boolean;
+  /** Warning message emitted when `usedFallback === true`. */
+  readonly warning?: string;
+}
+
+/**
  * Diagnostic metadata attached to every {@link SpawnPayload}.
  */
 export interface SpawnPayloadMeta {
@@ -184,6 +217,14 @@ export interface SpawnPayloadMeta {
   generatedAt: string;
   /** Pinned composer contract version — bump on breaking changes. */
   composerVersion: '3.0.0';
+  /**
+   * Persona classification summary from {@link classifyTask}. Always present
+   * — even when the caller passed an explicit `agentId` (in which case
+   * `classify.agentId` matches the override and `classify.confidence = 1.0`).
+   *
+   * @task T891 CANT persona wiring
+   */
+  classify: SpawnPayloadPersonaMeta;
   /**
    * Thin-agent enforcement summary. Present only when the composer was given
    * a `tools` allowlist and therefore executed {@link enforceThinAgent}.
@@ -288,14 +329,61 @@ export async function composeSpawnPayload(
 ): Promise<SpawnPayload> {
   const projectRoot = options.projectRoot ?? process.cwd();
 
-  // 1. Agent id — explicit wins, else classify() (stubbed to cleo-subagent).
-  const agentId = options.agentId ?? 'cleo-subagent';
+  // 1. Agent id resolution.
+  //
+  //    Two paths:
+  //    a) Explicit agentId — caller made an authoritative choice. classify()
+  //       is still recorded in meta for traceability (confidence=1.0, role
+  //       reflects the registry orchLevel once resolved, not a guess). Role
+  //       falls back to orchLevel-derived value unless the caller also
+  //       supplied an explicit `options.role`.
+  //    b) No explicit agentId — run classifyTask() to pick the best persona.
+  //       The result's agentId and role feed into subsequent steps; role is
+  //       only overridden if the caller also provides an explicit `options.role`.
+  let classifyMeta: ClassifyResult;
+  let agentId: string;
+  const callerProvidedAgentId = options.agentId !== undefined;
+
+  if (callerProvidedAgentId) {
+    agentId = options.agentId!;
+    // Placeholder role — will be updated to reflect orchLevel below.
+    // The meta.classify role uses 'worker' as a safe placeholder until the
+    // registry row is read; the actual role decision happens in step 3.
+    classifyMeta = {
+      agentId,
+      role: options.role ?? 'worker',
+      confidence: 1.0,
+      reason: 'Explicit agentId provided by caller — classify() bypassed.',
+      usedFallback: agentId === CLASSIFY_FALLBACK_AGENT_ID,
+    };
+  } else {
+    classifyMeta = classifyTask(task);
+    agentId = classifyMeta.agentId;
+    if (classifyMeta.confidence < CLASSIFY_CONFIDENCE_FLOOR) {
+      // Fallback: route to generic cleo-subagent.
+      agentId = CLASSIFY_FALLBACK_AGENT_ID;
+    }
+  }
 
   // 2. Resolve the agent envelope from the 4-tier registry.
   const resolvedAgent = resolveAgent(db, agentId, { projectRoot });
 
-  // 3. Role — explicit option wins, else derive from orchLevel.
-  const role: AgentSpawnCapability = options.role ?? orchLevelToRole(resolvedAgent.orchLevel);
+  // 3. Role resolution:
+  //    - Explicit options.role always wins.
+  //    - When classify() ran (no explicit agentId) and did NOT fall back,
+  //      use the classifier's role suggestion.
+  //    - Otherwise derive from orchLevel stored in the registry row.
+  const role: AgentSpawnCapability =
+    options.role ??
+    (!callerProvidedAgentId && !classifyMeta.usedFallback
+      ? (classifyMeta.role as AgentSpawnCapability)
+      : orchLevelToRole(resolvedAgent.orchLevel));
+
+  // Patch the placeholder classify meta role with the resolved registry role
+  // so the meta record is accurate for callers that inspect it.
+  if (callerProvidedAgentId) {
+    classifyMeta = { ...classifyMeta, role };
+  }
 
   // 4. Tier — explicit option wins, else role-default.
   const tier: SpawnTier = options.tier ?? defaultTierForRole(role);
@@ -371,6 +459,14 @@ export async function composeSpawnPayload(
     protocol: promptResult.protocol,
     generatedAt: new Date().toISOString(),
     composerVersion: '3.0.0',
+    classify: {
+      agentId: classifyMeta.agentId,
+      role: classifyMeta.role as 'orchestrator' | 'lead' | 'worker',
+      confidence: classifyMeta.confidence,
+      reason: classifyMeta.reason,
+      usedFallback: classifyMeta.usedFallback,
+      ...(classifyMeta.warning !== undefined ? { warning: classifyMeta.warning } : {}),
+    },
   };
   if (thinAgentMeta !== undefined) {
     meta.thinAgent = thinAgentMeta;
