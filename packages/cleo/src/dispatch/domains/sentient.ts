@@ -31,13 +31,15 @@ export class SentientHandler implements DomainHandler {
   /** Returns the list of supported query and mutate operations. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['propose.list', 'propose.diff'],
+      query: ['propose.list', 'propose.diff', 'allowlist.list'],
       mutate: [
         'propose.accept',
         'propose.reject',
         'propose.run',
         'propose.enable',
         'propose.disable',
+        'allowlist.add',
+        'allowlist.remove',
       ],
     };
   }
@@ -54,6 +56,10 @@ export class SentientHandler implements DomainHandler {
       switch (operation) {
         case 'propose.list': {
           const result = await this.listProposals(projectRoot, params);
+          return wrapResult(result, 'query', 'sentient', operation, startTime);
+        }
+        case 'allowlist.list': {
+          const result = await this.listAllowlist(projectRoot);
           return wrapResult(result, 'query', 'sentient', operation, startTime);
         }
         case 'propose.diff': {
@@ -138,6 +144,36 @@ export class SentientHandler implements DomainHandler {
         }
         case 'propose.run': {
           const result = await this.runProposeTick(projectRoot, params);
+          return wrapResult(result, 'mutate', 'sentient', operation, startTime);
+        }
+        case 'allowlist.add': {
+          const pubkey = params?.pubkey as string | undefined;
+          if (!pubkey) {
+            return errorResult(
+              'mutate',
+              'sentient',
+              operation,
+              'E_MISSING_PARAM',
+              'pubkey is required for allowlist.add',
+              startTime,
+            );
+          }
+          const result = await this.addAllowlistKey(projectRoot, pubkey);
+          return wrapResult(result, 'mutate', 'sentient', operation, startTime);
+        }
+        case 'allowlist.remove': {
+          const pubkey = params?.pubkey as string | undefined;
+          if (!pubkey) {
+            return errorResult(
+              'mutate',
+              'sentient',
+              operation,
+              'E_MISSING_PARAM',
+              'pubkey is required for allowlist.remove',
+              startTime,
+            );
+          }
+          const result = await this.removeAllowlistKey(projectRoot, pubkey);
           return wrapResult(result, 'mutate', 'sentient', operation, startTime);
         }
         case 'propose.enable': {
@@ -322,6 +358,54 @@ export class SentientHandler implements DomainHandler {
     void _;
 
     return { success: true, data: { outcome } };
+  }
+
+  /**
+   * List the current owner pubkey allowlist.
+   */
+  private async listAllowlist(projectRoot: string): Promise<{ success: boolean; data?: unknown }> {
+    const { getOwnerPubkeys } = await import('@cleocode/core/sentient/allowlist.js');
+    const pubkeys = await getOwnerPubkeys(projectRoot, { noCache: true });
+    const b64List: string[] = pubkeys.map((k: Uint8Array) => Buffer.from(k).toString('base64'));
+    return { success: true, data: { ownerPubkeys: b64List, count: b64List.length } };
+  }
+
+  /**
+   * Add a base64-encoded pubkey to the owner allowlist.
+   */
+  private async addAllowlistKey(
+    projectRoot: string,
+    pubkeyBase64: string,
+  ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+    try {
+      const { addOwnerPubkey } = await import('@cleocode/core/sentient/allowlist.js');
+      await addOwnerPubkey(projectRoot, pubkeyBase64);
+      return { success: true, data: { added: pubkeyBase64 } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: { code: 'E_ALLOWLIST_ADD', message } };
+    }
+  }
+
+  /**
+   * Remove a base64-encoded pubkey from the owner allowlist.
+   */
+  private async removeAllowlistKey(
+    projectRoot: string,
+    pubkeyBase64: string,
+  ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+    try {
+      const { removeOwnerPubkey } = await import('@cleocode/core/sentient/allowlist.js');
+      await removeOwnerPubkey(projectRoot, pubkeyBase64);
+      return { success: true, data: { removed: pubkeyBase64 } };
+    } catch (err) {
+      const code =
+        (err as NodeJS.ErrnoException).code === 'E_ALLOWLIST_KEY_NOT_FOUND'
+          ? 'E_ALLOWLIST_KEY_NOT_FOUND'
+          : 'E_ALLOWLIST_REMOVE';
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: { code, message } };
+    }
   }
 
   /**

@@ -823,7 +823,7 @@ export async function hybridSearch(
   }
 
   const allResults = await Promise.all(searches);
-  const ftsResults = allResults[0] as typeof ftsResults;
+  const ftsResults = allResults[0] as BrainSearchResult;
   const vecResults = allResults[1] as SimilarityResult[];
   const codeResults = (includeCode ? (allResults[2] ?? []) : []) as Array<{
     id: string;

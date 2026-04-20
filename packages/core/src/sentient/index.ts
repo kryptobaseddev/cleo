@@ -9,6 +9,7 @@
  * @package @cleocode/core
  */
 
+export * from './allowlist.js';
 export * from './baseline.js';
 export * from './daemon.js';
 export * from './events.js';

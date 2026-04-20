@@ -169,7 +169,7 @@ export async function strengthenNexusCoAccess(
  * console.log(`Decayed ${result.updated} edges with ${result.halfLifeDays}-day half-life`);
  * ```
  */
-export async function applyPlasticityDecay(projectRoot: string): Promise<PlasticityDecayResult> {
+export async function applyPlasticityDecay(_projectRoot: string): Promise<PlasticityDecayResult> {
   const { getNexusNativeDb } = await import('../store/nexus-sqlite.js');
   const nativeDb = getNexusNativeDb();
   if (!nativeDb) {

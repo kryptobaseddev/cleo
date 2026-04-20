@@ -4403,9 +4403,9 @@ const contractsSyncCommand = defineCommand({
     try {
       const [{ extractHttpContracts }, { extractGrpcContracts }, { extractTopicContracts }] =
         await Promise.all([
-          import('@cleocode/core/nexus/contracts/http-extractor.js' as string),
-          import('@cleocode/core/nexus/contracts/grpc-extractor.js' as string),
-          import('@cleocode/core/nexus/contracts/topic-extractor.js' as string),
+          import('@cleocode/core/nexus/api-extractors/http-extractor.js' as string),
+          import('@cleocode/core/nexus/api-extractors/grpc-extractor.js' as string),
+          import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
         ]);
 
       const [httpResult, grpcResult, topicResult] = await Promise.all([
@@ -4515,10 +4515,10 @@ const contractsShowCommand = defineCommand({
         { extractTopicContracts },
         { matchContracts },
       ] = await Promise.all([
-        import('@cleocode/core/nexus/contracts/http-extractor.js' as string),
-        import('@cleocode/core/nexus/contracts/grpc-extractor.js' as string),
-        import('@cleocode/core/nexus/contracts/topic-extractor.js' as string),
-        import('@cleocode/core/nexus/contracts/matcher.js' as string),
+        import('@cleocode/core/nexus/api-extractors/http-extractor.js' as string),
+        import('@cleocode/core/nexus/api-extractors/grpc-extractor.js' as string),
+        import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
+        import('@cleocode/core/nexus/api-extractors/matcher.js' as string),
       ]);
 
       const [httpA, grpcA, topicA, httpB, grpcB, topicB] = await Promise.all([

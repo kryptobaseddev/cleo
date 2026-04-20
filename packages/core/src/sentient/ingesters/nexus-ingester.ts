@@ -68,7 +68,8 @@ interface EntryPointErosionRow {
   is_exported: number;
 }
 
-interface CrossCommunityRow {
+/** Row shape for cross-community detector (T1070 follow-up, not yet wired). */
+export interface CrossCommunityRow {
   id: string;
   name: string;
   file_path: string;
