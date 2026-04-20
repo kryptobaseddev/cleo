@@ -119,6 +119,8 @@ export class TasksHandler implements DomainHandler {
               offset: params?.offset as number | undefined,
               fields: params?.fields as string | undefined,
               verbose: params?.verbose as boolean | undefined,
+              // T944: role filter
+              role: params?.role as string | undefined,
             },
           );
           return wrapResult(result, 'query', 'tasks', operation, startTime);
@@ -291,6 +293,10 @@ export class TasksHandler implements DomainHandler {
             files: params?.files as string[] | undefined,
             dryRun: params?.dryRun as boolean | undefined,
             parentSearch: params?.parentSearch as string | undefined,
+            // T944: orthogonal axes — role accepts 'kind' alias for CLI compat
+            role: (params?.role ?? params?.kind) as string | undefined,
+            scope: params?.scope as string | undefined,
+            severity: params?.severity as string | undefined,
           });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }

@@ -4,7 +4,15 @@
  * @epic T4454
  */
 
-import type { Task, TaskPriority, TaskSize, TaskStatus, TaskType } from '@cleocode/contracts';
+import type {
+  Task,
+  TaskPriority,
+  TaskRole,
+  TaskScope,
+  TaskSize,
+  TaskStatus,
+  TaskType,
+} from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
@@ -50,6 +58,8 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'parentId',
   'noAutoComplete',
   'pipelineStage',
+  'role',
+  'scope',
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -80,6 +90,16 @@ export interface UpdateTaskOptions {
   noAutoComplete?: boolean;
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
+  /**
+   * Task role axis — intent of work, orthogonal to {@link type}.
+   * @task T944
+   */
+  role?: TaskRole;
+  /**
+   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link role}.
+   * @task T944
+   */
+  scope?: TaskScope;
 }
 
 /** Result of updating a task. */
@@ -268,6 +288,17 @@ export async function updateTask(
   if (options.noAutoComplete !== undefined) {
     task.noAutoComplete = options.noAutoComplete;
     changes.push('noAutoComplete');
+  }
+
+  // T944: orthogonal axes
+  if (options.role !== undefined) {
+    task.role = options.role;
+    changes.push('role');
+  }
+
+  if (options.scope !== undefined) {
+    task.scope = options.scope;
+    changes.push('scope');
   }
 
   // Pipeline stage transition — forward-only (T060)

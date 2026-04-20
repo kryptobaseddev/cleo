@@ -61,6 +61,25 @@ export interface TaskRecord {
   cancellationReason?: string;
   /** RCASD-IVTR+C pipeline stage. @task T060 */
   pipelineStage?: string | null;
+  /**
+   * Task role axis — intent of work (string-widened from {@link TaskRole}).
+   * Values: work | research | experiment | bug | spike | release
+   * @task T944
+   */
+  role?: string | null;
+  /**
+   * Task scope axis — granularity of work (string-widened from {@link TaskScope}).
+   * Values: project | feature | unit
+   * @task T944
+   */
+  scope?: string | null;
+  /**
+   * Bug severity (string-widened from {@link TaskSeverity}).
+   * Only valid when role='bug'. OWNER-WRITE-ONLY.
+   * Values: P0 | P1 | P2 | P3
+   * @task T944
+   */
+  severity?: string | null;
 }
 
 /**

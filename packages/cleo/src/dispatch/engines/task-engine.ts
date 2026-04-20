@@ -113,6 +113,10 @@ function taskToRecord(task: Task): TaskRecord {
     cancellationReason: task.cancellationReason,
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
     pipelineStage: task.pipelineStage ?? null,
+    // T944: orthogonal axes
+    role: task.role ?? null,
+    scope: task.scope ?? null,
+    severity: task.severity ?? null,
   };
 }
 
@@ -372,6 +376,8 @@ export async function taskFind(
     fields?: string;
     /** Return all task fields (same as cleo list output). @task T092 */
     verbose?: boolean;
+    /** Filter by role axis (T944). */
+    role?: string;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -385,6 +391,8 @@ export async function taskFind(
         includeArchive: options?.includeArchive,
         limit: limit ?? 20,
         offset: options?.offset,
+        // T944: role filter
+        role: options?.role as import('@cleocode/contracts').TaskRole | undefined,
       },
       projectRoot,
       accessor,
@@ -505,6 +513,12 @@ export async function taskCreate(
     dryRun?: boolean;
     /** Resolve parent by title substring instead of exact ID. @task T090 */
     parentSearch?: string;
+    /** Task role axis — intent of work (T944). Alias: `kind`. */
+    role?: string;
+    /** Task scope axis — granularity of work (T944). */
+    scope?: string;
+    /** Bug severity (T944). OWNER-WRITE-ONLY. Only valid with role='bug'. */
+    severity?: string;
   },
 ): Promise<
   EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
@@ -563,6 +577,10 @@ export async function taskCreate(
         notes: params.notes,
         files: params.files,
         dryRun: params.dryRun,
+        // T944: orthogonal axes
+        role: params.role as import('@cleocode/contracts').TaskRole | undefined,
+        scope: params.scope as import('@cleocode/contracts').TaskScope | undefined,
+        severity: params.severity as import('@cleocode/contracts').TaskSeverity | undefined,
       },
       projectRoot,
       accessor,
@@ -623,6 +641,10 @@ export async function taskUpdate(
     files?: string[];
     /** Pipeline stage transition target (T834 / ADR-051 Decision 4). */
     pipelineStage?: string;
+    /** Task role axis — intent of work (T944). */
+    role?: string;
+    /** Task scope axis — granularity of work (T944). */
+    scope?: string;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
@@ -649,6 +671,9 @@ export async function taskUpdate(
         files: updates.files,
         // T834 / ADR-051 Decision 4: forward pipelineStage to core update.
         pipelineStage: updates.pipelineStage,
+        // T944: orthogonal axes
+        role: updates.role as import('@cleocode/contracts').TaskRole | undefined,
+        scope: updates.scope as import('@cleocode/contracts').TaskScope | undefined,
       },
       projectRoot,
       accessor,
