@@ -129,8 +129,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
       // Use Xenova/snowflake-arctic-embed-xs (HITL decision from T1042).
       // This is a lightweight but capable embeddings model (85MB).
       // env-swappable via CLEO_EMBEDDINGS_PROVIDER if custom provider needed.
-      const model =
-        process.env['CLEO_EMBEDDINGS_PROVIDER'] || 'Xenova/snowflake-arctic-embed-xs';
+      const model = process.env['CLEO_EMBEDDINGS_PROVIDER'] || 'Xenova/snowflake-arctic-embed-xs';
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tx = transformers as any;
