@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.100] — 2026-04-20 — Build fix: core subpath entry points
+
+**Critical hotfix** for v2026.4.99 which shipped broken on npm. The published
+`@cleocode/core@2026.4.99` tarball contained `.d.ts` files but no matching
+`.js` files for these subpath exports:
+
+- `@cleocode/core/memory/brain-backfill.js` (T1003)
+- `@cleocode/core/memory/precompact-flush.js` (T1004)
+- `@cleocode/core/sentient/{daemon,tick,state,propose-tick}.js` (T1015)
+- `@cleocode/core/gc/{daemon,runner,state,transcript}.js` (T1015)
+- `@cleocode/core/system/platform-paths.js` (pre-existing)
+
+Any consumer installing `@cleocode/cleo@2026.4.99` would hit
+`ERR_MODULE_NOT_FOUND` at runtime. CI "Canon Drift Check" caught this
+immediately after the release workflow.
+
+**Root cause**: `build.mjs` esbuild `coreBuildOptions.entryPoints` explicitly
+enumerates subpath entry points. Subpath exports added in v2026.4.97+ were
+registered in `packages/core/package.json` but not in `build.mjs`, so esbuild
+inlined them into `core/dist/index.js` only and emitted no standalone files.
+
+**Fix**: 12 new entry points added to `build.mjs`. Every subpath cleo imports
+from core now has a matching standalone `.js` emit. No source changes.
+
 ## [2026.4.99] — 2026-04-20 — T1015 Architecture cleanup
 
 Architecture cleanup: relocate sentient+gc daemons from @cleocode/cleo (CLI-only)
