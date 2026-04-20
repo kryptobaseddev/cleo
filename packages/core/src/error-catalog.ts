@@ -813,15 +813,16 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
       ),
     ],
     [
-      ExitCode.NEXUS_RESERVED,
+      ExitCode.NEXUS_IMPACT_CRITICAL,
       def(
-        ExitCode.NEXUS_RESERVED,
-        'NEXUS_RESERVED',
-        'INTERNAL',
-        'Reserved nexus code',
-        500,
+        ExitCode.NEXUS_IMPACT_CRITICAL,
+        'NEXUS_IMPACT_CRITICAL',
+        'VALIDATION',
+        'Code change has critical impact risk',
+        422,
         false,
-        'E_CLEO_NEXUS_RESERVED',
+        'E_CLEO_NEXUS_IMPACT_CRITICAL',
+        'Either fix the CRITICAL symbols or pass --acknowledge-risk "<reason>" to bypass',
       ),
     ],
 
