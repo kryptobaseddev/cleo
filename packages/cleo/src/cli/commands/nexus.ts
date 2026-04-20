@@ -3464,7 +3464,7 @@ const queryCommand = defineCommand({
         cte = cteOrAlias;
       }
 
-      const result = runNexusCte(cte, finalParams);
+      const result = await runNexusCte(cte, finalParams);
 
       if (!result.success) {
         process.stderr.write(`[nexus] Query error: ${result.error}\n`);
