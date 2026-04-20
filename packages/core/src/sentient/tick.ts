@@ -686,3 +686,284 @@ export function _resetDreamTickState(): void {
 export function _getConsecutiveIdleTicks(): number {
   return consecutiveIdleTicks;
 }
+
+// ---------------------------------------------------------------------------
+// T1030 — Tier 3 merge ritual orchestrator
+// ---------------------------------------------------------------------------
+// Runs the experimental auto-merge ritual on a cadence. Each tick:
+//   1. kill-switch check (pre-pick)       → killed if active
+//   2. enabled guard                      → skipped:disabled
+//   3. cadence guard (TIER3_CADENCE_MS)   → skipped:cadence-not-elapsed
+//   4. pickTask                           → no-eligible-tasks if null
+//   5. kill-switch check (post-pick)      → killed if active
+//   6. captureBaseline + getHeadSha       → anchor rollback point
+//   7. spawnSandbox                       → worktree for experimental patch
+//   8. kill-switch check (post-spawn)     → killed if active
+//   9. waitForPatch                       → synchronise on patch completion
+//  10. kill-switch check (pre-verify)     → killed if active
+//  11. verifyInWorktree                   → aborted:verify-failed if fails
+//  12. signExperiment                     → signs merge intent
+//  13. gitFfMerge --ff-only               → aborted:merge-aborted if fails
+//  14. markTaskAutoMerged                 → records success in tasks.db
+//  15. bump tier3Stats.mergesCompleted    → return merged
+//
+// Any kill-switch activation before verify aborts cleanly WITHOUT merging.
+// NEVER auto-rebases; only FF is attempted (ADR-054 §Tier-3 invariant).
+
+/** T1030: Tier 3 cadence — 15 minutes between merge attempts. */
+export const TIER3_CADENCE_MS = 15 * 60 * 1000;
+
+/** Task reference passed between tick steps. */
+type Tier3Task = import('@cleocode/contracts').Task;
+
+/** Options for {@link runTier3Tick}. All side-effecting deps are injectable. */
+export interface Tier3TickOptions {
+  /** Absolute path to the project root (target branch worktree). */
+  projectRoot: string;
+  /** Absolute path to sentient-state.json. */
+  statePath: string;
+  /** Whether Tier 3 is enabled. When false, tick no-ops with skipped:disabled. */
+  enabled: boolean;
+  /**
+   * ISO-8601 timestamp of last tick. Used for cadence gating; callers
+   * typically pass `state.tier3LastTickAt`.
+   */
+  lastTickAt: string | null;
+  /** Optional override for target branch (defaults to 'main'). */
+  targetBranch?: string;
+  /** Picker returning the next Tier-3-eligible task or null. */
+  pickTask: (projectRoot: string) => Promise<Tier3Task | null>;
+  /** Anchor the rollback baseline before spawning the sandbox. */
+  captureBaseline: (projectRoot: string, commitSha: string) => Promise<{ receiptId: string }>;
+  /** Resolve the current HEAD SHA of the target branch. */
+  getHeadSha: (projectRoot: string) => Promise<string>;
+  /** Spawn the experimental sandbox and return its metadata. */
+  spawnSandbox: (task: Tier3Task, projectRoot: string) => Promise<SandboxSpawnRecord>;
+  /** Block until the sandbox's patch completes. */
+  waitForPatch: (spawn: SandboxSpawnRecord) => Promise<PatchRecord>;
+  /** Run verification gates inside the experiment worktree. */
+  verifyInWorktree: (spawn: SandboxSpawnRecord, patch: PatchRecord) => Promise<VerifyRecord>;
+  /** Sign the experiment (receipt for the merge intent). */
+  signExperiment: (spawn: SandboxSpawnRecord, verify: VerifyRecord) => Promise<SignRecord>;
+  /** Record task as auto-merged in tasks.db after successful merge. */
+  markTaskAutoMerged: (projectRoot: string, taskId: string, mergedSha: string) => Promise<void>;
+}
+
+/** Spawn record produced by the sandbox orchestrator. */
+export interface SandboxSpawnRecord {
+  /** Stable UUID for the experiment run. */
+  experimentId: string;
+  /** Absolute path to the experiment worktree (FF source). */
+  worktree: string;
+  /** Receipt id produced by {@link captureBaseline} or the spawner. */
+  receiptId: string;
+}
+
+/** Patch record emitted when the sandbox completes its change. */
+export interface PatchRecord {
+  /** Files modified by the patch (relative to worktree root). */
+  patchFiles: string[];
+  /** One-line human-readable patch summary. */
+  patchSummary: string;
+  /** Content hash of the applied patch (hex). */
+  patchSha: string;
+  /** Receipt id linking the patch to its sign/verify chain. */
+  receiptId: string;
+}
+
+/** Verify record summarising IVTR gate outcomes. */
+export interface VerifyRecord {
+  /** Whether ALL gates passed. */
+  passed: boolean;
+  /** Per-gate outcomes. */
+  gates: readonly {
+    readonly gate: string;
+    readonly passed: boolean;
+    readonly evidenceAtoms?: readonly string[];
+  }[];
+  /** Post-run metrics captured by the verifier. */
+  afterMetrics?: Record<string, unknown>;
+  /** Receipt id linking verify output to the signed experiment. */
+  receiptId: string;
+}
+
+/** Sign record produced when the experiment is committed to merge intent. */
+export interface SignRecord {
+  /** Hex-encoded 64-byte Ed25519 signature over the canonical receipt. */
+  signature: string;
+  /** Receipt id of the sign step. */
+  receiptId: string;
+}
+
+/** Outcome returned by {@link runTier3Tick}. */
+export interface Tier3TickOutcome {
+  /** Kind of outcome. */
+  kind: 'skipped' | 'killed' | 'no-eligible-tasks' | 'aborted' | 'merged';
+  /** Human-readable detail (included in every outcome). */
+  detail: string;
+  /** Task id for outcomes that picked a task. */
+  taskId?: string;
+  /** HEAD SHA after merge (only for `merged` outcomes). */
+  mergedSha?: string;
+}
+
+/**
+ * T1030: Run one iteration of the Tier-3 auto-merge ritual.
+ *
+ * Invariants:
+ *   - NEVER auto-rebases; ONLY FF merge via {@link gitFfMerge}.
+ *   - Kill-switch checkpoints at pre-pick, post-pick, post-spawn, pre-verify.
+ *   - verify-failed → aborts BEFORE sign / merge.
+ *   - ff-failed → aborts AFTER sign (sign records intent; merge fails).
+ *   - Happy path bumps `state.tier3Stats.mergesCompleted` + `tier3LastTickAt`.
+ *
+ * @task T1030
+ */
+export async function runTier3Tick(options: Tier3TickOptions): Promise<Tier3TickOutcome> {
+  const { checkKillSwitch, KillSwitchActivatedError } = await import('./kill-switch.js');
+  const { patchSentientState, readSentientState } = await import('./state.js');
+
+  async function bumpTier3(
+    path: string,
+    delta: Partial<import('./state.js').Tier3Stats>,
+  ): Promise<void> {
+    const current = await readSentientState(path);
+    await patchSentientState(path, {
+      tier3Stats: {
+        ticksKilled: current.tier3Stats.ticksKilled + (delta.ticksKilled ?? 0),
+        abortsTotal: current.tier3Stats.abortsTotal + (delta.abortsTotal ?? 0),
+        mergesCompleted: current.tier3Stats.mergesCompleted + (delta.mergesCompleted ?? 0),
+      },
+    });
+  }
+
+  async function handleKilled(
+    step: 'pre-pick' | 'post-pick' | 'post-spawn' | 'pre-verify',
+    taskId?: string,
+  ): Promise<Tier3TickOutcome> {
+    await bumpTier3(options.statePath, { ticksKilled: 1 });
+    await patchSentientState(options.statePath, {
+      tier3LastTickAt: new Date().toISOString(),
+    });
+    return { kind: 'killed', detail: step, ...(taskId ? { taskId } : {}) };
+  }
+
+  // Step 0: kill-switch BEFORE disabled/cadence checks.
+  try {
+    await checkKillSwitch('pre-pick', options.statePath);
+  } catch (err) {
+    if (err instanceof KillSwitchActivatedError) return handleKilled('pre-pick');
+    throw err;
+  }
+
+  // Step 1: enabled guard.
+  if (!options.enabled) return { kind: 'skipped', detail: 'disabled' };
+
+  // Step 2: cadence guard.
+  if (options.lastTickAt) {
+    const elapsed = Date.now() - new Date(options.lastTickAt).getTime();
+    if (elapsed < TIER3_CADENCE_MS) {
+      return { kind: 'skipped', detail: 'cadence-not-elapsed' };
+    }
+  }
+
+  // Step 3: pick task.
+  const task = await options.pickTask(options.projectRoot);
+  if (!task) {
+    await patchSentientState(options.statePath, {
+      tier3LastTickAt: new Date().toISOString(),
+    });
+    return { kind: 'no-eligible-tasks', detail: 'no tier3-eligible tasks' };
+  }
+
+  // Step 4: post-pick kill check.
+  try {
+    await checkKillSwitch('post-pick', options.statePath);
+  } catch (err) {
+    if (err instanceof KillSwitchActivatedError) return handleKilled('post-pick', task.id);
+    throw err;
+  }
+
+  // Step 5: baseline capture.
+  const headSha = await options.getHeadSha(options.projectRoot);
+  await options.captureBaseline(options.projectRoot, headSha);
+
+  // Step 6: spawn sandbox.
+  const spawn = await options.spawnSandbox(task, options.projectRoot);
+
+  // Step 7: post-spawn kill check.
+  try {
+    await checkKillSwitch('post-spawn', options.statePath);
+  } catch (err) {
+    if (err instanceof KillSwitchActivatedError) return handleKilled('post-spawn', task.id);
+    throw err;
+  }
+
+  // Step 8: wait for patch.
+  const patch = await options.waitForPatch(spawn);
+
+  // Step 9: pre-verify kill check.
+  try {
+    await checkKillSwitch('pre-verify', options.statePath);
+  } catch (err) {
+    if (err instanceof KillSwitchActivatedError) return handleKilled('pre-verify', task.id);
+    throw err;
+  }
+
+  // Step 10: verify.
+  const verify = await options.verifyInWorktree(spawn, patch);
+  if (!verify.passed) {
+    await bumpTier3(options.statePath, { abortsTotal: 1 });
+    await patchSentientState(options.statePath, {
+      tier3LastTickAt: new Date().toISOString(),
+    });
+    const failedGates = verify.gates
+      .filter((g) => !g.passed)
+      .map((g) => g.gate)
+      .join(', ');
+    return {
+      kind: 'aborted',
+      detail: `verify failed: ${failedGates || 'unknown'}`,
+      taskId: task.id,
+    };
+  }
+
+  // Step 11: sign experiment.
+  await options.signExperiment(spawn, verify);
+
+  // Step 12: FF merge.
+  const { gitFfMerge } = await import('./merge.js');
+  const mergeResult = await gitFfMerge({
+    experimentWorktree: spawn.worktree,
+    targetBranch: options.targetBranch ?? 'main',
+    cwd: options.projectRoot,
+  });
+
+  if (!mergeResult.merged) {
+    await bumpTier3(options.statePath, { abortsTotal: 1 });
+    await patchSentientState(options.statePath, {
+      tier3LastTickAt: new Date().toISOString(),
+    });
+    return {
+      kind: 'aborted',
+      detail: `merge aborted: ${mergeResult.reason ?? 'unknown'}`,
+      taskId: task.id,
+    };
+  }
+
+  // Step 13: mark task as auto-merged.
+  await options.markTaskAutoMerged(options.projectRoot, task.id, mergeResult.headSha);
+
+  // Step 14: success — bump counters, record tick timestamp.
+  await bumpTier3(options.statePath, { mergesCompleted: 1 });
+  await patchSentientState(options.statePath, {
+    tier3LastTickAt: new Date().toISOString(),
+  });
+
+  return {
+    kind: 'merged',
+    detail: 'merged',
+    taskId: task.id,
+    mergedSha: mergeResult.headSha,
+  };
+}

@@ -410,6 +410,17 @@ export async function stopSentientDaemon(
  */
 export async function resumeSentientDaemon(projectRoot: string): Promise<SentientState> {
   const statePath = join(projectRoot, SENTIENT_STATE_FILE);
+  const current = await readSentientState(statePath);
+  // T1074: reject plain-resume when state is paused by revert — owner must
+  // provide a valid attestation via `resumeAfterRevert()` instead.
+  if (current.pausedByRevert) {
+    const { E_OWNER_ATTESTATION_REQUIRED } = await import('./state.js');
+    const err = new Error(
+      `${E_OWNER_ATTESTATION_REQUIRED}: daemon is paused by revert (receipt ${current.revertReceiptId}); use resumeAfterRevert with owner attestation`,
+    ) as NodeJS.ErrnoException;
+    err.code = E_OWNER_ATTESTATION_REQUIRED;
+    throw err;
+  }
   return patchSentientState(statePath, {
     killSwitch: false,
     killSwitchReason: null,
