@@ -2697,6 +2697,39 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T999 — live memory-bridge content from brain.db (cli mode default)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'bridge',
+    description:
+      'memory.bridge (query) — stream brain.db memory-bridge content directly (cli mode default)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+  // T997 — read-only explainability view for STDP + retrieval + citation promotion decisions
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'promote-explain',
+    description:
+      'memory.promote-explain (query) — read-only view over STDP weights, retrieval log, and citation_count for a brain entry; returns tier decision and score breakdown',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Brain entry id (e.g. O-abc123, D-def456, P-ghi789, L-jkl012)',
+      },
+    ],
+  },
   // T792 — promote entry to verified=true (owner/cleo-prime only)
   {
     gateway: 'mutate',
@@ -2717,6 +2750,19 @@ export const OPERATIONS: OperationDef[] = [
         description: "Caller identity ('cleo-prime' or 'owner'). Omit for terminal invocation.",
       },
     ],
+  },
+  // T1004 — flush in-flight observations + WAL checkpoint before context compaction
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'precompact-flush',
+    description:
+      'memory.precompact-flush (mutate) — flush in-flight brain observations and issue a WAL checkpoint before context window compaction',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
   },
   {
     gateway: 'mutate',
