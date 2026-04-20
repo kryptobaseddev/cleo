@@ -154,6 +154,8 @@ export interface GraphNode {
   processIds?: string[];
   /** Kind-specific metadata blob (matches nexus_nodes.meta_json). */
   meta?: Record<string, unknown>;
+  /** Whether this node represents an external module (unresolved import). */
+  isExternal?: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -159,6 +159,16 @@ function runNexusMigrations(
     'nexus',
   );
 
+  // T1062: idempotent safety net for external module nodes — covers pre-migration
+  // nexus.db instances that were created before the drizzle migration runs.
+  // Unresolved imports are persisted as ExternalModule nodes with is_external=true.
+  ensureColumns(
+    nativeDb,
+    'nexus_nodes',
+    [{ name: 'is_external', ddl: 'integer DEFAULT 0' }],
+    'nexus',
+  );
+
   // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
   const MAX_RETRIES = 5;
   const BASE_DELAY_MS = 100;
