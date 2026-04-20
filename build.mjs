@@ -130,6 +130,28 @@ const coreBuildOptions = {
     // Must exist as standalone .js files in dist/memory/ to match the package.json subpath exports. (T755)
     { in: 'packages/core/src/memory/transcript-scanner.ts', out: 'memory/transcript-scanner' },
     { in: 'packages/core/src/memory/transcript-extractor.ts', out: 'memory/transcript-extractor' },
+    // T1004/T1003/T1015: subpath entry points added in v2026.4.97+. Each one is
+    // imported by cleo via @cleocode/core/<subpath>.js and MUST exist as a
+    // standalone emitted file (not only in the bundled core index.js) so that
+    // node's export-map resolution at runtime finds the target file.
+    // v2026.4.99 shipped without these entries → ERR_MODULE_NOT_FOUND in CI
+    // smoke test `node packages/cleo/dist/cli/index.js version`.
+    { in: 'packages/core/src/memory/brain-backfill.ts', out: 'memory/brain-backfill' },
+    { in: 'packages/core/src/memory/precompact-flush.ts', out: 'memory/precompact-flush' },
+    // Sentient daemon + tick subpath entry points (T1015 relocation from cleo → core)
+    { in: 'packages/core/src/sentient/index.ts', out: 'sentient/index' },
+    { in: 'packages/core/src/sentient/daemon.ts', out: 'sentient/daemon' },
+    { in: 'packages/core/src/sentient/tick.ts', out: 'sentient/tick' },
+    { in: 'packages/core/src/sentient/state.ts', out: 'sentient/state' },
+    { in: 'packages/core/src/sentient/propose-tick.ts', out: 'sentient/propose-tick' },
+    // GC daemon subpath entry points (T1015 relocation from cleo → core)
+    { in: 'packages/core/src/gc/index.ts', out: 'gc/index' },
+    { in: 'packages/core/src/gc/daemon.ts', out: 'gc/daemon' },
+    { in: 'packages/core/src/gc/runner.ts', out: 'gc/runner' },
+    { in: 'packages/core/src/gc/state.ts', out: 'gc/state' },
+    { in: 'packages/core/src/gc/transcript.ts', out: 'gc/transcript' },
+    // System/platform-paths — has a subpath export, cleo imports it at runtime
+    { in: 'packages/core/src/system/platform-paths.ts', out: 'system/platform-paths' },
   ],
   bundle: true,
   platform: 'node',
