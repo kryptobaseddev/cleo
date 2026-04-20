@@ -20,6 +20,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getCleoHome } from '../paths.js';
+import { ensureColumns } from './migration-manager.js';
 import * as nexusSchema from './nexus-schema.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
 
@@ -143,6 +144,20 @@ function runNexusMigrations(
         .run();
     }
   }
+
+  // T998: idempotent safety net for plasticity columns — covers pre-migration
+  // nexus.db instances that were created before the drizzle migration runs.
+  // ensureColumns is a no-op when the columns already exist.
+  ensureColumns(
+    nativeDb,
+    'nexus_relations',
+    [
+      { name: 'weight', ddl: 'real DEFAULT 0.0' },
+      { name: 'last_accessed_at', ddl: 'text' },
+      { name: 'co_accessed_count', ddl: 'integer DEFAULT 0' },
+    ],
+    'nexus',
+  );
 
   // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
   const MAX_RETRIES = 5;
