@@ -68,6 +68,34 @@ If ANY gate fails, FIX IT before completing. Do NOT mark a task done with failin
 - Adding imports without checking if they break circular dependencies
 - Modifying test expectations to match broken code instead of fixing the code
 
+## Package-Boundary Check (MANDATORY)
+
+Before creating or relocating ANY source file, verify the correct package by the
+canonical layering contract:
+
+| Package                    | Purpose                                           |
+|----------------------------|---------------------------------------------------|
+| `packages/core/`           | SDK — runtime primitives, domain logic, store, memory, sentient, gc |
+| `packages/cleo/`           | CLI ONLY — thin dispatch + CLI command handlers   |
+| `packages/contracts/`      | Shared types — envelope, operations, errors       |
+| `packages/cleo-os/`        | Harness — Pi/Claude-Code adapters, CleoOS runtime |
+| `packages/caamp/`          | Agent agent-manifest packaging (CAAMP)            |
+| `packages/studio/`         | Frontend Studio (SvelteKit)                       |
+| `packages/lafs/`           | LAFS envelope spec + validator                    |
+| `packages/cant/`           | .cant DSL + parser                                |
+| `packages/llmtxt-core/`    | llmtxt BlobOps/AgentSession primitives            |
+
+Anti-patterns:
+- ❌ Adding runtime/SDK code to `packages/cleo/` because files already exist there
+- ❌ Placing cross-package shared types inline instead of in `packages/contracts/`
+- ❌ Harness-specific code in `packages/core/` (belongs in `packages/cleo-os/`)
+- ❌ CLI command handlers reaching into OS-level concerns (belongs in cleo-os)
+
+When a task introduces new modules, the orchestrator MUST include an acceptance criterion of the form:
+"Code placed in <packages/xxx/> per Package-Boundary Check — verified against AGENTS.md"
+
+If existing files violate the boundary, flag as a separate cleanup task (e.g., T1015-style relocation epic). Do NOT continue appending to the wrong package.
+
 ## Runtime Data Safety (ADR-013 §9)
 
 `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and
