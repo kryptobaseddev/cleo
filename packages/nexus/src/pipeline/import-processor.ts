@@ -709,6 +709,9 @@ export async function processExtractedImports(options: ProcessImportsOptions): P
 
   let edgesEmitted = 0;
 
+  // Track deduplicated external module nodes: specifier → ExternalModule node ID
+  const externalModules = new Map<string, string>();
+
   // Group by file for progress reporting
   const importsByFile = new Map<string, ExtractedImport[]>();
   for (const imp of imports) {
@@ -744,7 +747,48 @@ export async function processExtractedImports(options: ProcessImportsOptions): P
         workspacePackageMap,
       );
 
-      if (!resolved) continue;
+      if (!resolved) {
+        // Unresolved import: emit as ExternalModule node
+        // Deduplicate by specifier (key: "module;<specifier>")
+        const dedupeKey = `module;${imp.rawImportPath}`;
+        let externalModuleId = externalModules.get(dedupeKey);
+
+        if (!externalModuleId) {
+          // Infer language from importing file extension
+          const lang =
+            filePath.endsWith('.ts') || filePath.endsWith('.tsx')
+              ? 'typescript'
+              : filePath.endsWith('.js') || filePath.endsWith('.jsx')
+                ? 'javascript'
+                : 'unknown';
+
+          // Create the external module node (stable ID: module:<specifier>)
+          externalModuleId = `module:${imp.rawImportPath}`;
+          graph.addNode({
+            id: externalModuleId,
+            kind: 'module',
+            name: imp.rawImportPath,
+            filePath: '', // External modules don't have a local file path
+            startLine: 0,
+            endLine: 0,
+            language: lang,
+            exported: false,
+            isExternal: true,
+          });
+          externalModules.set(dedupeKey, externalModuleId);
+        }
+
+        // Emit imports relation from source file to external module
+        graph.addRelation({
+          source: fileNodeId(filePath),
+          target: externalModuleId,
+          type: 'imports',
+          confidence: 1.0,
+          reason: 'unresolved external import',
+        });
+        edgesEmitted++;
+        continue;
+      }
 
       // Emit graph edge
       addImportEdge(graph, filePath, resolved);
