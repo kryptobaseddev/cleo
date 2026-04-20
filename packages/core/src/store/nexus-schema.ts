@@ -218,6 +218,11 @@ export const nexusNodes = sqliteTable(
      *  For all others: null. */
     metaJson: text('meta_json'),
 
+    /** Whether this node represents an external module (unresolved import).
+     *  Set to true for ExternalModule nodes created by import processor when
+     *  an import specifier cannot be resolved to a local file. */
+    isExternal: integer('is_external', { mode: 'boolean' }).notNull().default(false),
+
     /** ISO 8601 timestamp when this node was last indexed. */
     indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
   },
@@ -231,6 +236,7 @@ export const nexusNodes = sqliteTable(
     index('idx_nexus_nodes_community').on(table.communityId),
     index('idx_nexus_nodes_parent').on(table.parentId),
     index('idx_nexus_nodes_exported').on(table.isExported),
+    index('idx_nexus_nodes_is_external').on(table.isExternal),
   ],
 );
 
