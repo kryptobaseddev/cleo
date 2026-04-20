@@ -108,6 +108,7 @@ export const BRAIN_OBSERVATION_TYPES = [
   'bugfix',
   'decision',
   'refactor',
+  'diary',
 ] as const;
 
 /** Source types for observations (how the observation was created). */

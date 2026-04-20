@@ -37,6 +37,7 @@ export const BRAIN_OBSERVATION_TYPES = [
   'bugfix',
   'decision',
   'refactor',
+  'diary',
 ] as const;
 
 /** Brain observation type. */
