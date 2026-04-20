@@ -220,6 +220,10 @@ export async function generateMemoryBridgeContent(
 
 /**
  * Write memory bridge content to .cleo/memory-bridge.md.
+ *
+ * When `brain.memoryBridge.mode` is `'cli'` (default), the file write is skipped
+ * and the function returns `{ written: false }` without error (T999).
+ * Set mode to `'file'` to restore legacy file-based injection behavior.
  */
 export async function writeMemoryBridge(
   projectRoot: string,
@@ -229,6 +233,12 @@ export async function writeMemoryBridge(
   const bridgePath = join(cleoDir, 'memory-bridge.md');
 
   try {
+    // Mode gate (T999): skip file write when mode='cli'
+    const mode = await resolveMemoryBridgeMode(projectRoot);
+    if (mode === 'cli') {
+      return { path: bridgePath, written: false };
+    }
+
     const content = await generateMemoryBridgeContent(projectRoot, config);
 
     if (!existsSync(cleoDir)) {
@@ -253,6 +263,22 @@ export async function writeMemoryBridge(
       err instanceof Error ? err.message : String(err),
     );
     return { path: bridgePath, written: false };
+  }
+}
+
+/**
+ * Resolve the memory bridge mode from project config.
+ * Returns `'cli'` by default (safe for new installs).
+ *
+ * @param projectRoot - Absolute path to the project root.
+ */
+async function resolveMemoryBridgeMode(projectRoot: string): Promise<'cli' | 'file'> {
+  try {
+    const { loadConfig } = await import('../config.js');
+    const config = await loadConfig(projectRoot);
+    return config.brain?.memoryBridge?.mode ?? 'cli';
+  } catch {
+    return 'cli';
   }
 }
 
@@ -310,6 +336,12 @@ export async function generateContextAwareContent(
     const { loadConfig } = await import('../config.js');
     const config = await loadConfig(projectRoot);
     const maxTokens = config.brain?.memoryBridge?.maxTokens ?? 2000;
+
+    // Mode gate (T999): skip file write when mode='cli'
+    const bridgeMode = config.brain?.memoryBridge?.mode ?? 'cli';
+    if (bridgeMode === 'cli') {
+      return;
+    }
 
     // Build a search query from scope + currentTaskId
     const query = currentTaskId ? `${scope} ${currentTaskId}` : scope;
