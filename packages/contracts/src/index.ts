@@ -122,6 +122,18 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
+// === Brain Unified-Graph Types (canonical — T989 unification) ===
+export type {
+  BrainConnectionStatus,
+  BrainEdge,
+  BrainGraph,
+  BrainNode,
+  BrainNodeKind,
+  BrainProjectContext,
+  BrainQueryOptions,
+  BrainStreamEvent,
+  BrainSubstrate,
+} from './brain-graph.js';
 // === Brain/Memory Types ===
 export type {
   BrainCognitiveType,

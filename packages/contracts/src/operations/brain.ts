@@ -21,12 +21,13 @@
  * `Record<string, unknown>` is legitimate — super-graph callers treat
  * it opaquely; individual substrate adapters own the concrete shape.
  *
- * SYNC: Canonical runtime implementation now lives at
- * `@cleocode/brain` (BrainNode, BrainEdge, BrainGraph, adapters, SSE
- * stream). The runtime shapes there are intentionally structurally
- * distinct from these wire-format contracts — runtime `BrainNode` uses
- * `kind: BrainNodeKind` + `meta` + optional adapter-produced `weight`,
- * whereas contract `BrainNode` below uses `type: string` + `data`.
+ * SYNC: Canonical runtime shapes (`BrainNode`, `BrainEdge`, `BrainGraph`)
+ * live at `packages/contracts/src/brain-graph.ts` (T989 unification).
+ * The types in this file are **wire-format only** and are named with a
+ * `Wire` suffix (`BrainNodeWire`, `BrainEdgeWire`, `BrainStreamEventWire`)
+ * to prevent collision with the canonical runtime types. Runtime
+ * `BrainNode` uses `kind: BrainNodeKind` + `meta` + optional `weight`,
+ * whereas `BrainNodeWire` uses `type: string` + `data`.
  *
  * @task T962 — Orchestration Coherence v4 (BRAIN super-domain)
  * @task T968 — operations/brain.ts contract authoring (Wave B)
@@ -120,8 +121,10 @@ export type BrainEdgeKind =
  * statically-typed payload belongs inside each substrate adapter.
  *
  * @task T962 / T968
+ * @remarks Wire-format type. The canonical runtime shape is {@link BrainNode}
+ *   from `@cleocode/contracts` (`packages/contracts/src/brain-graph.ts`).
  */
-export interface BrainNode {
+export interface BrainNodeWire {
   /** Substrate-prefixed identifier (see {@link BrainNodeId}). */
   id: BrainNodeId;
   /** Source substrate. */
@@ -149,9 +152,12 @@ export interface BrainNode {
  * in-substrate (both endpoints share the same prefix) or cross-substrate
  * (bridges between e.g. `memory:…` and `nexus:…`).
  *
+ * Wire-format type. The canonical runtime shape is {@link BrainEdge}
+ * from `@cleocode/contracts` (`packages/contracts/src/brain-graph.ts`).
+ *
  * @task T962 / T968
  */
-export interface BrainEdge {
+export interface BrainEdgeWire {
   /** Source node id. */
   from: BrainNodeId;
   /** Target node id. */
@@ -234,9 +240,9 @@ export interface BrainQueryParams {
  */
 export interface BrainQueryResult {
   /** Merged, deduplicated nodes across substrates. */
-  nodes: BrainNode[];
+  nodes: BrainNodeWire[];
   /** Edges (may reference stub nodes injected for cross-substrate targets). */
-  edges: BrainEdge[];
+  edges: BrainEdgeWire[];
   /** Aggregate and per-substrate counters. */
   stats: {
     /** Per-substrate node/edge contribution. */
@@ -273,13 +279,13 @@ export interface BrainNodeParams {
  */
 export interface BrainNodeResult {
   /** The requested node. */
-  node: BrainNode;
+  node: BrainNodeWire;
   /** Neighbour edges partitioned by direction relative to `node.id`. */
   neighbors: {
     /** Edges whose `to` equals the requested node. */
-    inbound: BrainEdge[];
+    inbound: BrainEdgeWire[];
     /** Edges whose `from` equals the requested node. */
-    outbound: BrainEdge[];
+    outbound: BrainEdgeWire[];
   };
 }
 
@@ -315,9 +321,9 @@ export interface BrainSubstrateResult {
   /** The substrate that was projected. */
   substrate: BrainSubstrateName;
   /** Nodes contributed by this substrate. */
-  nodes: BrainNode[];
+  nodes: BrainNodeWire[];
   /** Edges contributed by this substrate. */
-  edges: BrainEdge[];
+  edges: BrainEdgeWire[];
   /** True when the result was capped by `limit`. */
   truncated: boolean;
 }
@@ -343,16 +349,18 @@ export interface BrainSubstrateResult {
  * - `task.status`    — shortcut for tasks-substrate status changes.
  * - `message.send`   — shortcut for conduit-substrate message inserts.
  *
- * Mirrors `@cleocode/brain :: BrainStreamEvent` with super-graph-aligned
- * identifiers (ids are substrate-prefixed).
+ * Wire-format event union. The canonical runtime event type is
+ * `{@link BrainStreamEvent}` from `@cleocode/contracts` (`brain-graph.ts`).
+ * The main difference: wire-format uses `from`/`to`/`kind` for edge events,
+ * runtime uses `fromId`/`toId`/`edgeType` for compatibility with studio SSE.
  *
  * @task T962 / T968
  */
-export type BrainStreamEvent =
+export type BrainStreamEventWire =
   | { type: 'hello'; ts: string }
   | { type: 'heartbeat'; ts: string }
-  | { type: 'node.create'; node: BrainNode; ts: string }
-  | { type: 'node.update'; node: BrainNode; ts: string }
+  | { type: 'node.create'; node: BrainNodeWire; ts: string }
+  | { type: 'node.update'; node: BrainNodeWire; ts: string }
   | {
       type: 'edge.strengthen';
       from: BrainNodeId;
@@ -393,7 +401,7 @@ export interface BrainStreamParams {
   /** Restrict events to these substrates. Default: all. */
   substrates?: BrainSubstrateName[];
   /** Restrict to these event kinds (e.g. `['node.create', 'edge.strengthen']`). */
-  kinds?: Array<BrainStreamEvent['type']>;
+  kinds?: Array<BrainStreamEventWire['type']>;
   /**
    * ISO 8601 resume cursor. When set, the server replays events emitted
    * at or after `sinceTs` before tailing the live stream.
@@ -414,7 +422,7 @@ export interface BrainStreamParams {
  */
 export interface BrainStreamResult {
   /** One decoded SSE frame. */
-  event: BrainStreamEvent;
+  event: BrainStreamEventWire;
 }
 
 // ============================================================================
@@ -455,7 +463,7 @@ export interface BrainBridgesParams {
  */
 export interface BrainBridgesResult {
   /** Cross-substrate edges matching the query. */
-  bridges: BrainEdge[];
+  bridges: BrainEdgeWire[];
   /** Per-pair counts keyed by `"${fromSubstrate}->${toSubstrate}"`. */
   pairCounts: Record<string, number>;
   /** Total bridges returned. */
@@ -498,7 +506,7 @@ export interface BrainNeighborhoodParams {
  */
 export interface BrainNeighborhoodNode {
   /** The visited node. */
-  node: BrainNode;
+  node: BrainNodeWire;
   /** BFS distance from the seed (`0` = seed itself). */
   depth: number;
 }
@@ -514,7 +522,7 @@ export interface BrainNeighborhoodResult {
   /** Nodes visited, annotated with BFS depth. */
   nodes: BrainNeighborhoodNode[];
   /** Edges traversed during expansion. */
-  edges: BrainEdge[];
+  edges: BrainEdgeWire[];
   /** Maximum depth actually reached (≤ requested `hops`). */
   reachedDepth: number;
   /** True when the traversal was capped by `maxNodes`. */
@@ -554,7 +562,7 @@ export interface BrainSearchParams {
  */
 export interface BrainSearchHit {
   /** The matched node. */
-  node: BrainNode;
+  node: BrainNodeWire;
   /** Normalised relevance in `[0, 1]`. Higher = better. */
   score: number;
   /** Which substrate contributed this hit. */

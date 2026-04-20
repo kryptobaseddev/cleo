@@ -1,17 +1,23 @@
 /**
  * Memory graph API endpoint.
- * GET /api/memory/graph → { nodes: BrainNode[], edges: BrainEdge[] }
+ * GET /api/memory/graph → { nodes: MemoryGraphNode[], edges: MemoryGraphEdge[] }
  *
  * Returns brain_page_nodes and brain_page_edges for the force-directed graph.
  * Limits to 500 nodes for performance (highest quality first).
+ *
+ * @remarks
+ * These are raw database row types (`MemoryGraphNode`, `MemoryGraphEdge`) —
+ * distinct from the unified super-graph types (`BrainNode`, `BrainEdge`)
+ * from `@cleocode/contracts`. T989 renamed the local types to prevent
+ * confusion with the canonical graph shapes.
  */
 
 import { json } from '@sveltejs/kit';
 import { getBrainDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-/** A single graph node from brain_page_nodes. */
-export interface BrainNode {
+/** A single raw graph node row from the `brain_page_nodes` table. */
+export interface MemoryGraphNode {
   id: string;
   node_type: string;
   label: string;
@@ -20,8 +26,8 @@ export interface BrainNode {
   created_at: string;
 }
 
-/** A single graph edge from brain_page_edges. */
-export interface BrainEdge {
+/** A single raw graph edge row from the `brain_page_edges` table. */
+export interface MemoryGraphEdge {
   from_id: string;
   to_id: string;
   edge_type: string;
@@ -29,10 +35,10 @@ export interface BrainEdge {
   created_at: string;
 }
 
-/** API response shape. */
-export interface BrainGraphResponse {
-  nodes: BrainNode[];
-  edges: BrainEdge[];
+/** API response shape for the `/api/memory/graph` endpoint. */
+export interface MemoryGraphResponse {
+  nodes: MemoryGraphNode[];
+  edges: MemoryGraphEdge[];
   total_nodes: number;
   total_edges: number;
 }
@@ -47,7 +53,7 @@ export const GET: RequestHandler = ({ locals }) => {
       edges: [],
       total_nodes: 0,
       total_edges: 0,
-    } satisfies BrainGraphResponse);
+    } satisfies MemoryGraphResponse);
   }
 
   try {
@@ -65,7 +71,7 @@ export const GET: RequestHandler = ({ locals }) => {
          ORDER BY quality_score DESC, last_activity_at DESC
          LIMIT ?`,
       )
-      .all(MAX_NODES) as BrainNode[];
+      .all(MAX_NODES) as MemoryGraphNode[];
 
     const nodeIds = new Set(nodes.map((n) => n.id));
 
@@ -75,7 +81,7 @@ export const GET: RequestHandler = ({ locals }) => {
         `SELECT from_id, to_id, edge_type, weight, created_at
          FROM brain_page_edges`,
       )
-      .all() as BrainEdge[];
+      .all() as MemoryGraphEdge[];
 
     const edges = allEdges.filter((e) => nodeIds.has(e.from_id) && nodeIds.has(e.to_id));
 
@@ -84,13 +90,13 @@ export const GET: RequestHandler = ({ locals }) => {
       edges,
       total_nodes: totalNodeRow.cnt,
       total_edges: totalEdgeRow.cnt,
-    } satisfies BrainGraphResponse);
+    } satisfies MemoryGraphResponse);
   } catch {
     return json({
       nodes: [],
       edges: [],
       total_nodes: 0,
       total_edges: 0,
-    } satisfies BrainGraphResponse);
+    } satisfies MemoryGraphResponse);
   }
 };
