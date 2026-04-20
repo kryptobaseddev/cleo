@@ -134,7 +134,7 @@ function runNexusMigrations(
     if (baseline) {
       nativeDb
         .prepare(
-          `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
+          `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)`,
         )
         .run();
       nativeDb
@@ -194,10 +194,20 @@ function runNexusMigrations(
       .run();
 
     // Create indexes
-    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project ON nexus_contracts(project_id)').run();
-    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_type ON nexus_contracts(type)').run();
-    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_path ON nexus_contracts(path)').run();
-    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_method ON nexus_contracts(method)').run();
+    nativeDb
+      .prepare(
+        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project ON nexus_contracts(project_id)',
+      )
+      .run();
+    nativeDb
+      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_type ON nexus_contracts(type)')
+      .run();
+    nativeDb
+      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_path ON nexus_contracts(path)')
+      .run();
+    nativeDb
+      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_method ON nexus_contracts(method)')
+      .run();
     nativeDb
       .prepare(
         'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project_type ON nexus_contracts(project_id, type)',
@@ -209,7 +219,9 @@ function runNexusMigrations(
       )
       .run();
     nativeDb
-      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_created ON nexus_contracts(created_at)')
+      .prepare(
+        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_created ON nexus_contracts(created_at)',
+      )
       .run();
   }
 
@@ -221,6 +233,15 @@ function runNexusMigrations(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       migrate(db, { migrationsFolder });
+      // T1062: post-migration safety net for is_external — ensures the column exists
+      // on fresh DBs where ensureColumns ran before the table was created, and on
+      // old DBs where this column was added after initial schema creation.
+      ensureColumns(
+        nativeDb,
+        'nexus_nodes',
+        [{ name: 'is_external', ddl: 'integer DEFAULT 0' }],
+        'nexus',
+      );
       return;
     } catch (err) {
       if (!isSqliteBusy(err) || attempt === MAX_RETRIES) throw err;
