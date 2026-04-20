@@ -977,7 +977,8 @@ export async function runConsolidation(
   // identifies code that has become less relevant over time.
   try {
     const { applyPlasticityDecay } = await import('./nexus-plasticity.js');
-    const decayResult = await applyPlasticityDecay(projectRoot);
+    // nexus.db is global (resolved via getCleoHome()), not per-project
+    const decayResult = await applyPlasticityDecay();
     result.nexusEdgesDecayed = decayResult.updated;
   } catch (err) {
     console.warn('[consolidation] Step 6c plasticity decay failed:', err);
