@@ -5,9 +5,9 @@
  * @epic T1042
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateNexusImpactGate } from '../nexus-impact-gate.js';
 
 describe('nexus-impact-gate', () => {
