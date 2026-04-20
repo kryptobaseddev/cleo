@@ -4408,16 +4408,16 @@ const contractsSyncCommand = defineCommand({
           import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
         ]);
 
-      const [httpResult, grpcResult, topicResult] = await Promise.all([
+      const [httpContracts, grpcContracts, topicContracts] = await Promise.all([
         extractHttpContracts(projectId, repoPath),
         extractGrpcContracts(projectId, repoPath),
         extractTopicContracts(projectId, repoPath),
       ]);
 
-      const totalCount =
-        httpResult.httpContracts.length +
-        grpcResult.grpcContracts.length +
-        topicResult.topicContracts.length;
+      const httpCount = httpContracts?.length ?? 0;
+      const grpcCount = grpcContracts?.length ?? 0;
+      const topicCount = topicContracts?.length ?? 0;
+      const totalCount = httpCount + grpcCount + topicCount;
       const durationMs = Date.now() - startTime;
 
       if (jsonOutput) {
@@ -4428,9 +4428,9 @@ const contractsSyncCommand = defineCommand({
               data: {
                 projectId,
                 repoPath,
-                http: httpResult.httpContracts.length,
-                grpc: grpcResult.grpcContracts.length,
-                topic: topicResult.topicContracts.length,
+                http: httpCount,
+                grpc: grpcCount,
+                topic: topicCount,
                 totalCount,
               },
               meta: {
@@ -4446,9 +4446,9 @@ const contractsSyncCommand = defineCommand({
       } else {
         process.stdout.write(
           `[nexus] Contracts extracted from ${projectId}:\n` +
-            `  HTTP:  ${httpResult.httpContracts.length}\n` +
-            `  gRPC:  ${grpcResult.grpcContracts.length}\n` +
-            `  Topic: ${topicResult.topicContracts.length}\n` +
+            `  HTTP:  ${httpCount}\n` +
+            `  gRPC:  ${grpcCount}\n` +
+            `  Topic: ${topicCount}\n` +
             `  Total: ${totalCount}\n` +
             `  (${durationMs}ms)\n`,
         );
@@ -4530,8 +4530,8 @@ const contractsShowCommand = defineCommand({
         extractTopicContracts(projectB, repoPath),
       ]);
 
-      const contractsA = [...httpA.httpContracts, ...grpcA.grpcContracts, ...topicA.topicContracts];
-      const contractsB = [...httpB.httpContracts, ...grpcB.grpcContracts, ...topicB.topicContracts];
+      const contractsA = [...(httpA ?? []), ...(grpcA ?? []), ...(topicA ?? [])];
+      const contractsB = [...(httpB ?? []), ...(grpcB ?? []), ...(topicB ?? [])];
       const matches = matchContracts(contractsA, contractsB) as Array<
         import('@cleocode/contracts').ContractMatch
       >;
@@ -4709,6 +4709,91 @@ const contractsCommand = defineCommand({
   },
 });
 
+/** cleo nexus wiki — community-grouped wiki index (no-LLM) */
+const wikiCommand = defineCommand({
+  meta: {
+    name: 'wiki',
+    description: 'Generate community-grouped wiki index from nexus code graph',
+  },
+  args: {
+    output: {
+      type: 'string',
+      description: 'Output directory for wiki files (default: .cleo/wiki)',
+      alias: 'o',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const outputDir = (args.output as string | undefined) ?? path.join(process.cwd(), '.cleo', 'wiki');
+
+    try {
+      const { generateNexusWikiIndex } = await import(
+        '@cleocode/core/nexus/wiki-index.js' as string
+      );
+      const result = await generateNexusWikiIndex(outputDir, process.cwd());
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: result.success,
+              data: result,
+              meta: {
+                operation: 'nexus.wiki',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        if (result.success) {
+          process.stdout.write(
+            `[nexus] wiki generated:\n` +
+              `  Communities: ${result.communityCount}\n` +
+              `  Files:       ${result.fileCount}\n` +
+              `  Output:      ${outputDir}\n` +
+              `  (${durationMs}ms)\n`,
+          );
+        } else {
+          process.stderr.write(`[nexus] wiki generation failed: ${result.error}\n`);
+          process.exitCode = 1;
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_WIKI_GENERATION_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.wiki',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error generating wiki: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
 export const nexusCommand = defineCommand({
   meta: { name: 'nexus', description: 'Cross-project NEXUS operations' },
   subCommands: {
@@ -4760,6 +4845,8 @@ export const nexusCommand = defineCommand({
     'search-code': searchCodeCommand,
     // T1065 — contract registry
     contracts: contractsCommand,
+    // T1060 — wiki index
+    wiki: wikiCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
