@@ -24,6 +24,13 @@ export interface StoreLearningParams {
   actionable?: boolean;
   application?: string;
   applicableTypes?: string[];
+  /**
+   * T992: Internal flag — when true, bypasses the verifyAndStore gate.
+   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
+   * infinite recursion (gate → storeVerifiedCandidate → storeLearning → gate).
+   * External callers MUST NOT set this flag.
+   */
+  _skipGate?: boolean;
 }
 
 /** Parameters for searching learnings. */
@@ -57,9 +64,68 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
     throw new Error('Confidence must be between 0.0 and 1.0');
   }
 
+  // T992: Route through verifyCandidate gate unless called internally from
+  // storeVerifiedCandidate (which already ran the gate before calling here).
+  // Uses verifyCandidate (not verifyAndStore) to avoid double-writes — this
+  // function handles its own storage in the code below.
+  if (!params._skipGate) {
+    const { verifyCandidate } = await import('./extraction-gate.js');
+    const isManualSrc = params.source.includes('manual') || params.source.includes('owner');
+    const isTranscriptSrc = params.source.includes('transcript:ses_');
+    const sourceConf = isManualSrc
+      ? ('owner' as const)
+      : isTranscriptSrc
+        ? ('speculative' as const)
+        : ('agent' as const);
+    const gateResult = await verifyCandidate(projectRoot, {
+      text: params.insight.trim(),
+      memoryType: 'semantic',
+      tier: isManualSrc ? 'medium' : 'short',
+      confidence: params.confidence,
+      source: isManualSrc ? 'manual' : 'transcript',
+      sourceConfidence: sourceConf,
+      trusted: isManualSrc,
+    });
+    if (gateResult.action !== 'stored') {
+      // Gate merged, rejected, or queued — return best available representation
+      const existing = gateResult.id
+        ? await (await getBrainAccessor(projectRoot)).getLearning(gateResult.id).catch(() => null)
+        : null;
+      if (existing) {
+        return { ...existing, applicableTypes: JSON.parse(existing.applicableTypesJson || '[]') };
+      }
+      // Fallback: return minimal shape when no existing entry found
+      return {
+        id: gateResult.id ?? '',
+        insight: params.insight.trim(),
+        source: params.source,
+        confidence: params.confidence,
+        actionable: params.actionable ?? false,
+        application: params.application ?? null,
+        applicableTypesJson: '[]',
+        applicableTypes: [],
+        qualityScore: 0,
+        memoryTier: 'short' as const,
+        memoryType: 'semantic' as const,
+        sourceConfidence: sourceConf,
+        verified: false,
+        contentHash: '',
+        createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        updatedAt: null,
+        tierPromotedAt: null,
+        tierPromotionReason: null,
+        invalidAt: null,
+        pruneCandidateAt: null,
+        citationCount: 0,
+        pruneCandidate: false,
+      };
+    }
+    // Gate approved — fall through to native storage below (no recursion needed).
+  }
+
   const accessor = await getBrainAccessor(projectRoot);
 
-  // Check for duplicate insight by normalized text
+  // Check for duplicate insight by normalized text (cross-session guard)
   const existingLearnings = await accessor.findLearnings();
   const normalizedInput = params.insight.trim().toLowerCase();
   const duplicate = existingLearnings.find(

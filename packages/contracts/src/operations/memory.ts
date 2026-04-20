@@ -944,6 +944,100 @@ export interface MemoryVerifyResult {
   verifiedAt: string;
 }
 
+// --------------------------------------------------------------------------
+// memory.promote-explain → read-only view over STDP + retrieval + citation
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `memory.promote-explain`.
+ *
+ * @remarks
+ * Read-only. Accepts the `id` of any typed brain entry (`O-*`, `D-*`, `P-*`,
+ * `L-*`) and returns a score breakdown explaining why the entry was (or was
+ * not) promoted to a higher memory tier.
+ *
+ * @task T997
+ */
+export interface MemoryPromoteExplainParams {
+  /** Brain entry identifier (e.g. `O-abc123`, `D-def456`). */
+  id: string;
+}
+
+/**
+ * A single STDP edge weight record relevant to this entry.
+ *
+ * @task T997
+ */
+export interface MemoryStdpWeight {
+  /** Source node id. */
+  fromId: string;
+  /** Target node id. */
+  toId: string;
+  /** Edge type (e.g. `co_retrieved`, `semantic`). */
+  edgeType: string;
+  /** Edge weight [0..1]. */
+  weight: number;
+  /** Number of LTP reinforcement events applied to this edge. */
+  reinforcementCount: number;
+  /** ISO 8601 timestamp of last reinforcement (or null if never reinforced). */
+  lastReinforcedAt: string | null;
+}
+
+/**
+ * Breakdown of factors that determine promotion eligibility.
+ *
+ * @task T997
+ */
+export interface MemoryPromoteScoreBreakdown {
+  /** Aggregate STDP weight (max edge weight across all co-retrieved edges; 0 if none). */
+  stdpWeightMax: number;
+  /** Number of retrieval log entries that included this entry. */
+  retrievalCount: number;
+  /** ISO 8601 timestamp of the most recent retrieval (or null if never retrieved). */
+  lastAccessedAt: string | null;
+  /** Number of citations (from `citation_count` column). */
+  citationCount: number;
+  /** Content quality score [0..1] from the typed table. */
+  qualityScore: number | null;
+  /** Whether this entry has been flagged as a prune candidate. */
+  pruneCandidate: boolean;
+  /** Whether this entry has been manually verified (ground-truth promoted). */
+  verified: boolean;
+}
+
+/**
+ * Promotion tier decision.
+ *
+ * - `promoted` — entry has been elevated to a longer-lived memory tier.
+ * - `rejected`  — entry is flagged for pruning (prune_candidate=1).
+ * - `pending`   — entry has not yet been promoted or rejected.
+ *
+ * @task T997
+ */
+export type MemoryPromotionTier = 'promoted' | 'rejected' | 'pending';
+
+/**
+ * Result of `memory.promote-explain`.
+ *
+ * @task T997
+ */
+export interface MemoryPromoteExplainResult {
+  /** Brain entry identifier queried. */
+  id: string;
+  /** Table the entry lives in (without `brain_` prefix). */
+  table: string;
+  /** Promotion tier decision. */
+  tier: MemoryPromotionTier;
+  /** Human-readable explanation of the tier decision. */
+  explanation: string;
+  /** ISO 8601 timestamp when tier was promoted (null if never promoted or rejected). */
+  promotedAt: string | null;
+  /** STDP edge weights involving this entry's page-node (may be empty). */
+  stdpWeights: MemoryStdpWeight[];
+  /** Score breakdown used to determine promotion eligibility. */
+  scoreBreakdown: MemoryPromoteScoreBreakdown;
+}
+
 // ============================================================================
 // Paginated result helper (for HTTP list surfaces that opt into LAFSPage)
 // ============================================================================

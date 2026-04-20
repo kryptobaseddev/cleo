@@ -505,32 +505,38 @@ export async function storeVerifiedCandidate(
   switch (candidate.memoryType) {
     case 'semantic': {
       const { storeLearning } = await import('./learnings.js');
+      // T992: _skipGate=true prevents re-entry into verifyAndStore (gate already ran above).
       const row = await storeLearning(projectRoot, {
         insight: candidate.text,
         source: candidate.source,
         confidence: candidate.confidence,
         actionable: candidate.source === 'task-completion',
+        _skipGate: true,
       });
       return row.id;
     }
 
     case 'episodic': {
       const { observeBrain } = await import('./brain-retrieval.js');
+      // T992: _skipGate=true prevents re-entry into verifyAndStore (gate already ran above).
       const result = await observeBrain(projectRoot, {
         text: candidate.text,
         title,
         sourceSessionId: candidate.sourceSessionId,
         sourceType: candidate.source === 'manual' ? 'manual' : 'agent',
+        _skipGate: true,
       });
       return result.id;
     }
 
     case 'procedural': {
       const { storePattern } = await import('./patterns.js');
+      // T992: _skipGate=true prevents re-entry into verifyAndStore (gate already ran above).
       const row = await storePattern(projectRoot, {
         type: 'workflow',
         pattern: candidate.text,
         context: title,
+        _skipGate: true,
       });
       return row.id;
     }
@@ -538,11 +544,13 @@ export async function storeVerifiedCandidate(
     default: {
       // Exhaustive fallback — should never reach here with correct types
       const { observeBrain } = await import('./brain-retrieval.js');
+      // T992: _skipGate=true prevents re-entry into verifyAndStore (gate already ran above).
       const result = await observeBrain(projectRoot, {
         text: candidate.text,
         title,
         sourceSessionId: candidate.sourceSessionId,
         sourceType: candidate.source === 'manual' ? 'manual' : 'agent',
+        _skipGate: true,
       });
       return result.id;
     }
