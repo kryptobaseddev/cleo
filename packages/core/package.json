@@ -91,6 +91,61 @@
       "import": "./dist/nexus/*.js",
       "require": "./dist/nexus/*.js"
     },
+    "./nexus/route-analysis.js": {
+      "types": "./dist/nexus/route-analysis.d.ts",
+      "import": "./dist/nexus/route-analysis.js",
+      "require": "./dist/nexus/route-analysis.js"
+    },
+    "./nexus/contracts": {
+      "types": "./dist/nexus/contracts/index.d.ts",
+      "import": "./dist/nexus/contracts/index.js",
+      "require": "./dist/nexus/contracts/index.js"
+    },
+    "./nexus/contracts/http-extractor.js": {
+      "types": "./dist/nexus/contracts/http-extractor.d.ts",
+      "import": "./dist/nexus/contracts/http-extractor.js",
+      "require": "./dist/nexus/contracts/http-extractor.js"
+    },
+    "./nexus/contracts/grpc-extractor.js": {
+      "types": "./dist/nexus/contracts/grpc-extractor.d.ts",
+      "import": "./dist/nexus/contracts/grpc-extractor.js",
+      "require": "./dist/nexus/contracts/grpc-extractor.js"
+    },
+    "./nexus/contracts/topic-extractor.js": {
+      "types": "./dist/nexus/contracts/topic-extractor.d.ts",
+      "import": "./dist/nexus/contracts/topic-extractor.js",
+      "require": "./dist/nexus/contracts/topic-extractor.js"
+    },
+    "./nexus/contracts/matcher.js": {
+      "types": "./dist/nexus/contracts/matcher.d.ts",
+      "import": "./dist/nexus/contracts/matcher.js",
+      "require": "./dist/nexus/contracts/matcher.js"
+    },
+    "./nexus/tasks-bridge.js": {
+      "types": "./dist/nexus/tasks-bridge.d.ts",
+      "import": "./dist/nexus/tasks-bridge.js",
+      "require": "./dist/nexus/tasks-bridge.js"
+    },
+    "./memory/graph-memory-bridge.js": {
+      "types": "./dist/memory/graph-memory-bridge.d.ts",
+      "import": "./dist/memory/graph-memory-bridge.js",
+      "require": "./dist/memory/graph-memory-bridge.js"
+    },
+    "./nexus/living-brain.js": {
+      "types": "./dist/nexus/living-brain.d.ts",
+      "import": "./dist/nexus/living-brain.js",
+      "require": "./dist/nexus/living-brain.js"
+    },
+    "./nexus/query-dsl.js": {
+      "types": "./dist/nexus/query-dsl.d.ts",
+      "import": "./dist/nexus/query-dsl.js",
+      "require": "./dist/nexus/query-dsl.js"
+    },
+    "./memory/brain-reasoning.js": {
+      "types": "./dist/memory/brain-reasoning.d.ts",
+      "import": "./dist/memory/brain-reasoning.js",
+      "require": "./dist/memory/brain-reasoning.js"
+    },
     "./memory/transcript-scanner.js": {
       "types": "./dist/memory/transcript-scanner.d.ts",
       "import": "./dist/memory/transcript-scanner.js",

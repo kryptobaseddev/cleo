@@ -4134,6 +4134,581 @@ const impactFullCommand = defineCommand({
   },
 });
 
+// ---------------------------------------------------------------------------
+// T1071 — conduit-scan: link conduit messages to nexus symbols
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo nexus conduit-scan — Scan conduit messages and link them to nexus symbols.
+ *
+ * Writes `conduit_mentions_symbol` edges to brain_page_edges (idempotent).
+ * Gracefully no-ops when conduit.db or nexus.db is absent.
+ *
+ * @task T1071
+ * @epic T1042
+ */
+const conduitScanCommand = defineCommand({
+  meta: {
+    name: 'conduit-scan',
+    description:
+      'Scan conduit messages for symbol mentions and link them to nexus nodes (conduit_mentions_symbol edges)',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const projectRoot = process.cwd();
+    try {
+      const { linkConduitMessagesToSymbols } = await import(
+        '@cleocode/core/memory/graph-memory-bridge.js' as string
+      );
+      const result = await linkConduitMessagesToSymbols(projectRoot);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.conduit-scan',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stdout.write(
+          `[nexus] conduit-scan complete: scanned=${result.scanned} linked=${result.linked} (${durationMs}ms)\n`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CONDUIT_SCAN_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.conduit-scan',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running conduit-scan: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// T1067 — task-symbols: show symbols touched by a task
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo nexus task-symbols <taskId> — Show code symbols touched by a task.
+ *
+ * Forward-lookup (task → symbols) via task_touches_symbol edges.
+ *
+ * @task T1067
+ * @epic T1042
+ */
+const taskSymbolsCommand = defineCommand({
+  meta: {
+    name: 'task-symbols',
+    description: 'Show code symbols touched by a task (task_touches_symbol forward-lookup)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID (e.g., T001)',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const taskId = args.taskId as string;
+    const projectRoot = process.cwd();
+    try {
+      const { getSymbolsForTask } = await import('@cleocode/core/nexus/tasks-bridge.js' as string);
+      const symbols = await getSymbolsForTask(taskId, projectRoot);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: { taskId, count: symbols.length, symbols },
+              meta: {
+                operation: 'nexus.task-symbols',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        if (symbols.length === 0) {
+          process.stdout.write(
+            `[nexus] No symbols found for task ${taskId}.\n` +
+              `  Run 'cleo nexus analyze' and ensure git history is available.\n`,
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Symbols touched by ${taskId} (${symbols.length} total):\n\n`,
+          );
+          for (const s of symbols) {
+            process.stdout.write(
+              `  [${s.kind.padEnd(12)}] ${s.label.padEnd(50)}  w=${s.weight.toFixed(2)}  via=${s.matchStrategy}\n`,
+            );
+          }
+        }
+        process.stdout.write(`\n(${durationMs}ms)\n`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_TASK_SYMBOLS_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.task-symbols',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running task-symbols: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// T1058 — search-code: BM25 code symbol search against nexus.db
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo nexus search-code <query> — BM25 search of code symbols in nexus.db.
+ *
+ * Uses the same BM25 index as the augment hook. Returns symbol names, kinds,
+ * file paths, and relevance scores.
+ *
+ * @task T1058
+ * @epic T1042
+ */
+const searchCodeCommand = defineCommand({
+  meta: {
+    name: 'search-code',
+    description: 'BM25 search of code symbols in nexus.db (augment BM25 index)',
+  },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Search query (symbol name, file pattern, or keyword)',
+      required: true,
+    },
+    limit: {
+      type: 'string',
+      description: 'Max results (default: 10)',
+      default: '10',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const query = args.query as string;
+    const limit = parseInt(args.limit as string, 10) || 10;
+
+    await dispatchFromCli(
+      'query',
+      'nexus',
+      'augment',
+      { pattern: query, limit },
+      { command: 'nexus' },
+    );
+
+    const durationMs = Date.now() - startTime;
+    if (!jsonOutput) {
+      process.stdout.write(`\n(${durationMs}ms)\n`);
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// T1065 — contracts: contract extraction and compatibility commands
+// ---------------------------------------------------------------------------
+
+/** cleo nexus contracts sync — extract and store contracts from current project */
+const contractsSyncCommand = defineCommand({
+  meta: {
+    name: 'sync',
+    description: 'Extract contracts (HTTP/gRPC/topic) from the current project and store them',
+  },
+  args: {
+    path: {
+      type: 'positional',
+      description: 'Path to project directory (default: cwd)',
+      required: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const projectIdOverride = args['project-id'] as string | undefined;
+    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+    try {
+      const [{ extractHttpContracts }, { extractGrpcContracts }, { extractTopicContracts }] =
+        await Promise.all([
+          import('@cleocode/core/nexus/contracts/http-extractor.js' as string),
+          import('@cleocode/core/nexus/contracts/grpc-extractor.js' as string),
+          import('@cleocode/core/nexus/contracts/topic-extractor.js' as string),
+        ]);
+
+      const [httpResult, grpcResult, topicResult] = await Promise.all([
+        extractHttpContracts(projectId, repoPath),
+        extractGrpcContracts(projectId, repoPath),
+        extractTopicContracts(projectId, repoPath),
+      ]);
+
+      const totalCount =
+        httpResult.httpContracts.length +
+        grpcResult.grpcContracts.length +
+        topicResult.topicContracts.length;
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: {
+                projectId,
+                repoPath,
+                http: httpResult.httpContracts.length,
+                grpc: grpcResult.grpcContracts.length,
+                topic: topicResult.topicContracts.length,
+                totalCount,
+              },
+              meta: {
+                operation: 'nexus.contracts.sync',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stdout.write(
+          `[nexus] Contracts extracted from ${projectId}:\n` +
+            `  HTTP:  ${httpResult.httpContracts.length}\n` +
+            `  gRPC:  ${grpcResult.grpcContracts.length}\n` +
+            `  Topic: ${topicResult.topicContracts.length}\n` +
+            `  Total: ${totalCount}\n` +
+            `  (${durationMs}ms)\n`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CONTRACTS_SYNC_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.contracts.sync',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running contracts sync: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+/** cleo nexus contracts show — show contract compatibility between two projects */
+const contractsShowCommand = defineCommand({
+  meta: {
+    name: 'show',
+    description: 'Show contract compatibility matrix between two registered projects',
+  },
+  args: {
+    'project-a': {
+      type: 'string',
+      description: 'First project name or ID',
+      required: true,
+    },
+    'project-b': {
+      type: 'string',
+      description: 'Second project name or ID',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const projectA = args['project-a'] as string;
+    const projectB = args['project-b'] as string;
+    const repoPath = process.cwd();
+
+    try {
+      const [
+        { extractHttpContracts },
+        { extractGrpcContracts },
+        { extractTopicContracts },
+        { matchContracts },
+      ] = await Promise.all([
+        import('@cleocode/core/nexus/contracts/http-extractor.js' as string),
+        import('@cleocode/core/nexus/contracts/grpc-extractor.js' as string),
+        import('@cleocode/core/nexus/contracts/topic-extractor.js' as string),
+        import('@cleocode/core/nexus/contracts/matcher.js' as string),
+      ]);
+
+      const [httpA, grpcA, topicA, httpB, grpcB, topicB] = await Promise.all([
+        extractHttpContracts(projectA, repoPath),
+        extractGrpcContracts(projectA, repoPath),
+        extractTopicContracts(projectA, repoPath),
+        extractHttpContracts(projectB, repoPath),
+        extractGrpcContracts(projectB, repoPath),
+        extractTopicContracts(projectB, repoPath),
+      ]);
+
+      const contractsA = [...httpA.httpContracts, ...grpcA.grpcContracts, ...topicA.topicContracts];
+      const contractsB = [...httpB.httpContracts, ...grpcB.grpcContracts, ...topicB.topicContracts];
+      const matches = matchContracts(contractsA, contractsB) as Array<
+        import('@cleocode/contracts').ContractMatch
+      >;
+
+      const compatibleCount = matches.filter((m) => m.compatibility === 'compatible').length;
+      const incompatibleCount = matches.filter((m) => m.compatibility === 'incompatible').length;
+      const partialCount = matches.filter((m) => m.compatibility === 'partial').length;
+      const overallCompatibility =
+        matches.length > 0 ? Math.round((compatibleCount / matches.length) * 100) : 0;
+
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: {
+                projectAId: projectA,
+                projectBId: projectB,
+                matches,
+                compatibleCount,
+                incompatibleCount,
+                partialCount,
+                overallCompatibility,
+              },
+              meta: {
+                operation: 'nexus.contracts.show',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        if (matches.length === 0) {
+          process.stdout.write(
+            `[nexus] No contract matches found between ${projectA} and ${projectB}.\n` +
+              `  Run 'cleo nexus contracts sync' on both projects first.\n`,
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Contract compatibility: ${projectA} ↔ ${projectB}\n` +
+              `  Compatible: ${compatibleCount}  Incompatible: ${incompatibleCount}  Partial: ${partialCount}\n` +
+              `  Overall: ${overallCompatibility}%\n\n`,
+          );
+          for (const m of matches.slice(0, 20)) {
+            process.stdout.write(
+              `  [${m.compatibility.toUpperCase().padEnd(12)}] ${m.contractA.id} ↔ ${m.contractB.id}  score=${m.score.toFixed(2)}\n`,
+            );
+          }
+          if (matches.length > 20) {
+            process.stdout.write(`  (showing 20 of ${matches.length} matches)\n`);
+          }
+        }
+        process.stdout.write(`\n(${durationMs}ms)\n`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CONTRACTS_SHOW_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.contracts.show',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running contracts show: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+/** cleo nexus contracts link-tasks — link contracts to tasks via task_touches_symbol edges */
+const contractsLinkTasksCommand = defineCommand({
+  meta: {
+    name: 'link-tasks',
+    description: 'Link extracted contracts to tasks that touch their source symbols',
+  },
+  args: {
+    path: {
+      type: 'positional',
+      description: 'Path to project directory (default: cwd)',
+      required: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const projectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+    try {
+      const { runGitLogTaskLinker } = await import(
+        '@cleocode/core/nexus/tasks-bridge.js' as string
+      );
+      const result = await runGitLogTaskLinker(projectId, repoPath);
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: { projectId, repoPath, ...result },
+              meta: {
+                operation: 'nexus.contracts.link-tasks',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stdout.write(
+          `[nexus] contracts link-tasks:\n` +
+            `  Commits processed: ${result.commitsProcessed}\n` +
+            `  Tasks found:       ${result.tasksFound}\n` +
+            `  Edges linked:      ${result.linked}\n` +
+            `  Last commit:       ${result.lastCommitHash ?? '—'}\n` +
+            `  (${durationMs}ms)\n`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CONTRACTS_LINK_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.contracts.link-tasks',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running contracts link-tasks: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+/** cleo nexus contracts — contract extraction and compatibility operations */
+const contractsCommand = defineCommand({
+  meta: { name: 'contracts', description: 'Contract extraction and compatibility operations' },
+  subCommands: {
+    sync: contractsSyncCommand,
+    show: contractsShowCommand,
+    'link-tasks': contractsLinkTasksCommand,
+  },
+});
+
 export const nexusCommand = defineCommand({
   meta: { name: 'nexus', description: 'Cross-project NEXUS operations' },
   subCommands: {
@@ -4177,6 +4752,14 @@ export const nexusCommand = defineCommand({
     'brain-anchors': brainAnchorsCommand,
     why: whyCommand,
     'impact-full': impactFullCommand,
+    // T1071 — conduit scan
+    'conduit-scan': conduitScanCommand,
+    // T1067 — task symbols
+    'task-symbols': taskSymbolsCommand,
+    // T1058 — code symbol search
+    'search-code': searchCodeCommand,
+    // T1065 — contract registry
+    contracts: contractsCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
