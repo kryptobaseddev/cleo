@@ -10,11 +10,21 @@
  *
  * NOTE: there is no MCP runtime bundle. MCP is not a first-class CleoOS
  * primitive; see ADR-035 §D4 (Option Y addendum) for the rationale.
+ *
+ * AUTO-SYNC GUARD (T948 / subpath-contract)
+ * -----------------------------------------
+ * `validateCoreEntryPoints()` is called at the top of `build()`. It reads
+ * packages/core/package.json exports and asserts that every non-wildcard
+ * subpath whose `import` condition resolves to a concrete `dist/*.js` file
+ * has a matching entry in `coreBuildOptions.entryPoints`. The check fails
+ * the build with an actionable error message if a gap exists, making the
+ * class of bug that caused the CI failure in v2026.4.100 impossible to
+ * ship silently.
  */
 
 import * as esbuild from 'esbuild';
 import { chmod, cp, rm } from 'node:fs/promises';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -110,6 +120,28 @@ function workspacePlugin(name, inlineMap) {
 const coreBuildOptions = {
   entryPoints: [
     { in: 'packages/core/src/index.ts', out: 'index' },
+    // ---------------------------------------------------------------------------
+    // Stable public subpath entry points (T948)
+    //
+    // Every subpath declared in packages/core/package.json `exports` whose
+    // `import` condition resolves to a concrete dist/*.js file MUST appear here.
+    // `validateCoreEntryPoints()` asserts this invariant at build time so that
+    // a missing entry is caught before CI ships a broken tarball.
+    // ---------------------------------------------------------------------------
+    // ./sdk — Cleo class facade, imported via `@cleocode/core/sdk`
+    { in: 'packages/core/src/cleo.ts', out: 'cleo' },
+    // ./contracts — re-exports from @cleocode/contracts, imported via `@cleocode/core/contracts`
+    { in: 'packages/core/src/contracts.ts', out: 'contracts' },
+    // ./tasks — task domain index, imported via `@cleocode/core/tasks`
+    { in: 'packages/core/src/tasks/index.ts', out: 'tasks/index' },
+    // ./memory — memory domain index, imported via `@cleocode/core/memory`
+    { in: 'packages/core/src/memory/index.ts', out: 'memory/index' },
+    // ./sessions — sessions domain index, imported via `@cleocode/core/sessions`
+    { in: 'packages/core/src/sessions/index.ts', out: 'sessions/index' },
+    // ./nexus — nexus domain index, imported via `@cleocode/core/nexus`
+    { in: 'packages/core/src/nexus/index.ts', out: 'nexus/index' },
+    // ./lifecycle — lifecycle domain index, imported via `@cleocode/core/lifecycle`
+    { in: 'packages/core/src/lifecycle/index.ts', out: 'lifecycle/index' },
     // Sub-entry for @cleocode/core/conduit — must produce dist/conduit/index.js
     // to match the "./conduit" export in packages/core/package.json.
     { in: 'packages/core/src/conduit/index.ts', out: 'conduit/index' },
@@ -144,6 +176,7 @@ const coreBuildOptions = {
     { in: 'packages/core/src/sentient/tick.ts', out: 'sentient/tick' },
     { in: 'packages/core/src/sentient/state.ts', out: 'sentient/state' },
     { in: 'packages/core/src/sentient/propose-tick.ts', out: 'sentient/propose-tick' },
+    { in: 'packages/core/src/sentient/proposal-rate-limiter.ts', out: 'sentient/proposal-rate-limiter' },
     // GC daemon subpath entry points (T1015 relocation from cleo → core)
     { in: 'packages/core/src/gc/index.ts', out: 'gc/index' },
     { in: 'packages/core/src/gc/daemon.ts', out: 'gc/daemon' },
@@ -266,10 +299,96 @@ async function syncMigrationsToCleoPackage() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-sync guard: assert every concrete non-wildcard subpath export in
+// packages/core/package.json has a matching entry in coreBuildOptions.
+//
+// This catches the class of bug where a subpath is added to package.json
+// exports but its corresponding esbuild entry point is forgotten, producing
+// a missing dist/*.js that only surfaces as a test failure (or a runtime
+// ERR_MODULE_NOT_FOUND) in CI on a fresh checkout.
+//
+// Wildcards (e.g. "./store/*") are skipped because they map to whole
+// directories — individual files within them get explicit entries anyway.
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the expected esbuild `out` key from a package.json export `import`
+ * path. Input example: `"./dist/cleo.js"` → `"cleo"`.
+ * Returns null for wildcard paths or paths that don't map to a concrete file.
+ *
+ * @param {string} importPath - The `import` condition value from package.json exports.
+ * @returns {string | null}
+ */
+function exportImportToOut(importPath) {
+  // Only handle "./dist/<path>.js" — skip wildcards and anything else
+  if (!importPath.startsWith('./dist/') || importPath.includes('*')) return null;
+  // Strip ./dist/ prefix and .js suffix
+  return importPath.slice('./dist/'.length).replace(/\.js$/, '');
+}
+
+/**
+ * Validate that every non-wildcard subpath export in packages/core/package.json
+ * has a corresponding entry in coreBuildOptions.entryPoints.
+ *
+ * Exits the process with a non-zero code and a descriptive error if any gap is
+ * found — this makes the class of bug that caused the v2026.4.100 CI failure
+ * impossible to ship silently.
+ */
+function validateCoreEntryPoints() {
+  const pkgPath = resolve(__dirname, 'packages/core/package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const exports = pkg.exports ?? {};
+
+  // Build the set of `out` keys already declared in coreBuildOptions
+  const declaredOuts = new Set(
+    coreBuildOptions.entryPoints.map((ep) => (typeof ep === 'string' ? ep : ep.out)),
+  );
+
+  const missing = [];
+  for (const [subpath, conditions] of Object.entries(exports)) {
+    // Skip wildcard subpaths — these are directory globs, not concrete files
+    if (subpath.includes('*')) continue;
+    if (typeof conditions !== 'object' || conditions === null) continue;
+
+    const importPath = conditions.import;
+    if (!importPath || typeof importPath !== 'string') continue;
+
+    const out = exportImportToOut(importPath);
+    if (out === null) continue; // wildcard or non-dist path
+
+    if (!declaredOuts.has(out)) {
+      missing.push({ subpath, importPath, expectedOut: out });
+    }
+  }
+
+  if (missing.length > 0) {
+    console.error('\n[build] ERROR: packages/core/package.json exports has subpaths with no');
+    console.error('[build] corresponding esbuild entry point in coreBuildOptions.entryPoints.');
+    console.error('[build] This will produce a broken dist/ on a fresh checkout.\n');
+    for (const { subpath, importPath, expectedOut } of missing) {
+      console.error(`  subpath: ${subpath}`);
+      console.error(`    import: ${importPath}`);
+      console.error(`    add to coreBuildOptions.entryPoints:`);
+      // Derive the source path from the out key (convention: packages/core/src/<out>.ts)
+      const srcGuess = `packages/core/src/${expectedOut}.ts`;
+      console.error(`      { in: '${srcGuess}', out: '${expectedOut}' }\n`);
+    }
+    console.error('[build] Fix the gaps above and re-run the build.\n');
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Build execution
 // ---------------------------------------------------------------------------
 
 async function build() {
+  // Assert every non-wildcard subpath export in packages/core/package.json
+  // has a matching entry in coreBuildOptions.entryPoints. Exits non-zero if
+  // any gap is detected — makes the T948/v2026.4.100 class of bug impossible
+  // to ship silently (see validateCoreEntryPoints() above for details).
+  validateCoreEntryPoints();
+
   // Build order is topological — every package builds AFTER its workspace
   // dependencies. Reordering this list without consulting the dep graph
   // breaks fresh-checkout builds (CI). Verified order:
