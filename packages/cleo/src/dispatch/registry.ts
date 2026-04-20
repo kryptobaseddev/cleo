@@ -3993,6 +3993,24 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1061 — nexus.augment (PreToolUse hook augmenter + T1058 search-code alias)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'augment',
+    description: 'nexus.augment (query) — BM25 symbol context for PreToolUse hooks and search-code',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['pattern'],
+    params: [
+      { name: 'pattern', type: 'string', required: true, description: 'Symbol name or pattern' },
+      { name: 'limit', type: 'number', required: false, description: 'Max results (default 5)' },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // nexus.share — multi-contributor operations
   // ---------------------------------------------------------------------------
   {
