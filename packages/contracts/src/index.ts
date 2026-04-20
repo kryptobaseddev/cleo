@@ -351,28 +351,6 @@ export type {
   MemoryBridgeContent,
   SessionSummary,
 } from './memory.js';
-// === Nexus Query DSL (recursive CTE operations) ===
-export type {
-  NexusCteAlias,
-  NexusCteMarkdownTable,
-  NexusCteParams,
-  NexusCtePlaceholder,
-  NexusCteResult,
-} from './nexus-query-ops.js';
-export type {
-  GitLogLinkerResult,
-  LinkTaskResult,
-  SymbolReference,
-  TaskReference,
-} from './nexus-tasks-bridge-ops.js';
-// === Route Analysis and Contract Registry Types (T1064, T1065) ===
-export type {
-  RouteMapEntry,
-  RouteMapResult,
-  ShapeCheckCaller,
-  ShapeCheckResult,
-  ShapeCheckStatus,
-} from './nexus-route-ops.js';
 export type {
   Contract,
   ContractCompatibilityMatrix,
@@ -385,24 +363,51 @@ export type {
   TopicContract,
 } from './nexus-contract-ops.js';
 // === Living Brain SDK Types (T1068 — 5-substrate traversal primitives) ===
+// === Extended Code Reasoning Types (T1069 — reasonWhySymbol + reasonImpactOfChange) ===
 export type {
   BlastRadiusSummary,
   BrainMemoryRef,
+  BrainRiskNote,
   CodeAnchorResult,
+  CodeReasonTrace,
   ConduitThreadRef,
   DecisionRef,
+  ImpactFullReport,
   LbTaskRef,
   NexusContext,
   NexusEdgeRef,
   NexusNodeAnchor,
   PlasticityMeasure,
   ProposalRef,
+  ReasonTraceStep,
   RiskTier,
   SymbolFullContext,
   SymbolImpactEntry,
   TaskCodeImpact,
   TasksForNodeEntry,
 } from './nexus-living-brain-ops.js';
+// === Nexus Query DSL (recursive CTE operations) ===
+export type {
+  NexusCteAlias,
+  NexusCteMarkdownTable,
+  NexusCteParams,
+  NexusCtePlaceholder,
+  NexusCteResult,
+} from './nexus-query-ops.js';
+// === Route Analysis and Contract Registry Types (T1064, T1065) ===
+export type {
+  RouteMapEntry,
+  RouteMapResult,
+  ShapeCheckCaller,
+  ShapeCheckResult,
+  ShapeCheckStatus,
+} from './nexus-route-ops.js';
+export type {
+  GitLogLinkerResult,
+  LinkTaskResult,
+  SymbolReference,
+  TaskReference,
+} from './nexus-tasks-bridge-ops.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience
