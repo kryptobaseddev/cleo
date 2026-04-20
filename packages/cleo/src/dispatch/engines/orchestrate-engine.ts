@@ -55,6 +55,7 @@ import {
   getUnblockOpportunities,
   recordStageProgress,
   resolveAgent,
+  resolveEffectiveTier,
   resolveProjectRoot,
   type SpawnPayload,
   startParallelExecution,
@@ -807,10 +808,18 @@ async function composeSpawnForTask(
   const inferredRole: AgentSpawnCapability | undefined =
     options.role ?? (task.type === 'epic' ? 'lead' : undefined);
 
+  // T892: When no explicit tier is supplied, apply the auto-tier heuristics
+  // (role matrix + size/type/label overrides) instead of the default role-only
+  // mapping. Callers that pass an explicit tier always win.
+  const effectiveTier: 0 | 1 | 2 | undefined =
+    options.tier !== undefined
+      ? options.tier
+      : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
+
   const db = await openSignaldockDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
-      tier: options.tier,
+      tier: effectiveTier,
       projectRoot: root,
       sessionId: options.sessionId ?? null,
       role: inferredRole,

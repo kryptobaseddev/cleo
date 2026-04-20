@@ -219,10 +219,21 @@ const spawnCommand = defineCommand({
     },
     tier: {
       type: 'string',
-      description: 'Protocol tier (0, 1, or 2)',
+      description:
+        'Protocol tier: 0 (minimal), 1 (standard), 2 (full), or auto (default — inferred from role+size+labels via T892 heuristics)',
     },
   },
   async run({ args }) {
+    // T892: --tier accepts auto|0|1|2. 'auto' (and undefined) are forwarded
+    // as undefined so the engine uses resolveEffectiveTier internally.
+    // Explicit numeric values (0/1/2) bypass auto-selection.
+    let tier: 0 | 1 | 2 | undefined;
+    if (args.tier !== undefined && args.tier !== 'auto') {
+      const parsed = Number.parseInt(args.tier, 10);
+      if (parsed === 0 || parsed === 1 || parsed === 2) {
+        tier = parsed;
+      }
+    }
     await dispatchFromCli(
       'mutate',
       'orchestrate',
@@ -230,7 +241,7 @@ const spawnCommand = defineCommand({
       {
         taskId: args.taskId,
         protocolType: args.protocol,
-        tier: args.tier !== undefined ? Number.parseInt(args.tier, 10) : undefined,
+        tier,
       },
       { command: 'orchestrate' },
     );
