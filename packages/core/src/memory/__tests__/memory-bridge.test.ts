@@ -5,13 +5,21 @@
  * Integration tests use a real temporary brain.db.
  *
  * @task T5240
+ * @task T999
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+/** Write a minimal config.json with the given brain.memoryBridge.mode. */
+function writeConfigWithMode(cleoDir: string, mode: 'cli' | 'file'): void {
+  const configPath = join(cleoDir, 'config.json');
+  const config = { brain: { memoryBridge: { mode } } };
+  writeFileSync(configPath, JSON.stringify(config), 'utf-8');
+}
 
 let tempDir: string;
 let cleoDir: string;
@@ -216,10 +224,13 @@ describe('Memory Bridge', () => {
   });
 
   describe('writeMemoryBridge', () => {
-    it('should write memory-bridge.md file', async () => {
+    it('should write memory-bridge.md file when mode=file', async () => {
       const { writeMemoryBridge } = await import('../memory-bridge.js');
       const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
+
+      // mode=file: legacy behavior — file must be written
+      writeConfigWithMode(cleoDir, 'file');
 
       const result = await writeMemoryBridge(tempDir);
       expect(result.written).toBe(true);
@@ -230,10 +241,12 @@ describe('Memory Bridge', () => {
       expect(content).toContain('# CLEO Memory Bridge');
     });
 
-    it('should not rewrite when content unchanged', async () => {
+    it('should not rewrite when content unchanged (mode=file)', async () => {
       const { writeMemoryBridge } = await import('../memory-bridge.js');
       const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
+
+      writeConfigWithMode(cleoDir, 'file');
 
       const result1 = await writeMemoryBridge(tempDir);
       expect(result1.written).toBe(true);
@@ -252,15 +265,83 @@ describe('Memory Bridge', () => {
       await expect(refreshMemoryBridge(tempDir)).resolves.toBeUndefined();
     });
 
-    it('should create the bridge file', async () => {
+    it('should create the bridge file when mode=file', async () => {
       const { refreshMemoryBridge } = await import('../memory-bridge.js');
       const { closeBrainDb } = await import('../../store/memory-sqlite.js');
       closeBrainDb();
 
+      writeConfigWithMode(cleoDir, 'file');
       await refreshMemoryBridge(tempDir);
 
       const bridgePath = join(cleoDir, 'memory-bridge.md');
       expect(existsSync(bridgePath)).toBe(true);
+    });
+  });
+
+  // ── T999: mode-gate tests ──────────────────────────────────────────────────
+
+  describe('T999 — mode gate (cli vs file)', () => {
+    it('mode=cli (default): writeMemoryBridge does NOT write the file', async () => {
+      const { writeMemoryBridge } = await import('../memory-bridge.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+
+      // No config.json — default is 'cli'
+      const result = await writeMemoryBridge(tempDir);
+      expect(result.written).toBe(false);
+      expect(existsSync(join(cleoDir, 'memory-bridge.md'))).toBe(false);
+    });
+
+    it('mode=cli (explicit config): writeMemoryBridge does NOT write the file', async () => {
+      const { writeMemoryBridge } = await import('../memory-bridge.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+
+      writeConfigWithMode(cleoDir, 'cli');
+
+      const result = await writeMemoryBridge(tempDir);
+      expect(result.written).toBe(false);
+      expect(existsSync(join(cleoDir, 'memory-bridge.md'))).toBe(false);
+    });
+
+    it('mode=file: writeMemoryBridge DOES write the file', async () => {
+      const { writeMemoryBridge } = await import('../memory-bridge.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+
+      writeConfigWithMode(cleoDir, 'file');
+
+      const result = await writeMemoryBridge(tempDir);
+      expect(result.written).toBe(true);
+      expect(existsSync(join(cleoDir, 'memory-bridge.md'))).toBe(true);
+    });
+
+    it('mode=cli: refreshMemoryBridge does NOT create the bridge file', async () => {
+      const { refreshMemoryBridge } = await import('../memory-bridge.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+
+      writeConfigWithMode(cleoDir, 'cli');
+      await refreshMemoryBridge(tempDir);
+
+      expect(existsSync(join(cleoDir, 'memory-bridge.md'))).toBe(false);
+    });
+
+    it('mode=file overrides default: refreshMemoryBridge creates the bridge file', async () => {
+      const { refreshMemoryBridge } = await import('../memory-bridge.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+
+      writeConfigWithMode(cleoDir, 'file');
+      await refreshMemoryBridge(tempDir);
+
+      expect(existsSync(join(cleoDir, 'memory-bridge.md'))).toBe(true);
+    });
+
+    it('config defaults to cli when brain.memoryBridge.mode is absent', async () => {
+      const { loadConfig } = await import('../../config.js');
+      const config = await loadConfig(tempDir);
+      expect(config.brain?.memoryBridge?.mode).toBe('cli');
     });
   });
 });

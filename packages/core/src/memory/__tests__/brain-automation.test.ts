@@ -841,7 +841,9 @@ describe('generateContextAwareContent', () => {
     const configMod = await import('../../config.js');
     (configMod.loadConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       brain: {
-        memoryBridge: { autoRefresh: true, contextAware: true, maxTokens: 2000 },
+        // mode='file' so generateContextAwareContent exercises the write path
+        // (T999: default is 'cli' which skips the file write)
+        memoryBridge: { autoRefresh: true, contextAware: true, maxTokens: 2000, mode: 'file' },
         embedding: { enabled: true, provider: 'local' },
         summarization: { enabled: true },
       },

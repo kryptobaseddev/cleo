@@ -62,7 +62,8 @@ Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
 | LLM status | `cleo memory llm-status` | 50 |
 | Ground-truth promote | `cleo memory verify <id>` (owner only) | 50 |
 
-Memory bridge (`.cleo/memory-bridge.md`) auto-refreshes on session end and task completion.
+Memory context: run `cleo memory digest --brief` for live project memory summary (default mode).
+Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
 
 ## Orchestration (for epics ≥ 5 tasks)
 

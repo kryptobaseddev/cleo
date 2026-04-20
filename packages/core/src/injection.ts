@@ -167,16 +167,23 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     agentsMdLines.push('@.cleo/project-context.json');
   }
 
-  // Memory bridge: auto-generated project memory context (T5240)
-  const memoryBridgePath = join(projectRoot, '.cleo', 'memory-bridge.md');
-  if (existsSync(memoryBridgePath)) {
-    agentsMdLines.push('@.cleo/memory-bridge.md');
-  }
+  // Memory bridge + nexus bridge: gated by brain.memoryBridge.mode (T999)
+  // mode='cli' (default): inject a CLI directive so agents query brain.db live
+  // mode='file': legacy @-inject of auto-generated markdown files (backcompat)
+  const bridgeMode = await resolveBridgeMode(projectRoot);
+  if (bridgeMode === 'file') {
+    const memoryBridgePath = join(projectRoot, '.cleo', 'memory-bridge.md');
+    if (existsSync(memoryBridgePath)) {
+      agentsMdLines.push('@.cleo/memory-bridge.md');
+    }
 
-  // Nexus bridge: auto-generated code intelligence summary (T552)
-  const nexusBridgePath = join(projectRoot, '.cleo', 'nexus-bridge.md');
-  if (existsSync(nexusBridgePath)) {
-    agentsMdLines.push('@.cleo/nexus-bridge.md');
+    const nexusBridgePath = join(projectRoot, '.cleo', 'nexus-bridge.md');
+    if (existsSync(nexusBridgePath)) {
+      agentsMdLines.push('@.cleo/nexus-bridge.md');
+    }
+  } else {
+    // cli mode: inject a directive instructing agents to query live context
+    agentsMdLines.push('# Run: cleo memory digest --brief');
   }
 
   // Contributor project warning (ADR-029): inject dev-channel guidance when
@@ -221,6 +228,26 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     path: agentsMdPath,
     details: actions.join('; '),
   };
+}
+
+// ── Bridge mode resolution (T999) ────────────────────────────────────
+
+/**
+ * Resolve the memory bridge injection mode from project config.
+ *
+ * Returns `'cli'` when no config is present (safe default for new installs).
+ * Returns `'file'` only when explicitly configured for backcompat.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ */
+async function resolveBridgeMode(projectRoot: string): Promise<'cli' | 'file'> {
+  try {
+    const { loadConfig } = await import('./config.js');
+    const config = await loadConfig(projectRoot);
+    return config.brain?.memoryBridge?.mode ?? 'cli';
+  } catch {
+    return 'cli';
+  }
 }
 
 // ── Contributor project injection block (ADR-029) ────────────────────

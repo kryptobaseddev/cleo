@@ -91,6 +91,7 @@ const DEFAULTS: CleoConfig = {
       autoRefresh: true,
       contextAware: true,
       maxTokens: 2000,
+      mode: 'cli' as const,
     },
     summarization: {
       enabled: true,
