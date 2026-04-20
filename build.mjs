@@ -189,6 +189,23 @@ const coreBuildOptions = {
     { in: 'packages/core/src/gc/transcript.ts', out: 'gc/transcript' },
     // System/platform-paths — has a subpath export, cleo imports it at runtime
     { in: 'packages/core/src/system/platform-paths.ts', out: 'system/platform-paths' },
+    // T1042: nexus subpath entry points for CLI commands (T1057/T1064/T1068/T1069/T1071)
+    // Imported dynamically by packages/cleo/src/cli/commands/nexus.ts via subpath imports.
+    // Each entry produces a standalone .js in dist/ matching the package.json exports map.
+    { in: 'packages/core/src/nexus/route-analysis.ts', out: 'nexus/route-analysis' },
+    { in: 'packages/core/src/nexus/living-brain.ts', out: 'nexus/living-brain' },
+    { in: 'packages/core/src/nexus/query-dsl.ts', out: 'nexus/query-dsl' },
+    { in: 'packages/core/src/memory/brain-reasoning.ts', out: 'memory/brain-reasoning' },
+    // T1065 — contract registry subpath entry points
+    { in: 'packages/core/src/nexus/contracts/index.ts', out: 'nexus/contracts/index' },
+    { in: 'packages/core/src/nexus/contracts/http-extractor.ts', out: 'nexus/contracts/http-extractor' },
+    { in: 'packages/core/src/nexus/contracts/grpc-extractor.ts', out: 'nexus/contracts/grpc-extractor' },
+    { in: 'packages/core/src/nexus/contracts/topic-extractor.ts', out: 'nexus/contracts/topic-extractor' },
+    { in: 'packages/core/src/nexus/contracts/matcher.ts', out: 'nexus/contracts/matcher' },
+    // T1067 — TASKS→NEXUS bridge
+    { in: 'packages/core/src/nexus/tasks-bridge.ts', out: 'nexus/tasks-bridge' },
+    // T1066+T1071 — graph-memory-bridge (edge writers + conduit-scan)
+    { in: 'packages/core/src/memory/graph-memory-bridge.ts', out: 'memory/graph-memory-bridge' },
   ],
   bundle: true,
   platform: 'node',
