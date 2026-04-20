@@ -57,6 +57,10 @@ if [[ -n "$CLEO_DIR" && -f "$SESSION_FILE" ]]; then
         fi
 
         if [[ -n "$CLEO_CMD" && -x "$CLEO_CMD" ]]; then
+            # T1004 — flush in-flight observations + checkpoint WAL before compaction boundary
+            # Invokes: cleo memory precompact-flush
+            "$CLEO_CMD" memory precompact-flush 2>&1 | tee -a "$LOG_FILE" || true
+
             # Run safestop with emergency flag
             HANDOFF_FILE="${CLEO_DIR}/handoff-emergency-$(date +%s).json"
 
