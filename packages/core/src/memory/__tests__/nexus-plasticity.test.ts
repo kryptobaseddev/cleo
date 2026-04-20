@@ -580,7 +580,7 @@ describe('T998 — NEXUS plasticity', () => {
       insertEdge(db, 'e-decay', 'nodeA', 'nodeB', 0.8, 10);
       // Set last_accessed_at to a past date (simulating unused edge)
       db.prepare(
-        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-7 days") WHERE id = ?',
+        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-7 days') WHERE id = ?",
       ).run('e-decay');
 
       const result = await applyPlasticityDecay();
@@ -595,7 +595,7 @@ describe('T998 — NEXUS plasticity', () => {
     it('respects CLEO_PLASTICITY_HALFLIFE_DAYS environment variable', async () => {
       insertEdge(db, 'e-env', 'nodeA', 'nodeB', 1.0, 5);
       db.prepare(
-        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-1 day") WHERE id = ?',
+        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-1 day') WHERE id = ?",
       ).run('e-env');
 
       // Set custom half-life: 2 days
@@ -611,6 +611,8 @@ describe('T998 — NEXUS plasticity', () => {
         expect(row.weight).toBeCloseTo(0.707, 1);
       } finally {
         delete process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'];
+        // Reset mock to the shared db so afterEach can close it cleanly
+        mockGetNexusNativeDb.mockReturnValue(db);
       }
     });
 
@@ -618,7 +620,7 @@ describe('T998 — NEXUS plasticity', () => {
       insertEdge(db, 'e-clamp', 'nodeA', 'nodeB', 0.01, 5);
       // Set to very old date (90 days)
       db.prepare(
-        'UPDATE nexus_relations SET last_accessed_at = datetime("now", "-90 days") WHERE id = ?',
+        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-90 days') WHERE id = ?",
       ).run('e-clamp');
 
       const result = await applyPlasticityDecay();
@@ -636,9 +638,8 @@ describe('T998 — NEXUS plasticity', () => {
     });
 
     it('returns sensible defaults when weight column is missing', async () => {
-      db.close();
-      mockGetNexusNativeDb.mockReturnValue(null);
-
+      // Do not close db here — afterEach owns its lifecycle.
+      // Temporarily override the mock with a pre-migration DB.
       const preDb = createPreMigrationDb();
       mockGetNexusNativeDb.mockReturnValue(preDb);
 
@@ -648,7 +649,8 @@ describe('T998 — NEXUS plasticity', () => {
         expect(result.halfLifeDays).toBe(14);
       } finally {
         preDb.close();
-        mockGetNexusNativeDb.mockReturnValue(null);
+        // Restore the shared db so afterEach can close it cleanly
+        mockGetNexusNativeDb.mockReturnValue(db);
       }
     });
   });
