@@ -2730,6 +2730,139 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T1006 — summarized top-N observations as session briefing digest
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'digest',
+    description:
+      'memory.digest (query) — summarized top-N observations by citation_count for session briefings',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max observations to include in digest (default: 10)',
+      },
+    ],
+  },
+  // T1006 — tail recent observations with optional filters
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'recent',
+    description:
+      'memory.recent (query) — tail recent brain_observations with optional filters (since, type, session, tier)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max entries to return (default: 20)',
+      },
+      {
+        name: 'since',
+        type: 'string',
+        required: false,
+        description: "ISO timestamp or duration (e.g. '24h', '7d') to filter from",
+      },
+      {
+        name: 'type',
+        type: 'string',
+        required: false,
+        description: 'Filter by observation type (e.g. diary, observation, pattern)',
+      },
+      {
+        name: 'session',
+        type: 'string',
+        required: false,
+        description: 'Filter by source_session_id',
+      },
+      {
+        name: 'tier',
+        type: 'string',
+        required: false,
+        description: 'Filter by memory_tier (short, medium, long)',
+      },
+    ],
+  },
+  // T1006 — read diary-typed observations (requires diary enum from T1005)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'diary',
+    description:
+      "memory.diary (query) — list observations with type='diary' in reverse chronological order",
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max diary entries to return (default: 20)',
+      },
+    ],
+  },
+  // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'watch',
+    description:
+      'memory.watch (query) — poll for new brain_observations since a cursor; returns nextCursor for chained polling',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'cursor',
+        type: 'string',
+        required: false,
+        description: 'ISO datetime cursor; only observations after this time are returned',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max events per poll (default: 10)',
+      },
+    ],
+  },
+  // T1006 — write a diary-typed observation
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'diary.write',
+    description:
+      "memory.diary.write (mutate) — store an observation with type='diary' (thin wrapper over observe)",
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['text'],
+    params: [
+      { name: 'text', type: 'string', required: true, description: 'Diary entry text' },
+      { name: 'title', type: 'string', required: false, description: 'Optional title' },
+      {
+        name: 'sourceSessionId',
+        type: 'string',
+        required: false,
+        description: 'Session that produced this entry',
+      },
+      { name: 'agent', type: 'string', required: false, description: 'Agent provenance' },
+    ],
+  },
   // T792 — promote entry to verified=true (owner/cleo-prime only)
   {
     gateway: 'mutate',
@@ -3067,6 +3200,26 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [],
+  },
+  // T1006 — human-readable breakdown of why gates pass/fail for a task
+  {
+    gateway: 'query',
+    domain: 'check',
+    operation: 'verify.explain',
+    description:
+      'check.verify.explain (query) — show evidence atoms + gate state for a task in human-readable format (read-only)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID to explain verification state for (e.g. T1006)',
+      },
+    ],
   },
   {
     gateway: 'query',
@@ -4194,6 +4347,32 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Whether to transfer brain observations (default: false)',
+      },
+    ],
+  },
+  // T1006 — highest-weight symbols/nodes from brain_page_nodes
+  {
+    gateway: 'query',
+    domain: 'nexus',
+    operation: 'top-entries',
+    description:
+      'nexus.top-entries (query) — highest-weight brain_page_nodes sorted by quality_score DESC; will use weight column once T998 lands',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum entries to return (default: 20)',
+      },
+      {
+        name: 'nodeType',
+        type: 'string',
+        required: false,
+        description: 'Filter by node_type (e.g. observation, symbol, task)',
       },
     ],
   },
