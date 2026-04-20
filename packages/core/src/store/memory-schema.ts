@@ -1422,6 +1422,100 @@ export const brainPromotionLog = sqliteTable(
   ],
 );
 
+// ============================================================================
+// BRAIN BACKFILL RUNS — staged backfill audit log (T1003)
+// ============================================================================
+
+/**
+ * Staged backfill run registry.
+ *
+ * Records every staged backfill operation: what was staged, from which source,
+ * targeting which table, how many rows, and the current workflow status.
+ *
+ * A backfill run is immutable once `approved` or `rolled-back`. Attempting
+ * to approve/rollback a completed run is a no-op that returns success with
+ * an `alreadySettled` flag set to `true`.
+ *
+ * Rollback safety: `rollback_snapshot_json` contains the full array of
+ * row IDs that were staged so approve/rollback are deterministic with no
+ * additional DB lookup required.
+ *
+ * @task T1003
+ * @epic T1000
+ */
+export const brainBackfillRuns = sqliteTable(
+  'brain_backfill_runs',
+  {
+    /** Unique run identifier. Format: `bfr-<timestamp36>-<rand>`. */
+    id: text('id').primaryKey(),
+
+    /**
+     * Backfill kind — what type of data this run is populating.
+     *
+     * - `observation-promotion` — promoting brain_observations to typed entries
+     * - `transcript-ingest`     — ingesting Claude JSONL session transcripts
+     * - `graph-backfill`        — populating brain_page_nodes/edges from typed tables
+     * - `custom`                — ad-hoc runs initiated by the owner
+     */
+    kind: text('kind').notNull(),
+
+    /**
+     * Workflow status of this run.
+     *
+     * - `staged`      — run has been created; rows are held in a shadow scope (not live).
+     * - `approved`    — run was approved; staged rows have been committed to live tables.
+     * - `rolled-back` — run was rolled back; staged rows were discarded.
+     */
+    status: text('status').notNull().default('staged'),
+
+    /** ISO 8601 timestamp when this run was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    /**
+     * ISO 8601 timestamp when this run was approved (status → 'approved').
+     * Null if not yet approved.
+     */
+    approvedAt: text('approved_at'),
+
+    /**
+     * Number of rows that were staged (and would be / were committed on approve).
+     * Updated after staging completes.
+     */
+    rowsAffected: integer('rows_affected').notNull().default(0),
+
+    /**
+     * JSON-serialized snapshot of the staged row IDs.
+     * Shape: `string[]` — list of target-table primary keys that were staged.
+     * Used by rollback to remove committed rows deterministically.
+     * Null for large backfills that use cursor-based rollback instead.
+     */
+    rollbackSnapshotJson: text('rollback_snapshot_json'),
+
+    /**
+     * Source descriptor — file path, session ID, or other identifier
+     * indicating where the data came from (e.g. a JSONL transcript path).
+     */
+    source: text('source').notNull().default('unknown'),
+
+    /**
+     * Target table name in brain.db (e.g. `brain_observations`, `brain_page_nodes`).
+     * Used by rollback to issue DELETE WHERE id IN (...) against the right table.
+     */
+    targetTable: text('target_table').notNull().default('brain_observations'),
+
+    /**
+     * Identity of the agent or human who approved this run.
+     * Null if not yet approved or rolled back.
+     */
+    approvedBy: text('approved_by'),
+  },
+  (table) => [
+    index('idx_backfill_runs_status').on(table.status),
+    index('idx_backfill_runs_kind').on(table.kind),
+    index('idx_backfill_runs_created_at').on(table.createdAt),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type BrainTranscriptEventRow = typeof brainTranscriptEvents.$inferSelect;
@@ -1467,5 +1561,15 @@ export type BrainConsolidationEventInsert = typeof brainConsolidationEvents.$inf
 export type BrainPromotionLogRow = typeof brainPromotionLog.$inferSelect;
 /** Row type for brain_promotion_log INSERT operations. */
 export type BrainPromotionLogInsert = typeof brainPromotionLog.$inferInsert;
+
+/** Row type for brain_backfill_runs SELECT queries. */
+export type BrainBackfillRunRow = typeof brainBackfillRuns.$inferSelect;
+/** Row type for brain_backfill_runs INSERT operations. */
+export type BrainBackfillRunInsert = typeof brainBackfillRuns.$inferInsert;
+
+/** Valid status values for brain_backfill_runs.status. */
+export const BRAIN_BACKFILL_RUN_STATUSES = ['staged', 'approved', 'rolled-back'] as const;
+/** Discriminated union of all backfill run statuses. */
+export type BrainBackfillRunStatus = (typeof BRAIN_BACKFILL_RUN_STATUSES)[number];
 
 // BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.
