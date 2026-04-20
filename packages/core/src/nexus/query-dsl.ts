@@ -26,7 +26,7 @@ import type {
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getNexusNativeDb } from '../store/nexus-sqlite.js';
+import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
 // ── Template CTE Definitions ─────────────────────────────────────────
 
@@ -37,19 +37,19 @@ import { getNexusNativeDb } from '../store/nexus-sqlite.js';
 const CALLERS_OF_CTE = `
 WITH RECURSIVE callers AS (
   -- Base: direct callers
-  SELECT DISTINCT r.source_node_id as node_id, r.target_node_id as target
+  SELECT DISTINCT r.source_id as node_id, r.target_id as target
     FROM nexus_relations r
-   WHERE r.relation_type = 'calls'
-     AND r.target_node_id = ?
+   WHERE r.type = 'calls'
+     AND r.target_id = ?
   UNION ALL
   -- Recursive: callers of callers
-  SELECT DISTINCT r.source_node_id, c.target
+  SELECT DISTINCT r.source_id, c.target
     FROM nexus_relations r
-    JOIN callers c ON r.target_node_id = c.node_id
-   WHERE r.relation_type = 'calls'
+    JOIN callers c ON r.target_id = c.node_id
+   WHERE r.type = 'calls'
 )
 SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line,
-       (SELECT COUNT(*) FROM nexus_relations WHERE source_node_id = n.id AND relation_type = 'calls') as outgoing_calls
+       (SELECT COUNT(*) FROM nexus_relations WHERE source_id = n.id AND type = 'calls') as outgoing_calls
   FROM callers c
   JOIN nexus_nodes n ON c.node_id = n.id
  ORDER BY n.kind, n.label
@@ -62,19 +62,19 @@ SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line,
 const CALLEES_OF_CTE = `
 WITH RECURSIVE callees AS (
   -- Base: direct callees
-  SELECT DISTINCT r.target_node_id as node_id, r.source_node_id as source
+  SELECT DISTINCT r.target_id as node_id, r.source_id as source
     FROM nexus_relations r
-   WHERE r.relation_type = 'calls'
-     AND r.source_node_id = ?
+   WHERE r.type = 'calls'
+     AND r.source_id = ?
   UNION ALL
   -- Recursive: callees of callees
-  SELECT DISTINCT r.target_node_id, c.source
+  SELECT DISTINCT r.target_id, c.source
     FROM nexus_relations r
-    JOIN callees c ON r.source_node_id = c.node_id
-   WHERE r.relation_type = 'calls'
+    JOIN callees c ON r.source_id = c.node_id
+   WHERE r.type = 'calls'
 )
 SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line,
-       (SELECT COUNT(*) FROM nexus_relations WHERE target_node_id = n.id AND relation_type = 'calls') as incoming_calls
+       (SELECT COUNT(*) FROM nexus_relations WHERE target_id = n.id AND type = 'calls') as incoming_calls
   FROM callees c
   JOIN nexus_nodes n ON c.node_id = n.id
  ORDER BY n.kind, n.label
@@ -99,20 +99,20 @@ SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line
  */
 const CO_CITED_CTE = `
 WITH target_relations AS (
-  SELECT relation_type, target_node_id
+  SELECT type, target_id
     FROM nexus_relations
-   WHERE source_node_id = ?
+   WHERE source_id = ?
   UNION
-  SELECT relation_type, source_node_id
+  SELECT type, source_id
     FROM nexus_relations
-   WHERE target_node_id = ?
+   WHERE target_id = ?
 )
 SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line
   FROM nexus_nodes n
-  JOIN nexus_relations r ON (r.source_node_id = n.id OR r.target_node_id = n.id)
- WHERE (r.relation_type, CASE
-          WHEN r.source_node_id = n.id THEN r.target_node_id
-          ELSE r.source_node_id
+  JOIN nexus_relations r ON (r.source_id = n.id OR r.target_id = n.id)
+ WHERE (r.type, CASE
+          WHEN r.source_id = n.id THEN r.target_id
+          ELSE r.source_id
         END) IN (SELECT * FROM target_relations)
    AND n.id != ?
  ORDER BY n.kind, n.label
@@ -125,20 +125,20 @@ SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, n.end_line
 const PATH_BETWEEN_CTE = `
 WITH RECURSIVE path AS (
   -- Base: start from source
-  SELECT source_node_id as node_id, target_node_id as target, 1 as depth,
-         source_node_id || ' -> ' || target_node_id as path_str
+  SELECT source_id as node_id, target_id as target, 1 as depth,
+         source_id || ' -> ' || target_id as path_str
     FROM nexus_relations
-   WHERE relation_type = 'calls'
-     AND source_node_id = ?
+   WHERE type = 'calls'
+     AND source_id = ?
   UNION ALL
   -- Recursive: extend path
-  SELECT r.source_node_id, p.target, p.depth + 1,
-         p.path_str || ' -> ' || r.target_node_id
+  SELECT r.source_id, p.target, p.depth + 1,
+         p.path_str || ' -> ' || r.target_id
     FROM nexus_relations r
-    JOIN path p ON r.source_node_id = p.node_id
-   WHERE r.relation_type = 'calls'
+    JOIN path p ON r.source_id = p.node_id
+   WHERE r.type = 'calls'
      AND p.depth < 10  -- Limit recursion depth
-     AND p.path_str NOT LIKE '%' || r.target_node_id || '%'  -- Avoid cycles
+     AND p.path_str NOT LIKE '%' || r.target_id || '%'  -- Avoid cycles
 )
 SELECT DISTINCT n.id, n.label, n.kind, n.file_path, n.start_line, p.depth
   FROM path p
@@ -231,16 +231,25 @@ export function compileCteAlias(alias: NexusCteAlias): NexusCtePlaceholder {
  *
  * @param cte - SQL CTE string, may contain ? or :param placeholders
  * @param params - Positional parameter values (for ? placeholders)
+ * @param db - Optional DatabaseSync instance (uses global nexus.db if omitted)
  * @returns NexusCteResult with rows and execution metadata
  *
  * @task T1057
  * @throws Errors are caught and returned in result.error (not thrown)
  */
-export function runNexusCte(cte: string, params: NexusCteParams): NexusCteResult {
+export async function runNexusCte(
+  cte: string,
+  params: NexusCteParams,
+  db?: DatabaseSync,
+): Promise<NexusCteResult> {
   const startTime = performance.now();
-  const nativeDb = getNexusNativeDb();
+  // Lazy-initialize nexus.db if not already open (idempotent singleton)
+  if (!db && !getNexusNativeDb()) {
+    await getNexusDb();
+  }
+  const nativeDb = db ?? getNexusNativeDb();
 
-  // Guard: database must be initialized
+  // Guard: database could not be initialized
   if (!nativeDb) {
     return {
       success: false,
