@@ -160,16 +160,20 @@ export async function strengthenNexusCoAccess(
  * Only updates rows where `last_accessed_at` is not NULL — new edges
  * with no access record are left unchanged.
  *
- * @param projectRoot - Project root directory for nexus.db resolution
+ * Operates on the GLOBAL nexus.db (resolved via `getCleoHome()` through the
+ * singleton `getNexusNativeDb()`), not a per-project database. The function
+ * takes no arguments intentionally — nexus.db spans all projects in a
+ * CLEO installation and decay is applied globally.
+ *
  * @returns Decay result including row count and parameters used
  *
  * @example
  * ```typescript
- * const result = await applyPlasticityDecay(projectRoot);
+ * const result = await applyPlasticityDecay();
  * console.log(`Decayed ${result.updated} edges with ${result.halfLifeDays}-day half-life`);
  * ```
  */
-export async function applyPlasticityDecay(_projectRoot: string): Promise<PlasticityDecayResult> {
+export async function applyPlasticityDecay(): Promise<PlasticityDecayResult> {
   const { getNexusNativeDb } = await import('../store/nexus-sqlite.js');
   const nativeDb = getNexusNativeDb();
   if (!nativeDb) {

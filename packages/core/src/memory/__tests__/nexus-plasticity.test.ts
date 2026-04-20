@@ -571,7 +571,7 @@ describe('T998 — NEXUS plasticity', () => {
     it('returns zero updates when no rows have last_accessed_at', async () => {
       insertEdge(db, 'e-no-access', 'nodeA', 'nodeB', 0.5, 10);
       // last_accessed_at is NULL by default
-      const result = await applyPlasticityDecay('.');
+      const result = await applyPlasticityDecay();
       expect(result.updated).toBe(0);
       expect(result.halfLifeDays).toBe(14); // default
     });
@@ -583,7 +583,7 @@ describe('T998 — NEXUS plasticity', () => {
         'e-decay',
       );
 
-      const result = await applyPlasticityDecay('.');
+      const result = await applyPlasticityDecay();
       expect(result.updated).toBeGreaterThan(0);
 
       // After 7 days with 14-day half-life, weight should be 0.8 * 0.5^(7/14) = 0.8 * sqrt(0.5) ≈ 0.566
@@ -600,7 +600,7 @@ describe('T998 — NEXUS plasticity', () => {
       process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'] = '2';
 
       try {
-        const result = await applyPlasticityDecay('.');
+        const result = await applyPlasticityDecay();
         expect(result.halfLifeDays).toBe(2);
         expect(result.updated).toBeGreaterThan(0);
 
@@ -619,7 +619,7 @@ describe('T998 — NEXUS plasticity', () => {
         'e-clamp',
       );
 
-      const result = await applyPlasticityDecay('.');
+      const result = await applyPlasticityDecay();
       const row = readEdge(db, 'e-clamp');
       expect(row.weight).toBeGreaterThanOrEqual(0.0);
       expect(row.weight).toBeLessThanOrEqual(0.01);
@@ -627,7 +627,7 @@ describe('T998 — NEXUS plasticity', () => {
 
     it('returns sensible defaults when no db is available', async () => {
       mockGetNexusNativeDb.mockReturnValue(null);
-      const result = await applyPlasticityDecay('.');
+      const result = await applyPlasticityDecay();
       expect(result.updated).toBe(0);
       expect(result.halfLifeDays).toBe(14);
       expect(result.decayPerDay).toBeCloseTo(1 - 0.5 ** (1 / 14), 4);
@@ -641,7 +641,7 @@ describe('T998 — NEXUS plasticity', () => {
       mockGetNexusNativeDb.mockReturnValue(preDb);
 
       try {
-        const result = await applyPlasticityDecay('.');
+        const result = await applyPlasticityDecay();
         expect(result.updated).toBe(0);
         expect(result.halfLifeDays).toBe(14);
       } finally {
