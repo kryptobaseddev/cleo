@@ -465,3 +465,111 @@ describe('T743 — runTierPromotion persists tier_promoted_at + tier_promotion_r
     }
   });
 });
+
+// ============================================================================
+// T993 — Check A0: title-prefix blocklist in verifyCandidate
+//
+// Uses vi.importActual to bypass the module-level mock of extraction-gate.js
+// and exercise the real verifyCandidate implementation.
+// ============================================================================
+
+describe('T993 — Check A0 title-prefix blocklist in verifyCandidate', () => {
+  const mockNativeDb = { prepare: vi.fn() };
+  const mockPrepare = { all: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // hash-dedup DB calls (Check A) — return no match so A0 is the only gate
+    mockGetBrainDb.mockResolvedValue({});
+    mockGetBrainNativeDb.mockReturnValue(mockNativeDb);
+    mockNativeDb.prepare.mockReturnValue(mockPrepare);
+    mockPrepare.all.mockReturnValue([]);
+  });
+
+  /** Minimal valid MemoryCandidate for the real verifyCandidate. */
+  function makeCandidate(title: string) {
+    return {
+      text: 'Some non-empty content that does not match any hash.',
+      title,
+      memoryType: 'episodic' as const,
+      tier: 'short' as const,
+      confidence: 0.9,
+      source: 'manual' as const,
+      trusted: true,
+    };
+  }
+
+  it('rejects "Task start: T123" — Check A0 noise-prefix', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(PROJECT_ROOT, makeCandidate('Task start: T123'));
+    expect(result.action).toBe('rejected');
+    expect(result.reason).toBe('noise-prefix');
+  });
+
+  it('rejects "Session note: handoff summary"', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(
+      PROJECT_ROOT,
+      makeCandidate('Session note: handoff summary'),
+    );
+    expect(result.action).toBe('rejected');
+    expect(result.reason).toBe('noise-prefix');
+  });
+
+  it('rejects "Started work on: new feature"', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(
+      PROJECT_ROOT,
+      makeCandidate('Started work on: new feature'),
+    );
+    expect(result.action).toBe('rejected');
+    expect(result.reason).toBe('noise-prefix');
+  });
+
+  it('rejects "Fix evidence: commit abc123"', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(
+      PROJECT_ROOT,
+      makeCandidate('Fix evidence: commit abc123'),
+    );
+    expect(result.action).toBe('rejected');
+    expect(result.reason).toBe('noise-prefix');
+  });
+
+  it('rejects "Verified: T993 gates passed"', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(
+      PROJECT_ROOT,
+      makeCandidate('Verified: T993 gates passed'),
+    );
+    expect(result.action).toBe('rejected');
+    expect(result.reason).toBe('noise-prefix');
+  });
+
+  it('passes "Hebbian plasticity insight" — legitimate title', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(PROJECT_ROOT, makeCandidate('Hebbian plasticity insight'));
+    // A0 must NOT reject — action will be 'stored' or 'merged' depending on hash
+    expect(result.action).not.toBe('rejected');
+  });
+
+  it('passes "Decision: SQLite over Y.js" — legitimate title', async () => {
+    const { verifyCandidate } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    const result = await verifyCandidate(PROJECT_ROOT, makeCandidate('Decision: SQLite over Y.js'));
+    expect(result.action).not.toBe('rejected');
+  });
+
+  it('BRAIN_NOISE_PREFIXES is exported and has at least 7 entries', async () => {
+    const { BRAIN_NOISE_PREFIXES } =
+      await vi.importActual<typeof import('../extraction-gate.js')>('../extraction-gate.js');
+    expect(Array.isArray(BRAIN_NOISE_PREFIXES)).toBe(true);
+    expect(BRAIN_NOISE_PREFIXES.length).toBeGreaterThanOrEqual(7);
+  });
+});
