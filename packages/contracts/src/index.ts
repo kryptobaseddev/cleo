@@ -365,6 +365,44 @@ export type {
   SymbolReference,
   TaskReference,
 } from './nexus-tasks-bridge-ops.js';
+// === Route Analysis and Contract Registry Types (T1064, T1065) ===
+export type {
+  RouteMapEntry,
+  RouteMapResult,
+  ShapeCheckCaller,
+  ShapeCheckResult,
+  ShapeCheckStatus,
+} from './nexus-route-ops.js';
+export type {
+  Contract,
+  ContractCompatibilityMatrix,
+  ContractExtractionResult,
+  ContractMatch,
+  ContractMatchLevel,
+  ContractTaskLink,
+  GrpcContract,
+  HttpContract,
+  TopicContract,
+} from './nexus-contract-ops.js';
+// === Living Brain SDK Types (T1068 — 5-substrate traversal primitives) ===
+export type {
+  BlastRadiusSummary,
+  BrainMemoryRef,
+  CodeAnchorResult,
+  ConduitThreadRef,
+  DecisionRef,
+  LbTaskRef,
+  NexusContext,
+  NexusEdgeRef,
+  NexusNodeAnchor,
+  PlasticityMeasure,
+  ProposalRef,
+  RiskTier,
+  SymbolFullContext,
+  SymbolImpactEntry,
+  TaskCodeImpact,
+  TasksForNodeEntry,
+} from './nexus-living-brain-ops.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience

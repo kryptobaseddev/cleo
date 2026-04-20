@@ -3713,6 +3713,263 @@ const shapeCheckCommand = defineCommand({
  * Dispatches to nexus domain registry operations.
  * @task T4554
  */
+
+// ---------------------------------------------------------------------------
+// Living Brain traversal commands (T1068)
+// ---------------------------------------------------------------------------
+
+/** cleo nexus full-context — show all 5-substrate context for a code symbol */
+const fullContextCommand = defineCommand({
+  meta: {
+    name: 'full-context',
+    description:
+      'Show full Living Brain context for a symbol: NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals, conduit threads',
+  },
+  args: {
+    symbol: {
+      type: 'positional',
+      description: 'Symbol name or nexus node ID',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const symbolId = args.symbol as string;
+    const projectRoot = process.cwd();
+    try {
+      const { getSymbolFullContext } = await import(
+        '@cleocode/core/nexus/living-brain.js' as string
+      );
+      const result = await getSymbolFullContext(symbolId, projectRoot);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.full-context',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+      process.stdout.write(`\n## Living Brain: ${result.symbolId}\n\n`);
+      process.stdout.write(`### NEXUS\n`);
+      if (!result.nexus) {
+        process.stdout.write(`  (no nexus data — run 'cleo nexus analyze' first)\n`);
+      } else {
+        const n = result.nexus;
+        process.stdout.write(`  Kind: ${n.kind}  File: ${n.filePath ?? '—'}\n`);
+        process.stdout.write(
+          `  Callers (${n.callers.length}): ${
+            n.callers
+              .map((c) => c.name)
+              .slice(0, 10)
+              .join(', ') || '—'
+          }\n`,
+        );
+        process.stdout.write(
+          `  Callees (${n.callees.length}): ${
+            n.callees
+              .map((c) => c.name)
+              .slice(0, 10)
+              .join(', ') || '—'
+          }\n`,
+        );
+        process.stdout.write(
+          `  Plasticity: w=${result.plasticityWeight.totalWeight.toFixed(2)} edges=${result.plasticityWeight.edgeCount}\n`,
+        );
+      }
+      process.stdout.write(`\n### BRAIN memories (${result.brainMemories.length})\n`);
+      for (const m of result.brainMemories.slice(0, 10)) {
+        process.stdout.write(
+          `  [${m.nodeType}] ${m.label.slice(0, 80)} (edge=${m.edgeType} w=${m.weight.toFixed(2)})\n`,
+        );
+      }
+      if (result.brainMemories.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(`\n### TASKS (${result.tasks.length})\n`);
+      for (const t of result.tasks.slice(0, 10))
+        process.stdout.write(`  ${t.taskId}  w=${t.weight.toFixed(2)}\n`);
+      if (result.tasks.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(`\n### SENTIENT proposals (${result.sentientProposals.length})\n`);
+      for (const p of result.sentientProposals.slice(0, 5))
+        process.stdout.write(`  ${p.title.slice(0, 80)} (w=${p.weight.toFixed(2)})\n`);
+      if (result.sentientProposals.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(`\n### CONDUIT threads (${result.conduitThreads.length})\n`);
+      for (const c of result.conduitThreads.slice(0, 5))
+        process.stdout.write(`  ${c.nodeId}  w=${c.weight.toFixed(2)}\n`);
+      if (result.conduitThreads.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(`\n(${durationMs}ms)\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus] Error running full-context: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
+/** cleo nexus task-footprint — show full code impact for a task */
+const taskFootprintCommand = defineCommand({
+  meta: {
+    name: 'task-footprint',
+    description:
+      'Show full code impact of a task: files, symbols, blast radius, brain observations, decisions, risk tier',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID (e.g., T001)',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const taskId = args.taskId as string;
+    const projectRoot = process.cwd();
+    try {
+      const { getTaskCodeImpact } = await import('@cleocode/core/nexus/living-brain.js' as string);
+      const result = await getTaskCodeImpact(taskId, projectRoot);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.task-footprint',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+      process.stdout.write(`\n## Task Code Impact: ${result.taskId}\n\n`);
+      process.stdout.write(`**Risk Score**: ${result.riskScore}\n`);
+      process.stdout.write(
+        `**Files** (${result.files.length}): ${result.files.slice(0, 10).join(', ') || '—'}\n\n`,
+      );
+      process.stdout.write(`### Symbols (${result.symbols.length})\n`);
+      for (const s of result.symbols.slice(0, 20)) {
+        process.stdout.write(
+          `  [${s.riskLevel}] ${s.label} (${s.kind})  d1=${s.directCallers}  total=${s.totalAffected}\n`,
+        );
+      }
+      if (result.symbols.length === 0)
+        process.stdout.write(`  (none — run 'cleo nexus analyze' or link task to symbols first)\n`);
+      process.stdout.write(`\n### Blast Radius\n`);
+      process.stdout.write(
+        `  analyzed=${result.blastRadius.symbolsAnalyzed}  total_affected=${result.blastRadius.totalAffected}  max_risk=${result.blastRadius.maxRisk}\n`,
+      );
+      process.stdout.write(`\n### Brain Observations (${result.brainObservations.length})\n`);
+      for (const o of result.brainObservations.slice(0, 5))
+        process.stdout.write(`  [${o.nodeType}] ${o.label.slice(0, 80)}\n`);
+      process.stdout.write(`\n### Decisions (${result.decisions.length})\n`);
+      for (const d of result.decisions.slice(0, 5))
+        process.stdout.write(`  [${d.linkType}] ${d.decision.slice(0, 80)}\n`);
+      process.stdout.write(`\n(${durationMs}ms)\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus] Error running task-footprint: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
+/** cleo nexus brain-anchors — show code anchors for a brain memory entry */
+const brainAnchorsCommand = defineCommand({
+  meta: {
+    name: 'brain-anchors',
+    description:
+      'Show code anchors for a brain memory entry: linked nexus nodes, tasks that touched them, plasticity signal',
+  },
+  args: {
+    entryId: {
+      type: 'positional',
+      description: 'Brain entry node ID (e.g., observation:abc123)',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const entryId = args.entryId as string;
+    const projectRoot = process.cwd();
+    try {
+      const { getBrainEntryCodeAnchors } = await import(
+        '@cleocode/core/nexus/living-brain.js' as string
+      );
+      const result = await getBrainEntryCodeAnchors(entryId, projectRoot);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.brain-anchors',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+      process.stdout.write(`\n## Brain Code Anchors: ${result.entryId}\n\n`);
+      process.stdout.write(`**Plasticity Signal**: ${result.plasticitySignal.toFixed(2)}\n\n`);
+      process.stdout.write(`### Nexus Nodes (${result.nexusNodes.length})\n`);
+      for (const n of result.nexusNodes.slice(0, 20)) {
+        process.stdout.write(
+          `  [${n.kind}] ${n.label}  file=${n.filePath ?? '—'}  edge=${n.edgeType}  w=${n.weight.toFixed(2)}\n`,
+        );
+      }
+      if (result.nexusNodes.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(
+        `\n### Tasks for Nodes (${result.tasksForNodes.length} nodes with task links)\n`,
+      );
+      for (const entry of result.tasksForNodes.slice(0, 10)) {
+        const taskList = entry.tasks.map((t) => t.taskId).join(', ');
+        process.stdout.write(`  ${entry.nexusNodeId}: ${taskList}\n`);
+      }
+      if (result.tasksForNodes.length === 0) process.stdout.write(`  (none)\n`);
+      process.stdout.write(`\n(${durationMs}ms)\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus] Error running brain-anchors: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
 export const nexusCommand = defineCommand({
   meta: { name: 'nexus', description: 'Cross-project NEXUS operations' },
   subCommands: {
@@ -3751,6 +4008,9 @@ export const nexusCommand = defineCommand({
     diff: diffCommand,
     'route-map': routeMapCommand,
     'shape-check': shapeCheckCommand,
+    'full-context': fullContextCommand,
+    'task-footprint': taskFootprintCommand,
+    'brain-anchors': brainAnchorsCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
