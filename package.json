@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/monorepo",
-  "version": "2026.4.100",
+  "version": "2026.4.101",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.0",
@@ -24,7 +24,8 @@
     "docs:build": "forge-ts build",
     "docs:init": "forge-ts docs init --target mintlify --out-dir docs/site",
     "docs:dev": "forge-ts docs dev",
-    "clean": "rm -rf packages/*/dist",
+    "clean": "find packages -type d -name dist -prune -exec rm -rf {} + && find packages -name '*.tsbuildinfo' -delete",
+    "clean:node-modules": "find packages -type d -name node_modules -prune -exec rm -rf {} + && rm -rf node_modules && pnpm install",
     "db:generate": "drizzle-kit generate --config drizzle/tasks.config.ts",
     "db:generate:brain": "drizzle-kit generate --config drizzle/brain.config.ts",
     "db:generate:nexus": "drizzle-kit generate --config drizzle/nexus.config.ts",
