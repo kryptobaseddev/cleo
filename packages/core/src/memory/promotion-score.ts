@@ -150,10 +150,8 @@ export function mapObservationTypeToTier(observationType: string): string {
     case 'refactor':
     case 'change':
       return 'pattern';
-    case 'discovery':
-    case 'bugfix':
-    case 'diary':
     default:
+      // 'discovery' | 'bugfix' | 'diary' | anything else → learning
       return 'learning';
   }
 }
