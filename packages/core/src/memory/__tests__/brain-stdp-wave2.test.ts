@@ -24,6 +24,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -47,7 +48,7 @@ async function setupDb(dir: string) {
 
 /** Insert a brain_retrieval_log row using a relative timestamp expression. */
 function insertRetrievalRow(
-  nativeDb: ReturnType<typeof import('better-sqlite3')>,
+  nativeDb: DatabaseSync,
   opts: {
     entryIds: string[];
     sessionId: string;
@@ -75,7 +76,7 @@ function insertRetrievalRow(
 
 /** Insert a brain_retrieval_log row with an explicit days-ago offset. */
 function insertRetrievalRowDaysAgo(
-  nativeDb: ReturnType<typeof import('better-sqlite3')>,
+  nativeDb: DatabaseSync,
   opts: {
     entryIds: string[];
     sessionId: string;

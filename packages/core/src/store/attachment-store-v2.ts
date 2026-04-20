@@ -4,9 +4,10 @@
  * Wraps both the preferred `CleoBlobStore` (backed by `llmtxt/blob.BlobFsAdapter`)
  * and the legacy {@link ./attachment-store.ts} (tasks.db + on-disk sha256 shards)
  * behind a single interface. At runtime this store probes the optional peer
- * dependency `better-sqlite3`; when available AND llmtxt is resolvable the
- * preferred path is used, otherwise we gracefully fall back to the legacy
- * implementation so callers never observe a hard failure.
+ * `node:sqlite` (built into Node 24) and `drizzle-orm/node-sqlite` are
+ * available alongside llmtxt; when so, the preferred path is used, otherwise
+ * we gracefully fall back to the legacy implementation so callers never
+ * observe a hard failure.
  *
  * The interface is intentionally minimal: `put / get / list / remove`. It does
  * NOT try to be a superset of {@link ./attachment-store.ts} — existing callers
@@ -129,16 +130,10 @@ export interface AttachmentStoreV2 {
  * @internal
  */
 async function canUseLlmtxtBackend(): Promise<boolean> {
-  // Variable specifiers defer resolution to runtime so tsc does not try to
-  // statically resolve the optional peer deps. Matches the pattern used by
-  // {@link ./llmtxt-blob-adapter.ts}.
-  const betterSqlite3Id = 'better-sqlite3';
-  const drizzleBetterSqlite3Id = 'drizzle-orm/better-sqlite3';
-  const llmtxtBlobId = 'llmtxt/blob';
   try {
-    await import(betterSqlite3Id);
-    await import(drizzleBetterSqlite3Id);
-    await import(llmtxtBlobId);
+    await import('node:sqlite');
+    await import('drizzle-orm/node-sqlite');
+    await import('llmtxt/blob');
     return true;
   } catch {
     return false;
@@ -163,10 +158,10 @@ export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
  * Construct a unified attachment store.
  *
  * The returned store lazily resolves the preferred backend on first use. When
- * `llmtxt/blob` + `better-sqlite3` load successfully, writes go to
+ * `llmtxt/blob` + `node:sqlite` load successfully, writes go to
  * {@link CleoBlobStore}. Any construction/open failure falls through to the
  * legacy {@link ./attachment-store.ts} implementation — callers never observe
- * a hard peer-dep error.
+ * a hard failure.
  *
  * @param projectRoot Absolute path to the project root (determines where the
  *                    llmtxt blob manifest lives).
@@ -192,7 +187,7 @@ export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
  */
 export interface CreateAttachmentStoreV2Options {
   /**
-   * Force a specific backend. `auto` (default) probes for llmtxt + better-sqlite3
+   * Force a specific backend. `auto` (default) probes for llmtxt + node:sqlite
    * and falls back to legacy on failure. `legacy` skips the probe entirely.
    */
   readonly backend?: 'auto' | 'legacy';

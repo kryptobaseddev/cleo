@@ -10,14 +10,14 @@
  * release cadence.
  *
  * Wiring model:
- *   - `BlobFsAdapter` requires a `BetterSQLite3Database<Record<string, never>>`
+ *   - `BlobFsAdapter` requires a `NodeSQLiteDatabase<Record<string, never>>`
  *     that owns a `blob_attachments` table (manifest + LWW).
  *   - Bytes live at `<projectRoot>/.cleo/blobs/blobs/<sha256-hex>`.
  *     The nested `blobs/` subdir is BlobFsAdapter's internal convention.
- *   - We lazy-load `better-sqlite3` + `drizzle-orm/better-sqlite3` since
- *     llmtxt declares both as optional peer deps; callers wanting file-backed
- *     blob storage MUST install `better-sqlite3` themselves or inject a
- *     pre-constructed DB via {@link CleoBlobStoreOptions.db}.
+ *   - We lazy-load `node:sqlite` + `drizzle-orm/node-sqlite` — both ship
+ *     with Node 24 and drizzle-orm v1.0.0-beta, so no optional peer deps
+ *     are required. A pre-constructed DB may also be injected via
+ *     {@link CleoBlobStoreOptions.db}.
  *
  * Retirement plan (Wave B): the existing `packages/core/src/store/attachment-store.ts`
  * (643 LoC) will be migrated caller-by-caller to this store. Both stores
@@ -88,7 +88,7 @@ export interface CleoBlobStoreOptions {
    * a Drizzle connection.
    *
    * Typed as `unknown` to avoid a hard compile-time dependency on
-   * `drizzle-orm/better-sqlite3` — the runtime shape is validated by
+   * `drizzle-orm/node-sqlite` — the runtime shape is validated by
    * BlobFsAdapter's constructor.
    */
   readonly db?: unknown;
@@ -109,9 +109,9 @@ export interface CleoBlobAttachResult {
 }
 
 /**
- * Lazy-loaded Drizzle ctor + better-sqlite3 ctor bundle.
+ * Lazy-loaded Drizzle ctor + node:sqlite ctor bundle.
  * Cached at module scope so a second instantiation does not re-require
- * the native modules.
+ * the modules.
  *
  * Note: drizzle-orm v1.0.0-beta requires `drizzle({ client: nativeDb })` —
  * the v0.x positional-arg form `drizzle(nativeDb)` silently opens a fresh
@@ -121,51 +121,26 @@ export interface CleoBlobAttachResult {
  */
 let _drizzleCtor: {
   drizzle: (config: { client: unknown }) => unknown;
-  BetterSqlite3Database: new (filename: string) => unknown;
+  NodeSqliteDatabase: new (filename: string) => unknown;
 } | null = null;
 
 /**
- * Lazy-load `better-sqlite3` + `drizzle-orm/better-sqlite3`.
+ * Lazy-load `node:sqlite` + `drizzle-orm/node-sqlite`.
  *
- * llmtxt declares both as optional peer deps; callers of CleoBlobStore
- * who do NOT inject a DB MUST have both installed. When missing, we
- * throw a well-formed error instructing the caller to install them.
+ * Both ship with Node 24 and drizzle-orm v1.0.0-beta respectively —
+ * no optional peer deps required.
  *
  * @internal
  */
 async function loadDrizzle(): Promise<NonNullable<typeof _drizzleCtor>> {
   if (_drizzleCtor !== null) return _drizzleCtor;
-  // Use variable specifiers so tsc does not statically resolve the optional
-  // peer deps. Both are optional per llmtxt's peerDependenciesMeta — they
-  // are NOT listed in @cleocode/core's package.json. Static imports would
-  // fail type-checking; dynamic-by-variable defers resolution to runtime.
-  const betterSqlite3Id = 'better-sqlite3';
-  const drizzleBetterSqlite3Id = 'drizzle-orm/better-sqlite3';
-  let BetterSqlite3Mod: { default: new (filename: string) => unknown };
-  try {
-    BetterSqlite3Mod = (await import(betterSqlite3Id)) as {
-      default: new (filename: string) => unknown;
-    };
-  } catch (err) {
-    const cause = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `CleoBlobStore requires the optional peer dep "better-sqlite3" when no db is injected. Install it with: pnpm add better-sqlite3. Cause: ${cause}`,
-    );
-  }
-  let drizzleMod: { drizzle: (config: { client: unknown }) => unknown };
-  try {
-    drizzleMod = (await import(drizzleBetterSqlite3Id)) as {
-      drizzle: (config: { client: unknown }) => unknown;
-    };
-  } catch (err) {
-    const cause = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `CleoBlobStore requires "drizzle-orm/better-sqlite3" when no db is injected. Install it with: pnpm add drizzle-orm. Cause: ${cause}`,
-    );
-  }
+  const { DatabaseSync } = await import('node:sqlite');
+  const drizzleMod = (await import('drizzle-orm/node-sqlite')) as {
+    drizzle: (config: { client: unknown }) => unknown;
+  };
   _drizzleCtor = {
     drizzle: drizzleMod.drizzle,
-    BetterSqlite3Database: BetterSqlite3Mod.default,
+    NodeSqliteDatabase: DatabaseSync,
   };
   return _drizzleCtor;
 }
@@ -204,7 +179,7 @@ export class CleoBlobStore {
   private readonly opts: CleoBlobStoreOptions;
   private adapter: BlobFsAdapter | null = null;
   /**
-   * The better-sqlite3 native Database handle. Retained so {@link close}
+   * The node:sqlite native Database handle. Retained so {@link close}
    * can release the file descriptor. `null` when the caller injected a
    * pre-constructed DB (ownership stays with the caller).
    */
@@ -234,11 +209,11 @@ export class CleoBlobStore {
     if (this.opts.db !== undefined) {
       db = this.opts.db;
     } else {
-      const { drizzle, BetterSqlite3Database } = await loadDrizzle();
+      const { drizzle, NodeSqliteDatabase } = await loadDrizzle();
       // Ensure parent dir exists before opening the SQLite file.
       const { mkdir } = await import('node:fs/promises');
       await mkdir(path.dirname(manifestDbPath), { recursive: true });
-      const nativeDb = new BetterSqlite3Database(manifestDbPath);
+      const nativeDb = new NodeSqliteDatabase(manifestDbPath);
       this.ownedNativeDb = nativeDb as { close(): void };
       // drizzle v1.0 API — must pass `{ client: nativeDb }` to reuse the
       // already-opened native handle. Positional form opens a new DB.
@@ -249,10 +224,10 @@ export class CleoBlobStore {
       ensureBlobAttachmentsTable(nativeDb as SqliteExecLike);
     }
 
-    // cast: BlobFsAdapter's constructor types `db` as
-    // `BetterSQLite3Database<Record<string, never>>`. `drizzle(nativeDb)`
-    // returns that exact shape but `unknown` is narrower. The llmtxt runtime
-    // does not introspect the generic, so this cast is safe.
+    // cast: BlobFsAdapter's constructor types `db` as a Drizzle SQLite database.
+    // `drizzle({ client: nativeDb })` returns a NodeSQLiteDatabase which satisfies
+    // the same interface at runtime. The llmtxt runtime does not introspect the
+    // generic, so this cast is safe.
     this.adapter = new BlobFsAdapter(
       db as ConstructorParameters<typeof BlobFsAdapter>[0],
       storagePath,
@@ -365,8 +340,8 @@ export class CleoBlobStore {
 // ─── Internal: blob_attachments DDL ──────────────────────────────────────────
 
 /**
- * Minimal typing for the subset of better-sqlite3's `Database` surface we use
- * during manifest bootstrap. Avoids a hard type dep on `@types/better-sqlite3`.
+ * Minimal typing for the subset of `node:sqlite`'s `DatabaseSync` surface we
+ * use during manifest bootstrap.
  */
 interface SqliteExecLike {
   exec(sql: string): unknown;

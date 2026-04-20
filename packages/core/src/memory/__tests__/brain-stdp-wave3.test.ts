@@ -20,6 +20,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -54,7 +55,7 @@ async function setupDb(dir: string) {
 
 /** Insert a brain_page_edges co_retrieved row with full plasticity fields. */
 function insertEdge(
-  nativeDb: ReturnType<typeof import('better-sqlite3')>,
+  nativeDb: DatabaseSync,
   opts: {
     fromId: string;
     toId: string;
@@ -87,7 +88,7 @@ function insertEdge(
 
 /** Insert a brain_retrieval_log row with seconds-ago offset. */
 function insertRetrievalRow(
-  nativeDb: ReturnType<typeof import('better-sqlite3')>,
+  nativeDb: DatabaseSync,
   opts: {
     entryIds: string[];
     sessionId: string;

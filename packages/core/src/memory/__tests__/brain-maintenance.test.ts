@@ -12,12 +12,13 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
 let cleoDir: string;
 
-/** Open brain.db and return the raw better-sqlite3 handle. */
+/** Open brain.db and return the raw node:sqlite DatabaseSync handle. */
 async function openBrainDb(root: string) {
   const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
   await getBrainDb(root);
@@ -27,7 +28,7 @@ async function openBrainDb(root: string) {
 }
 
 /** Ensure prune_candidate column exists on brain_observations (lazy migration). */
-function ensurePruneCol(db: ReturnType<typeof import('better-sqlite3')>) {
+function ensurePruneCol(db: DatabaseSync) {
   for (const tbl of [
     'brain_observations',
     'brain_decisions',
@@ -53,7 +54,7 @@ function ensurePruneCol(db: ReturnType<typeof import('better-sqlite3')>) {
 }
 
 /** Ensure brain_consolidation_events table exists (M4 migration). */
-function ensureConsolidationEvents(db: ReturnType<typeof import('better-sqlite3')>) {
+function ensureConsolidationEvents(db: DatabaseSync) {
   db.prepare(
     `CREATE TABLE IF NOT EXISTS brain_consolidation_events (
        id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +73,7 @@ function ensureConsolidationEvents(db: ReturnType<typeof import('better-sqlite3'
  * `ageOffsetDays` negative = old (e.g. -40 means 40 days ago).
  */
 function insertObs(
-  db: ReturnType<typeof import('better-sqlite3')>,
+  db: DatabaseSync,
   opts: {
     id: string;
     pruneCandidate: number;
