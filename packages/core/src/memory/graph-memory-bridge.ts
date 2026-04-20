@@ -1150,8 +1150,10 @@ export async function linkConduitMessagesToSymbols(
 
       if (!brainNative || !nexusNative) return result;
 
-      // Load top 200 nexus nodes ordered by plasticity weight (or name frequency as fallback)
-      // We use the most-accessed/weighted symbols to bound FTS query size
+      // Load top 200 nexus nodes ordered by aggregate plasticity weight from
+      // nexus_relations (weight lives on edges, not nodes). We join with a
+      // per-source aggregation so the ORDER BY references a real column.
+      // Falls back to indexed_at DESC for nodes with no edges yet.
       interface RawNexusSymbol {
         id: string;
         name: string | null;
@@ -1160,11 +1162,16 @@ export async function linkConduitMessagesToSymbols(
 
       const topSymbols = typedAll<RawNexusSymbol>(
         nexusNative.prepare(`
-          SELECT id, name, label
-          FROM nexus_nodes
-          WHERE name IS NOT NULL AND name != ''
-          AND kind NOT IN ('community', 'process', 'folder')
-          ORDER BY weight DESC NULLS LAST, name ASC
+          SELECT n.id, n.name, n.label
+          FROM nexus_nodes n
+          LEFT JOIN (
+            SELECT source_id, SUM(weight) AS total_weight
+            FROM nexus_relations
+            GROUP BY source_id
+          ) r ON n.id = r.source_id
+          WHERE n.name IS NOT NULL AND n.name != ''
+          AND n.kind NOT IN ('community', 'process', 'folder')
+          ORDER BY COALESCE(r.total_weight, 0) DESC, n.indexed_at DESC
           LIMIT 200
         `),
       );
@@ -1204,7 +1211,7 @@ export async function linkConduitMessagesToSymbols(
           SELECT id, content, attachments
           FROM messages
           WHERE attachments != '[]'
-             OR id IN (SELECT rowid FROM messages_fts WHERE content MATCH ?)
+             OR rowid IN (SELECT rowid FROM messages_fts WHERE content MATCH ?)
           LIMIT 10000
         `),
         ftsQuery,
