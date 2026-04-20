@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.99] — 2026-04-20 — T1015 Architecture cleanup
+
+Architecture cleanup: relocate sentient+gc daemons from @cleocode/cleo (CLI-only)
+to @cleocode/core (SDK) per canonical layering. No functional change. Fixes
+shipping-scope miss in v2026.4.98.
+
+### Refactor T1015 — sentient+gc daemons → core SDK
+
+- `packages/cleo/src/sentient/` and `packages/cleo/src/gc/` moved to `packages/core/src/` via `git mv` (history preserved)
+- New barrel exports: `@cleocode/core/sentient` and `@cleocode/core/gc` with explicit subpath entries for all consumed files
+- CLI commands (`sentient.ts`, `gc.ts`, `daemon.ts`, `transcript.ts`) and dispatch domain (`domains/sentient.ts`) updated to import from `@cleocode/core/sentient/*` and `@cleocode/core/gc/*`
+- `node-cron` and `check-disk-space` added to `@cleocode/core` dependencies
+- Vitest aliases updated in root `vitest.config.ts` and `packages/cleo/vitest.config.ts`
+- Commit: `f53e4190d`
+
 ## [2026.4.98] — 2026-04-20 — T991 BRAIN Integrity + T1000 BRAIN Advanced + T1007 Sentient Tier 2 + T1013 Hygiene
 
 Sixteen tasks across four epics ship together. Core theme: BRAIN reliability
