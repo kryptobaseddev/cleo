@@ -169,6 +169,50 @@ function runNexusMigrations(
     'nexus',
   );
 
+  // T1065: idempotent safety net for contracts table — covers pre-migration
+  // nexus.db instances that were created before contracts extraction.
+  // If the table doesn't exist after migrations, it will be created here.
+  if (!tableExists(nativeDb, 'nexus_contracts')) {
+    nativeDb
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS nexus_contracts (
+        contract_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('http', 'grpc', 'topic')),
+        path TEXT NOT NULL,
+        method TEXT,
+        request_schema_json TEXT NOT NULL DEFAULT '{}',
+        response_schema_json TEXT NOT NULL DEFAULT '{}',
+        source_symbol_id TEXT,
+        route_node_id TEXT,
+        confidence REAL NOT NULL DEFAULT 1.0,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      )
+      .run();
+
+    // Create indexes
+    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project ON nexus_contracts(project_id)').run();
+    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_type ON nexus_contracts(type)').run();
+    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_path ON nexus_contracts(path)').run();
+    nativeDb.prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_method ON nexus_contracts(method)').run();
+    nativeDb
+      .prepare(
+        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project_type ON nexus_contracts(project_id, type)',
+      )
+      .run();
+    nativeDb
+      .prepare(
+        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_source_symbol ON nexus_contracts(source_symbol_id)',
+      )
+      .run();
+    nativeDb
+      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_created ON nexus_contracts(created_at)')
+      .run();
+  }
+
   // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
   const MAX_RETRIES = 5;
   const BASE_DELAY_MS = 100;

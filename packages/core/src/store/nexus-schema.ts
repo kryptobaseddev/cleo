@@ -354,6 +354,81 @@ export const nexusRelations = sqliteTable(
   ],
 );
 
+// === NEXUS_CONTRACTS TABLE ===
+
+/**
+ * All contract type values for extraction.
+ *
+ * Kept as a const tuple for use in Drizzle enum column definitions.
+ *
+ * @task T1065
+ */
+export const NEXUS_CONTRACT_TYPES = ['http', 'grpc', 'topic'] as const;
+
+/** TypeScript type derived from NEXUS_CONTRACT_TYPES. */
+export type NexusContractType = (typeof NEXUS_CONTRACT_TYPES)[number];
+
+/**
+ * Cross-project code contract registry for HTTP/gRPC/topic APIs.
+ *
+ * Stores extracted contracts keyed by type, path/method, and project.
+ * Used to detect integration points and compatibility across projects.
+ *
+ * @task T1065
+ */
+export const nexusContracts = sqliteTable(
+  'nexus_contracts',
+  {
+    /** Unique contract ID (format: `<type>:<projectId>::<path>::<method>` or similar). */
+    contractId: text('contract_id').primaryKey(),
+
+    /** Foreign key to project_registry.project_id. */
+    projectId: text('project_id').notNull(),
+
+    /** Contract type: 'http', 'grpc', 'topic'. */
+    type: text('type', { enum: NEXUS_CONTRACT_TYPES }).notNull(),
+
+    /** Path or endpoint identifier (HTTP: `/api/v1/tasks`, gRPC: `ServiceName`, Topic: `topic.name`). */
+    path: text('path').notNull(),
+
+    /** HTTP method (GET, POST, etc.) or gRPC method name. Null for topics. */
+    method: text('method'),
+
+    /** Request schema as JSON string. */
+    requestSchemaJson: text('request_schema_json').notNull().default('{}'),
+
+    /** Response schema as JSON string. */
+    responseSchemaJson: text('response_schema_json').notNull().default('{}'),
+
+    /** Source symbol ID (format: `<filePath>::<functionName>`). */
+    sourceSymbolId: text('source_symbol_id'),
+
+    /** Route node ID from nexus_nodes (if applicable). */
+    routeNodeId: text('route_node_id'),
+
+    /** Extraction confidence [0..1]. */
+    confidence: real('confidence').notNull().default(1.0),
+
+    /** Human-readable description. */
+    description: text('description'),
+
+    /** ISO 8601 timestamp when contract was extracted. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    /** ISO 8601 timestamp of last update. */
+    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_nexus_contracts_project').on(table.projectId),
+    index('idx_nexus_contracts_type').on(table.type),
+    index('idx_nexus_contracts_path').on(table.path),
+    index('idx_nexus_contracts_method').on(table.method),
+    index('idx_nexus_contracts_project_type').on(table.projectId, table.type),
+    index('idx_nexus_contracts_source_symbol').on(table.sourceSymbolId),
+    index('idx_nexus_contracts_created').on(table.createdAt),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type ProjectRegistryRow = typeof projectRegistry.$inferSelect;
@@ -366,3 +441,5 @@ export type NexusNodeRow = typeof nexusNodes.$inferSelect;
 export type NewNexusNodeRow = typeof nexusNodes.$inferInsert;
 export type NexusRelationRow = typeof nexusRelations.$inferSelect;
 export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;
+export type NexusContractRow = typeof nexusContracts.$inferSelect;
+export type NewNexusContractRow = typeof nexusContracts.$inferInsert;
