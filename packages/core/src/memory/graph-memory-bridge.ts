@@ -18,11 +18,21 @@
  * @epic T523
  */
 
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { getConduitDbPath } from '../store/conduit-sqlite.js';
 import type { BrainNodeType } from '../store/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
+
+const _require = createRequire(import.meta.url);
+type DatabaseSync = _DatabaseSyncType;
+const { DatabaseSync } = _require('node:sqlite') as {
+  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
+};
 
 // ---------------------------------------------------------------------------
 // Public result types
@@ -294,6 +304,264 @@ export async function linkMemoryToCode(
 }
 
 // ---------------------------------------------------------------------------
+// linkObservationToModifiedFiles — observation → files_modified_json
+// ---------------------------------------------------------------------------
+
+/**
+ * Write `modified_by` edges from file nodes to observation nodes.
+ *
+ * For each file path in the observation's files_modified_json, finds the
+ * corresponding file node in nexus_nodes and writes a `modified_by` edge.
+ *
+ * This function is idempotent — calling it multiple times is safe.
+ *
+ * @param obsId - Brain observation node ID (format: 'observation:<source-id>')
+ * @param filesModifiedJson - JSON array of file paths (may be null)
+ * @param projectRoot - Absolute path to project root
+ * @param nexusNative - Optional pre-loaded nexus database handle
+ * @returns Count of edges written
+ */
+export async function linkObservationToModifiedFiles(
+  obsId: string,
+  filesModifiedJson: string | null,
+  projectRoot: string,
+  nexusNative?: ReturnType<typeof getNexusNativeDb>,
+): Promise<number> {
+  let edgeCount = 0;
+
+  if (!filesModifiedJson) return 0;
+
+  try {
+    await getBrainDb(projectRoot);
+    const brainNative = getBrainNativeDb();
+    if (!brainNative) return 0;
+
+    const nexusDb = nexusNative ?? getNexusNativeDb();
+    if (!nexusDb) return 0;
+
+    const filesArray = JSON.parse(filesModifiedJson) as string[];
+    if (!Array.isArray(filesArray)) return 0;
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    for (const filePath of filesArray) {
+      if (!filePath || typeof filePath !== 'string') continue;
+
+      // Find nexus node by exact file path match
+      const nexusNode = nexusDb
+        .prepare('SELECT id FROM nexus_nodes WHERE file_path = ? LIMIT 1')
+        .get(filePath) as { id: string } | undefined;
+
+      if (!nexusNode) continue;
+
+      // Write modified_by edge (file → observation)
+      try {
+        brainNative
+          .prepare(`
+            INSERT OR IGNORE INTO brain_page_edges
+              (from_id, to_id, edge_type, weight, provenance, created_at)
+            VALUES (?, ?, 'modified_by', 1.0, 'auto:file-modify', ?)
+          `)
+          .run(nexusNode.id, obsId, now);
+        edgeCount++;
+      } catch (err) {
+        console.warn('[graph-memory-bridge] modified_by edge insert failed:', err);
+      }
+    }
+  } catch (err) {
+    console.warn('[graph-memory-bridge] linkObservationToModifiedFiles failed:', err);
+  }
+
+  return edgeCount;
+}
+
+// ---------------------------------------------------------------------------
+// linkObservationToMentionedSymbols — observation text → symbol NER
+// ---------------------------------------------------------------------------
+
+/**
+ * Write `mentions` edges from observation nodes to symbol nodes found in text.
+ *
+ * Scans the observation text for symbol names present in nexus_nodes using
+ * case-sensitive word-boundary matching. Caps results at 20 matches per
+ * observation to prevent runaway on large-text observations.
+ *
+ * This function is idempotent — calling it multiple times is safe.
+ *
+ * @param obsId - Brain observation node ID
+ * @param text - Text content to scan for symbol names
+ * @param projectRoot - Absolute path to project root
+ * @param nexusNative - Optional pre-loaded nexus database handle
+ * @returns Count of edges written
+ */
+export async function linkObservationToMentionedSymbols(
+  obsId: string,
+  text: string,
+  projectRoot: string,
+  nexusNative?: ReturnType<typeof getNexusNativeDb>,
+): Promise<number> {
+  let edgeCount = 0;
+
+  if (!text || text.length === 0) return 0;
+
+  try {
+    await getBrainDb(projectRoot);
+    const brainNative = getBrainNativeDb();
+    if (!brainNative) return 0;
+
+    const nexusDb = nexusNative ?? getNexusNativeDb();
+    if (!nexusDb) return 0;
+
+    // Load all nexus node names into memory
+    interface RawNexusName {
+      id: string;
+      name: string;
+    }
+
+    const nexusNames = typedAll<RawNexusName>(
+      nexusDb.prepare('SELECT id, name FROM nexus_nodes WHERE name IS NOT NULL LIMIT 10000'),
+    );
+
+    if (nexusNames.length === 0) return 0;
+
+    // Build a set of symbol names for fast lookup
+    const symbolNameSet = new Set(nexusNames.map((n) => n.name));
+    const symbolNames = Array.from(symbolNameSet);
+
+    // Extract symbol candidates from text using word boundaries
+    const candidates: string[] = [];
+    for (const name of symbolNames) {
+      // Case-sensitive word-boundary match
+      const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (pattern.test(text)) {
+        candidates.push(name);
+      }
+    }
+
+    // Cap at 20 matches per observation to prevent noise
+    const matches = candidates.slice(0, 20);
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    // Write mentions edges
+    for (const name of matches) {
+      const nexusNode = nexusNames.find((n) => n.name === name);
+      if (!nexusNode) continue;
+
+      try {
+        brainNative
+          .prepare(`
+            INSERT OR IGNORE INTO brain_page_edges
+              (from_id, to_id, edge_type, weight, provenance, created_at)
+            VALUES (?, ?, 'mentions', 1.0, 'auto:symbol-ner', ?)
+          `)
+          .run(obsId, nexusNode.id, now);
+        edgeCount++;
+      } catch (err) {
+        console.warn('[graph-memory-bridge] mentions edge insert failed:', err);
+      }
+    }
+  } catch (err) {
+    console.warn('[graph-memory-bridge] linkObservationToMentionedSymbols failed:', err);
+  }
+
+  return edgeCount;
+}
+
+// ---------------------------------------------------------------------------
+// linkDecisionToSymbols — decision context → symbol NER
+// ---------------------------------------------------------------------------
+
+/**
+ * Write `documents` edges from decision nodes to symbol nodes found in context.
+ *
+ * Scans the decision's context text for symbol names present in nexus_nodes.
+ * Same NER pattern as linkObservationToMentionedSymbols but for decisions.
+ * Caps results at 20 matches per decision to prevent runaway.
+ *
+ * This function is idempotent — calling it multiple times is safe.
+ *
+ * @param decisionId - Brain decision node ID (format: 'decision:D-<id>')
+ * @param contextText - Context/rationale text to scan for symbol names
+ * @param projectRoot - Absolute path to project root
+ * @param nexusNative - Optional pre-loaded nexus database handle
+ * @returns Count of edges written
+ */
+export async function linkDecisionToSymbols(
+  decisionId: string,
+  contextText: string,
+  projectRoot: string,
+  nexusNative?: ReturnType<typeof getNexusNativeDb>,
+): Promise<number> {
+  let edgeCount = 0;
+
+  if (!contextText || contextText.length === 0) return 0;
+
+  try {
+    await getBrainDb(projectRoot);
+    const brainNative = getBrainNativeDb();
+    if (!brainNative) return 0;
+
+    const nexusDb = nexusNative ?? getNexusNativeDb();
+    if (!nexusDb) return 0;
+
+    // Load all nexus node names into memory
+    interface RawNexusName {
+      id: string;
+      name: string;
+    }
+
+    const nexusNames = typedAll<RawNexusName>(
+      nexusDb.prepare('SELECT id, name FROM nexus_nodes WHERE name IS NOT NULL LIMIT 10000'),
+    );
+
+    if (nexusNames.length === 0) return 0;
+
+    // Build a set of symbol names for fast lookup
+    const symbolNameSet = new Set(nexusNames.map((n) => n.name));
+    const symbolNames = Array.from(symbolNameSet);
+
+    // Extract symbol candidates from text using word boundaries
+    const candidates: string[] = [];
+    for (const name of symbolNames) {
+      // Case-sensitive word-boundary match
+      const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (pattern.test(contextText)) {
+        candidates.push(name);
+      }
+    }
+
+    // Cap at 20 matches per decision to prevent noise
+    const matches = candidates.slice(0, 20);
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    // Write documents edges
+    for (const name of matches) {
+      const nexusNode = nexusNames.find((n) => n.name === name);
+      if (!nexusNode) continue;
+
+      try {
+        brainNative
+          .prepare(`
+            INSERT OR IGNORE INTO brain_page_edges
+              (from_id, to_id, edge_type, weight, provenance, created_at)
+            VALUES (?, ?, 'documents', 1.0, 'auto:decision-ner', ?)
+          `)
+          .run(decisionId, nexusNode.id, now);
+        edgeCount++;
+      } catch (err) {
+        console.warn('[graph-memory-bridge] documents edge insert failed:', err);
+      }
+    }
+  } catch (err) {
+    console.warn('[graph-memory-bridge] linkDecisionToSymbols failed:', err);
+  }
+
+  return edgeCount;
+}
+
+// ---------------------------------------------------------------------------
 // autoLinkMemories — scan brain nodes and link to nexus matches
 // ---------------------------------------------------------------------------
 
@@ -303,9 +571,11 @@ export async function linkMemoryToCode(
  * For each brain node, extracts:
  * - File path references → matched against nexus_nodes.file_path (exact)
  * - Symbol name references → matched against nexus_nodes.name (exact, then fuzzy)
+ * - Files modified (observations) → writes modified_by edges via linkObservationToModifiedFiles
+ * - Symbol mentions (observations/decisions) → writes mentions/documents edges via symbol NER
  *
- * Matching edges are written to brain_page_edges with edgeType='code_reference'.
- * This function is idempotent — existing edges are skipped.
+ * Matching edges are written to brain_page_edges with edge types: code_reference, modified_by,
+ * mentions, documents. This function is idempotent — existing edges are skipped.
  *
  * Should be called from runConsolidation() as a best-effort step. All errors
  * are caught and logged; never throws.
@@ -504,6 +774,79 @@ export async function autoLinkMemories(projectRoot: string): Promise<AutoLinkRes
           console.warn('[graph-memory-bridge] edge insert failed:', edgeErr);
         }
       }
+    }
+
+    // Process specialized edge writers for observations and decisions
+    try {
+      // Link observations to modified files
+      interface RawObservation {
+        id: string;
+        files_modified_json: string | null;
+        narrative: string | null;
+      }
+
+      const observations = typedAll<RawObservation>(
+        brainNative.prepare(`
+          SELECT id, files_modified_json, narrative
+          FROM brain_observations
+          WHERE quality_score >= 0.3
+          LIMIT 200
+        `),
+      );
+
+      for (const obs of observations) {
+        if (obs.files_modified_json) {
+          const edgesWritten = await linkObservationToModifiedFiles(
+            `observation:${obs.id}`,
+            obs.files_modified_json,
+            projectRoot,
+            nexusNative,
+          );
+          result.linked += edgesWritten;
+        }
+
+        if (obs.narrative) {
+          const edgesWritten = await linkObservationToMentionedSymbols(
+            `observation:${obs.id}`,
+            obs.narrative,
+            projectRoot,
+            nexusNative,
+          );
+          result.linked += edgesWritten;
+        }
+      }
+
+      // Link decisions to symbols in context
+      interface RawDecision {
+        id: string;
+        decision: string | null;
+        rationale: string | null;
+      }
+
+      const decisions = typedAll<RawDecision>(
+        brainNative.prepare(`
+          SELECT id, decision, rationale
+          FROM brain_decisions
+          WHERE quality_score >= 0.3
+          LIMIT 200
+        `),
+      );
+
+      for (const dec of decisions) {
+        // Combine decision and rationale text for context analysis
+        const contextText = `${dec.decision ?? ''} ${dec.rationale ?? ''}`;
+        if (contextText.trim().length > 0) {
+          const edgesWritten = await linkDecisionToSymbols(
+            `decision:${dec.id}`,
+            contextText,
+            projectRoot,
+            nexusNative,
+          );
+          result.linked += edgesWritten;
+        }
+      }
+    } catch (err) {
+      console.warn('[graph-memory-bridge] specialized edge writers failed:', err);
     }
   } catch (err) {
     console.warn('[graph-memory-bridge] autoLinkMemories failed:', err);
@@ -746,4 +1089,204 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
   }
 
   return entries;
+}
+
+// ---------------------------------------------------------------------------
+// linkConduitMessagesToSymbols — conduit→nexus ingestion (T1071)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result from linkConduitMessagesToSymbols.
+ */
+export interface ConduitSymbolLinkResult {
+  /** Number of new `conduit_mentions_symbol` edges created. */
+  linked: number;
+  /** Total messages scanned. */
+  scanned: number;
+}
+
+/**
+ * Scan conduit.messages for symbol name mentions and link them to nexus_nodes.
+ *
+ * Scope per HITL-4:
+ * - Query messages where `attachments != '[]'` OR `content` FTS5-matches symbol names
+ * - Build symbolNames FTS query from top 200 nexus nodes (most plastically weighted)
+ * - For each matched message, write `conduit_mentions_symbol` edges to brain_page_edges
+ * - Idempotent via UNIQUE (source, target, type) constraint
+ *
+ * Gracefully no-ops if:
+ * - conduit.db file does not exist (not initialized)
+ * - nexus.db is unavailable
+ *
+ * All errors are caught and logged; never throws.
+ *
+ * @param projectRoot - Absolute path to project root (locates conduit.db)
+ * @returns Summary of scanned messages and created edges
+ * @task T1071
+ * @epic T1042
+ */
+export async function linkConduitMessagesToSymbols(
+  projectRoot: string,
+): Promise<ConduitSymbolLinkResult> {
+  const result: ConduitSymbolLinkResult = { linked: 0, scanned: 0 };
+
+  try {
+    // Check if conduit.db exists
+    const conduitDbPath = getConduitDbPath(projectRoot);
+    if (!existsSync(conduitDbPath)) {
+      return result; // Graceful no-op
+    }
+
+    // Open conduit.db (read-only for this operation)
+    const conduitDb = new DatabaseSync(conduitDbPath);
+    try {
+      // Ensure brain.db is available for edge writes
+      await getBrainDb(projectRoot);
+      const brainNative = getBrainNativeDb();
+
+      // Ensure nexus.db is available for symbol lookup
+      await getNexusDb();
+      const nexusNative = getNexusNativeDb();
+
+      if (!brainNative || !nexusNative) return result;
+
+      // Load top 200 nexus nodes ordered by plasticity weight (or name frequency as fallback)
+      // We use the most-accessed/weighted symbols to bound FTS query size
+      interface RawNexusSymbol {
+        id: string;
+        name: string | null;
+        label: string;
+      }
+
+      const topSymbols = typedAll<RawNexusSymbol>(
+        nexusNative.prepare(`
+          SELECT id, name, label
+          FROM nexus_nodes
+          WHERE name IS NOT NULL AND name != ''
+          AND kind NOT IN ('community', 'process', 'folder')
+          ORDER BY weight DESC NULLS LAST, name ASC
+          LIMIT 200
+        `),
+      );
+
+      if (topSymbols.length === 0) return result;
+
+      // Build FTS query: "symbol1" OR "symbol2" OR ... (escaped for FTS5)
+      // Collect all symbol names for matching
+      const symbolNames = new Set<string>();
+      const symbolMap = new Map<string, RawNexusSymbol>(); // Map name -> first node with that name
+
+      for (const sym of topSymbols) {
+        if (sym.name) {
+          symbolNames.add(sym.name);
+          if (!symbolMap.has(sym.name)) {
+            symbolMap.set(sym.name, sym);
+          }
+        }
+      }
+
+      if (symbolNames.size === 0) return result;
+
+      // Build FTS query: quoted terms OR'd together
+      const ftsQuery = Array.from(symbolNames)
+        .map((name) => `"${name.replace(/"/g, '""')}"`)
+        .join(' OR ');
+
+      // Query conduit messages: attachments != '[]' OR content matches FTS
+      interface RawConduitMessage {
+        id: string;
+        content: string;
+        attachments: string;
+      }
+
+      const messages = typedAll<RawConduitMessage>(
+        conduitDb.prepare(`
+          SELECT id, content, attachments
+          FROM messages
+          WHERE attachments != '[]'
+             OR id IN (SELECT rowid FROM messages_fts WHERE content MATCH ?)
+          LIMIT 10000
+        `),
+        ftsQuery,
+      );
+
+      result.scanned = messages.length;
+
+      if (messages.length === 0) return result;
+
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      let edgesCreated = 0;
+
+      // For each message, scan content and attachments for symbol mentions
+      for (const msg of messages) {
+        const corpus = `${msg.content}`;
+
+        for (const [symbolName, nexusNode] of symbolMap.entries()) {
+          // Case-insensitive check: does the symbol name appear in the message?
+          const corpusLower = corpus.toLowerCase();
+          const nameLower = symbolName.toLowerCase();
+
+          if (corpusLower.includes(nameLower)) {
+            const messageNodeId = `conduit:${msg.id}`;
+
+            try {
+              // Upsert a stub node for the message in brain_page_nodes (idempotent)
+              brainNative
+                .prepare(`
+                  INSERT OR IGNORE INTO brain_page_nodes
+                    (id, node_type, label, quality_score, content_hash, metadata_json, last_activity_at, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+                `)
+                .run(
+                  messageNodeId,
+                  'observation',
+                  `Conduit message: ${msg.id}`,
+                  0.5,
+                  now,
+                  now,
+                  now,
+                );
+
+              // Write the conduit_mentions_symbol edge (idempotent via INSERT OR IGNORE)
+              brainNative
+                .prepare(`
+                  INSERT OR IGNORE INTO brain_page_edges
+                    (from_id, to_id, edge_type, weight, provenance, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?)
+                `)
+                .run(
+                  messageNodeId,
+                  nexusNode.id,
+                  'conduit_mentions_symbol',
+                  1.0,
+                  'auto:conduit-fts',
+                  now,
+                );
+
+              edgesCreated++;
+            } catch (edgeErr) {
+              console.warn('[graph-memory-bridge] conduit edge insert failed:', edgeErr);
+            }
+
+            // Only link once per message per symbol (continue to next symbol)
+            break;
+          }
+        }
+      }
+
+      result.linked = edgesCreated;
+    } finally {
+      try {
+        if (conduitDb.isOpen) {
+          conduitDb.close();
+        }
+      } catch {
+        // Ignore close errors
+      }
+    }
+  } catch (err) {
+    console.warn('[graph-memory-bridge] linkConduitMessagesToSymbols failed:', err);
+  }
+
+  return result;
 }
