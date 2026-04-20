@@ -76,17 +76,28 @@ export function getNexusDbPath(): string {
 
 /**
  * Resolve the path to the drizzle-nexus migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
  *
- * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-nexus
- * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-nexus
+ * Walks upward from this module's location searching for a
+ * `migrations/drizzle-nexus` directory. Works across layouts:
+ *  - src/store (dev via tsx) → finds packages/core/migrations/drizzle-nexus
+ *  - dist/store (tsc emit)   → finds packages/core/migrations/drizzle-nexus
+ *  - dist/nexus/contracts    → walks up to packages/core/migrations/drizzle-nexus
+ *  - node_modules/@cleocode/core/dist/... → walks up to nearest package root
  */
 export function resolveNexusMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
-  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
-  return join(pkgRoot, 'migrations', 'drizzle-nexus');
+  let current = dirname(__filename);
+  const root = '/';
+
+  for (let depth = 0; depth < 8 && current !== root; depth++) {
+    const candidate = join(current, 'migrations', 'drizzle-nexus');
+    if (existsSync(candidate)) return candidate;
+    current = dirname(current);
+  }
+
+  // Fallback: the source-layout assumption (legacy behavior)
+  const fallback = join(dirname(__filename), '..', '..', 'migrations', 'drizzle-nexus');
+  return fallback;
 }
 
 /**
