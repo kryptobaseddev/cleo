@@ -267,8 +267,6 @@ export {
   checkAndDream,
   checkIdleTrigger,
   checkVolumeTrigger,
-  startDreamScheduler,
-  stopDreamScheduler,
   triggerManualDream,
 } from './memory/dream-cycle.js';
 // Memory — engine-compat
