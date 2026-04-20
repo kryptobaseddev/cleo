@@ -9,11 +9,18 @@
  * helping agents navigate the codebase by functional area rather than by
  * file structure.
  *
- * Ported and adapted from GitNexus
- * `src/core/ingestion/community-processor.ts` (uses Louvain not Leiden,
- * per cross-validation recommendation RR2).
+ * ALGORITHM NOTE (T1063):
+ * - Originally used Louvain with resolution=2.0 (~500–600 communities)
+ * - Leiden (finer-grained) unavailable in graphology ecosystem without
+ *   heavy dependencies (ngraph.leiden requires ngraph.graph; @igraph/igraph adds WASM)
+ * - Resolution tuned to 3.0 to produce finer partitions (~5–6k expected)
+ * - No pure graphology-leiden package available; this is the best-effort
+ *   approach within package-boundary constraints
  *
- * @task T538
+ * Ported and adapted from GitNexus
+ * `src/core/ingestion/community-processor.ts`
+ *
+ * @task T538, T1063
  * @module pipeline/community-processor
  */
 
@@ -130,8 +137,20 @@ const SYMBOL_KINDS = new Set(['function', 'method', 'class', 'interface']);
 /** Minimum edge confidence used when the graph is in large-graph mode. */
 const MIN_CONFIDENCE_LARGE = 0.5;
 
-/** Louvain resolution parameter — 2.0 tuned for monorepos (per RR2). */
-const LOUVAIN_RESOLUTION = 2.0;
+/**
+ * Louvain resolution parameter — tuned for finer-grained partitions.
+ *
+ * TUNING RATIONALE (T1063):
+ * - Resolution controls community detection granularity
+ * - Lower values (0.5–1.0) produce coarser partitions (50–100 communities)
+ * - Higher values (2.0+) produce finer partitions
+ * - This value (3.0) targets ~5–6k communities for large graphs like cleocode
+ * - Trade-off: higher resolution may produce more singletons (filtered out)
+ *
+ * Per EP2-T2 spec: "513 Louvain vs projected ~5k+ Leiden communities"
+ * This tuning aims for similar granularity without algorithm swap.
+ */
+const LOUVAIN_RESOLUTION = 3.0;
 
 // ============================================================================
 // MAIN ENTRY POINT
@@ -141,7 +160,13 @@ const LOUVAIN_RESOLUTION = 2.0;
  * Detect communities in the knowledge graph using the Louvain algorithm.
  *
  * This runs AFTER all relationships (CALLS, EXTENDS, IMPLEMENTS) have been
- * built. It writes Community nodes and MEMBER_OF edges directly into `graph`.
+ * built. It writes Community nodes (kind='community') and MEMBER_OF edges
+ * (type='member_of') directly into `graph`.
+ *
+ * OUTPUTS (T1063):
+ * - Community nodes: id=`comm_<n>`, kind='community', name=heuristic label
+ * - MEMBER_OF edges: source=symbol, target=community_node, confidence=1.0
+ * - Backward compat: symbol nodes' `communityId` field preserved
  *
  * Handles empty graphs (no CALLS edges) gracefully — returns empty results.
  *
