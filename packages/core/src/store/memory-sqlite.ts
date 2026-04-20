@@ -331,6 +331,36 @@ function runBrainMigrations(
     `CREATE INDEX IF NOT EXISTS idx_promotion_log_score
       ON brain_promotion_log (score)`,
   );
+
+  // T1003: brain_backfill_runs — staged backfill audit log.
+  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
+  // Staged rows are held in rollback_snapshot_json until approved/rolled-back.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_backfill_runs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'staged',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      approved_at TEXT,
+      rows_affected INTEGER NOT NULL DEFAULT 0,
+      rollback_snapshot_json TEXT,
+      source TEXT NOT NULL DEFAULT 'unknown',
+      target_table TEXT NOT NULL DEFAULT 'brain_observations',
+      approved_by TEXT
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_status
+      ON brain_backfill_runs (status)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_kind
+      ON brain_backfill_runs (kind)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_created_at
+      ON brain_backfill_runs (created_at)`,
+  );
 }
 
 /**
