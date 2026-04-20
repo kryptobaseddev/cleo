@@ -101,6 +101,11 @@
       "import": "./dist/memory/transcript-extractor.js",
       "require": "./dist/memory/transcript-extractor.js"
     },
+    "./memory/precompact-flush.js": {
+      "types": "./dist/memory/precompact-flush.d.ts",
+      "import": "./dist/memory/precompact-flush.js",
+      "require": "./dist/memory/precompact-flush.js"
+    },
     "./system/platform-paths.js": {
       "types": "./dist/system/platform-paths.d.ts",
       "import": "./dist/system/platform-paths.js",

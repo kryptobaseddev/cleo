@@ -18,6 +18,7 @@ import {
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
 } from '@cleocode/core/internal';
+import { precompactFlush } from '@cleocode/core/memory/precompact-flush.js';
 import {
   memoryDecisionFind,
   memoryDecisionStore,
@@ -877,6 +878,25 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1004 — flush in-flight observations + WAL checkpoint before context compaction
+        case 'precompact-flush': {
+          try {
+            const flushResult = await precompactFlush(projectRoot);
+            return wrapResult(
+              {
+                success: true,
+                data: flushResult,
+              },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (flushErr) {
+            return handleErrorResult('mutate', 'memory', operation, flushErr, startTime);
+          }
+        }
+
         default:
           return unsupportedOp('mutate', 'memory', operation, startTime);
       }
@@ -933,6 +953,8 @@ export class MemoryHandler implements DomainHandler {
         'code.auto-link',
         // T792 — promote entry to verified=true
         'verify',
+        // T1004 — flush in-flight observations + WAL checkpoint before context compaction
+        'precompact-flush',
       ],
     };
   }
