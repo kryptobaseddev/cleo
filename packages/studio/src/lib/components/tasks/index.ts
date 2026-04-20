@@ -32,7 +32,6 @@ export {
 export { default as GraphTab } from './GraphTab.svelte';
 export { default as HierarchyTab } from './HierarchyTab.svelte';
 export { default as KanbanTab } from './KanbanTab.svelte';
-export { default as LabelsFilter } from './LabelsFilter.svelte';
 export {
   applyKanbanFilters,
   bucketKanbanTasks,
@@ -48,6 +47,7 @@ export {
   NO_EPIC_GROUP_TITLE,
   taskMatchesKanbanFilter,
 } from './kanban-bucketing.js';
+export { default as LabelsFilter } from './LabelsFilter.svelte';
 export { default as PriorityBadge } from './PriorityBadge.svelte';
 export type { RecentTaskRow } from './RecentActivityFeed.svelte';
 export { default as RecentActivityFeed } from './RecentActivityFeed.svelte';

@@ -126,10 +126,7 @@ export interface PageData {
  * from `@cleocode/brain`. Returns an empty array if the project context
  * is missing or the DBs can't be opened.
  */
-function computeBridgesForGraph(
-  graph: BrainGraph,
-  ctx: App.Locals['projectCtx'],
-): GraphEdge[] {
+function computeBridgesForGraph(graph: BrainGraph, ctx: App.Locals['projectCtx']): GraphEdge[] {
   if (!ctx) return [];
 
   // Lightweight kit-shape nodes — computeBridges only needs `id` + `substrate`.
