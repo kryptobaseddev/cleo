@@ -4,6 +4,126 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.101] — 2026-04-20 — Nexus Living Brain (T1042 epic) + Tier 3 sentient primitives
+
+**Major release.** Epic T1042 "Cleo Nexus vs GitNexus: Far-Exceed" ships all three
+execution epics (16 active tasks across P0/P1/P2) plus Tier 3 sentient primitives
+from parallel orchestration, delivering 18 new CLI verbs and the 5-substrate
+living-brain graph (BRAIN + NEXUS + TASKS + CONDUIT + sentient proposals).
+
+### Added — Nexus P0 Core Query Power (epic T1054)
+
+- **T1057** — `cleo nexus query <cte-or-alias> [--params p1,p2,...]`: SQLite recursive
+  CTE DSL with 6 template aliases (`callers-of`, `callees-of`, `co-changed`,
+  `co-cited`, `path-between`, `community-members`). Lazy-initializes nexus.db.
+  Replaces hardcoded BFS with expressive graph queries.
+- **T1058** — `cleo nexus search-code <query>`: BM25 + HNSW hybrid code symbol search.
+  Wires pre-existing `smartSearch()` to the dispatch layer. Embeddings opt-in via
+  `@huggingface/transformers` (snowflake-arctic-embed-xs 384-dim). Extends
+  `cleo memory search-hybrid --include-code` for cross-substrate retrieval.
+- **T1059** — `cleo nexus context <symbol> --content`: inline source retrieval via
+  `smartUnfold()`. Returns symbol body + docstring alongside callers/callees.
+- **T1061** — PreToolUse hook augmenter (no MCP). `cleo nexus augment <pattern>` +
+  `cleo nexus setup` installs `~/.cleo/hooks/nexus-augment.sh`. Under 500ms cold
+  start for in-loop agent context injection.
+
+### Added — Nexus P1 Competitive Closure (epic T1055)
+
+- **T1062** — External module IMPORTS persistence. Unresolved specifiers now become
+  `ExternalModule` nodes with `is_external=true` + `imports` relations. Closes
+  ~55% of the edge-count gap vs gitnexus on identical codebases.
+- **T1063** — Leiden community detection (replacing Louvain) + first-class
+  `member_of` edges so communities are traversable in CTE queries.
+- **T1064** — `cleo nexus route-map` + `cleo nexus shape-check <route>`: surface
+  existing `route` kind nodes + `handles_route`/`fetches` relations.
+- **T1065** — Cross-project contract registry. `cleo nexus contracts sync/show/link-tasks`
+  extracts HTTP/gRPC/topic contracts + cascade match (exact→name→fuzzy).
+
+### Added — Nexus P2 Living Brain (epic T1056 — the differentiator)
+
+- **T1066** — BRAIN↔NEXUS edge writers: `modified_by`, `mentions`, `documents` join
+  observations/decisions to code symbols via `cleo memory code-auto-link`.
+- **T1067** — TASKS↔NEXUS bridge. `task_touches_symbol` edges + git-log sweeper
+  links every task to the symbols its files touched. `cleo nexus task-symbols <taskId>`
+  reverse-looks-up. Idempotent via last-synced-commit in nexus_schema_meta.
+- **T1068** — Living Brain SDK (`packages/core/src/nexus/living-brain.ts`). Three
+  traversal primitives: `getSymbolFullContext`, `getTaskCodeImpact`,
+  `getBrainEntryCodeAnchors`. Exposed as `cleo nexus full-context`,
+  `task-footprint`, `brain-anchors`.
+- **T1069** — Cross-substrate reasoning: `reasonWhySymbol` walks
+  `code_reference`/`applies_to`/`documents`/`mentions` edges from symbol →
+  brain decisions → spawning tasks → learnings. Exposed as `cleo nexus why <sym>`.
+  `reasonImpactOfChange` merges structural+task+brain risk into `cleo nexus impact-full`.
+- **T1070** — Three new sentient nexus detectors (community-fragmentation,
+  entry-point-erosion, cross-community-coupling-spike) auto-run after every
+  `cleo nexus analyze`.
+- **T1071** — CONDUIT→NEXUS ingestion. `cleo nexus conduit-scan` links messages
+  (with attachments OR FTS-matching symbol names) to nexus nodes via
+  `conduit_mentions_symbol` edges.
+- **T1072** — Hebbian BUG-1/BUG-2 fixes + plasticity decay. Parser handles both
+  comma and JSON `entry_ids` formats; 14-day half-life decay via
+  `CLEO_PLASTICITY_HALFLIFE_DAYS`. Unblocks hot-paths / hot-nodes / cold-symbols.
+- **T1073** — IVTR nexus impact gate. `cleo complete` rejects tasks touching
+  CRITICAL-risk symbols unless `--acknowledge-risk "<reason>"` provided. Opt-in
+  via `CLEO_NEXUS_IMPACT_GATE=1` env. `tool:nexus-impact-full` is a new evidence
+  atom per ADR-051.
+
+### Added — Tier 3 sentient primitives (parallel orchestration)
+
+- Chain walker, TSA anchor, kill-switch, merge orchestrator, revert-walker,
+  revert-executor, owner allowlist. CLI verbs: `cleo sentient baseline`,
+  pauseAllTiers integration (4 new verbs in sentient domain).
+- `events.ts` extended with `tsa_anchor` kind.
+
+### Added — New CLI verbs (this release)
+
+Running against `packages/cleo/dist/cli/index.js` — verified with smoke matrix:
+
+`nexus query` · `nexus search-code` · `nexus augment` · `nexus setup` ·
+`nexus route-map` · `nexus shape-check` · `nexus full-context` ·
+`nexus task-footprint` · `nexus brain-anchors` · `nexus why` ·
+`nexus impact-full` · `nexus task-symbols` · `nexus conduit-scan` ·
+`nexus contracts sync|show|link-tasks` · `nexus wiki`
+
+### Fixed — Cross-cutting
+
+- **build.mjs glob-scan refactor** replaces 225 lines of hand-maintained
+  entry-points with scanned emission. Net −146 LOC.
+- **`nexus/contracts` → `nexus/api-extractors` rename** (git mv, history preserved)
+  resolves naming collision with `packages/contracts/`.
+- **SERIAL→INTEGER** schema fix: SQLite doesn't support `SERIAL`; migrations and
+  tests updated to `INTEGER PRIMARY KEY AUTOINCREMENT`.
+- **`nexus_nodes.weight` bug**: `linkConduitMessagesToSymbols` referenced a column
+  that doesn't exist. Now joins with `nexus_relations` for weight aggregation.
+- **`resolveNexusMigrationsFolder`**: walks upward for `migrations/drizzle-nexus`
+  instead of fragile `/dist` suffix heuristic (unblocks subpath-nested extractors).
+- **`@xenova/transformers` → `@huggingface/transformers` rename** (T1041 era).
+- **Operations registry**: added `nexus.augment` entry + missing esbuild entry
+  points for 7 subpath modules (api-extractors, tasks-bridge, graph-memory-bridge).
+- **Node 24 hard-require at CLI startup** with clear error message.
+- **Query DSL**: async + correct column names (`source_id`/`target_id`/`type`).
+- **SessionStatusParams/Result export** from `@cleocode/contracts` barrel.
+
+### HITL decisions (D015, D016 — stored in brain.db)
+
+1. **Architecture**: No MCP layer. Code intelligence primitives live in
+   `packages/core` SDK with `packages/cleo` CLI dispatch. MCP rejected because
+   the capabilities are invokable in-process without additional transport.
+2. **Embeddings**: `@huggingface/transformers` (snowflake-arctic-embed-xs 384-dim),
+   env-swappable via `CLEO_EMBEDDINGS_PROVIDER` for future gemini/mixpeek.
+3. **Plasticity decay**: 14-day half-life initial, `CLEO_PLASTICITY_HALFLIFE_DAYS`
+   env override.
+4. **Conduit ingestion scope**: `attachments != '[]'` OR FTS-matches a
+   `nexus_nodes.name`. Reuses existing schema.
+5. **Wiki**: ship minimal no-LLM community-grouped index (scaffold). LLM-enhanced
+   summaries queued as follow-up.
+
+### Deferred (follow-up tasks)
+
+- **T1074** Tier 3 state-pause subsystem (pausedByRevert/resumeAfterRevert/
+  OwnerRevertAttestation) — Tier 3 primitives landed via af8c4baa7 but state.ts
+  extension still pending. Blocks `cleo revert` CLI + 14 state-pause tests.
+
 ## [2026.4.100] — 2026-04-20 — Build fix: core subpath entry points
 
 **Critical hotfix** for v2026.4.99 which shipped broken on npm. The published
