@@ -355,6 +355,94 @@ export class CheckHandler implements DomainHandler {
           return wrapResult(result, 'query', 'check', operation, startTime);
         }
 
+        // T1006 — human-readable breakdown of why gates pass/fail for a task
+        case 'verify.explain': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return errorResult(
+              'query',
+              'check',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+
+          // Reuse gate.status read-only view for the raw data
+          const raw = await validateGateVerify({ taskId }, projectRoot);
+          if (!raw.success) {
+            return wrapResult(raw, 'query', 'check', operation, startTime);
+          }
+
+          const d = raw.data as {
+            taskId: string;
+            title?: string;
+            status?: string;
+            verification?: {
+              passed: boolean;
+              round: number;
+              gates: Record<string, boolean>;
+              evidence?: Record<string, unknown[]>;
+              failureLog?: unknown[];
+            };
+            requiredGates?: string[];
+            missingGates?: string[];
+          };
+
+          const gates = d.verification?.gates ?? {};
+          const evidence = d.verification?.evidence ?? {};
+          const requiredGates = d.requiredGates ?? [];
+          const missingGates = d.missingGates ?? [];
+
+          // Build a human-readable line per gate
+          const gateLines = requiredGates.map((gate) => {
+            const passed = gates[gate] === true;
+            const atoms = evidence[gate] as unknown[] | undefined;
+            const atomDesc =
+              atoms && atoms.length > 0
+                ? atoms
+                    .map((a) => {
+                      const atom = a as Record<string, unknown>;
+                      return atom['kind'] ? `${atom['kind']}:${atom['value'] ?? ''}` : String(a);
+                    })
+                    .join(', ')
+                : 'no evidence recorded';
+            return `  ${passed ? 'PASS' : 'FAIL'} [${gate}] — ${atomDesc}`;
+          });
+
+          const overallVerdict = d.verification?.passed
+            ? 'All required gates PASSED'
+            : `PENDING — ${missingGates.length} gate(s) not yet passing: ${missingGates.join(', ')}`;
+
+          const explanation = [
+            `Task: ${d.taskId}${d.title ? ` — ${d.title}` : ''}`,
+            `Status: ${d.status ?? 'unknown'} | Verification round: ${d.verification?.round ?? 0}`,
+            ``,
+            `Gate breakdown:`,
+            ...gateLines,
+            ``,
+            `Verdict: ${overallVerdict}`,
+          ].join('\n');
+
+          return {
+            meta: dispatchMeta('query', 'check', operation, startTime),
+            success: true,
+            data: {
+              taskId: d.taskId,
+              title: d.title,
+              status: d.status,
+              passed: d.verification?.passed ?? false,
+              round: d.verification?.round ?? 0,
+              gates,
+              evidence,
+              requiredGates,
+              missingGates,
+              explanation,
+            },
+          };
+        }
+
         case 'archive.stats': {
           const result = await systemArchiveStats(projectRoot, {
             period: params?.period as number | undefined,
@@ -562,6 +650,15 @@ export class CheckHandler implements DomainHandler {
             sessionId: params?.sessionId as string | undefined,
           };
           const result = await validateGateVerify(gateParams, projectRoot);
+          // T994: Track memory usage on gate verification (fire-and-forget; must not block).
+          setImmediate(async () => {
+            try {
+              const { trackMemoryUsage } = await import('@cleocode/core/internal');
+              await trackMemoryUsage(projectRoot, taskId, true, taskId, 'verified');
+            } catch {
+              // Quality tracking errors must never surface to the verify flow
+            }
+          });
           return wrapResult(result, 'mutate', 'check', operation, startTime);
         }
 
@@ -600,6 +697,8 @@ export class CheckHandler implements DomainHandler {
         'grade.list',
         'chain.validate',
         'canon',
+        // T1006 — human-readable breakdown of why gates pass/fail for a task
+        'verify.explain',
       ],
       mutate: ['compliance.record', 'compliance.sync', 'test.run', 'gate.set'],
     };

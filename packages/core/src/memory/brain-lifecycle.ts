@@ -593,8 +593,10 @@ export interface RunConsolidationResult {
   contradictions: number;
   /** Entries soft-evicted (low quality medium-term). */
   softEvicted: number;
-  /** Graph edges strengthened. */
+  /** Graph edges strengthened (BRAIN brain_page_edges, Step 6). */
   edgesStrengthened: number;
+  /** NEXUS nexus_relations edges strengthened by co-access (Step 6b, T998). */
+  nexusEdgesStrengthened: number;
   /** Summary nodes generated. */
   summariesGenerated: number;
   /** Code↔memory graph links created. */
@@ -618,6 +620,15 @@ export interface RunConsolidationResult {
   homeostaticDecay?: {
     edgesDecayed: number;
     edgesPruned: number;
+  };
+  /**
+   * Outcome correlation result from Step 9a.5 (T994).
+   * Populated when correlateOutcomes ran during consolidation.
+   */
+  outcomeCorrelation?: {
+    boosted: number;
+    penalized: number;
+    flaggedForPruning: number;
   };
   /**
    * LLM-driven sleep consolidation result from Step 10 (T734).
@@ -648,6 +659,7 @@ export interface RunConsolidationResult {
  *   7. Summary generation — existing consolidateMemories() for large clusters
  *   8. Code↔memory graph linking
  *   9a. R-STDP reward backfill — assign reward_signal from task outcomes (T681)
+ *   9a.5. Outcome correlation — correlateOutcomes quality adjustments (T994)
  *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal (T679)
  *   9c. Homeostatic decay — synaptic scaling + pruning (T690)
  *   9e. Consolidation event log — INSERT into brain_consolidation_events (T694)
@@ -675,6 +687,7 @@ export async function runConsolidation(
     contradictions: 0,
     softEvicted: 0,
     edgesStrengthened: 0,
+    nexusEdgesStrengthened: 0,
     summariesGenerated: 0,
   };
 
@@ -726,6 +739,27 @@ export async function runConsolidation(
     console.warn('[consolidation] Step 6 edge strengthening failed:', err);
   }
 
+  // Step 6b: NEXUS edge plasticity — co-access strengthening (T998)
+  // Extracts co-retrieved node pairs from brain_retrieval_log and strengthens
+  // the corresponding nexus_relations edges (Hebbian "fire together wire together").
+  // Runs after Step 6 (BRAIN graph edge strengthening) so the two passes are
+  // complementary: Step 6 strengthens brain_page_edges, Step 6b nexus_relations.
+  try {
+    const { extractNexusPairsFromRetrievalLog, strengthenNexusCoAccess } = await import(
+      './nexus-plasticity.js'
+    );
+    const nexusPairs = await extractNexusPairsFromRetrievalLog(projectRoot);
+    if (nexusPairs.length > 0) {
+      const nexusResult = await strengthenNexusCoAccess(nexusPairs);
+      result.nexusEdgesStrengthened = nexusResult.strengthened;
+    } else {
+      result.nexusEdgesStrengthened = 0;
+    }
+  } catch (err) {
+    console.warn('[consolidation] Step 6b nexus plasticity failed:', err);
+    result.nexusEdgesStrengthened = 0;
+  }
+
   // Step 7: Summary generation from large observation clusters
   try {
     const summaryResult = await consolidateMemories(projectRoot, {
@@ -758,6 +792,24 @@ export async function runConsolidation(
     result.rewardBackfilled = rewardResult;
   } catch (err) {
     console.warn('[consolidation] Step 9a reward backfill failed:', err);
+  }
+
+  // Step 9a.5: Outcome correlation — quality feedback loop (T994)
+  // Applies +0.05/-0.05 quality adjustments based on brain_usage_log outcomes,
+  // and flags stale zero-citation entries as prune candidates.
+  // Runs AFTER Step 9a (reward backfill) so that any task outcomes just labeled
+  // are visible to correlateOutcomes during this run.
+  // The setImmediate fire-and-forget in task-hooks.ts remains as defense-in-depth.
+  try {
+    const { correlateOutcomes } = await import('./quality-feedback.js');
+    const correlateResult = await correlateOutcomes(projectRoot);
+    result.outcomeCorrelation = {
+      boosted: correlateResult.boosted,
+      penalized: correlateResult.penalized,
+      flaggedForPruning: correlateResult.flaggedForPruning,
+    };
+  } catch (err) {
+    console.warn('[consolidation] Step 9a.5 outcome correlation failed:', err);
   }
 
   // Step 9b: STDP timing-dependent plasticity (T626 phase 5)
