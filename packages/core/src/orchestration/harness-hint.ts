@@ -6,6 +6,10 @@
  *   1. Explicit function-call option: `options.explicit`
  *   2. Env var: `CLEO_HARNESS=<claude-code|generic|bare>`
  *      (CLI flag wrappers SHOULD set this env var so the cascade sees it.)
+ *   2b. Env var: `CLEO_HARNESS_LOADS_AGENTS_MD=1` → `claude-code`
+ *       Set by harnesses that already inject `AGENTS.md` (and thus CLEO-INJECTION.md)
+ *       into the subagent context. Equivalent to `CLEO_HARNESS=claude-code` but
+ *       named after the concrete mechanism so operators understand WHY dedup fires.
  *   3. Persisted: `<projectRoot>/.cleo/harness-profile.json`
  *   4. Auto-detect: both `CLAUDECODE=1` AND `CLAUDE_CODE_ENTRYPOINT` set → `claude-code`
  *   5. Default: `generic`
@@ -222,6 +226,17 @@ export function resolveHarnessHint(options: ResolveHarnessHintOptions = {}): Har
   const envHint = coerceHarnessHint(env['CLEO_HARNESS']);
   if (envHint) {
     return { hint: envHint, source: 'env', dedupSavedChars: computeDedupSaved(envHint) };
+  }
+
+  // 2b. CLEO_HARNESS_LOADS_AGENTS_MD=1 — harness already injects AGENTS.md
+  //     (and therefore CLEO-INJECTION.md) into the subagent context.
+  //     Equivalent to CLEO_HARNESS=claude-code for dedup purposes.
+  if (env['CLEO_HARNESS_LOADS_AGENTS_MD'] === '1') {
+    return {
+      hint: 'claude-code',
+      source: 'env',
+      dedupSavedChars: computeDedupSaved('claude-code'),
+    };
   }
 
   // 3. Persisted profile at <projectRoot>/.cleo/harness-profile.json.

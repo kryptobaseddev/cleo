@@ -30,6 +30,12 @@ export type {
   AtomicityResult,
 } from './atomicity.js';
 export { AtomicityViolationError, checkAtomicity, MAX_WORKER_FILES } from './atomicity.js';
+export type { ClassifyResult } from './classify.js';
+export {
+  CLASSIFY_CONFIDENCE_FLOOR,
+  CLASSIFY_FALLBACK_AGENT_ID,
+  classifyTask,
+} from './classify.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
 export type {
@@ -49,6 +55,7 @@ export type {
   ComposeSpawnPayloadOptions,
   SpawnPayload,
   SpawnPayloadMeta,
+  SpawnPayloadPersonaMeta,
   SpawnPayloadThinAgentMeta,
 } from './spawn.js';
 export { composeSpawnPayload } from './spawn.js';
