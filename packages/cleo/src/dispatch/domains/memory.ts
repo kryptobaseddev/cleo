@@ -13,6 +13,7 @@
 
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
+  generateMemoryBridgeContent,
   getBrainDb,
   getBrainNativeDb,
   resolveAnthropicApiKey,
@@ -536,6 +537,262 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T999 — stream brain.db memory-bridge content directly (cli mode default)
+        case 'bridge': {
+          const content = await generateMemoryBridgeContent(projectRoot);
+          return wrapResult(
+            { success: true, data: { content } },
+            'query',
+            'memory',
+            operation,
+            startTime,
+          );
+        }
+
+        // T997 — read-only view over STDP weights + retrieval log + citation data
+        case 'promote-explain': {
+          const entryId = params?.id as string;
+          if (!entryId) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'id is required',
+              startTime,
+            );
+          }
+
+          try {
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+            if (!nativeDb) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db is unavailable',
+                startTime,
+              );
+            }
+
+            // 1. Locate entry in typed tables
+            const typedTables = [
+              { name: 'brain_observations', labelCol: 'title' },
+              { name: 'brain_decisions', labelCol: 'decision' },
+              { name: 'brain_patterns', labelCol: 'pattern' },
+              { name: 'brain_learnings', labelCol: 'insight' },
+            ] as const;
+
+            interface TypedRow {
+              id: string;
+              citation_count: number;
+              quality_score: number | null;
+              memory_tier: string | null;
+              tier_promoted_at: string | null;
+              verified: number;
+            }
+
+            let foundTable = '';
+            let typedRow: TypedRow | undefined;
+
+            for (const t of typedTables) {
+              try {
+                const row = nativeDb
+                  .prepare(
+                    `SELECT id, citation_count, quality_score, memory_tier, tier_promoted_at, verified
+                     FROM ${t.name}
+                     WHERE id = ? AND invalid_at IS NULL
+                     LIMIT 1`,
+                  )
+                  .get(entryId) as TypedRow | undefined;
+                if (row) {
+                  typedRow = row;
+                  foundTable = t.name.replace('brain_', '');
+                  break;
+                }
+              } catch {
+                // Table may not have all columns yet — try next
+              }
+            }
+
+            if (!typedRow) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_NOT_FOUND',
+                `Entry '${entryId}' not found in any brain table (or is invalidated)`,
+                startTime,
+              );
+            }
+
+            // 2. Query prune_candidate (column may not exist on older DBs)
+            let pruneCandidate = false;
+            try {
+              const pruneRow = nativeDb
+                .prepare(`SELECT prune_candidate FROM brain_${foundTable} WHERE id = ? LIMIT 1`)
+                .get(entryId) as { prune_candidate: number } | undefined;
+              pruneCandidate = (pruneRow?.prune_candidate ?? 0) === 1;
+            } catch {
+              // prune_candidate column not yet present — degrade gracefully
+            }
+
+            // 3. Query brain_page_edges STDP weights for this entry's page-node
+            interface EdgeRow {
+              from_id: string;
+              to_id: string;
+              edge_type: string;
+              weight: number;
+              reinforcement_count: number;
+              last_reinforced_at: string | null;
+            }
+
+            let stdpWeights: EdgeRow[] = [];
+            try {
+              const edgeRows = nativeDb
+                .prepare(
+                  `SELECT from_id, to_id, edge_type, weight,
+                          COALESCE(reinforcement_count, 0) AS reinforcement_count,
+                          last_reinforced_at
+                   FROM brain_page_edges
+                   WHERE (from_id = ? OR to_id = ?)
+                     AND plasticity_class IN ('hebbian', 'stdp')
+                   ORDER BY weight DESC
+                   LIMIT 20`,
+                )
+                .all(entryId, entryId) as unknown as EdgeRow[];
+              stdpWeights = edgeRows;
+            } catch {
+              // plasticity_class column may not exist — fall back to unfiltered weight query
+              try {
+                const edgeRows = nativeDb
+                  .prepare(
+                    `SELECT from_id, to_id, edge_type, weight,
+                            COALESCE(reinforcement_count, 0) AS reinforcement_count,
+                            last_reinforced_at
+                     FROM brain_page_edges
+                     WHERE from_id = ? OR to_id = ?
+                     ORDER BY weight DESC
+                     LIMIT 20`,
+                  )
+                  .all(entryId, entryId) as unknown as EdgeRow[];
+                stdpWeights = edgeRows;
+              } catch {
+                // brain_page_edges unavailable — degrade gracefully
+              }
+            }
+
+            // 4. Query brain_retrieval_log for retrieval count and last access
+            let retrievalCount = 0;
+            let lastAccessedAt: string | null = null;
+            try {
+              interface RetrievalSummary {
+                retrieval_count: number;
+                last_accessed_at: string | null;
+              }
+              const logRow = nativeDb
+                .prepare(
+                  `SELECT COUNT(*) AS retrieval_count,
+                          MAX(created_at) AS last_accessed_at
+                   FROM brain_retrieval_log
+                   WHERE entry_ids LIKE ?`,
+                )
+                .get(`%${entryId}%`) as RetrievalSummary | undefined;
+              retrievalCount = logRow?.retrieval_count ?? 0;
+              lastAccessedAt = logRow?.last_accessed_at ?? null;
+              if (lastAccessedAt && !lastAccessedAt.includes('T')) {
+                lastAccessedAt = lastAccessedAt.replace(' ', 'T');
+                if (!lastAccessedAt.endsWith('Z')) lastAccessedAt += 'Z';
+              }
+            } catch {
+              // retrieval log unavailable — degrade gracefully
+            }
+
+            // 5. Determine promotion tier and explanation
+            const citationCount = typedRow.citation_count ?? 0;
+            const qualityScore = typedRow.quality_score ?? null;
+            const memoryTier = typedRow.memory_tier ?? null;
+            const promotedAt = typedRow.tier_promoted_at ?? null;
+            const verified = typedRow.verified === 1;
+
+            const stdpWeightMax =
+              stdpWeights.length > 0 ? Math.max(...stdpWeights.map((e) => e.weight)) : 0;
+
+            let tier: 'promoted' | 'rejected' | 'pending';
+            let explanation: string;
+
+            if (pruneCandidate) {
+              tier = 'rejected';
+              explanation =
+                `Entry flagged as prune candidate. ` +
+                `quality_score=${qualityScore ?? 'null'}, citation_count=${citationCount}, ` +
+                `retrieval_count=${retrievalCount}. ` +
+                `Meets pruning criteria: low quality and/or zero citations over time.`;
+            } else if (
+              memoryTier === 'long' ||
+              memoryTier === 'medium' ||
+              verified ||
+              promotedAt !== null
+            ) {
+              tier = 'promoted';
+              explanation =
+                `Entry promoted to memory tier '${memoryTier ?? 'promoted'}'. ` +
+                `citation_count=${citationCount}, retrieval_count=${retrievalCount}, ` +
+                `stdp_weight_max=${stdpWeightMax.toFixed(3)}, verified=${verified}. ` +
+                (promotedAt ? `Tier promotion recorded at ${promotedAt}.` : 'Verified by owner.');
+            } else {
+              tier = 'pending';
+              explanation =
+                `Entry has not yet been promoted or flagged for pruning. ` +
+                `memory_tier='${memoryTier ?? 'short'}', citation_count=${citationCount}, ` +
+                `retrieval_count=${retrievalCount}, stdp_weight_max=${stdpWeightMax.toFixed(3)}. ` +
+                `Increase retrieval frequency or citation count to qualify for promotion.`;
+            }
+
+            const scoreBreakdown = {
+              stdpWeightMax,
+              retrievalCount,
+              lastAccessedAt,
+              citationCount,
+              qualityScore,
+              pruneCandidate,
+              verified,
+            };
+
+            const weights = stdpWeights.map((e) => ({
+              fromId: e.from_id,
+              toId: e.to_id,
+              edgeType: e.edge_type,
+              weight: e.weight,
+              reinforcementCount: e.reinforcement_count,
+              lastReinforcedAt: e.last_reinforced_at,
+            }));
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  id: entryId,
+                  table: foundTable,
+                  tier,
+                  explanation,
+                  promotedAt: promotedAt ?? null,
+                  stdpWeights: weights,
+                  scoreBreakdown,
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (dbErr) {
+            return handleErrorResult('query', 'memory', operation, dbErr, startTime);
+          }
+        }
+
         default:
           return unsupportedOp('query', 'memory', operation, startTime);
       }
@@ -940,6 +1197,10 @@ export class MemoryHandler implements DomainHandler {
         'llm-status',
         // T792 — pending verification queue
         'pending-verify',
+        // T999 — live memory-bridge content from brain.db (cli mode)
+        'bridge',
+        // T997 — read-only explainability view for promotion decisions
+        'promote-explain',
       ],
       mutate: [
         'observe',

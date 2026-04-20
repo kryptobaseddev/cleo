@@ -147,11 +147,24 @@ export interface SharingConfig {
 }
 
 /**
+ * Memory bridge injection mode.
+ *
+ * - `'cli'`  — AGENTS.md receives a `cleo memory digest --brief` CLI directive instead of
+ *              `@.cleo/memory-bridge.md`. The bridge markdown file is NOT written on refresh.
+ *              This is the default for new installations (T999).
+ * - `'file'` — Legacy behavior: `.cleo/memory-bridge.md` is written on refresh and
+ *              `@.cleo/memory-bridge.md` is injected into AGENTS.md verbatim.
+ *              Use this for backcompat with tooling that reads the file directly.
+ */
+export type MemoryBridgeMode = 'cli' | 'file';
+
+/**
  * Brain memory bridge refresh configuration.
  * Controls when `.cleo/memory-bridge.md` is automatically regenerated.
  *
  * @epic T134
  * @task T135
+ * @task T999
  */
 export interface BrainMemoryBridgeConfig {
   /** Whether to automatically regenerate memory-bridge.md on lifecycle events (default: true). */
@@ -160,6 +173,15 @@ export interface BrainMemoryBridgeConfig {
   contextAware: boolean;
   /** Maximum token budget for memory bridge content (default: 2000). */
   maxTokens: number;
+  /**
+   * Injection mode for the memory and nexus bridges (default: `'cli'`).
+   *
+   * `'cli'`  — AGENTS.md gets a `cleo memory digest --brief` directive; no `.md` files written.
+   * `'file'` — legacy `@.cleo/memory-bridge.md` + `@.cleo/nexus-bridge.md` injection.
+   *
+   * @defaultValue 'cli'
+   */
+  mode: MemoryBridgeMode;
 }
 
 /**

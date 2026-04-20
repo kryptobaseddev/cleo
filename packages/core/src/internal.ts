@@ -1113,6 +1113,7 @@ export { extractFromTranscript as llmExtractFromTranscript } from './memory/llm-
 // Memory (additional)
 export {
   generateContextAwareContent,
+  generateMemoryBridgeContent,
   refreshMemoryBridge,
   writeMemoryBridge,
 } from './memory/memory-bridge.js';
