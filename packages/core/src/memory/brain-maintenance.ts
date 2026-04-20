@@ -263,7 +263,7 @@ export async function runPruneSweep(
   }
 
   if (dryRun) {
-    console.info(
+    console.error(
       `[prune-sweep] dry-run: would delete ${wouldDelete} entries across 4 tables (cap=${cap})`,
     );
     return { deleted: 0, wouldDelete, dryRun, byTable };
@@ -311,7 +311,7 @@ export async function runPruneSweep(
     }
   }
 
-  console.info(
+  console.error(
     `[prune-sweep] step-9f: deleted ${deleted} entries (would-qualify=${wouldDelete}, cap=${cap})`,
   );
 
