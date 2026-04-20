@@ -227,3 +227,20 @@ export async function incrementStats(
   await writeSentientState(statePath, updated);
   return updated;
 }
+
+/**
+ * Set the global kill-switch to pause ALL sentient tiers (1/2/3) after an
+ * owner-triggered revert. Mirrors `cleo revert --from <receiptId>` semantics:
+ * no new ticks start until owner runs `cleo sentient resume`.
+ *
+ * @param statePath - Absolute path to sentient-state.json
+ * @param receiptId - Revert event receiptId for audit trail
+ * @task T1036-T1040
+ */
+export async function pauseAllTiers(statePath: string, receiptId: string): Promise<SentientState> {
+  return patchSentientState(statePath, {
+    killSwitch: true,
+    killSwitchReason: `revert from receipt ${receiptId}`,
+    tier2Enabled: false,
+  });
+}

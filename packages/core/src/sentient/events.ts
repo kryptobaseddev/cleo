@@ -55,7 +55,8 @@ export type SentientEventKind =
   | 'sign'
   | 'merge'
   | 'abort'
-  | 'revert';
+  | 'revert'
+  | 'tsa_anchor';
 
 // ---------------------------------------------------------------------------
 // Per-kind payload types
@@ -258,6 +259,26 @@ export interface RevertEvent extends SentientEventBase {
   payload: RevertPayload;
 }
 
+/** Payload for `tsa_anchor` event — external RFC 3161 timestamp anchor. */
+export interface TsaAnchorPayload {
+  /** Receipt ID of the chain head at anchor time. */
+  chainHeadReceiptId: string;
+  /** SHA-256 of the chain-head event's canonical JSON (hex). */
+  chainHeadHash: string;
+  /** URL of the TSA queried. */
+  tsaUrl: string;
+  /** Base64-encoded TSA TimeStampToken response bytes. */
+  tsaToken: string;
+  /** ISO-8601 UTC timestamp of when the anchor was queried. */
+  anchoredAt: string;
+}
+
+/** Sentient event: daily RFC 3161 external timestamp anchor. */
+export interface TsaAnchorEvent extends SentientEventBase {
+  kind: 'tsa_anchor';
+  payload: TsaAnchorPayload;
+}
+
 /**
  * Discriminated union of all 8 sentient event kinds.
  *
@@ -271,7 +292,8 @@ export type SentientEvent =
   | SignEvent
   | MergeEvent
   | AbortEvent
-  | RevertEvent;
+  | RevertEvent
+  | TsaAnchorEvent;
 
 // ---------------------------------------------------------------------------
 // Append parameters
