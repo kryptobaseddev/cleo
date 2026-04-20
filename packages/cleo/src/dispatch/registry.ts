@@ -2897,6 +2897,59 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T1003 — staged graph backfill operations
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'backfill.list',
+    description:
+      'memory.backfill.list (query) — list staged backfill runs with status (pending/approved/rolled-back)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'backfill.run',
+    description:
+      'memory.backfill.run (mutate) — stage a new graph backfill run (rows held pending approval)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'backfill.approve',
+    description:
+      'memory.backfill.approve (mutate) — approve a staged backfill run (commits rows to live tables)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['runId'],
+    params: [
+      { name: 'runId', type: 'string', required: true, description: 'Backfill run ID to approve' },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'backfill.rollback',
+    description:
+      'memory.backfill.rollback (mutate) — rollback a backfill run (removes staged/committed rows)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['runId'],
+    params: [
+      { name: 'runId', type: 'string', required: true, description: 'Backfill run ID to rollback' },
+    ],
+  },
   {
     gateway: 'mutate',
     domain: 'pipeline',

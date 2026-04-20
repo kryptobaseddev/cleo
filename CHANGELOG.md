@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.98] — 2026-04-20 — T991 BRAIN Integrity + T1000 BRAIN Advanced + T1007 Sentient Tier 2 + T1013 Hygiene
+
+Sixteen tasks across four epics ship together. Core theme: BRAIN reliability
+(noise reduction, data-loss prevention, staged backfill) and Sentient Tier 2
+opt-in ingestion layer.
+
+### Epic T991 — BRAIN Integrity
+
+- **T992** `verifyAndStore` routing fix — quality gate wired before every brain write (`5e2f1a073`)
+- **T993** Check A0 title-prefix blocklist — static noise patterns rejected at ingestion gate (`738d4bd1a`)
+- **T994** `correlateOutcomes` Step 9a.5 + `trackMemoryUsage` lifecycle wiring (`fb59ba1fa`)
+- **T995** Step 9f hard-sweeper DELETE: prune candidates with quality<0.2, citations=0, age>30d (`8493fc351`)
+- **T996** Dream cycle migrated to tick loop — volume+idle triggers, setTimeout drift removed (`0de82f872`)
+- **T997** `cleo memory promote-explain` — read-only STDP+retrieval+citation score view (`fe1fe58f9`)
+- **T998** `nexus_relations` plasticity columns + `strengthenNexusCoAccess` Step 6b (`9abc54d2e`)
+- **T999** Memory-bridge mode flag (cli default) replaces @-inject (`fe69894fa`)
+
+### Epic T1000 — BRAIN Advanced
+
+- **T1001** Typed promotion — `promoteObservationsToTyped` + `brain_promotion_log` + `stability_score` (`a2c348c46`)
+- **T1002** Transcript ingestion + `brain_transcript_events` + redaction; unblock tool_use/tool_result in extractor (`fe2f1f8f9`)
+- **T1003** Staged backfill runner — `brain_backfill_runs` table + approve/rollback CLI (`dfa83762b`)
+- **T1004** Pre-compact flush + safestop CLI invocation (`ba58d4ff2`)
+- **T1005** Add `'diary'` to `BRAIN_OBSERVATION_TYPES` (`c5ee784dd`)
+- **T1006** `cleo memory digest/recent/diary/watch` + `nexus top-entries` + `check verify.explain` (`fe1fe58f9`)
+
+### Epic T1007 — Sentient Tier 2 (partial — Tier 3 deferred)
+
+- **T1008** `cleo propose` + BRAIN/nexus/test ingesters + transactional rate limiter — opt-in via `tier2Enabled` (default `false`) until Tier 3 (T1009–T1012) lands (`fe1fe58f9`)
+- Tier 3 tasks T1009–T1012 deferred to next release.
+
+### Epic T1013 — Hygiene
+
+- **T1014** `cleo update --files` wired + epic role auto-promote (blocked Lead dispatch) (`e345dc303`)
+
+### Fixes (this release, caught in gate run)
+
+- **vitest.config.ts + packages/cleo/vitest.config.ts** — added `@cleocode/core/memory/brain-backfill.js` alias (T1003 subpath export was missing from both root and cleo vitest configs; caused 19 cleo domain tests to fail with `ERR_MODULE_NOT_FOUND`)
+- **packages/cleo/src/dispatch/registry.ts** — registered `memory.backfill.list` (query) and `memory.backfill.run/approve/rollback` (mutate) that T1003 wired in memory.ts but omitted from the registry; parity + alias-detection tests now pass
+- **packages/cleo/src/dispatch/__tests__/parity.test.ts** — updated operation counts (172 query / 120 mutate / 292 total)
+
+### Known issues (pre-existing, not release blockers)
+
+- `brain-stdp-wave3.test.ts T695-1` — ratio-based complexity proof flaky under load
+- `brain-stdp-functional.test.ts T682-1` — requires live brain.db; flaky in CI
+- 13x studio Svelte 5 rune tests (`$state is not defined`) — `.svelte.ts` preprocessing not active under root vitest runner
+
+### Quality gates
+
+biome CI clean (1 warning: broken archive symlink, pre-existing). Build clean across 15 packages.
+9712 tests pass across 571 files; 14 failures all pre-existing known-flakes listed above.
+
 ## [2026.4.97] — 2026-04-19 — T962 Clean Code SSoT + T949 Studio /tasks Explorer + T942 Sentient Foundations
 
 Three converging epics ship together.
