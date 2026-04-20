@@ -81,7 +81,7 @@ export function getNexusDbPath(): string {
  * `migrations/drizzle-nexus` directory. Works across layouts:
  *  - src/store (dev via tsx) → finds packages/core/migrations/drizzle-nexus
  *  - dist/store (tsc emit)   → finds packages/core/migrations/drizzle-nexus
- *  - dist/nexus/contracts    → walks up to packages/core/migrations/drizzle-nexus
+ *  - dist/nexus/api-extractors → walks up to packages/core/migrations/drizzle-nexus
  *  - node_modules/@cleocode/core/dist/... → walks up to nearest package root
  */
 export function resolveNexusMigrationsFolder(): string {

@@ -238,6 +238,7 @@ export async function completeTask(
         fix:
           'Either fix the CRITICAL symbols or pass --acknowledge-risk "<reason>" to bypass the gate',
         details: {
+          field: 'criticalSymbols',
           criticalSymbols: gateResult.criticalSymbols?.map((s) => ({
             symbol: s.symbolName ?? s.symbolId,
             risk: s.mergedRiskScore,

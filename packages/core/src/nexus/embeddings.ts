@@ -2,7 +2,7 @@
  * Code Symbol Embeddings — semantic search via transformers.js.
  *
  * Provides text-to-vector embedding for semantic code search.
- * Uses @xenova/transformers with snowflake-arctic-embed-xs (384-dim)
+ * Uses @huggingface/transformers with snowflake-arctic-embed-xs (384-dim)
  * as default, with pluggable provider interface.
  *
  * Gracefully degrades to BM25-only search when embeddings unavailable.
@@ -81,7 +81,7 @@ export async function embedCodeSymbol(text: string): Promise<Float32Array | null
  * Transformer.js-backed code embeddings provider.
  *
  * Uses Xenova/snowflake-arctic-embed-xs (384-dim, 85MB).
- * Lazy-loads @xenova/transformers on first use.
+ * Lazy-loads @huggingface/transformers on first use.
  *
  * @internal
  */
@@ -99,7 +99,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
   /**
    * Initialize the transformer model (lazy-loaded).
    *
-   * @throws Error if @xenova/transformers unavailable or model fails to load
+   * @throws Error if @huggingface/transformers unavailable or model fails to load
    */
   async ensureInitialized(): Promise<void> {
     if (this.extractor !== null) return;
@@ -124,7 +124,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
     try {
       // Dynamic import to keep startup fast and make dependency optional.
       // eslint-disable-next-line import/no-unresolved, @typescript-eslint/no-var-requires
-      const transformers = await import('@xenova/transformers');
+      const transformers = await import('@huggingface/transformers');
 
       // Use Xenova/snowflake-arctic-embed-xs (HITL decision from T1042).
       // This is a lightweight but capable embeddings model (85MB).
@@ -140,7 +140,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
       throw new Error(
         `E_EMBEDDINGS_UNAVAILABLE: Could not load embeddings model. ` +
           `${error.message}. ` +
-          `fix: pnpm add -w @xenova/transformers`,
+          `fix: pnpm add -w @huggingface/transformers`,
       );
     }
   }
@@ -185,7 +185,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
 /**
  * Initialize the default code embeddings provider.
  *
- * Uses @xenova/transformers with snowflake-arctic-embed-xs model.
+ * Uses @huggingface/transformers with snowflake-arctic-embed-xs model.
  * Gracefully degrades if package unavailable (returns null).
  *
  * @returns true if initialized successfully, false if unavailable
