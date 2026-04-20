@@ -274,6 +274,9 @@ export const NEXUS_RELATION_TYPES = [
   // Cross-graph (brain link)
   'documents', // brain_page_node → nexus_nodes
   'applies_to', // brain_page_node → nexus_nodes
+  // Plasticity co-access relations (T998)
+  'co_changed', // nodes frequently changed together in the same commit
+  'co_cited_in_task', // nodes co-cited in the same task description
 ] as const;
 
 /** TypeScript type derived from NEXUS_RELATION_TYPES. */
@@ -321,6 +324,15 @@ export const nexusRelations = sqliteTable(
 
     /** ISO 8601 timestamp when this relation was last indexed. */
     indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
+
+    // T998: Plasticity columns for Hebbian co-access strengthening.
+    // Edges strengthen over time as nodes are accessed together during retrieval.
+    /** Plasticity weight in [0.0, 1.0]. Starts at 0.0; increments 0.05 per co-access; capped at 1.0. */
+    weight: real('weight').default(0.0),
+    /** ISO 8601 timestamp of the last co-access strengthening event. NULL until first strengthen. */
+    lastAccessedAt: text('last_accessed_at'),
+    /** Number of times this edge has been co-access strengthened. */
+    coAccessedCount: integer('co_accessed_count').default(0),
   },
   (table) => [
     index('idx_nexus_relations_project').on(table.projectId),
@@ -331,6 +343,8 @@ export const nexusRelations = sqliteTable(
     index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
     index('idx_nexus_relations_target_type').on(table.targetId, table.type),
     index('idx_nexus_relations_confidence').on(table.confidence),
+    // T998: index for plasticity decay queries and temporal access tracking
+    index('idx_nexus_relations_last_accessed').on(table.lastAccessedAt),
   ],
 );
 
