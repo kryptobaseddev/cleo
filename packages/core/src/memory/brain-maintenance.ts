@@ -315,36 +315,10 @@ export async function runPruneSweep(
     `[prune-sweep] step-9f: deleted ${deleted} entries (would-qualify=${wouldDelete}, cap=${cap})`,
   );
 
-  // ---- Phase 3: Audit trail ----
-
-  try {
-    let consolidationEventsExist = false;
-    try {
-      nativeDb.prepare('SELECT 1 FROM brain_consolidation_events LIMIT 1').get();
-      consolidationEventsExist = true;
-    } catch {
-      // table not yet migrated — skip audit
-    }
-
-    if (consolidationEventsExist) {
-      const stepResultsJson = JSON.stringify({
-        step: '9f',
-        deleted,
-        wouldDelete,
-        cap,
-        byTable: actualByTable,
-      });
-      nativeDb
-        .prepare(
-          `INSERT INTO brain_consolidation_events
-             (trigger, session_id, step_results_json, duration_ms, succeeded)
-           VALUES ('step-9f', NULL, ?, 0, 1)`,
-        )
-        .run(stepResultsJson);
-    }
-  } catch {
-    // best-effort audit — never block main flow
-  }
+  // Audit trail: the sweep result is captured in brain_consolidation_events by
+  // the Step 9e event log in runConsolidation (result.pruneSweep is populated
+  // before Step 9e runs). No standalone INSERT here to avoid polluting the
+  // events table with a second row that breaks ORDER BY started_at queries.
 
   return { deleted, wouldDelete, dryRun, byTable: actualByTable };
 }
@@ -471,14 +445,19 @@ export async function runBrainMaintenance(
   // Step 9f: Hard-sweeper — DELETE confirmed noise (T995)
   // Runs last so that all prior quality signals (decay, consolidation, tier
   // promotion) have been applied before committing irreversible deletes.
+  // Best-effort — a DB path failure MUST NOT abort the maintenance run.
   if (!skipPruneSweep) {
-    onProgress?.('prune-sweep', 0, 1);
-    const raw = await runPruneSweep(projectRoot, { dryRun: pruneSweepDryRun });
-    pruneSweepResult.deleted = raw.deleted;
-    pruneSweepResult.wouldDelete = raw.wouldDelete;
-    pruneSweepResult.dryRun = raw.dryRun;
-    pruneSweepResult.byTable = raw.byTable;
-    onProgress?.('prune-sweep', 1, 1);
+    try {
+      onProgress?.('prune-sweep', 0, 1);
+      const raw = await runPruneSweep(projectRoot, { dryRun: pruneSweepDryRun });
+      pruneSweepResult.deleted = raw.deleted;
+      pruneSweepResult.wouldDelete = raw.wouldDelete;
+      pruneSweepResult.dryRun = raw.dryRun;
+      pruneSweepResult.byTable = raw.byTable;
+      onProgress?.('prune-sweep', 1, 1);
+    } catch (err) {
+      console.warn('[maintenance] Step 9f prune sweep failed:', err);
+    }
   }
 
   return {
