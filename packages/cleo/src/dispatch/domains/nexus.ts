@@ -19,6 +19,7 @@ import {
   type NexusPermissionLevel,
 } from '@cleocode/core/internal';
 import {
+  nexusAugment,
   nexusBlockers,
   nexusCriticalPath,
   nexusDepsQuery,
@@ -218,6 +219,23 @@ export class NexusHandler implements DomainHandler {
           const projectFilter = params?.project as string | undefined;
           const limit = (params?.limit as number) ?? 20;
           const result = await nexusSearch(pattern, projectFilter, limit);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'augment': {
+          const pattern = params?.pattern as string;
+          if (!pattern) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'pattern is required',
+              startTime,
+            );
+          }
+          const limit = (params?.limit as number | undefined) ?? 5;
+          const result = await nexusAugment(pattern, limit);
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
