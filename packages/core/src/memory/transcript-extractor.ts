@@ -339,13 +339,46 @@ export function decodeJsonlTranscript(raw: string): string {
       if (typeof content === 'string') {
         text = content;
       } else if (Array.isArray(content)) {
-        // Content blocks array — extract text blocks only
+        // Content blocks array — preserve all block types (text, tool_use,
+        // tool_result, thinking). Previously only text blocks were kept;
+        // that filter is removed here per T1002 for full-fidelity ingest.
         text = content
-          .filter(
-            (b): b is { type: string; text?: string } =>
-              typeof b === 'object' && b !== null && (b as { type?: unknown })['type'] === 'text',
-          )
-          .map((b) => b['text'] ?? '')
+          .map((b): string => {
+            if (typeof b === 'string') return b;
+            if (typeof b !== 'object' || b === null) return '';
+            const block = b as Record<string, unknown>;
+            const bType = block['type'] as string | undefined;
+            if (bType === 'text') return (block['text'] as string | undefined) ?? '';
+            if (bType === 'tool_use') {
+              const input = block['input'];
+              const name = (block['name'] as string | undefined) ?? '';
+              return `[tool_use:${name}] ${typeof input === 'object' ? JSON.stringify(input) : String(input ?? '')}`;
+            }
+            if (bType === 'tool_result') {
+              const toolContent = block['content'];
+              const toolUseId = (block['tool_use_id'] as string | undefined) ?? '';
+              const resultText =
+                typeof toolContent === 'string'
+                  ? toolContent
+                  : Array.isArray(toolContent)
+                    ? toolContent
+                        .map((c) =>
+                          typeof c === 'object' &&
+                          c !== null &&
+                          (c as Record<string, unknown>)['type'] === 'text'
+                            ? (((c as Record<string, unknown>)['text'] as string | undefined) ?? '')
+                            : '',
+                        )
+                        .join(' ')
+                    : '';
+              return `[tool_result:${toolUseId}] ${resultText}`;
+            }
+            if (bType === 'thinking') {
+              return `[thinking] ${(block['thinking'] as string | undefined) ?? ''}`;
+            }
+            return '';
+          })
+          .filter((s) => s.length > 0)
           .join(' ');
       }
 
