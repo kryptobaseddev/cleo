@@ -729,6 +729,7 @@ export const BRAIN_EDGE_TYPES = [
   'code_reference', // memory node → code_reference → nexus symbol/file (T645)
   'affects', // observation → affects → symbol/file (impact tracking)
   'mentions', // observation → mentions → symbol name (weak reference)
+  'conduit_mentions_symbol', // conduit message → mentions nexus symbol (T1071)
   // Plasticity (Hebbian + STDP co-retrieval)
   'co_retrieved', // A → co_retrieved → B (Hebbian: frequently retrieved together)
   // T945 Stage A — universal semantic graph
@@ -737,6 +738,7 @@ export const BRAIN_EDGE_TYPES = [
   'cites', // decision/observation → cites → llmtxt/file (research citation)
   'embeds', // task/observation → embeds → llmtxt (attachment ownership)
   'touches_code', // task → touches_code → file/symbol (more specific than code_reference)
+  'task_touches_symbol', // task → task_touches_symbol → nexus symbol (T1067, git-log driven)
 ] as const;
 
 /** Discriminated union of all supported brain graph edge types. */
