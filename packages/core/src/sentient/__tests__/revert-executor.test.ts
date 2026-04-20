@@ -22,7 +22,7 @@ import type { AgentIdentity } from 'llmtxt/identity';
 import { identityFromSeed } from 'llmtxt/identity';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SENTIENT_STATE_FILE } from '../daemon.js';
-import { type AbortPayload, appendSentientEvent, type MergePayload } from '../events.js';
+import { appendSentientEvent, type MergePayload } from '../events.js';
 import {
   E_HUMAN_COMMIT_IN_RANGE,
   E_REVERT_FAILED,
