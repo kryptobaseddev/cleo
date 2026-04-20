@@ -14,7 +14,7 @@
  *     total:   number
  *   }
  *
- * Architecture (T948):
+ * Architecture (T948, T943):
  *   - Uses `@cleocode/core` lifecycle + tasks modules directly via narrow
  *     subpath imports. NO raw SQL is issued in this route.
  *   - `listTasks({ sortByPriority: true, excludeArchived: true, ... })`
@@ -22,6 +22,11 @@
  *   - `computeTaskRollups(ids, accessor)` gives every row the same canonical
  *     shape consumed by Studio + CLI + tests, so `/tasks` and
  *     `/tasks/pipeline` can no longer disagree about a task's state.
+ *   - `computeTaskViews(ids, accessor)` (T943) adds the canonical `TaskView`
+ *     for each row — `readyToComplete`, `nextAction`, `lifecycleProgress`, and
+ *     `gatesStatus` are included in the `views` field of the response so
+ *     consumers do not have to issue per-task `/api/tasks/[id]` calls just to
+ *     check action state.
  *   - Narrow imports (`@cleocode/core/tasks/list`,
  *     `@cleocode/core/lifecycle/rollup`, `@cleocode/core/store/data-accessor`)
  *     avoid pulling the full Cleo facade — which transitively drags in
@@ -30,6 +35,7 @@
  *     shape expected so external consumers of `/api/tasks` do not break.
  *
  * @task T948
+ * @task T943
  */
 
 import type {
@@ -41,6 +47,7 @@ import type {
 } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
 import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { computeTaskViews, type TaskView } from '@cleocode/core/tasks';
 import { listTasks } from '@cleocode/core/tasks/list';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -74,6 +81,14 @@ export interface TasksResponse {
   tasks: TaskRow[];
   /** Canonical rollup projection (T948 fix for the /tasks vs /pipeline drift). */
   rollups: TaskRollupPayload[];
+  /**
+   * Canonical task views produced by `computeTaskViews` (T943).
+   *
+   * Includes `status`, `pipelineStage`, `readyToComplete`, `nextAction`,
+   * `lifecycleProgress`, `gatesStatus`, and `childRollup` for each task.
+   * Aligned with `tasks` by index — `views[i]` corresponds to `tasks[i]`.
+   */
+  views: TaskView[];
   /** Number of rows returned. */
   total: number;
 }
@@ -172,11 +187,18 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
     const tasks = result.tasks;
     const ids = tasks.map((t) => t.id);
-    const rollups = await computeTaskRollups(ids, accessor);
+    // computeTaskRollups (T948) and computeTaskViews (T943) both use the
+    // same accessor — they share the underlying native DB handle so there
+    // is no redundant connection overhead.
+    const [rollups, views] = await Promise.all([
+      computeTaskRollups(ids, accessor),
+      computeTaskViews(ids, accessor),
+    ]);
 
     const body: TasksResponse = {
       tasks: tasks.map(_toLegacyRow),
       rollups,
+      views,
       total: tasks.length,
     };
     return json(body);

@@ -713,6 +713,17 @@ export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
+// Canonical task view — unified derivation (T943)
+export {
+  computeTaskView,
+  computeTaskViews,
+  type TaskView,
+  type TaskViewChildRollup,
+  type TaskViewGatesStatus,
+  type TaskViewLifecycleProgress,
+  type TaskViewNextAction,
+  type TaskViewPipelineStage,
+} from './tasks/compute-task-view.js';
 // Evidence-based verification (T832 / ADR-051)
 export {
   type AtomValidation,
