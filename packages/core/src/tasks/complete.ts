@@ -8,6 +8,7 @@ import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
+import { getProjectRoot } from '../paths.js';
 import { CleoError } from '../errors.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
@@ -15,6 +16,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
+import { validateNexusImpactGate } from './nexus-impact-gate.js';
 
 /**
  * IVTR execution stages — tasks in these stages auto-advance to 'release'
@@ -32,6 +34,8 @@ export interface CompleteTaskOptions {
   taskId: string;
   notes?: string;
   changeset?: string;
+  /** Reason for acknowledging CRITICAL impact risk (bypasses nexusImpact gate). */
+  acknowledgeRisk?: string;
 }
 
 /**
@@ -218,6 +222,54 @@ export async function completeTask(
           fix: `Set required verification gates before completion: ${enforcement.verificationRequiredGates.join(', ')}`,
         },
       );
+    }
+  }
+
+  // ---- IVTR Breaking-Change Gate (EP3-T8): Check nexusImpact risk ----
+  const projectRoot = cwd ?? getProjectRoot();
+  const gateResult = await validateNexusImpactGate(task, projectRoot);
+
+  if (!gateResult.passed && !options.acknowledgeRisk) {
+    // Gate failed and worker did not provide acknowledgment
+    throw new CleoError(
+      gateResult.exitCode ?? ExitCode.NEXUS_IMPACT_CRITICAL,
+      gateResult.error ?? 'CRITICAL impact risk detected',
+      {
+        fix:
+          'Either fix the CRITICAL symbols or pass --acknowledge-risk "<reason>" to bypass the gate',
+        details: {
+          criticalSymbols: gateResult.criticalSymbols?.map((s) => ({
+            symbol: s.symbolName ?? s.symbolId,
+            risk: s.mergedRiskScore,
+            narrative: s.narrative,
+          })),
+        },
+      },
+    );
+  }
+
+  // If gate passed or worker acknowledged risk, optionally audit the acknowledgment
+  if (options.acknowledgeRisk && gateResult.criticalSymbols && gateResult.criticalSymbols.length > 0) {
+    // Write acknowledgment to audit file
+    try {
+      const { appendNexusRiskAck } = await import('./nexus-risk-audit.js');
+      await appendNexusRiskAck({
+        taskId: options.taskId,
+        symbols: gateResult.criticalSymbols.map((s) => ({
+          symbolId: s.symbolId,
+          symbolName: s.symbolName ?? undefined,
+          risk: s.mergedRiskScore,
+        })),
+        reason: options.acknowledgeRisk,
+        timestamp: new Date().toISOString(),
+        agent: process.env.CLEO_AGENT_ID ?? 'cleo',
+      });
+    } catch (err) {
+      console.warn(
+        '[complete] failed to audit nexus risk acknowledgment:',
+        err instanceof Error ? err.message : String(err),
+      );
+      // Do not fail the completion on audit write failure; just warn
     }
   }
 
