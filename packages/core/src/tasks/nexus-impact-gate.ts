@@ -13,9 +13,8 @@
 
 import type { ImpactFullReport, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError } from '../errors.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
-import { typedAll, typedGet } from '../store/typed-query.js';
+import { typedAll } from '../store/typed-query.js';
 
 // ─── Internal row types ────────────────────────────────────────────────────
 
@@ -113,8 +112,7 @@ export async function validateNexusImpactGate(
     // (the gate is only advisory; the core code-quality checks are elsewhere)
     return {
       passed: true,
-      narrative:
-        'nexus symbol lookup failed; gate disabled (inspect error logs for details)',
+      narrative: 'nexus symbol lookup failed; gate disabled (inspect error logs for details)',
     };
   }
 
