@@ -1055,8 +1055,26 @@ export async function runConsolidation(
     console.warn('[consolidation] Step 9c homeostatic decay failed:', err);
   }
 
+  // Step 9f: Hard-sweeper — autonomous DELETE for prune candidates (T995)
+  // Deletes rows satisfying ALL: prune_candidate=1 AND quality_score<0.2
+  // AND citation_count=0 AND age>30d. Runs BEFORE Step 9e so that the
+  // consolidation event log captures the sweep result in step_results_json.
+  // Best-effort — never blocks.
+  try {
+    const { runPruneSweep } = await import('./brain-maintenance.js');
+    const sweepResult = await runPruneSweep(projectRoot);
+    result.pruneSweep = {
+      deleted: sweepResult.deleted,
+      wouldDelete: sweepResult.wouldDelete,
+      dryRun: sweepResult.dryRun,
+    };
+  } catch (err) {
+    console.warn('[consolidation] Step 9f prune sweep failed:', err);
+  }
+
   // Step 9e: Log this consolidation run to brain_consolidation_events (T694)
   // Captures trigger, session_id, per-step stats, duration for pipeline observability.
+  // Runs AFTER Step 9f so the event JSON includes the sweep result.
   // Best-effort — a logging failure MUST NOT abort the pipeline or throw.
   try {
     const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
@@ -1088,22 +1106,6 @@ export async function runConsolidation(
     }
   } catch (err) {
     console.warn('[consolidation] Step 9e consolidation event log failed:', err);
-  }
-
-  // Step 9f: Hard-sweeper — autonomous DELETE for prune candidates (T995)
-  // Deletes rows satisfying ALL: prune_candidate=1 AND quality_score<0.2
-  // AND citation_count=0 AND age>30d. Runs AFTER Step 9e (event log) so that
-  // the audit event captures the pre-sweep state. Best-effort — never blocks.
-  try {
-    const { runPruneSweep } = await import('./brain-maintenance.js');
-    const sweepResult = await runPruneSweep(projectRoot);
-    result.pruneSweep = {
-      deleted: sweepResult.deleted,
-      wouldDelete: sweepResult.wouldDelete,
-      dryRun: sweepResult.dryRun,
-    };
-  } catch (err) {
-    console.warn('[consolidation] Step 9f prune sweep failed:', err);
   }
 
   // Step 10: LLM-driven sleep consolidation (T734)
