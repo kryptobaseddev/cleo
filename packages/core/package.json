@@ -106,6 +106,11 @@
       "import": "./dist/memory/precompact-flush.js",
       "require": "./dist/memory/precompact-flush.js"
     },
+    "./memory/brain-backfill.js": {
+      "types": "./dist/memory/brain-backfill.d.ts",
+      "import": "./dist/memory/brain-backfill.js",
+      "require": "./dist/memory/brain-backfill.js"
+    },
     "./system/platform-paths.js": {
       "types": "./dist/system/platform-paths.d.ts",
       "import": "./dist/system/platform-paths.js",

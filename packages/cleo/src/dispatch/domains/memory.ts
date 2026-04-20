@@ -19,6 +19,12 @@ import {
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
 } from '@cleocode/core/internal';
+import {
+  approveBackfillRun,
+  listBackfillRuns,
+  rollbackBackfillRun,
+  stagedBackfillRun,
+} from '@cleocode/core/memory/brain-backfill.js';
 import { precompactFlush } from '@cleocode/core/memory/precompact-flush.js';
 import {
   memoryDecisionFind,
@@ -914,6 +920,31 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1003 — list staged backfill runs (pending/approved/rolled-back)
+        case 'backfill.list': {
+          try {
+            const status = params?.status as string | undefined;
+            const limit = params?.limit as number | undefined;
+            const runs = await listBackfillRuns(projectRoot, { status, limit });
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  count: runs.length,
+                  runs,
+                  hint: `Use 'cleo memory backfill.approve <runId>' or 'cleo memory backfill.rollback <runId>'`,
+                },
+              },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (listErr) {
+            return handleErrorResult('query', 'memory', operation, listErr, startTime);
+          }
+        }
+
         // T999 — stream brain.db memory-bridge content directly (cli mode default)
         case 'bridge': {
           const content = await generateMemoryBridgeContent(projectRoot);
@@ -1557,6 +1588,114 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1003 — stage a new graph backfill run (rows held pending approval)
+        case 'backfill.run': {
+          try {
+            const source = params?.source as string | undefined;
+            const kind = params?.kind as string | undefined;
+            const targetTable = params?.targetTable as string | undefined;
+            const result = await stagedBackfillRun(projectRoot, { source, kind, targetTable });
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  runId: result.run.id,
+                  run: result.run,
+                  empty: result.empty,
+                  hint: result.empty
+                    ? 'All candidate nodes already present — nothing to backfill'
+                    : `Run staged with ${result.run.rowsAffected} rows. Approve with 'cleo memory backfill.approve ${result.run.id}'`,
+                },
+              },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (runErr) {
+            return handleErrorResult('mutate', 'memory', operation, runErr, startTime);
+          }
+        }
+
+        // T1003 — approve a staged backfill run (commits rows to live tables)
+        case 'backfill.approve': {
+          const runId = params?.runId as string | undefined;
+          if (!runId) {
+            return errorResult(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'runId is required',
+              startTime,
+            );
+          }
+          try {
+            const approvedBy = params?.approvedBy as string | undefined;
+            const result = await approveBackfillRun(projectRoot, runId, approvedBy);
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  runId: result.run.id,
+                  run: result.run,
+                  alreadySettled: result.alreadySettled,
+                  backfillResult: result.backfillResult ?? null,
+                  hint: result.alreadySettled
+                    ? `Run '${runId}' was already settled (status: ${result.run.status})`
+                    : `Backfill committed: ${result.backfillResult?.nodesInserted ?? 0} nodes inserted`,
+                },
+              },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (approveErr) {
+            return handleErrorResult('mutate', 'memory', operation, approveErr, startTime);
+          }
+        }
+
+        // T1003 — rollback a backfill run (removes staged/committed rows)
+        case 'backfill.rollback': {
+          const runId = params?.runId as string | undefined;
+          if (!runId) {
+            return errorResult(
+              'mutate',
+              'memory',
+              operation,
+              'E_INVALID_INPUT',
+              'runId is required',
+              startTime,
+            );
+          }
+          try {
+            const result = await rollbackBackfillRun(projectRoot, runId);
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  runId: result.run.id,
+                  run: result.run,
+                  alreadySettled: result.alreadySettled,
+                  deletedRows: result.deletedRows,
+                  hint: result.alreadySettled
+                    ? `Run '${runId}' was already rolled back`
+                    : result.deletedRows > 0
+                      ? `Rolled back: deleted ${result.deletedRows} committed rows`
+                      : 'Run was still staged — no committed rows to delete',
+                },
+              },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (rollbackErr) {
+            return handleErrorResult('mutate', 'memory', operation, rollbackErr, startTime);
+          }
+        }
+
         default:
           return unsupportedOp('mutate', 'memory', operation, startTime);
       }
@@ -1612,6 +1751,8 @@ export class MemoryHandler implements DomainHandler {
         'diary',
         // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
         'watch',
+        // T1003 — list staged backfill runs
+        'backfill.list',
       ],
       mutate: [
         'observe',
@@ -1629,6 +1770,10 @@ export class MemoryHandler implements DomainHandler {
         'precompact-flush',
         // T1006 — write a diary-typed observation
         'diary.write',
+        // T1003 — staged backfill operations
+        'backfill.run',
+        'backfill.approve',
+        'backfill.rollback',
       ],
     };
   }
