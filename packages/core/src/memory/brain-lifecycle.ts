@@ -794,6 +794,8 @@ export interface RunConsolidationResult {
   edgesStrengthened: number;
   /** NEXUS nexus_relations edges strengthened by co-access (Step 6b, T998). */
   nexusEdgesStrengthened: number;
+  /** NEXUS nexus_relations edges decayed by plasticity time-decay (Step 6c, T1072). */
+  nexusEdgesDecayed?: number;
   /** Summary nodes generated. */
   summariesGenerated: number;
   /** Code↔memory graph links created. */
@@ -966,6 +968,19 @@ export async function runConsolidation(
   } catch (err) {
     console.warn('[consolidation] Step 6b nexus plasticity failed:', err);
     result.nexusEdgesStrengthened = 0;
+  }
+
+  // Step 6c: Plasticity decay (T1072)
+  // Applies time-based weight reduction to nexus_relations edges based on
+  // the plasticity half-life. Edges unused for the half-life period see their
+  // weight halved. This implements the "cold symbol" detection mechanism that
+  // identifies code that has become less relevant over time.
+  try {
+    const { applyPlasticityDecay } = await import('./nexus-plasticity.js');
+    const decayResult = await applyPlasticityDecay(projectRoot);
+    result.nexusEdgesDecayed = decayResult.updated;
+  } catch (err) {
+    console.warn('[consolidation] Step 6c plasticity decay failed:', err);
   }
 
   // Step 7: Summary generation from large observation clusters
@@ -1350,6 +1365,30 @@ async function softEvictLowQualityMedium(projectRoot: string): Promise<number> {
  * @param projectRoot - Project root for brain.db resolution
  * @returns Count of edges strengthened
  */
+/**
+ * Parse entry_ids which may be either JSON array or comma-separated string (BUG-2 fix).
+ *
+ * @param raw - Raw entry_ids value from brain_retrieval_log
+ * @returns Parsed array of entry IDs, or empty array if parse fails
+ */
+function parseEntryIds(raw: string): string[] {
+  const trimmed = raw.trim();
+  // Try JSON array first
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  // Fall back to comma-separated (legacy format from pre-migration data)
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> {
   const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
@@ -1390,12 +1429,10 @@ async function strengthenCoRetrievedEdges(projectRoot: string): Promise<number> 
   // Build co-occurrence tracking: Map<pair, Set<distinct queries>>
   const coOccurrence = new Map<string, Set<string>>();
   for (const row of logRows) {
-    let ids: string[];
-    try {
-      ids = JSON.parse(row.entry_ids) as string[];
-    } catch {
-      continue;
-    }
+    // BUG-2 fix: handle both JSON array and comma-separated formats
+    const ids = parseEntryIds(row.entry_ids);
+    if (ids.length < 2) continue;
+
     // Generate all pairs from the returned ID list
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
