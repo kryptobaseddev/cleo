@@ -1,7 +1,7 @@
 /**
  * Auto-Dream Cycle — autonomous BRAIN consolidation with STDP plasticity.
  *
- * Implements three trigger tiers for autonomous `runConsolidation` dispatch:
+ * Implements two trigger tiers for autonomous `runConsolidation` dispatch:
  *
  *   Tier 1 — Volume threshold (primary):
  *     When `brain_observations` delta since last consolidation exceeds
@@ -11,9 +11,10 @@
  *     When `brain_retrieval_log` shows no activity for IDLE_MINUTES_DEFAULT (30)
  *     minutes, trigger consolidation in the background.
  *
- *   Tier 3 — Nightly cron (tertiary):
- *     A setInterval-based scheduler fires once per day at off-peak hours.
- *     Activated explicitly via `startDreamScheduler`. Disabled by default.
+ * Tier 3 (nightly setTimeout chaining) has been removed — the sentient daemon
+ * tick loop (`sentient/tick.ts`) is now the canonical trigger host. Each tick
+ * evaluates both Tier 1 and Tier 2 via `checkAndDream`. This eliminates
+ * setTimeout drift across long-running processes.
  *
  * Each trigger calls `runConsolidation(projectRoot, sessionId, 'scheduled')`
  * which includes Steps 9a (R-STDP reward backfill) + 9b (STDP plasticity) +
@@ -44,9 +45,6 @@ const IDLE_MINUTES_DEFAULT = 30;
 /** Minimum ms between two autonomous dream cycles (cooldown guard). */
 const DREAM_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
-/** Nightly cron fire hour (0–23, local time). */
-const NIGHTLY_HOUR_DEFAULT = 4;
-
 // ============================================================================
 // Module-level state (in-process idempotency)
 // ============================================================================
@@ -56,9 +54,6 @@ let lastDreamAt: number = 0;
 
 /** Whether a dream cycle is currently in flight (prevents overlapping runs). */
 let dreamInFlight: boolean = false;
-
-/** Reference to the nightly cron timer (if started). */
-let nightlyTimer: ReturnType<typeof setInterval> | null = null;
 
 // ============================================================================
 // Result types
@@ -381,75 +376,15 @@ export async function triggerManualDream(
 }
 
 /**
- * Start the nightly cron scheduler (Tier 3).
- *
- * Fires `checkAndDream` daily at `hourUTC` (default: 4 AM UTC).
- * The timer is a best-effort setInterval — it will not survive process restart.
- *
- * Only one nightly scheduler can be active. Calling this when already active
- * is a no-op.
- *
- * @param projectRoot - Project root for brain.db resolution.
- * @param hourUTC - Hour of day (0–23 UTC) to fire nightly consolidation.
- * @returns true if the scheduler was started, false if already running.
- *
- * @task T628
- */
-export function startDreamScheduler(
-  projectRoot: string,
-  hourUTC: number = NIGHTLY_HOUR_DEFAULT,
-): boolean {
-  if (nightlyTimer !== null) return false;
-
-  const msUntilNextFire = (): number => {
-    const now = new Date();
-    const next = new Date(now);
-    next.setUTCHours(hourUTC, 0, 0, 0);
-    if (next.getTime() <= now.getTime()) {
-      next.setUTCDate(next.getUTCDate() + 1);
-    }
-    return next.getTime() - now.getTime();
-  };
-
-  const scheduleNext = (): void => {
-    nightlyTimer = setTimeout(() => {
-      nightlyTimer = null;
-      checkAndDream(projectRoot, { inline: false }).catch((err: unknown) => {
-        console.warn('[dream-cycle] Nightly cron failed:', err);
-      });
-      // Schedule the next fire after firing.
-      scheduleNext();
-    }, msUntilNextFire());
-  };
-
-  scheduleNext();
-  return true;
-}
-
-/**
- * Stop the nightly cron scheduler.
- *
- * @returns true if a running scheduler was stopped, false if none was active.
- *
- * @task T628
- */
-export function stopDreamScheduler(): boolean {
-  if (nightlyTimer === null) return false;
-  clearTimeout(nightlyTimer);
-  nightlyTimer = null;
-  return true;
-}
-
-/**
  * Reset in-process dream cycle state.
  *
- * Intended for test teardown only. Clears `lastDreamAt`, `dreamInFlight`,
- * and stops the nightly scheduler if running.
+ * Intended for test teardown only. Clears `lastDreamAt` and `dreamInFlight`.
+ * The nightly setTimeout scheduler has been removed — the sentient tick loop
+ * is now the canonical trigger host (T996).
  *
  * @internal
  */
 export function _resetDreamState(): void {
   lastDreamAt = 0;
   dreamInFlight = false;
-  stopDreamScheduler();
 }

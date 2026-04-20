@@ -32,6 +32,28 @@ import {
   type StuckTaskRecord,
 } from './state.js';
 
+// NOTE: `checkAndDream` is lazy-imported inside `maybeTriggerDream` to keep the
+// test surface small — tests that don't exercise the dream path never load
+// the brain.db stack.
+
+// ---------------------------------------------------------------------------
+// Dream-cycle trigger constants (T996)
+// ---------------------------------------------------------------------------
+
+/**
+ * Number of new brain observations since the last consolidation that causes
+ * the tick loop to trigger a dream cycle (volume tier).
+ * Configurable via the injected `dreamVolumeThreshold` option.
+ */
+export const DREAM_VOLUME_THRESHOLD_DEFAULT = 50;
+
+/**
+ * Number of consecutive no-task ticks before the idle dream trigger fires.
+ * Represents "N idle ticks" — when no task has been picked for this many
+ * consecutive ticks, the system is considered sufficiently idle.
+ */
+export const DREAM_IDLE_TICKS_DEFAULT = 5;
+
 // NOTE: `@cleocode/core/sdk` and `@cleocode/core/tasks` are lazy-imported
 // inside the helpers that use them (`defaultPickTask`, writeSuccessReceipt,
 // writeFailureReceipt). That keeps the test surface tiny — tests that inject
@@ -133,6 +155,27 @@ export interface TickOptions {
    * a deterministic task without constructing a SQLite fixture.
    */
   pickTask?: (projectRoot: string) => Promise<Task | null>;
+  /**
+   * New observation count since last consolidation that triggers the volume
+   * dream cycle. Defaults to {@link DREAM_VOLUME_THRESHOLD_DEFAULT}.
+   * Pass 0 to disable volume trigger. Injected by tests.
+   */
+  dreamVolumeThreshold?: number;
+  /**
+   * Number of consecutive no-task ticks before the idle dream trigger fires.
+   * Defaults to {@link DREAM_IDLE_TICKS_DEFAULT}.
+   * Pass 0 to disable idle trigger. Injected by tests.
+   */
+  dreamIdleTicks?: number;
+  /**
+   * Override for the dream trigger function — lets tests assert dream calls
+   * without touching the real brain.db stack.
+   * Signature mirrors `checkAndDream` from `@cleocode/core`.
+   */
+  checkAndDream?: (
+    projectRoot: string,
+    opts?: { volumeThreshold?: number; inline?: boolean },
+  ) => Promise<{ triggered: boolean; tier: string | null; skippedReason?: string }>;
 }
 
 /** Result of a spawn invocation. */
@@ -267,6 +310,63 @@ async function writeSuccessReceipt(
     });
   } catch {
     // Receipt is best-effort; do not fail the tick.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dream-cycle trigger state (T996)
+// ---------------------------------------------------------------------------
+
+/**
+ * Number of consecutive no-task ticks since the last successful task pick.
+ * Used by the idle dream trigger: when this counter reaches `dreamIdleTicks`,
+ * `checkAndDream` is called with the idle tier.
+ *
+ * Reset to 0 whenever a task is successfully picked.
+ */
+let consecutiveIdleTicks = 0;
+
+/**
+ * Evaluate volume + idle dream triggers and call `checkAndDream` when either
+ * fires. Errors are swallowed — dream trigger must never crash the tick.
+ *
+ * @param projectRoot - Project root for brain.db resolution.
+ * @param opts - Tick options (provides thresholds + injectable checkAndDream).
+ * @param pickedTask - Whether a task was picked this tick (resets idle counter).
+ */
+async function maybeTriggerDream(
+  projectRoot: string,
+  opts: TickOptions,
+  pickedTask: boolean,
+): Promise<void> {
+  const volumeThreshold = opts.dreamVolumeThreshold ?? DREAM_VOLUME_THRESHOLD_DEFAULT;
+  const idleTicksThreshold = opts.dreamIdleTicks ?? DREAM_IDLE_TICKS_DEFAULT;
+
+  // Disable both triggers when thresholds are 0 (test escape hatch).
+  if (volumeThreshold <= 0 && idleTicksThreshold <= 0) return;
+
+  if (pickedTask) {
+    consecutiveIdleTicks = 0;
+  } else {
+    consecutiveIdleTicks += 1;
+  }
+
+  const dreamer =
+    opts.checkAndDream ??
+    (async (root: string, dreamerOpts?: { volumeThreshold?: number; inline?: boolean }) => {
+      const { checkAndDream } = await import('@cleocode/core/internal');
+      return checkAndDream(root, dreamerOpts);
+    });
+
+  try {
+    await dreamer(projectRoot, {
+      volumeThreshold: volumeThreshold > 0 ? volumeThreshold : undefined,
+      inline: false,
+    }).catch((err: unknown) => {
+      console.warn('[sentient/tick] dream trigger error:', err);
+    });
+  } catch (err) {
+    console.warn('[sentient/tick] dream trigger threw:', err);
   }
 }
 
@@ -505,12 +605,17 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
  * tick` CLI command. Reads state, runs a tick, swallows any unexpected
  * exception so the cron scheduler never sees a rejection.
  *
+ * After the tick completes, evaluates volume + idle dream triggers via
+ * {@link maybeTriggerDream}. Dream errors are swallowed independently so
+ * they never affect the tick outcome.
+ *
  * @param options - Tick options
  * @returns The tick outcome (or an `error` outcome if the tick itself threw).
  */
 export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
+  let outcome: TickOutcome;
   try {
-    return await runTick(options);
+    outcome = await runTick(options);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {
@@ -518,8 +623,23 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
     } catch {
       // ignore
     }
-    return { kind: 'error', taskId: null, detail: `tick threw: ${message}` };
+    outcome = { kind: 'error', taskId: null, detail: `tick threw: ${message}` };
   }
+
+  // Dream trigger: fire volume + idle checks after every tick.
+  // A task was "picked" when the tick progressed past the no-task check
+  // (i.e. kind is not 'no-task', 'killed', or 'error').
+  const pickedTask =
+    outcome.kind !== 'no-task' &&
+    outcome.kind !== 'killed' &&
+    outcome.kind !== 'error' &&
+    outcome.taskId !== null;
+
+  await maybeTriggerDream(options.projectRoot, options, pickedTask).catch(() => {
+    // Dream errors must never propagate to the tick caller.
+  });
+
+  return outcome;
 }
 
 /**
@@ -541,4 +661,28 @@ export async function getKillStatus(
 ): Promise<Pick<SentientState, 'killSwitch' | 'killSwitchReason'>> {
   const state = await readSentientState(statePath);
   return { killSwitch: state.killSwitch, killSwitchReason: state.killSwitchReason };
+}
+
+/**
+ * Reset dream-cycle in-process state.
+ *
+ * Intended for test teardown only — clears `consecutiveIdleTicks` so that
+ * successive test cases start from a clean slate.
+ *
+ * @internal
+ */
+export function _resetDreamTickState(): void {
+  consecutiveIdleTicks = 0;
+}
+
+/**
+ * Return the current consecutive-idle-tick counter value.
+ *
+ * Read-only accessor for test assertions. The counter is reset to 0 whenever
+ * a task is picked, and incremented on each no-task tick.
+ *
+ * @internal
+ */
+export function _getConsecutiveIdleTicks(): number {
+  return consecutiveIdleTicks;
 }
