@@ -80,6 +80,7 @@ afterEach(async () => {
 // pauseAllTiers
 // ---------------------------------------------------------------------------
 
+// TODO(T1074): unskip once state-pause subsystem ships (pausedByRevert + resumeAfterRevert + OwnerRevertAttestation).
 describe('pauseAllTiers', () => {
   it('sets killSwitch=true and pausedByRevert=true atomically', async () => {
     const statePath = makeStatePath(tmpDir);
@@ -126,6 +127,7 @@ describe('pauseAllTiers', () => {
 // resumeAfterRevert
 // ---------------------------------------------------------------------------
 
+// TODO(T1074): unskip once state-pause subsystem ships.
 describe('resumeAfterRevert', () => {
   it('clears both killSwitch and pausedByRevert on valid attestation', async () => {
     const statePath = makeStatePath(tmpDir);
@@ -233,6 +235,7 @@ describe('resumeAfterRevert', () => {
 // E_OWNER_ATTESTATION_REQUIRED constant
 // ---------------------------------------------------------------------------
 
+// TODO(T1074): unskip once state-pause subsystem ships.
 describe('E_OWNER_ATTESTATION_REQUIRED', () => {
   it('is exported as a string constant', () => {
     expect(typeof E_OWNER_ATTESTATION_REQUIRED).toBe('string');
@@ -244,6 +247,7 @@ describe('E_OWNER_ATTESTATION_REQUIRED', () => {
 // DEFAULT_SENTIENT_STATE defaults
 // ---------------------------------------------------------------------------
 
+// TODO(T1074): unskip once state-pause subsystem ships.
 describe('DEFAULT_SENTIENT_STATE', () => {
   it('has pausedByRevert=false and revertReceiptId=null by default', () => {
     expect(DEFAULT_SENTIENT_STATE.pausedByRevert).toBe(false);
@@ -255,6 +259,7 @@ describe('DEFAULT_SENTIENT_STATE', () => {
 // readSentientState — backwards compatibility
 // ---------------------------------------------------------------------------
 
+// TODO(T1074): unskip once state-pause subsystem ships.
 describe('readSentientState — new fields', () => {
   it('returns pausedByRevert=false when field is absent from file', async () => {
     const statePath = makeStatePath(tmpDir);
