@@ -5,6 +5,31 @@
  * Native citty command dispatch — all commands use defineCommand.
  */
 
+// ---------------------------------------------------------------------------
+// Node version guard — MUST run before any import that touches node:sqlite.
+// CLEO requires Node >= 24 because packages/core/src/store/llmtxt-blob-adapter.ts
+// imports node:sqlite (DatabaseSync), which only became stable in Node 24.
+// On Node 20/22 this throws ERR_UNKNOWN_BUILTIN_MODULE at module load — a
+// cryptic failure for end users. Catch it here with a clear message.
+// Discovered via sandbox dogfood 2026-04-20 (T1041 follow-up, P0 regression).
+// ---------------------------------------------------------------------------
+{
+  const [major] = process.versions.node.split('.').map(Number);
+  if (typeof major !== 'number' || major < 24) {
+    process.stderr.write(
+      `\nError: cleo requires Node.js >= 24.0.0\n` +
+        `You are running Node ${process.versions.node}.\n\n` +
+        `Node 24 provides the stable node:sqlite DatabaseSync API that CLEO\n` +
+        `uses for its attachment store (zero native deps). Older Node versions\n` +
+        `fail at runtime with ERR_UNKNOWN_BUILTIN_MODULE.\n\n` +
+        `Upgrade via nvm:   nvm install 24 && nvm use 24\n` +
+        `Or via fnm:        fnm install 24 && fnm use 24\n` +
+        `Or via NodeSource: https://github.com/nodesource/distributions\n\n`,
+    );
+    process.exit(1);
+  }
+}
+
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
