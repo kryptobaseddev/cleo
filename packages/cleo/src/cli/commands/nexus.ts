@@ -3407,6 +3407,228 @@ const queryCommand = defineCommand({
 });
 
 /**
+ * cleo nexus route-map — Display all routes with their handlers and dependencies.
+ */
+const routeMapCommand = defineCommand({
+  meta: {
+    name: 'route-map',
+    description: 'Display all routes with their handlers and dependencies',
+  },
+  args: {
+    path: {
+      type: 'positional',
+      description: 'Path to project directory (default: cwd)',
+      required: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from path)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const jsonOutput = !!args.json;
+    const projectIdOverride = args['project-id'] as string | undefined;
+    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+    try {
+      const { getRouteMap } = await import('@cleocode/core/nexus/route-analysis.js');
+      const result = await getRouteMap(projectId, repoPath);
+
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.route-map',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        if (result.routes.length === 0) {
+          process.stdout.write(
+            `[nexus] No routes found for project ${projectId}.\n` +
+              `  Run 'cleo nexus analyze' first.\n`,
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] Route Map for project ${projectId} (${result.routes.length} total):\n\n`,
+          );
+          process.stdout.write('| Route ID | Handler | Method | Path | Deps | Callers |\n');
+          process.stdout.write('|----------|---------|--------|------|------|----------|\n');
+
+          for (const route of result.routes) {
+            const method = (route.routeMeta['method'] as string) ?? '—';
+            const routePath = (route.routeMeta['path'] as string) ?? '—';
+            const depCount = route.fetchedDeps.length;
+            process.stdout.write(
+              `| ${route.routeId} | ${route.handlerName} | ${method} | ${routePath} | ${depCount} | ${route.callerCount} |\n`,
+            );
+          }
+
+          process.stdout.write('\n');
+          if (result.distinctDeps.length > 0) {
+            process.stdout.write(`External dependencies: ${result.distinctDeps.join(', ')}\n`);
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_ROUTE_MAP_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.route-map',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running route-map: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+/**
+ * cleo nexus shape-check — Check response shape compatibility for a route.
+ */
+const shapeCheckCommand = defineCommand({
+  meta: {
+    name: 'shape-check',
+    description: 'Check response shape compatibility for a route handler',
+  },
+  args: {
+    routeSymbol: {
+      type: 'positional',
+      description: 'Route symbol ID (format: <filePath>::<routeName>)',
+      required: true,
+    },
+    path: {
+      type: 'positional',
+      description: 'Path to project directory (default: cwd)',
+      required: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from path)',
+    },
+  },
+  async run({ args }) {
+    const startTime = Date.now();
+    const routeSymbol = args.routeSymbol as string;
+    const jsonOutput = !!args.json;
+    const projectIdOverride = args['project-id'] as string | undefined;
+    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+
+    try {
+      const { shapeCheck } = await import('@cleocode/core/nexus/route-analysis.js');
+      const result = await shapeCheck(routeSymbol, projectId, repoPath);
+
+      const durationMs = Date.now() - startTime;
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.shape-check',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stdout.write(`[nexus] Shape Check for route ${routeSymbol}\n\n`);
+        process.stdout.write(`Handler: ${result.handlerId}\n`);
+        process.stdout.write(`Declared Shape: ${result.declaredShape}\n`);
+        process.stdout.write(`Overall Status: ${result.overallStatus}\n`);
+        process.stdout.write(`Recommendation: ${result.recommendation}\n\n`);
+
+        if (result.callers.length === 0) {
+          process.stdout.write('No callers found.\n');
+        } else {
+          process.stdout.write(`Callers (${result.callers.length} total):\n`);
+          process.stdout.write('| Caller | File | Expected Shape | Status |\n');
+          process.stdout.write('|--------|------|---------------|---------|\n');
+
+          for (const caller of result.callers) {
+            process.stdout.write(
+              `| ${caller.callerName} | ${caller.callerFile} | ${caller.expectedShape} | ${caller.status} |\n`,
+            );
+          }
+
+          if (result.callers.some((c) => c.status !== 'compatible')) {
+            process.stdout.write('\nIncompatibilities:\n');
+            for (const caller of result.callers) {
+              if (caller.status !== 'compatible') {
+                process.stdout.write(`  - ${caller.callerName}: ${caller.diagnosis}\n`);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const durationMs = Date.now() - startTime;
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_SHAPE_CHECK_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.shape-check',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running shape-check: ${msg}\n`);
+      }
+      process.exitCode = 1;
+    }
+  },
+});
+
+/**
  * Root nexus command group — registers all nexus subcommands.
  *
  * Dispatches to nexus domain registry operations.
@@ -3446,6 +3668,8 @@ export const nexusCommand = defineCommand({
     'refresh-bridge': refreshBridgeCommand,
     export: exportCommand,
     diff: diffCommand,
+    'route-map': routeMapCommand,
+    'shape-check': shapeCheckCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
