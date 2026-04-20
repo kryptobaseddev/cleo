@@ -18,7 +18,7 @@
  *   <session-uuid>/tool-results/      ← raw tool results (pruned with session)
  * ```
  *
- * @see packages/cleo/src/gc/transcript.ts for scan/prune logic
+ * @see packages/core/src/gc/transcript.ts for scan/prune logic
  * @see docs/specs/memory-architecture-spec.md §6 and §9.1
  * @task T728 T730 T732 T733
  * @epic T726
@@ -27,8 +27,12 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getProjectRoot } from '@cleocode/core';
+import {
+  parseDurationMs,
+  pruneTranscripts,
+  scanTranscripts,
+} from '@cleocode/core/gc/transcript.js';
 import { defineCommand, showUsage } from 'citty';
-import { parseDurationMs, pruneTranscripts, scanTranscripts } from '../../gc/transcript.js';
 
 /** cleo transcript scan — inventory all session transcripts with hot/warm/cold tier breakdown */
 const scanCommand = defineCommand({

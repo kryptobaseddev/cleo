@@ -111,6 +111,71 @@
       "import": "./dist/memory/brain-backfill.js",
       "require": "./dist/memory/brain-backfill.js"
     },
+    "./sentient": {
+      "types": "./dist/sentient/index.d.ts",
+      "import": "./dist/sentient/index.js",
+      "require": "./dist/sentient/index.js"
+    },
+    "./sentient/*": {
+      "types": "./dist/sentient/*.d.ts",
+      "import": "./dist/sentient/*.js",
+      "require": "./dist/sentient/*.js"
+    },
+    "./sentient/daemon.js": {
+      "types": "./dist/sentient/daemon.d.ts",
+      "import": "./dist/sentient/daemon.js",
+      "require": "./dist/sentient/daemon.js"
+    },
+    "./sentient/state.js": {
+      "types": "./dist/sentient/state.d.ts",
+      "import": "./dist/sentient/state.js",
+      "require": "./dist/sentient/state.js"
+    },
+    "./sentient/tick.js": {
+      "types": "./dist/sentient/tick.d.ts",
+      "import": "./dist/sentient/tick.js",
+      "require": "./dist/sentient/tick.js"
+    },
+    "./sentient/propose-tick.js": {
+      "types": "./dist/sentient/propose-tick.d.ts",
+      "import": "./dist/sentient/propose-tick.js",
+      "require": "./dist/sentient/propose-tick.js"
+    },
+    "./sentient/proposal-rate-limiter.js": {
+      "types": "./dist/sentient/proposal-rate-limiter.d.ts",
+      "import": "./dist/sentient/proposal-rate-limiter.js",
+      "require": "./dist/sentient/proposal-rate-limiter.js"
+    },
+    "./gc": {
+      "types": "./dist/gc/index.d.ts",
+      "import": "./dist/gc/index.js",
+      "require": "./dist/gc/index.js"
+    },
+    "./gc/*": {
+      "types": "./dist/gc/*.d.ts",
+      "import": "./dist/gc/*.js",
+      "require": "./dist/gc/*.js"
+    },
+    "./gc/daemon.js": {
+      "types": "./dist/gc/daemon.d.ts",
+      "import": "./dist/gc/daemon.js",
+      "require": "./dist/gc/daemon.js"
+    },
+    "./gc/runner.js": {
+      "types": "./dist/gc/runner.d.ts",
+      "import": "./dist/gc/runner.js",
+      "require": "./dist/gc/runner.js"
+    },
+    "./gc/state.js": {
+      "types": "./dist/gc/state.d.ts",
+      "import": "./dist/gc/state.js",
+      "require": "./dist/gc/state.js"
+    },
+    "./gc/transcript.js": {
+      "types": "./dist/gc/transcript.d.ts",
+      "import": "./dist/gc/transcript.js",
+      "require": "./dist/gc/transcript.js"
+    },
     "./system/platform-paths.js": {
       "types": "./dist/system/platform-paths.d.ts",
       "import": "./dist/system/platform-paths.js",
@@ -161,6 +226,8 @@
     "tree-sitter-ruby": "^0.23.1",
     "tree-sitter-rust": "0.23.1",
     "tree-sitter-typescript": "^0.23.2",
+    "check-disk-space": "^3.4.0",
+    "node-cron": "^4.2.1",
     "write-file-atomic": "^7.0.1",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
@@ -180,6 +247,7 @@
     "src"
   ],
   "devDependencies": {
+    "@types/node-cron": "^3.0.11",
     "@types/proper-lockfile": "^4.1.4",
     "@types/tar": "^6.1.13",
     "@types/write-file-atomic": "^4.0.3",
