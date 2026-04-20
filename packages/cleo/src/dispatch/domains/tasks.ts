@@ -338,6 +338,21 @@ export class TasksHandler implements DomainHandler {
             params!.taskId as string,
             params?.notes as string | undefined,
           );
+          // T994: Track memory usage on task completion (fire-and-forget; must not block).
+          setImmediate(async () => {
+            try {
+              const { trackMemoryUsage } = await import('@cleocode/core/internal');
+              await trackMemoryUsage(
+                projectRoot,
+                params!.taskId as string,
+                true,
+                params!.taskId as string,
+                'success',
+              );
+            } catch {
+              // Quality tracking errors must never surface to the complete flow
+            }
+          });
           return wrapResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
