@@ -301,3 +301,19 @@ describe('nexus deps (core integration)', () => {
     expect(result.depends[0].query).toContain('T002');
   });
 });
+
+describe('nexus context --content flag', () => {
+  it('should define context command with content flag', () => {
+    const contextCmd = nexusCommand.subCommands?.['context'];
+    expect(contextCmd).toBeDefined();
+    if (contextCmd) {
+      const contentArg = (contextCmd.args as Record<string, unknown>)['content'];
+      expect(contentArg).toBeDefined();
+      if (contentArg) {
+        const argDef = contentArg as Record<string, unknown>;
+        expect(argDef['type']).toBe('boolean');
+        expect(String(argDef['description']).toLowerCase()).toContain('source');
+      }
+    }
+  });
+});
