@@ -157,6 +157,7 @@ describe('executeSquashedRevert', () => {
     }
   });
 
+  // TODO(T1074): unskip once state-pause subsystem ships.
   it('squash-reverts 3 sentient commits and sets global pause', async () => {
     // Create 3 sentient commits.
     const sha1 = await makeSentientCommit(tmpDir, 'file1.ts', 'export const a = 1;\n');
