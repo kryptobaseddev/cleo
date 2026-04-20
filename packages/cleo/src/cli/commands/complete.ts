@@ -9,6 +9,10 @@
  * `CLEO_OWNER_OVERRIDE=1` with `CLEO_OWNER_OVERRIDE_REASON=<reason>` on the
  * `cleo verify` call — the override is audited.
  *
+ * As of T1073, the `--acknowledge-risk` flag allows bypassing the nexusImpact gate
+ * when a task touches symbols with CRITICAL impact risk. The acknowledgment is
+ * audited to `.cleo/audit/nexus-risk-ack.jsonl`.
+ *
  * @task T4461
  * @task T832
  * @adr ADR-051
@@ -47,6 +51,10 @@ export const completeCommand = defineCommand({
       type: 'string',
       description: 'Evidence that acceptance criteria were met',
     },
+    'acknowledge-risk': {
+      type: 'string',
+      description: 'Reason for acknowledging CRITICAL impact risk (bypasses nexusImpact gate)',
+    },
   },
   async run({ args }) {
     const response = await dispatchRaw('mutate', 'tasks', 'complete', {
@@ -54,6 +62,7 @@ export const completeCommand = defineCommand({
       notes: args.notes as string | undefined,
       changeset: args.changeset as string | undefined,
       verificationNote: args['verification-note'] as string | undefined,
+      acknowledgeRisk: args['acknowledge-risk'] as string | undefined,
     });
 
     if (!response.success) {
