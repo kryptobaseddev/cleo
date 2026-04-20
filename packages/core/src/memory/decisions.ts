@@ -30,6 +30,13 @@ export interface StoreDecisionParams {
   contextEpicId?: string;
   contextTaskId?: string;
   contextPhase?: string;
+  /**
+   * T992: Internal flag — when true, bypasses the verifyAndStore gate.
+   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
+   * infinite recursion (gate → storeVerifiedCandidate → storeDecision → gate).
+   * External callers MUST NOT set this flag.
+   */
+  _skipGate?: boolean;
 }
 
 /** Parameters for searching decisions. */
@@ -89,6 +96,40 @@ export async function storeDecision(
   }
   if (!params.rationale?.trim()) {
     throw new Error('Rationale is required');
+  }
+
+  // T992: Route through verifyCandidate gate unless called internally from
+  // storeVerifiedCandidate (which already ran the gate before calling here).
+  // Uses verifyCandidate (not verifyAndStore) to avoid double-writes — this
+  // function handles its own storage in the code below.
+  // Note: decisions use 'trusted:true' so only Check A (hash dedup) applies.
+  if (!params._skipGate) {
+    const { verifyCandidate } = await import('./extraction-gate.js');
+    // Convert BrainDecisionRow confidence enum to numeric for gate
+    const numericConf =
+      params.confidence === 'high' ? 0.85 : params.confidence === 'medium' ? 0.65 : 0.45;
+    const candidateText = (params.decision.trim() + '\n' + params.rationale.trim()).toLowerCase();
+    const gateResult = await verifyCandidate(projectRoot, {
+      text: candidateText,
+      title: params.decision.trim().slice(0, 120),
+      memoryType: 'semantic',
+      tier: 'medium',
+      confidence: numericConf,
+      source: 'manual',
+      sourceConfidence: 'owner',
+      trusted: true,
+    });
+    if (gateResult.action !== 'stored') {
+      // Gate merged or rejected — return existing decision if possible
+      const existing = gateResult.id
+        ? await (await getBrainAccessor(projectRoot)).getDecision(gateResult.id).catch(() => null)
+        : null;
+      if (existing) {
+        return existing;
+      }
+      // Fallback: proceed with write so decisions (owner-level trust) are never silently dropped
+    }
+    // Gate approved — fall through to native storage below (no recursion needed).
   }
 
   const accessor = await getBrainAccessor(projectRoot);

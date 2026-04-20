@@ -32,7 +32,6 @@ import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 import type {
   BrainAnchor,
-  BrainFtsRow,
   BrainNarrativeRow,
   BrainTimelineNeighborRow,
 } from './brain-row-types.js';
@@ -169,6 +168,13 @@ export interface ObserveBrainParams {
    * Each entry must be a 64-char hex SHA-256 from the tasks.db attachment store.
    */
   attachmentRefs?: string[];
+  /**
+   * T992: Internal flag — when true, bypasses the verifyAndStore gate.
+   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
+   * infinite recursion (gate → storeVerifiedCandidate → observeBrain → gate).
+   * External callers MUST NOT set this flag.
+   */
+  _skipGate?: boolean;
 }
 
 /** Result from observeBrain. */
@@ -751,10 +757,48 @@ export async function observeBrain(
     sourceConfidence: sourceConfidenceParam,
     crossRef,
     attachmentRefs,
+    _skipGate,
   } = params;
 
   if (!text?.trim()) {
     throw new Error('Observation text is required');
+  }
+
+  // T992: Route through verifyCandidate gate unless called internally from
+  // storeVerifiedCandidate (which already ran the gate before calling here).
+  // Uses verifyCandidate (not verifyAndStore) so dedup check runs without
+  // double-writing — this function handles its own storage below.
+  if (!_skipGate) {
+    const { verifyCandidate } = await import('./extraction-gate.js');
+    const title = titleParam ?? text.slice(0, 120);
+    const resolvedSourceConf: import('../store/memory-schema.js').BrainSourceConfidence =
+      sourceConfidenceParam ??
+      (sourceType === 'manual'
+        ? 'owner'
+        : sourceType === 'session-debrief'
+          ? 'task-outcome'
+          : 'agent');
+    const gateResult = await verifyCandidate(projectRoot, {
+      text,
+      title,
+      memoryType: 'episodic',
+      tier: 'short',
+      confidence: 0.6,
+      source: sourceType === 'manual' ? 'manual' : 'transcript',
+      sourceSessionId,
+      sourceConfidence: resolvedSourceConf,
+      trusted: resolvedSourceConf === 'owner' || resolvedSourceConf === 'task-outcome',
+    });
+    if (gateResult.action !== 'stored') {
+      // Gate merged, rejected, or queued — return the existing/null id
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      return {
+        id: gateResult.id ?? `O-gate-${Date.now().toString(36)}`,
+        type: typeParam ?? 'observation',
+        createdAt: now,
+      };
+    }
+    // Gate approved — fall through to native storage below (no recursion needed).
   }
 
   const type = typeParam ?? classifyObservationType(text);
@@ -794,33 +838,17 @@ export async function observeBrain(
   const verified =
     resolvedSourceConfidence === 'owner' || resolvedSourceConfidence === 'task-outcome';
 
-  // Content-hash dedup: SHA-256 prefix of title+text
+  // Content hash for storage (used by addObservation to populate content_hash column).
+  // T992: Hash matches contentHashPrefix() in extraction-gate.ts (text-only, normalized)
+  // so verifyCandidate's hash-dedup lookup finds the stored row correctly.
   const contentHash = createHash('sha256')
-    .update(title + text)
+    .update(text.trim().toLowerCase())
     .digest('hex')
     .slice(0, 16);
 
-  // Check for recent duplicate (same content within last 30 seconds)
+  // Load native DB handle for later embedding write (fire-and-forget, line ~930).
   const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb();
-  if (nativeDb) {
-    const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
-    const existing = typedAll<BrainFtsRow>(
-      nativeDb.prepare(
-        'SELECT id, type, created_at FROM brain_observations WHERE content_hash = ? AND created_at > ?',
-      ),
-      contentHash,
-      cutoff,
-    );
-
-    if (existing.length > 0) {
-      return {
-        id: existing[0].id,
-        type: existing[0].type,
-        createdAt: existing[0].created_at,
-      };
-    }
-  }
 
   // Write-guard: validate cross-db session reference before inserting
   let validSessionId = sourceSessionId ?? null;
