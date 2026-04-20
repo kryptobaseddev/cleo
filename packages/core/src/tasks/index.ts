@@ -28,6 +28,17 @@ export {
 } from './add.js';
 export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
 export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
+// Canonical task view — unified derivation (T943)
+export {
+  computeTaskView,
+  computeTaskViews,
+  type TaskView,
+  type TaskViewChildRollup,
+  type TaskViewGatesStatus,
+  type TaskViewLifecycleProgress,
+  type TaskViewNextAction,
+  type TaskViewPipelineStage,
+} from './compute-task-view.js';
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
 // Dependency graph helpers (sentient loop consumers).
 export {

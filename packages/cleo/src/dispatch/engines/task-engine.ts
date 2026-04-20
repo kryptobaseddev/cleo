@@ -22,6 +22,7 @@ import {
   type CompactTask,
   // Non-CRUD core operations
   type ComplexityFactor,
+  computeTaskView,
   addTask as coreAddTask,
   archiveTasks as coreArchiveTasks,
   completeTask as coreCompleteTask,
@@ -64,6 +65,7 @@ import {
   type IvtrPhaseEntry,
   loadConfig,
   predictImpact,
+  type TaskView,
   toCompact,
 } from '@cleocode/core/internal';
 import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
@@ -153,29 +155,42 @@ export type { EngineResult } from './_error.js';
  *
  * @remarks
  * Fetches the full task record from the data accessor and converts it
- * to the backward-compatible TaskRecord format.
+ * to the backward-compatible TaskRecord format. Also computes the
+ * canonical {@link TaskView} via `computeTaskView` so the `view` field
+ * in the response includes `readyToComplete`, `nextAction`, and
+ * `lifecycleProgress` without a second round-trip.
+ *
+ * The `view` field is `null` when `computeTaskView` cannot load the
+ * task (e.g. freshly created task not yet visible to the native DB
+ * handle). Callers MUST check `result.data.task` for the primary record.
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier (e.g. "T001")
- * @returns EngineResult containing the task record
+ * @returns EngineResult containing the task record and canonical view
  *
  * @example
  * ```typescript
  * const result = await taskShow('/project', 'T42');
- * if (result.success) console.log(result.data.task.title);
+ * if (result.success) {
+ *   console.log(result.data.task.title);
+ *   console.log(result.data.view?.nextAction); // 'verify' | 'spawn-worker' | …
+ * }
  * ```
  *
  * @task T4657
+ * @task T943
  * @epic T4654
  */
 export async function taskShow(
   projectRoot: string,
   taskId: string,
-): Promise<EngineResult<{ task: TaskRecord }>> {
+): Promise<EngineResult<{ task: TaskRecord; view: TaskView | null }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const detail = await coreShowTask(taskId, projectRoot, accessor);
-    return { success: true, data: { task: taskToRecord(detail) } };
+    // Compute the canonical view in parallel with record conversion.
+    const view = await computeTaskView(taskId, accessor);
+    return { success: true, data: { task: taskToRecord(detail), view } };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
