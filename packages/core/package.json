@@ -121,10 +121,25 @@
       "import": "./dist/sentient/*.js",
       "require": "./dist/sentient/*.js"
     },
+    "./sentient/baseline.js": {
+      "types": "./dist/sentient/baseline.d.ts",
+      "import": "./dist/sentient/baseline.js",
+      "require": "./dist/sentient/baseline.js"
+    },
     "./sentient/daemon.js": {
       "types": "./dist/sentient/daemon.d.ts",
       "import": "./dist/sentient/daemon.js",
       "require": "./dist/sentient/daemon.js"
+    },
+    "./sentient/events.js": {
+      "types": "./dist/sentient/events.d.ts",
+      "import": "./dist/sentient/events.js",
+      "require": "./dist/sentient/events.js"
+    },
+    "./sentient/kms.js": {
+      "types": "./dist/sentient/kms.d.ts",
+      "import": "./dist/sentient/kms.js",
+      "require": "./dist/sentient/kms.js"
     },
     "./sentient/state.js": {
       "types": "./dist/sentient/state.d.ts",

@@ -177,6 +177,10 @@ const coreBuildOptions = {
     { in: 'packages/core/src/sentient/state.ts', out: 'sentient/state' },
     { in: 'packages/core/src/sentient/propose-tick.ts', out: 'sentient/propose-tick' },
     { in: 'packages/core/src/sentient/proposal-rate-limiter.ts', out: 'sentient/proposal-rate-limiter' },
+    // Tier 3 primitives (T1021 baseline, T1022 KMS adapter, T1022 sentient event chain)
+    { in: 'packages/core/src/sentient/baseline.ts', out: 'sentient/baseline' },
+    { in: 'packages/core/src/sentient/events.ts', out: 'sentient/events' },
+    { in: 'packages/core/src/sentient/kms.ts', out: 'sentient/kms' },
     // GC daemon subpath entry points (T1015 relocation from cleo → core)
     { in: 'packages/core/src/gc/index.ts', out: 'gc/index' },
     { in: 'packages/core/src/gc/daemon.ts', out: 'gc/daemon' },
