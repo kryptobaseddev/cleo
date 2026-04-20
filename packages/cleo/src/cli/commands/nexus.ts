@@ -1185,6 +1185,10 @@ const contextCommand = defineCommand({
       description: 'Max callers/callees to show per side',
       default: '20',
     },
+    content: {
+      type: 'boolean',
+      description: 'Append source code content for the symbol',
+    },
   },
   async run({ args }) {
     const startTime = Date.now();
@@ -1194,6 +1198,7 @@ const contextCommand = defineCommand({
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const limit = parseInt(args.limit as string, 10);
     const symbolName = args.symbol as string;
+    const showContent = !!args.content;
 
     try {
       const { getNexusDb, nexusSchema } = await import(
@@ -1272,92 +1277,144 @@ const contextCommand = defineCommand({
         nodeById.set(String(n['id']), n);
       }
 
-      // Build context for each matching node.
-      const results = matchingNodes.slice(0, 5).map((node) => {
-        const nodeId = String(node['id']);
+      // Build context for each matching node (async to fetch source if needed).
+      const results = await Promise.all(
+        matchingNodes.slice(0, 5).map(async (node) => {
+          const nodeId = String(node['id']);
 
-        // Incoming: who calls/imports/references THIS node (target = nodeId)
-        const incoming = allRelations
-          .filter(
-            (r) =>
-              r['targetId'] === nodeId &&
-              r['projectId'] === projectId &&
-              (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
-          )
-          .slice(0, limit)
-          .map((r) => {
-            const src = nodeById.get(String(r['sourceId']));
-            return {
-              relationType: r['type'],
-              nodeId: r['sourceId'],
-              name: src?.['name'] ?? r['sourceId'],
-              kind: src?.['kind'] ?? 'unknown',
-              filePath: src?.['filePath'] ?? null,
-            };
-          });
+          // Incoming: who calls/imports/references THIS node (target = nodeId)
+          const incoming = allRelations
+            .filter(
+              (r) =>
+                r['targetId'] === nodeId &&
+                r['projectId'] === projectId &&
+                (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
+            )
+            .slice(0, limit)
+            .map((r) => {
+              const src = nodeById.get(String(r['sourceId']));
+              return {
+                relationType: r['type'],
+                nodeId: r['sourceId'],
+                name: src?.['name'] ?? r['sourceId'],
+                kind: src?.['kind'] ?? 'unknown',
+                filePath: src?.['filePath'] ?? null,
+              };
+            });
 
-        // Outgoing: what THIS node calls/imports/accesses (source = nodeId)
-        const outgoing = allRelations
-          .filter(
+          // Outgoing: what THIS node calls/imports/accesses (source = nodeId)
+          const outgoing = allRelations
+            .filter(
+              (r) =>
+                r['sourceId'] === nodeId &&
+                r['projectId'] === projectId &&
+                (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
+            )
+            .slice(0, limit)
+            .map((r) => {
+              const tgt = nodeById.get(String(r['targetId']));
+              return {
+                relationType: r['type'],
+                nodeId: r['targetId'],
+                name: tgt?.['name'] ?? r['targetId'],
+                kind: tgt?.['kind'] ?? 'unknown',
+                filePath: tgt?.['filePath'] ?? null,
+              };
+            });
+
+          // Community membership
+          const communityId = node['communityId'] as string | null;
+          const community = communityId ? nodeById.get(communityId) : null;
+
+          // Process participation (step_in_process or entry_point_of relations)
+          const processRelations = allRelations.filter(
             (r) =>
               r['sourceId'] === nodeId &&
               r['projectId'] === projectId &&
-              (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
-          )
-          .slice(0, limit)
-          .map((r) => {
-            const tgt = nodeById.get(String(r['targetId']));
-            return {
-              relationType: r['type'],
-              nodeId: r['targetId'],
-              name: tgt?.['name'] ?? r['targetId'],
-              kind: tgt?.['kind'] ?? 'unknown',
-              filePath: tgt?.['filePath'] ?? null,
-            };
-          });
+              (r['type'] === 'step_in_process' || r['type'] === 'entry_point_of'),
+          );
+          const processes = processRelations
+            .map((r) => {
+              const proc = nodeById.get(String(r['targetId']));
+              return {
+                processId: r['targetId'],
+                label: proc?.['label'] ?? r['targetId'],
+                role: r['type'] === 'entry_point_of' ? 'entry_point' : 'step',
+                step: r['step'] ?? null,
+              };
+            })
+            .filter((p) => p.label !== p.processId); // filter unresolved
 
-        // Community membership
-        const communityId = node['communityId'] as string | null;
-        const community = communityId ? nodeById.get(communityId) : null;
+          // Fetch source content if --content flag is set
+          let sourceContent:
+            | { source: string; startLine: number; endLine: number; errors: string[] }
+            | undefined;
+          if (showContent && node['filePath']) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const unfoldModule = await import(
+                '@cleocode/nexus/dist/src/code/unfold.js' as string
+              );
+              const smartUnfold = unfoldModule.smartUnfold as (
+                filePath: string,
+                symbolName: string,
+                projectRoot?: string,
+              ) => {
+                found: boolean;
+                source: string;
+                startLine: number;
+                endLine: number;
+                errors: string[];
+              };
+              const absolutePath = path.resolve(repoPath, String(node['filePath']));
+              const unfoldResult = smartUnfold(absolutePath, String(node['name']), repoPath);
+              if (unfoldResult.found) {
+                sourceContent = {
+                  source: unfoldResult.source,
+                  startLine: unfoldResult.startLine,
+                  endLine: unfoldResult.endLine,
+                  errors: unfoldResult.errors,
+                };
+              } else if (unfoldResult.errors.length > 0) {
+                sourceContent = {
+                  source: '',
+                  startLine: 0,
+                  endLine: 0,
+                  errors: unfoldResult.errors,
+                };
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              sourceContent = {
+                source: '',
+                startLine: 0,
+                endLine: 0,
+                errors: [msg],
+              };
+            }
+          }
 
-        // Process participation (step_in_process or entry_point_of relations)
-        const processRelations = allRelations.filter(
-          (r) =>
-            r['sourceId'] === nodeId &&
-            r['projectId'] === projectId &&
-            (r['type'] === 'step_in_process' || r['type'] === 'entry_point_of'),
-        );
-        const processes = processRelations
-          .map((r) => {
-            const proc = nodeById.get(String(r['targetId']));
-            return {
-              processId: r['targetId'],
-              label: proc?.['label'] ?? r['targetId'],
-              role: r['type'] === 'entry_point_of' ? 'entry_point' : 'step',
-              step: r['step'] ?? null,
-            };
-          })
-          .filter((p) => p.label !== p.processId); // filter unresolved
-
-        return {
-          nodeId,
-          name: node['name'],
-          kind: node['kind'],
-          filePath: node['filePath'],
-          startLine: node['startLine'],
-          endLine: node['endLine'],
-          isExported: node['isExported'],
-          docSummary: node['docSummary'],
-          community: community
-            ? { id: communityId, label: community['label'] }
-            : communityId
-              ? { id: communityId, label: null }
-              : null,
-          callers: incoming,
-          callees: outgoing,
-          processes,
-        };
-      });
+          return {
+            nodeId,
+            name: node['name'],
+            kind: node['kind'],
+            filePath: node['filePath'],
+            startLine: node['startLine'],
+            endLine: node['endLine'],
+            isExported: node['isExported'],
+            docSummary: node['docSummary'],
+            community: community
+              ? { id: communityId, label: community['label'] }
+              : communityId
+                ? { id: communityId, label: null }
+                : null,
+            callers: incoming,
+            callees: outgoing,
+            processes,
+            ...(sourceContent && { source: sourceContent }),
+          };
+        }),
+      );
 
       const durationMs = Date.now() - startTime;
       const primary = results[0];
@@ -1409,6 +1466,30 @@ const contextCommand = defineCommand({
                 ? `  Processes: ${r.processes.map((p) => `${String(p.label)}(${String(p.role)})`).join(', ')}\n`
                 : ''),
           );
+
+          // Append source content if available
+          if ('source' in r && r.source) {
+            const src = r.source as {
+              source: string;
+              startLine: number;
+              endLine: number;
+              errors: string[];
+            };
+            if (src.source) {
+              const ext = String(r.filePath).split('.').pop() ?? 'txt';
+              process.stdout.write(`\n  Source (lines ${src.startLine}–${src.endLine}):\n`);
+              process.stdout.write(`  \`\`\`${ext}\n`);
+              process.stdout.write(
+                src.source
+                  .split('\n')
+                  .map((line) => `  ${line}`)
+                  .join('\n') + '\n',
+              );
+              process.stdout.write('  ```\n');
+            } else if (src.errors.length > 0) {
+              process.stdout.write(`\n  [warning] Could not retrieve source: ${src.errors[0]}\n`);
+            }
+          }
         }
         if (matchingNodes.length > 5) {
           process.stdout.write(
@@ -3238,6 +3319,94 @@ const diffCommand = defineCommand({
 });
 
 /**
+ * cleo nexus query — Execute recursive CTE queries against nexus.db
+ *
+ * Supports raw CTE syntax and 6 template aliases for common code intelligence patterns.
+ * Results returned as markdown table.
+ *
+ * @task T1057
+ */
+const queryCommand = defineCommand({
+  meta: {
+    name: 'query',
+    description: 'Execute recursive CTE queries against nexus.db',
+  },
+  args: {
+    cte: {
+      type: 'positional',
+      description:
+        'CTE SQL or template alias (callers-of, callees-of, co-changed, co-cited, path-between, community-members)',
+      required: true,
+    },
+    params: {
+      type: 'string',
+      description: 'Comma-separated parameters (e.g., "sym-id-1,sym-id-2")',
+    },
+  },
+  async run({ args }) {
+    const cteOrAlias = args.cte as string;
+    const paramsStr = (args.params as string) || '';
+    const params = paramsStr
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    try {
+      const { compileCteAlias, runNexusCte, formatCteResultAsMarkdown } = await import(
+        '@cleocode/core/nexus/query-dsl.js' as string
+      );
+
+      // Check if it's an alias or raw CTE
+      const aliases = [
+        'callers-of',
+        'callees-of',
+        'co-changed',
+        'co-cited',
+        'path-between',
+        'community-members',
+      ];
+      let cte: string;
+      const finalParams: (string | number | null)[] = params;
+
+      if (aliases.includes(cteOrAlias)) {
+        const template = compileCteAlias(cteOrAlias);
+        cte = template.cte;
+
+        // Validate parameter count
+        if (params.length !== template.paramCount) {
+          process.stderr.write(
+            `[nexus] Error: ${cteOrAlias} expects ${template.paramCount} parameters, got ${params.length}\n`,
+          );
+          process.exitCode = 6; // VALIDATION_ERROR
+          return;
+        }
+      } else {
+        // Assume raw CTE
+        cte = cteOrAlias;
+      }
+
+      const result = runNexusCte(cte, finalParams);
+
+      if (!result.success) {
+        process.stderr.write(`[nexus] Query error: ${result.error}\n`);
+        process.exitCode = 77; // NEXUS_QUERY_FAILED
+        return;
+      }
+
+      const markdown = formatCteResultAsMarkdown(result);
+      process.stdout.write(markdown + '\n');
+      process.stdout.write(
+        `\n[nexus] ${result.row_count} rows in ${result.execution_time_ms.toFixed(2)}ms\n`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus] Error: ${msg}\n`);
+      process.exitCode = 77; // NEXUS_QUERY_FAILED
+    }
+  },
+});
+
+/**
  * Root nexus command group — registers all nexus subcommands.
  *
  * Dispatches to nexus domain registry operations.
@@ -3272,6 +3441,7 @@ export const nexusCommand = defineCommand({
     context: contextCommand,
     impact: impactCommand,
     analyze: analyzeCommand,
+    query: queryCommand,
     projects: projectsCommand,
     'refresh-bridge': refreshBridgeCommand,
     export: exportCommand,
