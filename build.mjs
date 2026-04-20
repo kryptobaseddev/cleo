@@ -28,6 +28,104 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// ---------------------------------------------------------------------------
+// Auto-scan: build core entry points by scanning the source tree rather than
+// maintaining a hand-written list. Add a new .ts file to any of the dirs
+// listed in SUBPATH_DIRS and it will be picked up automatically.
+//
+// Conventions enforced by the scanner:
+//   - .d.ts and .test.ts files are always excluded
+//   - daemon-entry.ts files ARE included (spawned as standalone processes)
+//   - Subdirectories are skipped UNLESS they appear in SUBPATH_SUBDIRS
+//   - SUBPATH_SUBDIRS entries like 'nexus/api-extractors' are scanned one
+//     level deep and emitted with the subdir path preserved in `out`
+// ---------------------------------------------------------------------------
+
+/**
+ * Top-level subdirectories of packages/core/src/ that are exposed as subpath
+ * exports. Each dir is scanned one level deep (direct .ts files only).
+ */
+const SUBPATH_DIRS = [
+  'sentient',
+  'gc',
+  'memory',
+  'tasks',
+  'sessions',
+  'nexus',
+  'lifecycle',
+  'conduit',
+  'store',
+  'system',
+  'agents',
+  'docs',
+  'orchestration',
+  'verification',
+];
+
+/**
+ * Explicit nested subdirectories that also need their files scanned.
+ * Key: relative path from packages/core/src/ (used as the `out` prefix).
+ * Value: absolute source directory path.
+ */
+const SUBPATH_SUBDIRS = {
+  'nexus/api-extractors': 'packages/core/src/nexus/api-extractors',
+};
+
+/**
+ * Root-level flat files in packages/core/src/ that need standalone entries
+ * (in addition to index.ts which is always included).
+ */
+const ROOT_FLATS = ['cleo.ts', 'contracts.ts', 'internal.ts'];
+
+/**
+ * Collect all @cleocode/core esbuild entry points by scanning the source
+ * tree. Returns an array of `{ in, out }` objects suitable for esbuild's
+ * `entryPoints` option.
+ *
+ * @returns {{ in: string; out: string }[]}
+ */
+function collectCoreEntryPoints() {
+  /** @type {{ in: string; out: string }[]} */
+  const entries = [{ in: 'packages/core/src/index.ts', out: 'index' }];
+
+  // Scan each top-level subpath directory (one level deep, no subdirs)
+  for (const dir of SUBPATH_DIRS) {
+    const srcDir = `packages/core/src/${dir}`;
+    if (!existsSync(srcDir)) continue;
+    const files = readdirSync(srcDir, { withFileTypes: true });
+    for (const f of files) {
+      if (f.isDirectory()) continue;
+      if (!f.name.endsWith('.ts')) continue;
+      if (f.name.endsWith('.d.ts') || f.name.endsWith('.test.ts')) continue;
+      const base = f.name.replace(/\.ts$/, '');
+      entries.push({ in: `${srcDir}/${f.name}`, out: `${dir}/${base}` });
+    }
+  }
+
+  // Scan explicit nested subdirectories
+  for (const [outPrefix, srcDir] of Object.entries(SUBPATH_SUBDIRS)) {
+    if (!existsSync(srcDir)) continue;
+    const files = readdirSync(srcDir, { withFileTypes: true });
+    for (const f of files) {
+      if (f.isDirectory()) continue;
+      if (!f.name.endsWith('.ts')) continue;
+      if (f.name.endsWith('.d.ts') || f.name.endsWith('.test.ts')) continue;
+      const base = f.name.replace(/\.ts$/, '');
+      entries.push({ in: `${srcDir}/${f.name}`, out: `${outPrefix}/${base}` });
+    }
+  }
+
+  // Root-level flat files
+  for (const f of ROOT_FLATS) {
+    const srcPath = `packages/core/src/${f}`;
+    if (existsSync(srcPath)) {
+      entries.push({ in: srcPath, out: f.replace(/\.ts$/, '') });
+    }
+  }
+
+  return entries;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const isWatch = process.argv.includes('--watch');
@@ -118,95 +216,11 @@ function workspacePlugin(name, inlineMap) {
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const coreBuildOptions = {
-  entryPoints: [
-    { in: 'packages/core/src/index.ts', out: 'index' },
-    // ---------------------------------------------------------------------------
-    // Stable public subpath entry points (T948)
-    //
-    // Every subpath declared in packages/core/package.json `exports` whose
-    // `import` condition resolves to a concrete dist/*.js file MUST appear here.
-    // `validateCoreEntryPoints()` asserts this invariant at build time so that
-    // a missing entry is caught before CI ships a broken tarball.
-    // ---------------------------------------------------------------------------
-    // ./sdk — Cleo class facade, imported via `@cleocode/core/sdk`
-    { in: 'packages/core/src/cleo.ts', out: 'cleo' },
-    // ./contracts — re-exports from @cleocode/contracts, imported via `@cleocode/core/contracts`
-    { in: 'packages/core/src/contracts.ts', out: 'contracts' },
-    // ./tasks — task domain index, imported via `@cleocode/core/tasks`
-    { in: 'packages/core/src/tasks/index.ts', out: 'tasks/index' },
-    // ./memory — memory domain index, imported via `@cleocode/core/memory`
-    { in: 'packages/core/src/memory/index.ts', out: 'memory/index' },
-    // ./sessions — sessions domain index, imported via `@cleocode/core/sessions`
-    { in: 'packages/core/src/sessions/index.ts', out: 'sessions/index' },
-    // ./nexus — nexus domain index, imported via `@cleocode/core/nexus`
-    { in: 'packages/core/src/nexus/index.ts', out: 'nexus/index' },
-    // ./lifecycle — lifecycle domain index, imported via `@cleocode/core/lifecycle`
-    { in: 'packages/core/src/lifecycle/index.ts', out: 'lifecycle/index' },
-    // Sub-entry for @cleocode/core/conduit — must produce dist/conduit/index.js
-    // to match the "./conduit" export in packages/core/package.json.
-    { in: 'packages/core/src/conduit/index.ts', out: 'conduit/index' },
-    // Sub-entry for @cleocode/core/internal — matches the "./internal" export.
-    { in: 'packages/core/src/internal.ts', out: 'internal' },
-    // Store subpath entry points — these files are dynamically imported at runtime
-    // via `import('@cleocode/core/store/nexus-sqlite' as string)` in the cleo CLI
-    // (packages/cleo/src/cli/commands/nexus.ts). They MUST exist as standalone .js
-    // files in dist/store/ — they are NOT bundled into dist/index.js.
-    // The `as string` cast prevents esbuild from inlining them when bundling cleo.
-    // T721: These were previously produced by a stale full `tsc` run. Registering
-    // them as explicit entry points guarantees they are always emitted. (T721)
-    { in: 'packages/core/src/store/nexus-sqlite.ts', out: 'store/nexus-sqlite' },
-    { in: 'packages/core/src/store/nexus-schema.ts', out: 'store/nexus-schema' },
-    { in: 'packages/core/src/store/memory-sqlite.ts', out: 'store/memory-sqlite' },
-    // Transcript subpath entry points — imported dynamically by packages/cleo/src/cli/commands/transcript.ts
-    // via `@cleocode/core/memory/transcript-scanner.js` and `@cleocode/core/memory/transcript-extractor.js`.
-    // Must exist as standalone .js files in dist/memory/ to match the package.json subpath exports. (T755)
-    { in: 'packages/core/src/memory/transcript-scanner.ts', out: 'memory/transcript-scanner' },
-    { in: 'packages/core/src/memory/transcript-extractor.ts', out: 'memory/transcript-extractor' },
-    // T1004/T1003/T1015: subpath entry points added in v2026.4.97+. Each one is
-    // imported by cleo via @cleocode/core/<subpath>.js and MUST exist as a
-    // standalone emitted file (not only in the bundled core index.js) so that
-    // node's export-map resolution at runtime finds the target file.
-    // v2026.4.99 shipped without these entries → ERR_MODULE_NOT_FOUND in CI
-    // smoke test `node packages/cleo/dist/cli/index.js version`.
-    { in: 'packages/core/src/memory/brain-backfill.ts', out: 'memory/brain-backfill' },
-    { in: 'packages/core/src/memory/precompact-flush.ts', out: 'memory/precompact-flush' },
-    // Sentient daemon + tick subpath entry points (T1015 relocation from cleo → core)
-    { in: 'packages/core/src/sentient/index.ts', out: 'sentient/index' },
-    { in: 'packages/core/src/sentient/daemon.ts', out: 'sentient/daemon' },
-    { in: 'packages/core/src/sentient/tick.ts', out: 'sentient/tick' },
-    { in: 'packages/core/src/sentient/state.ts', out: 'sentient/state' },
-    { in: 'packages/core/src/sentient/propose-tick.ts', out: 'sentient/propose-tick' },
-    { in: 'packages/core/src/sentient/proposal-rate-limiter.ts', out: 'sentient/proposal-rate-limiter' },
-    // Tier 3 primitives (T1021 baseline, T1022 KMS adapter, T1022 sentient event chain)
-    { in: 'packages/core/src/sentient/baseline.ts', out: 'sentient/baseline' },
-    { in: 'packages/core/src/sentient/events.ts', out: 'sentient/events' },
-    { in: 'packages/core/src/sentient/kms.ts', out: 'sentient/kms' },
-    // GC daemon subpath entry points (T1015 relocation from cleo → core)
-    { in: 'packages/core/src/gc/index.ts', out: 'gc/index' },
-    { in: 'packages/core/src/gc/daemon.ts', out: 'gc/daemon' },
-    { in: 'packages/core/src/gc/runner.ts', out: 'gc/runner' },
-    { in: 'packages/core/src/gc/state.ts', out: 'gc/state' },
-    { in: 'packages/core/src/gc/transcript.ts', out: 'gc/transcript' },
-    // System/platform-paths — has a subpath export, cleo imports it at runtime
-    { in: 'packages/core/src/system/platform-paths.ts', out: 'system/platform-paths' },
-    // T1042: nexus subpath entry points for CLI commands (T1057/T1064/T1068/T1069/T1071)
-    // Imported dynamically by packages/cleo/src/cli/commands/nexus.ts via subpath imports.
-    // Each entry produces a standalone .js in dist/ matching the package.json exports map.
-    { in: 'packages/core/src/nexus/route-analysis.ts', out: 'nexus/route-analysis' },
-    { in: 'packages/core/src/nexus/living-brain.ts', out: 'nexus/living-brain' },
-    { in: 'packages/core/src/nexus/query-dsl.ts', out: 'nexus/query-dsl' },
-    { in: 'packages/core/src/memory/brain-reasoning.ts', out: 'memory/brain-reasoning' },
-    // T1065 — contract registry subpath entry points
-    { in: 'packages/core/src/nexus/contracts/index.ts', out: 'nexus/contracts/index' },
-    { in: 'packages/core/src/nexus/contracts/http-extractor.ts', out: 'nexus/contracts/http-extractor' },
-    { in: 'packages/core/src/nexus/contracts/grpc-extractor.ts', out: 'nexus/contracts/grpc-extractor' },
-    { in: 'packages/core/src/nexus/contracts/topic-extractor.ts', out: 'nexus/contracts/topic-extractor' },
-    { in: 'packages/core/src/nexus/contracts/matcher.ts', out: 'nexus/contracts/matcher' },
-    // T1067 — TASKS→NEXUS bridge
-    { in: 'packages/core/src/nexus/tasks-bridge.ts', out: 'nexus/tasks-bridge' },
-    // T1066+T1071 — graph-memory-bridge (edge writers + conduit-scan)
-    { in: 'packages/core/src/memory/graph-memory-bridge.ts', out: 'memory/graph-memory-bridge' },
-  ],
+  // Entry points are auto-scanned from the source tree by collectCoreEntryPoints().
+  // Add a new .ts file to any dir in SUBPATH_DIRS and it is picked up automatically.
+  // validateCoreEntryPoints() below asserts every non-wildcard subpath export in
+  // packages/core/package.json has a matching entry produced by this scan.
+  entryPoints: collectCoreEntryPoints(),
   bundle: true,
   platform: 'node',
   target: 'node24',
@@ -323,13 +337,14 @@ async function syncMigrationsToCleoPackage() {
 // Auto-sync guard: assert every concrete non-wildcard subpath export in
 // packages/core/package.json has a matching entry in coreBuildOptions.
 //
-// This catches the class of bug where a subpath is added to package.json
-// exports but its corresponding esbuild entry point is forgotten, producing
-// a missing dist/*.js that only surfaces as a test failure (or a runtime
-// ERR_MODULE_NOT_FOUND) in CI on a fresh checkout.
+// Entry points are now auto-scanned (see collectCoreEntryPoints() above).
+// This validator is the safety net that catches the case where a subpath is
+// added to package.json exports but no matching source file exists in one of
+// the scanned directories — producing a missing dist/*.js that would only
+// surface as ERR_MODULE_NOT_FOUND in CI on a fresh checkout.
 //
-// Wildcards (e.g. "./store/*") are skipped because they map to whole
-// directories — individual files within them get explicit entries anyway.
+// Wildcards (e.g. "./store/*") are skipped — they map to whole directories
+// and all files within are already emitted by the scanner.
 // ---------------------------------------------------------------------------
 
 /**
@@ -349,18 +364,19 @@ function exportImportToOut(importPath) {
 
 /**
  * Validate that every non-wildcard subpath export in packages/core/package.json
- * has a corresponding entry in coreBuildOptions.entryPoints.
+ * has a corresponding entry in coreBuildOptions.entryPoints (which is now
+ * populated by the auto-scanner collectCoreEntryPoints()).
  *
  * Exits the process with a non-zero code and a descriptive error if any gap is
- * found — this makes the class of bug that caused the v2026.4.100 CI failure
- * impossible to ship silently.
+ * found — makes the T948/v2026.4.100 class of CI failure impossible to ship
+ * silently.
  */
 function validateCoreEntryPoints() {
   const pkgPath = resolve(__dirname, 'packages/core/package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const exports = pkg.exports ?? {};
 
-  // Build the set of `out` keys already declared in coreBuildOptions
+  // Build the set of `out` keys produced by the auto-scanner
   const declaredOuts = new Set(
     coreBuildOptions.entryPoints.map((ep) => (typeof ep === 'string' ? ep : ep.out)),
   );
@@ -384,15 +400,14 @@ function validateCoreEntryPoints() {
 
   if (missing.length > 0) {
     console.error('\n[build] ERROR: packages/core/package.json exports has subpaths with no');
-    console.error('[build] corresponding esbuild entry point in coreBuildOptions.entryPoints.');
-    console.error('[build] This will produce a broken dist/ on a fresh checkout.\n');
+    console.error('[build] corresponding esbuild entry point from the auto-scanner.');
+    console.error('[build] Either add a source file to one of the scanned SUBPATH_DIRS,');
+    console.error('[build] add it to SUBPATH_SUBDIRS, or ensure the file exists at the');
+    console.error('[build] expected path. This will produce a broken dist/ on a fresh checkout.\n');
     for (const { subpath, importPath, expectedOut } of missing) {
       console.error(`  subpath: ${subpath}`);
       console.error(`    import: ${importPath}`);
-      console.error(`    add to coreBuildOptions.entryPoints:`);
-      // Derive the source path from the out key (convention: packages/core/src/<out>.ts)
-      const srcGuess = `packages/core/src/${expectedOut}.ts`;
-      console.error(`      { in: '${srcGuess}', out: '${expectedOut}' }\n`);
+      console.error(`    expected source: packages/core/src/${expectedOut}.ts\n`);
     }
     console.error('[build] Fix the gaps above and re-run the build.\n');
     process.exit(1);

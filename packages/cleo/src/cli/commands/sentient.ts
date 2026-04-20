@@ -646,6 +646,142 @@ const baselineSub = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// allowlist subcommands (Tier-3 — T1027)
+// ---------------------------------------------------------------------------
+
+const allowlistListSub = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'Show the current ownerPubkeys allowlist',
+  },
+  args: projectArgs,
+  async run({ args }) {
+    const projectRoot = resolveProjectRoot(args.project as string | undefined);
+    const jsonMode = args.json === true;
+
+    try {
+      const { getOwnerPubkeys } = await import('@cleocode/core/sentient/allowlist.js');
+      const pubkeys = await getOwnerPubkeys(projectRoot, { noCache: true });
+      const b64List: string[] = pubkeys.map((k: Uint8Array) => Buffer.from(k).toString('base64'));
+
+      emitSuccess(
+        { ownerPubkeys: b64List, count: b64List.length },
+        jsonMode,
+        b64List.length === 0
+          ? 'No owner pubkeys configured (allowlist is empty)'
+          : `Owner pubkeys (${b64List.length}):\n${b64List.map((k: string, i: number) => `  ${i + 1}. ${k}`).join('\n')}`,
+      );
+    } catch (err) {
+      emitFailure(
+        'E_SENTIENT_ALLOWLIST_LIST',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+      );
+    }
+  },
+});
+
+const allowlistAddSub = defineCommand({
+  meta: {
+    name: 'add',
+    description: 'Add a base64-encoded Ed25519 pubkey to the owner allowlist',
+  },
+  args: {
+    ...projectArgs,
+    pubkey: {
+      type: 'positional' as const,
+      description: 'Base64-encoded Ed25519 public key (32 bytes)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const projectRoot = resolveProjectRoot(args.project as string | undefined);
+    const jsonMode = args.json === true;
+    const pubkeyBase64 = args.pubkey as string;
+
+    try {
+      const { addOwnerPubkey } = await import('@cleocode/core/sentient/allowlist.js');
+      await addOwnerPubkey(projectRoot, pubkeyBase64);
+
+      emitSuccess(
+        { added: pubkeyBase64 },
+        jsonMode,
+        `Pubkey added to allowlist: ${pubkeyBase64.slice(0, 16)}...`,
+      );
+    } catch (err) {
+      emitFailure(
+        'E_SENTIENT_ALLOWLIST_ADD',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+      );
+    }
+  },
+});
+
+const allowlistRemoveSub = defineCommand({
+  meta: {
+    name: 'remove',
+    description: 'Remove a base64-encoded Ed25519 pubkey from the owner allowlist',
+  },
+  args: {
+    ...projectArgs,
+    pubkey: {
+      type: 'positional' as const,
+      description: 'Base64-encoded Ed25519 public key to remove',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const projectRoot = resolveProjectRoot(args.project as string | undefined);
+    const jsonMode = args.json === true;
+    const pubkeyBase64 = args.pubkey as string;
+
+    try {
+      const { removeOwnerPubkey } = await import('@cleocode/core/sentient/allowlist.js');
+      await removeOwnerPubkey(projectRoot, pubkeyBase64);
+
+      emitSuccess(
+        { removed: pubkeyBase64 },
+        jsonMode,
+        `Pubkey removed from allowlist: ${pubkeyBase64.slice(0, 16)}...`,
+      );
+    } catch (err) {
+      const code =
+        (err as NodeJS.ErrnoException).code === 'E_ALLOWLIST_KEY_NOT_FOUND'
+          ? 'E_ALLOWLIST_KEY_NOT_FOUND'
+          : 'E_SENTIENT_ALLOWLIST_REMOVE';
+      emitFailure(code, err instanceof Error ? err.message : String(err), jsonMode);
+    }
+  },
+});
+
+/**
+ * `cleo sentient allowlist` — Owner pubkey allowlist management (Tier-3).
+ *
+ * @task T1027
+ */
+const allowlistSub = defineCommand({
+  meta: {
+    name: 'allowlist',
+    description: 'Manage the owner pubkey allowlist for Tier-3 sentient operations',
+  },
+  args: projectArgs,
+  subCommands: {
+    list: allowlistListSub,
+    add: allowlistAddSub,
+    remove: allowlistRemoveSub,
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    emitSuccess(
+      { message: 'Use: cleo sentient allowlist list|add|remove' },
+      jsonMode,
+      'Usage: cleo sentient allowlist list|add <base64>|remove <base64>',
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
 
@@ -667,6 +803,7 @@ export const sentientCommand = defineCommand({
     tick: tickSub,
     propose: proposeSub,
     baseline: baselineSub,
+    allowlist: allowlistSub,
   },
   async run({ args }) {
     const projectRoot = resolveProjectRoot(args.project as string | undefined);

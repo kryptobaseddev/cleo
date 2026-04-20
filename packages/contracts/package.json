@@ -14,7 +14,15 @@
       "types": "./dist/nexus-contract-ops.d.ts",
       "import": "./dist/nexus-contract-ops.js"
     },
+    "./nexus-contract-ops.js": {
+      "types": "./dist/nexus-contract-ops.d.ts",
+      "import": "./dist/nexus-contract-ops.js"
+    },
     "./nexus-living-brain-ops": {
+      "types": "./dist/nexus-living-brain-ops.d.ts",
+      "import": "./dist/nexus-living-brain-ops.js"
+    },
+    "./nexus-living-brain-ops.js": {
       "types": "./dist/nexus-living-brain-ops.d.ts",
       "import": "./dist/nexus-living-brain-ops.js"
     },
@@ -22,11 +30,23 @@
       "types": "./dist/nexus-query-ops.d.ts",
       "import": "./dist/nexus-query-ops.js"
     },
+    "./nexus-query-ops.js": {
+      "types": "./dist/nexus-query-ops.d.ts",
+      "import": "./dist/nexus-query-ops.js"
+    },
     "./nexus-route-ops": {
       "types": "./dist/nexus-route-ops.d.ts",
       "import": "./dist/nexus-route-ops.js"
     },
+    "./nexus-route-ops.js": {
+      "types": "./dist/nexus-route-ops.d.ts",
+      "import": "./dist/nexus-route-ops.js"
+    },
     "./nexus-tasks-bridge-ops": {
+      "types": "./dist/nexus-tasks-bridge-ops.d.ts",
+      "import": "./dist/nexus-tasks-bridge-ops.js"
+    },
+    "./nexus-tasks-bridge-ops.js": {
       "types": "./dist/nexus-tasks-bridge-ops.d.ts",
       "import": "./dist/nexus-tasks-bridge-ops.js"
     }
