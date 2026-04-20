@@ -377,4 +377,345 @@ describe('graph-memory-bridge', () => {
       expect(result).toHaveLength(3);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // linkConduitMessagesToSymbols
+  // ---------------------------------------------------------------------------
+
+  describe('linkConduitMessagesToSymbols', () => {
+    it('returns zero counts when conduit.db does not exist (graceful no-op)', async () => {
+      const { linkConduitMessagesToSymbols } = await import('../graph-memory-bridge.js');
+      const result = await linkConduitMessagesToSymbols(tempDir);
+      expect(result.linked).toBe(0);
+      expect(result.scanned).toBe(0);
+    });
+
+    it('returns zero counts when no messages match (no conduit data)', async () => {
+      const { linkConduitMessagesToSymbols } = await import('../graph-memory-bridge.js');
+      const { ensureConduitDb, getConduitNativeDb, closeConduitDb } = await import(
+        '../../store/conduit-sqlite.js'
+      );
+
+      // Initialize conduit.db
+      ensureConduitDb(tempDir);
+
+      // Seed a nexus symbol
+      await seedNexusNode('src/main.ts::initApp', 'initApp', 'initApp', 'src/main.ts', 'function');
+
+      // Run the ingestion (no messages, so nothing to link)
+      const result = await linkConduitMessagesToSymbols(tempDir);
+
+      closeConduitDb();
+
+      expect(result.scanned).toBe(0);
+      expect(result.linked).toBe(0);
+    });
+
+    it('creates conduit_mentions_symbol edges when messages mention symbols', async () => {
+      const { linkConduitMessagesToSymbols } = await import('../graph-memory-bridge.js');
+      const { ensureConduitDb, getConduitNativeDb, closeConduitDb } = await import(
+        '../../store/conduit-sqlite.js'
+      );
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+
+      // Initialize conduit.db and insert a test message
+      ensureConduitDb(tempDir);
+      const conduitDb = getConduitNativeDb();
+
+      const convId = 'conv-001';
+      conduitDb
+        ?.prepare(
+          `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
+           VALUES (?, ?, 'private', 0, ?, ?)`,
+        )
+        .run(convId, JSON.stringify(['agent-a', 'agent-b']), Date.now(), Date.now());
+
+      const msgId = 'msg-001';
+      conduitDb
+        ?.prepare(
+          `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
+           VALUES (?, ?, ?, ?, ?, '[]', ?)`,
+        )
+        .run(
+          msgId,
+          convId,
+          'agent-a',
+          'agent-b',
+          'We should refactor the initApp function to improve startup performance',
+          Date.now(),
+        );
+
+      // Seed a nexus symbol with the same name
+      await seedNexusNode('src/main.ts::initApp', 'initApp', 'initApp', 'src/main.ts', 'function');
+
+      // Run the ingestion
+      const result = await linkConduitMessagesToSymbols(tempDir);
+
+      closeConduitDb();
+
+      expect(result.scanned).toBeGreaterThan(0);
+      expect(result.linked).toBeGreaterThan(0);
+
+      // Verify the edge was written
+      const brainNative = getBrainNativeDb();
+      const edge = brainNative
+        ?.prepare(
+          `SELECT from_id, to_id, edge_type FROM brain_page_edges
+           WHERE edge_type = 'conduit_mentions_symbol'
+             AND to_id = 'src/main.ts::initApp'`,
+        )
+        .get() as { from_id: string; to_id: string; edge_type: string } | undefined;
+
+      expect(edge).toBeDefined();
+      expect(edge?.edge_type).toBe('conduit_mentions_symbol');
+      expect(edge?.from_id).toMatch(/^conduit:/);
+    });
+
+    it('is idempotent — re-running does not duplicate edges', async () => {
+      const { linkConduitMessagesToSymbols } = await import('../graph-memory-bridge.js');
+      const { ensureConduitDb, getConduitNativeDb, closeConduitDb } = await import(
+        '../../store/conduit-sqlite.js'
+      );
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+
+      ensureConduitDb(tempDir);
+      const conduitDb = getConduitNativeDb();
+
+      const convId = 'conv-002';
+      conduitDb
+        ?.prepare(
+          `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
+           VALUES (?, ?, 'private', 0, ?, ?)`,
+        )
+        .run(convId, JSON.stringify(['agent-c', 'agent-d']), Date.now(), Date.now());
+
+      const msgId = 'msg-002';
+      conduitDb
+        ?.prepare(
+          `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
+           VALUES (?, ?, ?, ?, ?, '[]', ?)`,
+        )
+        .run(
+          msgId,
+          convId,
+          'agent-c',
+          'agent-d',
+          'The validateConfig function needs to handle edge cases',
+          Date.now(),
+        );
+
+      await seedNexusNode(
+        'src/config.ts::validateConfig',
+        'validateConfig',
+        'validateConfig',
+        'src/config.ts',
+        'function',
+      );
+
+      // Run twice
+      const result1 = await linkConduitMessagesToSymbols(tempDir);
+      const result2 = await linkConduitMessagesToSymbols(tempDir);
+
+      closeConduitDb();
+
+      // Verify edge count is the same (no duplicates)
+      const brainNative = getBrainNativeDb();
+      const rows = brainNative
+        ?.prepare(
+          `SELECT COUNT(*) as cnt FROM brain_page_edges
+           WHERE edge_type = 'conduit_mentions_symbol'
+             AND to_id = 'src/config.ts::validateConfig'`,
+        )
+        .get() as { cnt: number } | undefined;
+
+      expect(rows?.cnt).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // linkObservationToModifiedFiles
+  // ---------------------------------------------------------------------------
+
+  describe('linkObservationToModifiedFiles', () => {
+    it('writes modified_by edges for each file in files_modified_json', async () => {
+      const { linkObservationToModifiedFiles } = await import('../graph-memory-bridge.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+
+      await seedNexusNode(
+        'src/store/memory-sqlite.ts',
+        'memory-sqlite.ts',
+        null,
+        'src/store/memory-sqlite.ts',
+        'file',
+      );
+      await seedNexusNode(
+        'src/memory/brain-lifecycle.ts',
+        'brain-lifecycle.ts',
+        null,
+        'src/memory/brain-lifecycle.ts',
+        'file',
+      );
+
+      const filesModified = JSON.stringify([
+        'src/store/memory-sqlite.ts',
+        'src/memory/brain-lifecycle.ts',
+      ]);
+      const edgesWritten = await linkObservationToModifiedFiles(
+        'observation:O-mod1',
+        filesModified,
+        tempDir,
+      );
+
+      expect(edgesWritten).toBe(2);
+
+      // Verify edges were written
+      const brainNative = getBrainNativeDb();
+      const rows = brainNative
+        ?.prepare(
+          `SELECT COUNT(*) as cnt FROM brain_page_edges
+           WHERE edge_type = 'modified_by' AND from_id LIKE 'src/store%'`,
+        )
+        .get() as { cnt: number } | undefined;
+
+      expect(rows?.cnt).toBeGreaterThanOrEqual(1);
+    });
+
+    it('handles null files_modified_json gracefully', async () => {
+      const { linkObservationToModifiedFiles } = await import('../graph-memory-bridge.js');
+
+      const edgesWritten = await linkObservationToModifiedFiles(
+        'observation:O-null',
+        null,
+        tempDir,
+      );
+
+      expect(edgesWritten).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // linkObservationToMentionedSymbols
+  // ---------------------------------------------------------------------------
+
+  describe('linkObservationToMentionedSymbols', () => {
+    it('writes mentions edges for symbol names found in text', async () => {
+      const { linkObservationToMentionedSymbols } = await import('../graph-memory-bridge.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+
+      await seedNexusNode(
+        'src/store/memory-sqlite.ts::getBrainDb',
+        'getBrainDb',
+        'getBrainDb',
+        'src/store/memory-sqlite.ts',
+      );
+      await seedNexusNode(
+        'src/store/memory-sqlite.ts::closeBrainDb',
+        'closeBrainDb',
+        'closeBrainDb',
+        'src/store/memory-sqlite.ts',
+      );
+
+      const text = 'We use getBrainDb to open the database and closeBrainDb to cleanup.';
+      const edgesWritten = await linkObservationToMentionedSymbols(
+        'observation:O-mention1',
+        text,
+        tempDir,
+      );
+
+      expect(edgesWritten).toBeGreaterThanOrEqual(2);
+
+      // Verify edges were written
+      const brainNative = getBrainNativeDb();
+      const rows = brainNative
+        ?.prepare(
+          `SELECT COUNT(*) as cnt FROM brain_page_edges
+           WHERE edge_type = 'mentions' AND from_id = 'observation:O-mention1'`,
+        )
+        .get() as { cnt: number } | undefined;
+
+      expect(rows?.cnt).toBeGreaterThanOrEqual(2);
+    });
+
+    it('caps mentions at 20 per observation', async () => {
+      const { linkObservationToMentionedSymbols } = await import('../graph-memory-bridge.js');
+
+      // Seed 30 nexus nodes
+      for (let i = 0; i < 30; i++) {
+        await seedNexusNode(`src/file.ts::symbol${i}`, `symbol${i}`, `symbol${i}`, 'src/file.ts');
+      }
+
+      // Create text that mentions all 30 symbols
+      const text = Array.from({ length: 30 }, (_, i) => `symbol${i}`).join(' ');
+
+      const edgesWritten = await linkObservationToMentionedSymbols(
+        'observation:O-cap1',
+        text,
+        tempDir,
+      );
+
+      // Should cap at 20
+      expect(edgesWritten).toBeLessThanOrEqual(20);
+    });
+
+    it('handles empty text gracefully', async () => {
+      const { linkObservationToMentionedSymbols } = await import('../graph-memory-bridge.js');
+
+      const edgesWritten = await linkObservationToMentionedSymbols(
+        'observation:O-empty',
+        '',
+        tempDir,
+      );
+
+      expect(edgesWritten).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // linkDecisionToSymbols
+  // ---------------------------------------------------------------------------
+
+  describe('linkDecisionToSymbols', () => {
+    it('writes documents edges for symbol names found in decision context', async () => {
+      const { linkDecisionToSymbols } = await import('../graph-memory-bridge.js');
+      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+
+      await seedNexusNode(
+        'src/memory/brain-lifecycle.ts::runConsolidation',
+        'runConsolidation',
+        'runConsolidation',
+        'src/memory/brain-lifecycle.ts',
+      );
+      await seedNexusNode(
+        'packages/core/src/memory/graph-memory-bridge.ts::autoLinkMemories',
+        'autoLinkMemories',
+        'autoLinkMemories',
+        'packages/core/src/memory/graph-memory-bridge.ts',
+      );
+
+      const contextText =
+        'The runConsolidation pass must call autoLinkMemories to link memories to code.';
+      const edgesWritten = await linkDecisionToSymbols('decision:D-doc1', contextText, tempDir);
+
+      expect(edgesWritten).toBeGreaterThanOrEqual(2);
+
+      // Verify edges were written
+      const brainNative = getBrainNativeDb();
+      const rows = brainNative
+        ?.prepare(
+          `SELECT COUNT(*) as cnt FROM brain_page_edges
+           WHERE edge_type = 'documents' AND from_id = 'decision:D-doc1'`,
+        )
+        .get() as { cnt: number } | undefined;
+
+      expect(rows?.cnt).toBeGreaterThanOrEqual(2);
+    });
+
+    it('handles empty context text gracefully', async () => {
+      const { linkDecisionToSymbols } = await import('../graph-memory-bridge.js');
+
+      const edgesWritten = await linkDecisionToSymbols('decision:D-empty', '', tempDir);
+
+      expect(edgesWritten).toBe(0);
+    });
+  });
 });
