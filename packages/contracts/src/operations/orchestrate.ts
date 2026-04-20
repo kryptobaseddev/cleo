@@ -1,7 +1,7 @@
 /**
- * Orchestrate Domain Operations (13 operations)
+ * Orchestrate Domain Operations (14 operations)
  *
- * Query operations: 7
+ * Query operations: 8 (added orchestrate.plan — T890)
  * Mutate operations: 6
  *
  * SYNC: Canonical implementations at
@@ -9,6 +9,7 @@
  *   packages/core/src/orchestration/*.ts
  *
  * @task T963 — contract↔impl drift reconciliation (T910 audit)
+ * @task T890 — orchestrate.plan deterministic wave+worker plan
  */
 
 /**
@@ -287,6 +288,120 @@ export interface OrchestrateWavesParams {
   epicId: string;
 }
 export type OrchestrateWavesResult = Wave[];
+
+// orchestrate.plan (T890)
+/** Parameters for `orchestrate.plan`. @task T890 */
+export interface OrchestratePlanParams {
+  /** Epic task id whose children make up the plan (required). @task T890 */
+  epicId: string;
+  /**
+   * Optional preferred agent-resolver tier override for all workers in the
+   * plan (0=project, 1=global, 2=packaged). When omitted, the plan engine
+   * auto-selects the tier per role.
+   * @task T890
+   */
+  preferTier?: 0 | 1 | 2;
+}
+
+/**
+ * Per-worker entry in an `orchestrate.plan` wave.
+ *
+ * @task T890
+ */
+export interface OrchestratePlanWorker {
+  /** Task id this entry represents. @task T890 */
+  taskId: string;
+  /** Human-readable task title (defaults to `taskId` when missing). @task T890 */
+  title: string;
+  /**
+   * Resolved agent id (falls back to `'cleo-subagent'` when unresolved).
+   * @task T890
+   */
+  persona: string;
+  /** Protocol tier (0=worker, 1=lead, 2=orchestrator). @task T890 */
+  tier: 0 | 1 | 2;
+  /** Role derived from the resolved agent's `orchLevel`. @task T890 */
+  role: 'orchestrator' | 'lead' | 'worker';
+  /** Current task status (pending/active/done/…). @task T890 */
+  status: string;
+  /**
+   * Declared file scope for this task. Empty array when no `AC.files` set.
+   * @task T890
+   */
+  atomicScope: { files: string[] };
+  /** Orchestration level sourced from the resolved agent (0..2). @task T890 */
+  orchLevel: number;
+  /** Ids of tasks this task depends on (sorted for determinism). @task T890 */
+  dependsOn: string[];
+}
+
+/**
+ * A single wave in the `orchestrate.plan` execution plan.
+ *
+ * @task T890
+ */
+export interface OrchestratePlanWave {
+  /** 1-indexed wave number. @task T890 */
+  wave: number;
+  /**
+   * Task id of the designated lead for this wave, or `null` when none was
+   * resolved from the agent registry.
+   * @task T890
+   */
+  leadTaskId: string | null;
+  /** Ordered worker entries for this wave. @task T890 */
+  workers: OrchestratePlanWorker[];
+}
+
+/**
+ * Non-fatal warning emitted by `orchestrate.plan` (e.g. missing registry
+ * row, no AC.files on a worker task).
+ *
+ * @task T890
+ */
+export interface OrchestratePlanWarning {
+  /** Task id the warning applies to. @task T890 */
+  taskId: string;
+  /** Stable warning code (e.g. `'E_AGENT_NOT_FOUND'`, `'W_NO_ATOMIC_SCOPE'`). @task T890 */
+  code: string;
+  /** Human-readable message. @task T890 */
+  message: string;
+}
+
+/**
+ * Result of `orchestrate.plan`.
+ *
+ * @remarks
+ * The plan is deterministic: given the same epic snapshot (task statuses,
+ * dependencies, and `updatedAt` timestamps) the function always returns the
+ * same `inputHash`. `generatedAt` is intentionally excluded from the hash
+ * contract so two back-to-back calls can confirm reproducibility by comparing
+ * `inputHash` values.
+ *
+ * @task T890
+ */
+export interface OrchestratePlanResult {
+  /** Epic id the plan was computed for. @task T890 */
+  epicId: string;
+  /** Epic title (falls back to `epicId` when missing). @task T890 */
+  epicTitle: string;
+  /** Total number of child tasks considered (includes done tasks). @task T890 */
+  totalTasks: number;
+  /** Ordered waves produced by the dependency topological sort. @task T890 */
+  waves: OrchestratePlanWave[];
+  /** ISO 8601 timestamp when the plan was generated. @task T890 */
+  generatedAt: string;
+  /** `true` when the plan is reproducible from the current input snapshot. @task T890 */
+  deterministic: boolean;
+  /**
+   * Sha256 hex digest of the sorted `(taskId, status, updatedAt, dependsOn)`
+   * tuples + epicId. Identical inputs → identical hash.
+   * @task T890
+   */
+  inputHash: string;
+  /** Non-fatal warnings (graceful resolver misses, missing AC.files, …). @task T890 */
+  warnings: OrchestratePlanWarning[];
+}
 
 // orchestrate.skill.list
 /** Parameters for `orchestrate.skill.list`. @task T963 */
