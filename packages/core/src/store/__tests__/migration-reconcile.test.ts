@@ -94,7 +94,7 @@ describe('reconcileJournal — Scenario 3 (T417: partially-applied migration)', 
     //    hashes — intentionally omitting the T417 hash.
     nativeDb.exec(`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,
         created_at numeric
       )
@@ -162,7 +162,7 @@ describe('reconcileJournal — Scenario 3 (T417: partially-applied migration)', 
     // Create the journal with baseline migrations but NOT T417.
     nativeDb.exec(`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,
         created_at numeric
       )
@@ -308,7 +308,7 @@ describe('reconcileJournal — Scenario 3 (T417: partially-applied migration)', 
     // Journal: all migrations except T417.
     nativeDb.exec(`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,
         created_at numeric
       )
