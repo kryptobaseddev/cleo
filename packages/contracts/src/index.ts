@@ -122,6 +122,16 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
+// === Brain/Memory Types ===
+export type {
+  BrainCognitiveType,
+  BrainEntryRef,
+  BrainEntrySummary,
+  BrainMemoryTier,
+  BrainSourceConfidence,
+  ContradictionDetail,
+  SupersededEntry,
+} from './brain.js';
 // === Brain Unified-Graph Types (canonical — T989 unification) ===
 export type {
   BrainConnectionStatus,
@@ -134,16 +144,6 @@ export type {
   BrainStreamEvent,
   BrainSubstrate,
 } from './brain-graph.js';
-// === Brain/Memory Types ===
-export type {
-  BrainCognitiveType,
-  BrainEntryRef,
-  BrainEntrySummary,
-  BrainMemoryTier,
-  BrainSourceConfidence,
-  ContradictionDetail,
-  SupersededEntry,
-} from './brain.js';
 export type { AdapterCapabilities } from './capabilities.js';
 // === Code Symbol Types (tree-sitter AST) ===
 export type {

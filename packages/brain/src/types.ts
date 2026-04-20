@@ -30,4 +30,3 @@ export type {
   BrainStreamEvent,
   BrainSubstrate,
 } from '@cleocode/contracts';
-
