@@ -149,10 +149,14 @@ describe('decodeJsonlTranscript', () => {
     expect(result).toBe('[user]: Simple string content');
   });
 
-  it('handles array content blocks', () => {
+  it('handles array content blocks including tool_use (T1002: full-fidelity)', () => {
+    // T1002: tool_use blocks are now included alongside text blocks.
     const jsonl = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Block 1"},{"type":"tool_use","id":"t1"},{"type":"text","text":"Block 2"}]}}`;
     const result = decodeJsonlTranscript(jsonl);
-    expect(result).toBe('[assistant]: Block 1 Block 2');
+    // All blocks appear in the output
+    expect(result).toContain('Block 1');
+    expect(result).toContain('Block 2');
+    expect(result).toContain('tool_use');
   });
 
   it('returns empty string for empty input', () => {
@@ -167,11 +171,14 @@ describe('decodeJsonlTranscript', () => {
     expect(result).toContain('Another valid');
   });
 
-  it('excludes thinking blocks (not text type)', () => {
+  it('includes thinking blocks (T1002: full-fidelity — filter removed)', () => {
+    // T1002 removed the `.filter(b => b.type === 'text')` from decodeJsonlTranscript.
+    // Thinking blocks are now included in the decoded output alongside text blocks.
     const jsonl = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Internal thought"},{"type":"text","text":"Visible response"}]}}`;
     const result = decodeJsonlTranscript(jsonl);
-    expect(result).toBe('[assistant]: Visible response');
-    expect(result).not.toContain('Internal thought');
+    // Post-fix: both thinking and text content must appear
+    expect(result).toContain('Visible response');
+    expect(result).toContain('Internal thought');
   });
 });
 
