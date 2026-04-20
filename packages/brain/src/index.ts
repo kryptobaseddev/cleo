@@ -51,14 +51,15 @@ export {
 // Project context
 export type { ProjectContext } from './project-context.js';
 export { resolveDefaultProjectContext } from './project-context.js';
-// Wire-format types (Brain* runtime shapes — see types.ts for the distinction
-// from the contracts wire-format types)
+// Canonical Brain graph types — re-exported from @cleocode/contracts via types.ts
+// (T989 unification: single source of truth lives in packages/contracts/src/brain-graph.ts)
 export type {
   BrainConnectionStatus,
   BrainEdge,
   BrainGraph,
   BrainNode,
   BrainNodeKind,
+  BrainProjectContext,
   BrainQueryOptions,
   BrainStreamEvent,
   BrainSubstrate,
