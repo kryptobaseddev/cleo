@@ -408,6 +408,11 @@ export type {
   SymbolReference,
   TaskReference,
 } from './nexus-tasks-bridge-ops.js';
+export type {
+  CommunityWikiStats,
+  NexusWikiResult,
+  WikiSymbolRow,
+} from './nexus-wiki-ops.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // Commonly used ops types re-exported at top level for convenience

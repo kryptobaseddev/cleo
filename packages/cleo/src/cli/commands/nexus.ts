@@ -4729,7 +4729,8 @@ const wikiCommand = defineCommand({
   async run({ args }) {
     const startTime = Date.now();
     const jsonOutput = !!args.json;
-    const outputDir = (args.output as string | undefined) ?? path.join(process.cwd(), '.cleo', 'wiki');
+    const outputDir =
+      (args.output as string | undefined) ?? path.join(process.cwd(), '.cleo', 'wiki');
 
     try {
       const { generateNexusWikiIndex } = await import(
