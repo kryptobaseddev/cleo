@@ -357,6 +357,8 @@ export {
   orphanDetection,
 } from './nexus/deps.js';
 // Nexus
+export { augmentSymbol, formatAugmentResults } from './nexus/augment.js';
+export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 export { searchAcrossProjects } from './nexus/discover.js';
 export { setPermission } from './nexus/permissions.js';
 export { resolveTask, validateSyntax } from './nexus/query.js';
