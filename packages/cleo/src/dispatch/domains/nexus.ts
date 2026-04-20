@@ -548,6 +548,8 @@ export class NexusHandler implements DomainHandler {
         'orphans.list',
         'discover',
         'search',
+        // T1061 — symbol context augmentation for PreToolUse hooks
+        'augment',
         'transfer.preview',
         // T1006 — highest-weight symbols/nodes from brain_page_nodes
         'top-entries',
