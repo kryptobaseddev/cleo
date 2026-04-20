@@ -2,8 +2,8 @@
  * Unit tests for the unified attachment store (T947 Wave B).
  *
  * Exercises both the preferred llmtxt-backed path and the legacy fallback.
- * Tests that need `better-sqlite3` + `llmtxt/blob` are gated via a runtime
- * probe; CI environments without those peer deps still run the legacy path
+ * Tests that need `node:sqlite` + `drizzle-orm/node-sqlite` + `llmtxt/blob`
+ * are gated via a runtime probe; the legacy path tests always run so the
  * tests so the fallback is always covered.
  *
  * Each test uses an isolated temp directory so the underlying SQLite
@@ -23,8 +23,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
  */
 async function hasLlmtxtPeerDeps(): Promise<boolean> {
   try {
-    await import('better-sqlite3');
-    await import('drizzle-orm/better-sqlite3');
+    await import('node:sqlite');
+    await import('drizzle-orm/node-sqlite');
     await import('llmtxt/blob');
     return true;
   } catch {
@@ -42,7 +42,7 @@ beforeAll(async () => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe('resolveAttachmentBackend', () => {
-  it('returns "llmtxt" when peer deps are available, otherwise "legacy"', async () => {
+  it('returns "llmtxt" when node:sqlite is available, otherwise "legacy"', async () => {
     const { resolveAttachmentBackend } = await import('../attachment-store-v2.js');
     const backend = await resolveAttachmentBackend();
     if (peerDepsAvailable) {
@@ -57,7 +57,7 @@ describe('resolveAttachmentBackend', () => {
 // llmtxt-backed path — requires peer deps
 // ──────────────────────────────────────────────────────────────────────────
 
-describe.skipIf(!(await hasLlmtxtPeerDeps()))('createAttachmentStoreV2 (llmtxt backend)', () => {
+describe.skipIf(!(await hasLlmtxtPeerDeps()))('createAttachmentStoreV2 (llmtxt backend - node:sqlite)', () => {
   let tempDir: string;
 
   beforeEach(async () => {

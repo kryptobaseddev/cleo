@@ -5,12 +5,10 @@
  * manifest and blob bytes are clean per run. Mirrors the isolation
  * pattern used by `attachment-store.test.ts`.
  *
- * These tests require the optional peer deps `better-sqlite3` + the
- * `drizzle-orm/better-sqlite3` driver. When absent, the whole file is
- * skipped — llmtxt declares both as optional peers and CLEO inherits
- * that optionality. CI environments that ship with neither dep will
- * see these tests skipped rather than failing; smoke coverage is
- * retained via `src/__tests__/llmtxt-subpath-smoke.test.ts`.
+ * These tests require Node 24's built-in `node:sqlite` (DatabaseSync) and
+ * `drizzle-orm/node-sqlite` — both ship with the runtime and drizzle-orm
+ * v1.0.0-beta respectively, so no optional peer deps are needed. Smoke
+ * coverage is also retained via `src/__tests__/llmtxt-subpath-smoke.test.ts`.
  *
  * @epic T947
  */
@@ -21,13 +19,14 @@ import { join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 /**
- * Probe whether `better-sqlite3` is resolvable. When it isn't, the
- * entire describe block is skipped via `describe.skipIf`.
+ * Probe whether `node:sqlite` + `drizzle-orm/node-sqlite` are resolvable.
+ * Both ship with Node 24 and drizzle-orm v1.0.0-beta — this guard exists
+ * only as a defensive fallback.
  */
-async function hasBetterSqlite3(): Promise<boolean> {
+async function hasNodeSqlite(): Promise<boolean> {
   try {
-    await import('better-sqlite3');
-    await import('drizzle-orm/better-sqlite3');
+    await import('node:sqlite');
+    await import('drizzle-orm/node-sqlite');
     return true;
   } catch {
     return false;
@@ -36,10 +35,10 @@ async function hasBetterSqlite3(): Promise<boolean> {
 
 let peerDepsAvailable = false;
 beforeAll(async () => {
-  peerDepsAvailable = await hasBetterSqlite3();
+  peerDepsAvailable = await hasNodeSqlite();
 });
 
-describe.skipIf(!(await hasBetterSqlite3()))('CleoBlobStore', () => {
+describe.skipIf(!(await hasNodeSqlite()))('CleoBlobStore', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -231,9 +230,9 @@ describe.skipIf(!(await hasBetterSqlite3()))('CleoBlobStore', () => {
     }
   });
 
-  it('reports peer-dep availability in test environment', () => {
+  it('reports node:sqlite availability in test environment', () => {
     // This test documents the gate for the suite; if it runs at all,
-    // peer deps were available.
+    // node:sqlite was available.
     expect(peerDepsAvailable).toBe(true);
   });
 });

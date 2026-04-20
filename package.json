@@ -51,7 +51,6 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "@biomejs/biome",
-      "better-sqlite3",
       "tree-sitter",
       "tree-sitter-c",
       "tree-sitter-cpp",
