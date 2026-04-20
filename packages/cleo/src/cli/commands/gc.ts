@@ -10,7 +10,7 @@
  * The GC engine checks disk pressure on `~/.cleo/` and prunes transcripts
  * under `~/.claude/projects/` based on the five-tier threshold model.
  *
- * @see packages/cleo/src/gc/runner.ts for GC logic
+ * @see packages/core/src/gc/runner.ts for GC logic
  * @see ADR-047 — Autonomous GC and Disk Safety
  * @task T731
  * @epic T726
@@ -18,9 +18,9 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { runGC } from '@cleocode/core/gc/runner.js';
+import { readGCState } from '@cleocode/core/gc/state.js';
 import { defineCommand, showUsage } from 'citty';
-import { runGC } from '../../gc/runner.js';
-import { readGCState } from '../../gc/state.js';
 
 /**
  * Format a byte count into a human-readable string.
