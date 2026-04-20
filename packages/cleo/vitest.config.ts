@@ -58,6 +58,11 @@ export default defineConfig({
         '../../packages/core/src/tasks/index.ts',
         import.meta.url,
       ).pathname,
+      // T997/T1004: precompact-flush subpath export used by memory dispatch domain
+      '@cleocode/core/memory/precompact-flush.js': new URL(
+        '../../packages/core/src/memory/precompact-flush.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
     },

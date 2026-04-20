@@ -38,6 +38,13 @@ export interface StorePatternParams {
    * Values starting with 'auto' map to 'speculative'; otherwise 'agent'.
    */
   source?: string;
+  /**
+   * T992: Internal flag — when true, bypasses the verifyAndStore gate.
+   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
+   * infinite recursion (gate → storeVerifiedCandidate → storePattern → gate).
+   * External callers MUST NOT set this flag.
+   */
+  _skipGate?: boolean;
 }
 
 /** Parameters for searching patterns. */
@@ -67,6 +74,62 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
   }
   if (!params.context?.trim()) {
     throw new Error('Pattern context is required');
+  }
+
+  // T992: Route through verifyCandidate gate unless called internally from
+  // storeVerifiedCandidate (which already ran the gate before calling here).
+  // Uses verifyCandidate (not verifyAndStore) to avoid double-writes — this
+  // function handles its own storage in the code below.
+  if (!params._skipGate) {
+    const { verifyCandidate } = await import('./extraction-gate.js');
+    const isAuto = params.source?.startsWith('auto') ?? false;
+    const sourceConf = isAuto ? ('speculative' as const) : ('agent' as const);
+    const gateResult = await verifyCandidate(projectRoot, {
+      text: params.pattern.trim(),
+      title: params.context.trim().slice(0, 120),
+      memoryType: 'procedural',
+      tier: 'medium',
+      confidence: 0.6,
+      source: 'transcript',
+      sourceConfidence: sourceConf,
+    });
+    if (gateResult.action !== 'stored') {
+      // Gate merged, rejected, or queued — return best available representation
+      const existing = gateResult.id
+        ? await (await getBrainAccessor(projectRoot)).getPattern(gateResult.id).catch(() => null)
+        : null;
+      if (existing) {
+        return { ...existing, examples: JSON.parse(existing.examplesJson || '[]') };
+      }
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      return {
+        id: gateResult.id ?? '',
+        type: params.type,
+        pattern: params.pattern.trim(),
+        context: params.context.trim(),
+        frequency: 1,
+        successRate: params.successRate ?? null,
+        impact: params.impact ?? null,
+        antiPattern: params.antiPattern ?? null,
+        mitigation: params.mitigation ?? null,
+        examplesJson: '[]',
+        examples: [],
+        extractedAt: now,
+        qualityScore: 0,
+        memoryTier: 'medium' as const,
+        memoryType: 'procedural' as const,
+        sourceConfidence: sourceConf,
+        verified: false,
+        contentHash: '',
+        tierPromotedAt: null,
+        tierPromotionReason: null,
+        invalidAt: null,
+        pruneCandidateAt: null,
+        citationCount: 0,
+        pruneCandidate: false,
+      };
+    }
+    // Gate approved — fall through to native storage below (no recursion needed).
   }
 
   const accessor = await getBrainAccessor(projectRoot);
