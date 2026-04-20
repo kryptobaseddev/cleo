@@ -530,6 +530,85 @@ const discoverCommand = defineCommand({
   },
 });
 
+/**
+ * cleo nexus augment — Symbol context augmentation for PreToolUse hooks.
+ *
+ * BM25-only search against nexus_nodes for pattern, returns top N symbols
+ * with callers/callees/community metadata as plain text suitable for hook injection.
+ *
+ * @task T1061
+ * @epic T1042
+ */
+const augmentCommand = defineCommand({
+  meta: {
+    name: 'augment',
+    description: 'Augment symbol pattern with code context (for PreToolUse hooks)',
+  },
+  args: {
+    pattern: {
+      type: 'positional',
+      description: 'Symbol name or file pattern to search',
+      required: true,
+    },
+    limit: {
+      type: 'string',
+      description: 'Max results to return (default: 5)',
+      default: '5',
+    },
+  },
+  async run({ args }) {
+    const pattern = args.pattern as string;
+    const limit = parseInt(args.limit as string, 10) || 5;
+
+    await dispatchFromCli(
+      'query',
+      'nexus',
+      'augment',
+      {
+        pattern,
+        limit,
+      },
+      { command: 'nexus' },
+    );
+  },
+});
+
+/**
+ * cleo nexus setup — Install PreToolUse hook augmenter
+ *
+ * Writes ~/.cleo/hooks/nexus-augment.sh and registers it in CAAMP config.
+ *
+ * @task T1061
+ * @epic T1042
+ */
+const setupCommand = defineCommand({
+  meta: {
+    name: 'setup',
+    description: 'Install Nexus PreToolUse hook augmenter',
+  },
+  args: {},
+  async run() {
+    try {
+      const { homedir } = await import('node:os');
+      const { installNexusAugmentHook } = await import('@cleocode/core/internal');
+
+      const homeDir = homedir();
+      installNexusAugmentHook(homeDir);
+
+      process.stdout.write(
+        `[nexus] Installed PreToolUse hook at ${homeDir}/.cleo/hooks/nexus-augment.sh\n`,
+      );
+      process.stdout.write(
+        `[nexus] Hook will inject symbol context into Grep/Glob/Read tool calls\n`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus setup] Error: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
 /** cleo nexus search — search tasks across projects by pattern */
 const searchCommand = defineCommand({
   meta: { name: 'search', description: 'Search tasks across projects by pattern' },
@@ -3646,6 +3725,8 @@ export const nexusCommand = defineCommand({
     resolve: resolveCommand,
     discover: discoverCommand,
     search: searchCommand,
+    augment: augmentCommand,
+    setup: setupCommand,
     deps: depsCommand,
     'critical-path': criticalPathCommand,
     blocking: blockingCommand,

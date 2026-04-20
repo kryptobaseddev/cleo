@@ -15,12 +15,14 @@
  */
 
 import {
+  augmentSymbol,
   blockingAnalysis,
   buildGlobalGraph,
   criticalPath,
   nexusDiscoverRelated as discoverRelated,
   executeTransfer,
   exportSnapshot,
+  formatAugmentResults,
   getDefaultSnapshotPath,
   getSharingStatus,
   importSnapshot,
@@ -502,6 +504,56 @@ export async function nexusTransferExecute(
   try {
     const result = await executeTransfer(params);
     return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hook augmentation
+// ---------------------------------------------------------------------------
+
+/**
+ * Augment a symbol pattern with code context for PreToolUse hook injection.
+ *
+ * Searches nexus_nodes by label/path using LIKE (BM25 search via FTS5 TBD).
+ * Returns top 5 callable symbols with callers/callees/community metadata.
+ * Gracefully no-ops (empty results) if nexus.db is absent or stale.
+ *
+ * Used by: packages/core/src/nexus/hooks-augment.ts
+ *
+ * @task T1061
+ * @epic T1042
+ */
+export async function nexusAugment(
+  pattern: string,
+  limit?: number,
+): Promise<
+  EngineResult<{
+    pattern: string;
+    results: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      filePath?: string;
+      startLine?: number;
+      endLine?: number;
+      callersCount: number;
+      calleesCount: number;
+      communityId?: number;
+      communitySize?: number;
+    }>;
+    text: string;
+  }>
+> {
+  try {
+    const results = augmentSymbol(pattern, limit ?? 5);
+    const text = formatAugmentResults(results);
+    return engineSuccess({
+      pattern,
+      results,
+      text,
+    });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
