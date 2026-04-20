@@ -20,8 +20,8 @@ import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { PlaybookHandler } from './playbook.js';
-import { SessionHandler } from './session.js';
 import { SentientHandler } from './sentient.js';
+import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
 import { ToolsHandler } from './tools.js';
@@ -38,8 +38,8 @@ export {
   OrchestrateHandler,
   PipelineHandler,
   PlaybookHandler,
-  SessionHandler,
   SentientHandler,
+  SessionHandler,
   StickyHandler,
   TasksHandler,
   ToolsHandler,
