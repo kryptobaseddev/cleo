@@ -65,6 +65,7 @@ export async function generateNexusWikiIndex(
     const db = getNexusNativeDb();
     if (db === null) {
       // Gracefully return empty wiki when nexus.db cannot be opened
+      await mkdir(outputDir, { recursive: true });
       const overviewMd = buildOverviewMarkdown([]);
       const overviewPath = join(outputDir, 'overview.md');
       await writeFile(overviewPath, overviewMd, 'utf-8');
