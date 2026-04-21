@@ -12,8 +12,8 @@
  * @packageDocumentation
  */
 
-export { GIT_OP_DENYLIST, RESTRICTED_ROLES, findDeniedOp } from './denylist.js';
 export type {} from './denylist.js';
+export { findDeniedOp, GIT_OP_DENYLIST, RESTRICTED_ROLES } from './denylist.js';
 
 /**
  * Install the shim symlink so that `git` resolves to this shim when

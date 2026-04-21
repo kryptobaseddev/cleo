@@ -931,11 +931,9 @@ export async function orchestrateSpawn(
     // we degrade gracefully and emit a warning so spawn continues without isolation.
     let worktreeResult: import('@cleocode/contracts').WorktreeSpawnResult | null = null;
     try {
-      const {
-        buildWorktreeSpawnResult,
-        createAgentWorktree,
-        ensureGitShimDir,
-      } = await import('@cleocode/core/internal');
+      const { buildWorktreeSpawnResult, createAgentWorktree, ensureGitShimDir } = await import(
+        '@cleocode/core/internal'
+      );
       const worktree = createAgentWorktree(taskId, root);
       const shimDir = ensureGitShimDir(root);
       worktreeResult = buildWorktreeSpawnResult(worktree, shimDir);
