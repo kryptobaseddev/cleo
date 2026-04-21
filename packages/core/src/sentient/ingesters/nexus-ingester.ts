@@ -233,10 +233,10 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
     const stmtA = nativeDb.prepare(`
       SELECT n.id, n.name, n.file_path, COUNT(r.id) as caller_count
       FROM nexus_nodes n
-      JOIN nexus_relations r ON r.target_id = n.id AND r.kind = 'calls'
+      JOIN nexus_relations r ON r.target_id = n.id AND r.type = 'calls'
       WHERE NOT EXISTS (
         SELECT 1 FROM nexus_relations r2
-        WHERE r2.source_id = n.id AND r2.kind = 'calls'
+        WHERE r2.source_id = n.id AND r2.type = 'calls'
       )
       AND n.kind = 'function'
       GROUP BY n.id
