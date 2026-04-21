@@ -4709,6 +4709,19 @@ const contractsCommand = defineCommand({
   },
 });
 
+/** cleo nexus group — alias for contracts subcommand (spec parity: T1114) */
+const groupCommand = defineCommand({
+  meta: {
+    name: 'group',
+    description: 'Contract extraction and compatibility operations (alias for contracts)',
+  },
+  subCommands: {
+    sync: contractsSyncCommand,
+    show: contractsShowCommand,
+    'link-tasks': contractsLinkTasksCommand,
+  },
+});
+
 /** cleo nexus wiki — community-grouped wiki index (no-LLM) */
 const wikiCommand = defineCommand({
   meta: {
@@ -4795,6 +4808,256 @@ const wikiCommand = defineCommand({
   },
 });
 
+// ---------------------------------------------------------------------------
+// T1108 — Plasticity Query Commands (hot-paths, hot-nodes, cold-symbols)
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo nexus hot-paths — List highest-weight relation edges (Hebbian plasticity).
+ *
+ * Reads nexus_relations ORDER BY weight DESC, co_accessed_count DESC.
+ * If no dream cycle has run yet (all weights 0), prints an informational
+ * note and exits cleanly with an empty table.
+ *
+ * @task T1108
+ */
+const hotPathsCommand = defineCommand({
+  meta: {
+    name: 'hot-paths',
+    description: 'List highest-weight relation edges by Hebbian plasticity weight',
+  },
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of edges to return (default: 20)',
+      default: '20',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output raw JSON',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const limit = Number.parseInt(args.limit as string, 10) || 20;
+    const jsonOutput = args.json as boolean;
+    const startTime = Date.now();
+
+    try {
+      const { getHotPaths } = await import('@cleocode/core/internal');
+      const result = await getHotPaths(process.cwd(), limit);
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.hot-paths',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+
+      if (result.note) {
+        process.stdout.write(`[nexus] Note: ${result.note}\n`);
+      }
+
+      if (result.paths.length === 0) {
+        process.stdout.write('[nexus] No hot paths found.\n');
+        return;
+      }
+
+      process.stdout.write(
+        '| Source | Target | Edge Type | Weight | Co-Access |\n| --- | --- | --- | --- | --- |\n',
+      );
+      for (const p of result.paths) {
+        process.stdout.write(
+          `| ${p.sourceId} | ${p.targetId} | ${p.type} | ${p.weight.toFixed(4)} | ${p.coAccessedCount} |\n`,
+        );
+      }
+      process.stdout.write(`\n${result.count} edge(s) shown.\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus hot-paths] Error: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
+/**
+ * cleo nexus hot-nodes — List nodes with the highest aggregate Hebbian weight.
+ *
+ * Aggregates SUM(weight) per source node in nexus_relations, then joins
+ * nexus_nodes for label/kind/file. If no dream cycle has run yet the table
+ * is empty and an informational note is printed.
+ *
+ * @task T1108
+ */
+const hotNodesCommand = defineCommand({
+  meta: {
+    name: 'hot-nodes',
+    description: 'List symbols with highest aggregate Hebbian weight',
+  },
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of nodes to return (default: 20)',
+      default: '20',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output raw JSON',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const limit = Number.parseInt(args.limit as string, 10) || 20;
+    const jsonOutput = args.json as boolean;
+    const startTime = Date.now();
+
+    try {
+      const { getHotNodes } = await import('@cleocode/core/internal');
+      const result = await getHotNodes(process.cwd(), limit);
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.hot-nodes',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+
+      if (result.note) {
+        process.stdout.write(`[nexus] Note: ${result.note}\n`);
+      }
+
+      if (result.nodes.length === 0) {
+        process.stdout.write('[nexus] No hot nodes found.\n');
+        return;
+      }
+
+      process.stdout.write('| Symbol | Total Weight | File | Kind |\n| --- | --- | --- | --- |\n');
+      for (const n of result.nodes) {
+        const file = n.filePath ?? '(unknown)';
+        process.stdout.write(
+          `| ${n.label} | ${n.totalWeight.toFixed(4)} | ${file} | ${n.kind} |\n`,
+        );
+      }
+      process.stdout.write(`\n${result.count} node(s) shown.\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus hot-nodes] Error: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
+/**
+ * cleo nexus cold-symbols — List symbols that have gone cold.
+ *
+ * Returns symbols whose most-recent access (max last_accessed_at across
+ * incident edges) is older than `--days` ago AND max weight < 0.1.
+ * If last_accessed_at is NULL for all incident edges (no dream cycle run)
+ * those symbols are included as infinitely cold.
+ *
+ * @task T1108
+ */
+const coldSymbolsCommand = defineCommand({
+  meta: {
+    name: 'cold-symbols',
+    description: 'List cold symbols (stale access + low weight) for pruning candidates',
+  },
+  args: {
+    days: {
+      type: 'string',
+      description: 'Age threshold in days (default: 30)',
+      default: '30',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output raw JSON',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const thresholdDays = Number.parseInt(args.days as string, 10) || 30;
+    const jsonOutput = args.json as boolean;
+    const startTime = Date.now();
+
+    try {
+      const { getColdSymbols } = await import('@cleocode/core/internal');
+      const result = await getColdSymbols(process.cwd(), thresholdDays);
+
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.cold-symbols',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
+      }
+
+      if (result.note) {
+        process.stdout.write(`[nexus] Note: ${result.note}\n`);
+      }
+
+      if (result.symbols.length === 0) {
+        process.stdout.write(
+          `[nexus] No cold symbols found (threshold: ${thresholdDays} days, weight < 0.1).\n`,
+        );
+        return;
+      }
+
+      process.stdout.write(
+        '| Symbol | Last Accessed | Weight | File |\n| --- | --- | --- | --- |\n',
+      );
+      for (const s of result.symbols) {
+        const lastAccessed = s.lastAccessed ?? '(never)';
+        const file = s.filePath ?? '(unknown)';
+        process.stdout.write(
+          `| ${s.label} | ${lastAccessed} | ${s.maxWeight.toFixed(4)} | ${file} |\n`,
+        );
+      }
+      process.stdout.write(
+        `\n${result.count} cold symbol(s) found (threshold: ${thresholdDays} days).\n`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[nexus cold-symbols] Error: ${msg}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
 export const nexusCommand = defineCommand({
   meta: { name: 'nexus', description: 'Cross-project NEXUS operations' },
   subCommands: {
@@ -4846,8 +5109,14 @@ export const nexusCommand = defineCommand({
     'search-code': searchCodeCommand,
     // T1065 — contract registry
     contracts: contractsCommand,
+    // T1114 — group alias for contracts
+    group: groupCommand,
     // T1060 — wiki index
     wiki: wikiCommand,
+    // T1108 — plasticity queries
+    'hot-paths': hotPathsCommand,
+    'hot-nodes': hotNodesCommand,
+    'cold-symbols': coldSymbolsCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
