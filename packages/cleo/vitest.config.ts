@@ -113,6 +113,24 @@ export default defineConfig({
         .pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      // T1113: nexus code sub-path exports — legacy dist-path imports used in nexus.ts
+      '@cleocode/nexus/dist/src/code/unfold.js': new URL(
+        '../../packages/nexus/src/code/unfold.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/nexus/dist/src/code/search.js': new URL(
+        '../../packages/nexus/src/code/search.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/nexus/code/unfold': new URL(
+        '../../packages/nexus/src/code/unfold.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/nexus/code/search': new URL(
+        '../../packages/nexus/src/code/search.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/nexus': new URL('../../packages/nexus/src/index.ts', import.meta.url).pathname,
     },
   },
 });

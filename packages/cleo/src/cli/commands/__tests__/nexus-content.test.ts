@@ -45,8 +45,7 @@ describe('nexus context --content integration', () => {
     });
   });
 
-  // TODO(T1093-followup): Re-enable once T1057 @cleocode/nexus package.json exports map lands
-  describe.skip('TC-002: exports map validation', () => {
+  describe('TC-002: exports map validation', () => {
     it('should declare ./code/unfold in @cleocode/nexus package.json exports', () => {
       // Directly read the package.json to validate the exports map.
       // Vitest aliases remap @cleocode/nexus to source, so we validate
