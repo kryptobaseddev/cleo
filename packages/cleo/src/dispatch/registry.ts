@@ -4488,6 +4488,105 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1115 — Living Brain primitives (5 verbs)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'full-context',
+    description:
+      'nexus.full-context (query) — full 5-substrate Living Brain context for a code symbol (NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals, conduit threads)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'Symbol name or nexus node ID',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'task-footprint',
+    description:
+      'nexus.task-footprint (query) — full code impact for a task: files, symbols, blast radius, brain observations, decisions, risk tier',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID (e.g., T001)',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'brain-anchors',
+    description:
+      'nexus.brain-anchors (query) — code anchors for a brain memory entry: linked nexus nodes, tasks that touched them, plasticity signal',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['entryId'],
+    params: [
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'Brain entry node ID (e.g., observation:abc123)',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'why',
+    description:
+      'nexus.why (query) — causal trace: why is a code symbol structured this way? walks BRAIN decisions, observations, and tasks',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'Symbol name or nexus node ID to trace',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'impact-full',
+    description:
+      'nexus.impact-full (query) — merged structural + task + brain impact report for a code symbol',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'Symbol name or nexus node ID to analyze',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 

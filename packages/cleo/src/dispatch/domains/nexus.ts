@@ -20,10 +20,13 @@ import {
 import {
   nexusAugment,
   nexusBlockers,
+  nexusBrainAnchors,
   nexusCriticalPath,
   nexusDepsQuery,
   nexusDiscover,
+  nexusFullContext,
   nexusGraph,
+  nexusImpactFull,
   nexusInitialize,
   nexusListProjects,
   nexusOrphans,
@@ -38,9 +41,11 @@ import {
   nexusShowProject,
   nexusStatus,
   nexusSyncProject,
+  nexusTaskFootprint,
   nexusTransferExecute,
   nexusTransferPreview,
   nexusUnregisterProject,
+  nexusWhy,
 } from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
@@ -275,6 +280,87 @@ export class NexusHandler implements DomainHandler {
           return handleTopEntries(operation, params, startTime);
         }
 
+        // T1115 — Living Brain primitives (5 verbs)
+        case 'full-context': {
+          const symbol = params?.symbol as string;
+          if (!symbol) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'symbol is required',
+              startTime,
+            );
+          }
+          const result = await nexusFullContext(symbol, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'task-footprint': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+          const result = await nexusTaskFootprint(taskId, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'brain-anchors': {
+          const entryId = params?.entryId as string;
+          if (!entryId) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'entryId is required',
+              startTime,
+            );
+          }
+          const result = await nexusBrainAnchors(entryId, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'why': {
+          const symbol = params?.symbol as string;
+          if (!symbol) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'symbol is required',
+              startTime,
+            );
+          }
+          const result = await nexusWhy(symbol, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'impact-full': {
+          const symbol = params?.symbol as string;
+          if (!symbol) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'symbol is required',
+              startTime,
+            );
+          }
+          const result = await nexusImpactFull(symbol, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         // T1013 — impact analysis with optional `why` reasons.
         // When `why=true`, returns reasons[] path-strings explaining why each
         // affected symbol is impactful (caller count, edge strength, edge type).
@@ -481,6 +567,12 @@ export class NexusHandler implements DomainHandler {
         'top-entries',
         // T1013 — impact analysis with optional `why` reasons
         'impact',
+        // T1115 — Living Brain primitives
+        'full-context',
+        'task-footprint',
+        'brain-anchors',
+        'why',
+        'impact-full',
       ],
       mutate: [
         'share.snapshot.export',
