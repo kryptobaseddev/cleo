@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.105] — 2026-04-21
+
+### T1137 CI Fix-Forward (patch 3 — registry-handler parity)
+- fix: nexus getSupportedOperations now includes T1117 ops (contracts-show, task-symbols, contracts-sync, contracts-link-tasks, conduit-scan) — they were in registry but missing from handler declaration
+- fix: nexus top-entries returns graceful empty result (success=true + note) when neither DB is available — restores T1006 contract
+- fix: orchestrate.worktree.complete + orchestrate.worktree.cleanup added to registry — handler had them wired but they were unregistered
+- fix: parity.test.ts + nexus.test.ts + alias-detection.test.ts updated to match new counts
+
 ## [2026.4.104] — 2026-04-21
 
 ### T1137 CI Fix-Forward (patch 2 — test parity)
