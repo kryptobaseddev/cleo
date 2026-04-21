@@ -141,13 +141,45 @@ function probeAndMarkApplied(
   for (const m of fullSql.matchAll(alterColumnRegex)) {
     alterTargets.push({ table: m[1] as string, column: m[2] as string });
   }
+
+  // Build rename map: if migration contains "ALTER TABLE x_new RENAME TO x",
+  // record { intermediate: "x_new", final: "x" }. Used below to redirect
+  // CREATE TABLE probes away from temporary intermediate tables (which no
+  // longer exist after the rename) to the final table name.
+  const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/gi;
+  const renameMap = new Map<string, string>(); // intermediate → final
+  for (const m of fullSql.matchAll(renameRegex)) {
+    renameMap.set(m[1] as string, m[2] as string);
+  }
+
+  // Track which created tables came from the rename map (all _new → final).
+  let allCreatedTablesAreRenamed = true;
   const tableTargets: string[] = [];
   for (const m of fullSql.matchAll(createTableRegex)) {
-    tableTargets.push(m[1] as string);
+    const created = m[1] as string;
+    if (renameMap.has(created)) {
+      // Intermediate table renamed → probe the FINAL table name.
+      tableTargets.push(renameMap.get(created) as string);
+    } else {
+      // Table not renamed — genuinely new table, probe its name directly.
+      allCreatedTablesAreRenamed = false;
+      tableTargets.push(created);
+    }
   }
+
+  // For pure rebuild migrations (every CREATE TABLE is an intermediate that was
+  // renamed), skip the index probe. Indexes are always recreated as part of the
+  // rename idiom; requiring them to pre-exist would make the probe overly strict
+  // and would fail in tests (and on freshly-wiped DBs where indexes aren't yet
+  // present). The presence of all final table names is sufficient evidence.
+  const isRebuildOnlyMigration =
+    allCreatedTablesAreRenamed && tableTargets.length > 0 && alterTargets.length === 0;
+
   const indexTargets: string[] = [];
-  for (const m of fullSql.matchAll(createIndexRegex)) {
-    indexTargets.push(m[1] as string);
+  if (!isRebuildOnlyMigration) {
+    for (const m of fullSql.matchAll(createIndexRegex)) {
+      indexTargets.push(m[1] as string);
+    }
   }
 
   const totalTargets = alterTargets.length + tableTargets.length + indexTargets.length;
@@ -181,6 +213,7 @@ function probeAndMarkApplied(
         alters: alterTargets.length,
         tables: tableTargets.length,
         indexes: indexTargets.length,
+        isRebuildOnly: isRebuildOnlyMigration,
       },
       `Migration ${migration.name} DDL already present in schema — marked applied.`,
     );
@@ -336,10 +369,23 @@ export function reconcileJournal(
         });
       }
 
-      // Only auto-reconcile migrations that have at least one ALTER TABLE ADD COLUMN.
-      // Pure CREATE INDEX / DROP INDEX migrations that have no journal entry are
-      // genuinely pending and must run normally.
-      if (alterMatches.length === 0) continue;
+      // Only auto-reconcile migrations that have at least one ALTER TABLE ADD COLUMN,
+      // or that use the rename-via-drop+create idiom (CREATE TABLE x_new ... DROP TABLE x
+      // ... ALTER TABLE x_new RENAME TO x). Pure CREATE INDEX / DROP INDEX migrations
+      // that have no journal entry are genuinely pending and must run normally.
+      //
+      // T1135: Migrations using only the table-rebuild/rename idiom (no ADD COLUMN) were
+      // previously skipped here, leaving them unjournaled and causing Drizzle to re-run
+      // them destructively on every init. Delegate to probeAndMarkApplied which handles
+      // the RENAME TO pattern and probes the final table name instead of the intermediate.
+      if (alterMatches.length === 0) {
+        const renameRe = /ALTER\s+TABLE\s+[`"]?\w+[`"]?\s+RENAME\s+TO\s+[`"]?\w+[`"]?/i;
+        const createTableRe = /CREATE\s+TABLE/i;
+        if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
+          probeAndMarkApplied(nativeDb, migration, logSubsystem);
+        }
+        continue;
+      }
 
       // Check which ADD COLUMN targets already exist and which are missing.
       const existingColumns: Array<{ table: string; column: string; ddl: string }> = [];

@@ -671,3 +671,236 @@ describe('reconcileJournal — Scenario 2 (T632: Sub-case A/B stale journal disc
     nativeDb.close();
   });
 });
+
+/**
+ * Tests for the rename-via-drop+create probe fix (T1135).
+ *
+ * Root cause: T033 migration uses the SQLite table-rebuild idiom:
+ *   CREATE TABLE tasks_new (...) → INSERT INTO ... FROM tasks →
+ *   DROP TABLE tasks → ALTER TABLE tasks_new RENAME TO tasks
+ *
+ * probeAndMarkApplied incorrectly checked whether `tasks_new` exists.
+ * After the rename `tasks_new` is gone, so the probe returned false →
+ * T033 was never journaled → drizzle re-ran T033 every init →
+ * tasks table was dropped and recreated WITHOUT T944's role/scope columns →
+ * downstream INSERT failed "table tasks has no column named role".
+ *
+ * Fix: detect RENAME TO in migration SQL and redirect CREATE TABLE probes
+ * from the intermediate table to the final target table.
+ *
+ * @task T1135
+ */
+describe('reconcileJournal — T1135: rename-via-drop+create probe fix', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t1135-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /** Resolve path to the drizzle-tasks migrations folder. */
+  function getTasksMigrationsFolder(): string {
+    return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
+  }
+
+  /**
+   * Create all 12 final tables rebuilt by T033 (using minimal schemas) so that
+   * probeAndMarkApplied can verify the rename-idiomatic migration has been applied.
+   * The `tasks` table gets the full schema including T944 role/scope columns.
+   */
+  function createT033PostStateTables(nativeDb: import('node:sqlite').DatabaseSync): void {
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "task_work_history" ("id" integer PRIMARY KEY AUTOINCREMENT, "session_id" text NOT NULL, "task_id" text NOT NULL, "set_at" text, "cleared_at" text);
+      CREATE TABLE IF NOT EXISTS "adr_task_links" ("adr_id" text NOT NULL, "task_id" text NOT NULL, "link_type" text DEFAULT 'related' NOT NULL, CONSTRAINT "adr_task_links_pk" PRIMARY KEY("adr_id","task_id"));
+      CREATE TABLE IF NOT EXISTS "lifecycle_transitions" ("id" text PRIMARY KEY, "pipeline_id" text NOT NULL, "from_stage_id" text NOT NULL, "to_stage_id" text NOT NULL, "transition_type" text, "transitioned_by" text, "created_at" text);
+      CREATE TABLE IF NOT EXISTS "architecture_decisions" ("id" text PRIMARY KEY, "title" text NOT NULL, "status" text, "content" text NOT NULL, "created_at" text, "date" text, "file_path" text);
+      CREATE TABLE IF NOT EXISTS "agent_instances" ("id" text PRIMARY KEY, "agent_type" text NOT NULL, "status" text, "session_id" text, "task_id" text, "started_at" text, "last_heartbeat" text);
+      CREATE TABLE IF NOT EXISTS "agent_error_log" ("id" integer PRIMARY KEY AUTOINCREMENT, "agent_id" text NOT NULL, "error_type" text NOT NULL, "message" text NOT NULL, "occurred_at" text);
+      CREATE TABLE IF NOT EXISTS "pipeline_manifest" ("id" text PRIMARY KEY, "type" text NOT NULL, "content" text NOT NULL, "status" text, "created_at" text);
+      CREATE TABLE IF NOT EXISTS "release_manifests" ("id" text PRIMARY KEY, "version" text NOT NULL UNIQUE, "status" text, "tasks_json" text, "created_at" text);
+      CREATE TABLE IF NOT EXISTS "warp_chain_instances" ("id" text PRIMARY KEY, "chain_id" text NOT NULL, "epic_id" text NOT NULL, "status" text);
+      CREATE TABLE IF NOT EXISTS "sessions" ("id" text PRIMARY KEY, "name" text NOT NULL, "status" text, "scope_json" text, "started_at" text);
+      CREATE TABLE IF NOT EXISTS "token_usage" ("id" text PRIMARY KEY, "created_at" text NOT NULL, "provider" text, "transport" text, "input_tokens" integer DEFAULT 0, "output_tokens" integer DEFAULT 0, "total_tokens" integer DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS "tasks" (
+        "id" text PRIMARY KEY,
+        "title" text NOT NULL,
+        "description" text,
+        "status" text DEFAULT 'pending' NOT NULL,
+        "priority" text DEFAULT 'medium' NOT NULL,
+        "type" text,
+        "parent_id" text,
+        "session_id" text,
+        "pipeline_stage" text,
+        "role" text NOT NULL DEFAULT 'work',
+        "scope" text NOT NULL DEFAULT 'feature',
+        "severity" text,
+        "created_at" text DEFAULT (datetime('now')) NOT NULL,
+        "updated_at" text
+      )
+    `);
+  }
+
+  it('marks T033 applied when all T033 final tables exist post-rename (core bug regression)', async () => {
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'tasks-t033.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getTasksMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+
+    // Locate T033 migration by name.
+    const t033 = allMigrations.find((m) => m.name?.includes('t033'));
+    expect(t033).toBeDefined();
+
+    // Simulate a DB where T033 + T944 have already run:
+    // All 12 tables rebuilt by T033 exist in their FINAL form (after rename).
+    // tasks table includes T944's role/scope columns.
+    createT033PostStateTables(nativeDb);
+
+    // Journal has all migrations EXCEPT T033, simulating the probe-bug scenario.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      if (m.hash === t033!.hash) continue;
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    // Confirm T033 is NOT in journal before reconcile.
+    const before = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    expect(before.some((e) => e.hash === t033!.hash)).toBe(false);
+
+    // Run reconcileJournal — Scenario 3 detects that this is a rename-only migration
+    // and delegates to probeAndMarkApplied, which probes final table names (not
+    // intermediate _new names) and marks T033 as applied.
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+
+    // T033 must now be in the journal.
+    const after = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    expect(after.some((e) => e.hash === t033!.hash)).toBe(true);
+
+    nativeDb.close();
+  });
+
+  it('does NOT mark T033 applied when tasks table is missing', async () => {
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'tasks-t033-missing.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getTasksMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const t033 = allMigrations.find((m) => m.name?.includes('t033'));
+    expect(t033).toBeDefined();
+
+    // No tasks table — tasks is also the existenceTable, so Scenarios 2 and 3
+    // are bypassed entirely. T033 must remain unjournaled (Drizzle will run it).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    nativeDb.exec(
+      `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('stale_hash_t1135', 1000000, 'old_initial')`,
+    );
+
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+
+    const after = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    expect(after.some((e) => e.hash === t033!.hash)).toBe(false);
+
+    nativeDb.close();
+  });
+
+  it('reconcileJournal preserves role/scope columns — T033 journaled so tasks is not recreated', async () => {
+    // This test verifies the end-to-end invariant of the T1135 bug fix:
+    // after reconcileJournal runs on a DB that has the final post-T033 schema,
+    // T033 is in the journal AND the role/scope columns added by T944 are still
+    // present (proving tasks was never dropped+recreated).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const dbPath = join(tempDir, 'tasks-invariant.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const migrationsFolder = getTasksMigrationsFolder();
+
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const t033 = allMigrations.find((m) => m.name?.includes('t033'));
+    expect(t033).toBeDefined();
+
+    // Create all 12 final tables from T033 including T944 role/scope columns on tasks.
+    createT033PostStateTables(nativeDb);
+
+    // Journal: all migrations EXCEPT T033 (simulates the probe-bug pre-fix state).
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    // Use a deduplicated set to avoid duplicate-hash insertion errors.
+    const seenHashes = new Set<string>();
+    for (const m of allMigrations) {
+      if (m.hash === t033!.hash) continue;
+      if (seenHashes.has(m.hash)) continue;
+      seenHashes.add(m.hash);
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    // Verify role/scope columns exist before reconcile (T944 was applied).
+    const colsBefore = nativeDb.prepare('PRAGMA table_info(tasks)').all() as Array<{
+      name: string;
+    }>;
+    expect(colsBefore.map((c) => c.name)).toContain('role');
+    expect(colsBefore.map((c) => c.name)).toContain('scope');
+
+    // reconcileJournal marks T033 as applied via the rename-probe fix.
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+
+    // T033 must now be in the journal.
+    const afterJournal = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations"')
+      .all() as Array<{ hash: string }>;
+    expect(afterJournal.some((e) => e.hash === t033!.hash)).toBe(true);
+
+    // role/scope columns must still exist — tasks was NOT recreated.
+    const colsAfter = nativeDb.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>;
+    const colNamesAfter = colsAfter.map((c) => c.name);
+    expect(colNamesAfter).toContain('role');
+    expect(colNamesAfter).toContain('scope');
+
+    nativeDb.close();
+  });
+});
