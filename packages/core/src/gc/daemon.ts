@@ -22,6 +22,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -137,6 +138,9 @@ export async function spawnGCDaemon(cleoDir: string): Promise<number> {
   // File-based stdio: required for detached process to not inherit the TTY
   const outStream = createWriteStream(logPath, { flags: 'a' });
   const errStream = createWriteStream(errPath, { flags: 'a' });
+
+  // Node 24: await stream open before passing to spawn stdio (fd must be valid)
+  await Promise.all([once(outStream, 'open'), once(errStream, 'open')]);
 
   // The daemon entry-point script (compiled alongside this module)
   const daemonEntry = join(fileURLToPath(import.meta.url), '..', 'daemon-entry.js');
