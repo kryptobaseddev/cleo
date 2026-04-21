@@ -274,8 +274,8 @@ importers:
         specifier: ^0.24.8
         version: 0.24.8
       llmtxt:
-        specifier: ^2026.4.6
-        version: 2026.4.6(@cleocode/lafs@packages+lafs)(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(onnxruntime-node@1.24.3)
+        specifier: ^2026.4.13
+        version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       node-cron:
         specifier: ^4.2.1
         version: 4.2.1
@@ -483,8 +483,8 @@ importers:
         version: 4.0.3
     optionalDependencies:
       llmtxt:
-        specifier: ^2026.4.9
-        version: 2026.4.9(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        specifier: ^2026.4.13
+        version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
 
   packages/lafs:
     dependencies:
@@ -3329,121 +3329,6 @@ packages:
     resolution: {integrity: sha512-M0sqc+42TYBod6kEZ3AsW6+JWe3+76gR1aDFbHH5DmuLKEwewmbzlhBG6qnvV6YA1cIIbkuam3dC7r6PREOCXw==}
     hasBin: true
 
-  drizzle-orm@1.0.0-beta.21:
-    resolution: {integrity: sha512-HZcIbVn5J9T/Z91Wj12Pn7Pi8/1aykS/GPJf2lXeZnEuPjxaBfQ+YAt0Sl+XI+9R/D1BpK+2fdIqbpuaTbcvqA==}
-    peerDependencies:
-      '@aws-sdk/client-rds-data': '>=3'
-      '@cloudflare/workers-types': '>=4'
-      '@effect/sql': ^0.48.5
-      '@effect/sql-pg': ^0.49.7
-      '@electric-sql/pglite': '>=0.2.0'
-      '@libsql/client': '>=0.10.0'
-      '@libsql/client-wasm': '>=0.10.0'
-      '@neondatabase/serverless': '>=0.10.0'
-      '@op-engineering/op-sqlite': '>=2'
-      '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1.13'
-      '@sinclair/typebox': '>=0.34.8'
-      '@sqlitecloud/drivers': '>=1.0.653'
-      '@tidbcloud/serverless': '*'
-      '@tursodatabase/database': '>=0.2.1'
-      '@tursodatabase/database-common': '>=0.2.1'
-      '@tursodatabase/database-wasm': '>=0.2.1'
-      '@types/better-sqlite3': '*'
-      '@types/mssql': ^9.1.4
-      '@types/pg': '*'
-      '@types/sql.js': '*'
-      '@upstash/redis': '>=1.34.7'
-      '@vercel/postgres': '>=0.8.0'
-      '@xata.io/client': '*'
-      arktype: '>=2.0.0'
-      better-sqlite3: '>=9.3.0'
-      bun-types: '*'
-      expo-sqlite: '>=14.0.0'
-      gel: '>=2'
-      mssql: ^11.0.1
-      mysql2: '>=2'
-      pg: '>=8'
-      postgres: '>=3'
-      sql.js: '>=1'
-      sqlite3: '>=5'
-      typebox: '>=1.0.0'
-      valibot: '>=1.0.0-beta.7'
-      zod: ^3.25.0 || ^4.0.0
-    peerDependenciesMeta:
-      '@aws-sdk/client-rds-data':
-        optional: true
-      '@cloudflare/workers-types':
-        optional: true
-      '@effect/sql':
-        optional: true
-      '@effect/sql-pg':
-        optional: true
-      '@electric-sql/pglite':
-        optional: true
-      '@libsql/client':
-        optional: true
-      '@libsql/client-wasm':
-        optional: true
-      '@neondatabase/serverless':
-        optional: true
-      '@op-engineering/op-sqlite':
-        optional: true
-      '@opentelemetry/api':
-        optional: true
-      '@planetscale/database':
-        optional: true
-      '@sinclair/typebox':
-        optional: true
-      '@sqlitecloud/drivers':
-        optional: true
-      '@tidbcloud/serverless':
-        optional: true
-      '@tursodatabase/database':
-        optional: true
-      '@tursodatabase/database-common':
-        optional: true
-      '@tursodatabase/database-wasm':
-        optional: true
-      '@types/better-sqlite3':
-        optional: true
-      '@types/pg':
-        optional: true
-      '@types/sql.js':
-        optional: true
-      '@upstash/redis':
-        optional: true
-      '@vercel/postgres':
-        optional: true
-      '@xata.io/client':
-        optional: true
-      arktype:
-        optional: true
-      better-sqlite3:
-        optional: true
-      bun-types:
-        optional: true
-      expo-sqlite:
-        optional: true
-      gel:
-        optional: true
-      mysql2:
-        optional: true
-      pg:
-        optional: true
-      postgres:
-        optional: true
-      sql.js:
-        optional: true
-      sqlite3:
-        optional: true
-      typebox:
-        optional: true
-      valibot:
-        optional: true
-      zod:
-        optional: true
-
   drizzle-orm@1.0.0-beta.22-ec7b61d:
     resolution: {integrity: sha512-v0uwVKvJEWS06KAdVRDB3fSFtdDvBb1yLLJOBjHnN4OWXQXy5V/rN/gAnHieu+H1T14euHoiiSP1z7AdO81xoA==}
     peerDependencies:
@@ -4406,20 +4291,29 @@ packages:
   linkify-it@5.0.0:
     resolution: {integrity: sha512-5aHCbzQRADcdP+ATqnDuhhJ/MRIqDkZX5pyjFHRRysS8vZ5AbqGEoFIb6pYHPZ+L/OC2Lc+xT8uHVVR5CAK/wQ==}
 
-  llmtxt@2026.4.6:
-    resolution: {integrity: sha512-RqMee+vHvS8gGEjA/RMUm9Z2gm/3jAZox2953BTuDnj+9h6AFivgPKOKP+1LXorm1ChtT3+dZ1Rr1LxywInlrw==}
+  llmtxt@2026.4.13:
+    resolution: {integrity: sha512-4dk53xhm7Yvmj6m/yXVQZRzRodqQQZzrgSbTwcCUde2sB8mooaLZFs7zxe7EZbeeLMcm08xnGOtAzUe67Uj91w==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
       '@cleocode/lafs': '>=2026.3'
       '@vlcn.io/crsqlite': '>=0.16.3'
+      better-sqlite3: '>=11.0.0'
+      drizzle-orm: '>=1.0.0-beta.21'
       onnxruntime-node: '>=1.18.0'
+      postgres: '>=3.4.0'
     peerDependenciesMeta:
       '@cleocode/lafs':
         optional: true
       '@vlcn.io/crsqlite':
         optional: true
+      better-sqlite3:
+        optional: true
+      drizzle-orm:
+        optional: true
       onnxruntime-node:
+        optional: true
+      postgres:
         optional: true
 
   llmtxt@2026.4.9:
@@ -9183,18 +9077,6 @@ snapshots:
       get-tsconfig: 4.13.6
       jiti: 2.6.1
 
-  drizzle-orm@1.0.0-beta.21(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6):
-    dependencies:
-      '@types/mssql': 9.1.9(@azure/core-client@1.10.1)
-      mssql: 11.0.1(@azure/core-client@1.10.1)
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.0
-      '@sinclair/typebox': 0.34.49
-      better-sqlite3: 12.9.0
-      postgres: 3.4.9
-      zod: 4.3.6
-    optional: true
-
   drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6):
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
@@ -10072,7 +9954,7 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
-  llmtxt@2026.4.6(@cleocode/lafs@packages+lafs)(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(mssql@11.0.1(@azure/core-client@1.10.1))(onnxruntime-node@1.24.3):
+  llmtxt@2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
       '@noble/ed25519': 3.1.0
       '@noble/hashes': 2.2.0
@@ -10083,45 +9965,9 @@ snapshots:
     optionalDependencies:
       '@cleocode/lafs': link:packages/lafs
       better-sqlite3: 12.9.0
-      drizzle-orm: 1.0.0-beta.21(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+      drizzle-orm: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       onnxruntime-node: 1.24.3
       postgres: 3.4.9
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@effect/sql'
-      - '@effect/sql-pg'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@sinclair/typebox'
-      - '@sqlitecloud/drivers'
-      - '@tidbcloud/serverless'
-      - '@tursodatabase/database'
-      - '@tursodatabase/database-common'
-      - '@tursodatabase/database-wasm'
-      - '@types/better-sqlite3'
-      - '@types/mssql'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - arktype
-      - bun-types
-      - expo-sqlite
-      - gel
-      - mssql
-      - mysql2
-      - pg
-      - sql.js
-      - sqlite3
-      - typebox
-      - valibot
 
   llmtxt@2026.4.9(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
