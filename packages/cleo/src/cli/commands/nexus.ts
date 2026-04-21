@@ -4722,7 +4722,7 @@ const groupCommand = defineCommand({
   },
 });
 
-/** cleo nexus wiki — community-grouped wiki index (no-LLM) */
+/** cleo nexus wiki — community-grouped wiki index with optional LOOM LLM summaries */
 const wikiCommand = defineCommand({
   meta: {
     name: 'wiki',
@@ -4734,6 +4734,16 @@ const wikiCommand = defineCommand({
       description: 'Output directory for wiki files (default: .cleo/wiki)',
       alias: 'o',
     },
+    community: {
+      type: 'string',
+      description: 'Filter generation to a single community ID (e.g. "community:3")',
+      alias: 'c',
+    },
+    incremental: {
+      type: 'boolean',
+      description:
+        'Only regenerate communities whose symbols changed since last wiki run (uses .cleo/wiki-state.json)',
+    },
     json: {
       type: 'boolean',
       description: 'Output result as JSON (LAFS envelope format)',
@@ -4744,12 +4754,52 @@ const wikiCommand = defineCommand({
     const jsonOutput = !!args.json;
     const outputDir =
       (args.output as string | undefined) ?? path.join(process.cwd(), '.cleo', 'wiki');
+    const communityFilter = (args.community as string | undefined) ?? undefined;
+    const isIncremental = !!(args.incremental as boolean | undefined);
+
+    // Resolve LOOM provider via the existing LLM backend resolver (warm tier).
+    // Falls back gracefully — null means scaffold mode.
+    // The 'ai' package lives in @cleocode/core's deps; we load it transitively.
+    let loomProvider: ((prompt: string) => Promise<string>) | null = null;
+    try {
+      const { resolveLlmBackend } = await import('@cleocode/core/memory/llm-backend-resolver.js');
+      const backend = await resolveLlmBackend('warm');
+      if (backend !== null && backend.name !== 'transformers') {
+        // Wire as a simple text-completion function using the 'ai' package
+        // loaded via @cleocode/core's node_modules (avoids duplicate dep in cleo).
+        loomProvider = async (prompt: string): Promise<string> => {
+          // Dynamic import at call time to avoid top-level resolution in cleo
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          const aiMod = await import('ai' as string);
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          const generateTextFn = aiMod.generateText as (opts: {
+            model: unknown;
+            prompt: string;
+            maxTokens: number;
+          }) => Promise<{ text: string }>;
+          const { text } = await generateTextFn({
+            model: backend.model,
+            prompt,
+            maxTokens: 256,
+          });
+          return text;
+        };
+      }
+    } catch {
+      // LOOM unavailable — scaffold mode (logged inside generateNexusWikiIndex)
+      loomProvider = null;
+    }
 
     try {
       const { generateNexusWikiIndex } = await import(
         '@cleocode/core/nexus/wiki-index.js' as string
       );
-      const result = await generateNexusWikiIndex(outputDir, process.cwd());
+      const result = await generateNexusWikiIndex(outputDir, process.cwd(), {
+        communityFilter,
+        incremental: isIncremental,
+        loomProvider,
+        projectRoot: process.cwd(),
+      });
       const durationMs = Date.now() - startTime;
 
       if (jsonOutput) {
@@ -4770,12 +4820,18 @@ const wikiCommand = defineCommand({
         );
       } else {
         if (result.success) {
+          const skippedNote =
+            result.skippedCommunities && result.skippedCommunities.length > 0
+              ? `\n  Skipped:     ${result.skippedCommunities.length} unchanged communities`
+              : '';
+          const loomNote = result.loomEnabled ? ' (LOOM narratives enabled)' : ' (scaffold mode)';
           process.stdout.write(
-            `[nexus] wiki generated:\n` +
+            `[nexus] wiki generated${loomNote}:\n` +
               `  Communities: ${result.communityCount}\n` +
               `  Files:       ${result.fileCount}\n` +
-              `  Output:      ${outputDir}\n` +
-              `  (${durationMs}ms)\n`,
+              `  Output:      ${outputDir}` +
+              skippedNote +
+              `\n  (${durationMs}ms)\n`,
           );
         } else {
           process.stderr.write(`[nexus] wiki generation failed: ${result.error}\n`);

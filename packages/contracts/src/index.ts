@@ -410,7 +410,10 @@ export type {
 } from './nexus-tasks-bridge-ops.js';
 export type {
   CommunityWikiStats,
+  GenerateNexusWikiOptions,
   NexusWikiResult,
+  WikiDbHandle,
+  WikiStateFile,
   WikiSymbolRow,
 } from './nexus-wiki-ops.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
