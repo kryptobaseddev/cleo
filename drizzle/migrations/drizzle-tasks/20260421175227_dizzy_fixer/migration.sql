@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `owner_auth_token` text;
