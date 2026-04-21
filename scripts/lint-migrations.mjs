@@ -28,8 +28,8 @@
  * @task T1168
  */
 
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { join, basename, dirname } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,9 @@ const MIGRATIONS_ROOT =
 const failOnArg = args.find((a) => a.startsWith('--fail-on='));
 const FAIL_ON = failOnArg ? failOnArg.slice('--fail-on='.length) : 'error';
 if (!['error', 'warn', 'none'].includes(FAIL_ON)) {
-  process.stderr.write(`lint-migrations: unknown --fail-on value "${FAIL_ON}". Use error|warn|none.\n`);
+  process.stderr.write(
+    `lint-migrations: unknown --fail-on value "${FAIL_ON}". Use error|warn|none.\n`,
+  );
   process.exit(2);
 }
 
@@ -366,12 +368,17 @@ function main() {
       const full = join(dbSetPath, n);
       return !statSync(full).isDirectory() && n.endsWith('.sql');
     });
-    lines.push(`  ${dbSet}: ${folderNames.length} folder(s), ${flatSqlFiles.length} flat SQL file(s)`);
+    lines.push(
+      `  ${dbSet}: ${folderNames.length} folder(s), ${flatSqlFiles.length} flat SQL file(s)`,
+    );
     for (const folder of folderNames) {
       const folderPath = join(dbSetPath, folder);
       const hasSql = existsSync(join(folderPath, 'migration.sql'));
       const hasSnap = existsSync(join(folderPath, 'snapshot.json'));
-      const flags = [hasSql ? 'migration.sql' : 'NO-SQL', hasSnap ? 'snapshot.json' : 'no-snap'].join(' | ');
+      const flags = [
+        hasSql ? 'migration.sql' : 'NO-SQL',
+        hasSnap ? 'snapshot.json' : 'no-snap',
+      ].join(' | ');
       lines.push(`    ${folder}  [${flags}]`);
     }
     for (const file of flatSqlFiles) {
@@ -389,9 +396,7 @@ function main() {
   if (IS_GHA) {
     for (const v of violations) {
       // Produce a repo-relative path when possible; fall back to absolute.
-      const relFile = v.file.startsWith(REPO_ROOT)
-        ? v.file.slice(REPO_ROOT.length + 1)
-        : v.file;
+      const relFile = v.file.startsWith(REPO_ROOT) ? v.file.slice(REPO_ROOT.length + 1) : v.file;
       const level = v.severity === 'ERROR' ? 'error' : 'warning';
       // GitHub Actions annotation format: ::<level> file=<path>::<message>
       process.stdout.write(`::${level} file=${relFile}::${v.rule}: ${v.message}\n`);

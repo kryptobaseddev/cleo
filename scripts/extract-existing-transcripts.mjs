@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * T733 Migration: Extract value from existing Claude session transcripts.
  *
@@ -25,9 +26,9 @@
  * @epic T726
  */
 
-import { argv, cwd, exit } from 'node:process';
-import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { argv, cwd, exit } from 'node:process';
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -104,9 +105,7 @@ async function main() {
     resolve(args.projectRoot, 'packages/core/dist/memory/transcript-scanner.js')
   ).catch(async () => {
     // Try source path if dist not built
-    return import(
-      resolve(args.projectRoot, 'packages/core/src/memory/transcript-scanner.ts')
-    );
+    return import(resolve(args.projectRoot, 'packages/core/src/memory/transcript-scanner.ts'));
   });
 
   let transcripts;
@@ -134,9 +133,7 @@ async function main() {
   const { extractTranscript } = await import(
     resolve(args.projectRoot, 'packages/core/dist/memory/transcript-extractor.js')
   ).catch(async () => {
-    return import(
-      resolve(args.projectRoot, 'packages/core/src/memory/transcript-extractor.ts')
-    );
+    return import(resolve(args.projectRoot, 'packages/core/src/memory/transcript-extractor.ts'));
   });
 
   const stats = {
