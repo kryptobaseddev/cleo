@@ -443,6 +443,8 @@ const REQUIRED_SESSION_COLUMNS: RequiredColumn[] = [
   { name: 'stats_json', ddl: 'text' },
   { name: 'resume_count', ddl: 'integer' },
   { name: 'grade_mode', ddl: 'integer' },
+  // T1118 L4a — owner-auth HMAC token for override authentication
+  { name: 'owner_auth_token', ddl: 'text' },
 ];
 
 /**
