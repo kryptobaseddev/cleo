@@ -15,8 +15,8 @@ import { dirname, join } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getCleoDirAbsolute } from '../paths.js';
+import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
 import * as schema from './tasks-schema.js';
@@ -186,7 +186,7 @@ export async function migrateJsonToSqliteAtomic(
     // Run migrations to create tables
     logger?.info('import', 'create-tables', 'Running drizzle migrations to create tables');
     const migrationsFolder = resolveMigrationsFolder();
-    migrate(db, { migrationsFolder });
+    migrateSanitized(db, { migrationsFolder });
 
     // Migration SQL contains PRAGMA foreign_keys=ON. In test mode, disable
     // FKs so test fixtures can import data with orphan references.

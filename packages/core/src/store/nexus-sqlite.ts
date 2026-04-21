@@ -18,9 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getCleoHome } from '../paths.js';
-import { ensureColumns } from './migration-manager.js';
+import { ensureColumns, migrateSanitized } from './migration-manager.js';
 import * as nexusSchema from './nexus-schema.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
 
@@ -243,7 +242,7 @@ function runNexusMigrations(
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      migrate(db, { migrationsFolder });
+      migrateSanitized(db, { migrationsFolder });
       // T1062: post-migration safety net for is_external — ensures the column exists
       // on fresh DBs where ensureColumns ran before the table was created, and on
       // old DBs where this column was added after initial schema creation.
