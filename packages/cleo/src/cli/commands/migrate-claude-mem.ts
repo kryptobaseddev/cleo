@@ -13,6 +13,8 @@
  */
 
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
+import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '@cleocode/core/memory';
+import { getDb } from '@cleocode/core/store/sqlite';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -107,18 +109,91 @@ const claudeMemCommand = defineCommand({
   },
 });
 
+/** cleo migrate manifest-ingest — ingest RCASD and loose markdown files into pipeline_manifest */
+const manifestIngestCommand = defineCommand({
+  meta: {
+    name: 'manifest-ingest',
+    description: 'Ingest RCASD and loose agent-output markdown files into pipeline_manifest',
+  },
+  args: {
+    rcasd: {
+      type: 'boolean',
+      description: 'Ingest only RCASD directories',
+      default: false,
+    },
+    loose: {
+      type: 'boolean',
+      description: 'Ingest only loose agent-output files',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const projectRoot = getProjectRoot();
+
+    try {
+      const db = await getDb(projectRoot);
+
+      // Determine mode: explicit flags or default to all
+      const ingestRcasd = args.rcasd === true || (args.rcasd !== true && args.loose !== true);
+      const ingestLoose = args.loose === true || (args.rcasd !== true && args.loose !== true);
+
+      const results = {
+        rcasd: null as { ingested: number; skipped: number } | null,
+        loose: null as { ingested: number; skipped: number } | null,
+      };
+
+      if (ingestRcasd) {
+        results.rcasd = await ingestRcasdDirectories(projectRoot, db);
+      }
+
+      if (ingestLoose) {
+        results.loose = await ingestLooseAgentOutputs(projectRoot, db);
+      }
+
+      // Report results
+      if (results.rcasd) {
+        console.log(`RCASD: ingested ${results.rcasd.ingested}, skipped ${results.rcasd.skipped}`);
+      }
+
+      if (results.loose) {
+        console.log(`Loose: ingested ${results.loose.ingested}, skipped ${results.loose.skipped}`);
+      }
+
+      const totalIngested = (results.rcasd?.ingested ?? 0) + (results.loose?.ingested ?? 0);
+      const totalSkipped = (results.rcasd?.skipped ?? 0) + (results.loose?.skipped ?? 0);
+
+      cliOutput(
+        {
+          rcasd: results.rcasd,
+          loose: results.loose,
+          total: { ingested: totalIngested, skipped: totalSkipped },
+        },
+        { command: 'migrate manifest-ingest', operation: 'migrate.manifest-ingest' },
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(message, 'E_MANIFEST_INGEST_FAILED', undefined, {
+        operation: 'migrate.manifest-ingest',
+      });
+      process.exitCode = 1;
+    }
+  },
+});
+
 /**
  * Root migrate command group — registers migrate subcommands.
  *
  * Subcommands:
- *   cleo migrate claude-mem [--dry-run] [--source <path>] [--project <name>]
- *   cleo migrate storage    [--target <version>] [--dry-run]
+ *   cleo migrate claude-mem      [--dry-run] [--source <path>] [--project <name>]
+ *   cleo migrate storage         [--target <version>] [--dry-run]
+ *   cleo migrate manifest-ingest [--rcasd] [--loose]
  */
 export const migrateClaudeMemCommand = defineCommand({
   meta: { name: 'migrate', description: 'Data migration utilities' },
   subCommands: {
     'claude-mem': claudeMemCommand,
     storage: storageCommand,
+    'manifest-ingest': manifestIngestCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
