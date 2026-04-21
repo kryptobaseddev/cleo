@@ -202,6 +202,14 @@ export interface SessionStartParams {
   focus?: string;
   /** Enable full query+mutation audit logging for behavioral grading. */
   grade?: boolean;
+  /**
+   * HMAC-SHA256 owner-auth token for L4a override authentication (T1118).
+   *
+   * Derived from HMAC-SHA256(key=password, data=sessionId) during
+   * `cleo session start --owner-auth`. Stored in sessions.owner_auth_token
+   * and validated on every `CLEO_OWNER_OVERRIDE` call.
+   */
+  ownerAuthToken?: string;
 }
 /** Result of `session.start` — the newly created session. */
 export type SessionStartResult = Session;

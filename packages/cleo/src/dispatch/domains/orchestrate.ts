@@ -434,6 +434,27 @@ export class OrchestrateHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
+        // T1118 L1 — Worktree lifecycle operations
+        case 'worktree.complete': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+          return handleWorktreeComplete(taskId, projectRoot, startTime);
+        }
+
+        case 'worktree.cleanup': {
+          const taskIds = params?.taskIds as string[] | undefined;
+          return handleWorktreeCleanup(projectRoot, taskIds, startTime);
+        }
+
         case 'parallel': {
           return routeByParam(params, 'action', {
             start: async () => {
@@ -642,6 +663,9 @@ export class OrchestrateHandler implements DomainHandler {
         // T935: HITL approval gate decisions
         'approve',
         'reject',
+        // T1118 L1 — Worktree lifecycle
+        'worktree.complete',
+        'worktree.cleanup',
       ],
     };
   }
@@ -1297,5 +1321,66 @@ async function handleRejectGate(
     }
     getLogger('domain:orchestrate').error({ operation: 'reject', err: error }, message);
     return handleErrorResult('mutate', 'orchestrate', 'reject', error, startTime);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// T1118 L1 — Worktree lifecycle handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Cherry-pick commits from a task worktree back to main and clean up.
+ *
+ * @task T1118
+ * @task T1120
+ */
+async function handleWorktreeComplete(
+  taskId: string,
+  projectRoot: string,
+  startTime: number,
+): Promise<DispatchResponse> {
+  try {
+    const { completeAgentWorktree } = await import('@cleocode/core/internal');
+    const result = completeAgentWorktree(taskId, projectRoot);
+    return {
+      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.complete', startTime),
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.complete', taskId, err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return handleErrorResult('mutate', 'orchestrate', 'worktree.complete', error, startTime);
+  }
+}
+
+/**
+ * Prune orphaned agent worktrees (e.g. after agent crash or session end).
+ *
+ * @task T1118
+ * @task T1120
+ */
+async function handleWorktreeCleanup(
+  projectRoot: string,
+  taskIds: string[] | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  try {
+    const { pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+    const activeSet = taskIds ? new Set(taskIds) : undefined;
+    const result = pruneOrphanedWorktrees(projectRoot, activeSet);
+    return {
+      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.cleanup', startTime),
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.cleanup', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return handleErrorResult('mutate', 'orchestrate', 'worktree.cleanup', error, startTime);
   }
 }

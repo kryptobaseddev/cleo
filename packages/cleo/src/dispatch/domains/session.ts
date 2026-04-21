@@ -260,6 +260,19 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     const sessionData = result.data;
     const sessionId = sessionData.id;
 
+    // T1118 L4a — If an ownerAuthToken was provided, store it in sessions.owner_auth_token.
+    if (params.ownerAuthToken) {
+      try {
+        await storeSessionOwnerAuthToken(projectRoot, sessionId, params.ownerAuthToken);
+      } catch (err) {
+        // Non-fatal — session was created, token store failed
+        getLogger('domain:session').warn(
+          { sessionId, err },
+          'Failed to store owner_auth_token — override auth will not be available',
+        );
+      }
+    }
+
     // Enrich with sessionId alias for easy extraction
     // Use Object.assign to add the alias without violating Session type
     Object.assign(sessionData, { sessionId });
@@ -624,4 +637,39 @@ export class SessionHandler implements DomainHandler {
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// T1118 L4a — Owner auth token storage helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Store an owner-auth HMAC token against a session row.
+ *
+ * Uses a raw SQL update via the native SQLite accessor to avoid coupling
+ * the Session contract to the new column.
+ *
+ * @param projectRoot - Absolute project root path.
+ * @param sessionId - Session ID to update.
+ * @param token - HMAC token to store.
+ *
+ * @task T1118
+ * @task T1123
+ */
+async function storeSessionOwnerAuthToken(
+  projectRoot: string,
+  sessionId: string,
+  token: string,
+): Promise<void> {
+  // Import dynamically to avoid circular deps. The native DB is always available
+  // at this point because session.start already successfully ran.
+  const { getDb } = await import('@cleocode/core/internal');
+  const { sessions } = await import('@cleocode/core/internal');
+  const { eq } = await import('@cleocode/core/internal');
+
+  const db = await getDb(projectRoot);
+  db.update(sessions)
+    .set({ ownerAuthToken: token })
+    .where(eq(sessions.id, sessionId))
+    .run();
 }
