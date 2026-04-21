@@ -350,7 +350,9 @@ export async function runGitLogTaskLinker(
     // Run git log and extract commits
     let gitLogOutput = '';
     try {
-      const args = ['log', '--pretty=format:%H', '--name-only'];
+      // Use "%H %s" so each commit header line contains both hash and subject,
+      // allowing task-ID extraction from commit messages (e.g. "feat(T001): …").
+      const args = ['log', '--pretty=format:%H %s', '--name-only'];
       if (since) {
         args.push(`${since}..HEAD`);
       }
@@ -360,7 +362,10 @@ export async function runGitLogTaskLinker(
         encoding: 'utf-8',
       });
     } catch {
-      // git command failed — return empty result
+      // git command failed — likely not a git repo; warn and return empty result
+      console.warn(
+        `[CLEO] runGitLogTaskLinker: git log failed in "${projectRoot}" — directory may not be a git repository. Skipping task-symbol linking.`,
+      );
       return {
         linked: 0,
         commitsProcessed: 0,
@@ -417,14 +422,16 @@ export async function runGitLogTaskLinker(
       totalEdges += result.linked;
     }
 
-    // Store the last commit hash for idempotency
-    const lastCommit = commits[commits.length - 1].hash;
+    // Store the newest (HEAD) commit hash for idempotency (nexus_schema_meta lives in nexus.db).
+    // git log returns commits newest-first, so commits[0] is HEAD.
+    // On the next run, `HEAD..HEAD` returns nothing → 0 commits processed.
+    const lastCommit = commits[0].hash;
     try {
-      brainNative
+      nexusNative
         .prepare(
-          `INSERT INTO nexus_schema_meta (key, value, updated_at)
-           VALUES (?, ?, datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+          `INSERT INTO nexus_schema_meta (key, value)
+           VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         )
         .run('last_task_linker_commit', lastCommit);
     } catch {
@@ -456,16 +463,19 @@ export async function runGitLogTaskLinker(
 // ============================================================================
 
 /**
- * Parse git log --pretty=format:%H --name-only output.
+ * Parse git log --pretty=format:"%H %s" --name-only output.
  *
- * Format: alternating lines of commit hash and file paths, separated by blank lines.
- * Returns array of commits with hash, subject (extracted from hash), and file list.
+ * Each commit's header line contains "<hash> <subject>" (hash + space + subject),
+ * followed by file paths on subsequent lines, with commits separated by blank lines.
+ *
+ * Returns array of commits with hash, subject (the commit message subject), and file list.
  */
 function parseGitLogOutput(output: string): GitCommitRow[] {
   const commits: GitCommitRow[] = [];
   const lines = output.split('\n');
 
   let currentHash: string | null = null;
+  let currentSubject = '';
   let currentFiles: string[] = [];
 
   for (const line of lines) {
@@ -476,29 +486,40 @@ function parseGitLogOutput(output: string): GitCommitRow[] {
       if (currentHash) {
         commits.push({
           hash: currentHash,
-          subject: currentHash, // simplified — extract from git log separately if needed
+          subject: currentSubject,
           files: currentFiles,
         });
         currentHash = null;
+        currentSubject = '';
         currentFiles = [];
       }
       continue;
     }
 
-    // If we don't have a hash yet, treat this as a hash line
+    // If we don't have a hash yet, this is the commit header: "<hash> <subject>"
     if (!currentHash) {
-      currentHash = trimmed;
+      // Git SHA-1 hashes are 40 hex chars; SHA-256 hashes are 64 hex chars.
+      // Split on the first space to separate hash from subject.
+      const spaceIdx = trimmed.indexOf(' ');
+      if (spaceIdx > 0) {
+        currentHash = trimmed.slice(0, spaceIdx);
+        currentSubject = trimmed.slice(spaceIdx + 1);
+      } else {
+        // No space — treat entire line as hash (subject is empty)
+        currentHash = trimmed;
+        currentSubject = '';
+      }
     } else {
-      // Otherwise it's a file path
+      // Subsequent non-empty lines are file paths touched by this commit
       currentFiles.push(trimmed);
     }
   }
 
-  // Don't forget the last commit if output doesn't end with blank line
+  // Don't forget the last commit if output doesn't end with a blank line
   if (currentHash) {
     commits.push({
       hash: currentHash,
-      subject: currentHash,
+      subject: currentSubject,
       files: currentFiles,
     });
   }

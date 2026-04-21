@@ -2061,6 +2061,19 @@ const analyzeCommand = defineCommand({
         // Non-fatal — registry update must never fail the analyze command
       }
 
+      // Post-hook: sweep git log and link task IDs to symbols (best-effort, idempotent)
+      try {
+        const { runGitLogTaskLinker } = await import('@cleocode/core/nexus' as string);
+        const sweeperResult = await runGitLogTaskLinker(repoPath);
+        if (!jsonOutput && sweeperResult.commitsProcessed > 0) {
+          process.stderr.write(
+            `[nexus] Task-symbol sweep: ${sweeperResult.commitsProcessed} commit(s), ${sweeperResult.tasksFound} task(s), ${sweeperResult.linked} edge(s) linked.\n`,
+          );
+        }
+      } catch {
+        // Non-fatal — task sweeper failure must never fail the analyze command
+      }
+
       if (jsonOutput) {
         const envelope = {
           success: true,
