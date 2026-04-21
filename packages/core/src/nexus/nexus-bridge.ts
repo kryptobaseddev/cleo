@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { resolveBridgeMode } from '../system/bridge-mode.js';
 
 // ============================================================================
 // Types
@@ -352,6 +353,13 @@ export async function generateNexusBridgeContent(
 /**
  * Write nexus bridge content to .cleo/nexus-bridge.md.
  *
+ * When `brain.memoryBridge.mode` is `'cli'` (default), the file write is skipped
+ * and the function returns `{ written: false }` without error (T999). This keeps
+ * nexus-bridge behaviour aligned with memory-bridge — the two bridges share the
+ * same injection-mode gate.
+ *
+ * Set mode to `'file'` to restore legacy file-based injection behaviour.
+ *
  * @param projectRoot - Absolute path to the project root
  * @param projectId - Project registry ID (used to scope nexus.db queries)
  * @returns Result with path and whether the file was written
@@ -368,6 +376,14 @@ export async function writeNexusBridge(
     projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
 
   try {
+    // Mode gate (T999 · T1013): skip file write when mode='cli'.
+    // Aligns nexus-bridge with the existing memory-bridge gate so both siblings
+    // honour the same `brain.memoryBridge.mode` config key.
+    const mode = await resolveBridgeMode(projectRoot);
+    if (mode === 'cli') {
+      return { path: bridgePath, written: false };
+    }
+
     const content = await generateNexusBridgeContent(resolvedProjectId, projectRoot);
 
     if (!existsSync(cleoDir)) {

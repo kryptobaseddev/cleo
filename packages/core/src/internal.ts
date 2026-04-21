@@ -361,6 +361,16 @@ export {
 export { searchAcrossProjects } from './nexus/discover.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 export { setPermission } from './nexus/permissions.js';
+// T1013: plasticity queries over nexus_relations weight/last_accessed_at columns (added in T998)
+export {
+  getColdSymbols,
+  getHotNodes,
+  getHotPaths,
+  type NexusColdSymbol,
+  type NexusHotNode,
+  type NexusHotPath,
+  type NexusPlasticityResult,
+} from './nexus/plasticity-queries.js';
 export { resolveTask, validateSyntax } from './nexus/query.js';
 export type { NexusPermissionLevel, NexusProject, NexusProjectStats } from './nexus/registry.js';
 export {

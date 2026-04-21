@@ -38,6 +38,7 @@ export type { AuditIssue, AuditResult } from './audit.js';
 export { auditData } from './audit.js';
 export type { BackupResult, RestoreResult } from './backup.js';
 export { createBackup, restoreBackup } from './backup.js';
+export { resolveBridgeMode } from './bridge-mode.js';
 export type { CleanupResult } from './cleanup.js';
 export { cleanupSystem } from './cleanup.js';
 export type {
