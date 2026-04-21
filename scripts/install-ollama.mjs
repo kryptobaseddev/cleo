@@ -17,8 +17,8 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { platform } from 'node:os';
 import { existsSync } from 'node:fs';
+import { platform } from 'node:os';
 
 const RECOMMENDED_MODEL = 'gemma4:e4b-it';
 const FALLBACK_MODEL = 'llama3.2:3b';
@@ -59,14 +59,10 @@ function installOllamaUnix() {
   console.log('[CLEO] Installing Ollama (required for local LLM extraction)...');
   try {
     // Official Ollama install script — curl to sh pattern
-    execFileSync(
-      'sh',
-      ['-c', 'curl -fsSL https://ollama.com/install.sh | sh'],
-      {
-        stdio: 'inherit',
-        timeout: INSTALL_TIMEOUT_MS,
-      },
-    );
+    execFileSync('sh', ['-c', 'curl -fsSL https://ollama.com/install.sh | sh'], {
+      stdio: 'inherit',
+      timeout: INSTALL_TIMEOUT_MS,
+    });
     console.log('[CLEO] Ollama installed successfully.');
     return true;
   } catch (err) {
@@ -89,7 +85,10 @@ function pullModel(modelName) {
     console.log(`[CLEO] Model ${modelName} ready.`);
     return true;
   } catch (err) {
-    console.warn(`[CLEO] Model pull for ${modelName} failed (non-fatal):`, err.message ?? String(err));
+    console.warn(
+      `[CLEO] Model pull for ${modelName} failed (non-fatal):`,
+      err.message ?? String(err),
+    );
     return false;
   }
 }
@@ -142,30 +141,41 @@ async function main() {
   } else if (os === 'win32') {
     // Windows: cannot run curl | sh; provide manual instructions
     // Note: CLEO still works without Ollama (falls back to transformers.js or Sonnet)
-    const wingetPath = existsSync('C:\\Windows\\System32\\winget.exe')
-      || existsSync(process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\winget.exe');
+    const wingetPath =
+      existsSync('C:\\Windows\\System32\\winget.exe') ||
+      existsSync(process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\winget.exe');
 
     if (wingetPath) {
       console.log('[CLEO] Attempting Ollama installation via winget...');
       try {
-        execFileSync('winget', ['install', 'Ollama.Ollama', '--accept-source-agreements', '--accept-package-agreements'], {
-          stdio: 'inherit',
-          timeout: INSTALL_TIMEOUT_MS,
-        });
+        execFileSync(
+          'winget',
+          ['install', 'Ollama.Ollama', '--accept-source-agreements', '--accept-package-agreements'],
+          {
+            stdio: 'inherit',
+            timeout: INSTALL_TIMEOUT_MS,
+          },
+        );
         console.log('[CLEO] Ollama installed via winget. Run: ollama pull ' + RECOMMENDED_MODEL);
       } catch {
         console.log('[CLEO] winget install failed. Manual install required.');
         console.log('[CLEO] Download from: https://ollama.com/download/windows');
-        console.log('[CLEO] CLEO will use Claude API (set ANTHROPIC_API_KEY) until Ollama is installed.');
+        console.log(
+          '[CLEO] CLEO will use Claude API (set ANTHROPIC_API_KEY) until Ollama is installed.',
+        );
       }
     } else {
       console.log('[CLEO] Windows detected. Ollama requires manual installation:');
       console.log('[CLEO] 1. Download from: https://ollama.com/download/windows');
       console.log('[CLEO] 2. After install, run: ollama pull ' + RECOMMENDED_MODEL);
-      console.log('[CLEO] CLEO will use Claude API (set ANTHROPIC_API_KEY) until Ollama is installed.');
+      console.log(
+        '[CLEO] CLEO will use Claude API (set ANTHROPIC_API_KEY) until Ollama is installed.',
+      );
     }
   } else {
-    console.log(`[CLEO] Unsupported platform: ${os}. Install Ollama manually from https://ollama.com`);
+    console.log(
+      `[CLEO] Unsupported platform: ${os}. Install Ollama manually from https://ollama.com`,
+    );
     console.log('[CLEO] CLEO will use Claude API as fallback (set ANTHROPIC_API_KEY).');
   }
 }
