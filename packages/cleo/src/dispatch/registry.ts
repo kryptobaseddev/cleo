@@ -4691,6 +4691,114 @@ export const OPERATIONS: OperationDef[] = [
     ],
   },
 
+  // T1117 — contracts + ingestion bridge (2 query, 3 mutate)
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'contracts-show',
+    description:
+      'nexus.contracts-show (query) — show contract compatibility matrix between two registered projects; matches HTTP/gRPC/topic contracts and returns per-match compatibility scores',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['projectA', 'projectB'],
+    params: [
+      {
+        name: 'projectA',
+        type: 'string',
+        required: true,
+        description: 'First project name or ID',
+      },
+      {
+        name: 'projectB',
+        type: 'string',
+        required: true,
+        description: 'Second project name or ID',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'task-symbols',
+    description:
+      'nexus.task-symbols (query) — show code symbols touched by a task via task_touches_symbol forward-lookup; returns symbol label, kind, filePath, weight, matchStrategy',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID to look up (e.g. T001)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'contracts-sync',
+    description:
+      'nexus.contracts-sync (mutate) — extract HTTP, gRPC, and topic contracts from a project and store them in nexus.db; idempotent upsert',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Path to project directory (default: cwd / projectRoot)',
+      },
+      {
+        name: 'projectId',
+        type: 'string',
+        required: false,
+        description: 'Override the project ID (default: auto-detected from repoPath)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'contracts-link-tasks',
+    description:
+      'nexus.contracts-link-tasks (mutate) — link extracted contracts to tasks that touch their source symbols via task_touches_symbol edges; runs git-log task linker',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Path to project directory (default: cwd / projectRoot)',
+      },
+      {
+        name: 'projectId',
+        type: 'string',
+        required: false,
+        description: 'Override the project ID (default: auto-detected from repoPath)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'conduit-scan',
+    description:
+      'nexus.conduit-scan (mutate) — scan conduit messages for symbol mentions and write conduit_mentions_symbol edges to brain_page_edges; gracefully no-ops when conduit.db or nexus.db is absent',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+
   // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
