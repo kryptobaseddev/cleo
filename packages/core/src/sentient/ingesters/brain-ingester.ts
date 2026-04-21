@@ -25,7 +25,7 @@ import type { ProposalCandidate } from '@cleocode/contracts';
 interface BrainObservationRow {
   id: string;
   title: string | null;
-  text: string;
+  narrative: string | null;
   citation_count: number;
   quality_score: number;
 }
@@ -80,7 +80,7 @@ export function runBrainIngester(nativeDb: DatabaseSync | null): ProposalCandida
 
   try {
     const stmt = nativeDb.prepare(`
-      SELECT id, title, text, citation_count, quality_score
+      SELECT id, title, narrative, citation_count, quality_score
       FROM brain_observations
       WHERE type IN ('bugfix', 'decision')
         AND citation_count >= :minCitations
@@ -98,7 +98,7 @@ export function runBrainIngester(nativeDb: DatabaseSync | null): ProposalCandida
     }) as unknown as BrainObservationRow[];
 
     const candidates: ProposalCandidate[] = rows.map((row) => {
-      const label = row.title ?? row.text.slice(0, 80);
+      const label = row.title ?? row.narrative?.slice(0, 80) ?? '[untitled]';
       return {
         source: 'brain' as const,
         sourceId: row.id,
