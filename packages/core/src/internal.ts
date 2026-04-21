@@ -1246,7 +1246,7 @@ export {
   resolveAgentWorktreeRoot,
 } from './spawn/branch-lock.js';
 // Nexus DB path (global tier) + native handle for Tier-2 ingesters (T1008)
-export { getNexusDbPath, getNexusNativeDb } from './store/nexus-sqlite.js';
+export { getNexusDb, getNexusDbPath, getNexusNativeDb } from './store/nexus-sqlite.js';
 // System — backup (different from store/backup.ts)
 export { createBackup as systemCreateBackup } from './system/backup.js';
 export type { DoctorReport, FixResult } from './system/health.js';
