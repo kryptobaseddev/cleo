@@ -18,6 +18,22 @@
     "./pipeline": {
       "types": "./dist/src/pipeline/index.d.ts",
       "import": "./dist/src/pipeline/index.js"
+    },
+    "./code/unfold": {
+      "types": "./dist/src/code/unfold.d.ts",
+      "import": "./dist/src/code/unfold.js"
+    },
+    "./code/search": {
+      "types": "./dist/src/code/search.d.ts",
+      "import": "./dist/src/code/search.js"
+    },
+    "./dist/src/code/unfold.js": {
+      "types": "./dist/src/code/unfold.d.ts",
+      "import": "./dist/src/code/unfold.js"
+    },
+    "./dist/src/code/search.js": {
+      "types": "./dist/src/code/search.d.ts",
+      "import": "./dist/src/code/search.js"
     }
   },
   "files": [
