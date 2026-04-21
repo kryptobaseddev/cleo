@@ -12,6 +12,7 @@
  */
 
 import {
+  getBrainNativeDb,
   getLogger,
   getNexusNativeDb,
   getProjectRoot,
@@ -594,7 +595,8 @@ export class NexusHandler implements DomainHandler {
 // ---------------------------------------------------------------------------
 
 /**
- * A single top-weighted nexus symbol row returned by `nexus.top-entries`.
+ * A single top-weighted nexus symbol row returned by `nexus.top-entries`
+ * when backed by nexus_relations (nexus.db path).
  *
  * Weight is the SUM of all outgoing `nexus_relations.weight` values from this
  * node. Higher totalWeight = more frequently-co-accessed symbol.
@@ -614,7 +616,26 @@ export interface NexusTopEntry {
   edgeCount: number;
 }
 
-/** Result wrapper for `nexus.top-entries`. */
+/**
+ * A single brain_page_nodes entry returned by `nexus.top-entries`
+ * when backed by brain.db (quality-score path, T1006).
+ */
+export interface BrainPageNodeEntry {
+  /** brain_page_nodes primary key. */
+  id: string;
+  /** Node type label (e.g. 'observation', 'symbol'). */
+  node_type: string;
+  /** Human-readable label. */
+  label: string;
+  /** Quality score — higher means more valuable to surface. */
+  quality_score: number;
+  /** ISO 8601 timestamp of last activity. */
+  last_activity_at: string;
+  /** Optional JSON metadata blob (null when absent). */
+  metadata_json: string | null;
+}
+
+/** Result wrapper for `nexus.top-entries` — nexus_relations path. */
 export interface NexusTopEntriesResult {
   /** Ranked entries sorted by totalWeight DESC. */
   entries: NexusTopEntry[];
@@ -632,9 +653,25 @@ export interface NexusTopEntriesResult {
 }
 
 /**
- * Row shape pulled from SQLite for the top-entries aggregation query.
+ * Result wrapper for `nexus.top-entries` — brain_page_nodes quality-score path.
  *
- * @internal — not exported; used only by `handleTopEntries`.
+ * @task T1006
+ */
+export interface BrainTopEntriesResult {
+  /** Ranked entries sorted by quality_score DESC. */
+  entries: BrainPageNodeEntry[];
+  /** Count of returned entries (equals entries.length). */
+  count: number;
+  /** Applied row-cap limit. */
+  limit: number;
+  /** Applied nodeType filter (null when unfiltered). */
+  nodeType: string | null;
+}
+
+/**
+ * Row shape pulled from SQLite for the nexus top-entries aggregation query.
+ *
+ * @internal — not exported; used only by `handleTopEntriesFromNexus`.
  */
 interface TopEntryRow {
   source_id: string;
@@ -646,21 +683,46 @@ interface TopEntryRow {
 }
 
 /**
- * Execute the `nexus.top-entries` query against nexus.db.
+ * Raw row from brain_page_nodes SQLite query.
  *
- * Returns the top N symbols ranked by aggregate outgoing Hebbian weight
- * (SUM of `nexus_relations.weight` grouped by `source_id`). When nexus.db
- * is uninitialized or the `nexus_nodes` / `nexus_relations` tables are
- * missing, returns an empty array with an informational `note` instead of
- * throwing so empty-project callers do not crash.
+ * @internal — not exported; used only by `handleTopEntriesFromBrain`.
+ */
+interface RawBrainPageNodeRow {
+  id: string;
+  node_type: string | null;
+  label: string | null;
+  quality_score: number | null;
+  last_activity_at: string | null;
+  metadata_json: string | null;
+}
+
+/**
+ * Minimal SQLite handle shape used by the top-entries helpers.
+ *
+ * @internal
+ */
+type NativeSqliteDb = {
+  prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] };
+};
+
+/**
+ * Execute the `nexus.top-entries` query.
+ *
+ * Two-path strategy (T1006):
+ *  1. If brain.db is available (`getBrainNativeDb()` non-null), queries
+ *     `brain_page_nodes` sorted by `quality_score DESC`. Supports `nodeType` filter.
+ *  2. If brain.db is unavailable but nexus.db is available, falls back to
+ *     `nexus_relations` aggregated by `SUM(weight)`. Supports `kind` filter.
+ *  3. If both are unavailable, returns `E_DB_UNAVAILABLE`.
  *
  * @param operation - The operation name ('top-entries').
- * @param params - Query parameters (limit, kind).
+ * @param params - Query parameters: `limit`, `nodeType` (brain path) or `kind` (nexus path).
  * @param startTime - Milliseconds-since-epoch for meta timing.
- * @returns DispatchResponse with LAFS envelope carrying `NexusTopEntriesResult`.
+ * @returns DispatchResponse with LAFS envelope.
  *
  * @task T1013
- * @epic T1006
+ * @task T1006
+ * @epic T1000
  */
 async function handleTopEntries(
   operation: string,
@@ -672,105 +734,201 @@ async function handleTopEntries(
     typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.floor(rawLimit)
       : 20;
-  const rawKind = params?.kind;
-  const kind = typeof rawKind === 'string' && rawKind.length > 0 ? rawKind : null;
 
+  // Brain.db path takes priority: query brain_page_nodes by quality_score.
+  const brainDb = getBrainNativeDb();
+  if (brainDb !== null && brainDb !== undefined) {
+    return handleTopEntriesFromBrain(
+      operation,
+      params,
+      startTime,
+      brainDb as NativeSqliteDb,
+      limit,
+    );
+  }
+
+  // Nexus.db fallback: aggregate nexus_relations by SUM(weight).
   try {
     const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
-    // Trigger migrations / singleton init. Returns a drizzle handle we don't
-    // need for raw-SQL aggregation — we use getNexusNativeDb() instead.
     await getNexusDb();
-    const db = getNexusNativeDb();
-    if (!db) {
-      return wrapResult(
-        {
-          success: true,
-          data: {
-            entries: [],
-            count: 0,
-            limit,
-            kind,
-            note: 'nexus.db is unavailable. Run "cleo nexus init" first.',
-          } satisfies NexusTopEntriesResult,
-        },
+    const nexusDb = getNexusNativeDb();
+
+    if (!nexusDb) {
+      // Both DBs unavailable → hard error.
+      return errorResult(
         'query',
         'nexus',
         operation,
+        'E_DB_UNAVAILABLE',
+        'Neither brain.db nor nexus.db is available. Run "cleo nexus init" to initialize.',
         startTime,
       );
     }
 
-    let rows: TopEntryRow[] = [];
-    try {
-      const sql =
-        kind === null
-          ? `SELECT r.source_id,
-                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
-                    COUNT(*)                   AS edgeCount,
-                    n.label,
-                    n.kind,
-                    n.file_path
-               FROM nexus_relations r
-               LEFT JOIN nexus_nodes n ON n.id = r.source_id
-              GROUP BY r.source_id
-              ORDER BY totalWeight DESC, edgeCount DESC
-              LIMIT ?`
-          : `SELECT r.source_id,
-                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
-                    COUNT(*)                   AS edgeCount,
-                    n.label,
-                    n.kind,
-                    n.file_path
-               FROM nexus_relations r
-               LEFT JOIN nexus_nodes n ON n.id = r.source_id
-              WHERE n.kind = ?
-              GROUP BY r.source_id
-              ORDER BY totalWeight DESC, edgeCount DESC
-              LIMIT ?`;
-      const bindArgs: (string | number)[] = kind === null ? [limit] : [kind, limit];
-      const rawRows = db.prepare(sql).all(...bindArgs);
-      rows = rawRows.map((raw) => {
-        const r = raw as Record<string, unknown>;
-        return {
-          source_id: String(r['source_id'] ?? ''),
-          totalWeight: Number(r['totalWeight'] ?? 0),
-          edgeCount: Number(r['edgeCount'] ?? 0),
-          label: r['label'] != null ? String(r['label']) : null,
-          kind: r['kind'] != null ? String(r['kind']) : null,
-          file_path: r['file_path'] != null ? String(r['file_path']) : null,
-        };
-      });
-    } catch {
-      // nexus_relations / nexus_nodes tables not present — treat as empty.
-      rows = [];
-    }
-
-    const entries: NexusTopEntry[] = rows.map((r) => ({
-      nodeId: r.source_id,
-      label: r.label ?? r.source_id,
-      kind: r.kind ?? 'unknown',
-      filePath: r.file_path ?? null,
-      totalWeight: r.totalWeight,
-      edgeCount: r.edgeCount,
-    }));
-
-    const allZero = entries.length === 0 || entries.every((e) => e.totalWeight === 0);
-    const note = allZero
-      ? 'No Hebbian weights accumulated yet. Run a dream cycle or wait for plasticity updates.'
-      : undefined;
-
-    const data: NexusTopEntriesResult = {
-      entries,
-      count: entries.length,
+    return handleTopEntriesFromNexus(
+      operation,
+      params,
+      startTime,
+      nexusDb as NativeSqliteDb,
       limit,
-      kind,
-      ...(note !== undefined ? { note } : {}),
-    };
-
-    return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
+    );
   } catch (dbErr) {
     return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
   }
+}
+
+/**
+ * Brain.db path for `top-entries`: queries `brain_page_nodes` sorted by
+ * `quality_score DESC`. Supports optional `nodeType` filter parameter.
+ *
+ * @internal
+ * @task T1006
+ */
+function handleTopEntriesFromBrain(
+  operation: string,
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+  db: NativeSqliteDb,
+  limit: number,
+): DispatchResponse {
+  const rawNodeType = params?.nodeType;
+  const nodeType = typeof rawNodeType === 'string' && rawNodeType.length > 0 ? rawNodeType : null;
+
+  let rows: RawBrainPageNodeRow[] = [];
+  try {
+    const sql =
+      nodeType === null
+        ? `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+             FROM brain_page_nodes
+            ORDER BY quality_score DESC
+            LIMIT ?`
+        : `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+             FROM brain_page_nodes
+            WHERE node_type = ?
+            ORDER BY quality_score DESC
+            LIMIT ?`;
+    const bindArgs: (string | number)[] = nodeType === null ? [limit] : [nodeType, limit];
+    const rawRows = db.prepare(sql).all(...bindArgs);
+    rows = rawRows.map((raw) => {
+      const r = raw as Record<string, unknown>;
+      return {
+        id: String(r['id'] ?? ''),
+        node_type: r['node_type'] != null ? String(r['node_type']) : null,
+        label: r['label'] != null ? String(r['label']) : null,
+        quality_score: r['quality_score'] != null ? Number(r['quality_score']) : null,
+        last_activity_at: r['last_activity_at'] != null ? String(r['last_activity_at']) : null,
+        metadata_json: r['metadata_json'] != null ? String(r['metadata_json']) : null,
+      };
+    });
+  } catch {
+    // brain_page_nodes table not yet created — treat as empty result (not an error).
+    rows = [];
+  }
+
+  const entries: BrainPageNodeEntry[] = rows.map((r) => ({
+    id: r.id,
+    node_type: r.node_type ?? 'unknown',
+    label: r.label ?? r.id,
+    quality_score: r.quality_score ?? 0,
+    last_activity_at: r.last_activity_at ?? '',
+    metadata_json: r.metadata_json ?? null,
+  }));
+
+  const data: BrainTopEntriesResult = {
+    entries,
+    count: entries.length,
+    limit,
+    nodeType,
+  };
+
+  return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
+}
+
+/**
+ * Nexus.db fallback path for `top-entries`: queries `nexus_relations` aggregated
+ * by `SUM(weight)`. Supports optional `kind` filter.
+ *
+ * @internal
+ * @task T1013
+ */
+function handleTopEntriesFromNexus(
+  operation: string,
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+  db: NativeSqliteDb,
+  limit: number,
+): DispatchResponse {
+  const rawKind = params?.kind;
+  const kind = typeof rawKind === 'string' && rawKind.length > 0 ? rawKind : null;
+
+  let rows: TopEntryRow[] = [];
+  try {
+    const sql =
+      kind === null
+        ? `SELECT r.source_id,
+                  SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                  COUNT(*)                   AS edgeCount,
+                  n.label,
+                  n.kind,
+                  n.file_path
+             FROM nexus_relations r
+             LEFT JOIN nexus_nodes n ON n.id = r.source_id
+            GROUP BY r.source_id
+            ORDER BY totalWeight DESC, edgeCount DESC
+            LIMIT ?`
+        : `SELECT r.source_id,
+                  SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                  COUNT(*)                   AS edgeCount,
+                  n.label,
+                  n.kind,
+                  n.file_path
+             FROM nexus_relations r
+             LEFT JOIN nexus_nodes n ON n.id = r.source_id
+            WHERE n.kind = ?
+            GROUP BY r.source_id
+            ORDER BY totalWeight DESC, edgeCount DESC
+            LIMIT ?`;
+    const bindArgs: (string | number)[] = kind === null ? [limit] : [kind, limit];
+    const rawRows = db.prepare(sql).all(...bindArgs);
+    rows = rawRows.map((raw) => {
+      const r = raw as Record<string, unknown>;
+      return {
+        source_id: String(r['source_id'] ?? ''),
+        totalWeight: Number(r['totalWeight'] ?? 0),
+        edgeCount: Number(r['edgeCount'] ?? 0),
+        label: r['label'] != null ? String(r['label']) : null,
+        kind: r['kind'] != null ? String(r['kind']) : null,
+        file_path: r['file_path'] != null ? String(r['file_path']) : null,
+      };
+    });
+  } catch {
+    // nexus_relations / nexus_nodes tables not present — treat as empty.
+    rows = [];
+  }
+
+  const entries: NexusTopEntry[] = rows.map((r) => ({
+    nodeId: r.source_id,
+    label: r.label ?? r.source_id,
+    kind: r.kind ?? 'unknown',
+    filePath: r.file_path ?? null,
+    totalWeight: r.totalWeight,
+    edgeCount: r.edgeCount,
+  }));
+
+  const allZero = entries.length === 0 || entries.every((e) => e.totalWeight === 0);
+  const note = allZero
+    ? 'No Hebbian weights accumulated yet. Run a dream cycle or wait for plasticity updates.'
+    : undefined;
+
+  const data: NexusTopEntriesResult = {
+    entries,
+    count: entries.length,
+    limit,
+    kind,
+    ...(note !== undefined ? { note } : {}),
+  };
+
+  return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
 }
 
 /** Edge kinds treated as 'callers-of' when walking the reverse adjacency. */
