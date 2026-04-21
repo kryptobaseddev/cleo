@@ -5687,6 +5687,44 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  {
+    gateway: 'mutate' as const,
+    domain: 'orchestrate',
+    operation: 'worktree.complete',
+    description:
+      'orchestrate.worktree.complete (mutate) — cherry-pick commits from a task worktree back to main and clean up the worktree',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: true,
+        description: 'Task ID whose worktree should be merged and cleaned up',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'orchestrate',
+    operation: 'worktree.cleanup',
+    description:
+      'orchestrate.worktree.cleanup (mutate) — prune orphaned agent worktrees (e.g. after agent crash or session end)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'olderThanHours',
+        type: 'number' as const,
+        required: false,
+        description: 'Remove worktrees idle for longer than this many hours (default: 24)',
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

@@ -699,6 +699,9 @@ export class NexusHandler implements DomainHandler {
         'shape-check',
         'search-code',
         'wiki',
+        // T1117 — Contracts + ingestion bridges
+        'contracts-show',
+        'task-symbols',
       ],
       mutate: [
         'share.snapshot.export',
@@ -710,6 +713,10 @@ export class NexusHandler implements DomainHandler {
         'permission.set',
         'reconcile',
         'transfer',
+        // T1117 — Contracts + ingestion bridges
+        'contracts-sync',
+        'contracts-link-tasks',
+        'conduit-scan',
       ],
     };
   }
@@ -882,15 +889,17 @@ async function handleTopEntries(
     const nexusDb = getNexusNativeDb();
 
     if (!nexusDb) {
-      // Both DBs unavailable → hard error.
-      return errorResult(
-        'query',
-        'nexus',
-        operation,
-        'E_DB_UNAVAILABLE',
-        'Neither brain.db nor nexus.db is available. Run "cleo nexus init" to initialize.',
-        startTime,
-      );
+      // Both DBs unavailable → return graceful empty result with a note so
+      // callers (and tests) can surface a helpful message without treating it
+      // as a hard failure.  This restores the original T1006 contract.
+      const emptyData: NexusTopEntriesResult = {
+        entries: [],
+        count: 0,
+        limit,
+        kind: (params?.kind as string | undefined) ?? null,
+        note: 'Neither brain.db nor nexus.db is available. Run "cleo nexus init" to initialize.',
+      };
+      return wrapResult({ success: true, data: emptyData }, 'query', 'nexus', operation, startTime);
     }
 
     return handleTopEntriesFromNexus(

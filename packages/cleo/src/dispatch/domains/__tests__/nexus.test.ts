@@ -994,6 +994,9 @@ describe('NexusHandler', () => {
         'shape-check',
         'search-code',
         'wiki',
+        // T1117 — Contracts + ingestion bridges
+        'contracts-show',
+        'task-symbols',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',
@@ -1005,6 +1008,10 @@ describe('NexusHandler', () => {
         'permission.set',
         'reconcile',
         'transfer',
+        // T1117 — Contracts + ingestion bridges
+        'contracts-sync',
+        'contracts-link-tasks',
+        'conduit-scan',
       ]);
     });
   });
