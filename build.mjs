@@ -148,6 +148,10 @@ const sharedExternals = [
   'yaml',
   'zod',
   'js-tiktoken',
+  // `ai` (Vercel AI SDK) is loaded via dynamic `import('ai')` in nexus CLI to
+  // power LoOM providers. Externalize so esbuild doesn't try to inline the
+  // large provider matrix — resolved at runtime from node_modules. (T1013)
+  'ai',
   '@cleocode/caamp',
   '@cleocode/lafs',
   // @huggingface/transformers (ex-@xenova/transformers) pulls in native

@@ -183,6 +183,7 @@ export type {
   LifecycleEnforcementMode,
   LoggingConfig,
   LogLevel,
+  MemoryBridgeMode,
   OutputConfig,
   OutputFormat,
   ProviderConfig,

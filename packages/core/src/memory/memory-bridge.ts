@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { getLastHandoff } from '../sessions/handoff.js';
+import { resolveBridgeMode } from '../system/bridge-mode.js';
 
 /** Configuration for memory bridge content generation. */
 export interface MemoryBridgeConfig {
@@ -234,7 +235,7 @@ export async function writeMemoryBridge(
 
   try {
     // Mode gate (T999): skip file write when mode='cli'
-    const mode = await resolveMemoryBridgeMode(projectRoot);
+    const mode = await resolveBridgeMode(projectRoot);
     if (mode === 'cli') {
       return { path: bridgePath, written: false };
     }
@@ -263,22 +264,6 @@ export async function writeMemoryBridge(
       err instanceof Error ? err.message : String(err),
     );
     return { path: bridgePath, written: false };
-  }
-}
-
-/**
- * Resolve the memory bridge mode from project config.
- * Returns `'cli'` by default (safe for new installs).
- *
- * @param projectRoot - Absolute path to the project root.
- */
-async function resolveMemoryBridgeMode(projectRoot: string): Promise<'cli' | 'file'> {
-  try {
-    const { loadConfig } = await import('../config.js');
-    const config = await loadConfig(projectRoot);
-    return config.brain?.memoryBridge?.mode ?? 'cli';
-  } catch {
-    return 'cli';
   }
 }
 
@@ -338,7 +323,7 @@ export async function generateContextAwareContent(
     const maxTokens = config.brain?.memoryBridge?.maxTokens ?? 2000;
 
     // Mode gate (T999): skip file write when mode='cli'
-    const bridgeMode = config.brain?.memoryBridge?.mode ?? 'cli';
+    const bridgeMode = await resolveBridgeMode(projectRoot);
     if (bridgeMode === 'cli') {
       return;
     }

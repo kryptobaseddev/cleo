@@ -5,7 +5,9 @@
  * 1. A flush with zero pending observations returns {flushed: 0} without error.
  * 2. Pending observations queued via enqueuePendingObservation are persisted on flush.
  * 3. The dispatch operation 'precompact-flush' is registered in memory.ts getSupportedOperations().mutate.
- * 4. precompact-safestop.sh contains the string "cleo memory precompact-flush".
+ * 4. The Claude-Code precompact-safestop.sh (now adapter-owned) sources the
+ *    shared `cleo-precompact-core.sh` helper, which contains the string
+ *    "cleo memory precompact-flush".
  * 5. A second flush call after the queue is cleared is a no-op.
  * 6. precompact-flush.ts exports a precompactFlush function with an explicit return type.
  *
@@ -237,19 +239,31 @@ describe('MemoryHandler — precompact-flush operation registration', () => {
 });
 
 // ============================================================================
-// Shell script check: precompact-safestop.sh contains the flush call
+// Shell script check: the adapter-owned precompact shim + shared helper
+// contain the flush call. Templates moved from packages/core/templates/hooks/
+// to the per-provider adapter directories in T1013.
 // ============================================================================
 
-describe('precompact-safestop.sh', () => {
-  it('contains "cleo memory precompact-flush" invocation', () => {
-    // Resolve path from this test file location:
-    // packages/core/src/memory/__tests__/ -> ../../../templates/hooks/
+describe('precompact-safestop.sh (claude-code adapter)', () => {
+  it('sources the shared cleo-precompact-core.sh helper', () => {
+    // Path resolves from packages/core/src/memory/__tests__/ to
+    // packages/adapters/src/providers/claude-code/templates/hooks/.
     const scriptPath = join(
       import.meta.dirname ?? __dirname,
-      '../../../templates/hooks/precompact-safestop.sh',
+      '../../../../adapters/src/providers/claude-code/templates/hooks/precompact-safestop.sh',
     );
     const scriptContent = readFileSync(scriptPath, 'utf-8');
-    expect(scriptContent).toContain('cleo memory precompact-flush');
+    expect(scriptContent).toContain('cleo-precompact-core.sh');
+  });
+
+  it('shared helper contains "cleo memory precompact-flush" invocation', () => {
+    // Shared DRY helper lives under shared/templates/hooks/.
+    const corePath = join(
+      import.meta.dirname ?? __dirname,
+      '../../../../adapters/src/providers/shared/templates/hooks/cleo-precompact-core.sh',
+    );
+    const coreContent = readFileSync(corePath, 'utf-8');
+    expect(coreContent).toContain('cleo memory precompact-flush');
   });
 });
 
