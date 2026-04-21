@@ -805,3 +805,231 @@ export async function nexusWiki(
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
+
+// ---------------------------------------------------------------------------
+// T1117 — Contracts + ingestion bridge verbs
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract HTTP, gRPC, and topic contracts from a project and store them in nexus.db.
+ *
+ * Delegates to the three extractors in @cleocode/core/nexus/api-extractors/.
+ *
+ * @param projectId - Project identifier (base64url of repoPath by default).
+ * @param repoPath - Absolute path to the project root.
+ * @task T1117
+ */
+export async function nexusContractsSync(
+  projectId: string,
+  repoPath: string,
+): Promise<
+  EngineResult<{
+    projectId: string;
+    repoPath: string;
+    http: number;
+    grpc: number;
+    topic: number;
+    totalCount: number;
+  }>
+> {
+  try {
+    const [{ extractHttpContracts }, { extractGrpcContracts }, { extractTopicContracts }] =
+      await Promise.all([
+        import('@cleocode/core/nexus/api-extractors/http-extractor.js' as string),
+        import('@cleocode/core/nexus/api-extractors/grpc-extractor.js' as string),
+        import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
+      ]);
+
+    const [httpContracts, grpcContracts, topicContracts] = await Promise.all([
+      (extractHttpContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectId,
+        repoPath,
+      ),
+      (extractGrpcContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectId,
+        repoPath,
+      ),
+      (extractTopicContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectId,
+        repoPath,
+      ),
+    ]);
+
+    const http = httpContracts?.length ?? 0;
+    const grpc = grpcContracts?.length ?? 0;
+    const topic = topicContracts?.length ?? 0;
+    return engineSuccess({
+      projectId,
+      repoPath,
+      http,
+      grpc,
+      topic,
+      totalCount: http + grpc + topic,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Show contract compatibility matrix between two registered projects.
+ *
+ * Calls the contract matcher from @cleocode/core/nexus/api-extractors/matcher.
+ *
+ * @param projectAId - First project identifier.
+ * @param projectBId - Second project identifier.
+ * @param projectRoot - Absolute project root path.
+ * @task T1117
+ */
+export async function nexusContractsShow(
+  projectAId: string,
+  projectBId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').ContractCompatibilityMatrix>> {
+  try {
+    const { extractHttpContracts, extractGrpcContracts, extractTopicContracts, matchContracts } =
+      await import('@cleocode/core/nexus/api-extractors/index.js' as string);
+
+    const repoPathA = Buffer.from(projectAId, 'base64url').toString() || projectRoot;
+    const repoPathB = Buffer.from(projectBId, 'base64url').toString() || projectRoot;
+
+    const [httpA, grpcA, topicA, httpB, grpcB, topicB] = await Promise.all([
+      (extractHttpContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectAId,
+        repoPathA,
+      ),
+      (extractGrpcContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectAId,
+        repoPathA,
+      ),
+      (extractTopicContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectAId,
+        repoPathA,
+      ),
+      (extractHttpContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectBId,
+        repoPathB,
+      ),
+      (extractGrpcContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectBId,
+        repoPathB,
+      ),
+      (extractTopicContracts as (id: string, root: string) => Promise<unknown[]>)(
+        projectBId,
+        repoPathB,
+      ),
+    ]);
+
+    const contractsA = [...(httpA ?? []), ...(grpcA ?? []), ...(topicA ?? [])];
+    const contractsB = [...(httpB ?? []), ...(grpcB ?? []), ...(topicB ?? [])];
+    const matches = (
+      matchContracts as (
+        a: unknown[],
+        b: unknown[],
+      ) => import('@cleocode/contracts').ContractMatch[]
+    )(contractsA, contractsB);
+
+    const compatibleCount = matches.filter((m) => m.compatibility === 'compatible').length;
+    const incompatibleCount = matches.filter((m) => m.compatibility === 'incompatible').length;
+    const partialCount = matches.filter((m) => m.compatibility === 'partial').length;
+    const overallCompatibility =
+      matches.length > 0 ? Math.round((compatibleCount / matches.length) * 100) : 0;
+
+    const matrix: import('@cleocode/contracts').ContractCompatibilityMatrix = {
+      projectAId,
+      projectBId,
+      matches,
+      compatibleCount,
+      incompatibleCount,
+      partialCount,
+      overallCompatibility,
+      recommendations: [],
+    };
+    return engineSuccess(matrix);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Link extracted contracts to tasks via task_touches_symbol edges.
+ *
+ * Calls {@link runGitLogTaskLinker} from the tasks-bridge.
+ *
+ * @param projectId - Project identifier.
+ * @param repoPath - Absolute path to the project root.
+ * @task T1117
+ */
+export async function nexusContractsLinkTasks(
+  projectId: string,
+  repoPath: string,
+): Promise<EngineResult<unknown>> {
+  try {
+    const { runGitLogTaskLinker } = await import('@cleocode/core/nexus/tasks-bridge.js' as string);
+    const result = await (runGitLogTaskLinker as (id: string, root: string) => Promise<unknown>)(
+      projectId,
+      repoPath,
+    );
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Scan conduit messages for symbol mentions and write conduit_mentions_symbol edges.
+ *
+ * Calls {@link linkConduitMessagesToSymbols} from the graph-memory-bridge.
+ * Gracefully no-ops when conduit.db or nexus.db is absent.
+ *
+ * @param projectRoot - Absolute project root path.
+ * @task T1117
+ */
+export async function nexusConduitScan(
+  projectRoot: string,
+): Promise<EngineResult<{ scanned: number; linked: number }>> {
+  try {
+    const { linkConduitMessagesToSymbols } = await import(
+      '@cleocode/core/memory/graph-memory-bridge.js' as string
+    );
+    const result = await (
+      linkConduitMessagesToSymbols as (root: string) => Promise<{ scanned: number; linked: number }>
+    )(projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Show code symbols touched by a task via task_touches_symbol forward-lookup.
+ *
+ * Calls {@link getSymbolsForTask} from the tasks-bridge.
+ *
+ * @param taskId - Task ID (e.g., `T001`).
+ * @param projectRoot - Absolute project root path.
+ * @task T1117
+ */
+export async function nexusTaskSymbols(
+  taskId: string,
+  projectRoot: string,
+): Promise<
+  EngineResult<{
+    taskId: string;
+    count: number;
+    symbols: import('@cleocode/contracts').SymbolReference[];
+  }>
+> {
+  try {
+    const { getSymbolsForTask } = await import('@cleocode/core/nexus/tasks-bridge.js' as string);
+    const symbols = await (
+      getSymbolsForTask as (
+        id: string,
+        root: string,
+      ) => Promise<import('@cleocode/contracts').SymbolReference[]>
+    )(taskId, projectRoot);
+    return engineSuccess({ taskId, count: symbols.length, symbols });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}

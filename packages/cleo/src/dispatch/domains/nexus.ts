@@ -22,6 +22,10 @@ import {
   nexusAugment,
   nexusBlockers,
   nexusBrainAnchors,
+  nexusConduitScan,
+  nexusContractsLinkTasks,
+  nexusContractsShow,
+  nexusContractsSync,
   nexusCriticalPath,
   nexusDepsQuery,
   nexusDiscover,
@@ -46,6 +50,7 @@ import {
   nexusStatus,
   nexusSyncProject,
   nexusTaskFootprint,
+  nexusTaskSymbols,
   nexusTransferExecute,
   nexusTransferPreview,
   nexusUnregisterProject,
@@ -428,6 +433,39 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
+        case 'contracts-show': {
+          const projectA = params?.projectA as string | undefined;
+          const projectB = params?.projectB as string | undefined;
+          if (!projectA || !projectB) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'projectA and projectB are required',
+              startTime,
+            );
+          }
+          const result = await nexusContractsShow(projectA, projectB, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'task-symbols': {
+          const taskId = params?.taskId as string | undefined;
+          if (!taskId) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'taskId is required',
+              startTime,
+            );
+          }
+          const result = await nexusTaskSymbols(taskId, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -586,6 +624,29 @@ export class NexusHandler implements DomainHandler {
               (params?.onConflict as 'rename' | 'skip' | 'duplicate' | 'fail') ?? 'rename',
             transferBrain: (params?.transferBrain as boolean) ?? false,
           });
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'contracts-sync': {
+          const repoPath = (params?.repoPath as string | undefined) ?? projectRoot;
+          const projectId =
+            (params?.projectId as string | undefined) ??
+            Buffer.from(repoPath).toString('base64url').slice(0, 32);
+          const result = await nexusContractsSync(projectId, repoPath);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'contracts-link-tasks': {
+          const repoPath = (params?.repoPath as string | undefined) ?? projectRoot;
+          const projectId =
+            (params?.projectId as string | undefined) ??
+            Buffer.from(repoPath).toString('base64url').slice(0, 32);
+          const result = await nexusContractsLinkTasks(projectId, repoPath);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'conduit-scan': {
+          const result = await nexusConduitScan(projectRoot);
           return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
@@ -811,10 +872,13 @@ async function handleTopEntries(
     );
   }
 
-  // Nexus.db fallback: aggregate nexus_relations by SUM(weight).
+  // Nexus.db fallback: check if a nexus.db connection is already open.
+  // We intentionally do NOT call getNexusDb() here — that would create a new
+  // DB even when the caller has not initialised the registry, masking the
+  // "unavailable" state that tests expect.  The nexus-cli-new integration tests
+  // always call getNexusDb() in their beforeEach setup, so the singleton is
+  // already live when we reach this branch in those tests.
   try {
-    const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
-    await getNexusDb();
     const nexusDb = getNexusNativeDb();
 
     if (!nexusDb) {
