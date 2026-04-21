@@ -1,0 +1,3799 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "b398bf2f-5b28-4c82-a1ea-547fe8efaca8",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "brain_backfill_runs",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_consolidation_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_decisions",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_learnings",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_memory_links",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_modulators",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_observations",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_page_edges",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_page_nodes",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_patterns",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_plasticity_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_promotion_log",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_retrieval_log",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_schema_meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_sticky_notes",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_transcript_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "brain_weight_history",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'staged'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "approved_at",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "rows_affected",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rollback_snapshot_json",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'unknown'",
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'brain_observations'",
+      "generated": null,
+      "name": "target_table",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "approved_by",
+      "entityType": "columns",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "trigger",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "step_results_json",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duration_ms",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "true",
+      "generated": null,
+      "name": "succeeded",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "started_at",
+      "entityType": "columns",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "decision",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rationale",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confidence",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "outcome",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "alternatives_json",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "context_epic_id",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "context_task_id",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "context_phase",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'medium'",
+      "generated": null,
+      "name": "memory_tier",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'semantic'",
+      "generated": null,
+      "name": "memory_type",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "verified",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "valid_at",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "invalid_at",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "source_confidence",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "citation_count",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promoted_at",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promotion_reason",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
+      "entityType": "columns",
+      "table": "brain_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "insight",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confidence",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "actionable",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "application",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "applicable_types_json",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'short'",
+      "generated": null,
+      "name": "memory_tier",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'semantic'",
+      "generated": null,
+      "name": "memory_type",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "verified",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "valid_at",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "invalid_at",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "source_confidence",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "citation_count",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promoted_at",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promotion_reason",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
+      "entityType": "columns",
+      "table": "brain_learnings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "memory_type",
+      "entityType": "columns",
+      "table": "brain_memory_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "memory_id",
+      "entityType": "columns",
+      "table": "brain_memory_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "brain_memory_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "link_type",
+      "entityType": "columns",
+      "table": "brain_memory_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_memory_links"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "modulator_type",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "valence",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "magnitude",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_event_id",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_modulators"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subtitle",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "narrative",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "facts_json",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "concepts_json",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "files_read_json",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "files_modified_json",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_session_id",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "source_type",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "discovery_tokens",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'short'",
+      "generated": null,
+      "name": "memory_tier",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'episodic'",
+      "generated": null,
+      "name": "memory_type",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "verified",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "valid_at",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "invalid_at",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "source_confidence",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "citation_count",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promoted_at",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promotion_reason",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "attachments_json",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "0.5",
+      "generated": null,
+      "name": "stability_score",
+      "entityType": "columns",
+      "table": "brain_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "from_id",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "to_id",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edge_type",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "weight",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provenance",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_reinforced_at",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "reinforcement_count",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'static'",
+      "generated": null,
+      "name": "plasticity_class",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_depressed_at",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "depression_count",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stability_score",
+      "entityType": "columns",
+      "table": "brain_page_edges"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "node_type",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0.5",
+      "generated": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "last_activity_at",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "metadata_json",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_page_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pattern",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "context",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "frequency",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "success_rate",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "impact",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "anti_pattern",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mitigation",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "examples_json",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "extracted_at",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'medium'",
+      "generated": null,
+      "name": "memory_tier",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'procedural'",
+      "generated": null,
+      "name": "memory_type",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "verified",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "valid_at",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "invalid_at",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "source_confidence",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "citation_count",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promoted_at",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tier_promotion_reason",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
+      "entityType": "columns",
+      "table": "brain_patterns"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_node",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "target_node",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delta_w",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "timestamp",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "weight_before",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "weight_after",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retrieval_log_id",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reward_signal",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delta_t_ms",
+      "entityType": "columns",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "observation_id",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "from_tier",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "to_tier",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "score",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "decided_at",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'composite-scorer'",
+      "generated": null,
+      "name": "decided_by",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rationale_json",
+      "entityType": "columns",
+      "table": "brain_promotion_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "query",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entry_ids",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entry_count",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tokens_used",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retrieval_order",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delta_ms",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reward_signal",
+      "entityType": "columns",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "brain_schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "brain_schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tags_json",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'active'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "converted_to_json",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "color",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "priority",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'sticky-note'",
+      "generated": null,
+      "name": "source_type",
+      "entityType": "columns",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "role",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "block_type",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tokens",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "redacted_at",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "brain_transcript_events"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edge_from_id",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edge_to_id",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "edge_type",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "weight_before",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "weight_after",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delta_weight",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_kind",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_plasticity_event_id",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retrieval_log_id",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reward_signal",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "changed_at",
+      "entityType": "columns",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        "memory_type",
+        "memory_id",
+        "task_id",
+        "link_type"
+      ],
+      "nameExplicit": false,
+      "name": "brain_memory_links_pk",
+      "entityType": "pks",
+      "table": "brain_memory_links"
+    },
+    {
+      "columns": [
+        "from_id",
+        "to_id",
+        "edge_type"
+      ],
+      "nameExplicit": false,
+      "name": "brain_page_edges_pk",
+      "entityType": "pks",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_backfill_runs_pk",
+      "table": "brain_backfill_runs",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_consolidation_events_pk",
+      "table": "brain_consolidation_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_decisions_pk",
+      "table": "brain_decisions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_learnings_pk",
+      "table": "brain_learnings",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_modulators_pk",
+      "table": "brain_modulators",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_observations_pk",
+      "table": "brain_observations",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_page_nodes_pk",
+      "table": "brain_page_nodes",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_patterns_pk",
+      "table": "brain_patterns",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_plasticity_events_pk",
+      "table": "brain_plasticity_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_promotion_log_pk",
+      "table": "brain_promotion_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_retrieval_log_pk",
+      "table": "brain_retrieval_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "brain_schema_meta_pk",
+      "table": "brain_schema_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_sticky_notes_pk",
+      "table": "brain_sticky_notes",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_transcript_events_pk",
+      "table": "brain_transcript_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "brain_weight_history_pk",
+      "table": "brain_weight_history",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_backfill_runs_status",
+      "entityType": "indexes",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "columns": [
+        {
+          "value": "kind",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_backfill_runs_kind",
+      "entityType": "indexes",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_backfill_runs_created_at",
+      "entityType": "indexes",
+      "table": "brain_backfill_runs"
+    },
+    {
+      "columns": [
+        {
+          "value": "started_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_consolidation_events_started_at",
+      "entityType": "indexes",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "trigger",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_consolidation_events_trigger",
+      "entityType": "indexes",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_consolidation_events_session",
+      "entityType": "indexes",
+      "table": "brain_consolidation_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_type",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_confidence",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "outcome",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_outcome",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "context_epic_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_context_epic",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "context_task_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_context_task",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "quality_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_quality",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_tier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_tier",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_mem_type",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "verified",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_verified",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "valid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_valid_at",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_source_conf",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "tier_promoted_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_tier_promoted_at",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "content_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_decisions_content_hash",
+      "entityType": "indexes",
+      "table": "brain_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_confidence",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "actionable",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_actionable",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "quality_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_quality",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_tier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_tier",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_mem_type",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "verified",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_verified",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "valid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_valid_at",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "invalid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_invalid",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_source_conf",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "tier_promoted_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_tier_promoted_at",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "content_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_learnings_content_hash",
+      "entityType": "indexes",
+      "table": "brain_learnings"
+    },
+    {
+      "columns": [
+        {
+          "value": "task_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_links_task",
+      "entityType": "indexes",
+      "table": "brain_memory_links"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_type",
+          "isExpression": false
+        },
+        {
+          "value": "memory_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_links_memory",
+      "entityType": "indexes",
+      "table": "brain_memory_links"
+    },
+    {
+      "columns": [
+        {
+          "value": "modulator_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_modulators_type",
+      "entityType": "indexes",
+      "table": "brain_modulators"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_modulators_session",
+      "entityType": "indexes",
+      "table": "brain_modulators"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_modulators_created_at",
+      "entityType": "indexes",
+      "table": "brain_modulators"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_event_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_modulators_source_event",
+      "entityType": "indexes",
+      "table": "brain_modulators"
+    },
+    {
+      "columns": [
+        {
+          "value": "valence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_modulators_valence",
+      "entityType": "indexes",
+      "table": "brain_modulators"
+    },
+    {
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_type",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "project",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_project",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_created_at",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_source_type",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_source_session",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "content_hash",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_content_hash_created_at",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false
+        },
+        {
+          "value": "project",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_type_project",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "agent",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_agent",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "quality_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_quality",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_tier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_tier",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_mem_type",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "verified",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_verified",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "valid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_valid_at",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "invalid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_invalid",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_source_conf",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "tier_promoted_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_tier_promoted_at",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "stability_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_observations_stability_score",
+      "entityType": "indexes",
+      "table": "brain_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "from_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_from",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "to_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_to",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "edge_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_type",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "last_reinforced_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_last_reinforced",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "plasticity_class",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_plasticity_class",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "stability_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_edges_stability",
+      "entityType": "indexes",
+      "table": "brain_page_edges"
+    },
+    {
+      "columns": [
+        {
+          "value": "node_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_nodes_type",
+      "entityType": "indexes",
+      "table": "brain_page_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "quality_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_nodes_quality",
+      "entityType": "indexes",
+      "table": "brain_page_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "content_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_nodes_content_hash",
+      "entityType": "indexes",
+      "table": "brain_page_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "last_activity_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_nodes_last_activity",
+      "entityType": "indexes",
+      "table": "brain_page_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_type",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "impact",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_impact",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "frequency",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_frequency",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "quality_score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_quality",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_tier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_tier",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "memory_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_mem_type",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "verified",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_verified",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "valid_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_valid_at",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_confidence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_source_conf",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "tier_promoted_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_tier_promoted_at",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "content_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_patterns_content_hash",
+      "entityType": "indexes",
+      "table": "brain_patterns"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_node",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_source",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "target_node",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_target",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_timestamp",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_session",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "kind",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_kind",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "retrieval_log_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_retrieval_log",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "reward_signal",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_plasticity_reward",
+      "entityType": "indexes",
+      "table": "brain_plasticity_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "observation_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_promotion_log_observation",
+      "entityType": "indexes",
+      "table": "brain_promotion_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "decided_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_promotion_log_decided_at",
+      "entityType": "indexes",
+      "table": "brain_promotion_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "to_tier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_promotion_log_to_tier",
+      "entityType": "indexes",
+      "table": "brain_promotion_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "score",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_promotion_log_score",
+      "entityType": "indexes",
+      "table": "brain_promotion_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_retrieval_log_created",
+      "entityType": "indexes",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "source",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_retrieval_log_source",
+      "entityType": "indexes",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_retrieval_log_session",
+      "entityType": "indexes",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "reward_signal",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_retrieval_log_reward",
+      "entityType": "indexes",
+      "table": "brain_retrieval_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_sticky_status",
+      "entityType": "indexes",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_sticky_created",
+      "entityType": "indexes",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "columns": [
+        {
+          "value": "tags_json",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_brain_sticky_tags",
+      "entityType": "indexes",
+      "table": "brain_sticky_notes"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_transcript_events_session",
+      "entityType": "indexes",
+      "table": "brain_transcript_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "role",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_transcript_events_role",
+      "entityType": "indexes",
+      "table": "brain_transcript_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "block_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_transcript_events_block_type",
+      "entityType": "indexes",
+      "table": "brain_transcript_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_transcript_events_created_at",
+      "entityType": "indexes",
+      "table": "brain_transcript_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "edge_from_id",
+          "isExpression": false
+        },
+        {
+          "value": "edge_to_id",
+          "isExpression": false
+        },
+        {
+          "value": "edge_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_edge",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "edge_from_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_from",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "edge_to_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_to",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "changed_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_changed_at",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "event_kind",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_event_kind",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_plasticity_event_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_weight_history_plasticity_event",
+      "entityType": "indexes",
+      "table": "brain_weight_history"
+    }
+  ],
+  "renames": []
+}

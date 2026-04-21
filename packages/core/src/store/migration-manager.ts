@@ -385,7 +385,36 @@ export function reconcileJournal(
       // Removing it causes T033 to be omitted from the journal on init, Drizzle re-runs
       // the migration, the tasks table is dropped/recreated without T944 role/scope columns,
       // and downstream INSERTs fail with "table tasks has no column named role".
+      //
+      // T1165 (Hybrid Path A+ baseline marker): A comment-only migration.sql (no DDL at all,
+      // only SQL comment lines) is the probe-and-skip baseline marker introduced by T1165.
+      // On existing populated DBs the schema already matches the baseline snapshot — there
+      // is nothing to apply. Mark the journal entry immediately so Drizzle skips it rather
+      // than running the comment SQL. The "all DDL targets present" check reduces to:
+      // strip comments → empty string → no targets at all → baseline already satisfied.
       if (alterMatches.length === 0) {
+        // Check for comment-only baseline marker: strip SQL line comments and block comments,
+        // then check if any non-whitespace DDL remains.
+        const stripped = fullSql
+          .replace(/--[^\n]*/g, '') // strip line comments
+          .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
+          .trim();
+        if (stripped === '') {
+          // Comment-only baseline marker — mark applied immediately on existing DBs.
+          const log = getLogger(logSubsystem);
+          log.debug(
+            { migration: migration.name },
+            `Migration ${migration.name} is a comment-only baseline marker — marking applied on existing DB.`,
+          );
+          insertJournalEntry(
+            nativeDb,
+            migration.hash,
+            migration.folderMillis,
+            migration.name ?? '',
+          );
+          continue;
+        }
+
         const renameRe = /ALTER\s+TABLE\s+[`"]?\w+[`"]?\s+RENAME\s+TO\s+[`"]?\w+[`"]?/i;
         const createTableRe = /CREATE\s+TABLE/i;
         if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
@@ -523,25 +552,58 @@ export function isDuplicateColumnError(err: unknown): boolean {
 }
 
 /**
- * Filter whitespace-only statements from drizzle's readMigrationFiles output.
+ * Check whether a SQL statement is "executable" — i.e., contains something
+ * other than whitespace and SQL comments.
  *
- * Guards against malformed migrations that end with a trailing
- * `--> statement-breakpoint` marker. drizzle-orm splits migration files on
- * that marker, which means a trailing marker produces an array entry that is
- * purely whitespace (e.g. `"\n"`). Passing that to `session.run(sql.raw("\n"))`
- * causes a "Failed to run the query '\n'" crash.
+ * Used by sanitizeMigrationStatements to filter out both whitespace-only
+ * statements (from trailing `--> statement-breakpoint` markers) and comment-only
+ * statements (from T1165 probe-and-skip baseline markers).
  *
- * This function is idempotent: migrations with no whitespace-only statements
- * pass through unchanged.
+ * @param stmt - A single SQL statement string
+ * @returns false if the statement should be filtered out (no executable DDL)
+ */
+function isExecutableStatement(stmt: string): boolean {
+  // Fast path: empty or whitespace-only.
+  if (stmt.trim() === '') return false;
+  // Strip SQL line comments (-- ...) and block comments (/* ... */).
+  const stripped = stmt
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+  // If nothing remains after stripping comments, this is a comment-only statement
+  // (e.g., a T1165 probe-and-skip baseline marker). Filter it out to prevent
+  // drizzle's session.run() from crashing on a comment-only SQL string.
+  return stripped !== '';
+}
+
+/**
+ * Filter whitespace-only and comment-only statements from drizzle's readMigrationFiles output.
+ *
+ * Guards against two classes of non-executable statements:
+ *
+ * 1. **Whitespace-only** — caused by trailing `--> statement-breakpoint` markers.
+ *    drizzle-orm splits migration files on that marker, producing array entries
+ *    that are purely whitespace (e.g., `"\n"`). Passing that to
+ *    `session.run(sql.raw("\n"))` causes a "Failed to run the query '\n'" crash.
+ *
+ * 2. **Comment-only** — the T1165 probe-and-skip baseline marker pattern. A
+ *    migration.sql that contains only SQL comments (no executable DDL) is the
+ *    designated anchor for drizzle-kit's snapshot chain. On fresh installs the
+ *    baseline migration should be a no-op; on existing installs reconcileJournal
+ *    Scenario 3 pre-marks it applied before migrate() is called. Either way,
+ *    drizzle's session.run() must never receive a comment-only SQL string —
+ *    node:sqlite's `prepare()` rejects it with `ERR_INVALID_STATE`.
+ *
+ * This function is idempotent: migrations with only real DDL pass through unchanged.
  *
  * @param migrations - Array returned by readMigrationFiles
  * @returns A new array where every migration's `.sql` property has been
- *   filtered to remove entries where `stmt.trim() === ''`.
+ *   filtered to remove whitespace-only and comment-only entries.
  */
 export function sanitizeMigrationStatements(migrations: MigrationMeta[]): MigrationMeta[] {
   return migrations.map((migration) => ({
     ...migration,
-    sql: migration.sql.filter((stmt) => stmt.trim() !== ''),
+    sql: migration.sql.filter(isExecutableStatement),
   }));
 }
 
