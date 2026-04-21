@@ -7,4 +7,4 @@
 -- The column is nullable: sessions without --owner-auth have no token
 -- and the L4a gate is skipped (backwards compatible).
 
-ALTER TABLE `sessions` ADD COLUMN `owner_auth_token` TEXT;--> statement-breakpoint
+ALTER TABLE `sessions` ADD COLUMN `owner_auth_token` TEXT;
