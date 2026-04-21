@@ -16,20 +16,20 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readlinkSync,
   readdirSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { homedir, platform } from 'node:os';
+import { join } from 'node:path';
 
 import type {
   AgentWorktreeState,
@@ -244,10 +244,7 @@ export function buildWorktreeSpawnResult(
  * @task T1118
  * @task T1120
  */
-export function completeAgentWorktree(
-  taskId: string,
-  projectRoot: string,
-): WorktreeCompleteResult {
+export function completeAgentWorktree(taskId: string, projectRoot: string): WorktreeCompleteResult {
   const gitRoot = getGitRoot(projectRoot);
   const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
   const worktreePath = join(worktreeRoot, taskId);
@@ -271,7 +268,10 @@ export function completeAgentWorktree(
     const branchExists = gitSync(['branch', '--list', branch], gitRoot);
     if (branchExists) {
       const log = gitSync(['log', '--reverse', '--format=%H', `${baseRef}..${branch}`], gitRoot);
-      commits = log.split('\n').map((s) => s.trim()).filter(Boolean);
+      commits = log
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
   } catch (err) {
     error = `Failed to list commits: ${err instanceof Error ? err.message : String(err)}`;
@@ -455,13 +455,21 @@ export function ensureGitShimDir(projectRoot: string): string {
       if (target === shimBinPath) return shimDir;
       unlinkSync(linkPath);
     } catch {
-      try { unlinkSync(linkPath); } catch { /* ignore */ }
+      try {
+        unlinkSync(linkPath);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
   try {
     symlinkSync(shimBinPath, linkPath);
-    try { chmodSync(shimBinPath, 0o755); } catch { /* ignore */ }
+    try {
+      chmodSync(shimBinPath, 0o755);
+    } catch {
+      /* ignore */
+    }
   } catch {
     // Symlink may fail on some filesystems — non-fatal.
   }
@@ -537,10 +545,7 @@ export function detectFsHardenCapabilities(): FsHardenCapabilities {
  * @task T1118
  * @task T1122
  */
-export function applyFsHarden(
-  gitRoot: string,
-  opts: { hardLock?: boolean } = {},
-): FsHardenState {
+export function applyFsHarden(gitRoot: string, opts: { hardLock?: boolean } = {}): FsHardenState {
   const caps = detectFsHardenCapabilities();
   const headPath = join(gitRoot, '.git', 'HEAD');
   const lockedPaths: string[] = [];
@@ -598,12 +603,24 @@ export function removeFsHarden(hardenState: FsHardenState): void {
     if (!existsSync(p)) continue;
 
     if (hardenState.mechanism === 'chattr') {
-      try { execFileSync('chattr', ['-i', p], { stdio: 'pipe' }); } catch { /* ignore */ }
+      try {
+        execFileSync('chattr', ['-i', p], { stdio: 'pipe' });
+      } catch {
+        /* ignore */
+      }
     } else if (hardenState.mechanism === 'chflags') {
-      try { execFileSync('chflags', ['nouchg', p], { stdio: 'pipe' }); } catch { /* ignore */ }
+      try {
+        execFileSync('chflags', ['nouchg', p], { stdio: 'pipe' });
+      } catch {
+        /* ignore */
+      }
     }
 
-    try { chmodSync(p, 0o644); } catch { /* ignore */ }
+    try {
+      chmodSync(p, 0o644);
+    } catch {
+      /* ignore */
+    }
   }
 }
 

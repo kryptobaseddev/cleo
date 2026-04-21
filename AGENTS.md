@@ -95,6 +95,20 @@ When a task introduces new modules, the orchestrator MUST include an acceptance 
 
 If existing files violate the boundary, flag as a separate cleanup task (e.g., T1015-style relocation epic). Do NOT continue appending to the wrong package.
 
+## Sentient / Tier-2 Proposals
+
+The `cleo sentient` subsystem manages autonomous task proposals.
+
+- `cleo sentient status` — Show daemon status, kill-switch state, and tick stats.
+- `cleo sentient propose enable` — Enable Tier-2 proposal generation.
+- `cleo sentient propose disable` — Disable Tier-2 proposal generation.
+- `cleo sentient propose list` — List all Tier-2 proposals (status=proposed).
+- `cleo sentient propose accept <id>` — Accept a proposal.
+- `cleo sentient propose reject <id>` — Reject a proposal.
+
+Tier-2 proposals are **disabled by default**. Enable them with `cleo sentient propose enable`.
+The kill-switch (`cleo sentient kill`) is always respected regardless of Tier-2 state.
+
 ## Runtime Data Safety (ADR-013 §9)
 
 `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and

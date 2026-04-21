@@ -132,7 +132,9 @@ async function promptOwnerAuthPassword(sessionName: string): Promise<string | nu
 
   const password = await new Promise<string>((resolve) => {
     // Disable echo if we can.
-    if ((process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode) {
+    if (
+      (process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode
+    ) {
       (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
         true,
       );
@@ -143,7 +145,9 @@ async function promptOwnerAuthPassword(sessionName: string): Promise<string | nu
       if (ch === '\n' || ch === '\r') {
         process.stdin.removeListener('data', onData);
         process.stdin.pause();
-        if ((process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode) {
+        if (
+          (process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode
+        ) {
           (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
             false,
           );

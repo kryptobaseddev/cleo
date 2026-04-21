@@ -668,8 +668,5 @@ async function storeSessionOwnerAuthToken(
   const { eq } = await import('@cleocode/core/internal');
 
   const db = await getDb(projectRoot);
-  db.update(sessions)
-    .set({ ownerAuthToken: token })
-    .where(eq(sessions.id, sessionId))
-    .run();
+  db.update(sessions).set({ ownerAuthToken: token }).where(eq(sessions.id, sessionId)).run();
 }
