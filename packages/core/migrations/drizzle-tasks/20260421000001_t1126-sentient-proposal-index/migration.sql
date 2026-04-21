@@ -15,4 +15,4 @@
 
 CREATE INDEX IF NOT EXISTS `idx_tasks_sentient_proposals_today`
 ON `tasks` (date(`created_at`))
-WHERE `labels_json` LIKE '%sentient-tier2%';--> statement-breakpoint
+WHERE `labels_json` LIKE '%sentient-tier2%';
