@@ -22,6 +22,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import type { FSWatcher } from 'node:fs';
 import { createWriteStream, constants as fsConstants, watch } from 'node:fs';
 import { type FileHandle, open as fsOpen, mkdir } from 'node:fs/promises';
@@ -307,6 +308,10 @@ export async function spawnSentientDaemon(projectRoot: string): Promise<SpawnDae
 
   const outStream = createWriteStream(logPath, { flags: 'a' });
   const errStream = createWriteStream(errPath, { flags: 'a' });
+
+  // Node 24 requires WriteStream file descriptors to be open before passing
+  // to spawn stdio. Await the 'open' event on both streams first.
+  await Promise.all([once(outStream, 'open'), once(errStream, 'open')]);
 
   // Resolve daemon-entry.js in the compiled output (sibling to this module).
   const daemonEntry = join(fileURLToPath(import.meta.url), '..', 'daemon-entry.js');
