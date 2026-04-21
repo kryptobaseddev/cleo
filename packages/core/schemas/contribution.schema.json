@@ -627,7 +627,7 @@
       "markerLabel": "rcsd-consensus-contrib",
       "researchOutputs": [
         {
-          "filePath": "claudedocs/research-outputs/2026-01-26_rcsd-architecture-analysis.md",
+          "filePath": ".cleo/agent-outputs/2026-01-26_rcsd-architecture-analysis.md",
           "researchId": "research_f1e2d3c4",
           "type": "analysis",
           "title": "RCSD Architecture Options Analysis",
@@ -690,7 +690,7 @@
             "confidence": 0.75,
             "evidence": [
               {
-                "file": "claudedocs/research-outputs/2026-01-26_session-a-analysis.md",
+                "file": ".cleo/agent-outputs/2026-01-26_session-a-analysis.md",
                 "section": "Architecture Recommendations",
                 "type": "research"
               }
