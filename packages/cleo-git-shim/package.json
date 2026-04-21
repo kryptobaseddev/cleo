@@ -1,0 +1,47 @@
+{
+  "name": "@cleocode/git-shim",
+  "version": "2026.4.101",
+  "private": false,
+  "type": "module",
+  "description": "Harness-agnostic git shim for CLEO agent branch-protection (T1118)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "git": "./dist/shim.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cleo",
+    "git",
+    "shim",
+    "agent",
+    "branch-protection"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev>",
+  "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}
