@@ -34,8 +34,11 @@ import {
   nexusReconcileProject,
   nexusRegisterProject,
   nexusResolve,
+  nexusRouteMap,
   nexusSearch,
+  nexusSearchCode,
   nexusSetPermission,
+  nexusShapeCheck,
   nexusShareSnapshotExport,
   nexusShareSnapshotImport,
   nexusShareStatus,
@@ -47,6 +50,7 @@ import {
   nexusTransferPreview,
   nexusUnregisterProject,
   nexusWhy,
+  nexusWiki,
 } from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
@@ -369,6 +373,61 @@ export class NexusHandler implements DomainHandler {
           return handleImpact(operation, params, startTime);
         }
 
+        // T1116 — Code Intelligence CLI surface (4 verbs)
+        case 'route-map': {
+          const projectId =
+            (params?.projectId as string | undefined) ??
+            Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+          const result = await nexusRouteMap(projectId, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'shape-check': {
+          const routeSymbol = params?.routeSymbol as string;
+          if (!routeSymbol) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'routeSymbol is required',
+              startTime,
+            );
+          }
+          const projectId =
+            (params?.projectId as string | undefined) ??
+            Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+          const result = await nexusShapeCheck(routeSymbol, projectId, projectRoot);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'search-code': {
+          const pattern = params?.pattern as string;
+          if (!pattern) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'pattern is required',
+              startTime,
+            );
+          }
+          const limit = typeof params?.limit === 'number' ? params.limit : 10;
+          const result = await nexusSearchCode(pattern, limit);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'wiki': {
+          const outputDir =
+            (params?.outputDir as string | undefined) ?? `${projectRoot}/.cleo/wiki`;
+          const result = await nexusWiki(outputDir, projectRoot, {
+            communityFilter: params?.communityFilter as string | undefined,
+            incremental: params?.incremental as boolean | undefined,
+          });
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -574,6 +633,11 @@ export class NexusHandler implements DomainHandler {
         'brain-anchors',
         'why',
         'impact-full',
+        // T1116 — Code Intelligence CLI surface
+        'route-map',
+        'shape-check',
+        'search-code',
+        'wiki',
       ],
       mutate: [
         'share.snapshot.export',
