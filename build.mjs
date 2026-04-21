@@ -274,10 +274,32 @@ const cleoBuildOptions = {
   format: 'esm',
   outdir: 'packages/cleo/dist',
   sourcemap: true,
+  // T1138: Keep node:sqlite external (unbundled) so it's always imported
+  // dynamically at runtime (after banner code runs). If bundled, esbuild
+  // converts all dynamic imports to static imports, which fire their warnings
+  // during the ESM loader phase (before any code executes).
+  external: ['node:sqlite'],
   // NOTE: src/cli/index.ts already carries `#!/usr/bin/env node` — esbuild
   // preserves it into dist when `preserveShebang` semantics apply. If shebang
   // was missing, assert-shebang postbuild would fail the build (T929).
-  banner: {},
+  // T1138: SQLite ExperimentalWarning suppression via process.emitWarning override.
+  // Node emits the warning during the ESM module resolution phase. Override
+  // process.emitWarning before node:sqlite is imported (which now happens at
+  // runtime, not during bundling, because we marked it external).
+  banner: {
+    js: `(() => {
+  const _origEmitWarning = process.emitWarning;
+  process.emitWarning = function(warning, type, code, ctor) {
+    if (typeof warning === 'object' && warning.name === 'ExperimentalWarning' && typeof warning.message === 'string' && /SQLite is an experimental feature/i.test(warning.message)) {
+      return;
+    }
+    if (typeof warning === 'string' && /SQLite is an experimental feature/i.test(warning)) {
+      return;
+    }
+    return _origEmitWarning.call(process, warning, type, code, ctor);
+  };
+})();`,
+  },
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),

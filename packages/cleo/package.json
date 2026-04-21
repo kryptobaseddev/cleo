@@ -8,8 +8,8 @@
     ".": "./dist/cli/index.js"
   },
   "bin": {
-    "cleo": "dist/cli/index.js",
-    "ct": "dist/cli/index.js"
+    "cleo": "bin/cleo.js",
+    "ct": "bin/cleo.js"
   },
   "scripts": {
     "build": "tsc",
