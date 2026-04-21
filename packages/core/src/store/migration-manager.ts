@@ -13,9 +13,9 @@
 
 import { copyFileSync, existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { getLogger } from '../logger.js';
 
 /** Required column definition for ensureColumns(). */
@@ -378,6 +378,13 @@ export function reconcileJournal(
       // previously skipped here, leaving them unjournaled and causing Drizzle to re-run
       // them destructively on every init. Delegate to probeAndMarkApplied which handles
       // the RENAME TO pattern and probes the final table name instead of the intermediate.
+      //
+      // NOTE (T1158): This rename+create branch is NOT dead code after the T1126 folder
+      // dedup. It is required for T033 (20260321000000_t033-connection-health) which uses
+      // the SQLite table-rebuild/rename idiom (CREATE TABLE tasks_new → RENAME TO tasks).
+      // Removing it causes T033 to be omitted from the journal on init, Drizzle re-runs
+      // the migration, the tasks table is dropped/recreated without T944 role/scope columns,
+      // and downstream INSERTs fail with "table tasks has no column named role".
       if (alterMatches.length === 0) {
         const renameRe = /ALTER\s+TABLE\s+[`"]?\w+[`"]?\s+RENAME\s+TO\s+[`"]?\w+[`"]?/i;
         const createTableRe = /CREATE\s+TABLE/i;
@@ -516,6 +523,81 @@ export function isDuplicateColumnError(err: unknown): boolean {
 }
 
 /**
+ * Filter whitespace-only statements from drizzle's readMigrationFiles output.
+ *
+ * Guards against malformed migrations that end with a trailing
+ * `--> statement-breakpoint` marker. drizzle-orm splits migration files on
+ * that marker, which means a trailing marker produces an array entry that is
+ * purely whitespace (e.g. `"\n"`). Passing that to `session.run(sql.raw("\n"))`
+ * causes a "Failed to run the query '\n'" crash.
+ *
+ * This function is idempotent: migrations with no whitespace-only statements
+ * pass through unchanged.
+ *
+ * @param migrations - Array returned by readMigrationFiles
+ * @returns A new array where every migration's `.sql` property has been
+ *   filtered to remove entries where `stmt.trim() === ''`.
+ */
+export function sanitizeMigrationStatements(migrations: MigrationMeta[]): MigrationMeta[] {
+  return migrations.map((migration) => ({
+    ...migration,
+    sql: migration.sql.filter((stmt) => stmt.trim() !== ''),
+  }));
+}
+
+/**
+ * Minimal interface for drizzle's synchronous SQLite dialect internals.
+ *
+ * `dialect` and `session` are `@internal` properties on `BaseSQLiteDatabase`
+ * — they exist at runtime but are not surfaced in the public TypeScript type.
+ * We declare only the subset we need here to avoid coupling to drizzle internals
+ * any more than necessary.
+ *
+ * @internal
+ */
+interface DrizzleNodeSQLiteInternals {
+  dialect: {
+    migrate(
+      migrations: MigrationMeta[],
+      // biome-ignore lint/suspicious/noExplicitAny: session type varies per drizzle version — safe to use any here as we only call .migrate()
+      session: any,
+      config: MigrationConfig,
+    ): void;
+  };
+  // biome-ignore lint/suspicious/noExplicitAny: session type varies per drizzle version — opaque passthrough
+  session: any;
+}
+
+/**
+ * Run drizzle migrations after sanitizing whitespace-only SQL statements.
+ *
+ * This is a drop-in replacement for drizzle's `migrate()` from
+ * `drizzle-orm/node-sqlite/migrator`. It reads migration files via
+ * `readMigrationFiles`, filters any empty/whitespace-only statement chunks,
+ * then delegates to `db.dialect.migrate()` directly — bypassing the
+ * re-read that drizzle's `migrate()` would perform internally.
+ *
+ * Use this at every call site instead of drizzle's `migrate()` to defend
+ * against malformed migration files regardless of authoring discipline.
+ *
+ * @param db - Drizzle NodeSQLiteDatabase instance
+ * @param config - Migration config (migrationsFolder required)
+ */
+export function migrateSanitized(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle's NodeSQLiteDatabase is generic — accepting any schema avoids coupling to a specific schema type
+  db: NodeSQLiteDatabase<any>,
+  config: MigrationConfig,
+): void {
+  const raw = readMigrationFiles(config);
+  const sanitized = sanitizeMigrationStatements(raw);
+  // Access drizzle's @internal dialect and session via a typed assertion.
+  // These properties are public at runtime but not surfaced in the TypeScript
+  // type declarations (they are documented as @internal in drizzle-orm source).
+  const dbInternal = db as unknown as DrizzleNodeSQLiteInternals;
+  dbInternal.dialect.migrate(sanitized, dbInternal.session, config);
+}
+
+/**
  * Run Drizzle migrations with SQLITE_BUSY retry and exponential backoff.
  *
  * Also handles "duplicate column name" errors (Scenario 3): if Drizzle tries to
@@ -523,6 +605,9 @@ export function isDuplicateColumnError(err: unknown): boolean {
  * this function calls reconcileJournal again to insert the missing entry and
  * retries migrate() once more. This is the belt-and-suspenders safety net for
  * any partial migration that slips through the proactive reconcileJournal check.
+ *
+ * Uses migrateSanitized internally to filter whitespace-only SQL statements
+ * before they reach drizzle's session.run() (T1159 defense-in-depth).
  *
  * @param db - Drizzle database instance
  * @param migrationsFolder - Path to the drizzle migrations folder
@@ -542,7 +627,7 @@ export function migrateWithRetry(
 
   for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
     try {
-      migrate(db, { migrationsFolder });
+      migrateSanitized(db, { migrationsFolder });
       return;
     } catch (err) {
       // Belt-and-suspenders: if Drizzle hits a duplicate column name error on
