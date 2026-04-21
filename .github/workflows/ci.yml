@@ -144,6 +144,48 @@ jobs:
         # reads it to emit ::error / ::warning inline annotations on PR diffs.
         run: node scripts/lint-migrations.mjs --fail-on=error
 
+  drizzle-kit-check:
+    # T1169: Schema consistency gate — uses drizzle-kit check to verify that
+    # schema files match their corresponding migration snapshots. Catches schema
+    # drift without requiring a full migration run. Initially non-blocking
+    # (continue-on-error: true) while T1165 baseline reset regenerates malformed
+    # snapshots. After T1165 lands, will flip to continue-on-error: false.
+    # See docs/architecture/migrations/schema-consistency.md for details.
+    name: Drizzle Kit Schema Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Run drizzle-kit check on all 5 DB configs
+        id: schema-check
+        run: |
+          {
+            pnpm db:check 2>&1
+          } | tee /tmp/drizzle-output.log
+          exit_code=$?
+          if [ $exit_code -ne 0 ]; then
+            echo "::warning::drizzle-kit check detected schema inconsistencies (currently non-blocking per T1165 baseline reset). See job logs for details."
+          fi
+          exit 0
+
   typecheck:
     name: Type Check
     needs: [biome, changes]
