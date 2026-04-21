@@ -419,6 +419,14 @@ export function reconcileJournal(
         const createTableRe = /CREATE\s+TABLE/i;
         if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
           probeAndMarkApplied(nativeDb, migration, logSubsystem);
+        } else if (createTableRe.test(fullSql)) {
+          // Pure CREATE TABLE migration (no ALTER, no RENAME). Delegate to
+          // probeAndMarkApplied which checks if all CREATE TABLE targets already
+          // exist in the schema and marks the migration applied if so.
+          // This handles signaldock's initial migration (pure schema bootstrap) when
+          // the DB has tables but the journal entry is missing (e.g., after a journal
+          // reset or bare-SQL-to-drizzle migration path upgrade).
+          probeAndMarkApplied(nativeDb, migration, logSubsystem);
         }
         continue;
       }
