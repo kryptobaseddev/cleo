@@ -1506,6 +1506,8 @@ export * from './edge-types.js';
 // === T549 Wave 2: Extraction Gate ===
 export * from './extraction-gate.js';
 export * from './learnings.js';
+// === Manifest Ingestion (T1099) — RCASD + loose files into pipeline_manifest ===
+export * from './manifest-ingestion.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';
 // === BRAIN Quality Feedback Loop (T555) ===
