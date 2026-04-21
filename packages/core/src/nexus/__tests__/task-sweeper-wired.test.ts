@@ -136,8 +136,7 @@ afterEach(() => {
 // Suites (run sequentially to avoid CLEO_HOME mutation racing between tests)
 // ---------------------------------------------------------------------------
 
-// TODO(T1093-followup): Re-enable once task-sweeper post-analyze git-synthetic fixture wiring lands
-describe.skip('task-sweeper post-analyze wiring', { sequential: true }, () => {
+describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
   it('produces task_touches_symbol edges for commits tagged T### in a synthetic git repo', async () => {
     // Arrange: synthetic repo with 3 commits, each tagged T001 / T002 / T003
     const repoDir = join(tmpDir, 'repo');

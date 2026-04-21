@@ -539,8 +539,7 @@ describe('MemoryHandler: mutate diary.write', () => {
 // NexusHandler — top-entries
 // ===========================================================================
 
-// TODO(T1093-followup): Re-enable once T1006 top-entries brain_page_nodes query is implemented
-describe.skip('NexusHandler: query top-entries', () => {
+describe('NexusHandler: query top-entries', () => {
   let handler: NexusHandler;
 
   beforeEach(() => {
