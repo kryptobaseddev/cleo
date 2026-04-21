@@ -1,0 +1,11 @@
+-- BASELINE MARKER — T1165 Hybrid Path A+ (ADR-054).
+-- Schema state for brain captured in snapshot.json. No DDL to apply here.
+-- On fresh installs, the CREATE statements from the canonical tree
+-- (prior migrations in this folder) produce the target schema.
+-- On existing installs, reconcileJournal Scenario 1 will see that
+-- all migrations in this folder are applied and skip this baseline.
+-- Snapshot.json MUST be preserved — it is the anchor for drizzle-kit
+-- generate going forward.
+-- CRITICAL: The prior R3 probe found brain would generate PRAGMA foreign_keys=OFF
+-- if diffed from the stale drizzle/migrations/ scratchpad. Generating against an
+-- empty DB avoids that entirely — this baseline is pure CREATE TABLE (no DDL applied).
