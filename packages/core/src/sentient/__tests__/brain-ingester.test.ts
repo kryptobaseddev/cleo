@@ -26,7 +26,7 @@ function createBrainDb(): DatabaseSync {
     CREATE TABLE brain_observations (
       id TEXT PRIMARY KEY,
       title TEXT,
-      text TEXT NOT NULL DEFAULT '',
+      narrative TEXT,
       type TEXT NOT NULL DEFAULT 'decision',
       citation_count INTEGER NOT NULL DEFAULT 0,
       quality_score REAL NOT NULL DEFAULT 0.5,
