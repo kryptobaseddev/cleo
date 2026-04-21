@@ -15,9 +15,14 @@
  * @epic T1106
  */
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { getColdSymbols, getHotNodes, getHotPaths } from '../query-dsl.js';
+
+/** Skip live-DB tests in CI where no nexus.db is seeded. */
+const hasLiveNexusDb = existsSync(join(process.cwd(), '.cleo', 'nexus.db'));
 
 // ---------------------------------------------------------------------------
 // Live nexus.db integration smoke tests
@@ -160,14 +165,17 @@ describe('getColdSymbols — live nexus.db', () => {
     }
   });
 
-  it('returns non-empty result when live DB has unaccessed symbols', async () => {
-    await getNexusDb();
-    // The live nexus.db has 217k+ relations, nearly all with weight=0 and
-    // last_accessed_at=NULL. With a 0-day threshold we should get results.
-    const result = await getColdSymbols(process.cwd(), 0);
-    // There should be a significant number of cold symbols (all-zero-weight)
-    expect(result.count).toBeGreaterThan(0);
-    // Since last_accessed_at is NULL for most rows, the note should be present
-    expect(result.note).toBeDefined();
-  });
+  it.skipIf(!hasLiveNexusDb)(
+    'returns non-empty result when live DB has unaccessed symbols',
+    async () => {
+      await getNexusDb();
+      // The live nexus.db has 217k+ relations, nearly all with weight=0 and
+      // last_accessed_at=NULL. With a 0-day threshold we should get results.
+      const result = await getColdSymbols(process.cwd(), 0);
+      // There should be a significant number of cold symbols (all-zero-weight)
+      expect(result.count).toBeGreaterThan(0);
+      // Since last_accessed_at is NULL for most rows, the note should be present
+      expect(result.note).toBeDefined();
+    },
+  );
 });

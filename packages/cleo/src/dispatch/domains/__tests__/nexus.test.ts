@@ -983,6 +983,17 @@ describe('NexusHandler', () => {
         'top-entries',
         // T1013 — impact analysis with optional `why` reasons
         'impact',
+        // T1115 — Living Brain primitives
+        'full-context',
+        'task-footprint',
+        'brain-anchors',
+        'why',
+        'impact-full',
+        // T1116 — Code Intelligence CLI surface
+        'route-map',
+        'shape-check',
+        'search-code',
+        'wiki',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',
