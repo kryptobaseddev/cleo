@@ -6,6 +6,32 @@
  */
 
 // ---------------------------------------------------------------------------
+// ExperimentalWarning suppression for node:sqlite (T1138)
+// Node 24 is our minimum (enforced below) and node:sqlite is stable there,
+// but the runtime still emits ExperimentalWarning on every invocation. This
+// pollutes stderr for any consumer capturing 2>&1 (LLM agents, shell
+// pipelines). Swallow ONLY this specific warning — all other warnings
+// (security, real deprecations, etc.) propagate unchanged.
+// ---------------------------------------------------------------------------
+const _origEmit = process.emit.bind(process);
+process.emit = ((name: string | symbol, ...args: unknown[]): boolean => {
+  if (name === 'warning') {
+    const data = args[0] as { name?: string; message?: string } | undefined;
+    if (
+      data &&
+      typeof data === 'object' &&
+      data.name === 'ExperimentalWarning' &&
+      typeof data.message === 'string' &&
+      /SQLite is an experimental feature/i.test(data.message)
+    ) {
+      return false;
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return _origEmit(name as any, ...(args as any[]));
+}) as typeof process.emit;
+
+// ---------------------------------------------------------------------------
 // Node version guard — MUST run before any import that touches node:sqlite.
 // CLEO requires Node >= 24 because packages/core/src/store/llmtxt-blob-adapter.ts
 // imports node:sqlite (DatabaseSync), which only became stable in Node 24.
