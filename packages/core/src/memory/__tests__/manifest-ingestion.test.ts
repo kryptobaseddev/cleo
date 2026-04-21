@@ -9,10 +9,10 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { getDb } from '../../store/sqlite.js';
 import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '../manifest-ingestion.js';
 
