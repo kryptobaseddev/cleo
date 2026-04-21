@@ -134,8 +134,11 @@ const manifestIngestCommand = defineCommand({
       const db = await getDb(projectRoot);
 
       // Determine mode: explicit flags or default to all
-      const ingestRcasd = args.rcasd === true || (args.rcasd !== true && args.loose !== true);
-      const ingestLoose = args.loose === true || (args.rcasd !== true && args.loose !== true);
+      const rcasdFlag = Boolean(args.rcasd);
+      const looseFlag = Boolean(args.loose);
+      // If both are false (defaults), ingest all; otherwise only ingest flagged ones
+      const ingestRcasd = rcasdFlag || (!rcasdFlag && !looseFlag);
+      const ingestLoose = looseFlag || (!rcasdFlag && !looseFlag);
 
       const results = {
         rcasd: null as { ingested: number; skipped: number } | null,
