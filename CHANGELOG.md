@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.106] — 2026-04-21
+
+### T1137 CI Fix-Forward (patch 4 — contract alignment)
+- fix(tests): cli-missing-commands top-entries test updated from E_DB_UNAVAILABLE to graceful empty assertion — aligns with restored T1006 contract where both DBs unavailable returns success=true + empty entries + note
+
 ## [2026.4.105] — 2026-04-21
 
 ### T1137 CI Fix-Forward (patch 3 — registry-handler parity)
