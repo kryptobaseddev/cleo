@@ -15,9 +15,17 @@
  * @epic T4545 (legacy), T760 (attachments)
  */
 
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { CleoError, formatError, getAgentOutputsAbsolute, readJson } from '@cleocode/core/internal';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  CleoError,
+  exportDocument,
+  formatError,
+  getAgentOutputsAbsolute,
+  getProjectRoot,
+  readJson,
+} from '@cleocode/core/internal';
+import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -359,6 +367,99 @@ const generateCommand = defineCommand({
   },
 });
 
+// ── cleo docs export ──────────────────────────────────────────────────────────
+
+/**
+ * cleo docs export — emit a rich Markdown export of a CLEO task.
+ *
+ * Uses {@link exportDocument} (llmtxt-backed) to serialise task frontmatter +
+ * description + acceptance criteria + optionally the attachment manifest
+ * (with content-address backlinks) and BRAIN memory references. The output is
+ * a single self-contained Markdown file suitable for publishing to git.
+ *
+ * @epic T947 (llmtxt v2026.4.9 adoption — this wires the CLI surface the
+ *   earlier T947 worker claimed but never registered).
+ */
+const exportCommand = defineCommand({
+  meta: {
+    name: 'export',
+    description:
+      'Generate a rich Markdown export of a CLEO task (frontmatter + body + attachments + memory refs). ' +
+      'Uses llmtxt/export.formatMarkdown for canonical serialisation. ' +
+      'Use --out <file> to write to disk; omit to print to stdout.',
+  },
+  args: {
+    task: {
+      type: 'string',
+      description: 'Task ID to export (e.g. T947)',
+      required: true,
+    },
+    out: {
+      type: 'string',
+      description: 'Output file path (absolute or relative to project root). Omit for stdout.',
+    },
+    'include-attachments': {
+      type: 'boolean',
+      default: true,
+      description: 'Append attachment manifest section (default: true)',
+    },
+    'include-memory-refs': {
+      type: 'boolean',
+      default: false,
+      description: 'Append BRAIN memory references section (default: false)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit result envelope as JSON instead of markdown (returns {markdown, pages, path?})',
+    },
+  },
+  async run({ args }) {
+    const taskId = String(args.task);
+    const includeAttachments = args['include-attachments'] !== false;
+    const includeMemoryRefs = args['include-memory-refs'] === true;
+    const projectRoot = getProjectRoot();
+
+    try {
+      const result = await exportDocument({
+        taskId,
+        includeAttachments,
+        includeMemoryRefs,
+        projectRoot,
+      });
+
+      let writtenPath: string | undefined;
+      if (typeof args.out === 'string' && args.out.length > 0) {
+        const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
+        await mkdir(dirname(outPath), { recursive: true });
+        await writeFile(outPath, result.markdown, 'utf8');
+        writtenPath = outPath;
+      }
+
+      if (args.json) {
+        cliOutput(
+          { markdown: result.markdown, pages: result.pages, path: writtenPath ?? null },
+          { command: 'docs export', operation: 'docs.export' },
+        );
+      } else {
+        // Human mode: print markdown to stdout, report path to stderr
+        if (writtenPath) {
+          process.stderr.write(`Wrote ${result.pages} page(s) to ${writtenPath}\n`);
+        } else {
+          process.stdout.write(result.markdown);
+          if (!result.markdown.endsWith('\n')) process.stdout.write('\n');
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliOutput(
+        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs export failed: ${message}`)),
+        { command: 'docs export', operation: 'docs.export' },
+      );
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
 // ── Legacy: cleo docs sync ────────────────────────────────────────────────────
 
 /** cleo docs sync — drift detection between scripts and docs index */
@@ -470,6 +571,7 @@ export const docsCommand = defineCommand({
     fetch: fetchCommand,
     remove: removeCommand,
     generate: generateCommand,
+    export: exportCommand,
     sync: syncCommand,
     'gap-check': gapCheckCommand,
   },

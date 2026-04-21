@@ -78,6 +78,9 @@ export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
+// Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
+export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
+export { exportDocument } from './docs/export-document.js';
 export type { PayloadValidationResult } from './hooks/payload-schemas.js';
 export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks
