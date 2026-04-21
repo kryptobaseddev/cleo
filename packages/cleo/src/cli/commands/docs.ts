@@ -17,6 +17,7 @@
 
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { ExitCode } from '@cleocode/contracts';
 import {
   CleoError,
   exportDocument,
@@ -25,7 +26,6 @@ import {
   getProjectRoot,
   readJson,
 } from '@cleocode/core/internal';
-import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -410,7 +410,8 @@ const exportCommand = defineCommand({
     },
     json: {
       type: 'boolean',
-      description: 'Emit result envelope as JSON instead of markdown (returns {markdown, pages, path?})',
+      description:
+        'Emit result envelope as JSON instead of markdown (returns {markdown, pages, path?})',
     },
   },
   async run({ args }) {
