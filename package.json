@@ -30,6 +30,8 @@
     "db:generate:brain": "drizzle-kit generate --config drizzle/brain.config.ts",
     "db:generate:nexus": "drizzle-kit generate --config drizzle/nexus.config.ts",
     "db:generate:custom": "drizzle-kit generate --custom --config drizzle/tasks.config.ts",
+    "db:new": "node scripts/new-migration.mjs",
+    "db:check": "for cfg in drizzle/tasks.config.ts drizzle/brain.config.ts drizzle/nexus.config.ts drizzle/signaldock.config.ts drizzle/telemetry.config.ts; do node_modules/.bin/drizzle-kit check --config=$cfg || exit 1; done",
     "db:studio": "drizzle-kit studio --config drizzle/tasks.config.ts",
     "db:studio:brain": "drizzle-kit studio --config drizzle/brain.config.ts",
     "db:studio:nexus": "drizzle-kit studio --config drizzle/nexus.config.ts",
