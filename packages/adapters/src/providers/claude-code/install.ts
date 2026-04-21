@@ -22,6 +22,10 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import {
+  type InstallHookTemplatesResult,
+  installProviderHookTemplates,
+} from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
@@ -84,6 +88,13 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     const pluginResult = this.registerPlugin();
     if (pluginResult) {
       details.plugin = pluginResult;
+    }
+
+    // Step 4 (T1013): Install PreCompact hook templates + wire the handler
+    // command into ~/.claude/settings.json's `PreCompact` event.
+    const hookResult = this.installHookTemplates();
+    if (hookResult) {
+      details.hookTemplates = hookResult;
     }
 
     return {
@@ -239,5 +250,123 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 
     return `Enabled ${pluginKey} in ~/.claude/settings.json`;
+  }
+
+  /**
+   * Install the CLEO PreCompact hook templates for Claude Code (T1013).
+   *
+   * Writes two files to `~/.claude/hooks/`:
+   * 1. `cleo-precompact-core.sh` — universal CLEO safestop helper (shared
+   *    across all providers; sourced by the provider-specific shim).
+   * 2. `precompact-safestop.sh` — Claude-Code-flavoured wrapper that invokes
+   *    `cleo memory precompact-flush` and `cleo safestop`.
+   *
+   * Also registers a `PreCompact` entry in `~/.claude/settings.json` so Claude
+   * Code runs the hook when auto-compact fires (at 95% context).
+   *
+   * Idempotent: subsequent installs skip unchanged files and do not duplicate
+   * the settings.json hook entry.
+   *
+   * @returns Install summary (paths written + config change description), or
+   *   `null` when no change was required.
+   *
+   * @task T1013
+   */
+  private installHookTemplates(): {
+    templates: InstallHookTemplatesResult;
+    settingsEntryAdded: boolean;
+  } | null {
+    const home = homedir();
+    const hooksDir = join(home, '.claude', 'hooks');
+
+    // 1. Copy the bash templates next to each other so `source $SCRIPT_DIR/...` works.
+    //    Template copy is best-effort so missing/locked filesystems (CI sandboxes,
+    //    mocked `node:fs` in unit tests) don't fail the whole install.
+    let templates: InstallHookTemplatesResult;
+    try {
+      templates = installProviderHookTemplates({
+        provider: 'claude-code',
+        targetDir: hooksDir,
+      });
+    } catch {
+      return null;
+    }
+
+    // 2. Wire the PreCompact event in ~/.claude/settings.json.
+    const settingsEntryAdded = this.registerPreCompactHook(
+      join(hooksDir, 'precompact-safestop.sh'),
+    );
+
+    if (templates.installedFiles.length === 0 && !settingsEntryAdded) {
+      return null;
+    }
+
+    return { templates, settingsEntryAdded };
+  }
+
+  /**
+   * Register the PreCompact hook command in `~/.claude/settings.json`.
+   *
+   * The Claude Code native event name for the canonical `PreCompact` event is
+   * `PreCompact` (identity mapping — see `hook-mappings.json`). The entry is
+   * tagged with `# cleo-hook` so the uninstall flow can identify and remove
+   * our additions without touching user-authored hooks.
+   *
+   * @param shimPath - Absolute path to the installed `precompact-safestop.sh`.
+   * @returns `true` when a new hook entry was written, `false` when an
+   *   equivalent entry was already present.
+   *
+   * @task T1013
+   */
+  private registerPreCompactHook(shimPath: string): boolean {
+    const home = homedir();
+    const settingsPath = join(home, '.claude', 'settings.json');
+
+    let settings: Record<string, unknown> = {};
+    if (existsSync(settingsPath)) {
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      } catch {
+        // Start fresh on corrupt settings — safer than aborting install.
+      }
+    }
+
+    const hooks = (settings.hooks as Record<string, unknown[]> | undefined) ?? {};
+    const preCompactEntries = (hooks.PreCompact as unknown[] | undefined) ?? [];
+
+    const alreadyWired = preCompactEntries.some(
+      (entry) =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        Array.isArray((entry as Record<string, unknown>).hooks) &&
+        ((entry as Record<string, unknown>).hooks as Array<Record<string, unknown>>).some(
+          (h) =>
+            typeof h.command === 'string' &&
+            (h.command as string).includes('# cleo-hook') &&
+            (h.command as string).includes('precompact-safestop.sh'),
+        ),
+    );
+
+    if (alreadyWired) {
+      return false;
+    }
+
+    preCompactEntries.push({
+      matcher: '',
+      hooks: [
+        {
+          type: 'command',
+          command: `"${shimPath}" # cleo-hook`,
+          timeout: 30,
+        },
+      ],
+    });
+
+    hooks.PreCompact = preCompactEntries;
+    settings.hooks = hooks;
+
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    return true;
   }
 }

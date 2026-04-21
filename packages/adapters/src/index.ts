@@ -84,5 +84,16 @@ export {
   OpenCodeInstallProvider,
   OpenCodeSpawnProvider,
 } from './providers/opencode/index.js';
+export type {
+  HookTemplateProviderId,
+  InstallHookTemplatesOptions,
+  InstallHookTemplatesResult,
+} from './providers/shared/hook-template-installer.js';
+// T1013 — shared PreCompact hook template installer (DRY across providers).
+export {
+  getProviderHookTemplatePath,
+  getSharedHookCorePath,
+  installProviderHookTemplates,
+} from './providers/shared/hook-template-installer.js';
 export type { AdapterManifest } from './registry.js';
 export { discoverProviders, getProviderManifests } from './registry.js';

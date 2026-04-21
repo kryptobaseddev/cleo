@@ -150,9 +150,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T1006: memory.digest + memory.recent + memory.diary + memory.watch + nexus.top-entries + check.verify.explain (query) + memory.diary.write (mutate) — +6 query / +1 mutate / +7 total.
     // T1003: memory.backfill.list (query) + memory.backfill.run/approve/rollback (mutate) — +1 query / +3 mutate / +4 total.
     // T1061: nexus.augment (query) — +1 query / +1 total.
-    expect(queryCount).toBe(173);
+    // T1013: nexus.impact (query, new dispatch wiring with optional why flag) — +1 query / +1 total.
+    expect(queryCount).toBe(174);
     expect(mutateCount).toBe(120);
-    expect(OPERATIONS.length).toBe(293);
+    expect(OPERATIONS.length).toBe(294);
   });
 
   it('all operations have valid gateway values', () => {

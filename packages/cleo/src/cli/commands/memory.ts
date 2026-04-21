@@ -2292,6 +2292,449 @@ const tierDemoteCommand = defineCommand({
   },
 });
 
+// ---------------------------------------------------------------------------
+// T1013 — new memory subcommands (T1003 backfill, T1004 precompact-flush,
+// T1006 digest / recent / diary / watch)
+// ---------------------------------------------------------------------------
+
+/**
+ * Factory helper that wraps a `dispatchFromCli` call in a minimal citty
+ * subcommand shell. Extracted to eliminate copy-paste across the new
+ * memory subcommands (T1003/T1004/T1006) per AGENTS.md DRY rules.
+ *
+ * The returned `CommandDef` always accepts a shared `--json` flag; all
+ * other args must be supplied by the caller. The `paramBuilder` maps the
+ * parsed citty args into the dispatch payload.
+ *
+ * @param opts - Subcommand metadata + dispatch wiring.
+ * @returns A citty `CommandDef` ready to drop into `subCommands: { ... }`.
+ *
+ * @internal
+ */
+function makeMemorySubcommand(opts: {
+  /** Subcommand name (e.g. 'digest', 'precompact-flush'). */
+  name: string;
+  /** One-line description surfaced in `--help`. */
+  description: string;
+  /** citty-shaped args record (positional + flags). A `json` bool flag is merged automatically. */
+  args: Record<string, import('citty').ArgDef>;
+  /** 'query' (read-only) or 'mutate' (side-effecting) gateway. */
+  gateway: 'query' | 'mutate';
+  /** Dispatch operation under the `memory` domain (e.g. 'digest', 'backfill.run'). */
+  operation: string;
+  /** Output render options — command + fully-qualified operation label. */
+  output: { command: string; operation: string };
+  /** Build the dispatch params from the parsed citty args. */
+  paramBuilder: (args: Record<string, unknown>) => Record<string, unknown>;
+}): import('citty').CommandDef {
+  // Merge in a shared --json flag so every subcommand supports JSON output
+  // without duplicating the boilerplate arg at every definition site.
+  const mergedArgs: Record<string, import('citty').ArgDef> = {
+    ...opts.args,
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  };
+
+  return defineCommand({
+    meta: { name: opts.name, description: opts.description },
+    args: mergedArgs,
+    async run({ args }) {
+      const params = opts.paramBuilder(args as Record<string, unknown>);
+      await dispatchFromCli(opts.gateway, 'memory', opts.operation, params, opts.output);
+    },
+  });
+}
+
+/**
+ * cleo memory precompact-flush — T1004.
+ *
+ * Thin wrapper around `precompactFlush()` that unblocks the bash-shim
+ * `precompact-safestop.sh` hook path. This is the CRITICAL runtime bug
+ * fix called out in T1013: without this command, the shim's
+ * `cleo memory precompact-flush` invocation resolves to E_NO_HANDLER.
+ */
+const precompactFlushCommand = makeMemorySubcommand({
+  name: 'precompact-flush',
+  description:
+    'Flush in-flight observations to brain.db and checkpoint the SQLite WAL before context compaction (T1004).',
+  args: {},
+  gateway: 'mutate',
+  operation: 'precompact-flush',
+  output: { command: 'memory-precompact-flush', operation: 'memory.precompact-flush' },
+  paramBuilder: () => ({}),
+});
+
+/**
+ * cleo memory backfill run — T1003.
+ *
+ * Stage a new brain-graph backfill run. Rows are written to a staging
+ * manifest pending approval via `cleo memory backfill approve <runId>`.
+ */
+const backfillRunCommand = makeMemorySubcommand({
+  name: 'run',
+  description:
+    'Stage a brain-graph backfill run (pending approval). Pass --source to tag the run with a human-readable descriptor.',
+  args: {
+    source: {
+      type: 'string',
+      description:
+        'Human-readable descriptor for the backfill source (file path, session ID, etc).',
+    },
+    kind: {
+      type: 'string',
+      description: "Backfill kind (default: 'graph-backfill').",
+    },
+    'target-table': {
+      type: 'string',
+      description: "Target table (default: 'brain_page_nodes').",
+    },
+  },
+  gateway: 'mutate',
+  operation: 'backfill.run',
+  output: { command: 'memory-backfill-run', operation: 'memory.backfill.run' },
+  paramBuilder: (args) => ({
+    ...(args['source'] !== undefined && { source: args['source'] as string }),
+    ...(args['kind'] !== undefined && { kind: args['kind'] as string }),
+    ...(args['target-table'] !== undefined && { targetTable: args['target-table'] as string }),
+  }),
+});
+
+/**
+ * cleo memory backfill approve <runId> — T1003.
+ *
+ * Promote a staged backfill run to committed state. Idempotent: a run that
+ * has already been approved returns `alreadySettled: true` without error.
+ */
+const backfillApproveCommand = makeMemorySubcommand({
+  name: 'approve',
+  description:
+    'Approve a staged backfill run (commits rows to brain_page_nodes). Idempotent — re-approval returns alreadySettled=true.',
+  args: {
+    runId: {
+      type: 'positional',
+      description: 'Backfill run ID to approve',
+      required: true,
+    },
+    'approved-by': {
+      type: 'string',
+      description: "Identity of the approver (default: 'cli').",
+    },
+  },
+  gateway: 'mutate',
+  operation: 'backfill.approve',
+  output: { command: 'memory-backfill-approve', operation: 'memory.backfill.approve' },
+  paramBuilder: (args) => ({
+    runId: args['runId'] as string,
+    ...(args['approved-by'] !== undefined && { approvedBy: args['approved-by'] as string }),
+  }),
+});
+
+/**
+ * cleo memory backfill rollback <runId> — T1003.
+ *
+ * Roll back a previously-staged or committed backfill run. Staged rows are
+ * dropped in-place; committed rows are deleted from the live graph tables.
+ */
+const backfillRollbackCommand = makeMemorySubcommand({
+  name: 'rollback',
+  description:
+    'Rollback a staged or committed backfill run. Removes any rows written to brain_page_nodes.',
+  args: {
+    runId: {
+      type: 'positional',
+      description: 'Backfill run ID to rollback',
+      required: true,
+    },
+  },
+  gateway: 'mutate',
+  operation: 'backfill.rollback',
+  output: { command: 'memory-backfill-rollback', operation: 'memory.backfill.rollback' },
+  paramBuilder: (args) => ({
+    runId: args['runId'] as string,
+  }),
+});
+
+/**
+ * cleo memory backfill — group command hosting run / approve / rollback (T1003).
+ */
+const backfillCommand = defineCommand({
+  meta: {
+    name: 'backfill',
+    description: 'Staged brain-graph backfill operations: run, approve, rollback (T1003).',
+  },
+  subCommands: {
+    run: backfillRunCommand,
+    approve: backfillApproveCommand,
+    rollback: backfillRollbackCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await showUsage(cmd);
+  },
+});
+
+/**
+ * cleo memory digest — T1006.
+ *
+ * Summarized top-N observations as a session-briefing digest. Wraps the
+ * `memory.digest` dispatch operation which sorts by citation_count +
+ * quality_score DESC.
+ */
+const digestCommand = makeMemorySubcommand({
+  name: 'digest',
+  description:
+    'Summarized top-N brain observations for session briefing (T1006). Sorted by citation_count + quality_score.',
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of observations to include (default: 10).',
+    },
+  },
+  gateway: 'query',
+  operation: 'digest',
+  output: { command: 'memory-digest', operation: 'memory.digest' },
+  paramBuilder: (args) => ({
+    ...(args['limit'] !== undefined && { limit: parseInt(args['limit'] as string, 10) }),
+  }),
+});
+
+/**
+ * cleo memory recent — T1006.
+ *
+ * Tail recent observations with optional type / session / tier filters.
+ * Supports a compact `since` syntax (`24h`, `7d`, `30m`, or ISO timestamp).
+ */
+const recentCommand = makeMemorySubcommand({
+  name: 'recent',
+  description:
+    'Tail recent brain observations with optional filters (T1006). --since accepts 30m / 24h / 7d or an ISO timestamp.',
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of observations to return (default: 20).',
+    },
+    type: {
+      type: 'string',
+      description:
+        'Filter by observation type (discovery, decision, bugfix, refactor, feature, change, pattern, diary, session_summary).',
+    },
+    since: {
+      type: 'string',
+      description: 'Duration (e.g. 24h, 7d, 30m) or ISO timestamp lower bound.',
+    },
+    session: {
+      type: 'string',
+      description: 'Filter by source session ID.',
+    },
+    tier: {
+      type: 'string',
+      description: "Filter by memory tier ('short', 'medium', 'long').",
+    },
+  },
+  gateway: 'query',
+  operation: 'recent',
+  output: { command: 'memory-recent', operation: 'memory.recent' },
+  paramBuilder: (args) => ({
+    ...(args['limit'] !== undefined && { limit: parseInt(args['limit'] as string, 10) }),
+    ...(args['type'] !== undefined && { type: args['type'] as string }),
+    ...(args['since'] !== undefined && { since: args['since'] as string }),
+    ...(args['session'] !== undefined && { session: args['session'] as string }),
+    ...(args['tier'] !== undefined && { tier: args['tier'] as string }),
+  }),
+});
+
+/**
+ * cleo memory diary read — T1006.
+ *
+ * Read recent diary-typed observations. Requires the `diary` enum value
+ * shipped by T1005 (already in main).
+ */
+const diaryReadCommand = makeMemorySubcommand({
+  name: 'read',
+  description: 'Read recent diary-typed observations (T1006).',
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of diary entries to return (default: 20).',
+    },
+  },
+  gateway: 'query',
+  operation: 'diary',
+  output: { command: 'memory-diary-read', operation: 'memory.diary' },
+  paramBuilder: (args) => ({
+    ...(args['limit'] !== undefined && { limit: parseInt(args['limit'] as string, 10) }),
+  }),
+});
+
+/**
+ * cleo memory diary write <text> — T1006.
+ *
+ * Write a diary-typed observation (thin wrapper around `memory.diary.write`
+ * which delegates to `memoryObserve` with `type: 'diary'`).
+ */
+const diaryWriteCommand = makeMemorySubcommand({
+  name: 'write',
+  description: 'Write a diary-typed observation to brain.db (T1006).',
+  args: {
+    text: {
+      type: 'positional',
+      description: 'Diary entry text',
+      required: true,
+    },
+    title: {
+      type: 'string',
+      description: 'Optional diary entry title (defaults to first 120 chars of text).',
+    },
+    agent: {
+      type: 'string',
+      description: 'Optional agent provenance (e.g. cleo-prime, historian).',
+    },
+  },
+  gateway: 'mutate',
+  operation: 'diary.write',
+  output: { command: 'memory-diary-write', operation: 'memory.diary.write' },
+  paramBuilder: (args) => ({
+    text: args['text'] as string,
+    ...(args['title'] !== undefined && { title: args['title'] as string }),
+    ...(args['agent'] !== undefined && { agent: args['agent'] as string }),
+  }),
+});
+
+/**
+ * cleo memory diary — group command hosting read / write subcommands (T1006).
+ */
+const diaryCommand = defineCommand({
+  meta: {
+    name: 'diary',
+    description: 'Read or write diary-typed brain observations (T1006).',
+  },
+  subCommands: {
+    read: diaryReadCommand,
+    write: diaryWriteCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await showUsage(cmd);
+  },
+});
+
+/**
+ * cleo memory watch — T1006.
+ *
+ * Long-poll stream of recent brain writes. Without `--follow` the command
+ * returns a single batch and exits. With `--follow`, it polls the
+ * dispatch `memory.watch` operation using the returned cursor until
+ * stdout closes or SIGINT. Each event is emitted as an SSE-style
+ * `data: <json>\n\n` line so that downstream consumers can pipe into
+ * EventSource-compatible clients.
+ */
+const watchCommand = defineCommand({
+  meta: {
+    name: 'watch',
+    description:
+      'Long-poll stream of recent brain writes. Use --follow to stream continuously as SSE-style events.',
+  },
+  args: {
+    cursor: {
+      type: 'string',
+      description: 'Resume cursor (created_at lower bound) from a previous watch call.',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum events per poll (default: 10).',
+    },
+    follow: {
+      type: 'boolean',
+      description: 'Stream continuously; polls every --interval ms until interrupted.',
+    },
+    interval: {
+      type: 'string',
+      description: 'Poll interval in milliseconds when --follow is set (default: 1000).',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON (non-follow mode only).',
+    },
+  },
+  async run({ args }) {
+    const buildParams = (cursor: string | undefined): Record<string, unknown> => ({
+      ...(cursor !== undefined && { cursor }),
+      ...(args.limit !== undefined && { limit: parseInt(args.limit as string, 10) }),
+    });
+
+    // Non-follow mode: single dispatch → normal LAFS output.
+    if (!args.follow) {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'watch',
+        buildParams(args.cursor as string | undefined),
+        { command: 'memory-watch', operation: 'memory.watch' },
+      );
+      return;
+    }
+
+    // Follow mode: SSE-style stdout stream. Emit a `ping` event, then poll
+    // `memory.watch` every interval, emitting each event as
+    // `event: observation\ndata: <json>\n\n`. Graceful shutdown on SIGINT.
+    const intervalMs = args.interval !== undefined ? parseInt(args.interval as string, 10) : 1000;
+    let cursor = args.cursor as string | undefined;
+    let running = true;
+
+    const onSignal = (): void => {
+      running = false;
+    };
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+
+    // Initial ping so downstream EventSource-like clients see the stream open.
+    process.stdout.write(
+      `event: ping\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`,
+    );
+
+    while (running) {
+      const response = await dispatchRaw('query', 'memory', 'watch', buildParams(cursor));
+      if (!response.success) {
+        handleRawError(response, { command: 'memory-watch', operation: 'memory.watch' });
+        return; // handleRawError calls process.exit on failure
+      }
+
+      const data = response.data as {
+        events?: Array<{ created_at?: string } & Record<string, unknown>>;
+        nextCursor?: string | null;
+      };
+
+      const events = data.events ?? [];
+      for (const event of events) {
+        process.stdout.write(`event: observation\ndata: ${JSON.stringify(event)}\n\n`);
+      }
+
+      if (typeof data.nextCursor === 'string') {
+        cursor = data.nextCursor;
+      }
+
+      if (!running) break;
+
+      // Fixed-interval sleep between polls. Resolves early on SIGINT because
+      // `running` is re-checked on the next loop pass.
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, intervalMs);
+        // Allow the process to exit cleanly even if the timer is outstanding.
+        timer.unref?.();
+      });
+    }
+
+    // Graceful stream close marker.
+    process.stdout.write(
+      `event: close\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`,
+    );
+  },
+});
+
 /** cleo memory tier — memory tier management (stats, promote, demote) (T744) */
 const tierCommand = defineCommand({
   meta: { name: 'tier', description: 'Memory tier management: stats, promote, demote' },
@@ -2347,6 +2790,13 @@ export const memoryCommand = defineCommand({
     verify: verifyCommand,
     'pending-verify': pendingVerifyCommand,
     tier: tierCommand,
+    // T1013 — new memory subcommands
+    'precompact-flush': precompactFlushCommand,
+    backfill: backfillCommand,
+    digest: digestCommand,
+    recent: recentCommand,
+    diary: diaryCommand,
+    watch: watchCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
