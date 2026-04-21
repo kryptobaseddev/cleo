@@ -1,45 +1,33 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "5c01d08d-3186-4dc7-a8f2-f936574c4456",
+  "id": "81ff1c9a-7852-4840-b836-e9b90579b532",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
-      "name": "brain_decisions",
+      "name": "nexus_audit_log",
       "entityType": "tables"
     },
     {
-      "name": "brain_learnings",
+      "name": "nexus_contracts",
       "entityType": "tables"
     },
     {
-      "name": "brain_memory_links",
+      "name": "nexus_nodes",
       "entityType": "tables"
     },
     {
-      "name": "brain_observations",
+      "name": "nexus_relations",
       "entityType": "tables"
     },
     {
-      "name": "brain_page_edges",
+      "name": "nexus_schema_meta",
       "entityType": "tables"
     },
     {
-      "name": "brain_page_nodes",
-      "entityType": "tables"
-    },
-    {
-      "name": "brain_patterns",
-      "entityType": "tables"
-    },
-    {
-      "name": "brain_schema_meta",
-      "entityType": "tables"
-    },
-    {
-      "name": "brain_sticky_notes",
+      "name": "project_registry",
       "entityType": "tables"
     },
     {
@@ -50,97 +38,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "type",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "decision",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "rationale",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "confidence",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "outcome",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "alternatives_json",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "context_epic_id",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "context_task_id",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "context_phase",
-      "entityType": "columns",
-      "table": "brain_decisions"
+      "table": "nexus_audit_log"
     },
     {
       "type": "text",
@@ -148,29 +46,9 @@
       "autoincrement": false,
       "default": "(datetime('now'))",
       "generated": null,
-      "name": "created_at",
+      "name": "timestamp",
       "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "brain_decisions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
     },
     {
       "type": "text",
@@ -178,39 +56,119 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "insight",
+      "name": "action",
       "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
     },
     {
       "type": "text",
-      "notNull": true,
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_hash",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "domain",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "operation",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "source",
       "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
     },
     {
-      "type": "real",
-      "notNull": true,
+      "type": "text",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "confidence",
+      "name": "gateway",
       "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
     },
     {
       "type": "integer",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
-      "default": "false",
+      "default": null,
       "generated": null,
-      "name": "actionable",
+      "name": "success",
       "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duration_ms",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "details_json",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
     },
     {
       "type": "text",
@@ -218,9 +176,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "application",
+      "name": "error_message",
       "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_audit_log"
     },
     {
       "type": "text",
@@ -228,29 +186,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "applicable_types_json",
+      "name": "contract_id",
       "entityType": "columns",
-      "table": "brain_learnings"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "(datetime('now'))",
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "brain_learnings"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "brain_learnings"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -258,59 +196,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "memory_type",
+      "name": "project_id",
       "entityType": "columns",
-      "table": "brain_memory_links"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "memory_id",
-      "entityType": "columns",
-      "table": "brain_memory_links"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "task_id",
-      "entityType": "columns",
-      "table": "brain_memory_links"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "link_type",
-      "entityType": "columns",
-      "table": "brain_memory_links"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "(datetime('now'))",
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "brain_memory_links"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -320,7 +208,7 @@
       "generated": null,
       "name": "type",
       "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -328,9 +216,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "title",
+      "name": "path",
       "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -338,89 +226,29 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "subtitle",
+      "name": "method",
       "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "narrative",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "facts_json",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "concepts_json",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "project",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "files_read_json",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "files_modified_json",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "source_session_id",
-      "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": "'agent'",
+      "default": "'{}'",
       "generated": null,
-      "name": "source_type",
+      "name": "request_schema_json",
       "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "response_schema_json",
+      "entityType": "columns",
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -428,29 +256,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "content_hash",
+      "name": "source_symbol_id",
       "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "discovery_tokens",
-      "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "(datetime('now'))",
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -458,49 +266,29 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "updated_at",
+      "name": "route_node_id",
       "entityType": "columns",
-      "table": "brain_observations"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "from_id",
-      "entityType": "columns",
-      "table": "brain_page_edges"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "to_id",
-      "entityType": "columns",
-      "table": "brain_page_edges"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "edge_type",
-      "entityType": "columns",
-      "table": "brain_page_edges"
+      "table": "nexus_contracts"
     },
     {
       "type": "real",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": "1",
       "generated": null,
-      "name": "weight",
+      "name": "confidence",
       "entityType": "columns",
-      "table": "brain_page_edges"
+      "table": "nexus_contracts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -510,7 +298,17 @@
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
-      "table": "brain_page_edges"
+      "table": "nexus_contracts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "nexus_contracts"
     },
     {
       "type": "text",
@@ -520,7 +318,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
     },
     {
       "type": "text",
@@ -528,9 +326,19 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "node_type",
+      "name": "project_id",
       "entityType": "columns",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "nexus_nodes"
     },
     {
       "type": "text",
@@ -540,7 +348,7 @@
       "generated": null,
       "name": "label",
       "entityType": "columns",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
     },
     {
       "type": "text",
@@ -548,9 +356,129 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "metadata_json",
+      "name": "name",
       "entityType": "columns",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "file_path",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "start_line",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "end_line",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "language",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "is_exported",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_id",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parameters_json",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "return_type",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "doc_summary",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "community_id",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "meta_json",
+      "entityType": "columns",
+      "table": "nexus_nodes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "is_external",
+      "entityType": "columns",
+      "table": "nexus_nodes"
     },
     {
       "type": "text",
@@ -558,9 +486,9 @@
       "autoincrement": false,
       "default": "(datetime('now'))",
       "generated": null,
-      "name": "created_at",
+      "name": "indexed_at",
       "entityType": "columns",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
     },
     {
       "type": "text",
@@ -570,7 +498,37 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "table": "nexus_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_id",
+      "entityType": "columns",
+      "table": "nexus_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "target_id",
+      "entityType": "columns",
+      "table": "nexus_relations"
     },
     {
       "type": "text",
@@ -580,47 +538,17 @@
       "generated": null,
       "name": "type",
       "entityType": "columns",
-      "table": "brain_patterns"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "pattern",
-      "entityType": "columns",
-      "table": "brain_patterns"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "context",
-      "entityType": "columns",
-      "table": "brain_patterns"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "1",
-      "generated": null,
-      "name": "frequency",
-      "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "type": "real",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "success_rate",
+      "name": "confidence",
       "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "type": "text",
@@ -628,39 +556,19 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "impact",
+      "name": "reason",
       "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "anti_pattern",
+      "name": "step",
       "entityType": "columns",
-      "table": "brain_patterns"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "mitigation",
-      "entityType": "columns",
-      "table": "brain_patterns"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": "'[]'",
-      "generated": null,
-      "name": "examples_json",
-      "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "type": "text",
@@ -668,9 +576,19 @@
       "autoincrement": false,
       "default": "(datetime('now'))",
       "generated": null,
-      "name": "extracted_at",
+      "name": "indexed_at",
       "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "weight",
+      "entityType": "columns",
+      "table": "nexus_relations"
     },
     {
       "type": "text",
@@ -678,9 +596,19 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "updated_at",
+      "name": "last_accessed_at",
       "entityType": "columns",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "co_accessed_count",
+      "entityType": "columns",
+      "table": "nexus_relations"
     },
     {
       "type": "text",
@@ -690,7 +618,7 @@
       "generated": null,
       "name": "key",
       "entityType": "columns",
-      "table": "brain_schema_meta"
+      "table": "nexus_schema_meta"
     },
     {
       "type": "text",
@@ -700,7 +628,7 @@
       "generated": null,
       "name": "value",
       "entityType": "columns",
-      "table": "brain_schema_meta"
+      "table": "nexus_schema_meta"
     },
     {
       "type": "text",
@@ -708,9 +636,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "id",
+      "name": "project_id",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
     },
     {
       "type": "text",
@@ -718,9 +646,29 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "content",
+      "name": "project_hash",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_path",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "project_registry"
     },
     {
       "type": "text",
@@ -728,39 +676,29 @@
       "autoincrement": false,
       "default": "(datetime('now'))",
       "generated": null,
-      "name": "created_at",
+      "name": "registered_at",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "brain_sticky_notes"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "tags_json",
-      "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
     },
     {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": "'active'",
+      "default": "(datetime('now'))",
       "generated": null,
-      "name": "status",
+      "name": "last_seen",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'unknown'",
+      "generated": null,
+      "name": "health_status",
+      "entityType": "columns",
+      "table": "project_registry"
     },
     {
       "type": "text",
@@ -768,9 +706,49 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "converted_to_json",
+      "name": "health_last_check",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'read'",
+      "generated": null,
+      "name": "permissions",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "last_sync",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "task_count",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "labels_json",
+      "entityType": "columns",
+      "table": "project_registry"
     },
     {
       "type": "text",
@@ -778,9 +756,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "color",
+      "name": "brain_db_path",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
     },
     {
       "type": "text",
@@ -788,50 +766,46 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "priority",
+      "name": "tasks_db_path",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
     },
     {
       "type": "text",
       "notNull": false,
       "autoincrement": false,
-      "default": "'sticky-note'",
+      "default": null,
       "generated": null,
-      "name": "source_type",
+      "name": "last_indexed",
       "entityType": "columns",
-      "table": "brain_sticky_notes"
+      "table": "project_registry"
     },
     {
-      "columns": [
-        "memory_type",
-        "memory_id",
-        "task_id",
-        "link_type"
-      ],
-      "nameExplicit": false,
-      "name": "brain_memory_links_pk",
-      "entityType": "pks",
-      "table": "brain_memory_links"
-    },
-    {
-      "columns": [
-        "from_id",
-        "to_id",
-        "edge_type"
-      ],
-      "nameExplicit": false,
-      "name": "brain_page_edges_pk",
-      "entityType": "pks",
-      "table": "brain_page_edges"
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "stats_json",
+      "entityType": "columns",
+      "table": "project_registry"
     },
     {
       "columns": [
         "id"
       ],
       "nameExplicit": false,
-      "name": "brain_decisions_pk",
-      "table": "brain_decisions",
+      "name": "nexus_audit_log_pk",
+      "table": "nexus_audit_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "contract_id"
+      ],
+      "nameExplicit": false,
+      "name": "nexus_contracts_pk",
+      "table": "nexus_contracts",
       "entityType": "pks"
     },
     {
@@ -839,8 +813,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "brain_learnings_pk",
-      "table": "brain_learnings",
+      "name": "nexus_nodes_pk",
+      "table": "nexus_nodes",
       "entityType": "pks"
     },
     {
@@ -848,26 +822,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "brain_observations_pk",
-      "table": "brain_observations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "brain_page_nodes_pk",
-      "table": "brain_page_nodes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "brain_patterns_pk",
-      "table": "brain_patterns",
+      "name": "nexus_relations_pk",
+      "table": "nexus_relations",
       "entityType": "pks"
     },
     {
@@ -875,18 +831,102 @@
         "key"
       ],
       "nameExplicit": false,
-      "name": "brain_schema_meta_pk",
-      "table": "brain_schema_meta",
+      "name": "nexus_schema_meta_pk",
+      "table": "nexus_schema_meta",
       "entityType": "pks"
     },
     {
       "columns": [
-        "id"
+        "project_id"
       ],
       "nameExplicit": false,
-      "name": "brain_sticky_notes_pk",
-      "table": "brain_sticky_notes",
+      "name": "project_registry_pk",
+      "table": "project_registry",
       "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_timestamp",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "action",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_action",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_project_hash",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_project_id",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_session",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_contracts_project",
+      "entityType": "indexes",
+      "table": "nexus_contracts"
     },
     {
       "columns": [
@@ -898,129 +938,45 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_decisions_type",
+      "name": "idx_nexus_contracts_type",
       "entityType": "indexes",
-      "table": "brain_decisions"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
         {
-          "value": "confidence",
+          "value": "path",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_decisions_confidence",
+      "name": "idx_nexus_contracts_path",
       "entityType": "indexes",
-      "table": "brain_decisions"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
         {
-          "value": "outcome",
+          "value": "method",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_decisions_outcome",
+      "name": "idx_nexus_contracts_method",
       "entityType": "indexes",
-      "table": "brain_decisions"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
         {
-          "value": "context_epic_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_decisions_context_epic",
-      "entityType": "indexes",
-      "table": "brain_decisions"
-    },
-    {
-      "columns": [
-        {
-          "value": "context_task_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_decisions_context_task",
-      "entityType": "indexes",
-      "table": "brain_decisions"
-    },
-    {
-      "columns": [
-        {
-          "value": "confidence",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_learnings_confidence",
-      "entityType": "indexes",
-      "table": "brain_learnings"
-    },
-    {
-      "columns": [
-        {
-          "value": "actionable",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_learnings_actionable",
-      "entityType": "indexes",
-      "table": "brain_learnings"
-    },
-    {
-      "columns": [
-        {
-          "value": "task_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_links_task",
-      "entityType": "indexes",
-      "table": "brain_memory_links"
-    },
-    {
-      "columns": [
-        {
-          "value": "memory_type",
+          "value": "project_id",
           "isExpression": false
         },
         {
-          "value": "memory_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "idx_brain_links_memory",
-      "entityType": "indexes",
-      "table": "brain_memory_links"
-    },
-    {
-      "columns": [
-        {
           "value": "type",
           "isExpression": false
         }
@@ -1028,23 +984,23 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_type",
+      "name": "idx_nexus_contracts_project_type",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
         {
-          "value": "project",
+          "value": "source_symbol_id",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_project",
+      "name": "idx_nexus_contracts_source_symbol",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
@@ -1056,93 +1012,199 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_created_at",
+      "name": "idx_nexus_contracts_created",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_contracts"
     },
     {
       "columns": [
         {
-          "value": "source_type",
+          "value": "project_id",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_source_type",
+      "name": "idx_nexus_nodes_project",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_nodes"
     },
     {
       "columns": [
         {
-          "value": "source_session_id",
+          "value": "kind",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_source_session",
+      "name": "idx_nexus_nodes_kind",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_nodes"
     },
     {
       "columns": [
         {
-          "value": "content_hash",
+          "value": "file_path",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_observations_content_hash",
+      "name": "idx_nexus_nodes_file",
       "entityType": "indexes",
-      "table": "brain_observations"
+      "table": "nexus_nodes"
     },
     {
       "columns": [
         {
-          "value": "from_id",
+          "value": "name",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_edges_from",
+      "name": "idx_nexus_nodes_name",
       "entityType": "indexes",
-      "table": "brain_page_edges"
+      "table": "nexus_nodes"
     },
     {
       "columns": [
         {
-          "value": "to_id",
+          "value": "project_id",
+          "isExpression": false
+        },
+        {
+          "value": "kind",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_edges_to",
+      "name": "idx_nexus_nodes_project_kind",
       "entityType": "indexes",
-      "table": "brain_page_edges"
+      "table": "nexus_nodes"
     },
     {
       "columns": [
         {
-          "value": "node_type",
+          "value": "project_id",
+          "isExpression": false
+        },
+        {
+          "value": "file_path",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_nodes_type",
+      "name": "idx_nexus_nodes_project_file",
       "entityType": "indexes",
-      "table": "brain_page_nodes"
+      "table": "nexus_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "community_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_nodes_community",
+      "entityType": "indexes",
+      "table": "nexus_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "parent_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_nodes_parent",
+      "entityType": "indexes",
+      "table": "nexus_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "is_exported",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_nodes_exported",
+      "entityType": "indexes",
+      "table": "nexus_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "is_external",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_nodes_is_external",
+      "entityType": "indexes",
+      "table": "nexus_nodes"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_relations_project",
+      "entityType": "indexes",
+      "table": "nexus_relations"
+    },
+    {
+      "columns": [
+        {
+          "value": "source_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_relations_source",
+      "entityType": "indexes",
+      "table": "nexus_relations"
+    },
+    {
+      "columns": [
+        {
+          "value": "target_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_relations_target",
+      "entityType": "indexes",
+      "table": "nexus_relations"
     },
     {
       "columns": [
@@ -1154,79 +1216,156 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_patterns_type",
+      "name": "idx_nexus_relations_type",
       "entityType": "indexes",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "columns": [
         {
-          "value": "impact",
+          "value": "project_id",
+          "isExpression": false
+        },
+        {
+          "value": "type",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_patterns_impact",
+      "name": "idx_nexus_relations_project_type",
       "entityType": "indexes",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "columns": [
         {
-          "value": "frequency",
+          "value": "source_id",
+          "isExpression": false
+        },
+        {
+          "value": "type",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_patterns_frequency",
+      "name": "idx_nexus_relations_source_type",
       "entityType": "indexes",
-      "table": "brain_patterns"
+      "table": "nexus_relations"
     },
     {
       "columns": [
         {
-          "value": "status",
+          "value": "target_id",
+          "isExpression": false
+        },
+        {
+          "value": "type",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_sticky_status",
+      "name": "idx_nexus_relations_target_type",
       "entityType": "indexes",
-      "table": "brain_sticky_notes"
+      "table": "nexus_relations"
     },
     {
       "columns": [
         {
-          "value": "created_at",
+          "value": "confidence",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_sticky_created",
+      "name": "idx_nexus_relations_confidence",
       "entityType": "indexes",
-      "table": "brain_sticky_notes"
+      "table": "nexus_relations"
     },
     {
       "columns": [
         {
-          "value": "tags_json",
+          "value": "last_accessed_at",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_brain_sticky_tags",
+      "name": "idx_nexus_relations_last_accessed",
       "entityType": "indexes",
-      "table": "brain_sticky_notes"
+      "table": "nexus_relations"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_hash",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "health_status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_health",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_name",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "last_indexed",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_last_indexed",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        "project_path"
+      ],
+      "nameExplicit": false,
+      "name": "project_registry_project_path_unique",
+      "entityType": "uniques",
+      "table": "project_registry"
     }
   ],
   "renames": []
