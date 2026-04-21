@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.104] — 2026-04-21
+
+### T1137 CI Fix-Forward (patch 2 — test parity)
+- fix(tests): update nexus getSupportedOperations assertion to include T1115/T1116 operations (full-context, task-footprint, brain-anchors, why, impact-full, route-map, shape-check, search-code, wiki)
+- fix(tests): guard plasticity cold-symbols live-DB test with skipIf(!hasLiveNexusDb) — CI runners have no seeded nexus.db
+
 ## [2026.4.103] — 2026-04-21
 
 ### T1137 CI Fix-Forward
