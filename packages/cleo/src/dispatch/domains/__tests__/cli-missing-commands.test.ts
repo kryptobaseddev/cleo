@@ -607,12 +607,18 @@ describe('NexusHandler: query top-entries', () => {
     expect(data.nodeType).toBe('symbol');
   });
 
-  it('returns E_DB_UNAVAILABLE when brain.db is not available', async () => {
+  it('returns graceful empty result with note when no DB is available', async () => {
+    // When both brain.db and nexus.db are unavailable, top-entries returns
+    // success=true with empty entries and an informational note — this restores
+    // the original T1006 contract verified by nexus-cli-new.test.ts.
     mockGetBrainNativeDb.mockReturnValue(null);
 
     const result = await handler.query('top-entries', {});
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_DB_UNAVAILABLE');
+    expect(result.success).toBe(true);
+    const data = result.data as { entries: unknown[]; count: number; note: string };
+    expect(Array.isArray(data.entries)).toBe(true);
+    expect(data.count).toBe(0);
+    expect(typeof data.note).toBe('string');
   });
 });
 
