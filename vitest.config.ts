@@ -66,6 +66,8 @@ export default defineConfig({
       'packages/*/tests/**/*.test.ts',
       // skills package uses skills/ instead of src/
       'packages/skills/skills/**/__tests__/*.test.ts',
+      // scripts unit tests (new-migration post-processing, lint-migrations logic)
+      'scripts/__tests__/*.test.mjs',
     ],
     exclude: [
       'node_modules',
