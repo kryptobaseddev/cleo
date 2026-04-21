@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.107] — 2026-04-21
+
+### T1138 — node:sqlite ExperimentalWarning Suppression
+- feat: wrapper script at packages/cleo/bin/cleo.js invokes CLI with --disable-warning=ExperimentalWarning (PR #100 cceaa6cec)
+- The warning fires during ESM module resolution before any JS can run, so in-process filters don't work. Wrapper approach is the Node-native fix.
+- Result: `cleo --version 2>&1` contains no ExperimentalWarning line. LLM agents + shell pipelines get clean stderr.
+
 ## [2026.4.106] — 2026-04-21
 
 ### T1137 CI Fix-Forward (patch 4 — contract alignment)
