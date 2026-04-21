@@ -1,0 +1,183 @@
+=== CLEO Migration Linter — T1153 R2 ===
+Run at: 2026-04-21T17:51:22.341Z
+Migrations root: /mnt/projects/cleocode/packages/core/migrations
+
+--- Scan Summary ---
+  DB sets scanned:     5
+  Migration folders:   34
+  migration.sql files: 34
+  snapshot.json files: 11
+  Errors:              1
+  Warnings:            24
+  Total violations:    25
+
+RESULT: FAIL — 25 violation(s) found.
+
+--- Violations ---
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260411000001_t528-graph-schema-expansion/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260411000001_t528-graph-schema-expansion — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260412000001_t531-quality-score-typed-tables/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260412000001_t531-quality-score-typed-tables — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260413000001_t549-tiered-typed-memory/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260413000001_t549-tiered-typed-memory — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260415000001_t626-normalize-co-retrieved-edge-type/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260415000001_t626-normalize-co-retrieved-edge-type — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000001_t673-retrieval-log-plasticity-columns/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000001_t673-retrieval-log-plasticity-columns — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000002_t673-plasticity-events-expand/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000002_t673-plasticity-events-expand — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000003_t673-page-edges-plasticity-columns/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000003_t673-page-edges-plasticity-columns — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000004_t673-new-plasticity-tables/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000004_t673-new-plasticity-tables — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000005_t726-dedup-tier-columns/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000005_t726-dedup-tier-columns — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000006_t790-hebbian-prune/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000006_t790-hebbian-prune — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-brain/20260416000007_t799-observation-attachments-json/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000007_t799-observation-attachments-json — DB set drizzle-brain has 3 folder(s) with snapshots and 11 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-nexus/20260412000001_t529-nexus-graph-tables/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260412000001_t529-nexus-graph-tables — DB set drizzle-nexus has 1 folder(s) with snapshots and 3 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-nexus/20260415000001_t622-project-registry-paths/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260415000001_t622-project-registry-paths — DB set drizzle-nexus has 1 folder(s) with snapshots and 3 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-nexus/20260419000001_t998-nexus-plasticity/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260419000001_t998-nexus-plasticity — DB set drizzle-nexus has 1 folder(s) with snapshots and 3 without.
+
+[WARN] RULE-4
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-signaldock/2026-04-17-213120_T897_agent_registry_v3.sql
+  Message: Flat .sql file found directly in DB set directory — expected subdirectory/migration.sql pattern.
+  Detail:  File: 2026-04-17-213120_T897_agent_registry_v3.sql — DB set: drizzle-signaldock
+
+[ERROR] RULE-2
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks
+  Message: Timestamp collision: 2 folders share timestamp 20260421000001.
+  Detail:  Colliding folders: 20260421000001_t1118-owner-auth-token, 20260421000001_t1126-sentient-proposal-index
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260327000000_agent-credentials/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260327000000_agent-credentials — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260416000000_t796-attachments/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000000_t796-attachments — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260416000001_t811-ivtr-state/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260416000001_t811-ivtr-state — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260417000000_t877-pipeline-stage-invariants — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260417220000_t889-playbook-tables — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260418174314_t944-role-scope-severity/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260418174314_t944-role-scope-severity — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260421000001_t1118-owner-auth-token/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260421000001_t1118-owner-auth-token — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260421000001_t1126-sentient-proposal-index/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260421000001_t1126-sentient-proposal-index — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+[WARN] RULE-3
+  File:    /mnt/projects/cleocode/packages/core/migrations/drizzle-tasks/20260421000002_t1126-sentient-proposal-index/migration.sql
+  Message: Inconsistent snapshot chain: sibling folders have snapshot.json but this one does not.
+  Detail:  Folder: 20260421000002_t1126-sentient-proposal-index — DB set drizzle-tasks has 6 folder(s) with snapshots and 9 without.
+
+--- DB Set Inventory ---
+  drizzle-brain: 14 folder(s), 0 flat SQL file(s)
+    20260318205549_initial  [migration.sql | snapshot.json]
+    20260321000001_t033-brain-indexes  [migration.sql | snapshot.json]
+    20260408000001_t417-agent-field  [migration.sql | snapshot.json]
+    20260411000001_t528-graph-schema-expansion  [migration.sql | no-snap]
+    20260412000001_t531-quality-score-typed-tables  [migration.sql | no-snap]
+    20260413000001_t549-tiered-typed-memory  [migration.sql | no-snap]
+    20260415000001_t626-normalize-co-retrieved-edge-type  [migration.sql | no-snap]
+    20260416000001_t673-retrieval-log-plasticity-columns  [migration.sql | no-snap]
+    20260416000002_t673-plasticity-events-expand  [migration.sql | no-snap]
+    20260416000003_t673-page-edges-plasticity-columns  [migration.sql | no-snap]
+    20260416000004_t673-new-plasticity-tables  [migration.sql | no-snap]
+    20260416000005_t726-dedup-tier-columns  [migration.sql | no-snap]
+    20260416000006_t790-hebbian-prune  [migration.sql | no-snap]
+    20260416000007_t799-observation-attachments-json  [migration.sql | no-snap]
+  drizzle-nexus: 4 folder(s), 0 flat SQL file(s)
+    20260318205558_initial  [migration.sql | snapshot.json]
+    20260412000001_t529-nexus-graph-tables  [migration.sql | no-snap]
+    20260415000001_t622-project-registry-paths  [migration.sql | no-snap]
+    20260419000001_t998-nexus-plasticity  [migration.sql | no-snap]
+  drizzle-signaldock: 0 folder(s), 1 flat SQL file(s)
+    2026-04-17-213120_T897_agent_registry_v3.sql  [flat SQL]
+  drizzle-tasks: 15 folder(s), 0 flat SQL file(s)
+    20260318205539_initial  [migration.sql | snapshot.json]
+    20260320013731_wave0-schema-hardening  [migration.sql | snapshot.json]
+    20260320020000_agent-dimension  [migration.sql | snapshot.json]
+    20260321000000_t033-connection-health  [migration.sql | snapshot.json]
+    20260321000002_t060-pipeline-stage-binding  [migration.sql | snapshot.json]
+    20260324000000_assignee-column  [migration.sql | snapshot.json]
+    20260327000000_agent-credentials  [migration.sql | no-snap]
+    20260416000000_t796-attachments  [migration.sql | no-snap]
+    20260416000001_t811-ivtr-state  [migration.sql | no-snap]
+    20260417000000_t877-pipeline-stage-invariants  [migration.sql | no-snap]
+    20260417220000_t889-playbook-tables  [migration.sql | no-snap]
+    20260418174314_t944-role-scope-severity  [migration.sql | no-snap]
+    20260421000001_t1118-owner-auth-token  [migration.sql | no-snap]
+    20260421000001_t1126-sentient-proposal-index  [migration.sql | no-snap]
+    20260421000002_t1126-sentient-proposal-index  [migration.sql | no-snap]
+  drizzle-telemetry: 1 folder(s), 0 flat SQL file(s)
+    20260415000001_t624-initial  [migration.sql | snapshot.json]
