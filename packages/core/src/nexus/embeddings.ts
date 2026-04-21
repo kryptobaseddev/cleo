@@ -87,8 +87,7 @@ export async function embedCodeSymbol(text: string): Promise<Float32Array | null
  */
 export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider {
   readonly dimensions = CODE_EMBEDDING_DIMENSIONS;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private extractor: any = null;
+  private extractor: import('@huggingface/transformers').FeatureExtractionPipeline | null = null;
   private initPromise: Promise<void> | null = null;
   private initError: Error | null = null;
 
@@ -119,7 +118,6 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
    *
    * @throws Error if module not found or model download fails
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async initializeExtractor(): Promise<void> {
     try {
       // Dynamic import to keep startup fast and make dependency optional.
@@ -131,9 +129,7 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
       // env-swappable via CLEO_EMBEDDINGS_PROVIDER if custom provider needed.
       const model = process.env['CLEO_EMBEDDINGS_PROVIDER'] || 'Xenova/snowflake-arctic-embed-xs';
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx = transformers as any;
-      this.extractor = await tx.pipeline('feature-extraction', model);
+      this.extractor = await transformers.pipeline('feature-extraction', model);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.initError = error;
@@ -167,8 +163,9 @@ export class TransformersCodeEmbeddingProvider implements CodeEmbeddingProvider 
       normalize: true,
     });
 
-    // Output shape is [1, dimensions]; extract the single embedding
-    const embedding = output as Float32Array;
+    // Output shape is [1, dimensions]; extract the single embedding.
+    // The Tensor.data property holds the underlying typed array at runtime.
+    const embedding = output.data as Float32Array;
 
     // Validate dimensionality
     if (embedding.length !== CODE_EMBEDDING_DIMENSIONS) {
