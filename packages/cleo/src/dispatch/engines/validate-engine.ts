@@ -806,12 +806,28 @@ function initVerification(): TaskVerification {
  * Evaluate CLEO_OWNER_OVERRIDE environment and return the override state +
  * reason. Documented in ADR-051 §7.4.
  *
+ * T1118 L4b: If CLEO_AGENT_ROLE is a restricted role (worker|lead|subagent),
+ * override is silently rejected here even if the env var is set. This prevents
+ * agents from using CLEO_OWNER_OVERRIDE to bypass evidence gates.
+ *
  * @task T832
+ * @task T1118
  */
 function readOverrideState(): { override: boolean; reason: string } {
-  const raw = process.env.CLEO_OWNER_OVERRIDE;
+  const raw = process.env['CLEO_OWNER_OVERRIDE'];
   const override = raw === '1' || raw === 'true';
-  const reason = (process.env.CLEO_OWNER_OVERRIDE_REASON ?? '').trim() || 'unspecified';
+  const reason = (process.env['CLEO_OWNER_OVERRIDE_REASON'] ?? '').trim() || 'unspecified';
+
+  // T1118 L4b — reject override for restricted agent roles.
+  if (override) {
+    const role = process.env['CLEO_AGENT_ROLE'];
+    const forbiddenRoles = new Set(['worker', 'lead', 'subagent']);
+    if (role && forbiddenRoles.has(role)) {
+      // Silently downgrade — the agent cannot use override.
+      return { override: false, reason: 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE' };
+    }
+  }
+
   return { override, reason };
 }
 

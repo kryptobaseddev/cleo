@@ -16,3 +16,17 @@ export {
   SpawnAdapterRegistry,
   spawnRegistry,
 } from './adapter-registry.js';
+// Branch-lock engine (T1118)
+export {
+  applyFsHarden,
+  buildAgentEnv,
+  buildWorktreeSpawnResult,
+  completeAgentWorktree,
+  createAgentWorktree,
+  detectFsHardenCapabilities,
+  ensureGitShimDir,
+  getGitRoot,
+  pruneOrphanedWorktrees,
+  removeFsHarden,
+  resolveAgentWorktreeRoot,
+} from './branch-lock.js';

@@ -24,3 +24,18 @@ export {
   VALID_PRIORITIES,
   validateEnum,
 } from './input-sanitization.js';
+// Owner-override authentication (T1118 L4)
+export type { OverrideValidationResult } from './owner-override-auth.js';
+export {
+  appendOwnerOverrideAudit,
+  DEFAULT_OVERRIDE_MAX_PER_SESSION,
+  deliverOverrideWebhook,
+  deriveOwnerAuthToken,
+  getOverrideCount,
+  isAgentRoleForbidden,
+  isTtyPresent,
+  recordAndCheckOverrideLimit,
+  resetOverrideCount,
+  validateOwnerOverride,
+  verifyOwnerAuthToken,
+} from './owner-override-auth.js';
