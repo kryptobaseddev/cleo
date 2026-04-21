@@ -48,6 +48,7 @@ import {
   getEnrichedWaves,
   getGlobalSignaldockDbPath,
   getLifecycleStatus,
+  getLogger,
   orchestrationGetNextTask as getNextTask,
   getParallelStatus,
   orchestrationGetReadyTasks as getReadyTasks,

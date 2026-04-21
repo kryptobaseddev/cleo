@@ -692,6 +692,7 @@ export {
   auditLog,
   externalTaskLinks,
   releaseManifests,
+  sessions,
   taskDependencies,
   tasks,
 } from './store/tasks-schema.js';

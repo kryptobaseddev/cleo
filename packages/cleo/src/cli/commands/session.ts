@@ -69,12 +69,12 @@ const startCommand = defineCommand({
   },
   async run({ args }) {
     // T1118 L4a — if --owner-auth is set, prompt for a password and derive the HMAC token.
-    let ownerAuthToken: string | undefined;
+    let ownerAuthToken: string | null | undefined;
     if (args['owner-auth']) {
       ownerAuthToken = await promptOwnerAuthPassword(args.name ?? 'session');
       if (!ownerAuthToken) {
         process.stderr.write('[cleo] --owner-auth: password prompt cancelled.\n');
-        process.exit(ExitCode.GENERAL);
+        process.exit(ExitCode.GENERAL_ERROR);
       }
     }
 

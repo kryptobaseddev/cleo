@@ -32,7 +32,8 @@ import type {
   SessionStatusParams,
   SessionSuspendParams,
 } from '@cleocode/contracts';
-import { getLogger, getProjectRoot } from '@cleocode/core';
+import { getDb, getLogger, getProjectRoot, sessions } from '@cleocode/core/internal';
+import { eq } from 'drizzle-orm';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
@@ -661,12 +662,8 @@ async function storeSessionOwnerAuthToken(
   sessionId: string,
   token: string,
 ): Promise<void> {
-  // Import dynamically to avoid circular deps. The native DB is always available
-  // at this point because session.start already successfully ran.
-  const { getDb } = await import('@cleocode/core/internal');
-  const { sessions } = await import('@cleocode/core/internal');
-  const { eq } = await import('@cleocode/core/internal');
-
+  // The native DB is always available at this point because session.start
+  // already successfully ran.
   const db = await getDb(projectRoot);
   db.update(sessions).set({ ownerAuthToken: token }).where(eq(sessions.id, sessionId)).run();
 }

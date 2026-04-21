@@ -58,6 +58,12 @@ export interface WikiSymbolRow {
 }
 
 /**
+ * Subset of SQLite-compatible parameter values accepted by `DatabaseSync.prepare()`.
+ * Mirrors node:sqlite's `SQLInputValue` without importing from node internals.
+ */
+export type WikiSqlParam = null | number | bigint | string | Uint8Array;
+
+/**
  * Minimal interface for an injectable SQLite database handle.
  * Used in tests to provide an isolated in-memory or temp-file database
  * instead of the real nexus.db singleton.
@@ -68,11 +74,12 @@ export interface WikiDbHandle {
   /**
    * Prepare a SQL statement and return a statement object with
    * `all(...params)` and `get(...params)` accessors.
-   * Uses `any` to remain compatible with both `DatabaseSync.prepare()` and test mocks.
+   * Compatible with both `DatabaseSync.prepare()` and test mocks.
    */
-  // biome-ignore lint/suspicious/noExplicitAny: intentional — must be assignable from DatabaseSync.prepare()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  prepare: (sql: string) => { all: (...params: any[]) => any[]; get: (...params: any[]) => any };
+  prepare: (sql: string) => {
+    all: (...params: WikiSqlParam[]) => Record<string, WikiSqlParam>[];
+    get: (...params: WikiSqlParam[]) => Record<string, WikiSqlParam> | undefined;
+  };
 }
 
 /**
