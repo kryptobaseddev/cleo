@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.103] — 2026-04-21
+
+### T1137 CI Fix-Forward
+- fix(T1137): remove trailing --> statement-breakpoint from T1118 core migration (5cb9f51e)
+- Closes 96 test failures on v2026.4.102 CI caused by Drizzle splitting migration SQL on trailing marker → empty query → 'statement has been finalized'
+- Same bug pattern as T1126 (be57f432b) which was missed in the packages/core copy
+
 ## [2026.4.102] — 2026-04-21 — T1106 Living Brain Recovery + Sandbox Proofs
 
 ### T1106 Living Brain Recovery + Sandbox Proofs
