@@ -100,6 +100,13 @@ export {
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
+// Tasks Bridge - git-log sweeper linking task IDs to nexus symbols
+export {
+  getSymbolsForTask,
+  getTasksForSymbol,
+  linkTaskToSymbols,
+  runGitLogTaskLinker,
+} from './tasks-bridge.js';
 // Transfer - cross-project task transfer
 export { executeTransfer, previewTransfer } from './transfer.js';
 export type {
