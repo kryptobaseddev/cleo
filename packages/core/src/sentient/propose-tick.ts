@@ -193,7 +193,8 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
     nexusDb = options.nexusDb;
   } else {
     try {
-      const { getNexusNativeDb } = await import('@cleocode/core/internal');
+      const { getNexusDb, getNexusNativeDb } = await import('@cleocode/core/internal');
+      await getNexusDb();
       nexusDb = getNexusNativeDb();
     } catch {
       nexusDb = null;
