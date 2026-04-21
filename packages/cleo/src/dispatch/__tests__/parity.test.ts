@@ -154,9 +154,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T1115: nexus.full-context + nexus.task-footprint + nexus.brain-anchors + nexus.why + nexus.impact-full (query) — +5 query / +5 total.
     // T1116: nexus.route-map + nexus.shape-check + nexus.search-code + nexus.wiki (query) — +4 query / +4 total.
     // T1117: nexus.contracts-show + nexus.task-symbols (query) + nexus.contracts-sync + nexus.contracts-link-tasks + nexus.conduit-scan (mutate) — +2 query / +3 mutate / +5 total.
+    // T1137: orchestrate.worktree.complete + orchestrate.worktree.cleanup (mutate) — +2 mutate / +2 total.
     expect(queryCount).toBe(185);
-    expect(mutateCount).toBe(123);
-    expect(OPERATIONS.length).toBe(308);
+    expect(mutateCount).toBe(125);
+    expect(OPERATIONS.length).toBe(310);
   });
 
   it('all operations have valid gateway values', () => {
