@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { pipelineManifest } from '../store/tasks-schema.js';
 
 /**
@@ -250,11 +251,21 @@ export async function ingestRcasdDirectories(
           (metadataJson as Record<string, unknown>).cross_task_ref = 'T1008';
         }
 
-        // Insert into pipeline_manifest using INSERT OR IGNORE
+        // Insert into pipeline_manifest, skipping if already exists
         try {
-          await db
-            .insert(pipelineManifest)
-            .values({
+          // Check if this ID already exists (idempotency)
+          const existing = await db
+            .select({ id: pipelineManifest.id })
+            .from(pipelineManifest)
+            .where(eq(pipelineManifest.id, id))
+            .limit(1);
+
+          if (existing.length > 0) {
+            // Already ingested, skip
+            skipped++;
+          } else {
+            // Insert new entry
+            await db.insert(pipelineManifest).values({
               id,
               taskId,
               epicId: null,
@@ -269,9 +280,9 @@ export async function ingestRcasdDirectories(
               metadataJson: JSON.stringify(metadataJson),
               createdAt,
               archivedAt: null,
-            })
-            .onConflictDoNothing();
-          ingested++;
+            });
+            ingested++;
+          }
         } catch (err) {
           // Log but continue
           console.error(`Failed to ingest ${id}:`, err);
@@ -370,11 +381,21 @@ export async function ingestLooseAgentOutputs(
       metadataJson.flat_rcasd = true;
     }
 
-    // Insert into pipeline_manifest using INSERT OR IGNORE
+    // Insert into pipeline_manifest, skipping if already exists
     try {
-      await db
-        .insert(pipelineManifest)
-        .values({
+      // Check if this ID already exists (idempotency)
+      const existing = await db
+        .select({ id: pipelineManifest.id })
+        .from(pipelineManifest)
+        .where(eq(pipelineManifest.id, id))
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Already ingested, skip
+        skipped++;
+      } else {
+        // Insert new entry
+        await db.insert(pipelineManifest).values({
           id,
           taskId: taskId ?? null,
           epicId: null,
@@ -389,9 +410,9 @@ export async function ingestLooseAgentOutputs(
           metadataJson: JSON.stringify(metadataJson),
           createdAt,
           archivedAt: null,
-        })
-        .onConflictDoNothing();
-      ingested++;
+        });
+        ingested++;
+      }
     } catch (err) {
       // Log but continue
       console.error(`Failed to ingest ${id}:`, err);
