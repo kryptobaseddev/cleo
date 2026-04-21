@@ -348,6 +348,12 @@ const manifestCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // Print deprecation warning to stderr before executing
+    console.error(
+      'DEPRECATED: `cleo research manifest` is deprecated and will be removed in v2026.6.x.\n' +
+        'Use `cleo manifest list` instead. See docs/specs/T1096-manifest-unification-spec.md',
+    );
+
     await dispatchFromCli(
       'query',
       'pipeline',
