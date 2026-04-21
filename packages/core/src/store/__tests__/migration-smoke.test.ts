@@ -14,14 +14,10 @@
  * All tests run in isolated tmp directories via mkdtempSync. Singleton state
  * is reset after every test so DB handles do not leak across suites.
  *
- * Signaldock note: signaldock.db uses an EMBEDDED migration runner
- * (_signaldock_migrations table + applyGlobalSignaldockSchema) rather than
- * drizzle's readMigrationFiles / migrate() pipeline. Its fresh-init smoke
- * test uses ensureGlobalSignaldockDb() with a vi.doMock path override.
- * The drizzle-signaldock folder contains a reference SQL file (T897) that
- * is inlined into GLOBAL_EMBEDDED_MIGRATIONS — it is NOT processed via
- * drizzle migrate() and therefore is not covered by Tests 2/3/4 (which
- * target the drizzle-based DBs only). This gap is tracked under W2A-04.
+ * Signaldock note: signaldock.db now uses the standard drizzle migration
+ * pipeline (migrateSanitized + reconcileJournal) after T1166 replaced the
+ * GLOBAL_EMBEDDED_MIGRATIONS bare-SQL runner. All 5 DBs use the same drizzle
+ * pipeline. Tests 2/3 include signaldock coverage.
  *
  * @task T1160
  * @epic T1150
@@ -169,7 +165,7 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     }
   });
 
-  it('signaldock.db (embedded runner) — fresh init succeeds, agents table exists', async () => {
+  it('signaldock.db (drizzle runner) — fresh init succeeds, agents table exists', async () => {
     vi.resetModules();
     const cleoHome = join(tempDir, 'signaldock-home');
     mkdirSync(cleoHome, { recursive: true });
@@ -190,11 +186,28 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       expect(existsSync(result.path)).toBe(true);
 
       const nativeDb = new DatabaseSync(result.path, { readonly: true });
+      // Verify agents table was created by drizzle migrations
       const row = nativeDb
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
         .get() as { name: string } | undefined;
-      nativeDb.close();
       expect(row?.name).toBe('agents');
+
+      // Verify T897 v3 columns are present (included in initial migration)
+      const cols = nativeDb.prepare('PRAGMA table_info(agents)').all() as Array<{ name: string }>;
+      const colNames = cols.map((c) => c.name);
+      expect(colNames).toContain('tier');
+      expect(colNames).toContain('can_spawn');
+      expect(colNames).toContain('cant_path');
+
+      // Verify drizzle journal was written
+      const journalRow = nativeDb
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+        )
+        .get() as { name: string } | undefined;
+      expect(journalRow?.name).toBe('__drizzle_migrations');
+
+      nativeDb.close();
     } finally {
       _resetGlobalSignaldockDb_TESTING_ONLY();
       vi.restoreAllMocks();
@@ -444,12 +457,58 @@ describe('Test 2: null-name journal rows — reconciler backfills names, no re-r
     nativeDb.close();
   });
 
-  it('signaldock.db: embedded runner does not use drizzle journal (noted — W2A-04)', () => {
-    // signaldock.db uses its own _signaldock_migrations table (not __drizzle_migrations).
-    // Null-name backfill is not applicable — its runner tracks migration by string name PK.
-    // This scenario is fully covered by W2A-04 which will wire signaldock to the
-    // shared drizzle-based migration pipeline. For now we document the gap.
-    expect(true).toBe(true); // gap documented
+  it('signaldock.db: reconcileJournal backfills null names without re-running migrations', async () => {
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
+
+    const migrationsFolder = resolveMigrationsDir('drizzle-signaldock');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+    expect(localMigrations.length).toBeGreaterThan(0);
+
+    const dbPath = join(tempDir, 'signaldock-null-name.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const db = drizzle({ client: nativeDb });
+
+    // Step 1: Run all migrations cleanly so tables exist
+    migrateSanitized(db, { migrationsFolder });
+
+    // Step 2: Simulate pre-v1-beta install by NULLing all `name` values in the journal
+    nativeDb.exec('UPDATE "__drizzle_migrations" SET "name" = NULL');
+
+    const nullNames = nativeDb
+      .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations" WHERE name IS NULL')
+      .get() as { cnt: number };
+    expect(nullNames.cnt).toBe(localMigrations.length);
+
+    const countBefore = (
+      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
+        cnt: number;
+      }
+    ).cnt;
+
+    // Step 3: Run reconcileJournal — should backfill names
+    reconcileJournal(nativeDb, migrationsFolder, 'agents', 'signaldock');
+
+    // Step 4: Verify all names are now backfilled
+    const stillNull = nativeDb
+      .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations" WHERE name IS NULL')
+      .get() as { cnt: number };
+    expect(stillNull.cnt).toBe(0);
+
+    // Step 5: Journal row count must NOT have increased (no re-runs)
+    const countAfter = (
+      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
+        cnt: number;
+      }
+    ).cnt;
+    expect(countAfter).toBe(countBefore);
+
+    // Step 6: Run migrateSanitized again — must NOT throw (all applied)
+    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
+
+    nativeDb.close();
   });
 });
 
@@ -622,6 +681,99 @@ describe('Test 3: partial migration fixture — reconciler recovers without dupl
       ).not.toThrow();
     }
 
+    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
+
+    nativeDb.close();
+  });
+
+  it('signaldock.db: existing DB (pre-T1166 legacy fixture) — reconciler probe-and-mark-applied, no re-runs', async () => {
+    // Simulate an existing signaldock.db that was previously migrated by the old
+    // GLOBAL_EMBEDDED_MIGRATIONS bare-SQL runner. The DB has the full schema
+    // (agents + T897 v3 columns) but NO __drizzle_migrations journal table.
+    // reconcileJournal Scenario 1 must detect the agents table, bootstrap the
+    // journal with the initial migration marked as applied, then migrateSanitized
+    // must run without errors and without re-applying DDL.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
+
+    const migrationsFolder = resolveMigrationsDir('drizzle-signaldock');
+
+    const dbPath = join(tempDir, 'signaldock-legacy.db');
+    const nativeDb = openNativeDatabase(dbPath);
+
+    // Simulate the old bare-SQL runner: create the full schema manually
+    // without a __drizzle_migrations journal table.
+    nativeDb.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        class TEXT NOT NULL DEFAULT 'custom',
+        privacy_tier TEXT NOT NULL DEFAULT 'public',
+        capabilities TEXT NOT NULL DEFAULT '[]',
+        skills TEXT NOT NULL DEFAULT '[]',
+        messages_sent INTEGER NOT NULL DEFAULT 0,
+        messages_received INTEGER NOT NULL DEFAULT 0,
+        conversation_count INTEGER NOT NULL DEFAULT 0,
+        friend_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'online',
+        api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io',
+        transport_type TEXT NOT NULL DEFAULT 'http',
+        transport_config TEXT NOT NULL DEFAULT '{}',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        requires_reauth INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        tier TEXT NOT NULL DEFAULT 'global',
+        can_spawn INTEGER NOT NULL DEFAULT 0,
+        orch_level INTEGER NOT NULL DEFAULT 2,
+        reports_to TEXT,
+        cant_path TEXT,
+        cant_sha256 TEXT,
+        installed_from TEXT,
+        installed_at TEXT
+      )
+    `);
+    // Also create agent_skills with T897 columns
+    nativeDb.exec(`
+      CREATE TABLE skills (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    nativeDb.exec(`
+      CREATE TABLE agent_skills (
+        agent_id TEXT NOT NULL,
+        skill_id TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        attached_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (agent_id, skill_id)
+      )
+    `);
+
+    // Confirm no __drizzle_migrations table yet
+    const noJournal = nativeDb
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'")
+      .get() as { name: string } | undefined;
+    expect(noJournal).toBeUndefined();
+
+    // Run reconcileJournal — Scenario 1: agents exists, no journal
+    // → must bootstrap journal with initial migration marked as applied
+    const db = drizzle({ client: nativeDb });
+    reconcileJournal(nativeDb, migrationsFolder, 'agents', 'signaldock');
+
+    // Journal must now exist with at least 1 entry
+    const journalCount = nativeDb
+      .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"')
+      .get() as { cnt: number };
+    expect(journalCount.cnt).toBeGreaterThanOrEqual(1);
+
+    // migrateSanitized must run without errors (all DDL already present or handled)
     expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
 
     nativeDb.close();

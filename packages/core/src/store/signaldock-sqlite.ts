@@ -6,24 +6,31 @@
  * catalog, and cloud-sync tables. Project-local messaging state has moved to
  * conduit.db (managed by conduit-sqlite.ts, T344).
  *
+ * Migration runner: standard drizzle pipeline via migrateSanitized + reconcileJournal
+ * (migration-manager.ts). Replaces the bare-SQL GLOBAL_EMBEDDED_MIGRATIONS runner
+ * that was previously embedded here (T1166 / T1150 Wave 2A-04).
+ *
+ * Migration folder: packages/core/migrations/drizzle-signaldock/
+ *
  * GLOBAL-TIER ONLY. This module MUST NOT resolve paths under any project's .cleo/
  * directory. The path guard in getGlobalSignaldockDbPath() enforces this invariant.
  *
  * @task T346
+ * @task T1166
  * @epic T310
+ * @epic T1150
  * @related ADR-037
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
-
-const _require = createRequire(import.meta.url);
-const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
-  DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
-};
+import { migrateSanitized, reconcileJournal } from './migration-manager.js';
+import * as signaldockSchema from './signaldock-schema.js';
+import { openNativeDatabase } from './sqlite.js';
 
 /**
  * Database file name within the global cleo home directory.
@@ -108,337 +115,73 @@ export function getSignaldockDbPath(cwd?: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Embedded migration SQL — consolidated global-tier schema.
-// Source: spec §2.2, ADR-037.
-// All incremental ALTER TABLE migrations from the pre-T310 schema are
-// collapsed into the single initial migration below. This avoids the
-// multi-step ALTER pattern and ensures fresh installs get the full schema
-// in one idempotent pass.
+// Migration folder resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Ordered migration entries for the global signaldock.db.
- * Add new migrations to the END of this array.
+ * Resolve the path to the drizzle-signaldock migrations folder.
  *
- * @task T346
- * @epic T310
- */
-const GLOBAL_EMBEDDED_MIGRATIONS: Array<{
-  name: string;
-  sql: string;
-  /**
-   * Optional pre-SQL hook that runs inside the migration transaction before
-   * the embedded SQL block. Used by T897 to filter `ADD COLUMN` statements
-   * through PRAGMA table_info() because SQLite lacks
-   * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
-   */
-  preApply?: (db: DatabaseSync) => void;
-}> = [
-  {
-    name: '2026-04-12-000000_initial_global_signaldock',
-    sql: `-- Global-tier signaldock.db initial migration (T310, ADR-037 §2.2).
--- Consolidated from pre-T310 incremental migrations. Global identity and
--- cloud-sync tables only. Project-local messaging state is in conduit.db.
-
--- Cloud-sync: user accounts (zero rows in pure-local mode).
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    name TEXT,
-    slug TEXT,
-    default_agent_id TEXT,
-    username TEXT,
-    display_username TEXT,
-    email_verified INTEGER NOT NULL DEFAULT 0,
-    image TEXT,
-    role TEXT NOT NULL DEFAULT 'user',
-    banned INTEGER NOT NULL DEFAULT 0,
-    ban_reason TEXT,
-    ban_expires TEXT,
-    two_factor_enabled INTEGER NOT NULL DEFAULT 0,
-    metadata TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_slug ON users(slug);
-
--- Cloud-sync: organization/team records.
-CREATE TABLE IF NOT EXISTS organization (
-    id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
-    slug TEXT,
-    logo TEXT,
-    metadata TEXT,
-    owner_id TEXT,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_slug ON organization(slug);
-
--- Global identity: canonical agent registry (cross-project).
--- api_key_encrypted uses KDF: HMAC-SHA256(machine-key || global-salt, agentId) — ADR-037 §5.
--- requires_reauth=1 is set during T310 migration for all pre-existing agents.
-CREATE TABLE IF NOT EXISTS agents (
-    id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    description TEXT,
-    class TEXT NOT NULL DEFAULT 'custom',
-    privacy_tier TEXT NOT NULL DEFAULT 'public',
-    owner_id TEXT REFERENCES users(id),
-    endpoint TEXT,
-    webhook_secret TEXT,
-    capabilities TEXT NOT NULL DEFAULT '[]',
-    skills TEXT NOT NULL DEFAULT '[]',
-    avatar TEXT,
-    messages_sent INTEGER NOT NULL DEFAULT 0,
-    messages_received INTEGER NOT NULL DEFAULT 0,
-    conversation_count INTEGER NOT NULL DEFAULT 0,
-    friend_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'online',
-    last_seen INTEGER,
-    payment_config TEXT,
-    api_key_hash TEXT,
-    organization_id TEXT REFERENCES organization(id) ON DELETE SET NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    transport_type TEXT NOT NULL DEFAULT 'http',
-    api_key_encrypted TEXT,
-    api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io',
-    classification TEXT,
-    transport_config TEXT NOT NULL DEFAULT '{}',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    last_used_at INTEGER,
-    requires_reauth INTEGER NOT NULL DEFAULT 0
-);
-CREATE UNIQUE INDEX IF NOT EXISTS agents_agent_id_idx ON agents(agent_id);
-CREATE INDEX IF NOT EXISTS agents_owner_idx ON agents(owner_id);
-CREATE INDEX IF NOT EXISTS agents_class_idx ON agents(class);
-CREATE INDEX IF NOT EXISTS agents_privacy_idx ON agents(privacy_tier);
-CREATE INDEX IF NOT EXISTS agents_org_idx ON agents(organization_id);
-CREATE INDEX IF NOT EXISTS idx_agents_transport_type ON agents(transport_type);
-CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);
-CREATE INDEX IF NOT EXISTS idx_agents_last_used ON agents(last_used_at);
-CREATE INDEX IF NOT EXISTS idx_agents_reauth ON agents(requires_reauth) WHERE requires_reauth = 1;
-
--- Cloud-sync: one-time agent claim tokens (api.signaldock.io provisioning).
-CREATE TABLE IF NOT EXISTS claim_codes (
-    id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL REFERENCES agents(id),
-    code TEXT NOT NULL UNIQUE,
-    expires_at INTEGER NOT NULL,
-    used_at INTEGER,
-    used_by TEXT REFERENCES users(id),
-    created_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS claim_codes_code_idx ON claim_codes(code);
-CREATE INDEX IF NOT EXISTS claim_codes_agent_idx ON claim_codes(agent_id);
-
--- Identity catalog: pre-seeded capability slugs (19 entries).
-CREATE TABLE IF NOT EXISTS capabilities (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    category TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-);
-
--- Identity catalog: pre-seeded skill slugs (36 entries).
-CREATE TABLE IF NOT EXISTS skills (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    category TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-);
-
--- Junction: agent <-> capability catalog bindings.
-CREATE TABLE IF NOT EXISTS agent_capabilities (
-    agent_id TEXT NOT NULL REFERENCES agents(id),
-    capability_id TEXT NOT NULL REFERENCES capabilities(id),
-    PRIMARY KEY (agent_id, capability_id)
-);
-
--- Junction: agent <-> skill catalog bindings.
-CREATE TABLE IF NOT EXISTS agent_skills (
-    agent_id TEXT NOT NULL REFERENCES agents(id),
-    skill_id TEXT NOT NULL REFERENCES skills(id),
-    PRIMARY KEY (agent_id, skill_id)
-);
-
--- Live transport connection tracking (heartbeat state).
-CREATE TABLE IF NOT EXISTS agent_connections (
-    id TEXT PRIMARY KEY NOT NULL,
-    agent_id TEXT NOT NULL,
-    transport_type TEXT NOT NULL DEFAULT 'http',
-    connection_id TEXT,
-    connected_at BIGINT NOT NULL,
-    last_heartbeat BIGINT NOT NULL,
-    connection_metadata TEXT,
-    created_at BIGINT NOT NULL,
-    FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
-    UNIQUE(agent_id, connection_id)
-);
-CREATE INDEX IF NOT EXISTS idx_agent_connections_agent ON agent_connections(agent_id);
-CREATE INDEX IF NOT EXISTS idx_agent_connections_transport ON agent_connections(transport_type);
-CREATE INDEX IF NOT EXISTS idx_agent_connections_heartbeat ON agent_connections(last_heartbeat);
-
--- Cloud-sync: OAuth/provider accounts.
-CREATE TABLE IF NOT EXISTS accounts (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
-    provider_id TEXT NOT NULL,
-    access_token TEXT,
-    refresh_token TEXT,
-    id_token TEXT,
-    access_token_expires_at TEXT,
-    refresh_token_expires_at TEXT,
-    scope TEXT,
-    password TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_provider ON accounts(provider_id, account_id);
-
--- Cloud-sync: authenticated sessions.
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token TEXT NOT NULL UNIQUE,
-    ip_address TEXT,
-    user_agent TEXT,
-    expires_at TEXT NOT NULL,
-    active_organization_id TEXT,
-    impersonated_by TEXT,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-
--- Cloud-sync: email/2FA verification tokens.
-CREATE TABLE IF NOT EXISTS verifications (
-    id TEXT PRIMARY KEY NOT NULL,
-    identifier TEXT NOT NULL,
-    value TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_verifications_identifier ON verifications(identifier);
-
--- Org-scoped agent API keys (cloud use; zero rows locally).
-CREATE TABLE IF NOT EXISTS org_agent_keys (
-    id TEXT PRIMARY KEY NOT NULL,
-    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    created_by TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS org_agent_keys_org_idx ON org_agent_keys(organization_id);
-CREATE INDEX IF NOT EXISTS org_agent_keys_agent_idx ON org_agent_keys(agent_id);`,
-  },
-  {
-    name: '2026-04-17-213120_T897_agent_registry_v3',
-    sql: `-- T889 / T897: agent_registry v3 — add tier, canSpawn, cantPath, checksum, orch fields.
--- Column additions are filtered at application time by applyV3ColumnAlters()
--- because SQLite does NOT support \`ADD COLUMN IF NOT EXISTS\`. Index creates
--- use IF NOT EXISTS natively.
-
-CREATE INDEX IF NOT EXISTS idx_agents_tier ON agents(tier);
-CREATE INDEX IF NOT EXISTS idx_agents_cant_path ON agents(cant_path);
-CREATE INDEX IF NOT EXISTS idx_agent_skills_source ON agent_skills(source);`,
-    preApply: applyV3ColumnAlters,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// T897 v3 column additions — SQLite lacks ADD COLUMN IF NOT EXISTS, so we
-// introspect PRAGMA table_info() and only emit ALTER statements for the
-// columns that are actually missing. This preserves both-sides idempotency
-// (fresh installs + upgraded installs) without needing SAVEPOINT/retry.
-// ---------------------------------------------------------------------------
-
-/**
- * Column additions for the T897 v3 migration, keyed by table.
+ * Walks upward from this module's location searching for a
+ * `migrations/drizzle-signaldock` directory. Works across layouts:
+ *  - src/store (dev via tsx) → finds packages/core/migrations/drizzle-signaldock
+ *  - dist/store (tsc emit)   → finds packages/core/migrations/drizzle-signaldock
+ *  - node_modules/@cleocode/core/dist/... → walks up to nearest package root
  *
- * @task T897
- * @epic T889
+ * @task T1166
+ * @epic T1150
  */
-const V3_COLUMN_ADDITIONS: Record<string, ReadonlyArray<{ name: string; ddl: string }>> = {
-  agents: [
-    {
-      name: 'tier',
-      ddl: "ADD COLUMN tier TEXT NOT NULL DEFAULT 'global' CHECK (tier IN ('project','global','packaged','fallback'))",
-    },
-    {
-      name: 'can_spawn',
-      ddl: 'ADD COLUMN can_spawn INTEGER NOT NULL DEFAULT 0 CHECK (can_spawn IN (0,1))',
-    },
-    {
-      name: 'orch_level',
-      ddl: 'ADD COLUMN orch_level INTEGER NOT NULL DEFAULT 2 CHECK (orch_level BETWEEN 0 AND 2)',
-    },
-    { name: 'reports_to', ddl: 'ADD COLUMN reports_to TEXT' },
-    { name: 'cant_path', ddl: 'ADD COLUMN cant_path TEXT' },
-    { name: 'cant_sha256', ddl: 'ADD COLUMN cant_sha256 TEXT' },
-    {
-      name: 'installed_from',
-      ddl: "ADD COLUMN installed_from TEXT CHECK (installed_from IN ('seed','user','manual') OR installed_from IS NULL)",
-    },
-    { name: 'installed_at', ddl: 'ADD COLUMN installed_at TEXT' },
-  ],
-  agent_skills: [
-    {
-      name: 'source',
-      ddl: "ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('cant','manual','computed'))",
-    },
-    {
-      name: 'attached_at',
-      ddl: "ADD COLUMN attached_at TEXT NOT NULL DEFAULT (datetime('now'))",
-    },
-  ],
-};
+export function resolveSignaldockMigrationsFolder(): string {
+  const __filename = fileURLToPath(import.meta.url);
+  let current = dirname(__filename);
+  const root = '/';
 
-/**
- * Read column names currently defined on `table`.
- *
- * @param db    - open DatabaseSync handle
- * @param table - SQL table identifier
- * @returns Set of column names present in the live schema
- * @task T897
- * @epic T889
- */
-function readColumnSet(db: DatabaseSync, table: string): Set<string> {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  return new Set(rows.map((r) => r.name));
+  for (let depth = 0; depth < 8 && current !== root; depth++) {
+    const candidate = join(current, 'migrations', 'drizzle-signaldock');
+    if (existsSync(candidate)) return candidate;
+    current = dirname(current);
+  }
+
+  // Fallback: the source-layout assumption (legacy behavior)
+  const fallback = join(dirname(__filename), '..', '..', 'migrations', 'drizzle-signaldock');
+  return fallback;
 }
 
+// ---------------------------------------------------------------------------
+// Migration runner
+// ---------------------------------------------------------------------------
+
 /**
- * Apply the T897 v3 column additions only for columns missing from the live
- * schema. Invoked as the `preApply` hook for the v3 migration entry so the
- * migration remains idempotent across fresh installs, partially-upgraded
- * installs, and already-upgraded installs.
+ * Run drizzle migrations to create/update signaldock.db tables.
  *
- * @param db - open DatabaseSync handle inside the migration's transaction
- * @task T897
- * @epic T889
+ * Uses reconcileJournal + migrateSanitized for backwards compatibility with
+ * existing signaldock.db files in the wild. The reconciler's Scenario 1 and
+ * Scenario 3 probe-and-mark-applied logic detects when the schema already
+ * matches (e.g., an existing DB that had the T897 migration applied via the
+ * old bare-SQL runner) and inserts journal rows without re-running DDL.
+ *
+ * Replaces the former applyGlobalSignaldockSchema() / GLOBAL_EMBEDDED_MIGRATIONS
+ * bare-SQL runner (T1166 / T1150 Wave 2A-04).
+ *
+ * @param nativeDb - An open DatabaseSync handle at the global signaldock path
+ * @task T1166
+ * @epic T1150
  */
-function applyV3ColumnAlters(db: DatabaseSync): void {
-  for (const [table, additions] of Object.entries(V3_COLUMN_ADDITIONS)) {
-    const existing = readColumnSet(db, table);
-    for (const { name, ddl } of additions) {
-      if (!existing.has(name)) {
-        db.exec(`ALTER TABLE ${table} ${ddl}`);
-      }
-    }
-  }
+function runSignaldockMigrations(nativeDb: DatabaseSync): void {
+  const migrationsFolder = resolveSignaldockMigrationsFolder();
+
+  // Reconcile the Drizzle journal before running migrations.
+  // Handles:
+  //   Scenario 1: agents table exists but __drizzle_migrations does not
+  //               → bootstrap the baseline as applied
+  //   Scenario 3: column exists but journal entry absent
+  //               → insert missing journal entry to avoid duplicate-column errors
+  //   Scenario 4: null name in journal entries
+  //               → backfill names so Drizzle v1 beta can detect applied migrations
+  reconcileJournal(nativeDb, migrationsFolder, 'agents', 'signaldock');
+
+  // Create the drizzle ORM wrapper and run pending migrations.
+  const db = drizzle({ client: nativeDb, schema: signaldockSchema });
+  migrateSanitized(db, { migrationsFolder });
 }
 
 // ---------------------------------------------------------------------------
@@ -449,64 +192,13 @@ function applyV3ColumnAlters(db: DatabaseSync): void {
 let _globalSignaldockNativeDb: DatabaseSync | null = null;
 
 /**
- * Apply the global signaldock schema to an already-open database.
- * Idempotent — uses `CREATE TABLE IF NOT EXISTS` and migration tracking.
- *
- * @param db - An open DatabaseSync instance at the global path
- * @task T346
- * @epic T310
- */
-function applyGlobalSignaldockSchema(db: DatabaseSync): void {
-  // Ensure migration tracking tables exist
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS _signaldock_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-    )
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS _signaldock_migrations (
-      name TEXT PRIMARY KEY,
-      applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-    )
-  `);
-
-  // Apply embedded migrations (skips already-applied ones)
-  for (const migration of GLOBAL_EMBEDDED_MIGRATIONS) {
-    const applied = db
-      .prepare('SELECT name FROM _signaldock_migrations WHERE name = ?')
-      .get(migration.name) as { name: string } | undefined;
-    if (applied) continue;
-
-    db.exec('BEGIN TRANSACTION');
-    try {
-      if (migration.preApply) {
-        migration.preApply(db);
-      }
-      db.exec(migration.sql);
-      db.prepare('INSERT INTO _signaldock_migrations (name) VALUES (?)').run(migration.name);
-      db.exec('COMMIT');
-    } catch (err) {
-      db.exec('ROLLBACK');
-      throw err;
-    }
-  }
-
-  // Record schema version
-  db.exec(`
-    INSERT OR REPLACE INTO _signaldock_meta (key, value, updated_at)
-    VALUES ('schema_version', '${GLOBAL_SIGNALDOCK_SCHEMA_VERSION}', strftime('%s', 'now'))
-  `);
-}
-
-/**
  * Ensure global signaldock.db exists with the full global schema applied.
  * Creates the global cleo home directory if it doesn't exist.
  * Idempotent — safe to call multiple times.
  *
  * @returns Object with action ('created' | 'exists') and the database path
  * @task T346
+ * @task T1166
  * @epic T310
  */
 export async function ensureGlobalSignaldockDb(): Promise<{
@@ -522,18 +214,12 @@ export async function ensureGlobalSignaldockDb(): Promise<{
     mkdirSync(cleoHome, { recursive: true });
   }
 
-  const db = new DatabaseSyncClass(dbPath);
+  const nativeDb = openNativeDatabase(dbPath);
   try {
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA busy_timeout = 5000');
-    db.exec('PRAGMA synchronous = NORMAL');
-    db.exec('PRAGMA foreign_keys = ON');
-    db.exec('PRAGMA cache_size = -64000'); // 64 MB
-
     // Check if schema already applied (agents table as sentinel)
     const hasSchema = (() => {
       try {
-        const result = db
+        const result = nativeDb
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
           .get() as { name: string } | undefined;
         return !!result;
@@ -542,21 +228,26 @@ export async function ensureGlobalSignaldockDb(): Promise<{
       }
     })();
 
-    applyGlobalSignaldockSchema(db);
+    // Run drizzle migrations (reconcileJournal + migrateSanitized).
+    // For existing DBs that used the old bare-SQL runner, reconcileJournal
+    // Scenario 1 bootstraps the __drizzle_migrations journal from the existing
+    // agents table, and Scenario 3 marks T897 ALTER columns as applied without
+    // re-running the DDL.
+    runSignaldockMigrations(nativeDb);
 
     // Store native handle for backup integration (getGlobalSignaldockNativeDb)
-    _globalSignaldockNativeDb = db;
+    _globalSignaldockNativeDb = nativeDb;
 
     return {
       action: alreadyExists && hasSchema ? 'exists' : 'created',
       path: dbPath,
     };
   } catch (err) {
-    db.close();
+    nativeDb.close();
     _globalSignaldockNativeDb = null;
     throw err;
   }
-  // NOTE: We intentionally do NOT close `db` here — the native handle is
+  // NOTE: We intentionally do NOT close `nativeDb` here — the native handle is
   // retained as _globalSignaldockNativeDb for backup integration. Callers
   // that need a short-lived open/close pattern should open the DB themselves.
 }
@@ -614,25 +305,42 @@ export async function checkGlobalSignaldockDbHealth(): Promise<{
     };
   }
 
-  const db = new DatabaseSyncClass(dbPath);
+  const nativeDb = openNativeDatabase(dbPath, { readonly: true });
   try {
-    const tables = db
+    const tables = nativeDb
       .prepare(
         "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
       )
       .get() as { count: number };
 
-    const journalMode = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
-    const fkEnabled = db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
+    const journalMode = nativeDb.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
+    const fkEnabled = nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
 
+    // Schema version: check the __drizzle_migrations journal for evidence of
+    // migrations applied. Fallback to _signaldock_meta for pre-T1166 DBs.
     let schemaVersion: string | null = null;
     try {
-      const meta = db
-        .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
-        .get() as { value: string } | undefined;
-      schemaVersion = meta?.value ?? null;
+      // Post-T1166 path: check if drizzle journal has entries
+      const journalRow = nativeDb
+        .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"')
+        .get() as { cnt: number } | undefined;
+      if (journalRow && journalRow.cnt > 0) {
+        schemaVersion = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
+      }
     } catch {
-      // Meta table may not exist on very old or partially-initialized DBs
+      // __drizzle_migrations does not exist yet — fall through to _signaldock_meta
+    }
+
+    if (!schemaVersion) {
+      try {
+        // Pre-T1166 path: _signaldock_meta table (old bare-SQL runner)
+        const meta = nativeDb
+          .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
+          .get() as { value: string } | undefined;
+        schemaVersion = meta?.value ?? null;
+      } catch {
+        // _signaldock_meta may not exist on very old or partially-initialized DBs
+      }
     }
 
     return {
@@ -644,7 +352,7 @@ export async function checkGlobalSignaldockDbHealth(): Promise<{
       foreignKeysEnabled: fkEnabled.foreign_keys === 1,
     };
   } finally {
-    db.close();
+    nativeDb.close();
   }
 }
 
