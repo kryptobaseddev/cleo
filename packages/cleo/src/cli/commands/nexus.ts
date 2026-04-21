@@ -1629,10 +1629,19 @@ const impactCommand = defineCommand({
       description: 'Maximum traversal depth (default: 3)',
       default: '3',
     },
+    // T1013 — T1006 finalization: append per-symbol path-string reasons
+    // explaining WHY each affected node is impactful (caller count, edge
+    // strength, hop depth). Default OFF preserves existing response shape.
+    why: {
+      type: 'boolean',
+      description:
+        'Append reasons[] path-strings for each affected symbol (caller count, edge strength, hop depth)',
+    },
   },
   async run({ args }) {
     const startTime = Date.now();
     const jsonOutput = !!args.json;
+    const whyFlag = !!args.why;
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -1716,9 +1725,17 @@ const impactCommand = defineCommand({
       // BFS upstream: find all nodes that (transitively) call/import the target.
       const targetNode = matchingNodes[0];
       const targetId = String(targetNode['id']);
+      const targetLabel = String(targetNode['name'] ?? targetNode['label'] ?? targetId);
 
-      // Build reverse adjacency: targetId → [sourceIds that call it]
-      const reverseAdj = new Map<string, string[]>();
+      // Build reverse adjacency: targetId → [{ sourceId, type, weight }].
+      // `--why` consumes the `type` + `weight` fields to compose reason strings;
+      // the existing (non-why) code path reads only the sourceId, preserving the
+      // original shape. Incoming-count is a by-product of the same loop.
+      const reverseAdj = new Map<
+        string,
+        Array<{ sourceId: string; type: string; weight: number | null }>
+      >();
+      const incomingCount = new Map<string, number>();
       for (const r of allRelations) {
         if (
           r['projectId'] === projectId &&
@@ -1726,8 +1743,12 @@ const impactCommand = defineCommand({
         ) {
           const tid = String(r['targetId']);
           const sid = String(r['sourceId']);
+          const typ = String(r['type']);
+          const wRaw = r['weight'];
+          const weight = typeof wRaw === 'number' ? wRaw : wRaw != null ? Number(wRaw) : null;
           if (!reverseAdj.has(tid)) reverseAdj.set(tid, []);
-          reverseAdj.get(tid)!.push(sid);
+          reverseAdj.get(tid)!.push({ sourceId: sid, type: typ, weight });
+          incomingCount.set(tid, (incomingCount.get(tid) ?? 0) + 1);
         }
       }
 
@@ -1736,7 +1757,13 @@ const impactCommand = defineCommand({
       const depthMap = new Map<string, number>(); // nodeId → depth
       const queue: Array<{ id: string; depth: number }> = [{ id: targetId, depth: 0 }];
       const impactByDepth: Array<
-        Array<{ nodeId: string; name: string; kind: string; filePath: string | null }>
+        Array<{
+          nodeId: string;
+          name: string;
+          kind: string;
+          filePath: string | null;
+          reasons: string[];
+        }>
       > = [];
 
       while (queue.length > 0) {
@@ -1744,18 +1771,35 @@ const impactCommand = defineCommand({
         if (item.depth >= maxDepth) continue;
 
         const callers = reverseAdj.get(item.id) ?? [];
-        for (const callerId of callers) {
+        for (const edge of callers) {
+          const callerId = edge.sourceId;
           if (visited.has(callerId)) continue;
           visited.add(callerId);
           const depth = item.depth + 1;
           depthMap.set(callerId, depth);
           const callerNode = nodeById.get(callerId);
+          // T1013 — compose reasons when --why is set. Reasons are empty arrays
+          // otherwise to preserve the existing envelope shape for non-why callers.
+          const reasons: string[] = [];
+          if (whyFlag) {
+            const calls = incomingCount.get(callerId) ?? 0;
+            if (calls > 0) {
+              reasons.push(`called by ${calls} place${calls === 1 ? '' : 's'}`);
+            }
+            if (edge.weight != null && edge.weight > 0) {
+              reasons.push(`strength=${edge.weight.toFixed(3)} via ${edge.type}`);
+            } else {
+              reasons.push(`edge type ${edge.type} (weight=0 — no plasticity yet)`);
+            }
+            reasons.push(`depth=${depth} hop from target ${targetLabel}`);
+          }
           if (!impactByDepth[depth - 1]) impactByDepth[depth - 1] = [];
           impactByDepth[depth - 1].push({
             nodeId: callerId,
             name: String(callerNode?.['name'] ?? callerId),
             kind: String(callerNode?.['kind'] ?? 'unknown'),
             filePath: callerNode?.['filePath'] ? String(callerNode['filePath']) : null,
+            reasons,
           });
           queue.push({ id: callerId, depth });
         }
@@ -1776,6 +1820,25 @@ const impactCommand = defineCommand({
       const durationMs = Date.now() - startTime;
 
       if (jsonOutput) {
+        // When --why is NOT set, strip the `reasons` field from each node to
+        // preserve the pre-T1013 envelope shape exactly (backward compat).
+        const layersForEnvelope = impactByDepth.map((layer, i) => ({
+          depth: i + 1,
+          label:
+            i === 0
+              ? 'WILL BREAK (direct callers)'
+              : i === 1
+                ? 'LIKELY AFFECTED'
+                : 'MAY NEED TESTING',
+          nodes: whyFlag
+            ? layer
+            : layer.map(({ nodeId, name, kind, filePath }) => ({
+                nodeId,
+                name,
+                kind,
+                filePath,
+              })),
+        }));
         process.stdout.write(
           JSON.stringify(
             {
@@ -1790,16 +1853,8 @@ const impactCommand = defineCommand({
                 riskLevel,
                 totalImpactedNodes: totalImpact,
                 maxDepth,
-                impactByDepth: impactByDepth.map((layer, i) => ({
-                  depth: i + 1,
-                  label:
-                    i === 0
-                      ? 'WILL BREAK (direct callers)'
-                      : i === 1
-                        ? 'LIKELY AFFECTED'
-                        : 'MAY NEED TESTING',
-                  nodes: layer,
-                })),
+                why: whyFlag,
+                impactByDepth: layersForEnvelope,
               },
               meta: {
                 operation: 'nexus.impact',
@@ -1830,6 +1885,11 @@ const impactCommand = defineCommand({
               process.stdout.write(
                 `    ${String(node.name).padEnd(36)}  ${String(node.kind).padEnd(12)}  ${node.filePath ?? ''}\n`,
               );
+              if (whyFlag && node.reasons.length > 0) {
+                for (const reason of node.reasons) {
+                  process.stdout.write(`      why: ${reason}\n`);
+                }
+              }
             }
             if (layer.length > 15) {
               process.stdout.write(`    ... and ${layer.length - 15} more\n`);
@@ -5114,6 +5174,56 @@ const coldSymbolsCommand = defineCommand({
   },
 });
 
+/**
+ * cleo nexus top-entries — List top-weighted symbols from nexus_relations.
+ *
+ * Returns the highest-weighted source nodes from the Hebbian plasticity
+ * relation graph (T998). Each entry is aggregated SUM(weight) per source_id
+ * joined with nexus_nodes for label / kind / file-path. Supports optional
+ * `--kind` filter (e.g. function, method, class) and `--limit` (default 20).
+ *
+ * Routes through the dispatch layer so all transports (CLI, TUI, agents) see
+ * the same LAFS envelope shape (see `handleTopEntries` in
+ * `packages/cleo/src/dispatch/domains/nexus.ts`).
+ *
+ * @task T1013
+ * @epic T1006
+ */
+const topEntriesCommand = defineCommand({
+  meta: {
+    name: 'top-entries',
+    description: 'List top-weighted symbols from nexus_relations by weight DESC',
+  },
+  args: {
+    limit: {
+      type: 'string',
+      description: 'Maximum number of entries to return (default: 20)',
+      default: '20',
+    },
+    kind: {
+      type: 'string',
+      description:
+        'Filter by nexus_nodes.kind (e.g. function, method, class, interface, type_alias)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON (LAFS envelope format)',
+    },
+  },
+  async run({ args }) {
+    const limit = Number.parseInt(args.limit as string, 10) || 20;
+    const kind = (args.kind as string | undefined) ?? undefined;
+    const jsonOutput = !!args.json;
+    const params: Record<string, unknown> = { limit };
+    if (kind !== undefined && kind.length > 0) params.kind = kind;
+    await dispatchFromCli('query', 'nexus', 'top-entries', params, {
+      command: 'nexus',
+      operation: 'nexus.top-entries',
+      ...(jsonOutput ? { json: true } : {}),
+    });
+  },
+});
+
 export const nexusCommand = defineCommand({
   meta: { name: 'nexus', description: 'Cross-project NEXUS operations' },
   subCommands: {
@@ -5173,6 +5283,8 @@ export const nexusCommand = defineCommand({
     'hot-paths': hotPathsCommand,
     'hot-nodes': hotNodesCommand,
     'cold-symbols': coldSymbolsCommand,
+    // T1013 / T1006 — top-weighted symbols by nexus_relations.weight
+    'top-entries': topEntriesCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

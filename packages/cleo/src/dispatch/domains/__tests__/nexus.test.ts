@@ -979,8 +979,10 @@ describe('NexusHandler', () => {
         // T1061 — symbol context augmentation for PreToolUse hooks
         'augment',
         'transfer.preview',
-        // T1006 — highest-weight symbols/nodes from brain_page_nodes
+        // T1006 / T1013 — highest-weight symbols/nodes from nexus_relations.weight
         'top-entries',
+        // T1013 — impact analysis with optional `why` reasons
+        'impact',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',

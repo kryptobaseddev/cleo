@@ -12,9 +12,8 @@
  */
 
 import {
-  getBrainDb,
-  getBrainNativeDb,
   getLogger,
+  getNexusNativeDb,
   getProjectRoot,
   type NexusPermissionLevel,
 } from '@cleocode/core/internal';
@@ -268,92 +267,19 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
-        // T1006 — highest-weight symbols by quality_score from brain_page_nodes.
-        // Falls back to sorting by lastActivityAt if quality_score is not meaningful.
-        // NOTE: will prefer a `weight` column when T998 ships it; uses quality_score until then.
+        // T1006 / T1013 — highest-weight symbols by nexus_relations.weight (T998).
+        // Aggregates SUM(weight) per source node, joins nexus_nodes for label/kind/file.
+        // Supports optional --kind filter. Returns empty array with note when nexus
+        // is uninitialized or no plasticity weights have accumulated yet.
         case 'top-entries': {
-          const limitVal = (params?.limit as number | undefined) ?? 20;
-          const nodeTypeFilter = params?.nodeType as string | undefined;
+          return handleTopEntries(operation, params, startTime);
+        }
 
-          try {
-            await getBrainDb(projectRoot);
-            const nativeDb = getBrainNativeDb();
-            if (!nativeDb) {
-              return errorResult(
-                'query',
-                'nexus',
-                operation,
-                'E_DB_UNAVAILABLE',
-                'brain.db is unavailable',
-                startTime,
-              );
-            }
-
-            interface TopEntryRow {
-              id: string;
-              node_type: string;
-              label: string;
-              quality_score: number;
-              last_activity_at: string;
-              metadata_json: string | null;
-            }
-
-            const clauses: string[] = [];
-            const bindArgs: (string | number)[] = [];
-
-            if (nodeTypeFilter) {
-              clauses.push('node_type = ?');
-              bindArgs.push(nodeTypeFilter);
-            }
-            bindArgs.push(limitVal);
-
-            const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-
-            let entries: TopEntryRow[] = [];
-            try {
-              const rawRows = nativeDb
-                .prepare(
-                  `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
-                   FROM brain_page_nodes
-                   ${whereClause}
-                   ORDER BY quality_score DESC, last_activity_at DESC
-                   LIMIT ?`,
-                )
-                .all(...bindArgs);
-              entries = rawRows.map((raw) => {
-                const r = raw as Record<string, unknown>;
-                return {
-                  id: String(r['id'] ?? ''),
-                  node_type: String(r['node_type'] ?? ''),
-                  label: String(r['label'] ?? ''),
-                  quality_score: Number(r['quality_score'] ?? 0),
-                  last_activity_at: String(r['last_activity_at'] ?? ''),
-                  metadata_json: r['metadata_json'] != null ? String(r['metadata_json']) : null,
-                };
-              });
-            } catch {
-              // brain_page_nodes table may not exist on uninitialized DBs
-            }
-
-            return wrapResult(
-              {
-                success: true,
-                data: {
-                  count: entries.length,
-                  limit: limitVal,
-                  nodeType: nodeTypeFilter ?? null,
-                  entries,
-                  note: 'Sorted by quality_score DESC. Will use weight column once T998 lands.',
-                },
-              },
-              'query',
-              'nexus',
-              operation,
-              startTime,
-            );
-          } catch (dbErr) {
-            return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
-          }
+        // T1013 — impact analysis with optional `why` reasons.
+        // When `why=true`, returns reasons[] path-strings explaining why each
+        // affected symbol is impactful (caller count, edge strength, edge type).
+        case 'impact': {
+          return handleImpact(operation, params, startTime);
         }
 
         default:
@@ -551,8 +477,10 @@ export class NexusHandler implements DomainHandler {
         // T1061 — symbol context augmentation for PreToolUse hooks
         'augment',
         'transfer.preview',
-        // T1006 — highest-weight symbols/nodes from brain_page_nodes
+        // T1006 / T1013 — highest-weight symbols/nodes from nexus_relations.weight
         'top-entries',
+        // T1013 — impact analysis with optional `why` reasons
+        'impact',
       ],
       mutate: [
         'share.snapshot.export',
@@ -566,5 +494,529 @@ export class NexusHandler implements DomainHandler {
         'transfer',
       ],
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// T1013 — Helper shapes + handlers for `top-entries` and `impact --why`
+// ---------------------------------------------------------------------------
+
+/**
+ * A single top-weighted nexus symbol row returned by `nexus.top-entries`.
+ *
+ * Weight is the SUM of all outgoing `nexus_relations.weight` values from this
+ * node. Higher totalWeight = more frequently-co-accessed symbol.
+ */
+export interface NexusTopEntry {
+  /** Nexus node ID (== nexus_relations.source_id). */
+  nodeId: string;
+  /** Human-readable label. Falls back to nodeId when the node row is missing. */
+  label: string;
+  /** Node kind ('function', 'class', 'method', etc.). 'unknown' when absent. */
+  kind: string;
+  /** Source file path relative to project root. Null for external modules. */
+  filePath: string | null;
+  /** Aggregate outgoing Hebbian weight (SUM across all outgoing edges). */
+  totalWeight: number;
+  /** Number of outgoing edges contributing to totalWeight. */
+  edgeCount: number;
+}
+
+/** Result wrapper for `nexus.top-entries`. */
+export interface NexusTopEntriesResult {
+  /** Ranked entries sorted by totalWeight DESC. */
+  entries: NexusTopEntry[];
+  /** Count of returned entries (equals entries.length). */
+  count: number;
+  /** Applied row-cap limit. */
+  limit: number;
+  /** Applied kind filter (null when unfiltered). */
+  kind: string | null;
+  /**
+   * Optional informational note when nexus.db is uninitialized or no plasticity
+   * weights have accumulated yet. Callers may surface this to the user.
+   */
+  note?: string;
+}
+
+/**
+ * Row shape pulled from SQLite for the top-entries aggregation query.
+ *
+ * @internal — not exported; used only by `handleTopEntries`.
+ */
+interface TopEntryRow {
+  source_id: string;
+  totalWeight: number;
+  edgeCount: number;
+  label: string | null;
+  kind: string | null;
+  file_path: string | null;
+}
+
+/**
+ * Execute the `nexus.top-entries` query against nexus.db.
+ *
+ * Returns the top N symbols ranked by aggregate outgoing Hebbian weight
+ * (SUM of `nexus_relations.weight` grouped by `source_id`). When nexus.db
+ * is uninitialized or the `nexus_nodes` / `nexus_relations` tables are
+ * missing, returns an empty array with an informational `note` instead of
+ * throwing so empty-project callers do not crash.
+ *
+ * @param operation - The operation name ('top-entries').
+ * @param params - Query parameters (limit, kind).
+ * @param startTime - Milliseconds-since-epoch for meta timing.
+ * @returns DispatchResponse with LAFS envelope carrying `NexusTopEntriesResult`.
+ *
+ * @task T1013
+ * @epic T1006
+ */
+async function handleTopEntries(
+  operation: string,
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  const rawLimit = params?.limit;
+  const limit =
+    typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.floor(rawLimit)
+      : 20;
+  const rawKind = params?.kind;
+  const kind = typeof rawKind === 'string' && rawKind.length > 0 ? rawKind : null;
+
+  try {
+    const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
+    // Trigger migrations / singleton init. Returns a drizzle handle we don't
+    // need for raw-SQL aggregation — we use getNexusNativeDb() instead.
+    await getNexusDb();
+    const db = getNexusNativeDb();
+    if (!db) {
+      return wrapResult(
+        {
+          success: true,
+          data: {
+            entries: [],
+            count: 0,
+            limit,
+            kind,
+            note: 'nexus.db is unavailable. Run "cleo nexus init" first.',
+          } satisfies NexusTopEntriesResult,
+        },
+        'query',
+        'nexus',
+        operation,
+        startTime,
+      );
+    }
+
+    let rows: TopEntryRow[] = [];
+    try {
+      const sql =
+        kind === null
+          ? `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`
+          : `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              WHERE n.kind = ?
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`;
+      const bindArgs: (string | number)[] = kind === null ? [limit] : [kind, limit];
+      const rawRows = db.prepare(sql).all(...bindArgs);
+      rows = rawRows.map((raw) => {
+        const r = raw as Record<string, unknown>;
+        return {
+          source_id: String(r['source_id'] ?? ''),
+          totalWeight: Number(r['totalWeight'] ?? 0),
+          edgeCount: Number(r['edgeCount'] ?? 0),
+          label: r['label'] != null ? String(r['label']) : null,
+          kind: r['kind'] != null ? String(r['kind']) : null,
+          file_path: r['file_path'] != null ? String(r['file_path']) : null,
+        };
+      });
+    } catch {
+      // nexus_relations / nexus_nodes tables not present — treat as empty.
+      rows = [];
+    }
+
+    const entries: NexusTopEntry[] = rows.map((r) => ({
+      nodeId: r.source_id,
+      label: r.label ?? r.source_id,
+      kind: r.kind ?? 'unknown',
+      filePath: r.file_path ?? null,
+      totalWeight: r.totalWeight,
+      edgeCount: r.edgeCount,
+    }));
+
+    const allZero = entries.length === 0 || entries.every((e) => e.totalWeight === 0);
+    const note = allZero
+      ? 'No Hebbian weights accumulated yet. Run a dream cycle or wait for plasticity updates.'
+      : undefined;
+
+    const data: NexusTopEntriesResult = {
+      entries,
+      count: entries.length,
+      limit,
+      kind,
+      ...(note !== undefined ? { note } : {}),
+    };
+
+    return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
+  } catch (dbErr) {
+    return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
+  }
+}
+
+/** Edge kinds treated as 'callers-of' when walking the reverse adjacency. */
+const IMPACT_REVERSE_TYPES = new Set<string>(['calls', 'imports', 'accesses']);
+
+/**
+ * A single affected-symbol entry in the impact report.
+ */
+export interface NexusImpactAffectedSymbol {
+  /** Nexus node ID. */
+  nodeId: string;
+  /** Human-readable label. */
+  label: string;
+  /** Node kind. */
+  kind: string;
+  /** Source file path (nullable). */
+  filePath: string | null;
+  /** BFS depth from the target (1 = direct caller). */
+  depth: number;
+  /**
+   * Path-strings explaining WHY this symbol is impactful. Populated only
+   * when the caller passed `why=true`. Empty array otherwise.
+   *
+   * Example entries:
+   *   - "called by 3 places"
+   *   - "strength=0.42 via calls"
+   *   - "depth=2 hop via imports"
+   */
+  reasons: string[];
+}
+
+/** Result wrapper for `nexus.impact`. */
+export interface NexusImpactResult {
+  /** Original symbol query string. */
+  query: string;
+  /** Project ID the analysis ran against. */
+  projectId: string;
+  /** Resolved target node ID (or null when no match was found). */
+  targetNodeId: string | null;
+  /** Resolved target label (or null when no match was found). */
+  targetLabel: string | null;
+  /** Whether `why` reasons were requested and populated. */
+  why: boolean;
+  /** Risk tier based on totalImpact count. */
+  riskLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  /** Total affected symbols across all depths (excludes the target itself). */
+  totalImpact: number;
+  /** Maximum traversal depth applied (capped at 5). */
+  maxDepth: number;
+  /** Affected symbols grouped by BFS depth. */
+  affected: NexusImpactAffectedSymbol[];
+}
+
+/**
+ * Internal shape — a single relation row used for BFS traversal.
+ *
+ * @internal
+ */
+interface ImpactRelationRow {
+  source_id: string;
+  target_id: string;
+  type: string;
+  weight: number | null;
+}
+
+/**
+ * Internal shape — a single node row used for target resolution and display.
+ *
+ * @internal
+ */
+interface ImpactNodeRow {
+  id: string;
+  label: string | null;
+  kind: string | null;
+  file_path: string | null;
+  name: string | null;
+  project_id: string;
+}
+
+/**
+ * Compute a RiskLevel bucket from a raw impact count.
+ *
+ * NONE: 0, LOW: 1-3, MEDIUM: 4-10, HIGH: 11-25, CRITICAL: 26+.
+ *
+ * @internal
+ */
+function riskLevelFor(totalImpact: number): NexusImpactResult['riskLevel'] {
+  if (totalImpact === 0) return 'NONE';
+  if (totalImpact <= 3) return 'LOW';
+  if (totalImpact <= 10) return 'MEDIUM';
+  if (totalImpact <= 25) return 'HIGH';
+  return 'CRITICAL';
+}
+
+/**
+ * Execute the `nexus.impact` query against nexus.db.
+ *
+ * Walks the reverse call/import/access graph (BFS) up to `maxDepth` levels
+ * from a resolved target symbol and returns affected symbols. When the
+ * caller passes `why=true`, each affected symbol includes `reasons[]`
+ * path-strings explaining why it is impactful (caller count, edge strength,
+ * edge type, hop depth).
+ *
+ * When nexus.db is uninitialized or the target symbol cannot be resolved,
+ * returns a successful envelope with `targetNodeId=null` and `affected=[]`.
+ *
+ * @param operation - The operation name ('impact').
+ * @param params - { symbol: string; why?: boolean; depth?: number; projectId?: string }.
+ * @param startTime - Milliseconds-since-epoch for meta timing.
+ * @returns DispatchResponse with LAFS envelope carrying `NexusImpactResult`.
+ *
+ * @task T1013
+ * @epic T1006
+ */
+async function handleImpact(
+  operation: string,
+  params: Record<string, unknown> | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  const symbolName = params?.symbol as string | undefined;
+  if (!symbolName) {
+    return errorResult(
+      'query',
+      'nexus',
+      operation,
+      'E_INVALID_INPUT',
+      'symbol is required',
+      startTime,
+    );
+  }
+  const why = params?.why === true;
+  const rawDepth = params?.depth;
+  const maxDepth = Math.min(
+    typeof rawDepth === 'number' && Number.isFinite(rawDepth) && rawDepth > 0 ? rawDepth : 3,
+    5,
+  );
+  const projectIdParam = params?.projectId as string | undefined;
+  const projectId = projectIdParam ?? Buffer.from(process.cwd()).toString('base64url').slice(0, 32);
+
+  try {
+    const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
+    await getNexusDb();
+    const db = getNexusNativeDb();
+    if (!db) {
+      return wrapResult(
+        {
+          success: true,
+          data: {
+            query: symbolName,
+            projectId,
+            targetNodeId: null,
+            targetLabel: null,
+            why,
+            riskLevel: 'NONE' as const,
+            totalImpact: 0,
+            maxDepth,
+            affected: [],
+          } satisfies NexusImpactResult,
+        },
+        'query',
+        'nexus',
+        operation,
+        startTime,
+      );
+    }
+
+    // Resolve the target symbol. Prefer exact `name`/`label` matches, then
+    // case-insensitive LIKE. Structural nodes (file, folder, community,
+    // process) never have callers so they are excluded from resolution.
+    let allNodes: ImpactNodeRow[] = [];
+    try {
+      const rawRows = db
+        .prepare(
+          `SELECT id, label, kind, file_path, name, project_id
+             FROM nexus_nodes
+            WHERE project_id = ?
+              AND kind NOT IN ('community','process','file','folder')`,
+        )
+        .all(projectId);
+      allNodes = rawRows.map((raw) => {
+        const r = raw as Record<string, unknown>;
+        return {
+          id: String(r['id'] ?? ''),
+          label: r['label'] != null ? String(r['label']) : null,
+          kind: r['kind'] != null ? String(r['kind']) : null,
+          file_path: r['file_path'] != null ? String(r['file_path']) : null,
+          name: r['name'] != null ? String(r['name']) : null,
+          project_id: String(r['project_id'] ?? ''),
+        };
+      });
+    } catch {
+      allNodes = [];
+    }
+
+    const lowerSymbol = symbolName.toLowerCase();
+    const candidates = allNodes.filter((n) => {
+      const haystack = (n.name ?? n.label ?? '').toLowerCase();
+      return haystack.length > 0 && haystack.includes(lowerSymbol);
+    });
+
+    // Prefer exact matches, then shortest labels (closer to the intent).
+    candidates.sort((a, b) => {
+      const an = (a.name ?? a.label ?? '').toLowerCase();
+      const bn = (b.name ?? b.label ?? '').toLowerCase();
+      const exactA = an === lowerSymbol ? 0 : 1;
+      const exactB = bn === lowerSymbol ? 0 : 1;
+      if (exactA !== exactB) return exactA - exactB;
+      return an.length - bn.length;
+    });
+
+    const target = candidates[0];
+    if (!target) {
+      return wrapResult(
+        {
+          success: true,
+          data: {
+            query: symbolName,
+            projectId,
+            targetNodeId: null,
+            targetLabel: null,
+            why,
+            riskLevel: 'NONE' as const,
+            totalImpact: 0,
+            maxDepth,
+            affected: [],
+          } satisfies NexusImpactResult,
+        },
+        'query',
+        'nexus',
+        operation,
+        startTime,
+      );
+    }
+
+    // Load all callable relations for the project and build a reverse
+    // adjacency index: targetId -> list of { source_id, type, weight }.
+    let allRelations: ImpactRelationRow[] = [];
+    try {
+      const rawRows = db
+        .prepare(
+          `SELECT source_id, target_id, type, weight
+             FROM nexus_relations
+            WHERE project_id = ?
+              AND type IN ('calls','imports','accesses')`,
+        )
+        .all(projectId);
+      allRelations = rawRows.map((raw) => {
+        const r = raw as Record<string, unknown>;
+        return {
+          source_id: String(r['source_id'] ?? ''),
+          target_id: String(r['target_id'] ?? ''),
+          type: String(r['type'] ?? ''),
+          weight: r['weight'] != null ? Number(r['weight']) : null,
+        };
+      });
+    } catch {
+      allRelations = [];
+    }
+
+    const reverseAdj = new Map<string, ImpactRelationRow[]>();
+    for (const rel of allRelations) {
+      if (!IMPACT_REVERSE_TYPES.has(rel.type)) continue;
+      const list = reverseAdj.get(rel.target_id);
+      if (list) {
+        list.push(rel);
+      } else {
+        reverseAdj.set(rel.target_id, [rel]);
+      }
+    }
+
+    // Collect incoming counts per node — used for "called by N places" reason.
+    const incomingCount = new Map<string, number>();
+    for (const rel of allRelations) {
+      if (!IMPACT_REVERSE_TYPES.has(rel.type)) continue;
+      incomingCount.set(rel.target_id, (incomingCount.get(rel.target_id) ?? 0) + 1);
+    }
+
+    // Build a node-by-id lookup for display.
+    const nodeById = new Map<string, ImpactNodeRow>();
+    for (const n of allNodes) nodeById.set(n.id, n);
+
+    // BFS upstream from target.
+    const targetId = target.id;
+    const visited = new Set<string>([targetId]);
+    const queue: Array<{ id: string; depth: number }> = [{ id: targetId, depth: 0 }];
+    const affected: NexusImpactAffectedSymbol[] = [];
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+      if (item.depth >= maxDepth) continue;
+
+      const callers = reverseAdj.get(item.id) ?? [];
+      for (const edge of callers) {
+        if (visited.has(edge.source_id)) continue;
+        visited.add(edge.source_id);
+        const depth = item.depth + 1;
+        const callerNode = nodeById.get(edge.source_id);
+        const reasons: string[] = [];
+        if (why) {
+          const calls = incomingCount.get(edge.source_id) ?? 0;
+          if (calls > 0) {
+            reasons.push(`called by ${calls} place${calls === 1 ? '' : 's'}`);
+          }
+          if (edge.weight != null && edge.weight > 0) {
+            reasons.push(`strength=${edge.weight.toFixed(3)} via ${edge.type}`);
+          } else {
+            reasons.push(`edge type ${edge.type} (weight=0 — no plasticity yet)`);
+          }
+          reasons.push(`depth=${depth} hop from target ${target.label ?? target.id}`);
+        }
+        affected.push({
+          nodeId: edge.source_id,
+          label: callerNode?.label ?? edge.source_id,
+          kind: callerNode?.kind ?? 'unknown',
+          filePath: callerNode?.file_path ?? null,
+          depth,
+          reasons,
+        });
+        queue.push({ id: edge.source_id, depth });
+      }
+    }
+
+    const totalImpact = affected.length;
+    const data: NexusImpactResult = {
+      query: symbolName,
+      projectId,
+      targetNodeId: target.id,
+      targetLabel: target.label ?? target.name ?? target.id,
+      why,
+      riskLevel: riskLevelFor(totalImpact),
+      totalImpact,
+      maxDepth,
+      affected,
+    };
+
+    return wrapResult({ success: true, data }, 'query', 'nexus', operation, startTime);
+  } catch (dbErr) {
+    return handleErrorResult('query', 'nexus', operation, dbErr, startTime);
   }
 }
