@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
  * Auto-generate TypeScript declarations for JSON schema files
- * 
+ *
  * This script generates .d.ts files from JSON schemas in packages/lafs/schemas/v1/
  * Run via: node scripts/generate-json-types.mjs
- * 
+ *
  * @task T-GENERATE-JSON-TYPES
  */
 
@@ -32,7 +32,7 @@ const SCHEMAS = [
 }
 
 declare const schema: ConformanceProfilesSchema;
-export default schema;`
+export default schema;`,
   },
   {
     file: 'error-registry.json',
@@ -57,7 +57,7 @@ export interface ErrorRegistrySchema {
 }
 
 declare const schema: ErrorRegistrySchema;
-export default schema;`
+export default schema;`,
   },
   {
     file: 'envelope.schema.json',
@@ -72,13 +72,13 @@ export default schema;`
 }
 
 declare const schema: EnvelopeSchema;
-export default schema;`
-  }
+export default schema;`,
+  },
 ];
 
 function generateTypes() {
   console.log('🔧 Generating TypeScript declarations for JSON schemas...\n');
-  
+
   for (const schema of SCHEMAS) {
     const outputFile = join(OUTPUT_DIR, schema.file.replace('.json', '.d.ts'));
     const declaration = `// Auto-generated from ${schema.file}
@@ -86,11 +86,11 @@ function generateTypes() {
 
 ${schema.content}
 `;
-    
+
     writeFileSync(outputFile, declaration, 'utf-8');
     console.log(`✅ Generated: packages/lafs/schemas/v1/${schema.file.replace('.json', '.d.ts')}`);
   }
-  
+
   console.log('\n✨ Done! TypeScript declarations generated.');
   console.log('💡 Next step: Update packages/lafs/tsconfig.json to include "schemas/**/*.d.ts"');
 }

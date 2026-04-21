@@ -44,11 +44,7 @@
     }
   },
   "files": {
-    "includes": [
-      "packages/*/src/**/*.ts",
-      "packages/*/__tests__/**/*.ts",
-      "scripts/**/*.mjs"
-    ]
+    "includes": ["packages/*/src/**/*.ts", "packages/*/__tests__/**/*.ts", "scripts/**/*.mjs"]
   },
   "overrides": [
     {
