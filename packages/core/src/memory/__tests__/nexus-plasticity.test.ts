@@ -608,7 +608,7 @@ describe('T998 — NEXUS plasticity', () => {
 
         // After 1 day with 2-day half-life, weight should be 1.0 * 0.5^(1/2) = 1.0 * sqrt(0.5) ≈ 0.707
         const row = readEdge(db, 'e-env');
-        expect(row.weight).toBeCloseTo(0.707, 1);
+        expect(row.weight).toBeCloseTo(Math.SQRT1_2, 1);
       } finally {
         delete process.env['CLEO_PLASTICITY_HALFLIFE_DAYS'];
         // Reset mock to the shared db so afterEach can close it cleanly

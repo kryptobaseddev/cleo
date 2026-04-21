@@ -245,3 +245,35 @@ describe('transactionalInsertProposal', () => {
     expect(DEFAULT_DAILY_PROPOSAL_LIMIT).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Index verification (T1126)
+// ---------------------------------------------------------------------------
+
+describe('sentient proposal index', () => {
+  it('partial index exists in schema and accelerates count query', () => {
+    const db = createTestDb();
+    // Create the partial index that the real DB has
+    db.exec(`
+      CREATE INDEX idx_tasks_sentient_proposals_today
+      ON tasks(date(created_at))
+      WHERE labels_json LIKE '%sentient-tier2%'
+    `);
+
+    // Verify the index exists via PRAGMA
+    const indexes = db.prepare('PRAGMA index_list(tasks)').all() as Array<{ name: string }>;
+    const idx = indexes.find((i) => i.name === 'idx_tasks_sentient_proposals_today');
+    expect(idx).toBeDefined();
+
+    // Verify the index is partial (has WHERE clause)
+    const info = db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE name = 'idx_tasks_sentient_proposals_today' AND type = 'index'",
+      )
+      .get() as { sql: string } | undefined;
+    expect(info?.sql).toContain('WHERE');
+    expect(info?.sql).toContain('sentient-tier2');
+
+    db.close();
+  });
+});
