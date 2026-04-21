@@ -21,6 +21,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { getAgentsHome, getCleoHome, getCleoTemplatesTildePath } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
+import { resolveBridgeMode } from './system/bridge-mode.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -228,26 +229,6 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     path: agentsMdPath,
     details: actions.join('; '),
   };
-}
-
-// ── Bridge mode resolution (T999) ────────────────────────────────────
-
-/**
- * Resolve the memory bridge injection mode from project config.
- *
- * Returns `'cli'` when no config is present (safe default for new installs).
- * Returns `'file'` only when explicitly configured for backcompat.
- *
- * @param projectRoot - Absolute path to the project root.
- */
-async function resolveBridgeMode(projectRoot: string): Promise<'cli' | 'file'> {
-  try {
-    const { loadConfig } = await import('./config.js');
-    const config = await loadConfig(projectRoot);
-    return config.brain?.memoryBridge?.mode ?? 'cli';
-  } catch {
-    return 'cli';
-  }
 }
 
 // ── Contributor project injection block (ADR-029) ────────────────────

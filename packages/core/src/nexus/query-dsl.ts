@@ -28,6 +28,22 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
+// T1013/T1108: plasticity queries over nexus_relations plasticity columns.
+// Canonical implementation lives in plasticity-queries.ts so the CLI and test
+// fixtures (expected in query-dsl.ts per the T1108 spec) both converge here.
+export {
+  getColdSymbols,
+  getHotNodes,
+  getHotPaths,
+  type NexusColdSymbol,
+  type NexusColdSymbolsResult,
+  type NexusHotNode,
+  type NexusHotNodesResult,
+  type NexusHotPath,
+  type NexusHotPathsResult,
+  type NexusPlasticityResult,
+} from './plasticity-queries.js';
+
 // ── Template CTE Definitions ─────────────────────────────────────────
 
 /**
