@@ -539,6 +539,21 @@ export {
   VALID_PRIORITIES,
   validateEnum,
 } from './security/input-sanitization.js';
+// Owner-override auth (T1118 L4)
+export type { OverrideValidationResult } from './security/owner-override-auth.js';
+export {
+  appendOwnerOverrideAudit,
+  DEFAULT_OVERRIDE_MAX_PER_SESSION,
+  deliverOverrideWebhook,
+  deriveOwnerAuthToken,
+  getOverrideCount,
+  isAgentRoleForbidden,
+  isTtyPresent,
+  recordAndCheckOverrideLimit,
+  resetOverrideCount,
+  validateOwnerOverride,
+  verifyOwnerAuthToken,
+} from './security/owner-override-auth.js';
 // Sequence
 export { allocateNextTaskId, repairSequence } from './sequence/index.js';
 export { recordAssumption } from './sessions/assumptions.js';
@@ -1216,6 +1231,20 @@ export {
 } from './skills/precedence-integration.js';
 // Spawn
 export { initializeDefaultAdapters, spawnRegistry } from './spawn/adapter-registry.js';
+// Branch-lock engine (T1118)
+export {
+  applyFsHarden,
+  buildAgentEnv,
+  buildWorktreeSpawnResult,
+  completeAgentWorktree,
+  createAgentWorktree,
+  detectFsHardenCapabilities,
+  ensureGitShimDir,
+  getGitRoot,
+  pruneOrphanedWorktrees,
+  removeFsHarden,
+  resolveAgentWorktreeRoot,
+} from './spawn/branch-lock.js';
 // Nexus DB path (global tier) + native handle for Tier-2 ingesters (T1008)
 export { getNexusDbPath, getNexusNativeDb } from './store/nexus-sqlite.js';
 // System — backup (different from store/backup.ts)

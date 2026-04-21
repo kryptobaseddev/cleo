@@ -372,6 +372,8 @@ export const sessions = sqliteTable(
     statsJson: text('stats_json'),
     resumeCount: integer('resume_count'),
     gradeMode: integer('grade_mode'),
+    // Owner-auth HMAC token for L4a override authentication (T1118)
+    ownerAuthToken: text('owner_auth_token'),
   },
   (table) => [
     index('idx_sessions_status').on(table.status),
