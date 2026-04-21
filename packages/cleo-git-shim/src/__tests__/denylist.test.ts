@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { RESTRICTED_ROLES, findDeniedOp } from '../denylist.js';
+import { findDeniedOp, RESTRICTED_ROLES } from '../denylist.js';
 
 describe('RESTRICTED_ROLES', () => {
   it('includes worker, lead, subagent', () => {

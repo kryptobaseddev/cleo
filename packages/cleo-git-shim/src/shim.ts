@@ -30,7 +30,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { RESTRICTED_ROLES, findDeniedOp } from './denylist.js';
+import { findDeniedOp, RESTRICTED_ROLES } from './denylist.js';
 
 /** Sentinel exit code for a shim-blocked git operation. */
 const BLOCKED_EXIT_CODE = 77;

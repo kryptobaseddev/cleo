@@ -122,23 +122,6 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
-// === Branch-Lock + Owner-Auth Types (T1118) ===
-export {
-  BRANCH_LOCK_ERROR_CODES,
-} from './branch-lock.js';
-export type {
-  AgentWorktreeState,
-  BranchLockErrorCode,
-  DeniedGitOp,
-  FsHardenCapabilities,
-  FsHardenState,
-  GitShimEnv,
-  OwnerOverrideAuditRecord,
-  OwnerOverrideConfig,
-  WorktreeCleanupResult,
-  WorktreeCompleteResult,
-  WorktreeSpawnResult,
-} from './branch-lock.js';
 // === Brain/Memory Types ===
 export type {
   BrainCognitiveType,
@@ -161,6 +144,21 @@ export type {
   BrainStreamEvent,
   BrainSubstrate,
 } from './brain-graph.js';
+export type {
+  AgentWorktreeState,
+  BranchLockErrorCode,
+  DeniedGitOp,
+  FsHardenCapabilities,
+  FsHardenState,
+  GitShimEnv,
+  OwnerOverrideAuditRecord,
+  OwnerOverrideConfig,
+  WorktreeCleanupResult,
+  WorktreeCompleteResult,
+  WorktreeSpawnResult,
+} from './branch-lock.js';
+// === Branch-Lock + Owner-Auth Types (T1118) ===
+export { BRANCH_LOCK_ERROR_CODES } from './branch-lock.js';
 export type { AdapterCapabilities } from './capabilities.js';
 // === Code Symbol Types (tree-sitter AST) ===
 export type {
