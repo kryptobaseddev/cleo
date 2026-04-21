@@ -684,3 +684,124 @@ export async function nexusImpactFull(
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
+
+// ---------------------------------------------------------------------------
+// T1116 — Code Intelligence CLI surface (4 verbs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Route map for a project: all routes with their handlers and dependencies.
+ *
+ * Calls {@link getRouteMap} from the route-analysis SDK.
+ *
+ * @param projectId - Project identifier (auto-derived from path if omitted).
+ * @param projectRoot - Absolute project root path.
+ * @task T1116
+ */
+export async function nexusRouteMap(
+  projectId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').RouteMapResult>> {
+  try {
+    const { getRouteMap } = await import('@cleocode/core/nexus/route-analysis.js' as string);
+    const result = await (
+      getRouteMap as (
+        id: string,
+        root: string,
+      ) => Promise<import('@cleocode/contracts').RouteMapResult>
+    )(projectId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Shape compatibility check for a route handler vs. its callers.
+ *
+ * Calls {@link shapeCheck} from the route-analysis SDK.
+ *
+ * @param routeSymbol - Route symbol ID (format: `<filePath>::<routeName>`).
+ * @param projectId - Project identifier.
+ * @param projectRoot - Absolute project root path.
+ * @task T1116
+ */
+export async function nexusShapeCheck(
+  routeSymbol: string,
+  projectId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').ShapeCheckResult>> {
+  try {
+    const { shapeCheck } = await import('@cleocode/core/nexus/route-analysis.js' as string);
+    const result = await (
+      shapeCheck as (
+        sym: string,
+        id: string,
+        root: string,
+      ) => Promise<import('@cleocode/contracts').ShapeCheckResult>
+    )(routeSymbol, projectId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * BM25 code symbol search against the nexus augment index.
+ *
+ * Delegates to {@link nexusAugment} — `search-code` is a thin alias that
+ * exposes the augment BM25 index as a named dispatch operation.
+ *
+ * @param pattern - Search query (symbol name, file pattern, or keyword).
+ * @param limit - Maximum results (default 10).
+ * @task T1116
+ */
+export async function nexusSearchCode(
+  pattern: string,
+  limit: number,
+): Promise<EngineResult<unknown>> {
+  return nexusAugment(pattern, limit);
+}
+
+/**
+ * Generate (or read) the community-grouped wiki index from the nexus code graph.
+ *
+ * Calls {@link generateNexusWikiIndex} from the wiki-index SDK.
+ *
+ * @param outputDir - Directory to write wiki files (default: `.cleo/wiki`).
+ * @param projectRoot - Absolute project root path.
+ * @param options - Optional generation flags (communityFilter, incremental, loomProvider).
+ * @task T1116
+ */
+export async function nexusWiki(
+  outputDir: string,
+  projectRoot: string,
+  options?: {
+    communityFilter?: string;
+    incremental?: boolean;
+  },
+): Promise<EngineResult<import('@cleocode/contracts').NexusWikiResult>> {
+  try {
+    const { generateNexusWikiIndex } = await import('@cleocode/core/nexus/wiki-index.js' as string);
+    const result = await (
+      generateNexusWikiIndex as (
+        outDir: string,
+        cwd: string,
+        opts?: {
+          communityFilter?: string;
+          incremental?: boolean;
+          loomProvider?: null;
+          projectRoot?: string;
+        },
+      ) => Promise<import('@cleocode/contracts').NexusWikiResult>
+    )(outputDir, projectRoot, {
+      communityFilter: options?.communityFilter,
+      incremental: options?.incremental ?? false,
+      loomProvider: null,
+      projectRoot,
+    });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}

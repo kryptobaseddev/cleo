@@ -4587,6 +4587,111 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1116 — Code Intelligence CLI surface (4 verbs)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'route-map',
+    description:
+      'nexus.route-map (query) — display all routes with their handlers and dependencies for a project (route ID, handler name, HTTP method/path, dep count, caller count)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'projectId',
+        type: 'string',
+        required: false,
+        description: 'Project identifier (auto-derived from project root if omitted)',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'shape-check',
+    description:
+      'nexus.shape-check (query) — check response shape compatibility between a route handler and its callers; returns per-caller compatibility status and recommendations',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['routeSymbol'],
+    params: [
+      {
+        name: 'routeSymbol',
+        type: 'string',
+        required: true,
+        description: 'Route symbol ID (format: <filePath>::<routeName>)',
+      },
+      {
+        name: 'projectId',
+        type: 'string',
+        required: false,
+        description: 'Project identifier (auto-derived from project root if omitted)',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'search-code',
+    description:
+      'nexus.search-code (query) — BM25 search of code symbols in nexus.db; returns symbol names, kinds, file paths, and relevance scores',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['pattern'],
+    params: [
+      {
+        name: 'pattern',
+        type: 'string',
+        required: true,
+        description: 'Search query (symbol name, file pattern, or keyword)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max results (default: 10)',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'wiki',
+    description:
+      'nexus.wiki (query) — generate community-grouped wiki index from the nexus code graph; scaffold mode when LOOM provider unavailable',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'outputDir',
+        type: 'string',
+        required: false,
+        description: 'Output directory for wiki files (default: <projectRoot>/.cleo/wiki)',
+      },
+      {
+        name: 'communityFilter',
+        type: 'string',
+        required: false,
+        description: 'Filter generation to a single community ID (e.g. "community:3")',
+      },
+      {
+        name: 'incremental',
+        type: 'boolean',
+        required: false,
+        description:
+          'Only regenerate communities whose symbols changed since last wiki run (uses .cleo/wiki-state.json)',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 
