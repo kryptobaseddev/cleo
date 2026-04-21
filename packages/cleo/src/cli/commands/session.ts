@@ -61,8 +61,23 @@ const startCommand = defineCommand({
       type: 'boolean',
       description: 'Enable full query+mutation audit logging for behavioral grading',
     },
+    'owner-auth': {
+      type: 'boolean',
+      description:
+        'Prompt for a password and store a session HMAC token for owner-override authentication (T1118 L4a)',
+    },
   },
   async run({ args }) {
+    // T1118 L4a — if --owner-auth is set, prompt for a password and derive the HMAC token.
+    let ownerAuthToken: string | undefined;
+    if (args['owner-auth']) {
+      ownerAuthToken = await promptOwnerAuthPassword(args.name ?? 'session');
+      if (!ownerAuthToken) {
+        process.stderr.write('[cleo] --owner-auth: password prompt cancelled.\n');
+        process.exit(ExitCode.GENERAL);
+      }
+    }
+
     await dispatchFromCli(
       'mutate',
       'session',
@@ -73,11 +88,90 @@ const startCommand = defineCommand({
         autoStart: (args['auto-start'] || args['auto-focus']) as boolean | undefined,
         focus: args.focus as string | undefined,
         grade: args.grade as boolean | undefined,
+        ownerAuthToken,
       },
       { command: 'session', operation: 'session.start' },
     );
   },
 });
+
+/**
+ * Prompt the owner for a password via TTY readline and derive the HMAC token.
+ *
+ * @param sessionName - Session name used for display purposes.
+ * @returns The derived HMAC token, or null if the user cancelled.
+ *
+ * @task T1118
+ * @task T1123
+ */
+async function promptOwnerAuthPassword(sessionName: string): Promise<string | null> {
+  // T1118 L4c — must be a TTY.
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    process.stderr.write(
+      '[cleo] --owner-auth requires an interactive TTY. ' +
+        'stdin.isTTY or stderr.isTTY is false.\n',
+    );
+    return null;
+  }
+
+  const { createInterface } = await import('node:readline');
+  const { deriveOwnerAuthToken } = await import('@cleocode/core/internal');
+
+  // Use a temporary session ID placeholder — the real session ID comes from
+  // the dispatch response. We derive a token here keyed to a stable nonce
+  // that gets stored alongside the session. We use the session name as the
+  // "sessionId" for the HMAC derivation at this stage; the domain handler
+  // will replace it with the real session ID.
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+    terminal: true,
+  });
+
+  process.stderr.write(`[cleo] Enter owner-auth password for session "${sessionName}": `);
+
+  const password = await new Promise<string>((resolve) => {
+    // Disable echo if we can.
+    if ((process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode) {
+      (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
+        true,
+      );
+    }
+    let pw = '';
+    process.stdin.on('data', function onData(char: Buffer) {
+      const ch = char.toString('utf8');
+      if (ch === '\n' || ch === '\r') {
+        process.stdin.removeListener('data', onData);
+        process.stdin.pause();
+        if ((process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode) {
+          (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
+            false,
+          );
+        }
+        process.stderr.write('\n');
+        resolve(pw);
+      } else if (ch === '\u0003') {
+        // Ctrl+C
+        process.stderr.write('\n[cleo] Cancelled.\n');
+        resolve('');
+      } else if (ch === '\u007f' || ch === '\b') {
+        pw = pw.slice(0, -1);
+      } else {
+        pw += ch;
+      }
+    });
+    process.stdin.resume();
+  });
+
+  rl.close();
+
+  if (!password) return null;
+
+  // Derive the HMAC token using sessionName as a temporary key.
+  // The dispatch handler will re-derive with the real session ID.
+  const token = deriveOwnerAuthToken(sessionName, password);
+  return token;
+}
 
 /** cleo session end — end the current session */
 const endCommand = defineCommand({
