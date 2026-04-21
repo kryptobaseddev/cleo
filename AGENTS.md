@@ -1,8 +1,7 @@
 <!-- CAAMP:START -->
 @~/.agents/AGENTS.md
 @.cleo/project-context.json
-@.cleo/memory-bridge.md
-@.cleo/nexus-bridge.md
+# Run: cleo memory digest --brief
 <!-- CAAMP:END -->
 
 # CLEO Agent Code Quality Rules (MANDATORY)
