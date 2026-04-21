@@ -4421,13 +4421,13 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
-  // T1006 — highest-weight symbols/nodes from brain_page_nodes
+  // T1006 / T1013 — highest-weight symbols from nexus_relations.weight (T998)
   {
     gateway: 'query',
     domain: 'nexus',
     operation: 'top-entries',
     description:
-      'nexus.top-entries (query) — highest-weight brain_page_nodes sorted by quality_score DESC; will use weight column once T998 lands',
+      'nexus.top-entries (query) — top-weighted symbols from nexus_relations by weight DESC (Hebbian plasticity aggregate)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -4440,10 +4440,49 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Maximum entries to return (default: 20)',
       },
       {
-        name: 'nodeType',
+        name: 'kind',
         type: 'string',
         required: false,
-        description: 'Filter by node_type (e.g. observation, symbol, task)',
+        description: 'Filter by nexus_nodes.kind (e.g. function, method, class, interface)',
+      },
+    ],
+  },
+  // T1013 — impact analysis with optional `why` reasons[]
+  {
+    gateway: 'query',
+    domain: 'nexus',
+    operation: 'impact',
+    description:
+      'nexus.impact (query) — BFS blast radius for a symbol with optional reasons[] path-strings when why=true',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'Symbol name to analyze (case-insensitive substring match)',
+      },
+      {
+        name: 'why',
+        type: 'boolean',
+        required: false,
+        description:
+          'Append reasons[] per affected symbol (caller count, edge strength, hop depth). Default false',
+      },
+      {
+        name: 'depth',
+        type: 'number',
+        required: false,
+        description: 'Maximum BFS depth (default 3, capped at 5)',
+      },
+      {
+        name: 'projectId',
+        type: 'string',
+        required: false,
+        description: 'Override project ID (default: auto-detected from cwd)',
       },
     ],
   },
