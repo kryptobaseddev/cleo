@@ -668,6 +668,7 @@ export {
   getGlobalSignaldockDbPath,
   getGlobalSignaldockNativeDb,
   getSignaldockDbPath,
+  resolveSignaldockMigrationsFolder,
   SIGNALDOCK_SCHEMA_VERSION,
 } from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
