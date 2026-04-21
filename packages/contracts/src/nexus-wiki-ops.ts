@@ -5,6 +5,7 @@
  * from the nexus code graph.
  *
  * @task T1060
+ * @task T1109
  * @epic T1042
  */
 
@@ -34,6 +35,10 @@ export interface NexusWikiResult {
   communities: CommunityWikiStats[];
   /** Error message if success is false */
   error?: string;
+  /** IDs of communities that were skipped (incremental mode) */
+  skippedCommunities?: string[];
+  /** Whether LOOM LLM narrative was generated */
+  loomEnabled?: boolean;
 }
 
 /**
@@ -50,4 +55,72 @@ export interface WikiSymbolRow {
   callerCount: number;
   /** Number of symbols this symbol calls */
   calleeCount: number;
+}
+
+/**
+ * Minimal interface for an injectable SQLite database handle.
+ * Used in tests to provide an isolated in-memory or temp-file database
+ * instead of the real nexus.db singleton.
+ *
+ * Matches the subset of `DatabaseSync` (node:sqlite) used by the wiki generator.
+ */
+export interface WikiDbHandle {
+  /**
+   * Prepare a SQL statement and return a statement object with
+   * `all(...params)` and `get(...params)` accessors.
+   * Uses `any` to remain compatible with both `DatabaseSync.prepare()` and test mocks.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: intentional — must be assignable from DatabaseSync.prepare()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  prepare: (sql: string) => { all: (...params: any[]) => any[]; get: (...params: any[]) => any };
+}
+
+/**
+ * Options for generating the nexus wiki index.
+ */
+export interface GenerateNexusWikiOptions {
+  /**
+   * Filter generation to a single community ID.
+   * When set, only that community's markdown file is generated.
+   * The overview.md is NOT generated in single-community mode.
+   */
+  communityFilter?: string;
+  /**
+   * Enable incremental mode: use `cleo nexus diff` data to skip
+   * communities whose symbols have not changed since the last wiki run.
+   *
+   * Reads `.cleo/wiki-state.json` for the last-run commit SHA.
+   * On first run (no state file), performs a full generation and writes
+   * the state file.
+   */
+  incremental?: boolean;
+  /**
+   * LOOM provider function for generating narrative module summaries.
+   * Injected by the caller (CLI or test harness). When `null`, scaffold
+   * mode is used (no LLM narrative).
+   *
+   * Signature: `(prompt: string) => Promise<string>`
+   */
+  loomProvider?: ((prompt: string) => Promise<string>) | null;
+  /**
+   * Project root directory (used for resolving `.cleo/wiki-state.json`
+   * and running git operations). Defaults to `process.cwd()`.
+   */
+  projectRoot?: string;
+  /**
+   * Injectable database handle for testing.
+   * When provided, this handle is used instead of the real nexus.db singleton.
+   * Allows unit/integration tests to use isolated in-memory SQLite databases.
+   */
+  _dbForTesting?: WikiDbHandle;
+}
+
+/**
+ * State file persisted to `.cleo/wiki-state.json` for incremental mode.
+ */
+export interface WikiStateFile {
+  /** Git commit SHA of the last full or incremental wiki generation run. */
+  lastRunCommit: string;
+  /** List of community IDs generated in the last run. */
+  generatedCommunities: string[];
 }
