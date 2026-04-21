@@ -282,10 +282,11 @@ export const tasks = sqliteTable(
     index('idx_tasks_scope').on(table.scope),
     index('idx_tasks_role_status').on(table.role, table.status),
     // T1126 — partial index for Tier-2 proposal rate-limiter.
-    // Drizzle ORM beta.22 does not support partial indexes in sqliteTable,
-    // so the canonical definition lives in the raw SQL migration:
+    // Partial indexes with .where() ARE supported as of drizzle-orm beta.22 — see
+    // T-MSR Hybrid Path A+ (ADR-054). Schema-level partial indexes get migrated
+    // to .where() expressions in T1174 (T-MSR-W2A-09). Until that lands, keep
+    // the DDL-level index in the T1126 migration file to avoid divergence:
     //   packages/cleo/migrations/drizzle-tasks/20260421000001_t1126-sentient-proposal-index
-    // Re-run `drizzle-kit generate` will NOT emit this index.
   ],
 );
 
