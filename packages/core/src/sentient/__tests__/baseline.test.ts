@@ -56,7 +56,25 @@ async function getOldCommitSha(repoRoot: string): Promise<string> {
 // Setup — use env adapter with a fixed seed
 // ---------------------------------------------------------------------------
 
-const REPO_ROOT = '/mnt/projects/cleocode';
+import { execFileSync } from 'node:child_process';
+
+/**
+ * Resolve the repository root dynamically so the test passes under any
+ * checkout path (local dev: /mnt/projects/cleocode; CI: /home/runner/work/cleo/cleo).
+ * Falls back to process.cwd() if `git rev-parse` fails.
+ */
+function resolveRepoRoot(): string {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+    return out.trim();
+  } catch {
+    return process.cwd();
+  }
+}
+const REPO_ROOT = resolveRepoRoot();
 const TEST_SEED_HEX = crypto.randomBytes(32).toString('hex');
 
 let tmpDir: string;
