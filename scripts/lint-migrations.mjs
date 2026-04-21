@@ -10,11 +10,22 @@
  *   RULE-4: Folder names not matching /^\d{14}_[a-z0-9-]+$/.
  *
  * Usage:
- *   node scripts/lint-migrations.mjs [--migrations-root <path>]
+ *   node scripts/lint-migrations.mjs [--migrations-root <path>] [--fail-on=error|warn|none]
  *
- * Exits 0 on clean, 1 on violations.
+ * Flags:
+ *   --migrations-root <path>  Override the migrations root directory.
+ *   --fail-on=error           Exit 1 only when there are ERROR-severity violations (default).
+ *   --fail-on=warn            Exit 1 when there are any violations (ERROR or WARN).
+ *   --fail-on=none            Always exit 0 (report-only mode).
+ *
+ * GitHub Actions:
+ *   When GITHUB_ACTIONS=true is set in environment, violations are emitted as
+ *   ::error and ::warning workflow commands so findings appear inline on PR diffs.
+ *
+ * Exits 0 on clean (or when fail-on=none), 1 on qualifying violations.
  *
  * @task T1153
+ * @task T1168
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -45,6 +56,22 @@ const MIGRATIONS_ROOT =
   rootIdx !== -1 && args[rootIdx + 1]
     ? args[rootIdx + 1]
     : join(REPO_ROOT, 'packages/core/migrations');
+
+/**
+ * Threshold at which the process exits 1.
+ * - 'error'  → exit 1 only when ERRORs exist (default)
+ * - 'warn'   → exit 1 when any violation exists
+ * - 'none'   → always exit 0 (report-only mode)
+ */
+const failOnArg = args.find((a) => a.startsWith('--fail-on='));
+const FAIL_ON = failOnArg ? failOnArg.slice('--fail-on='.length) : 'error';
+if (!['error', 'warn', 'none'].includes(FAIL_ON)) {
+  process.stderr.write(`lint-migrations: unknown --fail-on value "${FAIL_ON}". Use error|warn|none.\n`);
+  process.exit(2);
+}
+
+/** True when running inside GitHub Actions — enables workflow annotation output. */
+const IS_GHA = process.env.GITHUB_ACTIONS === 'true';
 
 // ---------------------------------------------------------------------------
 // Discovery helpers
@@ -357,8 +384,30 @@ function main() {
   // Print to stdout
   process.stdout.write(report + '\n');
 
-  // Exit code
-  process.exit(stats.errors > 0 ? 1 : 0);
+  // GitHub Actions workflow annotations — emit ::error / ::warning for inline PR diff view.
+  // File paths are made relative to REPO_ROOT for cleaner annotation display.
+  if (IS_GHA) {
+    for (const v of violations) {
+      // Produce a repo-relative path when possible; fall back to absolute.
+      const relFile = v.file.startsWith(REPO_ROOT)
+        ? v.file.slice(REPO_ROOT.length + 1)
+        : v.file;
+      const level = v.severity === 'ERROR' ? 'error' : 'warning';
+      // GitHub Actions annotation format: ::<level> file=<path>::<message>
+      process.stdout.write(`::${level} file=${relFile}::${v.rule}: ${v.message}\n`);
+    }
+  }
+
+  // Determine exit code based on --fail-on threshold.
+  let shouldFail = false;
+  if (FAIL_ON === 'error') {
+    shouldFail = stats.errors > 0;
+  } else if (FAIL_ON === 'warn') {
+    shouldFail = violations.length > 0;
+  }
+  // FAIL_ON === 'none' → shouldFail stays false
+
+  process.exit(shouldFail ? 1 : 0);
 }
 
 main();
