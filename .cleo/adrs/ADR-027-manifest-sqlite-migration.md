@@ -1,6 +1,7 @@
 # ADR-027: Manifest SQLite Migration
 
 **Status**: Accepted
+**Superseded-By**: ADR-054 (docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md) supersedes §2.6 (drizzle-kit generate mandate)
 **Date**: 2026-03-06
 **Task**: T5577
 **Epic**: T5576
