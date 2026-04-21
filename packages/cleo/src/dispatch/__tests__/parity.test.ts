@@ -152,9 +152,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T1061: nexus.augment (query) — +1 query / +1 total.
     // T1013: nexus.impact (query, new dispatch wiring with optional why flag) — +1 query / +1 total.
     // T1115: nexus.full-context + nexus.task-footprint + nexus.brain-anchors + nexus.why + nexus.impact-full (query) — +5 query / +5 total.
-    expect(queryCount).toBe(179);
+    // T1116: nexus.route-map + nexus.shape-check + nexus.search-code + nexus.wiki (query) — +4 query / +4 total.
+    expect(queryCount).toBe(183);
     expect(mutateCount).toBe(120);
-    expect(OPERATIONS.length).toBe(299);
+    expect(OPERATIONS.length).toBe(303);
   });
 
   it('all operations have valid gateway values', () => {
