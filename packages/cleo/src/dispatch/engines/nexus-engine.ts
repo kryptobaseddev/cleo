@@ -558,3 +558,129 @@ export async function nexusAugment(
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
+
+// ---------------------------------------------------------------------------
+// T1115 — Living Brain primitives (5 verbs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Full cross-substrate context for a code symbol.
+ *
+ * Calls {@link getSymbolFullContext} from the Living Brain SDK.
+ *
+ * @param symbolId - Symbol name or nexus node ID.
+ * @param projectRoot - Absolute project root path.
+ * @task T1115
+ */
+export async function nexusFullContext(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').SymbolFullContext>> {
+  try {
+    const { getSymbolFullContext } = await import('@cleocode/core/nexus/living-brain.js' as string);
+    const result = await getSymbolFullContext(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Full code impact for a task: files, symbols, blast radius, brain observations, decisions.
+ *
+ * Calls {@link getTaskCodeImpact} from the Living Brain SDK.
+ *
+ * @param taskId - Task ID (e.g., 'T001').
+ * @param projectRoot - Absolute project root path.
+ * @task T1115
+ */
+export async function nexusTaskFootprint(
+  taskId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').TaskCodeImpact>> {
+  try {
+    const { getTaskCodeImpact } = await import('@cleocode/core/nexus/living-brain.js' as string);
+    const result = await getTaskCodeImpact(taskId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Code anchors for a brain memory entry: linked nexus nodes, tasks, plasticity signal.
+ *
+ * Calls {@link getBrainEntryCodeAnchors} from the Living Brain SDK.
+ *
+ * @param entryId - Brain entry node ID (e.g., 'observation:abc123').
+ * @param projectRoot - Absolute project root path.
+ * @task T1115
+ */
+export async function nexusBrainAnchors(
+  entryId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').CodeAnchorResult>> {
+  try {
+    const { getBrainEntryCodeAnchors } = await import(
+      '@cleocode/core/nexus/living-brain.js' as string
+    );
+    const result = await getBrainEntryCodeAnchors(entryId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Causal trace: why is a code symbol structured this way?
+ *
+ * Calls {@link reasonWhySymbol} from the brain-reasoning SDK.
+ *
+ * @param symbolId - Symbol name or nexus node ID.
+ * @param projectRoot - Absolute project root path.
+ * @task T1115
+ */
+export async function nexusWhy(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').CodeReasonTrace>> {
+  try {
+    const { reasonWhySymbol } = await import('@cleocode/core/memory/brain-reasoning.js' as string);
+    const result = await (
+      reasonWhySymbol as (
+        s: string,
+        p: string,
+      ) => Promise<import('@cleocode/contracts').CodeReasonTrace>
+    )(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Full merged structural + task + brain impact report for a code symbol.
+ *
+ * Calls {@link reasonImpactOfChange} from the Living Brain SDK.
+ *
+ * @param symbolId - Symbol name or nexus node ID.
+ * @param projectRoot - Absolute project root path.
+ * @task T1115
+ */
+export async function nexusImpactFull(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<import('@cleocode/contracts').ImpactFullReport>> {
+  try {
+    const { reasonImpactOfChange } = await import('@cleocode/core/nexus/living-brain.js' as string);
+    const result = await (
+      reasonImpactOfChange as (
+        s: string,
+        p: string,
+      ) => Promise<import('@cleocode/contracts').ImpactFullReport>
+    )(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
