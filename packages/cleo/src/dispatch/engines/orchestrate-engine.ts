@@ -926,6 +926,31 @@ export async function orchestrateSpawn(
       );
     }
 
+    // T1118 L1+L2 — Create a git worktree for this task and build the spawn env.
+    // Non-fatal: if worktree creation fails (e.g. not a git repo, git not installed),
+    // we degrade gracefully and emit a warning so spawn continues without isolation.
+    let worktreeResult: import('@cleocode/contracts').WorktreeSpawnResult | null = null;
+    try {
+      const {
+        buildWorktreeSpawnResult,
+        createAgentWorktree,
+        ensureGitShimDir,
+      } = await import('@cleocode/core/internal');
+      const worktree = createAgentWorktree(taskId, root);
+      const shimDir = ensureGitShimDir(root);
+      worktreeResult = buildWorktreeSpawnResult(worktree, shimDir);
+    } catch (wtErr) {
+      getLogger('engine:orchestrate').warn(
+        { taskId, err: wtErr },
+        `T1118 worktree creation failed for ${taskId} — spawning without isolation: ${wtErr instanceof Error ? wtErr.message : String(wtErr)}`,
+      );
+    }
+
+    // Prepend the branch-isolation preamble to the spawn prompt when worktree was created.
+    const finalPrompt = worktreeResult
+      ? `${worktreeResult.preamble}\n${payload.prompt}`
+      : payload.prompt;
+
     // Return shape: `prompt` at the top level is the primary payload every
     // caller should consume. `atomicity` + `meta` surface the T932 composer
     // guarantees. `spawnContext` mirrors the prompt for legacy readers.
@@ -933,19 +958,23 @@ export async function orchestrateSpawn(
       success: true,
       data: {
         taskId,
-        prompt: payload.prompt,
+        prompt: finalPrompt,
         agentId: payload.agentId,
         role: payload.role,
         tier: payload.tier,
         harnessHint: payload.harnessHint,
         atomicity: payload.atomicity,
         meta: payload.meta,
+        // T1118 L1+L2 — worktree binding for harness adapters.
+        worktree: worktreeResult?.worktree ?? null,
+        worktreeEnv: worktreeResult?.envVars ?? null,
+        worktreeCwd: worktreeResult?.cwd ?? null,
         spawnContext: {
           taskId: payload.taskId,
           protocol: payload.meta.protocol,
           protocolType: protocolType || payload.meta.protocol,
           tier: payload.tier,
-          prompt: payload.prompt,
+          prompt: finalPrompt,
         },
         protocolType: protocolType || payload.meta.protocol,
         sessionId: activeSessionId,
