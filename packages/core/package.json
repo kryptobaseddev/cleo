@@ -288,6 +288,6 @@
     "directory": "packages/core"
   },
   "optionalDependencies": {
-    "llmtxt": "^2026.4.9"
+    "llmtxt": "^2026.4.13"
   }
 }

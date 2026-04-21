@@ -78,6 +78,27 @@ export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
+// Docs ops — llmtxt primitive wrappers (search, merge, graph, rank, versions, publish) (T1041)
+export type {
+  DocsGraphEdge,
+  DocsGraphNode,
+  DocsGraphResult,
+  DocsMergeResult,
+  DocsRankHit,
+  DocsRankResult,
+  DocsSearchHit,
+  DocsSearchResult,
+  DocsVersionEntry,
+  DocsVersionsResult,
+} from './docs/docs-ops.js';
+export {
+  buildDocsGraph,
+  listDocVersions,
+  mergeDocs,
+  publishDocs,
+  rankDocs,
+  searchDocs,
+} from './docs/docs-ops.js';
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';

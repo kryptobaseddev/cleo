@@ -175,11 +175,19 @@ const sharedExternals = [
   // bundle into the ESM output, causing "Dynamic require of events is not supported"
   // at CLI startup. Keep it external so it loads at runtime from node_modules. (T755)
   'node-cron',
-  // llmtxt (≥2026.4.6) is an optional runtime dep used by docs-generator via
-  // dynamic import('llmtxt'). It pulls in onnxruntime-node (.node bindings),
-  // mssql, and @opentelemetry/api transitively — all must stay external so
-  // esbuild does not try to inline the native addons or tsql drivers.
+  // llmtxt (≥2026.4.13) is an optional runtime dep used throughout docs-ops
+  // (blob, similarity, graph, sdk, cli, identity, etc.). It pulls in
+  // onnxruntime-node (.node bindings), mssql, and @opentelemetry/api
+  // transitively — all must stay external so esbuild does not try to inline
+  // the native addons or tsql drivers.
+  //
+  // The 'llmtxt' bare specifier alone is NOT enough — esbuild resolves deeper
+  // subpath imports (llmtxt/wasm/llmtxt_core.js, llmtxt/blob, llmtxt/similarity,
+  // etc.) as separate modules unless the pattern is explicit. Without this,
+  // the CJS-flavoured WASM loader (uses __dirname) gets inlined into the ESM
+  // bundle and crashes at boot with ERR_AMBIGUOUS_MODULE_SYNTAX.
   'llmtxt',
+  /^llmtxt\//,
   'onnxruntime-node',
   'mssql',
   '@opentelemetry/api',
@@ -190,7 +198,19 @@ const sharedExternals = [
 // externalizes everything else.
 // ---------------------------------------------------------------------------
 function workspacePlugin(name, inlineMap) {
-  const externalSet = new Set(sharedExternals);
+  // Split sharedExternals into exact-match (Set lookup) and regex-match
+  // (sequential test). Exact matches are preferred for performance; regex
+  // patterns handle subpath imports (e.g. /^llmtxt\// catches llmtxt/blob,
+  // llmtxt/wasm/llmtxt_core.js, etc.) that the bare specifier misses.
+  const externalExactSet = new Set(
+    sharedExternals.filter((e) => typeof e === 'string'),
+  );
+  const externalRegexes = sharedExternals.filter((e) => e instanceof RegExp);
+  const isExternalSpec = (specifier) => {
+    if (externalExactSet.has(specifier)) return true;
+    for (const re of externalRegexes) if (re.test(specifier)) return true;
+    return false;
+  };
   return {
     name,
     setup(build) {
@@ -202,11 +222,11 @@ function workspacePlugin(name, inlineMap) {
         return { path: args.path, external: true };
       });
 
-      // Only externalize packages in the sharedExternals list
+      // Only externalize packages in the sharedExternals list (exact or regex)
       // Everything else gets bundled (pino, drizzle-orm, citty, etc.)
       build.onResolve({ filter: /^[a-zA-Z@]/ }, (args) => {
         if (args.path.startsWith('@cleocode/')) return undefined;
-        if (externalSet.has(args.path)) return { path: args.path, external: true };
+        if (isExternalSpec(args.path)) return { path: args.path, external: true };
         // Bundle it
         return undefined;
       });
