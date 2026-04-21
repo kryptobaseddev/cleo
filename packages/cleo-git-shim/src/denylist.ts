@@ -110,14 +110,12 @@ export const GIT_OP_DENYLIST: ReadonlyArray<DeniedGitOp> = [
   {
     subcommand: 'worktree',
     flag: 'lock',
-    reason:
-      'agents MUST NOT lock/unlock worktrees — the orchestrator manages worktree lifecycle',
+    reason: 'agents MUST NOT lock/unlock worktrees — the orchestrator manages worktree lifecycle',
   },
   {
     subcommand: 'worktree',
     flag: 'unlock',
-    reason:
-      'agents MUST NOT lock/unlock worktrees — the orchestrator manages worktree lifecycle',
+    reason: 'agents MUST NOT lock/unlock worktrees — the orchestrator manages worktree lifecycle',
   },
   {
     subcommand: 'worktree',
@@ -156,29 +154,25 @@ export const GIT_OP_DENYLIST: ReadonlyArray<DeniedGitOp> = [
   {
     subcommand: 'clean',
     flag: '-fdx',
-    reason:
-      'agents MUST NOT force-clean directories including ignored files — unsafe for agents',
+    reason: 'agents MUST NOT force-clean directories including ignored files — unsafe for agents',
   },
 
   // Rebase (rewrites history)
   {
     subcommand: 'rebase',
-    reason:
-      'agents MUST NOT rebase — history rewriting is the orchestrator's responsibility',
+    reason: "agents MUST NOT rebase — history rewriting is the orchestrator's responsibility",
   },
 
   // Stash pop/apply (applies stashed changes to working tree)
   {
     subcommand: 'stash',
     flag: 'pop',
-    reason:
-      'agents MUST NOT pop stashes — use explicit git apply or cherry-pick instead',
+    reason: 'agents MUST NOT pop stashes — use explicit git apply or cherry-pick instead',
   },
   {
     subcommand: 'stash',
     flag: 'apply',
-    reason:
-      'agents MUST NOT apply stashes — use explicit git apply or cherry-pick instead',
+    reason: 'agents MUST NOT apply stashes — use explicit git apply or cherry-pick instead',
   },
 
   // Direct ref manipulation

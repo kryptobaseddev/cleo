@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.102] — 2026-04-21 — T1106 Living Brain Recovery + Sandbox Proofs
+
+### T1106 Living Brain Recovery + Sandbox Proofs
+
+- Wave 1 (8 tasks): hot-paths/cold-symbols SDK + CLI (T1108), wiki LOOM+community+diff (T1109), git-log sweeper wired to analyze post-hook (T1110), nexus package exports map for ./code/unfold (T1113), cleo nexus group alias (T1114), dispatch registry for 14 Living Brain verbs (T1115/T1116/T1117)
+- Wave 2 (2 sandbox proofs): living-brain-e2e 5-substrate scenario (T1111, 28/28 assertions), sentient-anomaly-proof (T1112) committed to cleo-sandbox
+- Bug cascade uncovered by sandbox (T1133/T1134/T1135/T1136): propose-tick nexusDb init, brain-ingester narrative column, migration reconciler rename-via-drop+create handling, nexus-ingester .kind to .type. Sentient CLI path now generates proposals end-to-end.
+
 ## [2026.4.101] — 2026-04-20 — Nexus Living Brain (T1042 epic) + Tier 3 sentient primitives
 
 **Major release.** Epic T1042 "Cleo Nexus vs GitNexus: Far-Exceed" ships all three
