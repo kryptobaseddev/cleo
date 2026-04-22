@@ -1051,7 +1051,7 @@ skeleton was missing context.
 Every spawn prompt now contains eight required sections in order:
 1. **Header** — identity banner + tier + protocol + generated timestamp.
 2. **Task Identity** — id, title, description, parent epic, pipeline stage, labels, dependencies, acceptance criteria (string + structured `AcceptanceGate`).
-3. **File Paths** — absolute paths to agent-outputs dir, MANIFEST.jsonl, rcasd workspace, test-runs dir (no guessing).
+3. **File Paths** — absolute paths to agent-outputs dir, the (then-current, since-retired per ADR-027) manifest file, rcasd workspace, test-runs dir (no guessing).
 4. **Session Linkage** — orchestrator session id (or "no active session" fallback).
 5. **Stage-Specific Guidance** — tailored content per RCASD-IVTR+C phase (research / consensus / architecture_decision / specification / decomposition / implementation / validation / testing / release / contribution).
 6. **Evidence-Based Gate Ritual** — explicit `cleo verify --gate <g> --evidence <atoms>` commands per gate (ADR-051 / T832).
@@ -4995,7 +4995,7 @@ CAAMP's original design promise was *"a unified provider registry and package ma
 #### ADR-035 — Pi v2+v3 harness architecture decision record
 
 - **[ADR-035](.cleo/adrs/ADR-035-pi-v2-v3-harness.md)** (+373 LOC) — complete audit trail for the Pi harness architecture, including decisions D1 (three-tier scope project > user > global), D2 (line-1-only session JSONL listing for token efficiency), D3 (dual-file models authority — `models.json` for definitions + `settings.json:enabledModels` for selection), D4 (MCP-as-Pi-extension rejected; config-file management for non-Pi providers remains a first-class CAAMP concern), D5 (single CANT execution engine via `cant-bridge.ts`, `@cleocode/core/cant` deleted).
-- Manifest updated: [`.cleo/adrs/MANIFEST.jsonl`](.cleo/adrs/MANIFEST.jsonl).
+- Manifest updated: `.cleo/adrs/` registry (legacy flat-file manifest was later retired per ADR-027 §6.2 / T1096).
 
 ### Changed
 

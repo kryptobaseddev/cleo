@@ -114,7 +114,7 @@ Model assignment is an **optimization** — if a model tier is unavailable, use 
 | NEVER write code yourself | All code via Agent() spawns |
 | NEVER read full source files | Only manifests, task outputs, and spawn results |
 | NEVER use `run_in_background: false` for heavy work | Background workers protect your context |
-| NEVER call TaskOutput on subagent results | Read MANIFEST.jsonl via `cleo manifest show` |
+| NEVER call TaskOutput on subagent results | Read the manifest entry via `cleo manifest show <id>` or `cleo manifest list --task <T####>` |
 | ALWAYS use `subagent_type: "cleo-subagent"` | Ensures protocol injection |
 | ALWAYS include task ID in description | Traceability: "Worker: Auth module (T1586)" |
 | ALWAYS check `cleo orchestrate ready` before spawning | Dependency order enforcement |
