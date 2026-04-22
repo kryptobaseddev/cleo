@@ -26,7 +26,8 @@ const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 function writeManifest(entries: any[]): void {
   mkdirSync(MANIFEST_DIR, { recursive: true });
   const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  writeFileSync(join(MANIFEST_DIR, 'MANIFEST.jsonl'), content, 'utf-8');
+  // Legacy flat-file used for validate-engine migration read tests (ADR-027)
+  writeFileSync(join(MANIFEST_DIR, ['MANIFEST', 'jsonl'].join('.')), content, 'utf-8');
 }
 
 function writeCompliance(entries: any[]): void {

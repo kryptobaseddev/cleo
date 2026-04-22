@@ -264,7 +264,7 @@ export interface OrchestrateContextResult {
   epicId: string | null;
   /** Count of tasks included in the estimate. @task T963 */
   taskCount: number;
-  /** Count of MANIFEST.jsonl entries. @task T963 */
+  /** Count of pipeline_manifest entries (ADR-027). @task T963 */
   manifestEntries: number;
   /** Rough estimated token count (taskCount * per-task weight). @task T963 */
   estimatedTokens: number;

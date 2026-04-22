@@ -265,7 +265,7 @@ export const EVENT_METADATA: Record<
     category: 'pipeline',
     source: 'domain',
     canBlock: false,
-    description: 'A manifest entry has been appended to MANIFEST.jsonl',
+    description: 'A manifest entry has been appended to pipeline_manifest (SQLite table per ADR-027)',
   },
   PipelineStageCompleted: {
     category: 'pipeline',
