@@ -136,6 +136,13 @@ const isWatch = process.argv.includes('--watch');
 // ALL npm dependencies are external — only @cleocode/* workspace packages are bundled inline.
 // This matches the old repo pattern: npm deps are imported at runtime from node_modules.
 const sharedExternals = [
+  // T1178 (W3-2+W3-6): @cleocode/core is now truly external — the cleo CLI
+  // imports it at runtime from node_modules (workspace symlink in dev,
+  // peer dependency in published installs). Removing it from the inline map
+  // below and adding it here makes esbuild emit `import` statements rather
+  // than inlining the full 16 MB source tree.
+  '@cleocode/core',
+  /^@cleocode\/core\//,
   'proper-lockfile',
   'write-file-atomic',
   'pino',
@@ -260,8 +267,10 @@ const coreBuildOptions = {
 
 // ---------------------------------------------------------------------------
 // 2. @cleocode/cleo — CLI bundle (MCP removed per MODERN-CLI-STANDARD)
-//    Bundles @cleocode/contracts and @cleocode/adapters inline.
-//    @cleocode/core resolves to packages/core/src/index.ts (source).
+//    Bundles @cleocode/contracts, @cleocode/adapters, @cleocode/nexus,
+//    and @cleocode/playbooks inline.
+//    @cleocode/core is EXTERNAL (T1178 W3-2+W3-6) — resolved at runtime
+//    from node_modules (workspace symlink dev / peer dep published).
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const cleoBuildOptions = {
@@ -303,8 +312,10 @@ const cleoBuildOptions = {
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
-      '@cleocode/core': resolve(__dirname, 'packages/core/src/index.ts'),
-      '@cleocode/core/internal': resolve(__dirname, 'packages/core/src/internal.ts'),
+      // @cleocode/core and @cleocode/core/internal are REMOVED from inline map.
+      // T1178 (W3-2+W3-6): core is now in sharedExternals — esbuild emits
+      // `import` statements and the runtime resolves core from node_modules
+      // (workspace symlink in dev, peer dependency in published installs).
       '@cleocode/nexus': resolve(__dirname, 'packages/nexus/src/index.ts'),
       '@cleocode/nexus/internal': resolve(__dirname, 'packages/nexus/src/internal.ts'),
       '@cleocode/adapters': resolve(__dirname, 'packages/adapters/src/index.ts'),
