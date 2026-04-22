@@ -121,11 +121,11 @@ describe('validateSkills', () => {
 describe('validateReturnMessage', () => {
   it('should accept valid completion messages', () => {
     const valid = [
-      'Research complete. See MANIFEST.jsonl for summary.',
-      'Epic created. See MANIFEST.jsonl for summary.',
-      'Tests complete. See MANIFEST.jsonl for summary.',
-      'Documentation complete. See MANIFEST.jsonl for summary.',
-      'Task complete. See MANIFEST.jsonl for summary.',
+      'Research complete. Manifest appended to pipeline_manifest.',
+      'Epic created. Manifest appended to pipeline_manifest.',
+      'Tests complete. Manifest appended to pipeline_manifest.',
+      'Documentation complete. Manifest appended to pipeline_manifest.',
+      'Task complete. Manifest appended to pipeline_manifest.',
     ];
 
     for (const msg of valid) {
@@ -135,13 +135,13 @@ describe('validateReturnMessage', () => {
 
   it('should accept bracket-prefixed messages', () => {
     expect(
-      validateReturnMessage('[Research] complete. See MANIFEST.jsonl for summary.').valid,
+      validateReturnMessage('[Research] complete. Manifest appended to pipeline_manifest.').valid,
     ).toBe(true);
     expect(
-      validateReturnMessage('[Implementation] partial. See MANIFEST.jsonl for details.').valid,
+      validateReturnMessage('[Implementation] partial. Manifest appended to pipeline_manifest.').valid,
     ).toBe(true);
     expect(
-      validateReturnMessage('[Release] blocked. See MANIFEST.jsonl for blocker details.').valid,
+      validateReturnMessage('[Release] blocked. Manifest appended to pipeline_manifest.').valid,
     ).toBe(true);
   });
 

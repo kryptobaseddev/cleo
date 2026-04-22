@@ -80,7 +80,8 @@ const CLEO_DEFAULTS: TokenValues = {
   RESEARCH_INJECT_CMD: 'cleo research inject',
   DASH_CMD: 'cleo dash',
   OUTPUT_DIR: '.cleo/agent-outputs',
-  MANIFEST_PATH: '.cleo/agent-outputs/MANIFEST.jsonl',
+  // MANIFEST_PATH retired (ADR-027) — use `cleo manifest append` for pipeline_manifest
+  MANIFEST_PATH: '',  // token retired per ADR-027/T1096
 };
 
 // ============================================================================
@@ -306,7 +307,8 @@ export function setFullContext(
       `task-${task.id}`);
 
   const outputDir = options?.outputDir ?? '.cleo/agent-outputs';
-  const manifestPath = options?.manifestPath ?? `${outputDir}/MANIFEST.jsonl`;
+  // MANIFEST_PATH token retired (ADR-027); pipeline_manifest is the canonical store
+  const manifestPath = options?.manifestPath ?? '';  // retired token
 
   const values: TokenValues = {
     // Required tokens

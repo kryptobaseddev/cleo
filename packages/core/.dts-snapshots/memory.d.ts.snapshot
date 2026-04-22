@@ -267,7 +267,7 @@ export declare function archiveResearch(cwd?: string): Promise<{
     entriesRemaining: number;
 }>;
 /**
- * Read manifest entries from MANIFEST.jsonl.
+ * Read manifest entries from the legacy agent-outputs flat-file (deprecated).
  *
  * @param cwd - Optional working directory for path resolution
  * @returns Array of parsed ManifestEntry records from the JSONL file
@@ -291,7 +291,7 @@ export declare function readManifest(cwd?: string): Promise<ManifestEntry[]>;
  * @param cwd - Optional working directory for path resolution
  *
  * @remarks
- * Appends a single JSON line to the MANIFEST.jsonl file.
+ * Appends a single JSON line to the legacy agent-outputs flat-file (deprecated).
  *
  * @example
  * ```typescript
@@ -499,7 +499,7 @@ export declare function manifestStats(epicId?: string, cwd?: string): Promise<{
  *
  * @remarks
  * Appends the taskId to the entry's linked_tasks array if not already present.
- * Rewrites the entire MANIFEST.jsonl file after modification.
+ * Rewrites the entire legacy agent-outputs flat-file after modification (deprecated).
  *
  * @example
  * ```typescript
@@ -545,7 +545,7 @@ export declare function appendExtendedManifest(entry: ExtendedManifestEntry, cwd
  *
  * @remarks
  * Moves entries with a date before the threshold to MANIFEST.archive.jsonl
- * and rewrites the main MANIFEST.jsonl with the remaining entries.
+ * and rewrites the main legacy agent-outputs flat-file with the remaining entries.
  *
  * @example
  * ```typescript
@@ -652,7 +652,7 @@ export declare function readProtocolInjection(protocolType: string, params?: {
     variant: string | null;
 }>;
 /**
- * Compact MANIFEST.jsonl by removing duplicate/stale entries.
+ * Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
  *
  * @param cwd - Optional working directory for path resolution
  * @returns Compaction summary with counts of removed entries
