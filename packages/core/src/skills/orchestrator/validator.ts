@@ -47,7 +47,7 @@ function getManifestPath(cwd?: string): string {
 }
 
 /**
- * Read all manifest entries from MANIFEST.jsonl.
+ * Read all manifest entries from the legacy agent-outputs flat-file.
  */
 function readManifestEntries(cwd?: string): ManifestEntry[] {
   const manifestPath = getManifestPath(cwd);

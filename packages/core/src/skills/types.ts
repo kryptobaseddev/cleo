@@ -365,7 +365,7 @@ export interface HitlSummary {
 // Manifest Types
 // ============================================================================
 
-/** Research manifest entry (MANIFEST.jsonl). */
+/** Research manifest entry (pipeline_manifest table; see ADR-027). */
 export interface ManifestEntry {
   id: string;
   file: string;

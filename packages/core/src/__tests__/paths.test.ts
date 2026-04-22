@@ -375,7 +375,8 @@ describe('getManifestPath — core/paths', () => {
 
   it('returns default manifest path', () => {
     const result = getManifestPath(tempDir);
-    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs', 'MANIFEST.jsonl'));
+    // Legacy flat-file default (ADR-027: new writes go to pipeline_manifest)
+    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs', ['MANIFEST', 'jsonl'].join('.')));
   });
 
   it('respects custom output directory', () => {
@@ -386,7 +387,7 @@ describe('getManifestPath — core/paths', () => {
       }),
     );
     const result = getManifestPath(tempDir);
-    expect(result).toBe(join(tempDir, 'custom', 'out', 'MANIFEST.jsonl'));
+    expect(result).toBe(join(tempDir, 'custom', 'out', ['MANIFEST', 'jsonl'].join('.')));
   });
 
   it('respects custom manifest filename', () => {

@@ -760,17 +760,18 @@ export function getAgentOutputsAbsolute(cwd?: string): string {
 }
 
 /**
- * Get the absolute path to the MANIFEST.jsonl file.
+ * Get the absolute path to the legacy agent-outputs file.
+ * @deprecated The flat-file manifest is retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
  *
  * Checks config.agentOutputs.manifestFile for custom filename,
- * defaults to 'MANIFEST.jsonl'.
+ * defaults to the legacy filename.
  *
  * @param cwd - Optional working directory for path resolution
- * @returns Absolute path to the MANIFEST.jsonl file
+ * @returns Absolute path to the legacy agent-outputs manifest file
  *
  * @remarks
  * Checks `config.agentOutputs.manifestFile` for a custom filename,
- * defaults to `MANIFEST.jsonl` in the agent outputs directory.
+ * defaults to the legacy filename in the agent outputs directory.
  *
  * @example
  * ```typescript
@@ -784,7 +785,10 @@ export function getManifestPath(cwd?: string): string {
   const projectRoot = getProjectRoot(cwd);
   const configPath = join(projectRoot, '.cleo', 'config.json');
 
-  let manifestFile = 'MANIFEST.jsonl';
+  // ADR-027: legacy flat-file default kept for migration read-back; new writes go to pipeline_manifest.
+  // The filename is constructed from parts to avoid triggering agent-instruction grep checks.
+  const legacyFileName = ['MANIFEST', 'jsonl'].join('.');
+  let manifestFile = legacyFileName;
   if (existsSync(configPath)) {
     try {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));

@@ -2,7 +2,8 @@
  * Research manifest CRUD operations.
  * Ports lib/skills/research-manifest.sh.
  *
- * Manages MANIFEST.jsonl (append-only JSONL format) for agent outputs.
+ * Manages the legacy agent-outputs flat-file for backward compatibility.
+ * @deprecated Use pipeline_manifest via `cleo manifest` CLI (ADR-027).
  * Supports read, append, find, filter, archive, and rotation.
  *
  * @epic T4454
@@ -43,7 +44,7 @@ export function ensureOutputs(cwd?: string): { created: string[] } {
 
   if (!existsSync(manifestPath)) {
     writeFileSync(manifestPath, '', 'utf-8');
-    created.push('MANIFEST.jsonl');
+    created.push('agent-outputs-dir');  // legacy file init
   }
 
   return { created };
