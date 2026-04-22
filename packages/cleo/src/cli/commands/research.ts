@@ -2,7 +2,7 @@
  * CLI research command group for manifest operations.
  *
  * Subcommands:
- *   cleo research add      — add a research entry to MANIFEST.jsonl
+ *   cleo research add      — add a research entry to pipeline_manifest (via cleo manifest append)
  *   cleo research show     — show a single research entry
  *   cleo research list     — list research entries with optional filters
  *   cleo research pending  — list pending entries
@@ -11,7 +11,7 @@
  *   cleo research stats    — show research statistics
  *   cleo research links    — show entries linked to a task
  *   cleo research archive  — archive completed entries
- *   cleo research manifest — query MANIFEST.jsonl directly
+ *   cleo research manifest — query pipeline_manifest entries directly
  *
  * @task T4465
  * @epic T4454
@@ -38,7 +38,7 @@ function generateResearchId(): string {
 // Subcommands
 // ---------------------------------------------------------------------------
 
-/** cleo research add — add a new research entry to MANIFEST.jsonl */
+/** cleo research add — add a new research entry to pipeline_manifest (ADR-027) */
 const addCommand = defineCommand({
   meta: { name: 'add', description: 'Add a research entry' },
   args: {
@@ -318,9 +318,9 @@ const archiveCommand = defineCommand({
   },
 });
 
-/** cleo research manifest — query MANIFEST.jsonl entries directly */
+/** cleo research manifest — query pipeline_manifest entries directly */
 const manifestCommand = defineCommand({
-  meta: { name: 'manifest', description: 'Query MANIFEST.jsonl entries' },
+  meta: { name: 'manifest', description: 'Query pipeline_manifest entries' },
   args: {
     status: {
       type: 'string',
