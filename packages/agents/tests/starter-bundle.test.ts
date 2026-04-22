@@ -1,10 +1,12 @@
 /**
- * T441 — Starter bundle e2e verification test.
+ * T441 / T1241 — Starter bundle e2e verification test.
  *
- * Validates that the starter bundle shipped in `packages/cleo-os/starter-bundle/`
- * is structurally correct, discoverable by the CANT bridge, and deployable by
- * `init.ts`. Covers acceptance criteria #4: "Bridge activates on starter bundle
- * verified e2e."
+ * Validates that the starter bundle shipped in
+ * `packages/agents/starter-bundle/` (relocated from
+ * `packages/cleo-os/starter-bundle/` per D035, v2026.4.111) is structurally
+ * correct, discoverable by the CANT bridge, and deployable by `init.ts`.
+ * Covers acceptance criteria #4: "Bridge activates on starter bundle verified
+ * e2e."
  *
  * Tests:
  *   1. Starter bundle files exist and have valid frontmatter
@@ -37,10 +39,10 @@ import { dirname } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/** Absolute path to packages/cleo-os/ root. */
+/** Absolute path to packages/agents/ root. */
 const PKG_ROOT = resolve(__dirname, "..");
 
-/** Absolute path to the starter-bundle directory. */
+/** Absolute path to the starter-bundle directory (per D035 — v2026.4.111). */
 const STARTER_BUNDLE = join(PKG_ROOT, "starter-bundle");
 
 /** Absolute path to the agents sub-directory within the starter bundle. */

@@ -1,17 +1,23 @@
 /**
- * Registry-backed agent resolver with 4-tier precedence.
+ * Registry-backed agent resolver with 5-tier precedence.
  *
  * Lookup order (highest wins):
- *   1. `project`  — rows in global `signaldock.db:agents` tagged
- *                   `tier='project'` (attached from
- *                   `<projectRoot>/.cleo/cant/agents/`).
- *   2. `global`   — rows tagged `tier='global'` installed from
- *                   `~/.local/share/cleo/cant/agents/`.
- *   3. `packaged` — rows tagged `tier='packaged'` installed from the
- *                   bundled `@cleocode/agents/seed-agents/` tree.
- *   4. `fallback` — no row exists; a synthetic `ResolvedAgent` is
- *                   synthesized on-the-fly from the bundled
- *                   `seed-agents/<id>.cant` file if one is on disk.
+ *   1. `project`   — rows in global `signaldock.db:agents` tagged
+ *                    `tier='project'` (attached from
+ *                    `<projectRoot>/.cleo/cant/agents/`).
+ *   2. `global`    — rows tagged `tier='global'` installed from
+ *                    `~/.local/share/cleo/cant/agents/`.
+ *   3. `packaged`  — rows tagged `tier='packaged'` installed from the
+ *                    bundled `@cleocode/agents/seed-agents/` tree.
+ *   4. `fallback`  — no row exists; a synthetic `ResolvedAgent` is
+ *                    synthesized on-the-fly from the bundled
+ *                    `seed-agents/<id>.cant` file if one is on disk.
+ *   5. `universal` — tiers 1-4 all missed; a synthetic `ResolvedAgent`
+ *                    is synthesized from the universal protocol base at
+ *                    `@cleocode/agents/cleo-subagent.cant`. Added in
+ *                    v2026.4.111 (T1241 / D035) so classifier output can
+ *                    never trigger `E_AGENT_NOT_FOUND` when the universal
+ *                    base file is reachable. Emits a WARN log when taken.
  *
  * The GLOBAL `signaldock.db:agents` row is the single source of truth for
  * tier-aware metadata. The `agents.agent_id` column is UNIQUE across the
@@ -27,8 +33,8 @@
  * Registry DB is always the SSoT for metadata; filesystem is secondary.
  *
  * @module agent-resolver
- * @task T889 / T898 / T899 / W2-4
- * @epic T889
+ * @task T889 / T898 / T899 / W2-4 / T1241
+ * @epic T889 / T1232
  */
 
 import { createHash } from 'node:crypto';
@@ -51,6 +57,29 @@ const { DatabaseSync: _DatabaseSync } = _resolverRequire('node:sqlite') as {
 };
 // Referenced only for type narrowing; runtime handles come from callers.
 void _DatabaseSync;
+
+// ---------------------------------------------------------------------------
+// Tier constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical tier identifier for the universal-base fallback (5th tier).
+ *
+ * Exported so dispatch-layer code can compare against a single source of
+ * truth rather than string-literal the value in multiple places.
+ *
+ * @task T1241 / D035
+ */
+export const AGENT_TIER_UNIVERSAL: AgentTier = 'universal';
+
+/**
+ * Canonical agentId of the universal protocol base shipped by
+ * `@cleocode/agents`. Used exclusively by the 5th-tier universal fallback
+ * path in {@link resolveAgent}.
+ *
+ * @task T1241 / D035
+ */
+export const AGENT_UNIVERSAL_BASE_ID = 'cleo-subagent';
 
 // ---------------------------------------------------------------------------
 // Deprecated alias table
@@ -136,6 +165,18 @@ export interface ResolveAgentOptions {
    * can pin this to an isolated fixture directory.
    */
   packagedSeedDir?: string;
+  /**
+   * Absolute path to the universal protocol base `.cant` file used by the
+   * `universal` (5th) tier. When unset the resolver derives a default that
+   * climbs out of `packages/core/dist` into
+   * `packages/agents/cleo-subagent.cant`. Tests can pin this to an
+   * isolated fixture file; passing a path that does not exist is equivalent
+   * to disabling the tier and causes the resolver to throw
+   * {@link AgentNotFoundError} when all four prior tiers miss.
+   *
+   * @task T1241 / D035
+   */
+  universalBasePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,14 +223,25 @@ interface ResolverAgentRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a single agent using the 4-tier registry precedence.
+ * Resolve a single agent using the 5-tier registry precedence.
+ *
+ * Tiers walked in order: `project` → `global` → `packaged` → `fallback` →
+ * `universal`. The 5th (`universal`) tier was added in v2026.4.111 (T1241)
+ * and synthesises an envelope from `@cleocode/agents/cleo-subagent.cant`
+ * when every prior tier misses. As long as the universal-base file is
+ * reachable on disk, this function no longer throws
+ * {@link AgentNotFoundError} — the error becomes genuinely exceptional
+ * (catastrophic missing base file) rather than a routine resolution miss.
  *
  * @param db      - Open handle to global `signaldock.db`. Caller owns lifecycle.
  * @param agentId - Business identifier of the agent to resolve.
  * @param options - Optional lookup overrides (see {@link ResolveAgentOptions}).
  * @returns The highest-precedence {@link ResolvedAgent} envelope.
- * @throws {AgentNotFoundError} When every tier misses.
- * @task T889 / W2-4
+ * @throws {AgentNotFoundError} When every tier — including the universal
+ *                               base fallback — misses. Surfaces only when
+ *                               `@cleocode/agents/cleo-subagent.cant` is
+ *                               unreachable.
+ * @task T889 / W2-4 / T1241
  */
 export function resolveAgent(
   db: DatabaseSync,
@@ -216,7 +268,12 @@ export function resolveAgent(
     triedTiers.push(tier);
     const resolved = tryResolveAtTier(db, effectiveId, tier, options);
     if (resolved) {
-      if (aliasApplied) {
+      // Universal tier self-reports aliasApplied/aliasTarget to signal that
+      // the caller received the base persona — do NOT overwrite with the
+      // DEPRECATED_ALIASES target because the universal envelope's
+      // aliasTarget is describing the synthetic base, not a deprecation
+      // redirect. For every other tier we propagate the alias state.
+      if (aliasApplied && resolved.tier !== 'universal') {
         resolved.aliasApplied = true;
         resolved.aliasTarget = aliasTarget;
       }
@@ -315,7 +372,7 @@ export function getAgentSkills(db: DatabaseSync, agentId: string): string[] {
  * @task T889 / W2-4
  */
 function orderTiers(preferred: AgentTier | undefined): AgentTier[] {
-  const defaultOrder: AgentTier[] = ['project', 'global', 'packaged', 'fallback'];
+  const defaultOrder: AgentTier[] = ['project', 'global', 'packaged', 'fallback', 'universal'];
   if (!preferred) return defaultOrder;
   const remaining = defaultOrder.filter((tier) => tier !== preferred);
   return [preferred, ...remaining];
@@ -347,6 +404,10 @@ function tryResolveAtTier(
 ): ResolvedAgent | null {
   if (tier === 'fallback') {
     return tryResolveFallback(agentId, options);
+  }
+
+  if (tier === 'universal') {
+    return tryResolveUniversalBase(agentId, options);
   }
 
   const row = db
@@ -429,6 +490,86 @@ function resolveDefaultSeedDir(): string {
   // packages/core/src/store/agent-resolver.ts (or dist/store/agent-resolver.js)
   // → climb to packages/, then into packages/agents/seed-agents/.
   return resolve(here, '..', '..', '..', 'agents', 'seed-agents');
+}
+
+/**
+ * Compute the default path to the universal-base `.cant` file.
+ *
+ * Walks a short set of candidates covering the workspace (`src/`) and
+ * compiled (`dist/`) layouts, and the installed-package layout inside
+ * `node_modules`. The first path that exists on disk wins.
+ *
+ * @returns Absolute path to `cleo-subagent.cant`, or `null` when unresolved.
+ * @task T1241 / D035
+ */
+function resolveDefaultUniversalBasePath(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    // packages/core/src/store/ → packages/agents/cleo-subagent.cant
+    resolve(here, '..', '..', '..', 'agents', 'cleo-subagent.cant'),
+    // packages/core/dist/store/ → packages/agents/cleo-subagent.cant
+    resolve(here, '..', '..', '..', '..', 'agents', 'cleo-subagent.cant'),
+    // node_modules/@cleocode/core/dist/store/ → @cleocode/agents/cleo-subagent.cant
+    resolve(here, '..', '..', '..', '..', '..', 'agents', 'cleo-subagent.cant'),
+  ];
+  return candidates.find((p) => fileExists(p)) ?? null;
+}
+
+/**
+ * Synthesise a `universal`-tier envelope from the universal protocol base.
+ *
+ * Used when every preceding tier (project / global / packaged / fallback)
+ * missed for the requested agentId. The universal base lives at
+ * `@cleocode/agents/cleo-subagent.cant` (per D035) and acts as the final
+ * safety net: its presence on disk guarantees that classifier output never
+ * triggers `E_AGENT_NOT_FOUND` during orchestration.
+ *
+ * The synthetic envelope is labelled:
+ *
+ *  - `tier='universal'`, `source='universal'`
+ *  - `aliasApplied=true`, `aliasTarget='cleo-subagent'` so callers can emit
+ *    a deprecation/fallback notice and trace the actual persona the caller
+ *    receives.
+ *  - `canSpawn=false`, `orchLevel=2`, `reportsTo=null`, `skills=[]` — the
+ *    same minimal shape as the 4th-tier `fallback` envelope.
+ *
+ * A WARN log is emitted exactly once per call describing the requested
+ * agentId, so operators can see that the universal base was engaged.
+ *
+ * @param agentId - Business id of the agent the caller originally asked for.
+ *                   Preserved in the envelope's `agentId` field so spawn
+ *                   diagnostics remain traceable to the classifier output.
+ * @param options - Options with optional `universalBasePath` override.
+ * @returns Universal-base envelope, or `null` when the base file is missing.
+ * @task T1241 / D035
+ */
+function tryResolveUniversalBase(
+  agentId: string,
+  options: ResolveAgentOptions,
+): ResolvedAgent | null {
+  const basePath = options.universalBasePath ?? resolveDefaultUniversalBasePath();
+  if (basePath === null || !fileExists(basePath)) return null;
+
+  const bytes = readFileSync(basePath);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  console.warn(
+    `[agent-resolver] WARN: agent '${agentId}' not found in project/global/packaged/fallback tiers — ` +
+      `falling back to universal base '${AGENT_UNIVERSAL_BASE_ID}' at '${basePath}'. ` +
+      `Run 'cleo agent install --global <path>' to register a concrete persona.`,
+  );
+  return {
+    agentId,
+    tier: 'universal',
+    cantPath: basePath,
+    cantSha256: hash,
+    canSpawn: false,
+    orchLevel: 2,
+    reportsTo: null,
+    skills: [],
+    source: 'universal',
+    aliasApplied: true,
+    aliasTarget: AGENT_UNIVERSAL_BASE_ID,
+  };
 }
 
 /**

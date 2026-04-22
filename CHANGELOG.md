@@ -4,6 +4,92 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.111] — 2026-04-22
+
+Systemic hotfix for three regressions shipped in v2026.4.110 — filed as **D035**
+in [ADR-055 addendum](docs/adr/ADR-055-agents-architecture-and-meta-agents.md#d035-addendum-v20264111--2026-04-22).
+
+### Added
+
+- `packages/core/src/agents/resolveStarterBundle.ts` — SDK helper that resolves
+  the `@cleocode/agents/starter-bundle/` directory via the module graph
+  (`require.resolve` + relative-candidate walk). Exports
+  `resolveStarterBundle`, `resolveStarterBundleAgentsDir`,
+  `resolveStarterBundleTeamFile`, `resolveStarterBundleIdentityFile`. All paths
+  resolved via the graph — zero hardcoded paths per D026.
+- Fifth resolver tier `'universal'` in
+  `packages/core/src/store/agent-resolver.ts`. When `project` / `global` /
+  `packaged` / `fallback` all miss, the resolver synthesises a `ResolvedAgent`
+  envelope from `packages/agents/cleo-subagent.cant` (the universal protocol
+  base) and returns it with `tier='universal'`, `source='universal'`,
+  `aliasApplied=true`, `aliasTarget='cleo-subagent'`. `AgentNotFoundError`
+  becomes genuinely exceptional.
+- New constants in `@cleocode/core/internal`: `AGENT_TIER_UNIVERSAL`,
+  `AGENT_UNIVERSAL_BASE_ID`. `AgentTier` in `@cleocode/contracts` extends to
+  include `'universal'`.
+- Registry reroute migration `rerouteLegacyStarterBundlePaths()` — scans
+  `signaldock.db:agents.cant_path` for the legacy `cleo-os/starter-bundle`
+  substring and rewrites rows to the new `@cleocode/agents/starter-bundle/`
+  path. Invoked by `buildDoctorReport()` on every `cleo agent doctor` run so
+  upgraders self-heal without manual steps.
+
+### Changed
+
+- **BREAKING (package boundary)**: relocated
+  `packages/cleo-os/starter-bundle/` → `packages/agents/starter-bundle/`.
+  The five files — `team.cant`, `agents/cleo-orchestrator.cant`,
+  `agents/dev-lead.cant`, `agents/code-worker.cant`, `agents/docs-worker.cant`
+  (plus `README.md` and `CLEOOS-IDENTITY.md`) — all moved via `git mv`.
+  CleoOS retains only harness-adapter code per D035. `packages/cleo-os/package.json#files`
+  no longer lists `starter-bundle`; `packages/agents/package.json#files` now
+  includes both `seed-agents/` (templates) and `starter-bundle/` (direct-use).
+- `packages/core/src/agents/seed-install.ts` now reads from the starter-bundle
+  via `resolveStarterBundle()` and walks the new layout (`team.cant` at root +
+  `agents/*.cant` sub-directory) through the new helper
+  `enumerateStarterBundleCantFiles`. `substituteCantAgentBody` (T1238) applies
+  to every file on the static-copy path. Zero imports from `packages/cleo-os/`.
+- `packages/core/src/init.ts#deployStarterBundle` routes through the SDK
+  helper rather than hardcoding `@cleocode/cleo-os/starter-bundle`.
+- `packages/core/src/scaffold.ts#resolveIdentitySourcePath` now prefers
+  `packages/agents/starter-bundle/CLEOOS-IDENTITY.md` with a defensive probe
+  via the core SDK helper; the legacy `@cleocode/cleo-os` lookup is retired.
+- `packages/cleo-os/src/postinstall.ts#deployStarterBundle` now locates the
+  starter-bundle via a `resolveStarterBundleSrc` helper that walks the
+  installed or workspace layout of `@cleocode/agents`. `@cleocode/agents`
+  becomes a direct dependency of `@cleocode/cleo-os`.
+- `CoreAgentDispatcher` (playbook dispatcher) accepts `universalBasePath` and
+  threads it through both `resolve()` and `resolveTier()` via a new private
+  `buildResolveOptions` helper so tests and advanced callers can pin the
+  5th-tier fallback.
+- Starter-bundle tests relocated: `packages/cleo-os/test/starter-bundle.test.ts`
+  → `packages/agents/tests/starter-bundle.test.ts`. Root vitest glob now picks
+  them up via `packages/*/tests/**/*.test.ts`.
+
+### Fixed
+
+- Five orchestrate-engine tests that failed in clean CI with
+  `E_AGENT_NOT_FOUND` now pass: the classifier output (e.g. `cleo-prime`,
+  `cleo-dev`) lands on the universal-base envelope, the atomicity gate fires
+  as designed, and the test expectations line up.
+  - `packages/cleo/src/dispatch/engines/__tests__/orchestrate-engine-composer.test.ts`
+    (3 tests)
+  - `packages/cleo/src/dispatch/engines/__tests__/orchestrate-engine.test.ts`
+    (2 tests)
+- `buildDoctorReport()` no longer reports stale `D-002` orphan-row findings
+  for stores upgraded from pre-v2026.4.111 — the reroute migration runs before
+  the walk.
+
+### Testing
+
+- Full suite: 644 test files passed, 0 failures (10,726 tests passed, 16
+  skipped, 33 todo).
+- New tests:
+  - `agent-resolver.test.ts` — "falls through to universal-base when every
+    prior tier misses and base is reachable" asserts the full cascade,
+    envelope shape, and alias metadata.
+  - Updated existing assertions to pin `universalBasePath` for legacy
+    error-path verification.
+
 ## [2026.4.110] — 2026-04-22
 
 ### Added

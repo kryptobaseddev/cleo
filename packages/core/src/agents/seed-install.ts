@@ -1,5 +1,5 @@
 /**
- * Idempotent seed-agent installer — T897 / T1239.
+ * Idempotent seed-agent installer — T897 / T1239 / T1241.
  *
  * On `cleo init` (or first `cleo session start`), callers invoke
  * {@link ensureSeedAgentsInstalled} to materialise canonical `.cant` files for
@@ -12,11 +12,17 @@
  *     project's tech-stack + conventions.
  *  2. **Static copy (legacy T897)** — when no dispatcher is supplied OR the
  *     meta-agent synthesis fails, the installer falls back to copying
- *     canonical `.cant` files from `packages/agents/seed-agents/` into the
- *     user's global CANT agents directory (`~/.local/share/cleo/cant/agents/`).
- *     When `.cleo/project-context.json` is present on this path, template
+ *     direct-usable `.cant` files from `packages/agents/starter-bundle/`
+ *     (team.cant + agents/*.cant) into the user's global CANT agents
+ *     directory (`~/.local/share/cleo/cant/agents/`). When
+ *     `.cleo/project-context.json` is present on this path, template
  *     placeholders are resolved via the canonical variable-substitution SDK
  *     (T1238) before the file is written.
+ *
+ * Per D035 (v2026.4.111) the starter-bundle lives in `@cleocode/agents/`
+ * (not `@cleocode/cleo-os/`); the installer routes through the
+ * {@link resolveStarterBundle} SDK helper so the path is resolved via the
+ * module graph rather than hardcoded.
  *
  * Both paths are idempotent: `~/.local/share/cleo/.seed-version` stores the
  * last-installed bundle version, and subsequent calls are no-ops unless the
@@ -26,6 +32,7 @@
  * @task T897  — idempotent install
  * @task T1238 — variable substitution
  * @task T1239 — meta-agent refactor
+ * @task T1241 — starter-bundle relocation (D035)
  * @epic T889 / T1232
  */
 
@@ -41,6 +48,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCleoGlobalCantAgentsDir, getCleoHome } from '../paths.js';
+import { resolveStarterBundle } from './resolveStarterBundle.js';
 import { loadProjectContext, substituteCantAgentBody } from './variable-substitution.js';
 
 // ---------------------------------------------------------------------------
@@ -151,40 +159,19 @@ export interface EnsureSeedAgentsInstalledOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the canonical seed-agents directory from the bundled
+ * Resolve the canonical starter-bundle directory from the bundled
  * `@cleocode/agents` package.
  *
- * Resolution order (first hit wins):
- *  1. `require.resolve('@cleocode/agents/package.json')` → sibling workspace.
- *  2. Walk a set of relative-path candidates from this file's location.
+ * Delegates to the SDK helper {@link resolveStarterBundle} (T1241) so the
+ * resolution strategy lives in a single place and both the installer and
+ * any future consumer share the same graph traversal.
  *
- * Returns `null` when the seed directory cannot be located.
+ * Returns `null` when the starter-bundle directory cannot be located.
  *
- * @task T897
+ * @task T897 / T1241
  */
 function resolveSeedDir(): string | null {
-  // Primary: workspace module resolution
-  try {
-    const req = createRequire(import.meta.url);
-    const agentsPkg = req.resolve('@cleocode/agents/package.json');
-    const candidate = join(dirname(agentsPkg), 'seed-agents');
-    if (existsSync(candidate)) return candidate;
-  } catch {
-    // module not resolvable — fall through
-  }
-
-  // Fallback: climb relative to the compiled file location. This works
-  // in both the workspace (src/) and a built dist/ layout.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // packages/core/src/agents/ -> packages/agents/seed-agents
-    join(here, '..', '..', '..', 'agents', 'seed-agents'),
-    // packages/core/dist/agents/ -> packages/agents/seed-agents
-    join(here, '..', '..', '..', '..', 'agents', 'seed-agents'),
-    // node_modules/@cleocode/core/dist/agents -> ../agents/seed-agents
-    join(here, '..', '..', '..', '..', '..', 'agents', 'seed-agents'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  return resolveStarterBundle();
 }
 
 /**
@@ -360,6 +347,54 @@ async function runMetaAgentSynthesis(args: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Enumerate every `.cant` file shipped by the starter-bundle.
+ *
+ * The starter-bundle layout (per D035) is:
+ * ```
+ * starter-bundle/
+ *   team.cant
+ *   agents/
+ *     cleo-orchestrator.cant
+ *     dev-lead.cant
+ *     code-worker.cant
+ *     docs-worker.cant
+ * ```
+ *
+ * This helper returns `{ src, filename }` tuples so callers can preserve the
+ * original basename when writing to the flat `.cleo/cant/agents/` target
+ * without leaking the source sub-directory structure.
+ *
+ * @task T1241
+ */
+function enumerateStarterBundleCantFiles(
+  seedDir: string,
+): Array<{ src: string; filename: string }> {
+  const tuples: Array<{ src: string; filename: string }> = [];
+
+  // 1. Top-level team.cant (always present in a well-formed bundle).
+  const teamSrc = join(seedDir, 'team.cant');
+  if (existsSync(teamSrc)) {
+    tuples.push({ src: teamSrc, filename: 'team.cant' });
+  }
+
+  // 2. agents/*.cant — persona files.
+  const agentsDir = join(seedDir, 'agents');
+  if (existsSync(agentsDir)) {
+    try {
+      const entries = readdirSync(agentsDir).filter((f) => f.endsWith('.cant'));
+      for (const filename of entries) {
+        tuples.push({ src: join(agentsDir, filename), filename });
+      }
+    } catch {
+      // Best-effort: the caller will emit an empty result if the dir
+      // cannot be read, matching prior behaviour.
+    }
+  }
+
+  return tuples;
+}
+
+/**
  * Legacy static-copy path with optional template variable substitution.
  *
  * When `projectRoot` is supplied AND `.cleo/project-context.json` exists, each
@@ -367,7 +402,11 @@ async function runMetaAgentSynthesis(args: {
  * written to disk. The substitution is lenient — unresolved placeholders stay
  * as-is but are tallied in `unresolvedVariables` for operator awareness.
  *
- * @task T897 / T1238
+ * Reads from `packages/agents/starter-bundle/` (per D035, v2026.4.111) —
+ * the direct-usable install set, NOT the `{{var}}` templates shipped under
+ * `packages/agents/seed-agents/` (those are meta-agent inputs).
+ *
+ * @task T897 / T1238 / T1241
  */
 function runStaticCopy(args: {
   seedDir: string;
@@ -380,13 +419,12 @@ function runStaticCopy(args: {
   // Ensure destination exists
   mkdirSync(destination, { recursive: true });
 
-  const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
+  const seeds = enumerateStarterBundleCantFiles(seedDir);
   const installed: string[] = [];
   const skipped: string[] = [];
   const unresolvedSet = new Set<string>();
 
-  for (const filename of seeds) {
-    const src = join(seedDir, filename);
+  for (const { src, filename } of seeds) {
     const dst = join(destination, filename);
     const slug = filename.replace(/\.cant$/, '');
 
@@ -531,4 +569,162 @@ export async function ensureSeedAgentsInstalled(
     bundleVersion,
     projectRoot: options.projectRoot,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Legacy-path reroute migration (T1241 — D035)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of the minimal `DatabaseSync` surface used by
+ * {@link rerouteLegacyStarterBundlePaths}. Structurally compatible with
+ * `node:sqlite`'s `DatabaseSync`; kept narrow here to avoid importing the
+ * runtime type at module-load time.
+ *
+ * @task T1241
+ */
+export interface RerouteLegacyDb {
+  prepare(sql: string): {
+    all(...params: unknown[]): unknown[];
+    run(...params: unknown[]): { changes?: number | bigint };
+  };
+}
+
+/**
+ * Agents-row subset the reroute migration cares about.
+ *
+ * @task T1241
+ */
+interface LegacyStarterBundleAgentRow {
+  id: string;
+  agent_id: string;
+  cant_path: string | null;
+}
+
+/**
+ * Legacy filesystem substring that identifies a stale registry row pointing
+ * at the pre-v2026.4.111 `packages/cleo-os/starter-bundle/` location.
+ *
+ * @task T1241
+ */
+const LEGACY_CLEO_OS_STARTER_BUNDLE_SUBSTR = 'cleo-os/starter-bundle';
+
+/**
+ * Result envelope returned by {@link rerouteLegacyStarterBundlePaths}.
+ *
+ * @task T1241
+ */
+export interface RerouteLegacyStarterBundleResult {
+  /** Number of rows whose `cant_path` was rewritten. */
+  readonly rewrittenRows: number;
+  /**
+   * Agents that were rewritten. Each entry carries the agent id and the
+   * old + new on-disk paths for audit.
+   */
+  readonly agents: ReadonlyArray<{
+    readonly agentId: string;
+    readonly oldPath: string;
+    readonly newPath: string;
+  }>;
+  /**
+   * Rows that matched the legacy substring but whose rewrite target could
+   * not be resolved (e.g. `@cleocode/agents` unreachable from this process).
+   * Callers should surface these as warnings.
+   */
+  readonly skippedRows: ReadonlyArray<{
+    readonly agentId: string;
+    readonly oldPath: string;
+    readonly reason: string;
+  }>;
+}
+
+/**
+ * One-shot registry migration that reroutes `agents.cant_path` rows pointing
+ * at the pre-v2026.4.111 `packages/cleo-os/starter-bundle/` location to the
+ * new `packages/agents/starter-bundle/` location (per D035).
+ *
+ * Strategy:
+ *
+ *  1. Select every row whose `cant_path` contains the legacy substring
+ *     `cleo-os/starter-bundle`.
+ *  2. For each row, locate the matching `.cant` file under the new
+ *     `packages/agents/starter-bundle/` tree by preserving the sub-path
+ *     suffix after `starter-bundle/`.
+ *  3. Rewrite the row's `cant_path` via a `UPDATE … WHERE id = ?`
+ *     statement so the doctor walk sees the new canonical path.
+ *
+ * Safe to call repeatedly: after the first run no rows match the legacy
+ * substring so subsequent calls are no-ops.
+ *
+ * Invoked by `cleo agent doctor` on first run after upgrade (wired through
+ * the doctor entry point) so operators are not required to trigger it
+ * manually.
+ *
+ * @param db - Open handle to the global `signaldock.db`.
+ * @returns Summary of rewritten + skipped rows.
+ * @task T1241 / D035
+ */
+export function rerouteLegacyStarterBundlePaths(
+  db: RerouteLegacyDb,
+): RerouteLegacyStarterBundleResult {
+  const rows = db
+    .prepare('SELECT id, agent_id, cant_path FROM agents WHERE cant_path LIKE ?')
+    .all(`%${LEGACY_CLEO_OS_STARTER_BUNDLE_SUBSTR}%`) as LegacyStarterBundleAgentRow[];
+
+  const newBundleRoot = resolveStarterBundle();
+  const rewritten: Array<{ agentId: string; oldPath: string; newPath: string }> = [];
+  const skipped: Array<{ agentId: string; oldPath: string; reason: string }> = [];
+
+  if (rows.length === 0) {
+    return { rewrittenRows: 0, agents: [], skippedRows: [] };
+  }
+
+  if (newBundleRoot === null) {
+    for (const row of rows) {
+      if (row.cant_path !== null) {
+        skipped.push({
+          agentId: row.agent_id,
+          oldPath: row.cant_path,
+          reason: '@cleocode/agents starter-bundle not resolvable from current process',
+        });
+      }
+    }
+    return { rewrittenRows: 0, agents: [], skippedRows: skipped };
+  }
+
+  const update = db.prepare('UPDATE agents SET cant_path = ? WHERE id = ?');
+
+  for (const row of rows) {
+    const oldPath = row.cant_path;
+    if (oldPath === null) continue;
+
+    // Compute the suffix after `starter-bundle/` (e.g. `agents/cleo-orchestrator.cant`
+    // or `team.cant`). Falls back to the basename when the substring is
+    // not found (defensive — shouldn't happen after the LIKE query).
+    const markerIdx = oldPath.indexOf('starter-bundle/');
+    const suffix =
+      markerIdx >= 0
+        ? oldPath.slice(markerIdx + 'starter-bundle/'.length)
+        : (oldPath.split(/[/\\]/).pop() ?? oldPath);
+
+    const newPath = join(newBundleRoot, suffix);
+
+    if (!existsSync(newPath)) {
+      skipped.push({
+        agentId: row.agent_id,
+        oldPath,
+        reason: `target file not present at new location: ${newPath}`,
+      });
+      continue;
+    }
+
+    update.run(newPath, row.id);
+    rewritten.push({ agentId: row.agent_id, oldPath, newPath });
+  }
+
+  return {
+    rewrittenRows: rewritten.length,
+    agents: rewritten,
+    skippedRows: skipped,
+  };
 }

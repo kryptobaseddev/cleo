@@ -1,9 +1,10 @@
 # ADR-055: Agents Architecture + Meta-Agents
 
-**Status**: Accepted (2026-04-22)
+**Status**: Accepted (2026-04-22) · **Amended** (2026-04-22, D035 addendum below)
 **Date**: 2026-04-22
 **Task**: T1240 (epic T1232 — CLEO Agents Architecture Remediation for v2026.4.110)
-**Scope**: `packages/agents/`, `packages/core/src/agents/`, `packages/core/src/paths.ts`, `packages/cant/src/native-loader.ts`, `.cleo/cant/agents/`
+       **Amended by**: T1241 (v2026.4.111 systemic hotfix — D035)
+**Scope**: `packages/agents/`, `packages/core/src/agents/`, `packages/core/src/store/agent-resolver.ts`, `packages/core/src/paths.ts`, `packages/cant/src/native-loader.ts`, `.cleo/cant/agents/`
 **Supersedes (prose)**: D022 (seed-agents ship raw), D025 (packaged-tier resolver mandate), D026 (static seed-install copy)
 **Superseded-By**: none
 
@@ -258,6 +259,98 @@ child tasks.
 - **Package boundary**: `packages/agents/` ships universal + template content;
   `packages/core/src/agents/` owns resolver, installer, doctor; `packages/cant/`
   owns the variable-resolver implementation (R2 §12)
+
+---
+
+## D035 Addendum (v2026.4.111 — 2026-04-22)
+
+v2026.4.110 shipped three regressions that only surfaced in clean CI: five
+orchestrate-engine tests began failing with `E_AGENT_NOT_FOUND` before the
+atomicity gate could fire, the starter-bundle continued to live in
+`packages/cleo-os/`, and the first-tier seed-install flow still read from a
+harness-adjacent location. Filed as D035 to track the systemic remediation that
+lands in T1241.
+
+### D035 — starter-bundle relocates; seed-install routes through core; resolver gains a 5th tier
+
+The following properties MUST hold for v2026.4.111 and every release after:
+
+1. **Universal agent content lives in `@cleocode/agents`**, never in
+   `@cleocode/cleo-os` and never in `@cleocode/cleo`. The starter-bundle
+   (`team.cant` + `agents/*.cant`) is the canonical direct-usable install
+   set and ships as `packages/agents/starter-bundle/`. CleoOS retains only
+   harness-adapter code.
+
+2. **`seed-install` reads exclusively from `@cleocode/agents`**. Path
+   resolution flows through a new core SDK helper,
+   `packages/core/src/agents/resolveStarterBundle.ts`, which walks the
+   package graph via `require.resolve('@cleocode/agents/package.json')`
+   plus a fallback chain covering the workspace (`src/`) and compiled
+   (`dist/`) layouts. Zero filesystem paths are hardcoded per D026.
+   `seed-install.ts` applies `substituteCantAgentBody` (T1238) to every
+   file on the static-copy path so mustache `{{var}}` placeholders in
+   future starter templates resolve against the project-context resolver
+   chain.
+
+3. **`resolveAgent` gains a 5th tier, `universal`**, synthesising an
+   envelope from `@cleocode/agents/cleo-subagent.cant` when every prior
+   tier misses. The envelope is tagged `tier='universal'`, `source='universal'`,
+   `aliasApplied=true`, `aliasTarget='cleo-subagent'` so callers can see
+   the classifier's original agentId AND the universal persona that
+   ultimately answered. `AgentNotFoundError` becomes genuinely
+   exceptional — it surfaces only when the universal base file itself is
+   unreachable (catastrophic install state). Two new constants are
+   exported from `@cleocode/core/internal`: `AGENT_TIER_UNIVERSAL` and
+   `AGENT_UNIVERSAL_BASE_ID`. `AgentTier` in `@cleocode/contracts`
+   extends to include `'universal'`.
+
+4. **Registry reroute migration** — `rerouteLegacyStarterBundlePaths()` in
+   `packages/core/src/agents/seed-install.ts` scans
+   `signaldock.db:agents` for `cant_path LIKE '%cleo-os/starter-bundle%'`
+   rows and rewrites them to the new `packages/agents/starter-bundle/`
+   location. `buildDoctorReport()` invokes the migration idempotently on
+   every `cleo agent doctor` call so the upgrade path self-heals without
+   operator intervention.
+
+### Why a 5th tier rather than a harder contract on classifier output
+
+The T891 classifier (`packages/core/src/orchestration/classify.ts`) picks
+one of `cleo-prime`, `cleo-dev`, `cleo-rust-lead`, `cleo-db-lead`,
+`cleo-historian` based on keyword and structural signals. T1237 correctly
+removed these cleocode-specific personas from the bundled seed-agents set
+(D031), which means in a clean CI environment the classifier can produce
+an agentId that does NOT resolve at any of the first four tiers. The
+pre-v2026.4.111 resolver threw `E_AGENT_NOT_FOUND` BEFORE the atomicity
+gate could fire.
+
+Two fixes were considered:
+
+- **Option A — teach the classifier to never pick a non-shipped agentId.**
+  Rejected: the classifier is a cheap, testable function; teaching it
+  about registry state every call would couple it to the SSoT DB and
+  defeat its determinism.
+- **Option B — introduce a universal-base fallback in the resolver.**
+  Accepted: the resolver is the canonical place to model the cascade,
+  and a new tier composes cleanly with the existing `preferTier` option
+  and `tryResolveAtTier` dispatch. Atomicity — the primary gate the
+  orchestrate engine leans on — continues to fire because the resolver
+  now always produces a worker-shaped envelope.
+
+### Tests updated
+
+Pre-T1241 tests that asserted `AgentNotFoundError` after a miss now pin
+`universalBasePath` to an unreachable path to preserve the old contract.
+New tests in `packages/core/src/store/__tests__/agent-resolver.test.ts`
+assert the full cascade lands on `universal` with the expected alias
+metadata. `CoreAgentDispatcher` accepts the same override so playbook
+dispatchers stay wired through a single `buildResolveOptions` helper.
+
+### Harness-adapters directory (future, not v2026.4.111)
+
+`packages/agents/harness-adapters/claude-code/` is referenced by D032 and
+remains on the roadmap. D035 does NOT add or remove harness-adapter
+content; it only reclaims the package boundary so future harness
+additions land in the correct package without ambiguity.
 
 ---
 

@@ -19,15 +19,21 @@
 /**
  * Tier where an agent is installed or resolved from.
  *
- * - `project`  — installed in the current project (`.cleo/agents/`)
- * - `global`   — installed at the user/global scope (`$XDG_DATA_HOME/cleo/agents/`)
- * - `packaged` — bundled with the CLEO distribution
- * - `fallback` — synthesized at resolve-time when no concrete `.cant` exists
+ * - `project`   — installed in the current project (`.cleo/agents/`)
+ * - `global`    — installed at the user/global scope (`$XDG_DATA_HOME/cleo/agents/`)
+ * - `packaged`  — bundled with the CLEO distribution
+ * - `fallback`  — synthesized at resolve-time when no concrete `.cant` exists
+ *                 for the requested agentId but a bundled seed-agent file matches
+ * - `universal` — synthesized at resolve-time from the universal protocol
+ *                 base (`@cleocode/agents/cleo-subagent.cant`). Acts as the
+ *                 final safety net so classifier output never produces
+ *                 `E_AGENT_NOT_FOUND` when the base file is reachable.
+ *                 Added in v2026.4.111 (T1241 / D035).
  *
- * @task T897
- * @epic T889
+ * @task T897 / T1241
+ * @epic T889 / T1232
  */
-export type AgentTier = 'project' | 'global' | 'packaged' | 'fallback';
+export type AgentTier = 'project' | 'global' | 'packaged' | 'fallback' | 'universal';
 
 /**
  * Whether an agent is permitted to spawn other agents and its role in the
@@ -119,7 +125,7 @@ export interface ResolvedAgent {
   /** Merged skill slugs (union of catalog bindings and `.cant`-declared skills). */
   skills: string[];
   /** Concrete source tier of the chosen row (mirrors `tier`). */
-  source: 'project' | 'global' | 'packaged' | 'fallback';
+  source: 'project' | 'global' | 'packaged' | 'fallback' | 'universal';
   /** `true` when an alias redirected the lookup to another agentId. */
   aliasApplied: boolean;
   /** When `aliasApplied` is true, the terminal canonical agentId the alias pointed at. */

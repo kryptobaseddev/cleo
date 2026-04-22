@@ -297,30 +297,75 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     }
   });
 
-  it('throws AgentNotFoundError when nothing found in any tier', async () => {
+  it('throws AgentNotFoundError only when the universal base is unreachable (T1241)', async () => {
     const { resolveAgent, AgentNotFoundError } = await import('../agent-resolver.js');
     const db = env.openDb();
     try {
+      // Pin `universalBasePath` to a path that does not exist so the 5th-tier
+      // fallback also misses and the resolver reverts to the pre-T1241
+      // behaviour of raising AgentNotFoundError with every tier enumerated.
+      const missingUniversalBase = join(env.cleoHome, 'no-such-universal-base.cant');
       expect(() =>
         resolveAgent(db, 'does-not-exist-anywhere', {
           projectRoot: env.projectRoot,
           packagedSeedDir: env.packagedSeedDir,
+          universalBasePath: missingUniversalBase,
         }),
       ).toThrow(AgentNotFoundError);
       try {
         resolveAgent(db, 'does-not-exist-anywhere', {
           projectRoot: env.projectRoot,
           packagedSeedDir: env.packagedSeedDir,
+          universalBasePath: missingUniversalBase,
         });
       } catch (err) {
         expect(err).toBeInstanceOf(AgentNotFoundError);
         if (err instanceof AgentNotFoundError) {
           expect(err.agentId).toBe('does-not-exist-anywhere');
-          expect(err.triedTiers).toEqual(['project', 'global', 'packaged', 'fallback']);
+          expect(err.triedTiers).toEqual([
+            'project',
+            'global',
+            'packaged',
+            'fallback',
+            'universal',
+          ]);
           expect(err.code).toBe('E_AGENT_NOT_FOUND');
           expect(err.exitCode).toBe(65);
         }
       }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('T1241 — falls through to universal-base when every prior tier misses and base is reachable', async () => {
+    const { resolveAgent } = await import('../agent-resolver.js');
+    const db = env.openDb();
+    try {
+      // Write a synthetic universal base file to the tmp environment.
+      const universalBasePath = join(env.cleoHome, 'synthetic-universal-base.cant');
+      writeFileSync(
+        universalBasePath,
+        '---\nkind: agent\nversion: 1\n---\n\nagent cleo-subagent:\n  role: worker\n  prompt: "Universal base."\n  skills: []\n',
+        'utf-8',
+      );
+
+      const resolved = resolveAgent(db, 'classifier-picked-ghost', {
+        projectRoot: env.projectRoot,
+        packagedSeedDir: env.packagedSeedDir,
+        universalBasePath,
+      });
+      expect(resolved.tier).toBe('universal');
+      expect(resolved.source).toBe('universal');
+      expect(resolved.aliasApplied).toBe(true);
+      expect(resolved.aliasTarget).toBe('cleo-subagent');
+      // The caller-facing agentId preserves the classifier's original request
+      // so downstream telemetry can surface what the operator asked for.
+      expect(resolved.agentId).toBe('classifier-picked-ghost');
+      expect(resolved.cantPath).toBe(universalBasePath);
+      expect(resolved.canSpawn).toBe(false);
+      expect(resolved.orchLevel).toBe(2);
+      expect(resolved.skills).toEqual([]);
     } finally {
       db.close();
     }
@@ -431,12 +476,15 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
 
       // Query the fresh orphan id: it has ONLY a project-tier row pointing at a
       // non-existent file, so the resolver must cascade past it and ultimately
-      // raise AgentNotFoundError because no other tier holds it.
+      // raise AgentNotFoundError when the universal-base fallback is pinned to
+      // an unreachable path (post-T1241 the 5th tier would otherwise rescue it).
       const { AgentNotFoundError } = await import('../agent-resolver.js');
+      const missingUniversalBase = join(env.cleoHome, 'no-such-universal-base.cant');
       expect(() =>
         resolveAgent(db, 'dual-tier-orphan', {
           projectRoot: env.projectRoot,
           packagedSeedDir: env.packagedSeedDir,
+          universalBasePath: missingUniversalBase,
         }),
       ).toThrow(AgentNotFoundError);
 
@@ -519,9 +567,14 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
         globalCantDir: env.globalCantDir,
       });
 
+      // Pin universal-base to a missing path so the ghost entry surfaces as
+      // AgentNotFoundError — post-T1241 the 5th tier would otherwise rescue
+      // it with a synthetic envelope.
+      const missingUniversalBase = join(env.cleoHome, 'no-such-universal-base.cant');
       const map = resolveAgentsBatch(db, ['cleo-historian', 'ghost-agent'], {
         projectRoot: env.projectRoot,
         packagedSeedDir: env.packagedSeedDir,
+        universalBasePath: missingUniversalBase,
       });
 
       expect(map.size).toBe(2);
