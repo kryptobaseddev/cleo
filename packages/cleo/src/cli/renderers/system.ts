@@ -15,6 +15,7 @@
 import type { Task } from '@cleocode/contracts';
 import type { ColorStyle } from '@cleocode/core/formatters';
 import { formatTree, formatWaves } from '@cleocode/core/formatters';
+import { getTreeContext } from '../tree-context.js';
 import {
   BLUE,
   BOLD,
@@ -317,9 +318,12 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
 
   if (tree) {
     // Delegate to core formatTree, injecting the CLI ANSI colorize adapter.
+    // withDeps is read from the tree context set by treeCommand (T1205).
+    const { withDeps } = getTreeContext();
     return formatTree(tree as Parameters<typeof formatTree>[0], {
       mode: quiet ? 'quiet' : 'rich',
       colorize: cliColorize,
+      withDeps,
     });
   }
 
