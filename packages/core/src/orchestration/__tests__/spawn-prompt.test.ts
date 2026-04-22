@@ -211,11 +211,9 @@ describe('buildSpawnPrompt — return format contract', () => {
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('Implementation complete. See MANIFEST.jsonl for summary.');
-    expect(result.prompt).toContain('Implementation partial. See MANIFEST.jsonl for details.');
-    expect(result.prompt).toContain(
-      'Implementation blocked. See MANIFEST.jsonl for blocker details.',
-    );
+    expect(result.prompt).toContain('Implementation complete. Manifest appended to pipeline_manifest.');
+    expect(result.prompt).toContain('Implementation partial. Manifest appended to pipeline_manifest.');
+    expect(result.prompt).toContain('Implementation blocked. Manifest appended to pipeline_manifest.');
   });
 
   it('uses the correct verb for research', () => {
@@ -224,7 +222,18 @@ describe('buildSpawnPrompt — return format contract', () => {
       protocol: 'research',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('Research complete. See MANIFEST.jsonl for summary.');
+    expect(result.prompt).toContain('Research complete. Manifest appended to pipeline_manifest.');
+  });
+
+  it('includes the cleo manifest append instruction (ADR-027 / T1096)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('## Manifest Protocol');
+    expect(result.prompt).toContain('cleo manifest append');
+    expect(result.prompt).not.toContain('MANIFEST.jsonl');
   });
 });
 
@@ -259,9 +268,10 @@ describe('buildSpawnPrompt — file path resolution', () => {
       projectRoot: '/abs/proj',
     });
     expect(result.prompt).toContain('/abs/proj/.cleo/agent-outputs');
-    expect(result.prompt).toContain('/abs/proj/.cleo/agent-outputs/MANIFEST.jsonl');
     expect(result.prompt).toContain('/abs/proj/.cleo/rcasd/T9000');
     expect(result.prompt).toContain('/abs/proj/.cleo/test-runs');
+    // ADR-027 / T1096: no flat-file manifest path is rendered.
+    expect(result.prompt).not.toContain('MANIFEST.jsonl');
   });
 });
 
