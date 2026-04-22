@@ -23,10 +23,16 @@ embedded runner (see [signaldock note](#signaldock-structural-note) below).
 | `signaldock` | global/cross-project | `packages/core/src/store/signaldock-schema.ts` | `drizzle-signaldock/` | bespoke embedded runner |
 | `telemetry` | opt-in CLI telemetry | `packages/core/src/telemetry/schema.ts` | `drizzle-telemetry/` | `migration-manager.ts` |
 
-The canonical tree lives here at `packages/core/migrations/`. A build-time copy exists at
-`packages/cleo/migrations/` (written by `syncMigrationsToCleoPackage()` in `build.mjs`) to
-work around `__dirname` math in the CLI bundle. The `packages/cleo/migrations/` copy is a
-build artefact — **never edit it directly**.
+The canonical tree lives here at `packages/core/migrations/`. This is the **single source of
+truth** for all CLEO migration SQL. Consumers (including `@cleocode/cleo`) locate migration
+folders at runtime via `import.meta.resolve('@cleocode/core')` — no build-time copy or sync
+step is required (ADR-054 Wave 3, T1177).
+
+> **Historical note**: Prior to v2026.4.109 (Wave 3), a build-time copy of migration folders
+> was written to `packages/cleo/migrations/` by `syncMigrationsToCleoPackage()` in
+> `build.mjs` to work around `__dirname` math in the bundled CLI. This sync step was removed
+> in T1180 (commit `1a9738cf9`) and the `packages/cleo/migrations/` folder was deleted in
+> T1182 (commit `158717cde`). Do not recreate that folder or the sync function.
 
 ### Core Principle (Hybrid Path A+)
 

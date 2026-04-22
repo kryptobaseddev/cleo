@@ -9,7 +9,7 @@
 
 ## Overview
 
-CLEO uses **5 databases** — 3 per-project, 1 project-tier messaging, and 1 global. As of v2026.4.12 (ADR-037), the former single `signaldock.db` was split into a project-tier `conduit.db` (messaging + project_agent_refs) and a global-tier `signaldock.db` (canonical agent identity + cloud-sync). TypeScript databases use `node:sqlite` directly or Drizzle ORM v1.0.0-beta.
+CLEO uses **6 databases** — 3 per-project, 1 project-tier messaging, 1 global, and 1 core-only telemetry. As of v2026.4.12 (ADR-037), the former single `signaldock.db` was split into a project-tier `conduit.db` (messaging + project_agent_refs) and a global-tier `signaldock.db` (canonical agent identity + cloud-sync). The sixth database, `telemetry.db`, is a global opt-in CLI telemetry store introduced by T624 and managed exclusively by `@cleocode/core`. TypeScript databases use `node:sqlite` directly or Drizzle ORM v1.0.0-beta.
 
 ---
 
@@ -115,7 +115,7 @@ As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`.
 
 ---
 
-## Global Database
+## Global Databases
 
 ### 5. `nexus.db` — Cross-Project Routing
 
@@ -131,6 +131,23 @@ As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`.
 | `warpChains` | Multi-project workflow chain definitions |
 | `warpChainInstances` | Running workflow instances |
 | `nexus_schema_meta` | Schema version tracking |
+
+### 6. `telemetry.db` — CLI Telemetry (opt-in)
+
+**Location**: `$XDG_DATA_HOME/cleo/telemetry.db` (global — one per machine, opt-in)
+**ORM**: Drizzle ORM v1 beta (TypeScript, node:sqlite `DatabaseSync`)
+**Migration**: `packages/core/migrations/drizzle-telemetry/` via `migration-manager.ts`
+**Schema**: `packages/core/src/telemetry/schema.ts`
+**Introduced by**: T624
+**Baseline-reset**: T1176 (Wave 2A of T1150 T-MSR)
+
+`telemetry.db` stores opt-in CLI telemetry events. It is managed exclusively by `@cleocode/core` — it is not tied to project init and is not created unless the user has opted in to telemetry. The database is not part of the per-project `.cleo/` directory.
+
+| Table | Purpose |
+|---|---|
+| `telemetry_events` | Opt-in CLI command invocations and timing data |
+
+> **Note**: This database does not participate in the project lifecycle (no `cleo init` interaction) and is not backed up by `cleo backup`. It is core-only: `cleo-os` and other harness layers interact with it only via the `cleo` CLI subprocess boundary (ADR-054 Appendix: Wave 4).
 
 ---
 
@@ -181,14 +198,16 @@ Runtime: cleo agent start → TransportFactory → Local or HTTP Transport
 ## File System Layout
 
 ```
-~/.local/share/cleo/             ← GLOBAL (env-paths)
-├── nexus.db                     ← Cross-project NEXUS routing
-└── machine-key                  ← Encryption key for credentials (NEW)
+~/.local/share/cleo/             ← GLOBAL (env-paths / $XDG_DATA_HOME/cleo/)
+├── nexus.db                     ← Cross-project NEXUS routing (global-tier)
+├── signaldock.db                ← Agent identity SSoT (global-tier, moved from per-project in v2026.4.12)
+├── telemetry.db                 ← Opt-in CLI telemetry (core-only, created only if opted in)
+└── machine-key                  ← Encryption key for credentials
 
 /path/to/project/.cleo/          ← PROJECT-LEVEL
 ├── tasks.db                     ← Tasks, sessions, lifecycle, ADRs, credentials
 ├── brain.db                     ← Knowledge: decisions, patterns, observations
-├── signaldock.db                ← Agent identity + messaging (Diesel ORM)
+├── conduit.db                   ← Project-tier agent messaging (ADR-037)
 └── config.json                  ← Project configuration
 ```
 
@@ -200,10 +219,12 @@ Runtime: cleo agent start → TransportFactory → Local or HTTP Transport
 
 | Database | ORM | Language | Backend | Migration System |
 |---|---|---|---|---|
-| `tasks.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | Drizzle Kit |
-| `brain.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite + sqlite-vec) | SQLite | Drizzle Kit |
-| `signaldock.db` | Diesel ORM | Rust (napi-rs locally, native in cloud) | SQLite (local) / PostgreSQL (cloud) | Diesel embedded migrations |
-| `nexus.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | Drizzle Kit |
+| `tasks.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-tasks/` via `migration-manager.ts` |
+| `brain.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite + sqlite-vec) | SQLite | `packages/core/migrations/drizzle-brain/` via `migration-manager.ts` |
+| `conduit.db` | node:sqlite (embedded DDL) | TypeScript | SQLite | Embedded `CREATE TABLE IF NOT EXISTS` on first open |
+| `nexus.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-nexus/` via `migration-manager.ts` |
+| `signaldock.db` | Diesel ORM (server) / node:sqlite (local) | Rust / TypeScript | SQLite (local) / PostgreSQL (cloud) | `packages/core/migrations/drizzle-signaldock/` (folder structure) + bespoke embedded runner |
+| `telemetry.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-telemetry/` via `migration-manager.ts` |
 
 ---
 
