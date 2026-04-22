@@ -15,9 +15,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 1. Overview
 
-This specification defines the schema for the `pipeline_manifest` table in `tasks.db`, the migration protocol from `MANIFEST.jsonl`, and the distillation lifecycle for pipeline manifest entries.
+This specification defines the schema for the `pipeline_manifest` table in `tasks.db`, the migration protocol from the legacy flat-file manifest, and the distillation lifecycle for pipeline manifest entries.
 
-The `pipeline_manifest` table is the authoritative store for all agent output artifacts, research deliverables, and implementation records written during CLEO sessions. It supersedes `MANIFEST.jsonl` per ADR-027.
+The `pipeline_manifest` table is the authoritative store for all agent output artifacts, research deliverables, and implementation records written during CLEO sessions. It supersedes the legacy flat-file manifest per ADR-027.
 
 ---
 
@@ -26,7 +26,7 @@ The `pipeline_manifest` table is the authoritative store for all agent output ar
 | Term | Definition |
 |------|------------|
 | **pipeline_manifest** | SQLite table in `tasks.db` storing agent artifact metadata |
-| **MANIFEST.jsonl** | Legacy append-only JSONL file being retired by this spec |
+| **legacy flat-file** | Legacy append-only JSONL file (renamed to `legacy-manifest.jsonl`) retired by this spec |
 | **entry** | One row in `pipeline_manifest` |
 | **distillation** | Process of summarizing an active entry into brain.db as an observation |
 | **active** | Entry status: in use, not yet archived or distilled |
@@ -142,7 +142,7 @@ CREATE INDEX idx_pm_content_hash ON pipeline_manifest(content_hash);
 
 ---
 
-## 6. Migration from MANIFEST.jsonl
+## 6. Migration from the Legacy Flat-File Manifest
 
 ### 6.1 Migration Function Contract
 
@@ -150,14 +150,14 @@ A one-time migration function `migrateManifestJsonl(db, jsonlPath)` MUST be prov
 
 **Inputs**:
 - `db`: Drizzle database instance (tasks.db)
-- `jsonlPath`: absolute path to `MANIFEST.jsonl`
+- `jsonlPath`: absolute path to the legacy flat-file (`.cleo/agent-outputs/legacy-manifest.jsonl`)
 
 **Algorithm**:
 1. Check if `jsonlPath` exists; if absent, return `{ migrated: 0, skipped: 0 }` (no-op)
 2. Read file line by line, skipping blank lines and lines that fail JSON parse
 3. For each valid JSON object, map legacy fields to `pipeline_manifest` columns:
 
-| MANIFEST.jsonl field | pipeline_manifest column | Notes |
+| Legacy flat-file field | pipeline_manifest column | Notes |
 |----------------------|-------------------------|-------|
 | `id` | `id` | Direct mapping |
 | `file` | `source_file` | Direct mapping |
@@ -180,9 +180,9 @@ A one-time migration function `migrateManifestJsonl(db, jsonlPath)` MUST be prov
 ### 6.2 Post-Migration File Handling
 
 After a successful migration call:
-1. Rename `MANIFEST.jsonl` to `MANIFEST.jsonl.migrated`
+1. Rename the legacy flat-file to `<legacy-name>.migrated`
 2. Do NOT delete the original file; retain for one release cycle as a rollback reference
-3. Do NOT write new entries to `MANIFEST.jsonl.migrated`
+3. Do NOT write new entries to the `.migrated` file
 
 The `.migrated` file MAY be deleted after the first stable release that ships with `pipeline_manifest` support.
 

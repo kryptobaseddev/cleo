@@ -5513,7 +5513,7 @@ const absDir = getAgentOutputsAbsolute('/project');
 
 ### `getManifestPath`
 
-Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs.manifestFile for custom filename, defaults to 'MANIFEST.jsonl'.
+Get the absolute path to the legacy agent-outputs flat-file (deprecated per ADR-027).  Checks config.agentOutputs.manifestFile for custom filename.
 
 ```typescript
 (cwd?: string) => string
@@ -5523,7 +5523,7 @@ Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs.ma
 
 - `cwd` — Optional working directory for path resolution
 
-**Returns:** Absolute path to the MANIFEST.jsonl file
+**Returns:** Absolute path to the legacy agent-outputs flat-file
 
 ```typescript
 const manifestPath = getManifestPath('/project');
@@ -8194,7 +8194,7 @@ Link ADRs to a pipeline task when the architecture_decision stage completes.
 
 ### `syncAdrsToDb`
 
-Sync all ADR markdown files into the architecture_decisions table AND regenerate MANIFEST.jsonl in one pass.
+Sync all ADR markdown files into the architecture_decisions table AND regenerate the ADR index (adr-index.jsonl) in one pass.
 
 ```typescript
 (projectRoot: string) => Promise<AdrSyncResult>
@@ -15446,7 +15446,7 @@ Detect legacy agent-output directories in a project.  Read-only check — never 
 
 ### `migrateAgentOutputs`
 
-Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges MANIFEST.jsonl entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
+Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges legacy flat-file entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
 
 ```typescript
 (projectRoot: string, cleoDir: string) => AgentOutputsMigrationResult
@@ -17142,7 +17142,7 @@ Perform full dependency analysis for an epic's children.  Combines dependency gr
 
 ### `countManifestEntries`
 
-Count manifest entries from MANIFEST.jsonl.
+Count manifest entries from pipeline_manifest (ADR-027).
 
 ```typescript
 (projectRoot: string) => number
@@ -18953,7 +18953,7 @@ console.log(`Archived ${result.entriesArchived} entries`);
 
 ### `readManifest`
 
-Read manifest entries from MANIFEST.jsonl.
+Read manifest entries from the legacy agent-outputs flat-file (deprecated per ADR-027).
 
 ```typescript
 (cwd?: string) => Promise<ManifestEntry[]>
@@ -19241,7 +19241,7 @@ console.log(result.content);
 
 ### `compactManifest`
 
-Compact MANIFEST.jsonl by removing duplicate/stale entries.
+Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
 
 ```typescript
 (cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }>
@@ -22450,7 +22450,7 @@ Run all validation checks on a TaskFile.  T4523
 
 ### `parseManifest`
 
-Parse a MANIFEST.jsonl file into entries. Skips invalid JSON lines gracefully.  T4524
+Parse a manifest JSONL content string into entries. Skips invalid JSON lines gracefully.  T4524
 
 ```typescript
 (content: string) => ManifestDoc[]
@@ -22546,7 +22546,7 @@ Check if file contains required documentation sections.  T4527
 
 ### `checkReturnMessageFormat`
 
-Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
+Check if return message follows protocol format. Expected: "<Type> <status>. Manifest appended to pipeline_manifest."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 
 ```typescript
 (message: string, protocolType?: string) => boolean
@@ -23818,7 +23818,7 @@ Distill a manifest entry to brain.db observation (Phase 3, pending).
 
 ### `migrateManifestJsonlToSqlite`
 
-Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. Skips entries that already exist (by id). Renames MANIFEST.jsonl to MANIFEST.jsonl.migrated when done.
+Migrate existing legacy flat-file entries into the pipeline_manifest table. Skips entries that already exist (by id). Renames legacy file to .migrated when done.
 
 ```typescript
 (projectRoot?: string) => Promise<{ migrated: number; skipped: number; }>
@@ -32774,7 +32774,7 @@ HitlSummary
 
 ### `ManifestEntry`
 
-Research manifest entry (MANIFEST.jsonl).
+Research manifest entry (pipeline_manifest table, ADR-027).
 
 ```typescript
 ManifestEntry
@@ -42466,7 +42466,7 @@ AgentOutputsMigrationResult
 
 - `migrated` — Whether migration was performed.
 - `filesCopied` — Number of files copied to canonical location.
-- `manifestEntries` — Number of manifest entries in the merged MANIFEST.jsonl.
+- `manifestEntries` — Number of manifest entries in the merged pipeline_manifest.
 - `removed` — Legacy directories that were removed.
 - `summary` — Human-readable summary of what happened.
 

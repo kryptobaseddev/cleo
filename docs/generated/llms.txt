@@ -692,7 +692,7 @@ file platform-paths.ts
 () => string - Get the Global CLEO Agents directory.  Holds globally-available CANT agent definitions (`.cant` files). Project-local agents still live in `{projectRoot}/.cleo/agents/`.
 (cwd?: string) => string - Get the agent outputs directory (relative path) from config or default.  Config lookup priority:   1. config.agentOutputs.directory   2. config.research.outputDir (deprecated)   3. config.directories.agentOutputs (deprecated)   4. Default: '.cleo/agent-outputs'
 (cwd?: string) => string - Get the absolute path to the agent outputs directory.
-(cwd?: string) => string - Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs.manifestFile for custom filename, defaults to 'MANIFEST.jsonl'.
+(cwd?: string) => string - Get the absolute path to the legacy agent-outputs flat-file (deprecated per ADR-027).  Checks config.agentOutputs.manifestFile for custom filename.
 (cwd?: string) => string - Get the absolute path to the MANIFEST.archive.jsonl file.
 (path: string) => boolean - Check if a path is absolute (POSIX or Windows).
 () => string - Get the OS log directory for CLEO global logs. Linux: ~/.local/state/cleo | macOS: ~/Library/Logs/cleo | Windows: %LOCALAPPDATA%cleoLog
@@ -1221,7 +1221,7 @@ file parse.ts
 PipelineAdrLinkResult
 (projectRoot: string, taskId: string) => Promise<PipelineAdrLinkResult> - Link ADRs to a pipeline task when the architecture_decision stage completes.
 file link-pipeline.ts
-(projectRoot: string) => Promise<AdrSyncResult> - Sync all ADR markdown files into the architecture_decisions table AND regenerate MANIFEST.jsonl in one pass.
+(projectRoot: string) => Promise<AdrSyncResult> - Sync all ADR markdown files into the architecture_decisions table AND regenerate the ADR index (adr-index.jsonl) in one pass.
 file sync.ts
 EvidenceType
 EvidenceRecord
@@ -1308,7 +1308,7 @@ SpawnPromptResult - Spawn prompt result.
 DependencyWave - Dependency wave for parallel execution.
 DependencyAnalysis - Dependency analysis result.
 HitlSummary - HITL summary for session handoff.
-ManifestEntry - Research manifest entry (MANIFEST.jsonl).
+ManifestEntry - Research manifest entry (pipeline_manifest table, ADR-027).
 ManifestValidationResult - Manifest validation result.
 ComplianceResult - Compliance verification result.
 InstalledSkill - Installed skill tracking.
@@ -3152,7 +3152,7 @@ file hooks.ts
 LegacyDetectionResult - Result of detecting legacy agent-output directories.
 AgentOutputsMigrationResult - Result of running the agent-outputs migration.
 (projectRoot: string, cleoDir: string) => LegacyDetectionResult - Detect legacy agent-output directories in a project.  Read-only check — never modifies the filesystem.
-(projectRoot: string, cleoDir: string) => AgentOutputsMigrationResult - Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges MANIFEST.jsonl entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
+(projectRoot: string, cleoDir: string) => AgentOutputsMigrationResult - Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges legacy flat-file entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
 file agent-outputs.ts
 () => Promise<number> - Migrate projects from legacy JSON registry to nexus.db.  For each project entry in projects-registry.json: - Reads target/.cleo/project-info.json for a stable UUID (projectId) - Falls back to randomUUID() if project-info.json is absent - Upserts into project_registry (on conflict by projectHash → update path/name/lastSeen)  On success, renames the JSON file to .migrated.
 file migrate-json-to-sqlite.ts
@@ -3447,7 +3447,7 @@ DependencyAnalysis - Full dependency analysis result for an epic.
 (children: Task[], allTasks: Task[]) => DependencyAnalysis - Perform full dependency analysis for an epic's children.  Combines dependency graph building, circular detection, and missing dep identification into a single analysis result.
 file analyze.ts
 ContextEstimation - Context estimation result.
-(projectRoot: string) => number - Count manifest entries from MANIFEST.jsonl.
+(projectRoot: string) => number - Count manifest entries from pipeline_manifest (ADR-027).
 (taskCount: number, projectRoot: string, epicId?: string) => ContextEstimation - Estimate context usage for orchestration.
 file context.ts
 typeof OrchestrationHierarchyImpl - Concrete implementation of OrchestrationHierarchyAPI.
@@ -3851,7 +3851,7 @@ ManifestQueryOptions - Manifest query options.
 (cwd?: string) => Promise<{ total: number; byStatus: Record<string, number>; byTopic: Record<string, number>; }> - Get research statistics.
 (taskId: string, cwd?: string) => Promise<ResearchEntry[]> - Get research entries linked to a specific task.
 (cwd?: string) => Promise<{ action: string; entriesArchived: number; entriesRemaining: number; }> - Archive old research entries by status. Moves 'complete' entries to an archive and keeps non-complete ones.
-(cwd?: string) => Promise<ManifestEntry[]> - Read manifest entries from MANIFEST.jsonl.
+(cwd?: string) => Promise<ManifestEntry[]> - Read manifest entries from the legacy agent-outputs flat-file (deprecated per ADR-027).
 (entry: ManifestEntry, cwd?: string) => Promise<void> - Append a manifest entry.
 (options?: ManifestQueryOptions, cwd?: string) => Promise<ManifestEntry[]> - Query manifest entries with filtering.
 ExtendedManifestEntry - Extended manifest entry with optional fields used by the engine.
@@ -3870,7 +3870,7 @@ ContradictionDetail - Contradiction detail between two manifest entries.
 SupersededDetail - Superseded entry detail.
 (cwd?: string, params?: { topic?: string; }) => Promise<SupersededDetail[]> - Identify research entries replaced by newer work on same topic.
 (protocolType: string, params?: { taskId?: string; variant?: string; }, cwd?: string) => Promise<{ protocolType: string; content: string; path: string; contentLength: number; estimatedTokens: number; taskId: string | null; variant: string | null; }> - Read protocol injection content for a given protocol type.
-(cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }> - Compact MANIFEST.jsonl by removing duplicate/stale entries.
+(cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }> - Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
 (taskId: string, cwd?: string) => Promise<{ taskId: string; valid: boolean; entriesFound: number; issues: Array<{ entryId: string; issue: string; severity: "error" | "warning"; }>; errorCount: number; warningCount: number; }> - Validate research entries for a task.
 file index.ts - Research commands and manifest operations.    T4465  T4454
 (metricsDir?: string) => Promise<string> - Ensure metrics directory exists, returning its path.
@@ -4639,7 +4639,7 @@ ManifestDoc
 GapEntry
 CoverageEntry
 GapReport
-(content: string) => ManifestDoc[] - Parse a MANIFEST.jsonl file into entries. Skips invalid JSON lines gracefully.  T4524
+(content: string) => ManifestDoc[] - Parse a manifest JSONL content string into entries. Skips invalid JSON lines gracefully.  T4524
 (entries: ManifestDoc[], filterId?: string) => ManifestDoc[] - Find documents in review status.  T4524
 (content: string) => string[] - Extract markdown headings from file content.  T4524
 (topic: string, docsFileContents: Map<string, string>) => { topic: string; matches: number; files: string[]; } - Search for topic coverage in a docs directory. Returns count of matching files.  T4524
@@ -4659,7 +4659,7 @@ ProtocolViolation
 ProtocolValidationResult
 (taskId: string, expectedDir: string, pattern?: string) => boolean - Check if expected output file exists.  T4527
 (filePath: string, sections: string[]) => boolean - Check if file contains required documentation sections.  T4527
-(message: string, protocolType?: string) => boolean - Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
+(message: string, protocolType?: string) => boolean - Check if return message follows protocol format. Expected: "<Type> <status>. Manifest appended to pipeline_manifest."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 (entry: Record<string, unknown>, fieldName: string) => boolean - Check if manifest entry has a required field (non-null, non-empty).  T4527
 (entry: Record<string, unknown>, fieldName: string, expectedType: "string" | "array" | "number" | "boolean" | "object") => boolean - Check if manifest field has expected type.  T4527
 (entry: Record<string, unknown>) => boolean - Check if key_findings array has valid count (3-7).  T4527
@@ -4848,7 +4848,7 @@ ExtendedManifestEntry
 (projectRoot?: string) => Promise<ExtendedManifestEntry[]> - Read all manifest entries from the pipeline_manifest table. Replaces readManifestEntries() from pipeline-manifest-compat.
 (entries: ExtendedManifestEntry[], filter: ResearchFilter) => ExtendedManifestEntry[] - Filter manifest entries by criteria (alias for backward compatibility).
 (_entryId: string, _projectRoot?: string) => Promise<EngineResult> - Distill a manifest entry to brain.db observation (Phase 3, pending).
-(projectRoot?: string) => Promise<{ migrated: number; skipped: number; }> - Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table. Skips entries that already exist (by id). Renames MANIFEST.jsonl to MANIFEST.jsonl.migrated when done.
+(projectRoot?: string) => Promise<{ migrated: number; skipped: number; }> - Migrate existing legacy flat-file entries into the pipeline_manifest table. Skips entries that already exist (by id). Renames legacy file to .migrated when done.
 file pipeline-manifest-sqlite.ts
 ModelProviderLookup
 (index: ModelsDevIndex, model?: string) => ModelProviderLookup
