@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.114] — 2026-04-22
+
+CLI output cleanliness + search ergonomics hotfix. Every issue surfaced
+during the v2026.4.113 smoke test — even the pre-existing ones — is now
+fixed with tests so no agent or script ever trips on them again.
+
+### Fixed
+
+- **Citty double-dispatch across nine command groups.** `citty@0.2.x`'s
+  `runCommand` unconditionally runs the parent `run()` AFTER dispatching to
+  a matched subcommand. Nine groups (`adapter`, `backup`, `daemon`,
+  `manifest`, `provider`, `sentient` ×3 — root, baseline, allowlist —,
+  `skills`, `stats`) had parent `run()` bodies that either printed a help
+  banner or did a default dispatch, so every `cleo <group> <subcommand>`
+  call emitted both the subcommand output AND the parent behaviour on
+  stdout, breaking `jq` pipelines, `python json.load`, and scripted
+  consumers. Each parent `run()` now early-returns when the first
+  non-flag token matches a registered subcommand, using the new shared
+  guard `isSubCommandDispatch()`.
+
+- **`cleo find` rejected filter-only searches.** `findTasks` required
+  either a query or an `--id`, so the natural `cleo find --status pending`
+  errored. Now accepts `--status` / `--role` alone and returns all matching
+  tasks with a stable `score=50`.
+
+- **`cleo find "status:pending"` returned unrelated matches.** The query
+  was treated as free-text fuzzy search. New `extractInlineFilters` helper
+  lifts `status:value` / `role:value` / `id:value` tokens out of the query
+  and applies them as filters, leaving the remaining words as the fuzzy
+  portion. Explicit `--status` flags still win over inline tokens.
+
+### Added
+
+- **`packages/cleo/src/cli/lib/subcommand-guard.ts`** — the shared
+  `isSubCommandDispatch()` helper plus 8-test vitest suite covering
+  positional detection, flag skipping, hyphenated subcommand names,
+  case-sensitivity, and the empty/undefined edges.
+
+- **`packages/core/src/tasks/find.ts` — `extractInlineFilters()` export**
+  plus 13-test suite in `find-filter-modes.test.ts` covering single and
+  multi-token lifting, precedence when an explicit flag is supplied, and
+  the filter-only code path.
+
+- Updated the legacy `find.test.ts` "requires query or id" test to match
+  the new error message that now points users at `--status` / `--role`.
+
+### Operational notes
+
+- `pnpm biome ci`, `pnpm run build`, `pnpm run test` all green (656 test
+  files, 11,022 tests pass, 13 skipped, 33 todo, zero failures).
+- Smoke-verified every fixed command group produces exactly one JSON
+  line on stdout: `adapter list`, `backup list`, `daemon status --json`,
+  `manifest list`, `provider list`, `skills list`, `stats compliance`.
+- Parent-only invocations still default-dispatch (e.g. `cleo adapter`
+  without a subcommand still prints the adapter list).
+
+### Refs
+
+T1187-followup, citty@0.2.x double-dispatch behavior, AGENTS.md
+package-boundary rule (guard helper in CLI layer, find extensions in
+core SDK).
+
+---
+
 ## [2026.4.113] — 2026-04-22
 
 Three-regression hotfix for v2026.4.112 — the MANIFEST.jsonl purge shipped

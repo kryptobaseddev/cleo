@@ -24,6 +24,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /** cleo skills list — list installed skills */
 const listCommand = defineCommand({
@@ -390,7 +391,10 @@ export const skillsCommand = defineCommand({
     deps: depsCommand,
     'spawn-providers': spawnProvidersCommand,
   },
-  async run() {
+  async run({ cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // list so `cleo skills install X` doesn't also list. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await dispatchFromCli(
       'query',
       'tools',

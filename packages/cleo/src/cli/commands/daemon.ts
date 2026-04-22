@@ -22,6 +22,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getGCDaemonStatus, spawnGCDaemon, stopGCDaemon } from '@cleocode/core/gc/daemon.js';
 import { defineCommand } from 'citty';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /**
  * Display the daemon status to stdout.
@@ -216,7 +217,10 @@ export const daemonCommand = defineCommand({
     stop: stopCommand,
     status: statusCommand,
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // status print so `cleo daemon start` doesn't also run status. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
     await showDaemonStatus(cleoDir, args.json ?? false);
   },

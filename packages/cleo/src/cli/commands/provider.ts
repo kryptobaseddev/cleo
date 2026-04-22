@@ -17,6 +17,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /** cleo provider list — list all registered CAAMP providers */
 const listCommand = defineCommand({
@@ -200,7 +201,10 @@ export const providerCommand = defineCommand({
     hooks: hooksCommand,
     inject: injectCommand,
   },
-  async run() {
+  async run({ cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // list so `cleo provider detect` doesn't double-output. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await dispatchFromCli(
       'query',
       'tools',

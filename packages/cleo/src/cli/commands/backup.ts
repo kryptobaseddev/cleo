@@ -15,6 +15,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import {
   CLEO_DIR_NAME,
   CLI_GLOBAL_BACKUP_FILES,
@@ -522,7 +523,10 @@ export const backupCommand = defineCommand({
     import: importCommand,
     inspect: backupInspectSubCommand,
   },
-  async run() {
+  async run({ cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // dispatch so `cleo backup list` doesn't also run `backup add`. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await dispatchFromCli('mutate', 'admin', 'backup', {}, { command: 'backup' });
   },
 });
