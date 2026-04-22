@@ -44,7 +44,7 @@ This protocol activates when the task involves:
 | RSCH-001 | MUST NOT implement code or make changes to codebase |
 | RSCH-002 | MUST document all sources with citations |
 | RSCH-003 | MUST write findings to `.cleo/agent-outputs/` |
-| RSCH-004 | MUST append entry to `MANIFEST.jsonl` |
+| RSCH-004 | MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093) |
 | RSCH-005 | MUST return only completion message (no content in response) |
 | RSCH-006 | MUST include 3-7 key findings in manifest entry |
 | RSCH-007 | MUST set `agent_type: "research"` in manifest |
@@ -184,7 +184,7 @@ cleo research add \
 
 **Return Message**:
 ```
-Research complete. See MANIFEST.jsonl for summary.
+Research complete. Manifest appended to pipeline_manifest.
 ```
 
 ---

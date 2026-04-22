@@ -51,7 +51,7 @@ export interface GapReport {
 // ============================================================================
 
 /**
- * Parse a MANIFEST.jsonl file into entries.
+ * Parse a manifest JSONL content string into entries.
  * Skips invalid JSON lines gracefully.
  * @task T4524
  */

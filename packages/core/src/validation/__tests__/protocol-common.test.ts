@@ -18,32 +18,32 @@ import {
 
 describe('checkReturnMessageFormat', () => {
   it('accepts valid research format', () => {
-    expect(checkReturnMessageFormat('Research completed. See MANIFEST.jsonl for summary.')).toBe(
+    expect(checkReturnMessageFormat('Research completed. Manifest appended to pipeline_manifest.')).toBe(
       true,
     );
   });
 
   it('accepts valid implementation format', () => {
     expect(
-      checkReturnMessageFormat('Implementation completed. See MANIFEST.jsonl for summary.'),
+      checkReturnMessageFormat('Implementation completed. Manifest appended to pipeline_manifest.'),
     ).toBe(true);
   });
 
   it('accepts partial status', () => {
-    expect(checkReturnMessageFormat('Research partial. See MANIFEST.jsonl for details.')).toBe(
+    expect(checkReturnMessageFormat('Research partial. Manifest appended to pipeline_manifest.')).toBe(
       true,
     );
   });
 
   it('accepts blocked status', () => {
     expect(
-      checkReturnMessageFormat('Implementation blocked. See MANIFEST.jsonl for blocker details.'),
+      checkReturnMessageFormat('Implementation blocked. Manifest appended to pipeline_manifest.'),
     ).toBe(true);
   });
 
   it('rejects invalid format', () => {
     expect(checkReturnMessageFormat('Done')).toBe(false);
-    expect(checkReturnMessageFormat('Research done. See MANIFEST.jsonl for summary.')).toBe(false);
+    expect(checkReturnMessageFormat('Research done. Manifest appended to pipeline_manifest.')).toBe(false);
   });
 });
 

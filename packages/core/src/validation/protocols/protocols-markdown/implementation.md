@@ -279,7 +279,7 @@ cleo research add \
 
 **Return Message**:
 ```
-Implementation complete. See MANIFEST.jsonl for summary.
+Implementation complete. Manifest appended to pipeline_manifest.
 ```
 
 ---
