@@ -21,6 +21,11 @@
 !rcasd/**
 !agent-outputs/
 !agent-outputs/**
+# T1237: project-tier CANT agent personas (canonical post-T889).
+# `.cleo/cant/agents/` is the ONLY canonical location for project-tier .cant
+# personas. The legacy `.cleo/agents/` directory was removed in T1237.
+!cant/
+!cant/**
 
 # Explicit deny safety net
 *.db

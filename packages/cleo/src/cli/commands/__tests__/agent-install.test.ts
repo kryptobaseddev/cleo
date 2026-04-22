@@ -41,10 +41,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Monorepo-relative seed-agent — works locally and in CI. */
+/**
+ * Monorepo-relative cleo-historian.cant path — works locally and in CI.
+ *
+ * Post-T1237: the cleo-historian persona lives under `.cleo/cant/agents/`
+ * (project tier per T889) and is no longer bundled in seed-agents.
+ */
 const SEED_HISTORIAN_SOURCE = resolve(
   __dirname,
-  '../../../../../agents/seed-agents/cleo-historian.cant',
+  '../../../../../../.cleo/cant/agents/cleo-historian.cant',
 );
 
 /** A valid minimal agent .cant we can copy into any working directory. */

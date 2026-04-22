@@ -90,12 +90,19 @@ let savedPiDir: string | undefined;
 let savedCleoHome: string | undefined;
 
 /**
- * Locate the seed-agent fixtures directory at runtime so tests work
- * regardless of which working directory vitest was launched from.
+ * Locate the cleo-project-persona fixtures directory at runtime so tests
+ * work regardless of which working directory vitest was launched from.
+ *
+ * Post-T1237: cleo-dev, cleo-historian, etc. are project-specific personas
+ * stored under `.cleo/cant/agents/` (project tier per T889). The generic
+ * templates in `packages/agents/seed-agents/` carry `{{placeholder}}`
+ * variables and cannot be used as validator fixtures before substitution.
  */
 function seedAgentsDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, "..", "..", "..", "..", "..", "agents", "seed-agents");
+  // tests/unit/commands/pi → five levels up to cleocode repo root
+  // then into `.cleo/cant/agents/`.
+  return resolve(here, "..", "..", "..", "..", "..", "..", ".cleo", "cant", "agents");
 }
 
 /**

@@ -1395,24 +1395,30 @@ describe("PiHarness themes", () => {
 
 describe("PiHarness cant profile methods", () => {
   /**
-   * Resolve the seed-agent fixtures directory using import.meta.url so
-   * the path stays valid regardless of vitest's working directory.
+   * Resolve the cleo-project-persona fixtures directory using import.meta.url
+   * so the path stays valid regardless of vitest's working directory.
+   *
+   * Post-T1237: cleo-dev.cant, cleo-historian.cant, and the rest of the
+   * cleo-specific personas live under the cleocode repo's project-tier
+   * `.cleo/cant/agents/` directory (per T889). The generic templates in
+   * `packages/agents/seed-agents/` cannot be used as fixtures here because
+   * they contain `{{placeholder}}` variables that fail CANT validation.
    */
-  function seedAgentsDir(): string {
+  function cleoPersonasDir(): string {
     const here = new URL(".", import.meta.url).pathname;
     // tests/unit/harness → ../../../.. = repo root packages/caamp/
-    // then → ../agents/seed-agents
-    return join(here, "..", "..", "..", "..", "agents", "seed-agents");
+    // then → ../../.cleo/cant/agents (four levels up to repo root, then down).
+    return join(here, "..", "..", "..", "..", "..", ".cleo", "cant", "agents");
   }
 
-  /** Path to the canonical valid seed-agent fixture. */
+  /** Path to the canonical valid cleo-persona fixture. */
   function validSeedAgent(): string {
-    return join(seedAgentsDir(), "cleo-dev.cant");
+    return join(cleoPersonasDir(), "cleo-dev.cant");
   }
 
-  /** Path to a second seed-agent fixture used for cross-tier tests. */
+  /** Path to a second cleo-persona fixture used for cross-tier tests. */
   function secondSeedAgent(): string {
-    return join(seedAgentsDir(), "cleo-historian.cant");
+    return join(cleoPersonasDir(), "cleo-historian.cant");
   }
 
   /**
