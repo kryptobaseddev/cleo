@@ -16,6 +16,11 @@
       "import": "./dist/cleo.js",
       "require": "./dist/cleo.js"
     },
+    "./formatters": {
+      "types": "./dist/formatters/index.d.ts",
+      "import": "./dist/formatters/index.js",
+      "require": "./dist/formatters/index.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "import": "./dist/internal.js",
