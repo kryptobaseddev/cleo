@@ -11441,13 +11441,13 @@ const absDir = getAgentOutputsAbsolute('/project');
 (cwd?: string) => string
 ```
 
-Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs.manifestFile for custom filename, defaults to 'MANIFEST.jsonl'.
+Get the absolute path to the legacy agent-outputs flat-file (deprecated per ADR-027).  Checks config.agentOutputs.manifestFile for custom filename.
 
 **Parameters**
 
 - `cwd` — Optional working directory for path resolution
 
-**Returns**: Absolute path to the MANIFEST.jsonl file
+**Returns**: Absolute path to the legacy agent-outputs flat-file
 
 **Examples**
 
@@ -14748,7 +14748,7 @@ Link ADRs to a pipeline task when the architecture\_decision stage completes.
 (projectRoot: string) => Promise<AdrSyncResult>
 ```
 
-Sync all ADR markdown files into the architecture\_decisions table AND regenerate MANIFEST.jsonl in one pass.
+Sync all ADR markdown files into the architecture\_decisions table AND regenerate the ADR index (adr-index.jsonl) in one pass.
 
 ### `recordEvidence()`
 
@@ -23688,7 +23688,7 @@ Detect legacy agent-output directories in a project.  Read-only check — never 
 (projectRoot: string, cleoDir: string) => AgentOutputsMigrationResult
 ```
 
-Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges MANIFEST.jsonl entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
+Run the full agent-outputs migration.  Copies files from all legacy locations into .cleo/agent-outputs/, merges legacy flat-file entries with path rewriting and deduplication, updates config.json, and removes legacy directories.  Safe to call when no legacy directories exist (returns early). Safe to call when canonical directory already exists (merges).
 
 **Parameters**
 
@@ -25738,7 +25738,7 @@ Perform full dependency analysis for an epic's children.  Combines dependency gr
 (projectRoot: string) => number
 ```
 
-Count manifest entries from MANIFEST.jsonl.
+Count manifest entries from pipeline_manifest (ADR-027).
 
 **Parameters**
 
@@ -27935,7 +27935,7 @@ console.log(`Archived ${result.entriesArchived} entries`);
 (cwd?: string) => Promise<ManifestEntry[]>
 ```
 
-Read manifest entries from MANIFEST.jsonl.
+Read manifest entries from the legacy agent-outputs flat-file (deprecated per ADR-027).
 
 **Parameters**
 
@@ -28283,7 +28283,7 @@ console.log(result.content);
 (cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }>
 ```
 
-Compact MANIFEST.jsonl by removing duplicate/stale entries.
+Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
 
 **Parameters**
 
@@ -32250,7 +32250,7 @@ Run all validation checks on a TaskFile.  T4523
 (content: string) => ManifestDoc[]
 ```
 
-Parse a MANIFEST.jsonl file into entries. Skips invalid JSON lines gracefully.  T4524
+Parse a manifest JSONL content string into entries. Skips invalid JSON lines gracefully.  T4524
 
 ### `findReviewDocs()`
 
@@ -32370,7 +32370,7 @@ Check if file contains required documentation sections.  T4527
 (message: string, protocolType?: string) => boolean
 ```
 
-Check if return message follows protocol format. Expected: " . See MANIFEST.jsonl for ."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
+Check if return message follows protocol format. Expected: "<Type> <status>. Manifest appended to pipeline_manifest."  When protocolType is provided, the message type must match the protocol (e.g., a 'research' protocol must produce a "Research ..." message).   T4527
 
 ### `checkManifestFieldPresent()`
 
@@ -33930,7 +33930,7 @@ Distill a manifest entry to brain.db observation (Phase 3, pending).
 (projectRoot?: string) => Promise<{ migrated: number; skipped: number; }>
 ```
 
-Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline\_manifest table. Skips entries that already exist (by id). Renames MANIFEST.jsonl to MANIFEST.jsonl.migrated when done.
+Migrate existing legacy flat-file entries into the pipeline_manifest table. Skips entries that already exist (by id). Renames legacy file to .migrated when done.
 
 **Returns**: Count of migrated and skipped entries.
 
@@ -61281,7 +61281,7 @@ TaskRefPriority[]
 ManifestEntry
 ```
 
-Research manifest entry (MANIFEST.jsonl).
+Research manifest entry (pipeline_manifest table, ADR-027).
 
 #### `id`
 
@@ -90213,7 +90213,7 @@ Number of files copied to canonical location.
 number
 ```
 
-Number of manifest entries in the merged MANIFEST.jsonl.
+Number of manifest entries in the merged pipeline_manifest.
 
 #### `removed`
 

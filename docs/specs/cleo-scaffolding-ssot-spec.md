@@ -81,7 +81,7 @@ Preferred naming conventions:
 
 Agent output subdirectories are ALLOWED for grouped outputs (e.g., `.cleo/agent-outputs/T684-browser-validation/`).
 
-The agent output manifest MUST be at `.cleo/agent-outputs/MANIFEST.jsonl`.
+The agent output manifest is stored in `pipeline_manifest` table in `tasks.db` (ADR-027). The legacy flat-file at `.cleo/agent-outputs/` is retired.
 
 ### 2.4 Output Directory Token Default
 
@@ -89,7 +89,7 @@ All skills, shared protocol documents, and agent injection templates MUST use `.
 
 The canonical token defaults are defined at `packages/core/src/skills/injection/token.ts`:
 - `OUTPUT_DIR` → `.cleo/agent-outputs`
-- `MANIFEST_PATH` → `.cleo/agent-outputs/MANIFEST.jsonl`
+- `MANIFEST_PATH` → retired (ADR-027) — use `cleo manifest append` for pipeline_manifest
 
 ### 2.5 Published Specifications
 
