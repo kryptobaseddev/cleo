@@ -607,10 +607,7 @@ function buildReturnFormatBlock(protocol: string): string {
  * @param protocol - Protocol phase (maps to the `type` column).
  * @returns Markdown block ready to concatenate into the spawn prompt.
  */
-function buildManifestProtocolBlock(
-  taskId: string,
-  protocol: SpawnProtocolPhase | string,
-): string {
+function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase | string): string {
   const entryType =
     protocol === 'implementation'
       ? 'implementation'
@@ -889,9 +886,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   authoredSections.push(buildReturnFormatBlock(protocol));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(buildSessionBlock(input.sessionId));
-  authoredSections.push(
-    buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir),
-  );
+  authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
   authoredSections.push(buildQualityGateBlock());

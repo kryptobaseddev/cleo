@@ -18,9 +18,9 @@ import {
 
 describe('checkReturnMessageFormat', () => {
   it('accepts valid research format', () => {
-    expect(checkReturnMessageFormat('Research completed. Manifest appended to pipeline_manifest.')).toBe(
-      true,
-    );
+    expect(
+      checkReturnMessageFormat('Research completed. Manifest appended to pipeline_manifest.'),
+    ).toBe(true);
   });
 
   it('accepts valid implementation format', () => {
@@ -30,9 +30,9 @@ describe('checkReturnMessageFormat', () => {
   });
 
   it('accepts partial status', () => {
-    expect(checkReturnMessageFormat('Research partial. Manifest appended to pipeline_manifest.')).toBe(
-      true,
-    );
+    expect(
+      checkReturnMessageFormat('Research partial. Manifest appended to pipeline_manifest.'),
+    ).toBe(true);
   });
 
   it('accepts blocked status', () => {
@@ -43,7 +43,9 @@ describe('checkReturnMessageFormat', () => {
 
   it('rejects invalid format', () => {
     expect(checkReturnMessageFormat('Done')).toBe(false);
-    expect(checkReturnMessageFormat('Research done. Manifest appended to pipeline_manifest.')).toBe(false);
+    expect(checkReturnMessageFormat('Research done. Manifest appended to pipeline_manifest.')).toBe(
+      false,
+    );
   });
 });
 

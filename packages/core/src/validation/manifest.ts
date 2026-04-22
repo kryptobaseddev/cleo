@@ -79,7 +79,7 @@ export interface ComplianceEntry {
 // Resolve at call time via getConfigManifestPath() — this static default
 // is only used if the import above fails or as a documentation reference.
 // DEFAULT_MANIFEST_PATH retired per ADR-027 — pipeline_manifest is now the canonical store
-const DEFAULT_MANIFEST_PATH = '.cleo/agent-outputs/legacy-manifest.jsonl';  // kept for backward compat
+const DEFAULT_MANIFEST_PATH = '.cleo/agent-outputs/legacy-manifest.jsonl'; // kept for backward compat
 const DEFAULT_COMPLIANCE_PATH = '.cleo/metrics/COMPLIANCE.jsonl';
 
 // ============================================================================

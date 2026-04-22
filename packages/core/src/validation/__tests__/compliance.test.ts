@@ -47,7 +47,9 @@ describe('checkManifestEntry', () => {
 
 describe('checkReturnFormat', () => {
   it('matches valid return format', () => {
-    expect(checkReturnFormat('Research complete. Manifest appended to pipeline_manifest.')).toBe(true);
+    expect(checkReturnFormat('Research complete. Manifest appended to pipeline_manifest.')).toBe(
+      true,
+    );
   });
 
   it('rejects invalid format', () => {

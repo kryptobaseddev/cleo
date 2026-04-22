@@ -44,7 +44,7 @@ export function ensureOutputs(cwd?: string): { created: string[] } {
 
   if (!existsSync(manifestPath)) {
     writeFileSync(manifestPath, '', 'utf-8');
-    created.push('agent-outputs-dir');  // legacy file init
+    created.push('agent-outputs-dir'); // legacy file init
   }
 
   return { created };
