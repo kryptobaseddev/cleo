@@ -198,7 +198,7 @@ The `.cleo/` directory is CLEO's **portable brain** — a complete, self-contain
 ├── project-info.json     # Project identity (projectHash, projectId)
 ├── project-context.json  # LLM agent guidance (language, framework, conventions)
 ├── agent-outputs/        # Research and analysis artifacts
-│   └── MANIFEST.jsonl    # Agent output manifest (append-only)
+│   └── (pipeline_manifest in tasks.db)  # Agent output manifest (ADR-027)
 ├── backups/              # Recovery backups
 └── adrs/                 # Architecture Decision Records
 ```

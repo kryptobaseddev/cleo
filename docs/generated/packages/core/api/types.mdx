@@ -1519,7 +1519,7 @@ HITL summary for session handoff.
 
 ## ManifestEntry
 
-Research manifest entry (MANIFEST.jsonl).
+Research manifest entry (pipeline_manifest table, ADR-027).
 
 | Property         | Type                                                  | Required | Description     |
 | ---------------- | ----------------------------------------------------- | -------- | --------------- |
@@ -3263,7 +3263,7 @@ Result of running the agent-outputs migration.
 | ----------------- | ---------- | -------- | -------------------------------------------------------- |
 | `migrated`        | `boolean`  | Yes      | Whether migration was performed.                         |
 | `filesCopied`     | `number`   | Yes      | Number of files copied to canonical location.            |
-| `manifestEntries` | `number`   | Yes      | Number of manifest entries in the merged MANIFEST.jsonl. |
+| `manifestEntries` | `number`   | Yes      | Number of manifest entries in the merged pipeline_manifest. |
 | `removed`         | `string[]` | Yes      | Legacy directories that were removed.                    |
 | `summary`         | `string`   | Yes      | Human-readable summary of what happened.                 |
 

@@ -37,7 +37,7 @@ description: core package overview
 | [`getCleoGlobalAgentsDir()`](/packages/core/api/index#getcleoglobalagentsdir)                                  | function | Get the Global CLEO Agents directory.  Holds globally-available CANT agent de...    |
 | [`getAgentOutputsDir()`](/packages/core/api/index#getagentoutputsdir)                                          | function | Get the agent outputs directory (relative path) from config or default.  Conf...    |
 | [`getAgentOutputsAbsolute()`](/packages/core/api/index#getagentoutputsabsolute)                                | function | Get the absolute path to the agent outputs directory.                               |
-| [`getManifestPath()`](/packages/core/api/index#getmanifestpath)                                                | function | Get the absolute path to the MANIFEST.jsonl file.  Checks config.agentOutputs...    |
+| [`getManifestPath()`](/packages/core/api/index#getmanifestpath)                                                | function | Get the absolute path to the legacy agent-outputs flat-file (deprecated per ADR-027).  Checks config.agentOutputs...    |
 | [`getManifestArchivePath()`](/packages/core/api/index#getmanifestarchivepath)                                  | function | Get the absolute path to the MANIFEST.archive.jsonl file.                           |
 | [`isAbsolutePath()`](/packages/core/api/index#isabsolutepath)                                                  | function | Check if a path is absolute (POSIX or Windows).                                     |
 | [`getCleoLogDir()`](/packages/core/api/index#getcleologdir)                                                    | function | Get the OS log directory for CLEO global logs. Linux: \~/.local/state/cleo \| m...  |
@@ -724,7 +724,7 @@ description: core package overview
 | [`detectCircularDependencies()`](/packages/core/api/index#detectcirculardependencies)                          | function | Detect circular dependencies using DFS traversal.                                   |
 | [`findMissingDependencies()`](/packages/core/api/index#findmissingdependencies)                                | function | Find missing dependencies — deps that reference tasks outside the epic that a...    |
 | [`analyzeDependencies()`](/packages/core/api/index#analyzedependencies)                                        | function | Perform full dependency analysis for an epic's children.  Combines dependency...    |
-| [`countManifestEntries()`](/packages/core/api/index#countmanifestentries)                                      | function | Count manifest entries from MANIFEST.jsonl.                                         |
+| [`countManifestEntries()`](/packages/core/api/index#countmanifestentries)                                      | function | Count manifest entries from pipeline_manifest (ADR-027).                                         |
 | [`estimateContext()`](/packages/core/api/index#estimatecontext)                                                | function | Estimate context usage for orchestration.                                           |
 | [`OrchestrationHierarchyImpl`](/packages/core/api/index#orchestrationhierarchyimpl)                            | class    | Concrete implementation of OrchestrationHierarchyAPI.                               |
 | [`computeWaves()`](/packages/core/api/index#computewaves)                                                      | function | Compute execution waves using topological sort.                                     |
@@ -910,7 +910,7 @@ description: core package overview
 | [`statsResearch()`](/packages/core/api/index#statsresearch)                                                    | function | Get research statistics.                                                            |
 | [`linksResearch()`](/packages/core/api/index#linksresearch)                                                    | function | Get research entries linked to a specific task.                                     |
 | [`archiveResearch()`](/packages/core/api/index#archiveresearch)                                                | function | Archive old research entries by status. Moves 'complete' entries to an archiv...    |
-| [`readManifest()`](/packages/core/api/index#readmanifest)                                                      | function | Read manifest entries from MANIFEST.jsonl.                                          |
+| [`readManifest()`](/packages/core/api/index#readmanifest)                                                      | function | Read manifest entries from the legacy agent-outputs flat-file (deprecated per ADR-027).                                          |
 | [`appendManifest()`](/packages/core/api/index#appendmanifest)                                                  | function | Append a manifest entry.                                                            |
 | [`queryManifest()`](/packages/core/api/index#querymanifest)                                                    | function | Query manifest entries with filtering.                                              |
 | [`readExtendedManifest()`](/packages/core/api/index#readextendedmanifest)                                      | function | Read all manifest entries as extended entries.                                      |
@@ -925,7 +925,7 @@ description: core package overview
 | [`findContradictions()`](/packages/core/api/index#findcontradictions)                                          | function | Find manifest entries with overlapping topics but conflicting key\_findings.        |
 | [`findSuperseded()`](/packages/core/api/index#findsuperseded)                                                  | function | Identify research entries replaced by newer work on same topic.                     |
 | [`readProtocolInjection()`](/packages/core/api/index#readprotocolinjection)                                    | function | Read protocol injection content for a given protocol type.                          |
-| [`compactManifest()`](/packages/core/api/index#compactmanifest)                                                | function | Compact MANIFEST.jsonl by removing duplicate/stale entries.                         |
+| [`compactManifest()`](/packages/core/api/index#compactmanifest)                                                | function | Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.                         |
 | [`validateManifestEntries()`](/packages/core/api/index#validatemanifestentries)                                | function | Validate research entries for a task.                                               |
 | [`ensureMetricsDir()`](/packages/core/api/index#ensuremetricsdir)                                              | function | Ensure metrics directory exists, returning its path.                                |
 | [`getCompliancePath()`](/packages/core/api/index#getcompliancepath)                                            | function | Get compliance log path.                                                            |
@@ -1303,7 +1303,7 @@ description: core package overview
 | [`validatePhaseTimestamps()`](/packages/core/api/index#validatephasetimestamps)                                | function | Validate phase timestamp ordering.  T4523                                           |
 | [`validatePhaseStatusRequirements()`](/packages/core/api/index#validatephasestatusrequirements)                | function | Validate phase status requirements (e.g., active phases must have startedAt)....    |
 | [`validateAll()`](/packages/core/api/index#validateall)                                                        | function | Run all validation checks on a TaskFile.  T4523                                     |
-| [`parseManifest()`](/packages/core/api/index#parsemanifest)                                                    | function | Parse a MANIFEST.jsonl file into entries. Skips invalid JSON lines gracefully...    |
+| [`parseManifest()`](/packages/core/api/index#parsemanifest)                                                    | function | Parse a manifest JSONL content string into entries. Skips invalid JSON lines gracefully...    |
 | [`findReviewDocs()`](/packages/core/api/index#findreviewdocs)                                                  | function | Find documents in review status.  T4524                                             |
 | [`extractTopics()`](/packages/core/api/index#extracttopics)                                                    | function | Extract markdown headings from file content.  T4524                                 |
 | [`searchCanonicalCoverage()`](/packages/core/api/index#searchcanonicalcoverage)                                | function | Search for topic coverage in a docs directory. Returns count of matching file...    |
@@ -1430,7 +1430,7 @@ description: core package overview
 | [`readManifestEntries()`](/packages/core/api/index#readmanifestentries)                                        | function | Read all manifest entries from the pipeline\_manifest table. Replaces readMani...   |
 | [`filterEntries()`](/packages/core/api/index#filterentries)                                                    | function | Filter manifest entries by criteria (alias for backward compatibility).             |
 | [`distillManifestEntry()`](/packages/core/api/index#distillmanifestentry)                                      | function | Distill a manifest entry to brain.db observation (Phase 3, pending).                |
-| [`migrateManifestJsonlToSqlite()`](/packages/core/api/index#migratemanifestjsonltosqlite)                      | function | Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline\_manifest tabl...   |
+| [`migrateManifestJsonlToSqlite()`](/packages/core/api/index#migratemanifestjsonltosqlite)                      | function | Migrate existing legacy flat-file entries into the pipeline_manifest table...   |
 | [`resolveProviderFromModelIndex()`](/packages/core/api/index#resolveproviderfrommodelindex)                    | function |                                                                                     |
 | [`resolveProviderFromModelRegistry()`](/packages/core/api/index#resolveproviderfrommodelregistry)              | function |                                                                                     |
 | [`resetModelsDevCache()`](/packages/core/api/index#resetmodelsdevcache)                                        | function |                                                                                     |
@@ -1897,7 +1897,7 @@ description: core package overview
 | [`DependencyWave`](/packages/core/api/index#dependencywave)                                             | interface | Dependency wave for parallel execution.                                           |
 | [`DependencyAnalysis`](/packages/core/api/index#dependencyanalysis)                                     | interface | Dependency analysis result.                                                       |
 | [`HitlSummary`](/packages/core/api/index#hitlsummary)                                                   | interface | HITL summary for session handoff.                                                 |
-| [`ManifestEntry`](/packages/core/api/index#manifestentry)                                               | interface | Research manifest entry (MANIFEST.jsonl).                                         |
+| [`ManifestEntry`](/packages/core/api/index#manifestentry)                                               | interface | Research manifest entry (pipeline_manifest table, ADR-027).                                         |
 | [`ManifestValidationResult`](/packages/core/api/index#manifestvalidationresult)                         | interface | Manifest validation result.                                                       |
 | [`ComplianceResult`](/packages/core/api/index#complianceresult)                                         | interface | Compliance verification result.                                                   |
 | [`InstalledSkill`](/packages/core/api/index#installedskill)                                             | interface | Installed skill tracking.                                                         |

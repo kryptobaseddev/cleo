@@ -99,7 +99,7 @@ function buildSpawnPrompt(task: Task, protocol: string): string {
     `1. Start task: \`cleo start ${task.id}\``,
     `2. Execute the ${protocol} protocol`,
     `3. Write output file`,
-    `4. Append manifest entry to MANIFEST.jsonl`,
+    `4. Append manifest entry via \`cleo manifest append\` (writes to pipeline_manifest per ADR-027)`,
     `5. Complete: \`cleo complete ${task.id}\``,
     '',
     task.acceptance?.length

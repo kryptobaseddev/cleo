@@ -861,7 +861,7 @@ console.log(`Archived ${result.entriesArchived} entries`);
 
 ### readManifest(cwd)
 
-Read manifest entries from MANIFEST.jsonl.
+Read manifest entries from the legacy agent-outputs flat-file (deprecated per ADR-027).
 
 ```typescript
 (cwd?: string) => Promise<ManifestEntry[]>
@@ -1075,7 +1075,7 @@ console.log(result.content);
 
 ### compactManifest(cwd)
 
-Compact MANIFEST.jsonl by removing duplicate/stale entries.
+Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
 
 ```typescript
 (cwd?: string) => Promise<{ compacted: boolean; originalLines: number; malformedRemoved: number; duplicatesRemoved: number; remainingEntries: number; }>
