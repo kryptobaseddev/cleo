@@ -13,7 +13,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import type { ColorStyle } from '@cleocode/core/formatters';
+import type { ColorStyle, FlatTreeNode } from '@cleocode/core/formatters';
 import { formatTree, formatWaves } from '@cleocode/core/formatters';
 import { getTreeContext } from '../tree-context.js';
 import {
@@ -301,7 +301,7 @@ export function renderWaves(data: Record<string, unknown>, opts?: RenderWavesOpt
  */
 export function renderTree(data: Record<string, unknown>, quiet: boolean): string {
   const waves = data['waves'] as Array<Record<string, unknown>> | undefined;
-  const tree = data['tree'] as Array<Record<string, unknown>> | undefined;
+  const tree = data['tree'] as FlatTreeNode[] | undefined;
   const tasks = data['tasks'] as Task[] | undefined;
 
   if (waves) {
@@ -325,7 +325,7 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
     // withDeps and withBlockers are read from the tree context set by treeCommand
     // (T1205 / T1206).
     const { withDeps, withBlockers } = getTreeContext();
-    return formatTree(tree as Parameters<typeof formatTree>[0], {
+    return formatTree(tree, {
       mode: quiet ? 'quiet' : 'rich',
       colorize: cliColorize,
       withDeps,
