@@ -172,7 +172,7 @@ cleo research link {TASK_ID} {RESEARCH_ID}
 
 1. MUST write documentation output to: `{{OUTPUT_DIR}}/`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Documentation complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Documentation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return documentation content in response
 
 ### Output File Format

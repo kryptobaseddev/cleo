@@ -4,7 +4,7 @@
 **Status**: ACTIVE
 **Version**: 1.0.0
 
-This reference defines all CLI operations for managing the agent outputs manifest (`MANIFEST.jsonl`). Skills and protocols SHOULD reference this file instead of duplicating JSONL instructions.
+This reference defines all CLI operations for managing the agent outputs manifest (`pipeline_manifest` SQLite table via `cleo manifest` CLI). Skills and protocols SHOULD reference this file instead of duplicating manifest instructions.
 
 ---
 
@@ -14,8 +14,8 @@ The manifest system provides O(1) append operations and race-condition-free conc
 
 **Default Paths**:
 - Output directory: `.cleo/agent-outputs/` (configurable via `agentOutputs.directory`)
-- Manifest file: `MANIFEST.jsonl` (configurable via `agentOutputs.manifestFile`)
-- Full path: `{{OUTPUT_DIR}}/MANIFEST.jsonl` (i.e., `.cleo/agent-outputs/MANIFEST.jsonl`)
+- Manifest store: `pipeline_manifest` SQLite table (canonical per ADR-027)
+- CLI: `cleo manifest append <json>` — the only supported write path
 
 **Design Principles**:
 - Append-only writes preserve audit trail
@@ -72,7 +72,7 @@ cleo research add \
 {
   "success": true,
   "entryId": "jwt-authentication-2026-02-07",
-  "manifestPath": ".cleo/agent-outputs/MANIFEST.jsonl"
+  "store": "pipeline_manifest"
 }
 ```
 
@@ -455,7 +455,7 @@ When present, the `audit` field provides operational metadata:
 | `{{DATE}}` | Current date | `2026-02-07` |
 | `{{TOPIC_SLUG}}` | URL-safe topic name | `jwt-authentication` |
 | `{{OUTPUT_DIR}}` | Output directory | `.cleo/agent-outputs` |
-| `{{MANIFEST_PATH}}` | Manifest filename | `MANIFEST.jsonl` |
+
 
 ### Command Tokens (CLEO Defaults)
 
@@ -518,18 +518,15 @@ cleo research add \
 ### ❌ Pretty-Printed JSON
 
 ```bash
-# WRONG - Creates multiple lines
-echo '{
-  "id": "test",
-  "title": "Test"
-}' >> MANIFEST.jsonl
+# WRONG - Bypasses pipeline_manifest table
+echo '{"id": "test", "title": "Test"}' >> .cleo/agent-outputs/legacy-manifest.jsonl
 ```
 
-**Problem**: Breaks JSONL format (one object per line)
+**Problem**: Legacy file — migrated to SQLite per ADR-027. Race conditions and no validation.
 
-**Solution**: Use `jq -c` for compact output
+**Solution**: Use `cleo manifest append`
 ```bash
-jq -nc '{id: "test", title: "Test"}' >> MANIFEST.jsonl
+cleo manifest append '{"id":"test","task_id":"T###","type":"research","status":"complete","output":"path/to/output.md","summary":"brief","key_findings":["..."]}'
 ```
 
 ---
@@ -537,15 +534,15 @@ jq -nc '{id: "test", title: "Test"}' >> MANIFEST.jsonl
 ### ❌ Direct File Writes
 
 ```bash
-# WRONG - Bypasses validation
-echo "$json" >> .cleo/agent-outputs/MANIFEST.jsonl
+# WRONG - Legacy file path; SQLite is now the store
+echo "$json" >> .cleo/agent-outputs/legacy-manifest.jsonl
 ```
 
-**Problem**: No validation, no atomic operation, no audit trail
+**Problem**: The legacy flat-file is retired per ADR-027. Use the manifest CLI.
 
-**Solution**: Use CLI commands
+**Solution**: Use `cleo manifest append`
 ```bash
-cleo research add --task T#### --topic "..." --findings "..."
+cleo manifest append '{"id":"...","task_id":"T####","type":"...","status":"complete","output":"...","summary":"...","key_findings":["..."]}'
 ```
 
 ---
@@ -582,7 +579,7 @@ Here is my research:
 
 **Solution**: Return ONLY summary message
 ```markdown
-[Type] complete. See MANIFEST.jsonl for summary.
+[Type] complete. Manifest appended to pipeline_manifest.
 ```
 
 ---

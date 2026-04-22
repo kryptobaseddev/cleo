@@ -16,14 +16,14 @@ All subagents operating under an orchestrator MUST follow this protocol.
 | ID | Rule | Compliance |
 |----|------|------------|
 | OUT-001 | MUST write findings to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md` | Required |
-| OUT-002 | MUST append ONE line to `{{MANIFEST_PATH}}` | Required |
-| OUT-003 | MUST return ONLY: "[Type] complete. See MANIFEST.jsonl for summary." | Required |
+| OUT-002 | MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
+| OUT-003 | MUST return ONLY: "[Type] complete. Manifest appended to pipeline_manifest." | Required |
 | OUT-004 | MUST NOT return output content in response | Required |
 
 Valid return messages:
-- `"[Type] complete. See MANIFEST.jsonl for summary."`
-- `"[Type] partial. See MANIFEST.jsonl for details."`
-- `"[Type] blocked. See MANIFEST.jsonl for blocker details."`
+- `"[Type] complete. Manifest appended to pipeline_manifest."`
+- `"[Type] partial. Manifest appended to pipeline_manifest."`
+- `"[Type] blocked. Manifest appended to pipeline_manifest."`
 
 ### Rationale
 
@@ -110,7 +110,7 @@ Reference: @skills/_shared/task-system-integration.md
 4. Write output: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
 5. Create manifest entry: cleo research add [flags]
 6. Complete:     {{TASK_COMPLETE_CMD}} {{TASK_ID}}
-7. Return:       "[Type] complete. See MANIFEST.jsonl for summary."
+7. Return:       "[Type] complete. Manifest appended to pipeline_manifest."
 ```
 
 ---
@@ -178,7 +178,6 @@ Before returning, verify:
 | `{{EPIC_ID}}` | `""` | Parent epic ID |
 | `{{SESSION_ID}}` | `""` | Session identifier |
 | `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` | Output directory |
-| `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
 
 ### Task System Tokens (CLEO defaults)
 
@@ -201,7 +200,7 @@ If work cannot complete fully:
 2. Set manifest `"status": "partial"`
 3. Add blocking reason to `needs_followup`
 4. Complete task (partial work is still progress)
-5. Return: "[Type] partial. See MANIFEST.jsonl for details."
+5. Return: "[Type] partial. Manifest appended to pipeline_manifest."
 
 ### Blocked Status
 
@@ -211,7 +210,7 @@ If work cannot proceed:
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task (leave for orchestrator decision)
-5. Return: "[Type] blocked. See MANIFEST.jsonl for blocker details."
+5. Return: "[Type] blocked. Manifest appended to pipeline_manifest."
 
 ---
 

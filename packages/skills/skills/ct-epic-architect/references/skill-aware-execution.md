@@ -119,7 +119,7 @@ When ct-epic-architect creates an epic, it follows the subagent protocol:
 
 1. **Write output file**: `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
 2. **Append manifest entry**: Single line JSON to `{{MANIFEST_PATH}}`
-3. **Return summary only**: "Epic created. See MANIFEST.jsonl for summary."
+3. **Return summary only**: "Epic created. Manifest appended to pipeline_manifest."
 
 ### Querying Prior Research
 

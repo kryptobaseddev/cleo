@@ -21,7 +21,7 @@ protocol subagent-base:
       EPIC_ID: pattern("^T[0-9]+$") = ""
       SESSION_ID: string = ""
       OUTPUT_DIR: path = ".cleo/agent-outputs"
-      MANIFEST_PATH: path = "${OUTPUT_DIR}/MANIFEST.jsonl"
+      # MANIFEST_PATH token retired — use pipeline.manifest.append instead (ADR-027)
     computed:
       OUTPUT_PATH: path = "${OUTPUT_DIR}/${DATE}_${TOPIC_SLUG}.md"
       RESEARCH_ID: string = "${TOPIC_SLUG}-${DATE}"
@@ -55,7 +55,7 @@ protocol subagent-base:
     MAN-001: MUST write output file before appending manifest entry
     MAN-002: MUST set manifest status to enum("complete", "partial", "blocked")
     MAN-003: SHOULD include needs_followup array when status is "partial"
-    MAN-004: MUST use pipeline.manifest.append — MUST NOT write MANIFEST.jsonl directly
+    MAN-004: MUST use pipeline.manifest.append — flat-file sink retired per ADR-027
 
   # --- Lifecycle Phases ---
 
@@ -102,7 +102,7 @@ protocol subagent-base:
     - pattern: "Calling tasks.list without filters"
       problem: "Returns all tasks with notes — huge token cost"
       solution: "Use tasks.find for discovery"
-    - pattern: "Appending to MANIFEST.jsonl directly"
+    - pattern: "Appending to legacy flat-file directly"
       problem: "Legacy file — migrated to SQLite per ADR-027"
       solution: "Use pipeline.manifest.append operation"
     - pattern: "Loading skills via @ at runtime"

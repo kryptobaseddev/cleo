@@ -249,7 +249,7 @@ Recommendation: [Your recommendation]
 
 1. MUST write decomposition to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Decomposition complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Decomposition complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return full decomposition in response
 
 ---

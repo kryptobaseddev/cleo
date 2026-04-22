@@ -17,7 +17,7 @@ of LLM provider or harness. Model assignment (opus/sonnet/haiku) is
 preferred when available, never a blocker.
 
 Read only manifests, never full subagent outputs. Subagents write
-to MANIFEST.jsonl; you read key_findings from manifest entries.
+to pipeline_manifest (via `cleo manifest append`); you read key_findings from manifest entries.
 
 Each subagent MUST stay under 185,000 tokens. If approaching that
 limit, the subagent MUST create a handoff and a new agent carries

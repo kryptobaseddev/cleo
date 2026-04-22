@@ -57,5 +57,5 @@ skills/
 ## Dependencies
 
 - CLEO task management (`cleo` CLI)
-- Agent manifest system (`.cleo/agent-outputs/MANIFEST.jsonl`)
+- Agent manifest system (pipeline_manifest SQLite table, accessed via `cleo manifest` CLI)
 - Task tool for subagent spawning

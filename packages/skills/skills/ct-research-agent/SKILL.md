@@ -107,7 +107,7 @@ Context injection for research and investigation tasks spawned via cleo-subagent
 
 1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response
 
 ---
@@ -155,7 +155,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 
 ## Manifest Entry Format
 
-Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
+Append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027):
 
 ```json
 {"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{RESEARCH_TITLE}}","date":"{{DATE}}","status":"complete","agent_type":"research","topics":{{TOPICS_JSON}},"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
@@ -195,7 +195,7 @@ If complete answers cannot be found:
 3. Set manifest `"status": "partial"`
 4. Add suggestions for followup to `needs_followup`
 5. Complete task
-6. Return: "Research partial. See MANIFEST.jsonl for details."
+6. Return: "Research partial. Manifest appended to pipeline_manifest."
 
 ### Blocked Research
 
@@ -205,7 +205,7 @@ If research cannot proceed (access denied, topic too broad, etc.):
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task
-5. Return: "Research blocked. See MANIFEST.jsonl for blocker details."
+5. Return: "Research blocked. Manifest appended to pipeline_manifest."
 
 ---
 
