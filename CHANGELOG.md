@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.109] — 2026-04-22
+
+### BREAKING: T1150 T-MSR Wave 3 — Bundle Externalization
+
+`@cleocode/core` is now an external peer dependency of `@cleocode/cleo`
+(previously inlined into the cleo bundle). **Global npm install consumers must
+install both packages**:
+
+```bash
+npm install -g @cleocode/cleo @cleocode/core
+```
+
+Workspace / pnpm-workspace consumers are unaffected — pnpm resolves the peerDep
+automatically via the workspace protocol. Local installs (without `-g`) also
+require both packages.
+
+**Size impact**:
+- cleo bundle: 6.64 MB → 1.89 MB (-71.6%)
+- cleo tarball: 1.3 MB → 1.2 MB (-92 KB, 55 migration files no longer shipped)
+
+**Migration for existing global installations**:
+```bash
+npm install -g @cleocode/core
+```
+
+Postinstall hook in `@cleocode/cleo` detects missing `@cleocode/core` and
+prints remediation instructions (T1179).
+
+**Wave 3 Tasks** (bundle externalization + module resolution):
+- feat(T1177): ESM-native module resolution for 5 migration folders (commit e47c11941)
+- chore(T1178): externalize @cleocode/core from cleo bundle (commit fd3ff9b03)
+- feat(T1179): postinstall check for missing @cleocode/core (commit 5e6dfd854)
+- refactor(T1180): remove syncMigrationsToCleoPackage (commit 1a9738cf9)
+- chore(T1181): @cleocode/core as peerDependency (commit 996dc9cdd)
+- chore(T1182): delete packages/cleo/migrations/ (commit 158717cde)
+- feat(T1185): cleo-os startup migration-verify check (commit 3ec738ddd)
+- docs(T1183): CHANGELOG + install docs for v2026.4.109 (this entry)
+
 ## [2026.4.108] — 2026-04-21
 
 ### T1150 T-MSR — Migration System Remediation (Hybrid Path A+)
