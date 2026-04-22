@@ -16,6 +16,8 @@ This package contains the complete business logic implementation for the CLEO ec
 - **Compliance & Validation**: Protocol enforcement, rule checking
 
 The package includes a bundled SQLite store via Drizzle ORM for persistence.
+See [`migrations/README.md`](./migrations/README.md) for the complete guide to authoring,
+maintaining, and recovering database migrations (Hybrid Path A+ workflow).
 
 ## Who consumes this package?
 
