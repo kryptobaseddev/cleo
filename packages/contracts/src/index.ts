@@ -481,6 +481,16 @@ export type {
   SessionSuspendParams,
   SessionSuspendResult,
 } from './operations/session.js';
+// T1238 Variable substitution — re-exported at top level so SDK consumers can
+// import resolver contracts without the `ops.` namespace hop.
+export type {
+  ResolvedVariable,
+  SubstitutionContext,
+  SubstitutionOptions,
+  SubstitutionResult,
+  SubstitutionSource,
+  VariableResolver,
+} from './operations/variable-substitution.js';
 // === Orchestration Hierarchy ===
 export {
   type AgentHierarchy,

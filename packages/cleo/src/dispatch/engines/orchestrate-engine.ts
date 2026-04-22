@@ -629,14 +629,31 @@ export async function orchestrateSpawnExecute(
       };
     }
 
+    // T1238 — Apply mustache `{{var}}` substitution to the resolved CANT
+    // agent body BEFORE it becomes part of the spawn prompt. The substitution
+    // engine loads `.cleo/project-context.json` (via core paths) and merges
+    // it with the orchestrator's session context; bindings are left empty
+    // for now (T891 will thread classifier-produced overrides here).
+    //
+    // Best-effort: missing agent file / unresolved variables degrade to a
+    // lenient substitution — the original prompt still flows to the adapter
+    // and the diagnostics are surfaced under `data.meta.templateSubstitution`.
+    const templateSubstitution = await applyCantBodySubstitution(payload, cwd, {
+      taskId,
+      sessionId: activeSessionId,
+      protocol: protocolType ?? payload.meta.protocol,
+    });
+
     // The raw prompt from the composer is passed to the adapter unchanged.
     // CANT bundle compilation, mental model injection, and identity bootstrap
     // are all handled inside buildCantEnrichedPrompt() at the adapter layer
-    // (packages/adapters/src/cant-context.ts). The agentDef is not currently
-    // threaded through composeSpawnPayload (T891 will classify + resolve a
-    // full CANT team envelope); until then the adapter receives the prompt
-    // alone and falls back to its own mental-model injection defaults.
-    const rawPrompt = payload.prompt;
+    // (packages/adapters/src/cant-context.ts). When a resolved CANT agent
+    // body was substituted (T1238), it is prepended to the composer prompt
+    // so subagents receive the fully-resolved template alongside the
+    // standard spawn context.
+    const rawPrompt = templateSubstitution.resolvedBody
+      ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
+      : payload.prompt;
 
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
@@ -736,7 +753,19 @@ export async function orchestrateSpawnExecute(
         timing: result.timing,
         tier: tier ?? null,
         atomicity: payload.atomicity,
-        meta: payload.meta,
+        meta: {
+          ...payload.meta,
+          // T1238 — variable substitution diagnostics surfaced for audit.
+          templateSubstitution: {
+            applied: templateSubstitution.applied,
+            resolvedCount: templateSubstitution.resolvedCount,
+            missing: templateSubstitution.missing,
+            projectContextLoaded: templateSubstitution.projectContextLoaded,
+            ...(templateSubstitution.reason !== undefined
+              ? { reason: templateSubstitution.reason }
+              : {}),
+          },
+        },
         agentId: payload.agentId,
         role: payload.role,
         harnessHint: payload.harnessHint,
@@ -752,6 +781,119 @@ export async function orchestrateSpawnExecute(
       },
     };
   }
+}
+
+/**
+ * Diagnostics payload returned by {@link applyCantBodySubstitution}.
+ *
+ * Surfaced in `orchestrate.spawn.execute` results under
+ * `data.meta.templateSubstitution` so CI and audit pipelines can detect
+ * template drift (missing vars as project-context.json evolves).
+ *
+ * @task T1238
+ */
+interface CantBodySubstitutionResult {
+  /** `true` when at least one variable was resolved. */
+  applied: boolean;
+  /** Number of variables successfully resolved. */
+  resolvedCount: number;
+  /** Variables referenced but unresolved (lenient mode). */
+  missing: string[];
+  /** `true` when `.cleo/project-context.json` was loaded and parsed. */
+  projectContextLoaded: boolean;
+  /** Diagnostic reason when substitution did not run (no cant path, read error). */
+  reason?: string;
+  /**
+   * Resolved CANT agent body to embed in the spawn prompt. `null` when
+   * substitution was skipped (no agent file, IO error, no template vars).
+   */
+  resolvedBody: string | null;
+}
+
+/**
+ * Apply T1238 mustache `{{var}}` substitution to the resolved CANT agent body.
+ *
+ * This is the integration hook for the spawn-time substitution contract: the
+ * orchestrate engine calls it AFTER `composeSpawnPayload` has resolved the
+ * agent from the 4-tier registry and BEFORE the adapter receives the spawn
+ * prompt. Failures degrade to a no-op so the spawn path remains resilient.
+ *
+ * Resolver context assembled here:
+ *   - `projectContext`: `.cleo/project-context.json` (loaded by the SDK).
+ *   - `sessionContext`: `{ taskId, epicId, sessionId, protocol, harnessHint }`.
+ *   - `bindings`: reserved for T891 classifier-produced overrides (currently empty).
+ *   - `env`: `process.env` (CLEO_ and CANT_ prefixed lookups).
+ *
+ * @param payload - Spawn payload produced by `composeSpawnForTask`.
+ * @param cwd - Project root for resolving `.cleo/project-context.json`.
+ * @param ctx - Session-scoped context injected into the resolver.
+ * @returns Diagnostic envelope with resolved body + missing-var report.
+ * @task T1238
+ */
+async function applyCantBodySubstitution(
+  payload: SpawnPayload,
+  cwd: string,
+  ctx: { taskId: string; sessionId: string | null; protocol: string },
+): Promise<CantBodySubstitutionResult> {
+  const empty: CantBodySubstitutionResult = {
+    applied: false,
+    resolvedCount: 0,
+    missing: [],
+    projectContextLoaded: false,
+    resolvedBody: null,
+  };
+
+  const cantPath = payload.resolvedAgent?.cantPath;
+  if (!cantPath) {
+    return { ...empty, reason: 'resolved agent has no cantPath' };
+  }
+
+  // Dynamic import keeps the dispatch bundle free of fs/path unless we
+  // actually run substitution.
+  const [{ existsSync, readFileSync }, { substituteCantAgentBody }] = await Promise.all([
+    import('node:fs'),
+    import('@cleocode/core/internal'),
+  ]);
+
+  if (!existsSync(cantPath)) {
+    return { ...empty, reason: `cant file not found at ${cantPath}` };
+  }
+
+  let body: string;
+  try {
+    body = readFileSync(cantPath, 'utf-8');
+  } catch (err) {
+    return {
+      ...empty,
+      reason: `Failed to read cant body: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const sessionContext: Record<string, unknown> = {
+    taskId: ctx.taskId,
+    sessionId: ctx.sessionId,
+    protocol: ctx.protocol,
+    agentId: payload.agentId,
+    role: payload.role,
+    tier: payload.tier,
+    harnessHint: payload.harnessHint,
+  };
+  if (payload.taskId) sessionContext.spawnTaskId = payload.taskId;
+
+  const result = substituteCantAgentBody(body, {
+    projectRoot: cwd,
+    sessionContext,
+    env: process.env,
+    options: { strict: false, warnMissing: false },
+  });
+
+  return {
+    applied: result.resolved.length > 0,
+    resolvedCount: result.resolved.length,
+    missing: result.missing,
+    projectContextLoaded: result.projectContextLoaded,
+    resolvedBody: result.text,
+  };
 }
 
 /**
