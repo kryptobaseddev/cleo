@@ -1,0 +1,227 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "055dc76e-94bd-44f0-a8c8-922f3b8d1c6d",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "telemetry_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "telemetry_schema_meta",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "anonymous_id",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "domain",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gateway",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "operation",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "command",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "exit_code",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duration_ms",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error_code",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "timestamp",
+      "entityType": "columns",
+      "table": "telemetry_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "telemetry_schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "telemetry_schema_meta"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "telemetry_events_pk",
+      "table": "telemetry_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "telemetry_schema_meta_pk",
+      "table": "telemetry_schema_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "command",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_telemetry_command",
+      "entityType": "indexes",
+      "table": "telemetry_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "domain",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_telemetry_domain",
+      "entityType": "indexes",
+      "table": "telemetry_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "exit_code",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_telemetry_exit_code",
+      "entityType": "indexes",
+      "table": "telemetry_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_telemetry_timestamp",
+      "entityType": "indexes",
+      "table": "telemetry_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "duration_ms",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_telemetry_duration",
+      "entityType": "indexes",
+      "table": "telemetry_events"
+    }
+  ],
+  "renames": []
+}
