@@ -352,11 +352,22 @@ const adaptersBuildOptions = {
  *
  * T759: root cause — brain_page_edges missing `provenance` column because T528
  * migration was absent from packages/cleo/migrations/drizzle-brain/.
+ *
+ * T1166 extension: signaldock retired GLOBAL_EMBEDDED_MIGRATIONS in favour of
+ * the standard drizzle runner, so drizzle-signaldock/ must now be synced too.
+ * T1176 baselined telemetry's snapshot chain — drizzle-telemetry/ joins the
+ * sync set so the CLI bundle ships all 5 DB migration folders.
  */
 async function syncMigrationsToCleoPackage() {
   const coreMigsBase = resolve(__dirname, 'packages/core/migrations');
   const cleoMigsBase = resolve(__dirname, 'packages/cleo/migrations');
-  const sets = ['drizzle-brain', 'drizzle-tasks', 'drizzle-nexus'];
+  const sets = [
+    'drizzle-brain',
+    'drizzle-tasks',
+    'drizzle-nexus',
+    'drizzle-signaldock',
+    'drizzle-telemetry',
+  ];
 
   for (const set of sets) {
     const src = join(coreMigsBase, set);
