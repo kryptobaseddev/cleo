@@ -39,6 +39,13 @@ export default defineConfig({
         .pathname,
       '@cleocode/core/internal': new URL('../../packages/core/src/internal.ts', import.meta.url)
         .pathname,
+      // T1187-followup / v2026.4.113: CLI imports buildManifestEntryFromShorthand
+      // from the core SDK (package-boundary fix — CLI must delegate to core for
+      // defaulting logic). Matches existing brain-backfill.js / precompact-flush.js pattern.
+      '@cleocode/core/memory/manifest-builder.js': new URL(
+        '../../packages/core/src/memory/manifest-builder.ts',
+        import.meta.url,
+      ).pathname,
       // Store sub-path exports — must be listed before the root alias so the
       // more-specific pattern wins.  Production code uses `import(x as string)`
       // which vitest's transform cannot statically hoist; registering these aliases

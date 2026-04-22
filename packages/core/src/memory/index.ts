@@ -1512,6 +1512,7 @@ export * from './edge-types.js';
 export * from './extraction-gate.js';
 export * from './learnings.js';
 // === Manifest Ingestion (T1099) — RCASD + loose files into pipeline_manifest ===
+export * from './manifest-builder.js';
 export * from './manifest-ingestion.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';

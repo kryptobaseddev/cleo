@@ -4,6 +4,80 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.113] — 2026-04-22
+
+Three-regression hotfix for v2026.4.112 — the MANIFEST.jsonl purge shipped
+with a broken CLI surface and a wrong-schema spawn prompt. Owner caught it
+immediately (`cleo manifest append --task ... --type ... --content ...`
+errored with "must provide --entry, --file, or stdin" and the spawn prompt
+taught every subagent to send `{task_id, type, content, commits, ...}` —
+fields that aren't in the `pipeline_manifest` validator's accepted schema,
+so every agent's call returned `E_VALIDATION_FAILED` while the agent
+hallucinated "Manifest appended" success in its return string).
+
+### Fixed
+
+- **CLI shorthand flags (`--task` / `--type` / `--content`) now actually work.**
+  `cleo manifest append --task T1187 --type research --content "..."` builds
+  a fully-valid `ExtendedManifestEntry` with defaults for `id`, `file`,
+  `title`, `date`, `status`, `agent_type`, `topics`, `actionable`,
+  `key_findings`, `needs_followup`, and `linked_tasks`. Previously these
+  flags only merged into an entry loaded from `--entry` / `--file` / stdin
+  and failed fast when none of those were supplied.
+- **Spawn prompt teaches the correct `pipeline_manifest` schema.** The
+  "Rich entry (JSON)" example in the Manifest Protocol block now shows the
+  exact validator-accepted shape — `id`, `file`, `title`, `date`, `status`,
+  `agent_type`, `topics`, `key_findings`, `actionable`, `needs_followup`,
+  `linked_tasks` (plus optional `confidence` / `file_checksum` /
+  `duration_seconds`). Fields from the v2026.4.112 example that do NOT
+  exist in the schema — `task_id`, `type`, `content`, `commits`,
+  `files_changed`, `gates_passed`, `children_completed` — are gone.
+- **Return contract now mandates a verification step.** Every subagent
+  MUST grep `appended:true` from the CLI response AND run `cleo manifest
+  show <id>` before emitting the one-line return message. Stops agents
+  from hallucinating "Manifest appended" after a silent `E_VALIDATION_FAILED`.
+- **Package-boundary fix (AGENTS.md).** The shorthand → full-entry
+  defaulting logic lives in `@cleocode/core/memory/manifest-builder.ts`
+  (new module, exported via the `@cleocode/core/memory` barrel) so the
+  CLI, Studio, VS Code extension, API server, and direct SDK callers all
+  share one implementation. The CLI is a thin adapter that parses flags
+  and delegates.
+
+### Added
+
+- `packages/core/src/memory/manifest-builder.ts` — new SDK export
+  `buildManifestEntryFromShorthand(shorthand, now?)`. 12-test vitest suite
+  at `packages/core/src/memory/__tests__/manifest-builder.test.ts` pins
+  the required-field coverage, title truncation, topic/linked_tasks
+  uniqueness, optional extended fields, and deterministic clock injection
+  for test stability.
+- Four new assertions in
+  `packages/core/src/orchestration/__tests__/spawn-prompt.test.ts`:
+  - every required `ManifestEntry` field appears in the rich-entry JSON
+    example;
+  - banned fields NEVER reappear (`task_id`, `content`, `commits`,
+    `gates_passed`, `files_changed`, `children_completed`);
+  - verification step ("Verify BEFORE returning", `"appended":true`,
+    `cleo manifest show`) is present in every spawn prompt;
+  - `MANIFEST.jsonl` still absent (regression guard for the T1096 purge).
+- `vitest.config.ts` + `packages/cleo/vitest.config.ts` gain
+  `@cleocode/core/memory/manifest-builder.js` aliases so the test
+  runner resolves the new SDK import (matches existing
+  `brain-backfill.js` / `precompact-flush.js` pattern).
+
+### Note on Bug 3
+
+The owner-reported "`cleo manifest list --task <id>` never returns
+anything" symptom does not reproduce on v2026.4.112 HEAD: the
+`filterManifestEntries` path matches entries where `id.startsWith(taskId)`
+OR `linked_tasks.includes(taskId)`. Verified — `cleo manifest list --task
+T1187` returns the expected entry and `--task T1075` finds the
+T1211-glossary entry via its `linked_tasks`. Original symptom was likely a
+race between the owner's schema-wrong probes (rejected before insert) and
+the list call over entries that never landed.
+
+---
+
 ## [2026.4.112] — 2026-04-22
 
 Two-part release: T1187 tree / dependency / blocker visualization overhaul
