@@ -18,6 +18,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /** cleo adapter list — list all discovered provider adapters */
 const listCommand = defineCommand({
@@ -151,7 +152,10 @@ export const adapterCommand = defineCommand({
     activate: activateCommand,
     dispose: disposeCommand,
   },
-  async run() {
+  async run({ cmd, rawArgs }) {
+    // Skip default dispatch when citty routes to a subcommand
+    // (parent run() fires AFTER subcommand per citty@0.2.x). T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await dispatchFromCli(
       'query',
       'tools',

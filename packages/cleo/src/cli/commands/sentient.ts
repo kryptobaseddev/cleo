@@ -41,6 +41,7 @@ import { safeRunProposeTick } from '@cleocode/core/sentient/propose-tick.js';
 import { patchSentientState, readSentientState } from '@cleocode/core/sentient/state.js';
 import { safeRunTick } from '@cleocode/core/sentient/tick.js';
 import { defineCommand } from 'citty';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 // ---------------------------------------------------------------------------
 // Shared arg spec
@@ -635,7 +636,10 @@ const baselineSub = defineCommand({
   subCommands: {
     capture: baselineCaptureSub,
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // usage text so `cleo sentient baseline capture <sha>` stays clean. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const jsonMode = args.json === true;
     emitSuccess(
       { message: 'Use: cleo sentient baseline capture <sha>' },
@@ -771,7 +775,8 @@ const allowlistSub = defineCommand({
     add: allowlistAddSub,
     remove: allowlistRemoveSub,
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const jsonMode = args.json === true;
     emitSuccess(
       { message: 'Use: cleo sentient allowlist list|add|remove' },
@@ -805,7 +810,10 @@ export const sentientCommand = defineCommand({
     baseline: baselineSub,
     allowlist: allowlistSub,
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // daemon-status print so `cleo sentient start` doesn't double-output. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const projectRoot = resolveProjectRoot(args.project as string | undefined);
     const jsonMode = args.json === true;
 

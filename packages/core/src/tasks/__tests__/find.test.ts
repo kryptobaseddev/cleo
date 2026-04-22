@@ -40,10 +40,12 @@ describe('findTasks', () => {
     await env.cleanup();
   });
 
-  it('requires query or id', async () => {
+  it('requires query, id, or at least one filter', async () => {
     await seedTasks(accessor, []);
 
-    await expect(findTasks({}, env.tempDir, accessor)).rejects.toThrow('query or --id is required');
+    // T1187-followup / v2026.4.114: message now covers the filter-only path
+    // so the error guides users to `--status` / `--role` as a valid entrypoint.
+    await expect(findTasks({}, env.tempDir, accessor)).rejects.toThrow(/query.*--id.*filter/i);
   });
 
   it('finds tasks by fuzzy query', async () => {

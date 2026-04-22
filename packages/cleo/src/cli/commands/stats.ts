@@ -12,6 +12,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /** cleo stats compliance — agent workflow compliance dashboard */
 const complianceCommand = defineCommand({
@@ -66,7 +67,10 @@ export const statsCommand = defineCommand({
   subCommands: {
     compliance: complianceCommand,
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // Parent run() fires after subcommand per citty@0.2.x — skip default
+    // stats so `cleo stats compliance` doesn't double-output. T1187-followup.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await dispatchFromCli(
       'query',
       'admin',

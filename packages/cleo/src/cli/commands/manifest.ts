@@ -15,6 +15,7 @@
 import { buildManifestEntryFromShorthand } from '@cleocode/core/memory/manifest-builder.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 // ---------------------------------------------------------------------------
 // Subcommands
@@ -372,7 +373,10 @@ export const manifestCommand = defineCommand({
     append: appendCommand,
     archive: archiveCommand,
   },
-  async run({ cmd }) {
+  async run({ cmd, rawArgs }) {
+    // Citty's `runCommand` runs the parent's `run()` AFTER the subcommand.
+    // Early-return when a subcommand has matched so stdout stays clean (T1187-followup).
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     await showUsage(cmd);
   },
 });
