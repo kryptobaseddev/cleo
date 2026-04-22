@@ -20,6 +20,7 @@
     "postinstall": "node bin/postinstall.js"
   },
   "dependencies": {
+    "@cleocode/agents": "workspace:*",
     "@cleocode/cant": "workspace:*",
     "@cleocode/cleo": "workspace:*",
     "@cleocode/core": "workspace:*",
@@ -46,7 +47,6 @@
   "files": [
     "dist",
     "extensions",
-    "bin",
-    "starter-bundle"
+    "bin"
   ]
 }

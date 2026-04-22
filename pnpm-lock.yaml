@@ -335,6 +335,9 @@ importers:
 
   packages/cleo-os:
     dependencies:
+      '@cleocode/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@cleocode/cant':
         specifier: workspace:*
         version: link:../cant

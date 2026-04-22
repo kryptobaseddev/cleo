@@ -90,6 +90,13 @@ export {
   type UpdateStatusOptions,
   updateAgentStatus,
 } from './registry.js';
+// Starter-bundle SDK helpers (T1241 / D035)
+export {
+  resolveStarterBundle,
+  resolveStarterBundleAgentsDir,
+  resolveStarterBundleIdentityFile,
+  resolveStarterBundleTeamFile,
+} from './resolveStarterBundle.js';
 // Retry & self-healing
 export {
   type AgentRecoveryResult,
@@ -102,10 +109,13 @@ export {
   shouldRetry,
   withRetry,
 } from './retry.js';
-// Seed-agent installer (T897 / T1238 / T1239)
+// Seed-agent installer (T897 / T1238 / T1239 / T1241)
 export {
   type EnsureSeedAgentsInstalledOptions,
   ensureSeedAgentsInstalled,
+  type RerouteLegacyDb,
+  type RerouteLegacyStarterBundleResult,
+  rerouteLegacyStarterBundlePaths,
   SEED_VERSION_MARKER_FILENAME,
   type SeedInstallDispatcher,
   type SeedInstallResult,

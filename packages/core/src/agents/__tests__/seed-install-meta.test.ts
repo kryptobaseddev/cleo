@@ -137,19 +137,23 @@ describe('ensureSeedAgentsInstalled — meta-agent + substitution (T1239)', () =
     });
 
     expect(['static-copy', 'noop']).toContain(result.source);
-    // Installed files should no longer contain `{{tech_stack}}` — the mustache
-    // placeholder gets resolved from project-context.json.
+    // Post-T1241: seed-install reads from packages/agents/starter-bundle/
+    // which ships direct-usable personas (no `{{tech_stack}}` mustache
+    // placeholders). The assertion therefore shifts from "the placeholder
+    // was resolved to a value" to "no mustache placeholder leaked through
+    // the copy path". Files referencing mustache placeholders in the future
+    // would still exercise the substitution branch and trip
+    // `unresolvedVariables`; when a placeholder IS present, we record it
+    // in the engine's unresolved list so we keep the substitution contract
+    // honest.
     if (result.installed.length > 0) {
       const sampleFilename = `${result.installed[0]}.cant`;
       const samplePath = join(env.destination, sampleFilename);
       if (existsSync(samplePath)) {
         const body = readFileSync(samplePath, 'utf8');
-        // When tech_stack was in context, the placeholder should have been
-        // resolved. If the template did not reference it, `unresolvedVariables`
-        // should remain empty for that variable.
-        if (!body.includes('{{tech_stack}}')) {
-          // Substitution happened — assert the resolved value is present.
-          expect(body).toContain('TypeScript/Node.js');
+        if (body.includes('{{tech_stack}}')) {
+          // A placeholder survived — it must appear in unresolvedVariables.
+          expect(result.unresolvedVariables).toContain('tech_stack');
         }
       }
     }

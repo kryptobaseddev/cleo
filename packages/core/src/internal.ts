@@ -1340,6 +1340,8 @@ export {
 } from './store/agent-registry-accessor.js';
 export type { ResolveAgentOptions } from './store/agent-resolver.js';
 export {
+  AGENT_TIER_UNIVERSAL,
+  AGENT_UNIVERSAL_BASE_ID,
   AgentNotFoundError,
   DEPRECATED_ALIASES,
   getAgentSkills,

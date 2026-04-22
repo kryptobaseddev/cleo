@@ -211,6 +211,14 @@ export interface CoreAgentDispatcherOptions {
   /** Override for the bundled seed-agents directory (tests only). */
   packagedSeedDir?: string;
   /**
+   * Override for the universal-base `.cant` file used by the 5th-tier
+   * fallback in `resolveAgent`. Tests pin this to a known-missing path so
+   * they can still exercise the "no tier resolves" failure branch.
+   *
+   * @task T1241
+   */
+  universalBasePath?: string;
+  /**
    * Optional hook invoked after a successful resolution. The playbook runtime
    * uses this to emit a `dispatcher.resolve` event for audit trails.
    */
@@ -244,6 +252,7 @@ export class CoreAgentDispatcher implements AgentDispatcher {
   private readonly projectRoot: string | undefined;
   private readonly metaDir: string | undefined;
   private readonly packagedSeedDir: string | undefined;
+  private readonly universalBasePath: string | undefined;
   private readonly onResolve: CoreAgentDispatcherOptions['onResolve'];
   private readonly executor: CoreAgentDispatcherOptions['executor'];
 
@@ -252,6 +261,7 @@ export class CoreAgentDispatcher implements AgentDispatcher {
     this.projectRoot = opts.projectRoot;
     this.metaDir = opts.metaDir;
     this.packagedSeedDir = opts.packagedSeedDir;
+    this.universalBasePath = opts.universalBasePath;
     this.onResolve = opts.onResolve;
     this.executor = opts.executor;
   }
@@ -331,12 +341,7 @@ export class CoreAgentDispatcher implements AgentDispatcher {
 
     // Tiers 2-5 — delegate to the standard resolver
     try {
-      const options = this.projectRoot !== undefined ? { projectRoot: this.projectRoot } : {};
-      const fullOptions =
-        this.packagedSeedDir !== undefined
-          ? { ...options, packagedSeedDir: this.packagedSeedDir }
-          : options;
-      return resolveAgent(this.db, agentId, fullOptions);
+      return resolveAgent(this.db, agentId, this.buildResolveOptions());
     } catch (err) {
       if (err instanceof AgentNotFoundError) {
         return null;
@@ -346,27 +351,44 @@ export class CoreAgentDispatcher implements AgentDispatcher {
   }
 
   /**
-   * Classify which 5-tier bucket produced `agentId`.
+   * Assemble the {@link import('../store/agent-resolver.js').ResolveAgentOptions}
+   * payload used by the dispatcher's lookup calls. Keeping the assembly in
+   * one place ensures `resolve()` and `resolveTier()` stay in lock-step and
+   * the new-in-T1241 `universalBasePath` override is never silently dropped.
+   *
+   * @task T1241
+   */
+  private buildResolveOptions(): {
+    projectRoot?: string;
+    packagedSeedDir?: string;
+    universalBasePath?: string;
+  } {
+    const opts: { projectRoot?: string; packagedSeedDir?: string; universalBasePath?: string } = {};
+    if (this.projectRoot !== undefined) opts.projectRoot = this.projectRoot;
+    if (this.packagedSeedDir !== undefined) opts.packagedSeedDir = this.packagedSeedDir;
+    if (this.universalBasePath !== undefined) opts.universalBasePath = this.universalBasePath;
+    return opts;
+  }
+
+  /**
+   * Classify which tier bucket produced `agentId`.
    *
    * Unlike {@link resolve}, this helper reports the logical tier
-   * (`'meta' | 'project' | 'global' | 'packaged' | 'fallback'`) rather than
-   * the `AgentTier` enum baked into `ResolvedAgent`. Useful for dispatch
-   * telemetry and for tests that need to assert meta-tier was consulted.
+   * (`'meta' | 'project' | 'global' | 'packaged' | 'fallback' | 'universal'`)
+   * rather than the `AgentTier` enum baked into `ResolvedAgent`. Useful for
+   * dispatch telemetry and for tests that need to assert meta-tier was
+   * consulted. The `'universal'` tier was added in v2026.4.111 (T1241) as
+   * the 5th fallback tier in the base resolver.
    *
    * @param agentId - Business id to classify.
    * @returns Tier label, or `null` when no tier resolves.
    */
   public resolveTier(
     agentId: string,
-  ): typeof AGENT_TIER_META | 'project' | 'global' | 'packaged' | 'fallback' | null {
+  ): typeof AGENT_TIER_META | 'project' | 'global' | 'packaged' | 'fallback' | 'universal' | null {
     if (resolveMetaAgent(agentId, this.metaDir) !== null) return AGENT_TIER_META;
     try {
-      const options = this.projectRoot !== undefined ? { projectRoot: this.projectRoot } : {};
-      const fullOptions =
-        this.packagedSeedDir !== undefined
-          ? { ...options, packagedSeedDir: this.packagedSeedDir }
-          : options;
-      const resolved = resolveAgent(this.db, agentId, fullOptions);
+      const resolved = resolveAgent(this.db, agentId, this.buildResolveOptions());
       return resolved.source;
     } catch (err) {
       if (err instanceof AgentNotFoundError) return null;

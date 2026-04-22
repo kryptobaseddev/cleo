@@ -45,6 +45,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentDoctorCode, AgentDoctorFinding, DoctorReport } from '@cleocode/contracts';
+import { rerouteLegacyStarterBundlePaths } from '../agents/seed-install.js';
 import { getCleoGlobalCantAgentsDir } from '../paths.js';
 
 // ---------------------------------------------------------------------------
@@ -294,6 +295,22 @@ export async function buildDoctorReport(
   options: BuildDoctorReportOptions = {},
 ): Promise<DoctorReport> {
   const findings: AgentDoctorFinding[] = [];
+
+  // T1241 / D035 — auto-migrate registry rows whose `cant_path` still points
+  // at the pre-v2026.4.111 `packages/cleo-os/starter-bundle/` location so the
+  // D-002 orphan-row check does not flag content that simply moved. This
+  // reroute is idempotent; no-op when no rows match.
+  try {
+    rerouteLegacyStarterBundlePaths(db);
+  } catch (err) {
+    findings.push({
+      code: 'D-002',
+      severity: 'warn',
+      subject: 'legacy-starter-bundle-reroute',
+      message: `Legacy starter-bundle reroute skipped: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+
   const scans = resolveTierDirs(options);
 
   // --- D-001 / D-003 / D-005 / D-006 / D-007: filesystem-driven walk -------

@@ -1019,8 +1019,10 @@ export async function getVersion(projectRoot?: string): Promise<{ version: strin
  * Deploy the starter CANT bundle (team + agents) to a project's `.cleo/cant/`.
  *
  * Idempotent: skips deployment if `.cleo/cant/` already contains `.cant` files.
- * Does not overwrite existing files. Resolves the starter bundle from
- * `@cleocode/cleo-os/starter-bundle` or workspace fallback paths.
+ * Does not overwrite existing files. Resolves the starter bundle via the
+ * {@link resolveStarterBundle} SDK helper — per D035 (v2026.4.111) the bundle
+ * lives in `@cleocode/agents/starter-bundle/` rather than
+ * `@cleocode/cleo-os/starter-bundle/`.
  *
  * Called by both `initProject()` and `runUpgrade()` to ensure every project
  * gets a working team topology for the CANT bridge.
@@ -1044,33 +1046,13 @@ export async function deployStarterBundle(
 
   if (hasCantFiles) return; // Already deployed — idempotent
 
-  // Resolve the starter-bundle from @cleocode/cleo-os package
-  let starterBundleSrc: string | null = null;
-  try {
-    const { createRequire } = await import('node:module');
-    const req = createRequire(import.meta.url);
-    const cleoOsPkgMain = req.resolve('@cleocode/cleo-os/package.json');
-    const cleoOsPkgRoot = dirname(cleoOsPkgMain);
-    const candidate = join(cleoOsPkgRoot, 'starter-bundle');
-    if (existsSync(candidate)) {
-      starterBundleSrc = candidate;
-    }
-  } catch {
-    // Not resolvable via require.resolve — try workspace fallbacks
-  }
-
-  if (!starterBundleSrc) {
-    const packageRoot = getPackageRoot();
-    const fallbacks = [
-      join(packageRoot, '..', 'cleo-os', 'starter-bundle'),
-      join(packageRoot, '..', '..', 'packages', 'cleo-os', 'starter-bundle'),
-    ];
-    starterBundleSrc = fallbacks.find((p) => existsSync(p)) ?? null;
-  }
+  // Resolve the starter-bundle via the core SDK helper (T1241 / D035).
+  const { resolveStarterBundle } = await import('./agents/resolveStarterBundle.js');
+  const starterBundleSrc = resolveStarterBundle();
 
   if (!starterBundleSrc) {
     warnings.push(
-      'Starter bundle not found — .cleo/cant/ will remain empty. Run cleo init in a project with @cleocode/cleo-os installed.',
+      'Starter bundle not found — .cleo/cant/ will remain empty. Ensure @cleocode/agents is installed.',
     );
     return;
   }

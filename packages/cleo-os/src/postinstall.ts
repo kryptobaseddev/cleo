@@ -270,6 +270,31 @@ function scaffoldDefaultCant(cantDir: string): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the starter-bundle source directory.
+ *
+ * Per D035 (v2026.4.111) the starter-bundle lives in `@cleocode/agents/`
+ * (NOT in `@cleocode/cleo-os/`) so universal agent content lives with the
+ * rest of the agent surface area. This helper walks a short candidate list
+ * so both workspace (dev) and globally-installed layouts resolve.
+ *
+ * Order of precedence:
+ *  1. `<pkgRoot>/../agents/starter-bundle` — sibling workspace package
+ *  2. `<pkgRoot>/node_modules/@cleocode/agents/starter-bundle` — global install
+ *  3. `<pkgRoot>/../../@cleocode/agents/starter-bundle` — hoisted global install
+ *
+ * @param pkgRoot - Absolute path to the installed cleo-os package root.
+ * @returns Absolute path to the starter-bundle directory, or `null` when not found.
+ */
+function resolveStarterBundleSrc(pkgRoot: string): string | null {
+  const candidates = [
+    join(pkgRoot, '..', 'agents', 'starter-bundle'),
+    join(pkgRoot, 'node_modules', '@cleocode', 'agents', 'starter-bundle'),
+    join(pkgRoot, '..', '..', '@cleocode', 'agents', 'starter-bundle'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
  * Deploy the starter CANT bundle to the global XDG CANT directory.
  *
  * Copies `starter-bundle/` contents (team.cant + agents/*.cant) to
@@ -281,8 +306,8 @@ function scaffoldDefaultCant(cantDir: string): void {
  * @param cantDir - Absolute path to the XDG CANT directory.
  */
 function deployStarterBundle(pkgRoot: string, cantDir: string): void {
-  const bundleSrc = join(pkgRoot, 'starter-bundle');
-  if (!existsSync(bundleSrc)) {
+  const bundleSrc = resolveStarterBundleSrc(pkgRoot);
+  if (!bundleSrc) {
     process.stdout.write('CleoOS: skipping starter bundle (source not found)\n');
     return;
   }
