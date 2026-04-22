@@ -20,3 +20,4 @@ export * from './skills.js';
 export * from './system.js';
 export * from './tasks.js';
 export * from './validate.js';
+export * from './variable-substitution.js';

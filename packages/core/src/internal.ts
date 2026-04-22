@@ -1116,6 +1116,17 @@ export {
   updateCapacity,
   withRetry,
 } from './agents/index.js';
+export type {
+  LoadProjectContextResult,
+  SubstituteCantAgentBodyResult,
+} from './agents/variable-substitution.js';
+// T1238 — mustache variable substitution for CANT agent bodies at spawn time
+export {
+  DefaultVariableResolver,
+  defaultResolver as defaultVariableResolver,
+  loadProjectContext,
+  substituteCantAgentBody,
+} from './agents/variable-substitution.js';
 // Codebase map (additional)
 export { mapCodebase } from './codebase-map/index.js';
 // Compliance (additional)

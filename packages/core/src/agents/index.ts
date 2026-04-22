@@ -102,3 +102,12 @@ export {
   shouldRetry,
   withRetry,
 } from './retry.js';
+// Variable substitution (T1238 — mustache {{var}} template engine)
+export {
+  DefaultVariableResolver,
+  defaultResolver,
+  type LoadProjectContextResult,
+  loadProjectContext,
+  type SubstituteCantAgentBodyResult,
+  substituteCantAgentBody,
+} from './variable-substitution.js';
