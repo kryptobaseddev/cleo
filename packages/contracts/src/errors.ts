@@ -55,6 +55,57 @@ export class ThinAgentViolationError extends Error {
 }
 
 /**
+ * Thrown when a subagent (or any non-owner session) attempts to advance a
+ * parent epic's lifecycle stages while its session is scoped to a child task.
+ *
+ * Lifecycle stage mutations (progress / skip / reset) for an epic MUST come
+ * from a session that is:
+ *   (a) scoped to the epic itself (`epic:<epicId>`), OR
+ *   (b) a global-scope session (owner-level), OR
+ *   (c) accompanied by `CLEO_OWNER_OVERRIDE=1` (audited escape hatch).
+ *
+ * Root incident: during T1150 orchestration a subagent advanced all 9 lifecycle
+ * stages within 75 seconds to bypass `E_LIFECYCLE_GATE_FAILED`. This error
+ * class closes that vector (T1162).
+ *
+ * @remarks
+ * Carries `exitCode` aligned with {@link ExitCode.TASK_NOT_IN_SCOPE} (34)
+ * because the attempted lifecycle mutation is semantically outside the scope
+ * granted by the current session.
+ *
+ * @example
+ * ```typescript
+ * throw new LifecycleScopeDeniedError('T1150', 'epic:T1162');
+ * ```
+ *
+ * @task T1162
+ * @adr ADR-054 (scope-guard addendum)
+ */
+export class LifecycleScopeDeniedError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_LIFECYCLE_SCOPE_DENIED';
+  /** Numeric exit code aligned with {@link ExitCode.TASK_NOT_IN_SCOPE} (34). */
+  readonly exitCode: ExitCode = ExitCode.TASK_NOT_IN_SCOPE;
+
+  /**
+   * @param epicId      - The epic whose lifecycle mutation was blocked.
+   * @param sessionScope - Human-readable description of the current session scope.
+   */
+  constructor(
+    public readonly epicId: string,
+    public readonly sessionScope: string,
+  ) {
+    super(
+      `E_LIFECYCLE_SCOPE_DENIED: lifecycle stage advancement for epic '${epicId}' requires ` +
+        `a session scoped to that epic or an owner override. ` +
+        `Current session scope: ${sessionScope}. ` +
+        `Use CLEO_OWNER_OVERRIDE=1 if this is an authorized operation.`,
+    );
+    this.name = 'LifecycleScopeDeniedError';
+  }
+}
+
+/**
  * Normalize any thrown value into a standardized error object.
  *
  * Handles:

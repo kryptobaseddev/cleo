@@ -238,6 +238,7 @@ export {
   getErrorMessage,
   isErrorResult,
   isErrorType,
+  LifecycleScopeDeniedError,
   normalizeError,
   ThinAgentViolationError,
 } from './errors.js';
