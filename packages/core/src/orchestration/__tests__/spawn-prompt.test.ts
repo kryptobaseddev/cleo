@@ -242,6 +242,47 @@ describe('buildSpawnPrompt — return format contract', () => {
     // ADR-027: flat-file manifest sink was retired; verify it's not referenced in generated prompts
     expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));
   });
+
+  it('teaches the CORRECT pipeline_manifest schema (v2026.4.113 — T1187 followup)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    // Every required ManifestEntry field must appear in the rich-entry example so
+    // agents copy a shape that passes pipelineManifestAppend's validator.
+    expect(result.prompt).toContain('"id":');
+    expect(result.prompt).toContain('"file":');
+    expect(result.prompt).toContain('"title":');
+    expect(result.prompt).toContain('"date":');
+    expect(result.prompt).toContain('"status":');
+    expect(result.prompt).toContain('"agent_type":');
+    expect(result.prompt).toContain('"topics":');
+    expect(result.prompt).toContain('"key_findings":');
+    expect(result.prompt).toContain('"actionable":');
+    expect(result.prompt).toContain('"needs_followup":');
+    expect(result.prompt).toContain('"linked_tasks":');
+    // Task association is via linked_tasks[], NOT task_id column directly —
+    // fail fast if the prompt ever reintroduces task_id/type/content as JSON fields.
+    expect(result.prompt).not.toContain('"task_id":');
+    expect(result.prompt).not.toContain('"content":');
+    expect(result.prompt).not.toContain('"commits":');
+    expect(result.prompt).not.toContain('"gates_passed":');
+    expect(result.prompt).not.toContain('"files_changed":');
+    expect(result.prompt).not.toContain('"children_completed":');
+  });
+
+  it('mandates a verification step after cleo manifest append', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    // Agents must assert the success path, not hallucinate "Manifest appended".
+    expect(result.prompt).toContain('Verify BEFORE returning');
+    expect(result.prompt).toContain('"appended":true');
+    expect(result.prompt).toContain('cleo manifest show');
+  });
 });
 
 describe('buildSpawnPrompt — session linkage', () => {

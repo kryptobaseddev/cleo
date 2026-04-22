@@ -12,6 +12,7 @@
  * Per spec: T1096 — Unified Manifest CLI Surface
  */
 
+import { buildManifestEntryFromShorthand } from '@cleocode/core/memory/manifest-builder.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
@@ -171,24 +172,37 @@ const statsCommand = defineCommand({
 const appendCommand = defineCommand({
   meta: {
     name: 'append',
-    description: 'Append a new manifest entry',
+    description:
+      'Append a new manifest entry (pipeline_manifest table). Accepts either a full ' +
+      '--entry JSON blob / --file / stdin, OR the shorthand --task + --type + --content ' +
+      'flags which build a valid entry with sensible defaults for id/file/title/date/etc.',
   },
   args: {
     entry: {
       type: 'string',
-      description: 'JSON string of entry fields',
+      description: 'JSON string of entry fields (full ManifestEntry shape)',
     },
     task: {
       type: 'string',
-      description: 'Task ID to associate (shorthand for entry.task_id)',
+      description: 'Task ID to associate — becomes linked_tasks[0] + id prefix (shorthand)',
     },
     type: {
       type: 'string',
-      description: 'Entry type (shorthand for entry.type)',
+      description:
+        'Entry type — becomes agent_type (e.g. research, implementation, decomposition) (shorthand)',
     },
     content: {
       type: 'string',
-      description: 'Entry content string (shorthand for entry.content)',
+      description:
+        'One-paragraph summary — becomes key_findings[0] and title (first line) (shorthand)',
+    },
+    title: {
+      type: 'string',
+      description: 'Explicit title override for shorthand mode',
+    },
+    status: {
+      type: 'string',
+      description: 'Entry status: completed (default) | partial | blocked (shorthand)',
     },
     file: {
       type: 'string',
@@ -197,9 +211,10 @@ const appendCommand = defineCommand({
   },
   async run({ args }) {
     let entry: Record<string, unknown>;
+    const hasShorthand = Boolean(args.task || args.type || args.content);
 
-    // Parse entry from --entry flag (JSON string)
     if (args.entry) {
+      // Full entry JSON — parse, then allow shorthand to override individual fields.
       try {
         entry = JSON.parse(args.entry);
       } catch (_err) {
@@ -216,11 +231,28 @@ const appendCommand = defineCommand({
         console.error(`Error: failed to read or parse ${args.file}`);
         process.exit(1);
       }
+    } else if (hasShorthand) {
+      // Shorthand-only: defer to the core SDK helper so the CLI stays a thin
+      // adapter (AGENTS.md package boundary / T1096). Keeps the defaulting
+      // logic reusable by Studio, VS Code extension, API server, and direct
+      // SDK callers.
+      entry = {
+        ...buildManifestEntryFromShorthand({
+          task: args.task as string | undefined,
+          type: args.type as string | undefined,
+          content: args.content as string | undefined,
+          title: args.title as string | undefined,
+          status: args.status as 'completed' | 'partial' | 'blocked' | undefined,
+        }),
+      };
     } else {
       // Try to read from stdin
       const stdinData = await readStdin();
       if (!stdinData) {
-        console.error('Error: must provide --entry, --file, or stdin with JSON entry data');
+        console.error(
+          'Error: must provide --entry JSON, --file path, stdin, or shorthand ' +
+            '(--task + --type + --content)',
+        );
         process.exit(1);
       }
       try {
@@ -231,15 +263,27 @@ const appendCommand = defineCommand({
       }
     }
 
-    // Apply shorthand flags to entry
-    if (args.task) {
-      entry.task_id = args.task;
-    }
-    if (args.type) {
-      entry.type = args.type;
-    }
-    if (args.content) {
-      entry.content = args.content;
+    // Shorthand overrides applied ONLY when user provided --entry / --file /
+    // stdin — let individual fields be surgically updated. (For pure shorthand
+    // mode the entry is already fully built above.)
+    if ((args.entry || args.file) && hasShorthand) {
+      if (args.task) {
+        entry.linked_tasks = Array.isArray(entry.linked_tasks)
+          ? [args.task, ...entry.linked_tasks.filter((t) => t !== args.task)]
+          : [args.task];
+      }
+      if (args.type) {
+        entry.agent_type = args.type;
+      }
+      if (args.content && !entry.key_findings) {
+        entry.key_findings = [args.content];
+      }
+      if (args.title) {
+        entry.title = args.title;
+      }
+      if (args.status) {
+        entry.status = args.status;
+      }
     }
 
     await dispatchFromCli(
