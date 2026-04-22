@@ -128,7 +128,8 @@ export class TasksHandler implements DomainHandler {
 
         case 'tree': {
           const taskId = params?.taskId as string | undefined;
-          const result = await taskTree(projectRoot, taskId);
+          const withBlockers = params?.withBlockers as boolean | undefined;
+          const result = await taskTree(projectRoot, taskId, withBlockers);
           return wrapResult(result, 'query', 'tasks', operation, startTime);
         }
 

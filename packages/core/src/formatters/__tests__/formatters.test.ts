@@ -739,3 +739,317 @@ describe('formatTree — withDeps disabled by default (T1205)', () => {
     expect(out).not.toContain('depends on:');
   });
 });
+
+// ===========================================================================
+// formatTree — withBlockers overlay (T1206)
+// ===========================================================================
+
+/**
+ * Sample nodes with `blockerChain` and `leafBlockers` pre-populated,
+ * as they would be after `coreTaskTree(..., true)`.
+ *
+ * Topology:
+ *   T200 — no blockers (done)
+ *   T201 — direct blocker: T202
+ *   T202 — leaf (no open deps of its own)
+ *   T203 — transitive chain: T203 → T204 → T205 (leaf)
+ *   T204 — blocked by T205 (open leaf)
+ *   T205 — leaf blocker (no open deps itself)
+ */
+const blockerNodes: FlatTreeNode[] = [
+  {
+    id: 'T200',
+    title: 'Done task',
+    status: 'done',
+    blockedBy: [],
+    ready: false,
+    depends: [],
+    blockerChain: [],
+    leafBlockers: [],
+  },
+  {
+    id: 'T201',
+    title: 'Direct block',
+    status: 'pending',
+    blockedBy: ['T202'],
+    ready: false,
+    depends: ['T202'],
+    blockerChain: ['T202'],
+    leafBlockers: ['T202'],
+  },
+  {
+    id: 'T203',
+    title: 'Transitive chain',
+    status: 'pending',
+    blockedBy: ['T204'],
+    ready: false,
+    depends: ['T204'],
+    blockerChain: ['T204', 'T205'],
+    leafBlockers: ['T205'],
+    children: [
+      {
+        id: 'T206',
+        title: 'Child also blocked',
+        status: 'pending',
+        blockedBy: ['T205'],
+        ready: false,
+        depends: ['T205'],
+        blockerChain: ['T205'],
+        leafBlockers: ['T205'],
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// withBlockers — rich mode
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers rich mode (T1206)', () => {
+  it('does NOT emit blocker chain lines when withBlockers is false (default)', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich' });
+    expect(out).not.toContain('↳ chain:');
+    expect(out).not.toContain('↳ leaf-blockers:');
+  });
+
+  it('emits chain lines for nodes with non-empty blockerChain when withBlockers is true', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich', withBlockers: true });
+    // T201 has blockerChain: ['T202']
+    expect(out).toContain('↳ chain:');
+    expect(out).toContain('T202');
+  });
+
+  it('does NOT emit chain lines for tasks with empty blockerChain', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich', withBlockers: true });
+    // T200 has blockerChain: [] — chain line should NOT appear adjacent to T200
+    const lines = out.split('\n');
+    const t200Idx = lines.findIndex((l) => l.includes('T200') && l.includes('Done task'));
+    // Next non-empty line after T200 should NOT be a blocker chain line
+    const nextLine = lines.slice(t200Idx + 1).find((l) => l.trim() !== '');
+    expect(nextLine).not.toMatch(/↳ chain:/);
+  });
+
+  it('emits leaf-blockers summary line when leafBlockers is non-empty', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich', withBlockers: true });
+    expect(out).toContain('↳ leaf-blockers:');
+  });
+
+  it('renders transitive chain with multiple IDs', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich', withBlockers: true });
+    // T203 has blockerChain: ['T204', 'T205']
+    expect(out).toContain('T204');
+    expect(out).toContain('T205');
+    const chainLine = out.split('\n').find((l) => l.includes('↳ chain:') && l.includes('T204'));
+    expect(chainLine).toBeDefined();
+  });
+
+  it('emits chain lines for child nodes too', () => {
+    const out = formatTree(blockerNodes, { mode: 'rich', withBlockers: true });
+    // T206 is a child of T203 and also has a blockerChain
+    expect(out).toContain('T206');
+    // At least one chain line contains T205 (from T206 or T203)
+    const chainLines = out.split('\n').filter((l) => l.includes('↳ chain:'));
+    const hasT205 = chainLines.some((l) => l.includes('T205'));
+    expect(hasT205).toBe(true);
+  });
+
+  it('applies cyan colorize to leaf blocker IDs in the chain', () => {
+    const stylesApplied: Array<{ text: string; style: string }> = [];
+    formatTree(blockerNodes, {
+      mode: 'rich',
+      withBlockers: true,
+      colorize: (text, style) => {
+        stylesApplied.push({ text, style });
+        return text;
+      },
+    });
+    // Leaf blocker IDs should have cyan style
+    const cyanCaptures = stylesApplied.filter((c) => c.style === 'cyan');
+    expect(cyanCaptures.length).toBeGreaterThan(0);
+    // One of the cyan captures should be a leaf blocker ID
+    const leafIds = cyanCaptures.map((c) => c.text);
+    expect(leafIds.some((id) => id === 'T202' || id === 'T205')).toBe(true);
+  });
+
+  it('applies dim colorize to chain label and non-leaf blocker IDs', () => {
+    const stylesApplied: Array<{ text: string; style: string }> = [];
+    formatTree(blockerNodes, {
+      mode: 'rich',
+      withBlockers: true,
+      colorize: (text, style) => {
+        stylesApplied.push({ text, style });
+        return text;
+      },
+    });
+    // Chain label should have dim style
+    const dimCaptures = stylesApplied.filter((c) => c.style === 'dim');
+    expect(dimCaptures.some((c) => c.text.includes('↳ chain:'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBlockers — markdown mode
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers markdown mode (T1206)', () => {
+  it('does NOT emit blocker chain items when withBlockers is false', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown' });
+    expect(out).not.toContain('blocker chain:');
+    expect(out).not.toContain('leaf-blockers:');
+  });
+
+  it('emits blocker chain list item for nodes with non-empty blockerChain', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    expect(out).toContain('  - blocker chain:');
+  });
+
+  it('renders direct blocker correctly in markdown', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    // T201 → chain: T202 (leaf)
+    expect(out).toContain('T202 (leaf)');
+  });
+
+  it('renders transitive chain with leaf annotation in markdown', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    // T203 → chain: T204 → T205 (leaf)
+    expect(out).toContain('T205 (leaf)');
+    // T204 is not a leaf so should appear without (leaf) annotation
+    const chainLine = out
+      .split('\n')
+      .find((l) => l.includes('blocker chain:') && l.includes('T204'));
+    expect(chainLine).toBeDefined();
+    // T204 should NOT have (leaf) since only T205 is the leaf
+    expect(chainLine).not.toMatch(/T204 \(leaf\)/);
+  });
+
+  it('emits leaf-blockers summary item when leafBlockers is non-empty', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    expect(out).toContain('  - leaf-blockers:');
+  });
+
+  it('does NOT emit ANSI escape codes in markdown mode', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('does NOT emit chain item for tasks with empty blockerChain', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown', withBlockers: true });
+    const lines = out.split('\n');
+    const t200Idx = lines.findIndex((l) => l.includes('T200') && l.includes('Done task'));
+    const nextLine = lines[t200Idx + 1];
+    // T200 has no blocker chain — next line must be another task, not a chain line
+    expect(nextLine).not.toMatch(/blocker chain:/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBlockers — json mode (blockerChain + leafBlockers already on node)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers json mode (T1206)', () => {
+  it('preserves blockerChain and leafBlockers on each node regardless of withBlockers flag', () => {
+    const outWithout = formatTree(blockerNodes, { mode: 'json' });
+    const outWith = formatTree(blockerNodes, { mode: 'json', withBlockers: true });
+    // JSON output is identical — blocker data is already embedded in the nodes
+    expect(outWithout).toBe(outWith);
+  });
+
+  it('includes blockerChain array in parsed JSON nodes', () => {
+    const out = formatTree(blockerNodes, { mode: 'json', withBlockers: true });
+    const parsed = JSON.parse(out);
+    const t201 = parsed.tree.find((n: FlatTreeNode) => n.id === 'T201');
+    expect(t201).toBeDefined();
+    expect(t201.blockerChain).toEqual(['T202']);
+  });
+
+  it('includes leafBlockers array in parsed JSON nodes', () => {
+    const out = formatTree(blockerNodes, { mode: 'json', withBlockers: true });
+    const parsed = JSON.parse(out);
+    const t203 = parsed.tree.find((n: FlatTreeNode) => n.id === 'T203');
+    expect(t203).toBeDefined();
+    expect(t203.leafBlockers).toEqual(['T205']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBlockers — quiet mode (blocker lines are SKIPPED)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers quiet mode (T1206)', () => {
+  it('does NOT emit blocker chain lines in quiet mode even when withBlockers is true', () => {
+    const out = formatTree(blockerNodes, { mode: 'quiet', withBlockers: true });
+    expect(out).not.toContain('↳ chain:');
+    expect(out).not.toContain('blocker chain:');
+    expect(out).not.toContain('leaf-blockers:');
+  });
+
+  it('emits only IDs in quiet mode regardless of withBlockers', () => {
+    const out = formatTree(blockerNodes, { mode: 'quiet', withBlockers: true });
+    const lines = out.split('\n').filter(Boolean);
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      const lastToken = parts[parts.length - 1];
+      expect(['T200', 'T201', 'T203', 'T206']).toContain(lastToken);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBlockers — disabled by default (no regression)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers disabled by default (T1206)', () => {
+  it('omits blocker chain lines in rich mode when withBlockers is omitted', () => {
+    const out = formatTree(blockerNodes);
+    expect(out).not.toContain('↳ chain:');
+    expect(out).not.toContain('↳ leaf-blockers:');
+  });
+
+  it('omits blocker chain items in markdown mode when withBlockers is omitted', () => {
+    const out = formatTree(blockerNodes, { mode: 'markdown' });
+    expect(out).not.toContain('blocker chain:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBlockers + withDeps combined (T1206)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withBlockers + withDeps combined (T1206)', () => {
+  it('emits both dep lines AND blocker chain lines when both flags are true (rich)', () => {
+    const combinedNodes: FlatTreeNode[] = [
+      {
+        id: 'T300',
+        title: 'Combined test',
+        status: 'pending',
+        blockedBy: ['T301'],
+        ready: false,
+        depends: ['T301', 'T302'],
+        blockerChain: ['T301'],
+        leafBlockers: ['T301'],
+      },
+    ];
+    const out = formatTree(combinedNodes, { mode: 'rich', withDeps: true, withBlockers: true });
+    expect(out).toContain('← depends on: T301, T302');
+    expect(out).toContain('↳ chain:');
+    expect(out).toContain('↳ leaf-blockers:');
+  });
+
+  it('emits both items in markdown when both flags are true', () => {
+    const combinedNodes: FlatTreeNode[] = [
+      {
+        id: 'T300',
+        title: 'Combined test',
+        status: 'pending',
+        blockedBy: ['T301'],
+        ready: false,
+        depends: ['T301', 'T302'],
+        blockerChain: ['T301'],
+        leafBlockers: ['T301'],
+      },
+    ];
+    const out = formatTree(combinedNodes, { mode: 'markdown', withDeps: true, withBlockers: true });
+    expect(out).toContain('depends on:');
+    expect(out).toContain('blocker chain:');
+  });
+});

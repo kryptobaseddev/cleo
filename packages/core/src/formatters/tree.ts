@@ -118,6 +118,36 @@ export interface FormatOpts {
    * @defaultValue `false`
    */
   withDeps?: boolean;
+
+  /**
+   * When `true`, each blocked task in the tree output has its transitive
+   * blocker chain rendered below it.
+   *
+   * The `blockerChain` and `leafBlockers` fields must already be populated on
+   * the nodes (via `coreTaskTree(..., true)` at the data layer).
+   *
+   * Per-mode behaviour:
+   * - `rich`     — indented dim lines with `↳ chain:` arrow notation and a
+   *                distinct color for leaf blockers (cyan).
+   * - `markdown` — nested list items `  - blocker chain: T200 → T198 → T199 (leaf)`.
+   * - `json`     — `blockerChain` and `leafBlockers` arrays are already embedded
+   *                on each node; no extra rendering needed.
+   * - `quiet`    — skipped (scripts should use `--format json` for chain data).
+   *
+   * Only nodes whose `blockerChain` is non-empty emit chain lines.
+   *
+   * Compatible with `withDeps`: when both flags are set, the dep line is
+   * rendered first, followed by the blocker chain lines.
+   *
+   * @defaultValue `false`
+   *
+   * @example
+   * ```typescript
+   * const out = formatTree(nodes, { mode: 'rich', withBlockers: true });
+   * // ↳ chain: T1200 → T1198 → T1199 (leaf)
+   * ```
+   */
+  withBlockers?: boolean;
 }
 
 /**
@@ -150,6 +180,22 @@ export interface FlatTreeNode {
    * Present after T1199 enrichment.
    */
   ready?: boolean;
+  /**
+   * Full transitive blocker chain for this task.
+   *
+   * Every open dependency reachable by walking the `depends` graph upstream
+   * (deduplicated, cycle-safe).  Only present when `withBlockers` was
+   * requested at tree-build time (T1206).
+   */
+  blockerChain?: string[];
+  /**
+   * Leaf-level blockers — root-cause tasks that must be resolved first.
+   *
+   * A subset of `blockerChain` whose own dependencies are all resolved (or
+   * that have no dependencies).  Only present when `withBlockers` was
+   * requested at tree-build time (T1206).
+   */
+  leafBlockers?: string[];
   /** Nested child nodes. */
   children?: FlatTreeNode[];
 }
@@ -231,6 +277,7 @@ export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
   const mode = opts?.mode ?? 'rich';
   const colorize = opts?.colorize ?? identity;
   const withDeps = opts?.withDeps ?? false;
+  const withBlockers = opts?.withBlockers ?? false;
   const connectors: TreeConnectors = {
     ...DEFAULT_CONNECTORS,
     ...(opts?.symbols?.connectors ?? {}),
@@ -242,16 +289,16 @@ export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
 
     case 'markdown':
       if (!nodes.length) return 'No tree data.';
-      return formatTreeMarkdown(nodes, 0, withDeps);
+      return formatTreeMarkdown(nodes, 0, withDeps, withBlockers);
 
     case 'quiet':
       if (!nodes.length) return '';
-      // quiet mode omits dep lines — callers wanting dep edges use rich/markdown/json
+      // quiet mode omits dep/blocker lines — callers wanting chain data use rich/markdown/json
       return formatTreeQuiet(nodes, '', connectors);
 
     default:
       if (!nodes.length) return 'No tree data.';
-      return formatTreeRich(nodes, '', connectors, colorize, withDeps);
+      return formatTreeRich(nodes, '', connectors, colorize, withDeps, withBlockers);
   }
 }
 
@@ -265,11 +312,12 @@ export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
  * Recursion applies the same connector logic used by the CLI renderer, so
  * output is byte-identical when `colorize` injects equivalent ANSI sequences.
  *
- * @param nodes      - Nodes at the current level.
- * @param prefix     - Accumulated left-padding from parent levels.
- * @param connectors - Connector characters.
- * @param colorize   - Color injection callback.
- * @param withDeps   - When true, emit a dim dep line below tasks that have deps.
+ * @param nodes        - Nodes at the current level.
+ * @param prefix       - Accumulated left-padding from parent levels.
+ * @param connectors   - Connector characters.
+ * @param colorize     - Color injection callback.
+ * @param withDeps     - When true, emit a dim dep line below tasks that have deps.
+ * @param withBlockers - When true, emit blocker chain lines below blocked tasks.
  */
 function formatTreeRich(
   nodes: FlatTreeNode[],
@@ -277,6 +325,7 @@ function formatTreeRich(
   connectors: TreeConnectors,
   colorize: (text: string, style: ColorStyle) => string,
   withDeps: boolean,
+  withBlockers: boolean,
 ): string {
   const lines: string[] = [];
 
@@ -303,8 +352,23 @@ function formatTreeRich(
       lines.push(depLabel);
     }
 
+    // Blocker chain lines for --blockers: only when chain is non-empty.
+    if (withBlockers && node.blockerChain?.length) {
+      const chainLines = buildRichBlockerChainLines(
+        node.blockerChain,
+        node.leafBlockers ?? [],
+        childPrefix,
+        colorize,
+      );
+      for (const cl of chainLines) {
+        lines.push(cl);
+      }
+    }
+
     if (node.children?.length) {
-      lines.push(formatTreeRich(node.children, childPrefix, connectors, colorize, withDeps));
+      lines.push(
+        formatTreeRich(node.children, childPrefix, connectors, colorize, withDeps, withBlockers),
+      );
     }
   }
 
@@ -349,11 +413,17 @@ function formatTreeQuiet(
  *
  * Indentation uses two spaces per level.  No ANSI sequences are emitted.
  *
- * @param nodes    - Nodes at the current level.
- * @param depth    - Current indentation depth (0-based).
- * @param withDeps - When true, emit a nested dep list item below tasks that have deps.
+ * @param nodes        - Nodes at the current level.
+ * @param depth        - Current indentation depth (0-based).
+ * @param withDeps     - When true, emit a nested dep list item below tasks that have deps.
+ * @param withBlockers - When true, emit blocker chain list items below blocked tasks.
  */
-function formatTreeMarkdown(nodes: FlatTreeNode[], depth: number, withDeps: boolean): string {
+function formatTreeMarkdown(
+  nodes: FlatTreeNode[],
+  depth: number,
+  withDeps: boolean,
+  withBlockers: boolean,
+): string {
   const lines: string[] = [];
   const indent = '  '.repeat(depth);
 
@@ -366,8 +436,20 @@ function formatTreeMarkdown(nodes: FlatTreeNode[], depth: number, withDeps: bool
       lines.push(`${indent}  - depends on: ${depLinks}`);
     }
 
+    // Blocker chain items for --blockers: only when chain is non-empty.
+    if (withBlockers && node.blockerChain?.length) {
+      const leafSet = new Set(node.leafBlockers ?? []);
+      const chainStr = node.blockerChain
+        .map((id) => (leafSet.has(id) ? `${id} (leaf)` : id))
+        .join(' → ');
+      lines.push(`${indent}  - blocker chain: ${chainStr}`);
+      if (node.leafBlockers?.length) {
+        lines.push(`${indent}  - leaf-blockers: ${node.leafBlockers.join(', ')}`);
+      }
+    }
+
     if (node.children?.length) {
-      lines.push(formatTreeMarkdown(node.children, depth + 1, withDeps));
+      lines.push(formatTreeMarkdown(node.children, depth + 1, withDeps, withBlockers));
     }
   }
 
@@ -452,9 +534,9 @@ function buildBlockerIndicator(
  * The `← depends on:` prefix and the entire line are rendered in `'dim'` so
  * the dep annotation visually recedes behind the task line above it.
  *
- * @param depends    - Dep IDs to list (must be non-empty — caller guards).
+ * @param depends     - Dep IDs to list (must be non-empty — caller guards).
  * @param childPrefix - Left-padding inherited from the parent connector level.
- * @param colorize   - Color injection callback.
+ * @param colorize    - Color injection callback.
  */
 function buildRichDepLine(
   depends: string[],
@@ -463,4 +545,60 @@ function buildRichDepLine(
 ): string {
   const depList = depends.join(', ');
   return colorize(`${childPrefix}← depends on: ${depList}`, 'dim');
+}
+
+/**
+ * Build rich-mode blocker chain lines for `--blockers`.
+ *
+ * Renders two indented continuation lines (when chain is non-empty):
+ * ```
+ * <childPrefix>↳ chain: T1200 → T1198 → T1199
+ * <childPrefix>↳ leaf-blockers: T1199
+ * ```
+ *
+ * The chain line is rendered in `'dim'`; leaf blocker IDs within the chain
+ * are highlighted in `'cyan'` so the root-cause tasks stand out visually.
+ * The leaf-blockers summary line is also rendered in `'cyan'`.
+ *
+ * @param blockerChain - Full transitive blocker IDs (must be non-empty — caller guards).
+ * @param leafBlockers - Terminal root-cause blocker IDs (may be empty).
+ * @param childPrefix  - Left-padding inherited from the parent connector level.
+ * @param colorize     - Color injection callback.
+ *
+ * @example
+ * ```typescript
+ * const lines = buildRichBlockerChainLines(
+ *   ['T1198', 'T1199'],
+ *   ['T1199'],
+ *   '    ',
+ *   (text, style) => text,
+ * );
+ * // lines[0] → '    ↳ chain: T1198 → T1199'
+ * // lines[1] → '    ↳ leaf-blockers: T1199'
+ * ```
+ */
+function buildRichBlockerChainLines(
+  blockerChain: string[],
+  leafBlockers: string[],
+  childPrefix: string,
+  colorize: (text: string, style: ColorStyle) => string,
+): string[] {
+  const leafSet = new Set(leafBlockers);
+
+  // Build the chain string, highlighting leaf blockers in cyan.
+  const chainParts = blockerChain.map((id) =>
+    leafSet.has(id) ? colorize(id, 'cyan') : colorize(id, 'dim'),
+  );
+  const chainStr = chainParts.join(colorize(' → ', 'dim'));
+  const chainLine = colorize(`${childPrefix}↳ chain: `, 'dim') + chainStr;
+
+  const lines: string[] = [chainLine];
+
+  // Emit a leaf-blockers summary line only when there are identified leaves.
+  if (leafBlockers.length > 0) {
+    const leafList = leafBlockers.map((id) => colorize(id, 'cyan')).join(', ');
+    lines.push(colorize(`${childPrefix}↳ leaf-blockers: `, 'dim') + leafList);
+  }
+
+  return lines;
 }

@@ -89,6 +89,27 @@ export interface FlatTreeNode {
    * blocked by open dependencies.
    */
   ready: boolean;
+  /**
+   * Full transitive blocker chain for this task.
+   *
+   * Contains every open dependency reachable by walking the `depends` graph
+   * upstream from this task (deduplicated, cycle-safe).  Only populated when
+   * `withBlockers` is requested at tree-build time.
+   *
+   * @see {@link getTransitiveBlockers}
+   */
+  blockerChain?: string[];
+  /**
+   * Leaf-level blockers — the root-cause tasks that must be resolved first.
+   *
+   * A subset of `blockerChain` containing only those tasks whose own
+   * dependencies are all resolved (or that have no dependencies).  Resolving
+   * these tasks is the minimal set of work needed to make progress.  Only
+   * populated when `withBlockers` is requested at tree-build time.
+   *
+   * @see {@link getLeafBlockers}
+   */
+  leafBlockers?: string[];
 }
 
 /** Complexity factor contributing to a task's size estimate. */
@@ -126,27 +147,37 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
  *
  * In addition to the basic identity fields, each node is annotated with
  * dependency metadata derived from `allTasks`:
- * - `priority`   — copied directly from the task record.
- * - `depends`    — raw direct dependency IDs from the task record.
- * - `blockedBy`  — subset of `depends` whose referenced tasks are not yet
- *                  done or cancelled (i.e. still open).
- * - `ready`      — `true` when `blockedBy` is empty AND the task is in a
- *                  pending or active state.
+ * - `priority`     — copied directly from the task record.
+ * - `depends`      — raw direct dependency IDs from the task record.
+ * - `blockedBy`    — subset of `depends` whose referenced tasks are not yet
+ *                    done or cancelled (i.e. still open).
+ * - `ready`        — `true` when `blockedBy` is empty AND the task is in a
+ *                    pending or active state.
+ * - `blockerChain` — full transitive blocker chain (only when `allTasksFlat`
+ *                    is provided, i.e. when `withBlockers` was requested).
+ * - `leafBlockers` — terminal root-cause blockers (only when `allTasksFlat`
+ *                    is provided).
  *
- * @param task        - The task to build a node for.
- * @param childrenMap - Map of parentId to ordered child list.
- * @param taskMap     - Flat lookup map of all tasks by ID, used to resolve
- *                      dependency status when computing `blockedBy`.
+ * @param task          - The task to build a node for.
+ * @param childrenMap   - Map of parentId to ordered child list.
+ * @param taskMap       - Flat lookup map of all tasks by ID, used to resolve
+ *                        dependency status when computing `blockedBy`.
+ * @param allTasksFlat  - Full flat task array used for transitive blocker walks.
+ *                        Pass only when `withBlockers` is true; omit otherwise
+ *                        to skip the blocker-chain computation entirely.
  */
 function buildTreeNode(
   task: TaskRecord,
   childrenMap: Map<string, TaskRecord[]>,
   taskMap: Map<string, TaskRecord>,
+  allTasksFlat?: TaskRecord[],
 ): FlatTreeNode {
   const rawChildren = childrenMap.get(task.id) ?? [];
   // Sort children by position ASC; treat null/undefined as 0 for stable ordering.
   const sortedChildren = [...rawChildren].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-  const children = sortedChildren.map((child) => buildTreeNode(child, childrenMap, taskMap));
+  const children = sortedChildren.map((child) =>
+    buildTreeNode(child, childrenMap, taskMap, allTasksFlat),
+  );
 
   // Compute dependency fields.
   const depends = task.depends ?? [];
@@ -156,6 +187,10 @@ function buildTreeNode(
     return dep.status !== 'done' && dep.status !== 'cancelled';
   });
   const ready = blockedBy.length === 0 && (task.status === 'pending' || task.status === 'active');
+
+  // Transitive blocker chain — only computed when allTasksFlat is supplied.
+  const blockerChain = allTasksFlat ? getTransitiveBlockers(task.id, allTasksFlat) : undefined;
+  const leafBlockers = allTasksFlat ? getLeafBlockers(task.id, allTasksFlat) : undefined;
 
   return {
     id: task.id,
@@ -167,6 +202,8 @@ function buildTreeNode(
     blockedBy,
     ready,
     children,
+    ...(blockerChain !== undefined ? { blockerChain } : {}),
+    ...(leafBlockers !== undefined ? { leafBlockers } : {}),
   };
 }
 
@@ -503,9 +540,16 @@ export async function coreTaskBlockers(
 /**
  * Build hierarchy tree for tasks.
  *
- * @param projectRoot - Absolute path to the CLEO project root directory
- * @param taskId - Optional root task ID; when provided, builds the subtree rooted at this task
- * @returns The tree nodes and total node count
+ * @param projectRoot  - Absolute path to the CLEO project root directory.
+ * @param taskId       - Optional root task ID; when provided, builds the subtree
+ *                       rooted at this task.
+ * @param withBlockers - When `true`, each node in the tree is annotated with
+ *                       `blockerChain` (full transitive blocker IDs) and
+ *                       `leafBlockers` (root-cause terminal blockers).  The task
+ *                       array is converted to a flat list **once** and passed to
+ *                       every `buildTreeNode` call so the graph walk is not
+ *                       repeated per-DB-query.
+ * @returns The tree nodes and total node count.
  *
  * @remarks
  * When no taskId is given, returns all root-level tasks with their full subtrees.
@@ -517,11 +561,22 @@ export async function coreTaskBlockers(
  * console.log(`${totalNodes} nodes in subtree`);
  * ```
  *
+ * @example
+ * ```typescript
+ * // With transitive blocker chains
+ * const { tree } = await coreTaskTree('/project', undefined, true);
+ * const node = tree[0];
+ * console.log(node.blockerChain); // ['T010', 'T011']
+ * console.log(node.leafBlockers); // ['T011']
+ * ```
+ *
  * @task T4790
+ * @task T1206
  */
 export async function coreTaskTree(
   projectRoot: string,
   taskId?: string,
+  withBlockers?: boolean,
 ): Promise<{ tree: FlatTreeNode[]; totalNodes: number }> {
   const allTasks = await loadAllTasks(projectRoot);
 
@@ -551,7 +606,11 @@ export async function coreTaskTree(
     roots = childrenMap.get('__root__') ?? [];
   }
 
-  const tree = roots.map((root) => buildTreeNode(root, childrenMap, taskMap));
+  // Pass allTasks once when blocker chains are requested so getTransitiveBlockers
+  // and getLeafBlockers share the same array reference across all recursive calls.
+  const allTasksFlat = withBlockers ? allTasks : undefined;
+
+  const tree = roots.map((root) => buildTreeNode(root, childrenMap, taskMap, allTasksFlat));
 
   return { tree, totalNodes: countNodes(tree) };
 }
