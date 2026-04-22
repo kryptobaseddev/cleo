@@ -19,8 +19,10 @@ import { getTreeContext } from '../tree-context.js';
 import {
   BLUE,
   BOLD,
+  CYAN,
   DIM,
   GREEN,
+  MAGENTA,
   NC,
   priorityColor,
   RED,
@@ -62,10 +64,12 @@ function cliColorize(text: string, style: ColorStyle): string {
       return `${YELLOW}${text}${NC}`;
     case 'blue':
       return `${BLUE}${text}${NC}`;
+    case 'magenta':
+      return `${MAGENTA}${text}${NC}`;
+    case 'cyan':
+      return `${CYAN}${text}${NC}`;
     case 'reset':
       return `${NC}${text}`;
-    // magenta and cyan are not used by tree/wave formatters but are included
-    // for completeness in case future formatters add style tokens.
     default:
       return text;
   }
@@ -318,12 +322,14 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
 
   if (tree) {
     // Delegate to core formatTree, injecting the CLI ANSI colorize adapter.
-    // withDeps is read from the tree context set by treeCommand (T1205).
-    const { withDeps } = getTreeContext();
+    // withDeps and withBlockers are read from the tree context set by treeCommand
+    // (T1205 / T1206).
+    const { withDeps, withBlockers } = getTreeContext();
     return formatTree(tree as Parameters<typeof formatTree>[0], {
       mode: quiet ? 'quiet' : 'rich',
       colorize: cliColorize,
       withDeps,
+      withBlockers,
     });
   }
 

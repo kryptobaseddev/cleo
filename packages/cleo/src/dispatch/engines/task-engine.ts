@@ -1221,22 +1221,37 @@ export async function taskBlockers(
  * Returns a tree structure of tasks rooted at the given task ID, or
  * the full project tree when no task ID is specified.
  *
- * @param projectRoot - Absolute path to the project root
- * @param taskId - Optional root task ID for subtree
- * @returns EngineResult with the hierarchical tree data
+ * When `withBlockers` is `true` each node is annotated with `blockerChain`
+ * and `leafBlockers` so the formatter can render transitive chain information.
+ *
+ * @param projectRoot  - Absolute path to the project root.
+ * @param taskId       - Optional root task ID for subtree.
+ * @param withBlockers - When `true`, annotate each node with blocker chain data.
+ * @returns EngineResult with the hierarchical tree data.
  *
  * @example
  * ```typescript
  * const result = await taskTree('/project', 'T1');
  * ```
  *
+ * @example
+ * ```typescript
+ * // With blocker chain annotations
+ * const result = await taskTree('/project', undefined, true);
+ * ```
+ *
  * @task T4657
  * @task T4790
+ * @task T1206
  * @epic T4654
  */
-export async function taskTree(projectRoot: string, taskId?: string): Promise<EngineResult> {
+export async function taskTree(
+  projectRoot: string,
+  taskId?: string,
+  withBlockers?: boolean,
+): Promise<EngineResult> {
   try {
-    const result = await coreTaskTree(projectRoot, taskId);
+    const result = await coreTaskTree(projectRoot, taskId, withBlockers);
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_FOUND', 'Task not found');
