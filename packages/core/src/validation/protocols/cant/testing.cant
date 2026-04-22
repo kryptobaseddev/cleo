@@ -20,7 +20,7 @@ output:
   test_framework: "vitest | jest | mocha | pytest | cargo-test | go-test | rspec | phpunit | bats | other"
   convergence_iterations: "number — IVT loop iterations to convergence"
   test_results: "object — {passed, failed, skipped} counts"
-  manifest_entry: "object — convergence metrics for MANIFEST.jsonl"
+  manifest_entry: "object — convergence metrics for pipeline_manifest via cleo manifest append"
 ---
 
 # Testing Protocol - Project-Agnostic IVT Loop

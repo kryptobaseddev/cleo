@@ -28,7 +28,7 @@ function makeRoot(): string {
 
 function makeManifestFile(dir: string, entries: ManifestEntry[]): string {
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, 'MANIFEST.jsonl');
+  const path = join(dir, 'test-manifest.jsonl');
   const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(path, content);
   return path;
@@ -97,7 +97,7 @@ describe('findManifestEntry', () => {
   it('skips malformed JSONL lines', async () => {
     const dir = join(root, 'agent-outputs');
     mkdirSync(dir, { recursive: true });
-    const path = join(dir, 'MANIFEST.jsonl');
+    const path = join(dir, 'test-manifest.jsonl');
     writeFileSync(path, ['NOT VALID JSON', JSON.stringify(makeEntry())].join('\n'));
     const result = await findManifestEntry('T001', path);
     expect(result).not.toBeNull();
