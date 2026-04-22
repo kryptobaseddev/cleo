@@ -18,6 +18,7 @@
   "references": [
     { "path": "./packages/contracts" },
     { "path": "./packages/lafs/tsconfig.build.json" },
+    { "path": "./packages/worktree-backend" },
     { "path": "./packages/cant" },
     { "path": "./packages/playbooks" },
     { "path": "./packages/caamp" },
