@@ -211,9 +211,15 @@ describe('buildSpawnPrompt — return format contract', () => {
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('Implementation complete. Manifest appended to pipeline_manifest.');
-    expect(result.prompt).toContain('Implementation partial. Manifest appended to pipeline_manifest.');
-    expect(result.prompt).toContain('Implementation blocked. Manifest appended to pipeline_manifest.');
+    expect(result.prompt).toContain(
+      'Implementation complete. Manifest appended to pipeline_manifest.',
+    );
+    expect(result.prompt).toContain(
+      'Implementation partial. Manifest appended to pipeline_manifest.',
+    );
+    expect(result.prompt).toContain(
+      'Implementation blocked. Manifest appended to pipeline_manifest.',
+    );
   });
 
   it('uses the correct verb for research', () => {

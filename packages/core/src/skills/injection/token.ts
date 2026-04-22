@@ -81,7 +81,7 @@ const CLEO_DEFAULTS: TokenValues = {
   DASH_CMD: 'cleo dash',
   OUTPUT_DIR: '.cleo/agent-outputs',
   // MANIFEST_PATH retired (ADR-027) — use `cleo manifest append` for pipeline_manifest
-  MANIFEST_PATH: '',  // token retired per ADR-027/T1096
+  MANIFEST_PATH: '', // token retired per ADR-027/T1096
 };
 
 // ============================================================================
@@ -308,7 +308,7 @@ export function setFullContext(
 
   const outputDir = options?.outputDir ?? '.cleo/agent-outputs';
   // MANIFEST_PATH token retired (ADR-027); pipeline_manifest is the canonical store
-  const manifestPath = options?.manifestPath ?? '';  // retired token
+  const manifestPath = options?.manifestPath ?? ''; // retired token
 
   const values: TokenValues = {
     // Required tokens
