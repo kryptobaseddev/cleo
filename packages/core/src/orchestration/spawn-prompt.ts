@@ -140,9 +140,10 @@ export const ALL_SPAWN_PROTOCOL_PHASES: readonly SpawnProtocolPhase[] = [
 /**
  * Input to {@link buildSpawnPrompt}.
  *
- * Absolute paths (manifest, rcasd dir, test-runs dir) are resolved by the
+ * Absolute paths (rcasd dir, test-runs dir, output dir) are resolved by the
  * caller against the orchestrator's project root so the subagent never has
- * to guess. The session id is threaded from `session.status` so the subagent
+ * to guess. Manifest storage is SQLite (`pipeline_manifest`) — not a file
+ * path (ADR-027 §6.2, T1096). The session id is threaded from `session.status` so the subagent
  * logs every mutation against the orchestrator's active session.
  */
 export interface BuildSpawnPromptInput {
@@ -581,24 +582,101 @@ function buildReturnFormatBlock(protocol: string): string {
     'On completion, return EXACTLY ONE of these strings and nothing else:',
     '',
     '```',
-    `${type} complete. See MANIFEST.jsonl for summary.`,
-    `${type} partial. See MANIFEST.jsonl for details.`,
-    `${type} blocked. See MANIFEST.jsonl for blocker details.`,
+    `${type} complete. Manifest appended to pipeline_manifest.`,
+    `${type} partial. Manifest appended to pipeline_manifest.`,
+    `${type} blocked. Manifest appended to pipeline_manifest.`,
     '```',
     '',
     'Do NOT include the actual findings or code diffs in the response. Everything that matters goes to:',
     '',
-    '1. The output file in the **File Paths** section',
-    '2. The pipeline manifest (via `cleo` or `mutate pipeline.manifest.append`)',
-    '3. The task record itself (gates, status, notes)',
+    '1. The `pipeline_manifest` table via `cleo manifest append` (see **Manifest Protocol** below)',
+    '2. The task record itself (gates, status, notes)',
+    '3. Files committed to your branch',
   ].join('\n');
 }
 
-/** Build the file-paths block — absolute paths the subagent MUST use. */
+/**
+ * Build the Manifest Protocol block — instructs the subagent to append the
+ * completion record to `pipeline_manifest` via `cleo manifest append`.
+ *
+ * Retired: flat-file manifest append pattern (ADR-027 §6.2, T1096). Replaced by
+ * the unified `cleo manifest` CLI dispatching to `pipeline.manifest.*` with
+ * SQLite as the single source of truth (no concurrent-append race).
+ *
+ * @param taskId   - Task the subagent is working on.
+ * @param protocol - Protocol phase (maps to the `type` column).
+ * @returns Markdown block ready to concatenate into the spawn prompt.
+ */
+function buildManifestProtocolBlock(
+  taskId: string,
+  protocol: SpawnProtocolPhase | string,
+): string {
+  const entryType =
+    protocol === 'implementation'
+      ? 'implementation'
+      : protocol === 'research'
+        ? 'research'
+        : protocol === 'decomposition'
+          ? 'decomposition'
+          : protocol === 'validation'
+            ? 'validation'
+            : protocol === 'testing'
+              ? 'testing'
+              : protocol === 'release'
+                ? 'release'
+                : protocol === 'contribution'
+                  ? 'contribution'
+                  : 'implementation';
+  return [
+    '## Manifest Protocol (MANDATORY · ADR-027 · T1096)',
+    '',
+    'Before returning, append a manifest entry to the `pipeline_manifest` table',
+    '(SQLite-backed, single source of truth). Do NOT write to any `.jsonl` file',
+    'under `.cleo/agent-outputs/` — flat-file manifests were retired because',
+    'concurrent appends under parallel-wave orchestration lost entries.',
+    '',
+    '### Shorthand',
+    '',
+    '```bash',
+    'cleo manifest append \\',
+    `  --task ${taskId} \\`,
+    `  --type ${entryType} \\`,
+    '  --content "<one-paragraph summary: what shipped, commits, gates>"',
+    '```',
+    '',
+    '### Rich entry (JSON)',
+    '',
+    '```bash',
+    "cleo manifest append --entry '{",
+    `  "task_id": "${taskId}",`,
+    `  "type": "${entryType}",`,
+    '  "content": "<summary>",',
+    '  "commits": ["<sha>"],',
+    '  "files_changed": ["packages/..."],',
+    '  "gates_passed": true,',
+    '  "key_findings": "<succinct>",',
+    '  "children_completed": ["T####"],',
+    '  "needs_followup": []',
+    "}'",
+    '```',
+    '',
+    'The orchestrator retrieves entries via `cleo manifest show <entryId>`, ',
+    `\`cleo manifest list --task ${taskId}\`, or \`cleo manifest find "<query>"\`.`,
+  ].join('\n');
+}
+
+/**
+ * Build the file-paths block — absolute paths the subagent MUST use.
+ *
+ * @remarks
+ * The legacy flat-file manifest row was removed when `pipeline_manifest`
+ * (SQLite) became the canonical manifest store (ADR-027 §6.2, T1096). Subagents append
+ * manifest entries via `cleo manifest append` — see the Manifest Protocol block
+ * rendered alongside this one.
+ */
 function buildFilePathsBlock(
   taskId: string,
   outputDir: string,
-  manifestPath: string,
   rcasdDir: string,
   testRunsDir: string,
 ): string {
@@ -608,9 +686,12 @@ function buildFilePathsBlock(
     '| Purpose | Absolute Path |',
     '|---------|---------------|',
     `| Agent output directory | \`${outputDir}\` |`,
-    `| Manifest (JSONL) | \`${manifestPath}\` |`,
     `| RCASD workspace (${taskId}) | \`${rcasdDir}\` |`,
     `| Test-run captures | \`${testRunsDir}\` |`,
+    '',
+    '> Manifest entries are stored in `pipeline_manifest` (tasks.db) and MUST be',
+    '> written via `cleo manifest append` (see **Manifest Protocol**). Never',
+    '> create a flat `.jsonl` manifest file — the legacy sink was retired (ADR-027).',
   ].join('\n');
 }
 
@@ -757,8 +838,11 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   const protocol = input.protocol;
 
   // Absolute paths resolved against the orchestrator's project root.
+  //
+  // ADR-027 §6.2 / T1096: manifestPath was removed. The `pipeline_manifest`
+  // SQLite table is the single source of truth — subagents invoke
+  // `cleo manifest append` rather than writing to any flat file.
   const outputDir = join(input.projectRoot, '.cleo', 'agent-outputs');
-  const manifestPath = join(outputDir, 'MANIFEST.jsonl');
   const rcasdDir = join(input.projectRoot, '.cleo', 'rcasd', taskId);
   const testRunsDir = join(input.projectRoot, '.cleo', 'test-runs');
 
@@ -767,7 +851,6 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     DATE: date,
     EPIC_ID: epicId,
     OUTPUT_DIR: outputDir,
-    MANIFEST_PATH: manifestPath,
     RCASD_DIR: rcasdDir,
     TEST_RUNS_DIR: testRunsDir,
     PROJECT_ROOT: input.projectRoot,
@@ -804,9 +887,10 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   authoredSections.push(buildHeader(input.task, protocol, tier));
   authoredSections.push(buildTaskIdentity(input.task));
   authoredSections.push(buildReturnFormatBlock(protocol));
+  authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(buildSessionBlock(input.sessionId));
   authoredSections.push(
-    buildFilePathsBlock(taskId, outputDir, manifestPath, rcasdDir, testRunsDir),
+    buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir),
   );
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
