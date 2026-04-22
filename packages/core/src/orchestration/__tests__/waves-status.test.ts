@@ -13,11 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { computeWaves } from '../waves.js';
 
 /** Minimal Task factory for test brevity. */
-function makeTask(
-  id: string,
-  status: Task['status'],
-  opts: Partial<Task> = {},
-): Task {
+function makeTask(id: string, status: Task['status'], opts: Partial<Task> = {}): Task {
   return {
     id,
     title: id,
@@ -32,20 +28,14 @@ function makeTask(
 
 describe('computeWaves — wave status (T1197)', () => {
   it('marks a wave as in_progress when at least one task is active', () => {
-    const tasks: Task[] = [
-      makeTask('T001', 'active'),
-      makeTask('T002', 'pending'),
-    ];
+    const tasks: Task[] = [makeTask('T001', 'active'), makeTask('T002', 'pending')];
     const waves = computeWaves(tasks);
     expect(waves).toHaveLength(1);
     expect(waves[0]!.status).toBe('in_progress');
   });
 
   it('marks a wave as pending when all tasks are pending', () => {
-    const tasks: Task[] = [
-      makeTask('T001', 'pending'),
-      makeTask('T002', 'pending'),
-    ];
+    const tasks: Task[] = [makeTask('T001', 'pending'), makeTask('T002', 'pending')];
     const waves = computeWaves(tasks);
     expect(waves).toHaveLength(1);
     expect(waves[0]!.status).toBe('pending');
@@ -64,10 +54,7 @@ describe('computeWaves — wave status (T1197)', () => {
   });
 
   it('returns empty array when all tasks are done', () => {
-    const tasks: Task[] = [
-      makeTask('T001', 'done'),
-      makeTask('T002', 'cancelled'),
-    ];
+    const tasks: Task[] = [makeTask('T001', 'done'), makeTask('T002', 'cancelled')];
     const waves = computeWaves(tasks);
     expect(waves).toHaveLength(0);
   });
