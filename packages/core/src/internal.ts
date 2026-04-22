@@ -436,6 +436,7 @@ export type { SpawnTierValue, TierSelectInput } from './orchestration/tier-selec
 export { resolveEffectiveTier, selectTier } from './orchestration/tier-selector.js';
 export { getUnblockOpportunities } from './orchestration/unblock.js';
 export { validateSpawnReadiness } from './orchestration/validate-spawn.js';
+export type { EnrichedWave, EnrichedWaveTask, Wave } from './orchestration/waves.js';
 export { getEnrichedWaves } from './orchestration/waves.js';
 // OTel
 export {
