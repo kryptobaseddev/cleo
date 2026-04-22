@@ -539,3 +539,203 @@ describe('formatWaves — colorize injection (T1203)', () => {
     expect(blockerCapture?.style).toBe('red');
   });
 });
+
+// ===========================================================================
+// formatTree — withDeps overlay (T1205)
+// ===========================================================================
+
+/**
+ * Nodes with `depends` populated — used for --with-deps tests.
+ *
+ * T100 has no deps (should not emit a dep line).
+ * T101 depends on T100 and T102.
+ * T102 depends on T100 only.
+ */
+const depsNodes: FlatTreeNode[] = [
+  {
+    id: 'T100',
+    title: 'Foundation',
+    status: 'done',
+    blockedBy: [],
+    ready: false,
+    depends: [],
+  },
+  {
+    id: 'T101',
+    title: 'Build',
+    status: 'pending',
+    blockedBy: ['T100', 'T102'],
+    ready: false,
+    depends: ['T100', 'T102'],
+    children: [
+      {
+        id: 'T103',
+        title: 'Sub-build',
+        status: 'pending',
+        blockedBy: ['T101'],
+        ready: false,
+        depends: ['T101'],
+      },
+    ],
+  },
+  {
+    id: 'T102',
+    title: 'Fixtures',
+    status: 'pending',
+    blockedBy: ['T100'],
+    ready: false,
+    depends: ['T100'],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// withDeps — rich mode
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withDeps rich mode (T1205)', () => {
+  it('does NOT emit dep lines when withDeps is false (default)', () => {
+    const out = formatTree(depsNodes, { mode: 'rich' });
+    expect(out).not.toContain('← depends on:');
+  });
+
+  it('emits dep lines for tasks that have deps when withDeps is true', () => {
+    const out = formatTree(depsNodes, { mode: 'rich', withDeps: true });
+    expect(out).toContain('← depends on: T100, T102');
+    expect(out).toContain('← depends on: T100');
+    expect(out).toContain('← depends on: T101');
+  });
+
+  it('does NOT emit a dep line for tasks with empty depends array', () => {
+    const out = formatTree(depsNodes, { mode: 'rich', withDeps: true });
+    // T100 has depends: [] — only one dep line should NOT be for T100 as a source
+    const lines = out.split('\n');
+    const foundationIdx = lines.findIndex((l) => l.includes('T100') && l.includes('Foundation'));
+    // Next non-empty line after T100 should NOT be a dep line (T100 has no deps)
+    const nextLine = lines.slice(foundationIdx + 1).find((l) => l.trim() !== '');
+    expect(nextLine).not.toMatch(/← depends on:/);
+  });
+
+  it('emits dep lines with dim colorize style', () => {
+    const stylesApplied: string[] = [];
+    formatTree(depsNodes, {
+      mode: 'rich',
+      withDeps: true,
+      colorize: (text, style) => {
+        if (text.includes('← depends on:')) {
+          stylesApplied.push(style);
+        }
+        return text;
+      },
+    });
+    expect(stylesApplied.length).toBeGreaterThan(0);
+    expect(stylesApplied.every((s) => s === 'dim')).toBe(true);
+  });
+
+  it('renders dep lines for children too', () => {
+    const out = formatTree(depsNodes, { mode: 'rich', withDeps: true });
+    // T103 is a child of T101 and depends on T101
+    expect(out).toContain('← depends on: T101');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withDeps — markdown mode
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withDeps markdown mode (T1205)', () => {
+  it('does NOT emit dep lines when withDeps is false', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown' });
+    expect(out).not.toContain('depends on:');
+  });
+
+  it('emits nested dep list items for tasks that have deps', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown', withDeps: true });
+    expect(out).toContain('  - depends on: [T100](#T100), [T102](#T102)');
+    expect(out).toContain('  - depends on: [T100](#T100)');
+  });
+
+  it('does NOT emit dep list item for tasks with empty depends array', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown', withDeps: true });
+    const lines = out.split('\n');
+    const foundationIdx = lines.findIndex((l) => l.includes('T100') && l.includes('Foundation'));
+    const nextLine = lines[foundationIdx + 1];
+    // Must be another task list item, not a dep line
+    expect(nextLine).not.toMatch(/depends on:/);
+  });
+
+  it('uses anchor link format [ID](#ID) for each dep', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown', withDeps: true });
+    expect(out).toMatch(/\[T100\]\(#T100\)/);
+    expect(out).toMatch(/\[T102\]\(#T102\)/);
+  });
+
+  it('does NOT contain ANSI escape codes', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown', withDeps: true });
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withDeps — json mode (depends already present on node)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withDeps json mode (T1205)', () => {
+  it('preserves the depends array on each node regardless of withDeps flag', () => {
+    const outWithout = formatTree(depsNodes, { mode: 'json' });
+    const outWith = formatTree(depsNodes, { mode: 'json', withDeps: true });
+    // JSON output is identical — depends is already embedded in the nodes
+    expect(outWithout).toBe(outWith);
+  });
+
+  it('includes depends array in parsed JSON nodes', () => {
+    const out = formatTree(depsNodes, { mode: 'json', withDeps: true });
+    const parsed = JSON.parse(out);
+    const t101 = parsed.tree.find((n: FlatTreeNode) => n.id === 'T101');
+    expect(t101).toBeDefined();
+    expect(t101.depends).toEqual(['T100', 'T102']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withDeps — quiet mode (dep lines are SKIPPED)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withDeps quiet mode (T1205)', () => {
+  it('does NOT emit dep lines in quiet mode even when withDeps is true', () => {
+    const out = formatTree(depsNodes, { mode: 'quiet', withDeps: true });
+    expect(out).not.toContain('← depends on:');
+    expect(out).not.toContain('depends on:');
+  });
+
+  it('emits only IDs in quiet mode regardless of withDeps', () => {
+    const out = formatTree(depsNodes, { mode: 'quiet', withDeps: true });
+    const lines = out.split('\n').filter(Boolean);
+    // Each line ends with an ID
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      const lastToken = parts[parts.length - 1];
+      expect(['T100', 'T101', 'T102', 'T103']).toContain(lastToken);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withDeps — flag false by default (no regression)
+// ---------------------------------------------------------------------------
+
+describe('formatTree — withDeps disabled by default (T1205)', () => {
+  it('omits dep lines in rich mode when withDeps is omitted', () => {
+    const out = formatTree(depsNodes);
+    expect(out).not.toContain('← depends on:');
+  });
+
+  it('omits dep lines in markdown mode when withDeps is omitted', () => {
+    const out = formatTree(depsNodes, { mode: 'markdown' });
+    expect(out).not.toContain('depends on:');
+  });
+
+  it('omits dep lines in quiet mode when withDeps is omitted', () => {
+    const out = formatTree(depsNodes, { mode: 'quiet' });
+    expect(out).not.toContain('depends on:');
+  });
+});

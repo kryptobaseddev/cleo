@@ -14,6 +14,7 @@ import { depsCriticalPath, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
+import { setTreeContext } from '../tree-context.js';
 
 /** cleo deps overview — overview of all dependencies */
 const overviewCommand = defineCommand({
@@ -172,6 +173,9 @@ export const depsCommand = defineCommand({
  *
  * @remarks
  * Kept as a separate export so that index.ts can wire it to `cleo tree`.
+ *
+ * Flags:
+ * - `--with-deps` — inline each task's dependency chain below the task line.
  */
 export const treeCommand = defineCommand({
   meta: { name: 'tree', description: 'Task hierarchy tree visualization' },
@@ -181,8 +185,15 @@ export const treeCommand = defineCommand({
       description: 'Root task ID (optional)',
       required: false,
     },
+    withDeps: {
+      type: 'boolean',
+      description: 'Inline dependency chain below each task that has deps',
+      default: false,
+    },
   },
   async run({ args }) {
+    // Store the flag in the tree context so renderTree can read it.
+    setTreeContext({ withDeps: args.withDeps });
     await dispatchFromCli(
       'query',
       'tasks',

@@ -102,6 +102,22 @@ export interface FormatOpts {
   symbols?: {
     connectors?: Partial<TreeConnectors>;
   };
+
+  /**
+   * When `true`, each task in the tree output has its direct dependency chain
+   * inlined below it (all four modes).
+   *
+   * - `rich`     — indented dim line `← depends on: T1195 (done), T1198 (pending)`
+   * - `markdown` — nested `  - depends on: [T1195](#T1195), [T1198](#T1198)` list item
+   * - `json`     — `depends` array already present on each node (no change needed)
+   * - `quiet`    — skipped (quiet mode is for scripts that want IDs only)
+   *
+   * Only tasks that have at least one entry in their `depends` array emit a
+   * dep line.  Tasks with an empty `depends` array emit nothing extra.
+   *
+   * @defaultValue `false`
+   */
+  withDeps?: boolean;
 }
 
 /**
@@ -119,6 +135,14 @@ export interface FlatTreeNode {
   status: string;
   /** Task priority string, e.g. `"critical"`, `"high"`, `"medium"`, `"low"`. */
   priority?: string;
+  /**
+   * Raw direct dependency IDs from the task record.
+   *
+   * All dep IDs are listed here regardless of the referenced task's status.
+   * Use {@link blockedBy} for the subset that are still open.
+   * Populated by Wave 2 (T1199) enrichment in `buildTreeNode`.
+   */
+  depends?: string[];
   /** Open dependency IDs blocking this task.  Present after T1199 enrichment. */
   blockedBy?: string[];
   /**
@@ -206,6 +230,7 @@ function defaultStatusSymbol(status: string): string {
 export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
   const mode = opts?.mode ?? 'rich';
   const colorize = opts?.colorize ?? identity;
+  const withDeps = opts?.withDeps ?? false;
   const connectors: TreeConnectors = {
     ...DEFAULT_CONNECTORS,
     ...(opts?.symbols?.connectors ?? {}),
@@ -217,15 +242,16 @@ export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
 
     case 'markdown':
       if (!nodes.length) return 'No tree data.';
-      return formatTreeMarkdown(nodes, 0);
+      return formatTreeMarkdown(nodes, 0, withDeps);
 
     case 'quiet':
       if (!nodes.length) return '';
+      // quiet mode omits dep lines — callers wanting dep edges use rich/markdown/json
       return formatTreeQuiet(nodes, '', connectors);
 
     default:
       if (!nodes.length) return 'No tree data.';
-      return formatTreeRich(nodes, '', connectors, colorize);
+      return formatTreeRich(nodes, '', connectors, colorize, withDeps);
   }
 }
 
@@ -243,12 +269,14 @@ export function formatTree(nodes: FlatTreeNode[], opts?: FormatOpts): string {
  * @param prefix     - Accumulated left-padding from parent levels.
  * @param connectors - Connector characters.
  * @param colorize   - Color injection callback.
+ * @param withDeps   - When true, emit a dim dep line below tasks that have deps.
  */
 function formatTreeRich(
   nodes: FlatTreeNode[],
   prefix: string,
   connectors: TreeConnectors,
   colorize: (text: string, style: ColorStyle) => string,
+  withDeps: boolean,
 ): string {
   const lines: string[] = [];
 
@@ -269,8 +297,14 @@ function formatTreeRich(
 
     lines.push(`${prefix}${connector}${sSym}${indicator} ${boldId} ${coloredTitle}`);
 
+    // Inline dep line for --with-deps: only when node has at least one dep.
+    if (withDeps && node.depends?.length) {
+      const depLabel = buildRichDepLine(node.depends, childPrefix, colorize);
+      lines.push(depLabel);
+    }
+
     if (node.children?.length) {
-      lines.push(formatTreeRich(node.children, childPrefix, connectors, colorize));
+      lines.push(formatTreeRich(node.children, childPrefix, connectors, colorize, withDeps));
     }
   }
 
@@ -315,17 +349,25 @@ function formatTreeQuiet(
  *
  * Indentation uses two spaces per level.  No ANSI sequences are emitted.
  *
- * @param nodes - Nodes at the current level.
- * @param depth - Current indentation depth (0-based).
+ * @param nodes    - Nodes at the current level.
+ * @param depth    - Current indentation depth (0-based).
+ * @param withDeps - When true, emit a nested dep list item below tasks that have deps.
  */
-function formatTreeMarkdown(nodes: FlatTreeNode[], depth: number): string {
+function formatTreeMarkdown(nodes: FlatTreeNode[], depth: number, withDeps: boolean): string {
   const lines: string[] = [];
   const indent = '  '.repeat(depth);
 
   for (const node of nodes) {
     lines.push(`${indent}- [${node.status}] ${node.id} ${node.title}`);
+
+    // Inline dep line for --with-deps: only when node has at least one dep.
+    if (withDeps && node.depends?.length) {
+      const depLinks = node.depends.map((depId) => `[${depId}](#${depId})`).join(', ');
+      lines.push(`${indent}  - depends on: ${depLinks}`);
+    }
+
     if (node.children?.length) {
-      lines.push(formatTreeMarkdown(node.children, depth + 1));
+      lines.push(formatTreeMarkdown(node.children, depth + 1, withDeps));
     }
   }
 
@@ -397,4 +439,28 @@ function buildBlockerIndicator(
     return ` ${colorize('●', 'green')}`;
   }
   return '';
+}
+
+/**
+ * Build a rich-mode dependency line for `--with-deps`.
+ *
+ * Renders as a dim indented continuation:
+ * ```
+ * <childPrefix>← depends on: T1195, T1198
+ * ```
+ *
+ * The `← depends on:` prefix and the entire line are rendered in `'dim'` so
+ * the dep annotation visually recedes behind the task line above it.
+ *
+ * @param depends    - Dep IDs to list (must be non-empty — caller guards).
+ * @param childPrefix - Left-padding inherited from the parent connector level.
+ * @param colorize   - Color injection callback.
+ */
+function buildRichDepLine(
+  depends: string[],
+  childPrefix: string,
+  colorize: (text: string, style: ColorStyle) => string,
+): string {
+  const depList = depends.join(', ');
+  return colorize(`${childPrefix}← depends on: ${depList}`, 'dim');
 }
