@@ -165,7 +165,7 @@ Specifications go in: `docs/specs/{{SPEC_NAME}}.md`
 
 1. MUST write specification to: `docs/specs/{{SPEC_NAME}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Specification complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Specification complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return specification content in response
 
 ### Manifest Entry Format

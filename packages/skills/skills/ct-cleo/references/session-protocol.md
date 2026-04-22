@@ -64,7 +64,7 @@ Subagent output files follow this structure:
 <main deliverable>
 ```
 
-### Manifest Entry (MANIFEST.jsonl)
+### Manifest Entry (pipeline_manifest)
 
 Append ONE line (no pretty-printing):
 

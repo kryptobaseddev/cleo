@@ -20,9 +20,9 @@ Only accept these return message formats from subagents:
 
 | Status | Valid Return Message |
 |--------|---------------------|
-| Complete | "Research complete. See MANIFEST.jsonl for summary." |
-| Partial | "Research partial. See MANIFEST.jsonl for details." |
-| Blocked | "Research blocked. See MANIFEST.jsonl for blocker details." |
+| Complete | "Research complete. Manifest appended to pipeline_manifest." |
+| Partial | "Research partial. Manifest appended to pipeline_manifest." |
+| Blocked | "Research blocked. Manifest appended to pipeline_manifest." |
 
 Any other return format indicates protocol violation.
 
@@ -241,8 +241,8 @@ if (( $(echo "$compliance_pass_rate < $COMPLIANCE_THRESHOLD" | bc -l) )); then
 
 ## COMPLIANCE CHECKLIST (VERIFY BEFORE RETURNING)
 - [ ] Output file exists at {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
-- [ ] MANIFEST.jsonl entry appended with all required fields
-- [ ] Return message is EXACTLY: 'Research complete. See MANIFEST.jsonl for summary.'
+- [ ] pipeline_manifest entry appended via `cleo manifest append`
+- [ ] Return message is EXACTLY: 'Research complete. Manifest appended to pipeline_manifest.'
 - [ ] Task linked via: {{TASK_LINK_CMD}} {{TASK_ID}} <research-id>
 - [ ] Task completed via: {{TASK_COMPLETE_CMD}} {{TASK_ID}}
 "

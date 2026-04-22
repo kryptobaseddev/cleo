@@ -198,4 +198,4 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 | Token | Default |
 |-------|---------|
 | `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
-| `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` |
+

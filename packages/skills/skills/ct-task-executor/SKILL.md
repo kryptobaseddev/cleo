@@ -110,7 +110,7 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 
 1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Implementation complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Implementation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return implementation details in response
 
 ---
@@ -162,7 +162,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 
 ## Manifest Entry Format
 
-Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
+Append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027):
 
 ```json
 {"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TASK_NAME}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":{{TOPICS_JSON}},"key_findings":["Completed: deliverable 1","Completed: deliverable 2","All acceptance criteria passed"],"actionable":false,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
@@ -205,7 +205,7 @@ If all deliverables cannot be produced:
 3. Set manifest `"status": "partial"`
 4. Add blocking items to `needs_followup`
 5. Complete task (partial work is progress)
-6. Return: "Implementation partial. See MANIFEST.jsonl for details."
+6. Return: "Implementation partial. Manifest appended to pipeline_manifest."
 
 ### Blocked Execution
 
@@ -215,7 +215,7 @@ If work cannot proceed (missing dependencies, access issues, unclear requirement
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task
-5. Return: "Implementation blocked. See MANIFEST.jsonl for blocker details."
+5. Return: "Implementation blocked. Manifest appended to pipeline_manifest."
 
 ### Acceptance Criteria Failure
 

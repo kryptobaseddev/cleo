@@ -71,7 +71,7 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 | Token | Default Value |
 |-------|---------------|
 | `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
-| `{{MANIFEST_PATH}}` | `.cleo/agent-outputs/MANIFEST.jsonl` |
+
 
 ### Task Context Tokens (populated from CLEO task data)
 
@@ -83,7 +83,7 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 | `{{DELIVERABLES_LIST}}` | `task.deliverables` | Expected outputs |
 | `{{ACCEPTANCE_CRITERIA}}` | Extracted | Completion criteria |
 | `{{DEPENDS_LIST}}` | `task.depends` | Completed dependencies |
-| `{{MANIFEST_SUMMARIES}}` | MANIFEST.jsonl | Key findings from previous agents |
+| `{{MANIFEST_SUMMARIES}}` | pipeline_manifest | Key findings from previous agents |
 | `{{NEXT_TASK_IDS}}` | Dependency analysis | Tasks unblocked after completion |
 
 ---
@@ -115,7 +115,7 @@ For fine-grained control over token injection, use `lib/token-inject.sh` directl
 | **Task Commands** | `{{TASK_SHOW_CMD}}`, `{{TASK_START_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. | CLEO defaults |
 | **Output Paths** | `{{OUTPUT_DIR}}`, `{{MANIFEST_PATH}}` | CLEO defaults |
 | **Task Context** | `{{TASK_TITLE}}`, `{{TASK_DESCRIPTION}}`, `{{DEPENDS_LIST}}`, etc. | From CLEO task data |
-| **Manifest Context** | `{{MANIFEST_SUMMARIES}}` | From recent MANIFEST.jsonl entries |
+| **Manifest Context** | `{{MANIFEST_SUMMARIES}}` | From recent pipeline_manifest entries |
 
 ### Manual Token Injection Example
 
@@ -156,7 +156,7 @@ echo "$template" | grep -c '{{' && echo "WARNING: Uninjected tokens remain"
 
 Token defaults (from `skills/_shared/placeholders.json`):
 - `{{OUTPUT_DIR}}` -> `.cleo/agent-outputs`
-- `{{MANIFEST_PATH}}` -> `.cleo/agent-outputs/MANIFEST.jsonl`
+- `{{MANIFEST_PATH}}` -> retired (ADR-027) — use `cleo manifest append`
 
 ### Inline Protocol Block (when CLI unavailable)
 
@@ -165,8 +165,8 @@ Token defaults (from `skills/_shared/placeholders.json`):
 
 OUTPUT REQUIREMENTS:
 1. MUST write findings to: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
-2. MUST append ONE line to: {{MANIFEST_PATH}}
-3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+2. MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093)
+3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response.
 
 CLEO INTEGRATION:

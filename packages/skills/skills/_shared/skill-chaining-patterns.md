@@ -54,7 +54,7 @@ cleo orchestrator spawn T1234 --json
 
 - **Input**: Task ID, skill template, previous manifest key_findings
 - **Output**: Manifest entry with key_findings for next agent
-- **Response**: "[Type] complete. See MANIFEST.jsonl for summary."
+- **Response**: "[Type] complete. Manifest appended to pipeline_manifest."
 
 ---
 
@@ -164,7 +164,7 @@ A subagent can itself become an orchestrator, spawning further subagents for com
 ### Rule 1: Manifest for Handoffs (MUST)
 
 ```json
-// Subagent appends ONE line to MANIFEST.jsonl
+// Subagent appends ONE entry via cleo manifest append
 {"id":"topic-2026-01-20","key_findings":["Finding 1","Finding 2"],"needs_followup":["T1235"]}
 ```
 
@@ -173,7 +173,7 @@ Parent reads only key_findings, not full research files.
 ### Rule 2: Minimal Response (MUST)
 
 ```
-Subagent MUST return ONLY: "[Type] complete/partial/blocked. See MANIFEST.jsonl for summary/details/blocker details."
+Subagent MUST return ONLY: "[Type] complete/partial/blocked. Manifest appended to pipeline_manifest."
 Subagent MUST NOT return output content in response.
 ```
 
@@ -181,7 +181,7 @@ Subagent MUST NOT return output content in response.
 
 Detailed findings go to output files, not manifest or response:
 - Full analysis → `{{OUTPUT_DIR}}/YYYY-MM-DD_topic.md`
-- Summary only → `MANIFEST.jsonl` key_findings array
+- Summary only → pipeline_manifest key_findings (via `cleo manifest append`)
 
 ### Rule 4: Token Injection (SHOULD)
 

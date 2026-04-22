@@ -50,7 +50,7 @@ Agent({
 })
 ```
 
-**Other harnesses** (Cursor, OpenCode, Codex, etc.): Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through MANIFEST.jsonl.
+**Other harnesses** (Cursor, OpenCode, Codex, etc.): Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`).
 
 ### Fallback Spawn (when CLI spawn unavailable)
 
