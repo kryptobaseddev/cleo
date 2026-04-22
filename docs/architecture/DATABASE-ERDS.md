@@ -10,24 +10,28 @@
 
 ## Overview
 
-CLEO uses five SQLite databases across two tiers. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
+CLEO uses **six** SQLite databases across two tiers plus one core-only opt-in database. See `docs/specs/DATABASE-ARCHITECTURE.md` for the full architecture including ORM strategy and cloud deployment notes.
 
 ### Tier Summary
 
 | Tier | Databases | Location Pattern |
 |------|-----------|-----------------|
-| Project-tier | `tasks.db`, `brain.db`, `nexus.db`, `conduit.db` | `.cleo/<db>` (per-project) |
-| Global-tier | `signaldock.db` | `$XDG_DATA_HOME/cleo/signaldock.db` |
+| Project-tier | `tasks.db`, `brain.db`, `conduit.db` | `.cleo/<db>` (per-project) |
+| Global-tier | `nexus.db`, `signaldock.db` | `$XDG_DATA_HOME/cleo/` |
+| Core-only (opt-in) | `telemetry.db` | `$XDG_DATA_HOME/cleo/telemetry.db` |
 
 ### Database Inventory
 
 | Database | Tier | Schema File(s) | Purpose |
 |----------|------|---------------|---------|
 | `tasks.db` | project | `tasks-schema.ts`, `chain-schema.ts`, `agent-schema.ts` | Core work management, sessions, lifecycle, audit, agents |
-| `brain.db` | project | `brain-schema.ts` | Cognitive memory: decisions, patterns, learnings, observations, graph |
-| `nexus.db` | project | `nexus-schema.ts` | Cross-project registry and audit |
+| `brain.db` | project | `memory-schema.ts` | Cognitive memory: decisions, patterns, learnings, observations, graph |
 | `conduit.db` | project | `conduit-sqlite.ts` (node:sqlite) | Project-tier agent messaging: conversations, messages, attachments |
+| `nexus.db` | global | `nexus-schema.ts` | Cross-project registry and audit |
 | `signaldock.db` | global | Diesel ORM migrations (Rust) + `signaldock-sqlite.ts` (node:sqlite, local) | Agent identity SSoT, messaging, conversations, auth (local SQLite / cloud PostgreSQL) |
+| `telemetry.db` | core-only (opt-in) | `packages/core/src/telemetry/schema.ts` | Opt-in CLI telemetry events (introduced T624, baseline-reset T1176) |
+
+> **Note**: `telemetry.db` is not included in the ERD diagrams below because it is core-only and not tied to project init. Its schema is defined in `packages/core/src/telemetry/schema.ts`.
 
 ---
 
@@ -953,41 +957,43 @@ conduit.db uses `node:sqlite` enforced hard FKs within the database. The cross-d
 
 ## Aggregate Statistics
 
-Post T033 indexes, T060 pipeline stage binding, ADR-036/037 5-DB topology.
+Post T033 indexes, T060 pipeline stage binding, ADR-036/037 6-DB topology.
 
 | Database | Tier | Tables | Hard FKs | Intentional Soft FKs | Indexes | Unique Constraints |
 |----------|------|--------|----------|----------------------|---------|-------------------|
 | tasks.db | project | 25 | 30 | 11 | 79 | 2 |
 | brain.db | project | 9 | 0 | 7 | 26 | 0 |
-| nexus.db | project | 3 | 0 | 2 | 8 | 2 |
 | conduit.db | project | 11 | node:sqlite | 1 (project_agent_refs → signaldock.db) | varies | varies |
+| nexus.db | global | 3 | 0 | 2 | 8 | 2 |
 | signaldock.db | global | 17+ | Diesel-managed | 0 | Diesel-managed | Diesel-managed |
-| **Total (TS project DBs)** | | **37+** | **30+** | **21+** | **113+** | **4+** |
+| telemetry.db | core-only (opt-in) | 1+ | 0 | 0 | varies | varies |
+| **Total (TS project DBs)** | | **38+** | **30+** | **21+** | **113+** | **4+** |
 
-> **Note**: signaldock.db statistics are managed by Diesel ORM (Rust) server-side and `node:sqlite` client-side; they are not tracked in Drizzle ORM schema files. See `docs/specs/DATABASE-ARCHITECTURE.md` for signaldock.db table inventory. conduit.db uses `node:sqlite` `DatabaseSync` via `packages/core/src/store/conduit-sqlite.ts` (ADR-037).
+> **Note**: signaldock.db statistics are managed by Diesel ORM (Rust) server-side and `node:sqlite` client-side; they are not tracked in Drizzle ORM schema files. See `docs/specs/DATABASE-ARCHITECTURE.md` for signaldock.db table inventory. conduit.db uses `node:sqlite` `DatabaseSync` via `packages/core/src/store/conduit-sqlite.ts` (ADR-037). telemetry.db uses Drizzle ORM via `packages/core/src/telemetry/sqlite.ts` and is opt-in only.
 
 ## Cross-Database Reference Map
 
-CLEO uses five separate SQLite databases across two tiers. Cross-database references are enforced at the application layer only (SQLite cannot enforce FKs across connections).
+CLEO uses six separate SQLite databases across two tiers plus one core-only opt-in database. Cross-database references are enforced at the application layer only (SQLite cannot enforce FKs across connections).
 
 ```
-PROJECT TIER                                                        GLOBAL TIER
-──────────────────────────────────────────────────────────          ──────────────────────
-tasks.db            brain.db            nexus.db    conduit.db      signaldock.db
-────────────────    ────────────────    ────────    ──────────      ────────────────────
+PROJECT TIER                                          GLOBAL TIER
+────────────────────────────────────────────          ────────────────────────────────────────
+tasks.db            brain.db        conduit.db        nexus.db        signaldock.db  telemetry.db
+────────────────    ────────────    ──────────        ────────        ─────────────  ────────────
 tasks.id ◄───────── brain_decisions.context_task_id
 tasks.id ◄───────── brain_decisions.context_epic_id
 sessions.id ◄──────── brain_observations.source_session_id
 tasks.id ◄───────── brain_memory_links.task_id
 tasks.id ◄───────── brain_page_nodes.id (task:T* prefix)
 brain_observations.id ◄─ pipeline_manifest.brain_obs_id
-                                        project_registry (no cross-DB refs)
-                                        nexus_audit_log.project_id (informational only)
-agent_credentials ◄───────────────────────────────────────────────── agents (SSoT, soft ref)
-                                                    project_agent_refs.agent_id ──────────► agents.id (soft FK, cross-tier)
+                                                      project_registry (no cross-DB refs)
+                                                      nexus_audit_log.project_id (informational only)
+agent_credentials ◄─────────────────────────────────────────────────── agents (SSoT, soft ref)
+                                    project_agent_refs.agent_id ──────────────────────────────► agents.id (soft FK, cross-tier)
+                                                                                          (opt-in CLI events)
 
-Note: signaldock.db (global tier, $XDG_DATA_HOME/cleo/signaldock.db) `agents` table is the
-SSoT for agent identity. Prior to v2026.4.12, signaldock.db was per-project. See ADR-037.
+Note: signaldock.db and nexus.db are GLOBAL-TIER ($XDG_DATA_HOME/cleo/). Prior to v2026.4.12,
+signaldock.db was per-project. See ADR-037. telemetry.db is core-only, opt-in, not project-scoped.
 
 tasks.db `agent_credentials` is a LOCAL CACHE of encrypted credentials.
 conduit.db `project_agent_refs` is a soft-FK reference to global signaldock.db:agents —
@@ -1059,5 +1065,6 @@ The status_registry table (tasks.db) stores all valid status values. The canonic
 - `.cleo/agent-outputs/T031-index-analysis.md` — index analysis and recommendations
 - `packages/contracts/src/status-registry.ts` — status enum canonical source
 - `packages/core/src/store/tasks-schema.ts` — tasks.db Drizzle ORM schema
-- `packages/core/src/store/brain-schema.ts` — brain.db Drizzle ORM schema
+- `packages/core/src/store/memory-schema.ts` — brain.db Drizzle ORM schema
 - `packages/core/src/store/nexus-schema.ts` — nexus.db Drizzle ORM schema
+- `packages/core/src/telemetry/schema.ts` — telemetry.db Drizzle ORM schema

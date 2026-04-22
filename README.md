@@ -63,8 +63,10 @@ This monorepo contains 12 packages organized in a 4-layer architecture:
 ### Installation
 
 ```bash
-# Install globally for CLI access
+# Install the CLI — core is auto-pulled as a peer dependency (npm 7+)
 npm install -g @cleocode/cleo
+# OR explicitly install both (useful if your npm blocks peer auto-install)
+npm install -g @cleocode/cleo @cleocode/core
 
 # Or the batteries-included distribution
 npm install -g @cleocode/cleo-os
@@ -236,6 +238,8 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - [Canon Index](docs/concepts/CLEO-CANON-INDEX.md)
 - [Skill Development](docs/skills)
 - [LAFS Specification](packages/lafs/README.md)
+- [Database Architecture](docs/specs/DATABASE-ARCHITECTURE.md)
+- [Migration System Guide](packages/core/migrations/README.md) — Hybrid Path A+ authoring workflow (ADR-054)
 
 ## The Story of CLEO
 
