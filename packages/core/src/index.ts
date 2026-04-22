@@ -55,6 +55,7 @@ export * as orchestration from './orchestration/index.js';
 export * as otel from './otel/index.js';
 export * as phases from './phases/index.js';
 export * as pipeline from './pipeline/index.js';
+export * as playbooks from './playbooks/index.js';
 export * as reconciliation from './reconciliation/index.js';
 export * as release from './release/index.js';
 export * as remote from './remote/index.js';

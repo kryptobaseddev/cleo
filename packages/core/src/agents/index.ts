@@ -102,6 +102,15 @@ export {
   shouldRetry,
   withRetry,
 } from './retry.js';
+// Seed-agent installer (T897 / T1238 / T1239)
+export {
+  type EnsureSeedAgentsInstalledOptions,
+  ensureSeedAgentsInstalled,
+  SEED_VERSION_MARKER_FILENAME,
+  type SeedInstallDispatcher,
+  type SeedInstallResult,
+  type SeedInstallSource,
+} from './seed-install.js';
 // Variable substitution (T1238 — mustache {{var}} template engine)
 export {
   DefaultVariableResolver,
