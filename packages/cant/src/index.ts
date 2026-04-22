@@ -90,6 +90,7 @@ export type {
   NativePipelineResult,
   NativePipelineStep,
   NativeValidateResult,
+  SeedPersonaId,
 } from './native-loader';
 // Native loader (replaces wasm-loader)
 export {
@@ -109,7 +110,6 @@ export {
   SEED_PERSONA_IDS,
   validateAgentCantPath,
 } from './native-loader';
-export type { SeedPersonaId } from './native-loader';
 export type { ParsedCANTMessage } from './parse';
 // Parser
 export { initCantParser, parseCANTMessage } from './parse';
