@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
     "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
-    "postinstall": "node bin/postinstall.js"
+    "postinstall": "node bin/postinstall.js && node scripts/postinstall-check-core.mjs"
   },
   "dependencies": {
     "@cleocode/caamp": "workspace:*",
