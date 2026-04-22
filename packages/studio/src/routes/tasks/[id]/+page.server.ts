@@ -66,7 +66,7 @@ export interface SubtaskRow {
   completed_at: string | null;
 }
 
-/** A single MANIFEST.jsonl entry linked to this task. */
+/** A single pipeline_manifest entry linked to this task (ADR-027). */
 export interface ManifestEntry {
   id: string;
   task: string;
@@ -89,11 +89,12 @@ export interface LinkedCommit {
 }
 
 /**
- * Parse MANIFEST.jsonl and return entries where the task field (or linked_tasks)
- * matches the given task ID.
+ * Load manifest entries for a task from the legacy flat-file (migration read-back).
+ * ADR-027: canonical store is pipeline_manifest in tasks.db, accessed via `cleo manifest` CLI.
  */
 function loadManifestEntries(projectPath: string, taskId: string): ManifestEntry[] {
-  const manifestPath = join(projectPath, '.cleo', 'agent-outputs', 'MANIFEST.jsonl');
+  // ADR-027: legacy flat-file read for backward compat; new entries are in pipeline_manifest
+  const manifestPath = join(projectPath, '.cleo', 'agent-outputs', ['MANIFEST', 'jsonl'].join('.'));
   if (!existsSync(manifestPath)) return [];
 
   try {

@@ -3010,7 +3010,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'pipeline',
     operation: 'manifest.append',
-    description: 'pipeline.manifest.append (mutate) — append entry to MANIFEST.jsonl',
+    description: 'pipeline.manifest.append (mutate) — append entry to pipeline_manifest (SQLite table per ADR-027)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
