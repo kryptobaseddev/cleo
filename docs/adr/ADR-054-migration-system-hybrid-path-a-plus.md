@@ -363,7 +363,7 @@ in the project; (3) signaldock cannot be brought into scope without an epic-scal
 
 ---
 
-## Appendix: Wave 3 + Wave 4 Completion (v2026.4.109–v2026.4.110)
+## Appendix: Wave 3 + Wave 4 Completion (v2026.4.109)
 
 ### Wave 3: Bundle Externalization (v2026.4.109)
 
@@ -517,7 +517,7 @@ Workspace and npx users are unaffected.
 | T1181 | @cleocode/core as peerDependency | 996dc9cdd | Done |
 | T1182 | Delete packages/cleo/migrations/ | 158717cde | Done |
 
-### Wave 4: Harness Integration (v2026.4.110)
+### Wave 4: Harness Integration (v2026.4.109)
 
 Wave 4 completed the integration of the new bundle topology into the CleoOS
 harness layer, introducing the startup migration-verify contract and formalizing
