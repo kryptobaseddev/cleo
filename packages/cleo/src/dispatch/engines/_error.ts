@@ -137,6 +137,10 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_LIFECYCLE_TRANSITION_INVALID: 83,
   E_IVTR_INCOMPLETE: 83,
   E_PROVENANCE_REQUIRED: 84,
+  // T1162: lifecycle scope guard — maps to ExitCode.TASK_NOT_IN_SCOPE (34)
+  // because a subagent attempting to mutate a parent epic's lifecycle is
+  // operating outside the scope granted by its session.
+  E_LIFECYCLE_SCOPE_DENIED: 34,
 
   // Artifact Publish (85-89)
   E_ARTIFACT_TYPE_UNKNOWN: 85,
