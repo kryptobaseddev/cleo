@@ -15,7 +15,6 @@ import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openNativeDatabase() in sqlite.ts.
 import type { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoDirAbsolute } from '../paths.js';
@@ -27,6 +26,7 @@ import {
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { openNativeDatabase } from './sqlite.js';
 
 const _require = createRequire(import.meta.url);
@@ -54,18 +54,15 @@ export function getBrainDbPath(cwd?: string): string {
 }
 
 /**
- * Resolve the path to the drizzle-brain migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
+ * Resolve the absolute path to the drizzle-brain migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
  *
- * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-brain
- * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-brain
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
  */
 export function resolveBrainMigrationsFolder(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
-  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
-  return join(pkgRoot, 'migrations', 'drizzle-brain');
+  return resolveCorePackageMigrationsFolder('drizzle-brain');
 }
 
 // tableExists — delegated to migration-manager.ts (T132)
