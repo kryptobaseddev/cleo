@@ -46,7 +46,7 @@ Evidence:
 - **INV-3 — T877 coupling.** `status = 'done'` REQUIRES `pipeline_stage ∈
   {contribution, cancelled}`. `status = 'cancelled'` REQUIRES `pipeline_stage
   = 'cancelled'`. Enforced by SQLite triggers in
-  `packages/cleo/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
+  `packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
 - **INV-4 — Forward-only pipeline.** `isPipelineTransitionForward()` rejects
   backward transitions unless current or new stage is unknown. Source:
   `packages/core/src/tasks/pipeline-stage.ts:285-290`.
@@ -137,7 +137,7 @@ lives ONLY on `tasks.pipeline_stage`. This divergence is intentional per
 ### Status × pipeline_stage coupling (T877)
 
 INV-3 above is enforced by SQLite triggers at
-`packages/cleo/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
+`packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
 Attempts that would violate it raise `T877_INVARIANT_VIOLATION` at
 INSERT/UPDATE time.
 
@@ -179,7 +179,7 @@ Grep confirmation that `deferred` is NOT in Layer-1:
 - Absent from `packages/contracts/src/status-registry.ts`.
 - Absent from `packages/core/src/store/tasks-schema.ts`.
 - Absent from every `migration.sql` under
-  `packages/cleo/migrations/drizzle-tasks/`.
+  `packages/core/migrations/drizzle-tasks/`.
 - `packages/core/src/tasks/crossref-extract.ts:13,20` uses `'deferred-to'`
   as a **relation type** (`task_relations.relation_type`), NOT a status.
 
@@ -432,7 +432,7 @@ the full mapping and request/response shapes.
 - **Archive**: `packages/core/src/tasks/archive.ts`
 - **Validation engine**: `packages/core/src/validation/engine.ts`
 - **T877 migration**:
-  `packages/cleo/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql`
+  `packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql`
 - **Exit codes**: `packages/contracts/src/exit-codes.ts`
 - **LAFS envelope**: `packages/contracts/src/lafs.ts`
 - **Evidence grammar**: `docs/specs/T832-gate-integrity-spec.md`

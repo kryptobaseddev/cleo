@@ -247,7 +247,7 @@ backward compatibility): `CleoAgent`, `CleoInputGuardrail`, `CleoTraceProcessor`
 
 Schema definitions: `packages/playbooks/src/schema.ts` (playbook tables),
 `packages/core/src/store/signaldock-sqlite.ts` (agents/skills), migration at
-`packages/cleo/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/`.
+`packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/`.
 
 ## CLI Surface
 
