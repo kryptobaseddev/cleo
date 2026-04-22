@@ -175,6 +175,11 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       '@cleocode/core/gc': new URL('./packages/core/src/gc/index.ts', import.meta.url).pathname,
+      // T1203: core formatters subpath — pure tree/wave rendering utilities
+      '@cleocode/core/formatters': new URL(
+        './packages/core/src/formatters/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,

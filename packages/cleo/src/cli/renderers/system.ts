@@ -3,12 +3,20 @@
  *
  * Covers: doctor, stats, next, blockers, tree, start, stop, current, session, version.
  *
+ * Tree and wave rendering is delegated to the pure core formatters
+ * (`@cleocode/core/formatters`) via a CLI-specific `colorize` adapter that
+ * injects ANSI escape codes.  This keeps all presentation logic in core and
+ * the CLI renderers as thin adapters.
+ *
  * @task T4666
  * @epic T4663
  */
 
 import type { Task } from '@cleocode/contracts';
+import type { ColorStyle } from '@cleocode/core/formatters';
+import { formatTree, formatWaves } from '@cleocode/core/formatters';
 import {
+  BLUE,
   BOLD,
   DIM,
   GREEN,
@@ -19,6 +27,48 @@ import {
   statusSymbol,
   YELLOW,
 } from './colors.js';
+
+// ---------------------------------------------------------------------------
+// CLI colorize adapter — maps core ColorStyle tokens to ANSI escape codes
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap `text` with the ANSI escape code for `style`, followed by a reset.
+ *
+ * This adapter is passed as the `colorize` option to {@link formatTree} and
+ * {@link formatWaves} so that all ANSI concerns stay in the CLI package while
+ * the core formatters remain presentation-agnostic.
+ *
+ * When ANSI is disabled (e.g. `NO_COLOR` is set, or stdout is not a TTY),
+ * the ANSI constants exported by `colors.ts` are empty strings, so this
+ * function effectively returns `text` unchanged — output is identical to
+ * the plain-text modes used by core tests.
+ *
+ * @param text  - The text to colorize.
+ * @param style - A {@link ColorStyle} token produced by the core formatter.
+ */
+function cliColorize(text: string, style: ColorStyle): string {
+  switch (style) {
+    case 'bold':
+      return `${BOLD}${text}${NC}`;
+    case 'dim':
+      return `${DIM}${text}${NC}`;
+    case 'red':
+      return `${RED}${text}${NC}`;
+    case 'green':
+      return `${GREEN}${text}${NC}`;
+    case 'yellow':
+      return `${YELLOW}${text}${NC}`;
+    case 'blue':
+      return `${BLUE}${text}${NC}`;
+    case 'reset':
+      return `${NC}${text}`;
+    // magenta and cyan are not used by tree/wave formatters but are included
+    // for completeness in case future formatters add style tokens.
+    default:
+      return text;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // doctor: diagnostic checks
@@ -222,121 +272,13 @@ export interface RenderWavesOptions {
  * @param opts - Rendering options.
  */
 export function renderWaves(data: Record<string, unknown>, opts?: RenderWavesOptions): string {
-  const mode = opts?.mode ?? 'rich';
-  const waves = data['waves'] as Array<Record<string, unknown>> | undefined;
-
-  if (!waves) return mode === 'quiet' ? '' : 'No wave data.';
-
-  // -----------------------------------------------------------------------
-  // Quiet mode: <waveNumber>\t<taskId> per line
-  // -----------------------------------------------------------------------
-  if (mode === 'quiet') {
-    return waves
-      .flatMap((w) => {
-        const waveNumber = w['waveNumber'] as number | undefined;
-        const tasks = w['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
-        if (!tasks) return [];
-        return tasks.map((t) => {
-          const id = typeof t === 'string' ? t : String((t as Record<string, unknown>)['id'] ?? '');
-          return `${waveNumber ?? '?'}\t${id}`;
-        });
-      })
-      .join('\n');
-  }
-
-  // -----------------------------------------------------------------------
-  // JSON mode: raw passthrough
-  // -----------------------------------------------------------------------
-  if (mode === 'json') {
-    return JSON.stringify({ waves });
-  }
-
-  // -----------------------------------------------------------------------
-  // Markdown mode
-  // -----------------------------------------------------------------------
-  if (mode === 'markdown') {
-    const lines: string[] = [];
-    for (const wave of waves) {
-      const waveNumber = wave['waveNumber'] as number | undefined;
-      const status = wave['status'] as string | undefined;
-      const tasks = wave['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
-
-      lines.push(`## Wave ${waveNumber ?? '?'} — ${status ?? 'pending'}`);
-      lines.push('');
-
-      if (tasks && tasks.length > 0) {
-        for (const t of tasks) {
-          if (typeof t === 'string') {
-            lines.push(`- ${t}`);
-          } else {
-            const id = String(t['id'] ?? '');
-            const title = String(t['title'] ?? '');
-            const tStatus = String(t['status'] ?? '');
-            lines.push(`- [${tStatus}] ${id} ${title}`);
-          }
-        }
-      } else {
-        lines.push('_No tasks in this wave._');
-      }
-      lines.push('');
-    }
-    return lines.join('\n').trimEnd();
-  }
-
-  // -----------------------------------------------------------------------
-  // Rich mode (default): terminal output with ANSI colors
-  // -----------------------------------------------------------------------
-  const richLines: string[] = [];
-
-  for (const wave of waves) {
-    const waveNumber = wave['waveNumber'] as number | undefined;
-    const status = wave['status'] as string | undefined;
-    const tasks = wave['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
-
-    const statusBadge =
-      status === 'completed'
-        ? `${GREEN}completed${NC}`
-        : status === 'in_progress'
-          ? `${YELLOW}in_progress${NC}`
-          : `${DIM}pending${NC}`;
-
-    richLines.push(`${BOLD}Wave ${waveNumber ?? '?'}${NC}  ${statusBadge}`);
-
-    if (tasks && tasks.length > 0) {
-      for (let i = 0; i < tasks.length; i++) {
-        const t = tasks[i]!;
-        const isLast = i === tasks.length - 1;
-        const connector = isLast ? '└── ' : '├── ';
-        if (typeof t === 'string') {
-          richLines.push(`  ${connector}${t}`);
-        } else {
-          const id = String(t['id'] ?? '');
-          const title = String(t['title'] ?? '');
-          const tStatus = String(t['status'] ?? '');
-          const sSym = statusSymbol(tStatus);
-
-          // Priority color applied to title (reuse Wave 2 helpers from T1200).
-          const priority = t['priority'] as string | undefined;
-          const pCol = priorityColor(priority ?? '');
-          const pReset = pCol ? NC : '';
-
-          // Blocker indicator (reuse Wave 2 helpers from T1200).
-          const blockedBy = t['blockedBy'] as string[] | undefined;
-          const ready = t['ready'] as boolean | undefined;
-          const indicator = blockerIndicator(blockedBy, ready);
-
-          richLines.push(
-            `  ${connector}${sSym}${indicator} ${BOLD}${id}${NC} ${pCol}${title}${pReset}`,
-          );
-        }
-      }
-    } else {
-      richLines.push(`  ${DIM}(no tasks)${NC}`);
-    }
-    richLines.push('');
-  }
-
-  return richLines.join('\n').trimEnd();
+  // Delegate to the core formatter, injecting the CLI ANSI colorize adapter.
+  // The data shape is compatible: waves.ts accepts { waves?: EnrichedWave[] }
+  // and data has the same structure (waves key).
+  return formatWaves(data as Parameters<typeof formatWaves>[0], {
+    mode: opts?.mode ?? 'rich',
+    colorize: cliColorize,
+  });
 }
 
 /**
@@ -374,7 +316,11 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
   }
 
   if (tree) {
-    return renderTreeNodes(tree, '', quiet);
+    // Delegate to core formatTree, injecting the CLI ANSI colorize adapter.
+    return formatTree(tree as Parameters<typeof formatTree>[0], {
+      mode: quiet ? 'quiet' : 'rich',
+      colorize: cliColorize,
+    });
   }
 
   // Fallback: flat task list rendered as indented tree
@@ -391,100 +337,11 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
   return quiet ? '' : 'No tree data.';
 }
 
-/**
- * Build a terminal-only blocker indicator suffix for a tree node.
- *
- * - Blocked by N open dependencies: red circled-times with count `⊗(N)`.
- * - Ready (no open deps, status pending/active): green filled circle `●`.
- * - Otherwise (done, cancelled, archived, or no dep data): empty string.
- *
- * This suffix is only appended in human (non-quiet) mode so that JSON and
- * markdown output modes remain unaffected.
- *
- * @param blockedBy - Open dependency IDs blocking the task (may be undefined
- *                    when the node comes from a legacy data source that predates
- *                    T1199).
- * @param ready     - Whether the task is immediately actionable.
- */
-function blockerIndicator(blockedBy: string[] | undefined, ready: boolean | undefined): string {
-  if (blockedBy !== undefined && blockedBy.length > 0) {
-    return ` ${RED}⊗(${blockedBy.length})${NC}`;
-  }
-  if (ready === true) {
-    return ` ${GREEN}●${NC}`;
-  }
-  return '';
-}
-
-/**
- * Recursively render tree nodes with ASCII connectors.
- *
- * In quiet mode the status symbol and title are omitted but tree connectors
- * are preserved so that the hierarchy structure remains visible and IDs remain
- * script-extractable (each line ends with the task ID).
- *
- * In human mode (non-quiet), each node receives:
- * - Priority color applied to the title text (critical=red, high=yellow,
- *   medium=default, low=dim) via the existing `priorityColor` helper.
- * - A blocker indicator suffix next to the status glyph:
- *   - Blocked by N open deps → red "⊗(N)"
- *   - Ready (no open deps, pending/active) → green "●"
- *   - Otherwise (done, cancelled, archived) → no indicator
- *
- * JSON and markdown output modes are unaffected — this function is only
- * invoked for human terminal rendering.
- *
- * @param nodes  - Sibling nodes to render at this level.
- * @param prefix - Accumulated prefix string from parent levels.
- * @param quiet  - When true, emit connectors + ID only (no status/title).
- */
-function renderTreeNodes(
-  nodes: Array<Record<string, unknown>>,
-  prefix: string,
-  quiet: boolean,
-): string {
-  const lines: string[] = [];
-
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]!;
-    const isLast = i === nodes.length - 1;
-    const connector = isLast ? '\u2514\u2500\u2500 ' : '\u251C\u2500\u2500 ';
-    const childPrefix = isLast ? '    ' : '\u2502   ';
-
-    const id = String(node['id'] ?? '');
-    const title = String(node['title'] ?? '');
-    const status = String(node['status'] ?? '');
-    const sSym = statusSymbol(status);
-
-    if (quiet) {
-      // Preserve connectors so hierarchy is visible; ID is the last token on
-      // each line so it remains easily extractable with `awk '{print $NF}'`.
-      lines.push(`${prefix}${connector}${id}`);
-    } else {
-      // Priority color applied to the title (T1200).
-      const priority = node['priority'] as string | undefined;
-      const pCol = priorityColor(priority ?? '');
-      const pReset = pCol ? NC : '';
-
-      // Blocker indicator appended after the status glyph (T1200).
-      const blockedBy = node['blockedBy'] as string[] | undefined;
-      const ready = node['ready'] as boolean | undefined;
-      const indicator = blockerIndicator(blockedBy, ready);
-
-      lines.push(
-        `${prefix}${connector}${sSym}${indicator} ${BOLD}${id}${NC} ${pCol}${title}${pReset}`,
-      );
-    }
-
-    const children = node['children'] as Array<Record<string, unknown>> | undefined;
-    if (children?.length) {
-      lines.push(renderTreeNodes(children, prefix + childPrefix, quiet));
-    }
-  }
-
-  return lines.join('\n');
-}
-
+// ---------------------------------------------------------------------------
+// Note: blockerIndicator and renderTreeNodes were removed in T1204.
+// This logic now lives in @cleocode/core/formatters (tree.ts) and is
+// invoked via formatTree() with the cliColorize adapter above.
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // start / stop / current: task work commands
 // ---------------------------------------------------------------------------
