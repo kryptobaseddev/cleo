@@ -168,32 +168,126 @@ export function renderBlockers(data: Record<string, unknown>, quiet: boolean): s
 }
 
 // ---------------------------------------------------------------------------
-// tree: dependency tree
+// tree: dependency tree and wave visualization
 // ---------------------------------------------------------------------------
+
+/**
+ * Output mode for {@link renderWaves}.
+ *
+ * - `'rich'`     — Full terminal output with ANSI colors, wave headers,
+ *                  status badges, priority colors, and blocker indicators.
+ * - `'json'`     — Passthrough: returns `JSON.stringify({ waves })` so the
+ *                  caller receives machine-readable data.
+ * - `'markdown'` — GitHub-flavored Markdown: `## Wave N — status\n- [status] ID Title`
+ * - `'quiet'`    — One `<waveNumber>\t<taskId>` line per task (script-extractable).
+ */
+export type RenderWavesMode = 'rich' | 'json' | 'markdown' | 'quiet';
+
+/**
+ * Options for {@link renderWaves}.
+ */
+export interface RenderWavesOptions {
+  /**
+   * Output mode.
+   *
+   * @defaultValue `'rich'`
+   */
+  mode?: RenderWavesMode;
+  /** Epic ID displayed in the rich-mode header (e.g. `"T100"`). */
+  epicId?: string;
+  /** Total number of waves, used in the rich-mode header. */
+  totalWaves?: number;
+  /** Total number of tasks, used in the rich-mode header. */
+  totalTasks?: number;
+}
 
 /**
  * Render wave data from `orchestrate.waves` / `deps waves` output.
  *
- * Each wave shows its number, status badge, and the tasks it contains.
- * In quiet mode only the task IDs are emitted (one per line, all waves).
+ * Supports four output modes controlled by `opts.mode`:
  *
- * @param waves - Array of enriched wave objects from `getEnrichedWaves`.
- * @param quiet - When true, emit only task IDs (one per line).
+ * - **rich** (default): Terminal-friendly output with wave headers, ANSI
+ *   status badges, priority-colored titles, and blocker indicators.
+ * - **json**: Returns `JSON.stringify({ waves })` — a raw passthrough for
+ *   machine-readable consumers that have already obtained the data payload.
+ * - **markdown**: GitHub-flavored Markdown suitable for issue comments or
+ *   documentation. Format: `## Wave N — status\n- [status] TID Title\n`.
+ * - **quiet**: One `<waveNumber>\t<taskId>` line per task across all waves,
+ *   with no decoration — safe for `awk` / `cut` / shell pipelines.
+ *
+ * The function is the canonical wave renderer. {@link renderTree} delegates
+ * to it when `data.waves` is present.
+ *
+ * @param data - Normalized response payload containing `data.waves`.
+ * @param opts - Rendering options.
  */
-function renderWaves(waves: Array<Record<string, unknown>>, quiet: boolean): string {
-  if (quiet) {
+export function renderWaves(data: Record<string, unknown>, opts?: RenderWavesOptions): string {
+  const mode = opts?.mode ?? 'rich';
+  const waves = data['waves'] as Array<Record<string, unknown>> | undefined;
+
+  if (!waves) return mode === 'quiet' ? '' : 'No wave data.';
+
+  // -----------------------------------------------------------------------
+  // Quiet mode: <waveNumber>\t<taskId> per line
+  // -----------------------------------------------------------------------
+  if (mode === 'quiet') {
     return waves
       .flatMap((w) => {
+        const waveNumber = w['waveNumber'] as number | undefined;
         const tasks = w['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
         if (!tasks) return [];
-        return tasks.map((t) =>
-          typeof t === 'string' ? t : String((t as Record<string, unknown>)['id'] ?? ''),
-        );
+        return tasks.map((t) => {
+          const id = typeof t === 'string' ? t : String((t as Record<string, unknown>)['id'] ?? '');
+          return `${waveNumber ?? '?'}\t${id}`;
+        });
       })
       .join('\n');
   }
 
-  const lines: string[] = [];
+  // -----------------------------------------------------------------------
+  // JSON mode: raw passthrough
+  // -----------------------------------------------------------------------
+  if (mode === 'json') {
+    return JSON.stringify({ waves });
+  }
+
+  // -----------------------------------------------------------------------
+  // Markdown mode
+  // -----------------------------------------------------------------------
+  if (mode === 'markdown') {
+    const lines: string[] = [];
+    for (const wave of waves) {
+      const waveNumber = wave['waveNumber'] as number | undefined;
+      const status = wave['status'] as string | undefined;
+      const tasks = wave['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
+
+      lines.push(`## Wave ${waveNumber ?? '?'} — ${status ?? 'pending'}`);
+      lines.push('');
+
+      if (tasks && tasks.length > 0) {
+        for (const t of tasks) {
+          if (typeof t === 'string') {
+            lines.push(`- ${t}`);
+          } else {
+            const id = String(t['id'] ?? '');
+            const title = String(t['title'] ?? '');
+            const tStatus = String(t['status'] ?? '');
+            lines.push(`- [${tStatus}] ${id} ${title}`);
+          }
+        }
+      } else {
+        lines.push('_No tasks in this wave._');
+      }
+      lines.push('');
+    }
+    return lines.join('\n').trimEnd();
+  }
+
+  // -----------------------------------------------------------------------
+  // Rich mode (default): terminal output with ANSI colors
+  // -----------------------------------------------------------------------
+  const richLines: string[] = [];
+
   for (const wave of waves) {
     const waveNumber = wave['waveNumber'] as number | undefined;
     const status = wave['status'] as string | undefined;
@@ -206,7 +300,7 @@ function renderWaves(waves: Array<Record<string, unknown>>, quiet: boolean): str
           ? `${YELLOW}in_progress${NC}`
           : `${DIM}pending${NC}`;
 
-    lines.push(`${BOLD}Wave ${waveNumber ?? '?'}${NC}  ${statusBadge}`);
+    richLines.push(`${BOLD}Wave ${waveNumber ?? '?'}${NC}  ${statusBadge}`);
 
     if (tasks && tasks.length > 0) {
       for (let i = 0; i < tasks.length; i++) {
@@ -214,22 +308,35 @@ function renderWaves(waves: Array<Record<string, unknown>>, quiet: boolean): str
         const isLast = i === tasks.length - 1;
         const connector = isLast ? '└── ' : '├── ';
         if (typeof t === 'string') {
-          lines.push(`  ${connector}${t}`);
+          richLines.push(`  ${connector}${t}`);
         } else {
           const id = String(t['id'] ?? '');
           const title = String(t['title'] ?? '');
           const tStatus = String(t['status'] ?? '');
           const sSym = statusSymbol(tStatus);
-          lines.push(`  ${connector}${sSym} ${BOLD}${id}${NC} ${title}`);
+
+          // Priority color applied to title (reuse Wave 2 helpers from T1200).
+          const priority = t['priority'] as string | undefined;
+          const pCol = priorityColor(priority ?? '');
+          const pReset = pCol ? NC : '';
+
+          // Blocker indicator (reuse Wave 2 helpers from T1200).
+          const blockedBy = t['blockedBy'] as string[] | undefined;
+          const ready = t['ready'] as boolean | undefined;
+          const indicator = blockerIndicator(blockedBy, ready);
+
+          richLines.push(
+            `  ${connector}${sSym}${indicator} ${BOLD}${id}${NC} ${pCol}${title}${pReset}`,
+          );
         }
       }
     } else {
-      lines.push(`  ${DIM}(no tasks)${NC}`);
+      richLines.push(`  ${DIM}(no tasks)${NC}`);
     }
-    lines.push('');
+    richLines.push('');
   }
 
-  return lines.join('\n').trimEnd();
+  return richLines.join('\n').trimEnd();
 }
 
 /**
@@ -240,6 +347,8 @@ function renderWaves(waves: Array<Record<string, unknown>>, quiet: boolean): str
  * - `data.tree`   — recursive `FlatTreeNode[]` from `tasks.tree`
  * - `data.tasks`  — flat `Task[]` fallback
  *
+ * When `data.waves` is present, delegates to {@link renderWaves}.
+ *
  * @param data  - Normalised response payload.
  * @param quiet - When true, emit only IDs with no decoration.
  */
@@ -249,14 +358,19 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
   const tasks = data['tasks'] as Task[] | undefined;
 
   if (waves) {
-    if (quiet) return renderWaves(waves, true);
     const epicId = data['epicId'] as string | undefined;
     const totalWaves = data['totalWaves'] as number | undefined;
     const totalTasks = data['totalTasks'] as number | undefined;
+
+    if (quiet) {
+      return renderWaves(data, { mode: 'quiet' });
+    }
+
     const header = epicId
       ? `${BOLD}Waves for ${epicId}${NC}  ${DIM}(${totalWaves ?? waves.length} waves, ${totalTasks ?? '?'} tasks)${NC}`
       : `${BOLD}Execution Waves${NC}`;
-    return `${header}\n\n${renderWaves(waves, false)}`;
+    const body = renderWaves(data, { mode: 'rich', epicId, totalWaves, totalTasks });
+    return `${header}\n\n${body}`;
   }
 
   if (tree) {
