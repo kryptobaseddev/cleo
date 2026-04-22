@@ -111,6 +111,11 @@ export default defineConfig({
       ).pathname,
       '@cleocode/core/gc': new URL('../../packages/core/src/gc/index.ts', import.meta.url)
         .pathname,
+      // T1203: core formatters subpath — pure tree/wave rendering utilities
+      '@cleocode/core/formatters': new URL(
+        '../../packages/core/src/formatters/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
       // T1113: nexus code sub-path exports — legacy dist-path imports used in nexus.ts

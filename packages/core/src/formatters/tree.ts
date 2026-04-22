@@ -141,14 +141,21 @@ const DEFAULT_CONNECTORS: TreeConnectors = {
   space: '    ',
 };
 
-/** Maps a status string to a compact display symbol. */
+/**
+ * Maps a status string to a compact display symbol.
+ *
+ * Unicode codepoints match {@link TASK_STATUS_SYMBOLS_UNICODE} from
+ * `@cleocode/contracts` so that core formatter output is consistent with
+ * the CLI renderer (no import needed — values are inlined for portability).
+ */
 const STATUS_SYMBOLS: Record<string, string> = {
-  pending: '○', // ○
-  active: '●', // ●
-  done: '✓', // ✓
-  blocked: '⊗', // ⊗
-  cancelled: '✕', // ✕
-  archived: '☐', // ☐
+  pending: '○', // ○  not yet started
+  active: '◉', // ◉  in progress
+  done: '✓', // ✓  complete
+  blocked: '⊗', // ⊗  cannot advance
+  cancelled: '✗', // ✗  abandoned
+  archived: '▣', // ▣  stored, inactive
+  proposed: '◇', // ◇  tier-2 proposal queue
 };
 
 function defaultStatusSymbol(status: string): string {
