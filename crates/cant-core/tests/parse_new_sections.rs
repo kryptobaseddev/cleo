@@ -200,29 +200,29 @@ fn assert_starter_file_clean(rel_path: &str) {
 /// T615: `team.cant` starter bundle file parses and validates clean.
 #[test]
 fn starter_bundle_team_cant_parses_clean() {
-    assert_starter_file_clean("packages/cleo-os/starter-bundle/team.cant");
+    assert_starter_file_clean("packages/agents/starter-bundle/team.cant");
 }
 
 /// T615: `cleo-orchestrator.cant` starter bundle file parses and validates clean.
 #[test]
 fn starter_bundle_cleo_orchestrator_cant_parses_clean() {
-    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant");
+    assert_starter_file_clean("packages/agents/starter-bundle/agents/cleo-orchestrator.cant");
 }
 
 /// T615: `dev-lead.cant` starter bundle file parses and validates clean.
 #[test]
 fn starter_bundle_dev_lead_cant_parses_clean() {
-    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/dev-lead.cant");
+    assert_starter_file_clean("packages/agents/starter-bundle/agents/dev-lead.cant");
 }
 
 /// T615: `code-worker.cant` starter bundle file parses and validates clean.
 #[test]
 fn starter_bundle_code_worker_cant_parses_clean() {
-    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/code-worker.cant");
+    assert_starter_file_clean("packages/agents/starter-bundle/agents/code-worker.cant");
 }
 
 /// T615: `docs-worker.cant` starter bundle file parses and validates clean.
 #[test]
 fn starter_bundle_docs_worker_cant_parses_clean() {
-    assert_starter_file_clean("packages/cleo-os/starter-bundle/agents/docs-worker.cant");
+    assert_starter_file_clean("packages/agents/starter-bundle/agents/docs-worker.cant");
 }
