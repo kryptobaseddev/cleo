@@ -12,7 +12,9 @@
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import type { PeerIdentity, PeerKind } from '@cleocode/contracts';
 
 /** Shape of a parsed CANT message returned by the native binding. */
 export interface NativeParseResult {
@@ -360,6 +362,250 @@ export function cantExecutePipelineNative(
   pipelineName: string,
 ): Promise<NativePipelineResult> {
   return requireNative().cantExecutePipeline(filePath, pipelineName);
+}
+
+// ============================================================================
+// Seed-agent identity loader (T1210 — PeerIdentity SDK surface)
+// ============================================================================
+
+/**
+ * Canonical IDs of the 7 CLEO seed personas.
+ *
+ * Kept in declaration order: orchestrator first, then leads, then universal base.
+ * Used by the regression test and as documentation for the expected registry
+ * contents. Any persona on this list MUST be resolvable from the canonical
+ * seed-agents path (either `seed-agents/<id>.cant` or `cleo-subagent.cant`).
+ *
+ * @task T1210
+ */
+export const SEED_PERSONA_IDS = [
+  'cleo-prime',
+  'cleo-dev',
+  'cleo-db-lead',
+  'cleo-historian',
+  'cleo-rust-lead',
+  'cleo-subagent',
+  'cleoos-opus-orchestrator',
+] as const;
+
+/** Type-safe union of the 7 canonical seed persona IDs. */
+export type SeedPersonaId = (typeof SEED_PERSONA_IDS)[number];
+
+/**
+ * Discover the `packages/agents/` root by walking up from the compiled
+ * `native-loader.js` / source `native-loader.ts` file.
+ *
+ * Walk candidates covering `src/` (dev), `dist/` (compiled), and the
+ * installed `node_modules/@cleocode/cant/dist/` layout.
+ *
+ * Uses `__dirname` (available in the CJS-compiled output) to resolve paths
+ * relative to this module, matching the pattern used by `ensureLoaded()`.
+ *
+ * @returns Absolute path to the `packages/agents/` directory, or `null` when
+ *   none of the candidates resolves to an existing directory.
+ *
+ * @internal
+ */
+function resolveAgentsPackageRoot(): string | null {
+  // __dirname is always available in the CJS-compiled output (packages/cant/dist/).
+  // In the TypeScript source tree (packages/cant/src/) tsc injects __dirname via
+  // the module-resolution helpers, so this is safe in both contexts.
+  const here = __dirname;
+  const candidates = [
+    // packages/cant/src/ → packages/agents/
+    resolve(here, '..', '..', 'agents'),
+    // packages/cant/dist/ → packages/agents/
+    resolve(here, '..', '..', '..', 'agents'),
+    // node_modules/@cleocode/cant/dist/ → @cleocode/agents (relative to node_modules)
+    resolve(here, '..', '..', '..', '..', 'agents'),
+    resolve(here, '..', '..', '..', '..', '@cleocode', 'agents'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
+ * Extract the `role:` value from a raw `.cant` file body.
+ *
+ * Looks for a line matching `  role: <value>` within the `agent <id>:` block
+ * using a simple regex — intentionally avoids full CANT parsing to remove the
+ * native-addon dependency from this path (the addon may not be present in all
+ * environments where the loader runs).
+ *
+ * @param content - Raw `.cant` file text.
+ * @returns Extracted role string, or `null` when no `role:` line is found.
+ * @internal
+ */
+function extractRoleFromCant(content: string): string | null {
+  const match = /^\s{2}role:\s*(\S+)/m.exec(content);
+  return match ? (match[1] ?? null) : null;
+}
+
+/**
+ * Map a raw role string from a `.cant` file to a {@link PeerKind}.
+ *
+ * Unrecognised values default to `"subagent"` so the loader remains
+ * forward-compatible with new role names.
+ *
+ * @param rawRole - Raw role string extracted from the `.cant` file.
+ * @internal
+ */
+function roleToPeerKind(rawRole: string | null): PeerKind {
+  switch (rawRole) {
+    case 'orchestrator':
+      return 'orchestrator';
+    case 'lead':
+      return 'lead';
+    case 'worker':
+      return 'worker';
+    default:
+      return 'subagent';
+  }
+}
+
+/**
+ * Extract the `description:` value from a raw `.cant` file body.
+ *
+ * Handles single-line descriptions (`description: "..."`) and multiline
+ * block-scalar descriptions (`description: |`). Returns the first line of
+ * the block-scalar body for multiline values. Returns empty string when no
+ * `description:` field is found.
+ *
+ * @param content - Raw `.cant` file text.
+ * @internal
+ */
+function extractDescriptionFromCant(content: string): string {
+  // Single-line: `  description: "some text"` or `  description: some text`
+  const singleLine = /^\s{2}description:\s+"([^"]+)"/m.exec(content);
+  if (singleLine) return singleLine[1] ?? '';
+  const singleLineUnquoted = /^\s{2}description:\s+(.+)/m.exec(content);
+  if (singleLineUnquoted) {
+    const raw = singleLineUnquoted[1] ?? '';
+    // Exclude multiline indicator '|'
+    if (raw.trim() !== '|') return raw.trim();
+  }
+  // Multiline block scalar: grab first non-empty line after `description: |`
+  const blockScalar = /^\s{2}description:\s+\|\s*\n((?:\s+\S[^\n]*\n?)+)/m.exec(content);
+  if (blockScalar) {
+    const bodyLines = (blockScalar[1] ?? '').split('\n');
+    for (const line of bodyLines) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+  }
+  return '';
+}
+
+/**
+ * Extract the agent business id from a raw `.cant` file body.
+ *
+ * Looks for the `agent <id>:` declaration line. Returns `null` when not found.
+ *
+ * @param content - Raw `.cant` file text.
+ * @internal
+ */
+function extractAgentIdFromCant(content: string): string | null {
+  const match = /^agent\s+([a-z][a-z0-9-]*):/m.exec(content);
+  return match ? (match[1] ?? null) : null;
+}
+
+/**
+ * Parse a single `.cant` file at `cantFile` into a {@link PeerIdentity}.
+ *
+ * Returns `null` when the file cannot be parsed (missing `agent <id>:` block
+ * or unreadable file). The caller is responsible for logging / skipping nulls.
+ *
+ * @param cantFile - Absolute path to the `.cant` file.
+ * @param fallbackId - Id to use when the `agent <id>:` block is absent (e.g.,
+ *   when loading the universal base by a known filename).
+ * @internal
+ */
+function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIdentity | null {
+  let content: string;
+  try {
+    content = readFileSync(cantFile, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const agentId = extractAgentIdFromCant(content) ?? fallbackId ?? null;
+  if (!agentId) return null;
+
+  const rawRole = extractRoleFromCant(content);
+  const peerKind = roleToPeerKind(rawRole);
+  const description = extractDescriptionFromCant(content);
+
+  return {
+    peerId: agentId,
+    peerKind,
+    cantFile,
+    displayName: agentId,
+    description,
+  };
+}
+
+/**
+ * Load all seed-agent {@link PeerIdentity} records from the canonical
+ * `packages/agents/` directory shipped with `@cleocode/agents`.
+ *
+ * Walk order:
+ *  1. All `.cant` files inside `packages/agents/seed-agents/` (generic templates
+ *     + any project-specific personas installed there).
+ *  2. `packages/agents/cleo-subagent.cant` — the universal protocol base.
+ *
+ * Files that cannot be parsed (unreadable, missing `agent <id>:` block) are
+ * silently skipped.
+ *
+ * This function is intentionally pure-TS and does NOT require the native addon.
+ * It is safe to call in environments where `cant-napi` is absent (CI, test, etc.).
+ *
+ * @param agentsRoot - Optional override for the `packages/agents/` root. When
+ *   omitted the path is resolved automatically relative to this file. Tests
+ *   should pass an absolute path to an isolated fixture directory.
+ * @returns `PeerIdentity[]` for every successfully-parsed `.cant` file, in
+ *   seed-agents-first, universal-base-last order.
+ *
+ * @example
+ * ```ts
+ * import { loadSeedAgentIdentities } from '@cleocode/cant';
+ *
+ * const peers = loadSeedAgentIdentities();
+ * console.log(peers.map((p) => p.peerId));
+ * // ['project-code-worker', 'project-dev-lead', ..., 'cleo-subagent']
+ * ```
+ *
+ * @task T1210
+ * @epic T1144
+ */
+export function loadSeedAgentIdentities(agentsRoot?: string): PeerIdentity[] {
+  const root = agentsRoot ?? resolveAgentsPackageRoot();
+  if (!root) return [];
+
+  const identities: PeerIdentity[] = [];
+
+  // 1. Walk seed-agents/ directory
+  const seedDir = join(root, 'seed-agents');
+  if (existsSync(seedDir)) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
+    } catch {
+      // unreadable — skip
+    }
+    for (const entry of entries) {
+      const cantFile = join(seedDir, entry);
+      const identity = parseCantFileToIdentity(cantFile);
+      if (identity) identities.push(identity);
+    }
+  }
+
+  // 2. Universal base: packages/agents/cleo-subagent.cant
+  const universalBase = join(root, 'cleo-subagent.cant');
+  if (existsSync(universalBase)) {
+    const identity = parseCantFileToIdentity(universalBase, 'cleo-subagent');
+    if (identity) identities.push(identity);
+  }
+
+  return identities;
 }
 
 // Backward compatibility aliases (kept so existing callers compile).
