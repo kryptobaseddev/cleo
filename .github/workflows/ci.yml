@@ -147,14 +147,13 @@ jobs:
   drizzle-kit-check:
     # T1169: Schema consistency gate — uses drizzle-kit check to verify that
     # schema files match their corresponding migration snapshots. Catches schema
-    # drift without requiring a full migration run. Initially non-blocking
-    # (continue-on-error: true) while T1165 baseline reset regenerates malformed
-    # snapshots. After T1165 lands, will flip to continue-on-error: false.
+    # drift without requiring a full migration run. As of T1175 (after T1165,
+    # T1166, and T1176 baseline resets landed), this gate is now blocking —
+    # schema drift failures will fail the build and block PRs.
     # See docs/architecture/migrations/schema-consistency.md for details.
     name: Drizzle Kit Schema Check
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -176,15 +175,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run drizzle-kit check on all 5 DB configs
         id: schema-check
-        run: |
-          {
-            pnpm db:check 2>&1
-          } | tee /tmp/drizzle-output.log
-          exit_code=$?
-          if [ $exit_code -ne 0 ]; then
-            echo "::warning::drizzle-kit check detected schema inconsistencies (currently non-blocking per T1165 baseline reset). See job logs for details."
-          fi
-          exit 0
+        run: pnpm db:check
 
   typecheck:
     name: Type Check
