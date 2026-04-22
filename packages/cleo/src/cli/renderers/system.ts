@@ -171,9 +171,93 @@ export function renderBlockers(data: Record<string, unknown>, quiet: boolean): s
 // tree: dependency tree
 // ---------------------------------------------------------------------------
 
+/**
+ * Render wave data from `orchestrate.waves` / `deps waves` output.
+ *
+ * Each wave shows its number, status badge, and the tasks it contains.
+ * In quiet mode only the task IDs are emitted (one per line, all waves).
+ *
+ * @param waves - Array of enriched wave objects from `getEnrichedWaves`.
+ * @param quiet - When true, emit only task IDs (one per line).
+ */
+function renderWaves(waves: Array<Record<string, unknown>>, quiet: boolean): string {
+  if (quiet) {
+    return waves
+      .flatMap((w) => {
+        const tasks = w['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
+        if (!tasks) return [];
+        return tasks.map((t) =>
+          typeof t === 'string' ? t : String((t as Record<string, unknown>)['id'] ?? ''),
+        );
+      })
+      .join('\n');
+  }
+
+  const lines: string[] = [];
+  for (const wave of waves) {
+    const waveNumber = wave['waveNumber'] as number | undefined;
+    const status = wave['status'] as string | undefined;
+    const tasks = wave['tasks'] as Array<Record<string, unknown>> | string[] | undefined;
+
+    const statusBadge =
+      status === 'completed'
+        ? `${GREEN}completed${NC}`
+        : status === 'in_progress'
+          ? `${YELLOW}in_progress${NC}`
+          : `${DIM}pending${NC}`;
+
+    lines.push(`${BOLD}Wave ${waveNumber ?? '?'}${NC}  ${statusBadge}`);
+
+    if (tasks && tasks.length > 0) {
+      for (let i = 0; i < tasks.length; i++) {
+        const t = tasks[i]!;
+        const isLast = i === tasks.length - 1;
+        const connector = isLast ? '└── ' : '├── ';
+        if (typeof t === 'string') {
+          lines.push(`  ${connector}${t}`);
+        } else {
+          const id = String(t['id'] ?? '');
+          const title = String(t['title'] ?? '');
+          const tStatus = String(t['status'] ?? '');
+          const sSym = statusSymbol(tStatus);
+          lines.push(`  ${connector}${sSym} ${BOLD}${id}${NC} ${title}`);
+        }
+      }
+    } else {
+      lines.push(`  ${DIM}(no tasks)${NC}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
+/**
+ * Render the task dependency tree or wave plan.
+ *
+ * Handles three data shapes returned by the `deps`/`tree` dispatcher:
+ * - `data.waves`  — enriched wave array from `orchestrate.waves`
+ * - `data.tree`   — recursive `FlatTreeNode[]` from `tasks.tree`
+ * - `data.tasks`  — flat `Task[]` fallback
+ *
+ * @param data  - Normalised response payload.
+ * @param quiet - When true, emit only IDs with no decoration.
+ */
 export function renderTree(data: Record<string, unknown>, quiet: boolean): string {
+  const waves = data['waves'] as Array<Record<string, unknown>> | undefined;
   const tree = data['tree'] as Array<Record<string, unknown>> | undefined;
   const tasks = data['tasks'] as Task[] | undefined;
+
+  if (waves) {
+    if (quiet) return renderWaves(waves, true);
+    const epicId = data['epicId'] as string | undefined;
+    const totalWaves = data['totalWaves'] as number | undefined;
+    const totalTasks = data['totalTasks'] as number | undefined;
+    const header = epicId
+      ? `${BOLD}Waves for ${epicId}${NC}  ${DIM}(${totalWaves ?? waves.length} waves, ${totalTasks ?? '?'} tasks)${NC}`
+      : `${BOLD}Execution Waves${NC}`;
+    return `${header}\n\n${renderWaves(waves, false)}`;
+  }
 
   if (tree) {
     return renderTreeNodes(tree, '', quiet);
@@ -193,6 +277,17 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
   return quiet ? '' : 'No tree data.';
 }
 
+/**
+ * Recursively render tree nodes with ASCII connectors.
+ *
+ * In quiet mode the status symbol and title are omitted but tree connectors
+ * are preserved so that the hierarchy structure remains visible and IDs remain
+ * script-extractable (each line ends with the task ID).
+ *
+ * @param nodes  - Sibling nodes to render at this level.
+ * @param prefix - Accumulated prefix string from parent levels.
+ * @param quiet  - When true, emit connectors + ID only (no status/title).
+ */
 function renderTreeNodes(
   nodes: Array<Record<string, unknown>>,
   prefix: string,
@@ -212,7 +307,9 @@ function renderTreeNodes(
     const sSym = statusSymbol(status);
 
     if (quiet) {
-      lines.push(`${prefix}${id}`);
+      // Preserve connectors so hierarchy is visible; ID is the last token on
+      // each line so it remains easily extractable with `awk '{print $NF}'`.
+      lines.push(`${prefix}${connector}${id}`);
     } else {
       lines.push(`${prefix}${connector}${sSym} ${BOLD}${id}${NC} ${title}`);
     }
