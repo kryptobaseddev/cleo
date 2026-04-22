@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { computeProjectHash } from '../paths.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
