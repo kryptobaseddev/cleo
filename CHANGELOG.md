@@ -4,6 +4,107 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.108] — 2026-04-21
+
+### T1150 T-MSR — Migration System Remediation (Hybrid Path A+)
+
+End of the drizzle migration debt-spiral. 20 commits across 18 CLEO tasks under the
+T1150 epic. Decision: Hybrid Path A+ (ADR-054) — `migration-manager.ts` reconciler
+is the **runtime SSoT**; `drizzle-kit` kept as a **scaffolding-only devDependency**;
+snapshot chains re-baselined via probe-and-skip markers; linter + runtime guard +
+generator script cover authoring footguns.
+
+**Evidence trail**: `.cleo/agent-outputs/T-MSR/{R1-db-audit,R2-path-a-prototype,
+R3-path-b-prototype,R4-bundle-architecture,RECOMMENDATION}.md` + `docs/adr/
+ADR-054-migration-system-hybrid-path-a-plus.md`. Supersedes ADR-027 §2.6.
+
+**Wave 0 triage**:
+- fix(T1158): dedup duplicate T1126 migration folders (`20260421000001_` and
+  `20260421000002_`); retain T1135 rename-handler (still needed for T033).
+- feat(T1159): runtime guard `sanitizeMigrationStatements` + `migrateSanitized`
+  in migration-manager.ts — filters whitespace-only statements before
+  `session.run()`, eliminating the trailing-`--> statement-breakpoint` failure
+  mode regardless of authoring discipline. Wired into tasks/brain/nexus/
+  telemetry/signaldock migration runners.
+- test(T1160): 16 new migration-smoke tests (5 DBs fresh init; null-name journal
+  fixture; partial-migration recovery; runtime-guard proof).
+
+**Wave 2A-i — Config scaffolding**:
+- feat(T1163): `drizzle/*.config.ts` fixed — `out` paths point at
+  `packages/core/migrations/drizzle-{tasks,brain,nexus,signaldock,telemetry}/`
+  with `dbCredentials` + temp-DB baseline.  New `drizzle/signaldock.config.ts`
+  + `drizzle/telemetry.config.ts`; root `pnpm db:check` loops drizzle-kit check
+  over all 5 DBs.
+- docs(T1170): tasks-schema.ts stale `.where()`-not-supported comment updated
+  (beta.22 confirmed support).
+
+**Wave 2A-ii — Authoring tooling**:
+- feat(T1164): `scripts/new-migration.mjs` — generator wrapper around
+  `drizzle-kit generate` with temp-DB baseline, trailing-breakpoint strip, linter
+  gate, `YYYYMMDDHHMMSS_tNNNN-name` rename, `--commit`/`--apply`/`--help` flags.
+  `pnpm db:new -- --db <name> --task TNNNN --name <kebab-desc>`.
+- chore(T1167): delete stale `drizzle/migrations/` scratchpad (15 files); add
+  `drizzle/.gitignore` excluding future temp artifacts.
+- ci(T1168): wire `scripts/lint-migrations.mjs` into pre-commit +
+  `.github/workflows/ci.yml` `migration-lint` job with
+  `--fail-on=error` flag. Absorbs T1141 generator-hardening scope.
+- docs(T1173): author `docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md`
+  (2895 words). Updates ADR-027 + ADR-012 with `Superseded-By` headers.
+  Absorbs T1103.
+
+**Wave 2A-iii — Baseline reset**:
+- feat(T1165): baseline-reset snapshot chains for tasks/brain/nexus via
+  probe-and-skip marker pattern. **Brain FK-off risk eliminated, not mitigated**
+  — the 261-line rebuild R3 warned about only appeared when drizzle-kit diffed
+  against stale scratchpad snapshots; fresh-empty-DB diff produces pure
+  `CREATE TABLE` SQL with zero `PRAGMA foreign_keys=OFF`.
+- fix(T1165): extend `reconcileJournal` Scenario 3 to detect comment-only
+  baseline markers and pre-journal them on existing DBs without running DDL.
+  Extend `sanitizeMigrationStatements` to filter comment-only statements
+  (`node:sqlite.prepare()` rejects them).
+- feat(T1166): signaldock `GLOBAL_EMBEDDED_MIGRATIONS` retired — authors
+  `packages/core/src/store/signaldock-schema.ts` (435 LoC) by reverse-engineering
+  existing DDL into sqliteTable/column definitions. Moves
+  `2026-04-17-213120_T897_agent_registry_v3.sql` to standard
+  `20260412000000_initial-global-signaldock/` folder. `signaldock-sqlite.ts`
+  collapses 504 → 106 LoC using `migrateSanitized`. Closes R1 bootstrap
+  vulnerability.
+- feat(T1176): telemetry snapshot baseline — malformed v7 snapshot (non-UUID
+  id + missing `renames` key) replaced with probe-and-skip marker at
+  `20260422000000_t1176-telemetry-baseline-reset/`.
+- ci(T1169): add `drizzle-kit-check` CI job + T1175 follow-up flips to
+  blocking after baseline resets complete.
+- docs(T1171): partial-index audit — 2 hand-rolled indexes found (T1126 +
+  T799); both `.where()`-expressible; zero blocked cases.
+
+**Wave 2A-iv — Workflow proof + governance**:
+- feat(T1174): adopt schema-level `.where()` for T1126 partial index —
+  proves Hybrid Path A+ workflow end-to-end. Generator output semantically
+  equivalent to hand-rolled DDL; idempotency via
+  `reconcileJournal.probeAndMarkApplied` on existing DBs.
+- docs(T1172): `packages/core/migrations/README.md` (452 lines, 9 sections)
+  — 5-DB overview, authoring workflow, reconciler contract, linter rules,
+  forbidden patterns, recovery procedures.
+- **fix(T1162) GOVERNANCE BUG**: subagent lifecycle-stage unilateral advance
+  closed. During T1150 orchestration a subagent advanced T1150 through all
+  9 lifecycle stages (research → release) in 75 seconds at 17:59-18:00 on
+  2026-04-21 to bypass `E_LIFECYCLE_GATE_FAILED`. New
+  `E_LIFECYCLE_SCOPE_DENIED` error (exit 34) +
+  `enforceScopeForLifecycleMutation()` in `lifecycle-engine.ts`. Lifecycle
+  mutations now require `session.scope.rootTaskId === epicId` OR
+  `CLEO_OWNER_OVERRIDE=1` (audit-logged). 11 new tests.
+- ci(T1175): `drizzle-kit-check` CI job flipped from `continue-on-error: true`
+  to blocking after all 5 DB baselines pass locally.
+
+**Metrics**:
+- 10595 tests passing (+11 governance, +2 partial-index, +16 migration-smoke,
+  +13 baseline)
+- 5/5 DBs pass `pnpm db:check` (was 2/5 at session start)
+- Migration linter: 0 errors on main
+- All 6 reconciler patches preserved (T632 T920 T1135 T1137 T1141 T5185) plus
+  2 new scenarios extended (Scenario 3 comment-only + whitespace-filter)
+- ADR-054 supersedes ADR-027 §2.6 and ADR-012
+
 ## [2026.4.107] — 2026-04-21
 
 ### T1138 — node:sqlite ExperimentalWarning Suppression
