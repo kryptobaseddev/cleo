@@ -305,6 +305,72 @@ cleo version
 
 ---
 
+## Startup Migration Verify
+
+CleoOS runs a migration verify pre-check every time `cleoos` starts — before
+Pi is imported and before any workers are dispatched. This prevents agents from
+running against a drifted database and producing confusing mid-session errors.
+
+### How It Works
+
+`cleoos` invokes `cleo upgrade --diagnose --json` via subprocess (CLI
+boundary — no direct imports from `@cleocode/core`). The result is classified
+into three severity levels:
+
+| Severity | Condition | Action |
+|----------|-----------|--------|
+| **ok** | All 5 DB findings are `status:"ok"` | Silent pass-through |
+| **warn** | One or more findings are `status:"warning"` | Logged to stdout; startup continues |
+| **fatal** | One or more findings are `status:"error"`, OR the `cleo` binary could not be invoked | Structured error printed to stderr; startup halts (exit 2) |
+
+`warn` corresponds to states the reconciler already auto-fixed (e.g. a missing
+column that was backfilled, or `signaldock.db` not yet created). `fatal`
+corresponds to states the reconciler could not resolve — a missing migration
+folder, a schema missing a required table, or an unreachable `cleo` binary.
+
+### Operator Remediation
+
+When CleoOS exits with code 2 and prints a fatal drift error:
+
+```
+CleoOS startup blocked — DB migration drift detected
+═══════════════════════════════════════════════════════════
+
+The following issues prevent safe worker spawn:
+
+  [FATAL] tasks.db.journal
+          Migration folder missing: .cleo/migrations/tasks does not exist
+          Fix: Run: cleo init or cleo upgrade
+```
+
+Try these remediation steps in order:
+
+1. **`cleo upgrade`** — applies pending migrations and repairs known drift.
+2. **`cleo upgrade --diagnose`** — detailed DB inspection showing every check.
+3. **`cleo init --force`** — resets `tasks.db` to a fresh state. **Warning:
+   this destroys all task data**. Run `cleo backup add` first if possible.
+4. **`cleo restore backup --file tasks.db`** — restore from the most recent
+   snapshot if the DB is corrupted.
+
+### Bypassing the Check (CI / Test Harnesses)
+
+Set `CLEO_SKIP_MIGRATION_CHECK=1` to skip the check entirely. This is
+intended for CI environments where the DB is freshly initialised by the test
+harness and no persistent CLEO state exists:
+
+```bash
+CLEO_SKIP_MIGRATION_CHECK=1 cleoos --version
+```
+
+### Dedicated Verb (Future)
+
+The current implementation falls back to `cleo upgrade --diagnose --json`
+because `cleo admin migrations verify` does not yet exist. When that verb
+lands, the `verifyMigrations()` function will be updated to prefer it.
+`MigrationVerifyResult.usedDedicatedVerb` will flip to `true`.
+
+---
+
 ## Wave Roadmap
 
 CleoOS ships in named waves. Each wave targets a vertical slice of the platform.
