@@ -326,6 +326,25 @@ async function writeSuccessReceipt(
  */
 let consecutiveIdleTicks = 0;
 
+// ---------------------------------------------------------------------------
+// Worktree prune state (T1161)
+// ---------------------------------------------------------------------------
+
+/**
+ * How many ticks between each worktree prune pass.
+ *
+ * Prune runs every N ticks to clean up stale worktree directories from
+ * experiments that have already completed or been abandoned. Default: 10 ticks.
+ */
+export const WORKTREE_PRUNE_INTERVAL_TICKS = 10;
+
+/**
+ * Module-level tick counter for the worktree prune cadence.
+ * Incremented on every `safeRunTick` call.
+ * @internal
+ */
+let _worktreePruneTickCount = 0;
+
 /**
  * Evaluate volume + idle dream triggers and call `checkAndDream` when either
  * fires. Errors are swallowed — dream trigger must never crash the tick.
@@ -639,6 +658,24 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
     // Dream errors must never propagate to the tick caller.
   });
 
+  // Worktree prune: run every WORKTREE_PRUNE_INTERVAL_TICKS ticks (T1161).
+  _worktreePruneTickCount += 1;
+  if (_worktreePruneTickCount % WORKTREE_PRUNE_INTERVAL_TICKS === 0) {
+    // Fire-and-forget: prune errors must never affect tick outcome.
+    Promise.resolve()
+      .then(async () => {
+        try {
+          const { pruneWorktreesForProject } = await import('./worktree-dispatch.js');
+          pruneWorktreesForProject(options.projectRoot, new Set<string>());
+        } catch {
+          // Prune is best-effort: log nothing, never block.
+        }
+      })
+      .catch(() => {
+        // Ignore.
+      });
+  }
+
   return outcome;
 }
 
@@ -673,6 +710,29 @@ export async function getKillStatus(
  */
 export function _resetDreamTickState(): void {
   consecutiveIdleTicks = 0;
+}
+
+/**
+ * Reset worktree prune tick counter.
+ *
+ * Intended for test teardown only — allows tests to reset the prune cadence
+ * counter so successive test cases start from a clean slate.
+ *
+ * @internal
+ */
+export function _resetWorktreePruneTickCount(): void {
+  _worktreePruneTickCount = 0;
+}
+
+/**
+ * Return the current worktree prune tick counter value.
+ *
+ * Read-only accessor for test assertions.
+ *
+ * @internal
+ */
+export function _getWorktreePruneTickCount(): number {
+  return _worktreePruneTickCount;
 }
 
 /**

@@ -1,0 +1,46 @@
+{
+  "name": "@cleocode/worktree-backend",
+  "version": "2026.4.112",
+  "private": false,
+  "type": "module",
+  "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cleo",
+    "worktree",
+    "git",
+    "agent",
+    "sdk",
+    "isolation"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev>",
+  "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "env-paths": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}
