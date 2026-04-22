@@ -88,10 +88,20 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   return tasks;
 }
 
+/**
+ * Recursively build a tree node for a task, sorting children by position ASC.
+ *
+ * Children are sorted by their `position` field (null/undefined treated as 0)
+ * using a stable comparison so equal positions preserve insertion order.
+ *
+ * @param task        - The task to build a node for.
+ * @param childrenMap - Map of parentId to ordered child list.
+ */
 function buildTreeNode(task: TaskRecord, childrenMap: Map<string, TaskRecord[]>): FlatTreeNode {
-  const children = (childrenMap.get(task.id) ?? []).map((child) =>
-    buildTreeNode(child, childrenMap),
-  );
+  const rawChildren = childrenMap.get(task.id) ?? [];
+  // Sort children by position ASC; treat null/undefined as 0 for stable ordering.
+  const sortedChildren = [...rawChildren].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const children = sortedChildren.map((child) => buildTreeNode(child, childrenMap));
   return {
     id: task.id,
     title: task.title,
