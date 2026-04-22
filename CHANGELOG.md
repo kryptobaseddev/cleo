@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.110] — 2026-04-22
+
+### Added
+
+- Four generic starter-agent templates with `{{variable}}` placeholders at
+  `packages/agents/seed-agents/` (orchestrator-generic, dev-lead-generic,
+  code-worker-generic, docs-worker-generic). Users now get project-agnostic
+  templates instead of CleoCode-team dogfood personas.
+- Meta-agent system + first meta-agent `agent-architect` at
+  `packages/agents/meta/agent-architect.cant`. `cleo init --install-seed-agents`
+  now delegates persona customization to this meta-agent (with static-copy
+  fallback when dispatcher unavailable).
+- Variable substitution engine with mustache `{{var}}` syntax, dot-notation
+  support, and lazy resolution at spawn time. Resolver chain: bindings →
+  session → project-context → env → default.
+- [ADR-055](docs/adr/ADR-055-agents-architecture-and-meta-agents.md) — Agents
+  Architecture + Meta-Agents. Captures D031–D034 with cross-references to the
+  R1–R4 pre-wave research artifacts.
+- Developer guide at `docs/meta-agents.md` covering authoring, invocation
+  (init, playbook, CLI), safety constraints, and the planned meta-agent
+  roster.
+- `packages/agents/harness-adapters/claude-code/cleo-subagent.AGENT.md` slot
+  for the Claude Code harness translation of the universal subagent protocol.
+
+### Changed
+
+- `packages/agents/cleo-subagent.cant` promoted to package root (flattened
+  from the `cleo-subagent/` subdirectory) as the universal protocol base every
+  agent extends.
+- CleoCode-team personas (cleo-prime, cleo-dev, cleo-historian,
+  cleo-rust-lead, cleo-db-lead, cleoos-opus-orchestrator) relocated from
+  `packages/agents/seed-agents/` to `.cleo/cant/agents/`. They are now
+  CleoCode project-personal and no longer ship in `@cleocode/agents`.
+- `cleo init --install-seed-agents` now invokes `agent-architect` to
+  customize templates from project context, producing personas named per the
+  host project rather than the generic template slugs.
+- `packages/cant/src/native-loader.ts` — added project-tier path-containment
+  validation (R1 Recommendation 4) and consolidated skill-parsing logic into
+  shared utilities (R1 Recommendation 3).
+- `packages/agents/README.md` rewritten to describe the new package surface
+  (universal base + 4 generic templates + meta-agents + harness adapters) and
+  document the variable resolver chain.
+
+### Removed
+
+- Legacy `.cleo/agents/` flat-layout directory (replaced by
+  `.cleo/cant/agents/` per T889 / T897 / T899). Doctor diagnostic D-008
+  (legacy-path) now reports zero findings in fresh projects.
+- Six CleoCode-specific persona files from `packages/agents/seed-agents/`
+  (see relocations under "Changed" above).
+
 ## [2026.4.109] — 2026-04-22
 
 ### BREAKING: T1150 T-MSR Wave 3 — Bundle Externalization

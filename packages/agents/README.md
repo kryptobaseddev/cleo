@@ -1,338 +1,239 @@
 # @cleocode/agents
 
-CLEO agent protocols and templates.
+Universal subagent protocol, generic starter templates, and meta-agents for the
+CLEO ecosystem.
 
-## Overview
+## Scope (v2026.4.110 and later)
 
-This package contains agent protocols, templates, and base configurations for CLEO subagents. These agents follow standardized protocols to ensure consistency and compliance when working within the CLEO ecosystem.
+Per [ADR-055](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md), this
+package ships exactly three surfaces:
 
-## What are CLEO Agents?
+1. **`cleo-subagent.cant`** — the universal protocol base every agent extends.
+2. **`seed-agents/`** — four generic role templates with `{{variable}}`
+   placeholders.
+3. **`meta/`** — meta-agents that synthesize other agents from project context.
 
-CLEO Agents are specialized AI workers that:
-- Follow standardized protocols (LOOM methodology)
-- Work within the CLEO task management system
-- Produce outputs in defined formats
-- Maintain compliance with CLEO constraints
-- Communicate through structured channels
+The package also ships **harness adapters** (`harness-adapters/claude-code/…`)
+when a second harness surface is present. CleoCode-team dogfood personas (the
+former `cleo-prime`, `cleo-dev`, `cleo-historian`, `cleo-rust-lead`,
+`cleo-db-lead`, `cleoos-opus-orchestrator`) moved to `.cleo/cant/agents/` in the
+cleocode repository and are NOT shipped to users.
 
-## Installation
+## Package Tree
+
+```
+packages/agents/
+├── package.json
+├── README.md                                 # this file
+├── cleo-subagent.cant                        # universal protocol base
+├── seed-agents/
+│   ├── README.md
+│   ├── orchestrator-generic.cant             # coordinates the starter team
+│   ├── dev-lead-generic.cant                 # decides HOW, reviews workers
+│   ├── code-worker-generic.cant              # writes code within globs
+│   └── docs-worker-generic.cant              # writes/edits documentation
+├── meta/
+│   ├── README.md
+│   └── agent-architect.cant                  # meta-agent: synthesizes agents
+└── harness-adapters/
+    └── claude-code/
+        └── cleo-subagent.AGENT.md            # Claude Code adapter for subagent base
+```
+
+## The Universal Protocol Base: `cleo-subagent.cant`
+
+Every CLEO agent extends `cleo-subagent.cant`. It defines:
+
+- **RFC 2119 constraints** (BASE-001…BASE-007) — manifest append, no content in
+  responses, `cleo complete` as the terminal, output-before-manifest ordering,
+  focus before work, no fabrication, research linking.
+- **LOOM lifecycle** — Spawn → Execute → Output → Return, with explicit
+  stage-specific guidance injected at spawn time.
+- **Return format contract** — three allowed response strings, everything else
+  goes to files and the manifest.
+- **Error handling** — status classification, retryable exit codes, staleness
+  and evidence rules (ADR-051).
+
+The matching harness adapter (`harness-adapters/claude-code/cleo-subagent.AGENT.md`)
+translates the protocol into Claude Code's `AGENT.md` frontmatter format. New
+harnesses (OpenAI, Cursor, Codex, etc.) get sibling directories under
+`harness-adapters/`.
+
+## Generic Starter Templates
+
+The four seed templates are parameterized blueprints with `{{variable}}`
+placeholders. They MUST remain project-agnostic — no CLEO-internal references,
+no tool-chain assumptions beyond what the template explicitly parameterizes.
+
+| Template | Role | Purpose |
+|----------|------|---------|
+| `orchestrator-generic.cant` | orchestrator | Reads tasks, routes to the dev-lead, synthesizes results. Does not execute code. |
+| `dev-lead-generic.cant` | lead | Decomposes work, reviews output, decides technical direction. Dispatch-only authority; no Edit/Write/Bash. |
+| `code-worker-generic.cant` | worker | Writes code within declared globs. Runs `{{test_command}}` and `{{build_command}}`. Holds Edit/Write/Bash. |
+| `docs-worker-generic.cant` | worker | Writes documentation (README, TSDoc, guides) within doc globs. Holds Edit/Write/Bash scoped to docs. |
+
+These four make a complete starter team: one orchestrator + one lead + two
+workers. For projects that need richer topologies, the `agent-architect`
+meta-agent (see below) synthesizes additional personas.
+
+## How Variables Work
+
+CLEO uses mustache `{{var}}` syntax for template substitution, per
+[ADR-055 D033](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md).
+
+### Syntax
+
+- `{{name}}` — simple variable
+- `{{object.key}}` — dot-notation for nested values
+- `{{inputs.taskId}}` — already used in starter `.cantbook` playbooks
+
+### Resolver Chain
+
+Variables resolve in priority order at **spawn time** (not install time):
+
+1. **Explicit bindings** — highest priority; passed programmatically from the
+   task or orchestrator.
+2. **Session context** — `playbook_runs.bindings`, task + epic identifiers, user.
+3. **Project context** — `.cleo/project-context.json`, traversed via
+   dot-notation (e.g., `{{conventions.typeSystem}}` reads
+   `conventions.typeSystem` from project-context.json).
+4. **Environment variables** — `CLEO_*` or `CANT_*` prefix, uppercase name
+   (`{{tech_stack}}` tries `CLEO_TECH_STACK` then `CANT_TECH_STACK`).
+5. **Default value** — when `SubstitutionOptions.defaultValue` is set.
+6. **Missing** — strict mode throws `E_TEMPLATE_RESOLUTION`; non-strict leaves
+   `{{var}}` literal in the rendered output.
+
+### Why Lazy (Spawn-Time)?
+
+Templates install with `{{...}}` placeholders intact. Resolution happens inside
+`orchestrateSpawnExecute` right before `composeSpawnPayload`, which means:
+
+- The same template can spawn differently under different bindings.
+- BRAIN-provided context (mental-model slices, memory queries) can feed the
+  resolver.
+- Project context changes (e.g., bumping `testing.framework`) are picked up on
+  the next spawn without reinstalling.
+
+Full specification lives in R2 (`R2-VARIABLE-SYNTAX-DESIGN.md`). The resolver
+implementation ships in `packages/cant/src/variable-resolver.ts`.
+
+## Authoring a New Agent
+
+### 1. Start from a template or from `cleo-subagent.cant`
 
 ```bash
-npm install @cleocode/agents
+cp packages/agents/seed-agents/code-worker-generic.cant \
+   my-project/.cleo/cant/agents/my-worker.cant
 ```
+
+Edit the agent name, tune the description + skills + tool list, replace
+`{{variable}}` placeholders with either literal values (if project-specific) or
+leave them for lazy resolution at spawn time.
+
+### 2. Validate the CANT syntax
 
 ```bash
-pnpm add @cleocode/agents
+cleo cant validate my-project/.cleo/cant/agents/my-worker.cant
 ```
+
+The validator enforces the 42-rule engine (kind/version, required frontmatter,
+role/parent coherence, skill references, permission globs).
+
+### 3. Install into the registry
 
 ```bash
-yarn add @cleocode/agents
+cleo agent install my-project/.cleo/cant/agents/my-worker.cant
 ```
 
-## Available Agents
+This atomically copies the file to the canonical project-tier path
+(`.cleo/cant/agents/my-worker.cant`), writes the `agents` registry row, and
+populates the `agent_skills` junction. Use `--global` for
+`~/.local/share/cleo/cant/agents/`.
 
-### cleo-subagent
-
-The base protocol for all CLEO subagents. Every subagent in the CLEO ecosystem extends this foundation.
-
-**File**: `cleo-subagent/AGENT.md`
-
-#### Key Features
-
-- **Protocol Compliance**: Follows RFC 2119 constraint definitions
-- **LOOM Lifecycle**: Implements Logical Order of Operations Methodology
-- **Structured Output**: Writes to files, returns only summaries
-- **Manifest Integration**: Automatically appends to MANIFEST.jsonl
-
-#### Immutable Constraints (RFC 2119)
-
-| ID | Rule | Enforcement |
-|----|------|-------------|
-| BASE-001 | **MUST** append ONE line to MANIFEST.jsonl | Required |
-| BASE-002 | **MUST NOT** return content in response | Required |
-| BASE-003 | **MUST** complete task via `cleo complete` | Required |
-| BASE-004 | **MUST** write output file before manifest | Required |
-| BASE-005 | **MUST** set focus before starting work | Required |
-| BASE-006 | **MUST NOT** fabricate information | Required |
-| BASE-007 | **SHOULD** link research to task | Recommended |
-
-#### LOOM Lifecycle Protocol
-
-The **LOOM** (Logical Order of Operations Methodology) is the systematic framework for processing project threads through the RCASD-IVTR+C pipeline.
-
-**Phase 1: Spawn (Initialization)**
+### 4. Verify resolver coverage
 
 ```bash
-# 1. Read task context
-cleo show {{TASK_ID}}
-
-# 2. Start task (marks task active)
-cleo start {{TASK_ID}}
+cleo agent doctor --json
 ```
 
-**Phase 2: Execute (Skill-Specific)**
+Checks D-001 (orphan files) through D-010 (legacy JSON imports). Resolves D-002
+(orphan rows) and D-003 (sha-mismatch) by default; opt into D-008 path
+migration or legacy-JSON import with flags.
 
-Follow the injected skill protocol for the current LOOM stage:
-- **Research**: Gather information, cite sources
-- **Consensus**: Validate claims, vote
-- **Specification**: Write RFC 2119 spec
-- **Decomposition**: Break down into tasks
-- **Implementation**: Write code
-- **Validation**: Verify compliance
-- **Testing**: Write BATS tests
-- **Contribution**: Track attribution
-- **Release**: Version and changelog
+## Installing Agents
 
-**Phase 3: Output (Mandatory)**
+CLEO installs agents in two places:
+
+- **Global** — `~/.local/share/cleo/cant/agents/` via `cleo agent install --global`
+  or `cleo init --install-seed-agents`.
+- **Project** — `{projectRoot}/.cleo/cant/agents/` via `cleo agent install`
+  (default).
+
+### Static install (seed templates)
 
 ```bash
-# 1. Write output file
-# Location: {{OUTPUT_DIR}}/{{TASK_ID}}-<slug>.md
-
-# 2. Append manifest entry (single line JSON)
-echo '{"id":"{{TASK_ID}}-slug",...}' >> {{MANIFEST_PATH}}
-
-# 3. Complete task
-cleo complete {{TASK_ID}}
+cleo init --install-seed-agents
 ```
 
-**Phase 4: Return (Summary Only)**
+Copies the four generic templates + `cleo-subagent.cant` into the global tier,
+writes the `.seed-version` marker, and is idempotent on subsequent runs.
 
-Return ONLY one of these messages:
-- `"[Type] complete. See MANIFEST.jsonl for summary."`
-- `"[Type] partial. See MANIFEST.jsonl for details."`
-- `"[Type] blocked. See MANIFEST.jsonl for blocker details."`
-
-**NEVER** return content in the response. All content goes to output files.
-
-#### Token Reference
-
-**Required Tokens:**
-| Token | Description | Example |
-|-------|-------------|---------|
-| `{{TASK_ID}}` | Current task identifier | `T1234` |
-| `{{DATE}}` | Current date (ISO) | `2026-01-29` |
-| `{{TOPIC_SLUG}}` | URL-safe topic name | `auth-research` |
-
-**Optional Tokens:**
-| Token | Default | Description |
-|-------|---------|-------------|
-| `{{EPIC_ID}}` | `""` | Parent epic ID |
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` | Output directory |
-| `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
-
-#### Error Handling
-
-**Status Classification:**
-
-| Status | Condition | Action |
-|--------|-----------|--------|
-| `complete` | All objectives achieved | Write full output |
-| `partial` | Some objectives achieved | Write partial, populate `needs_followup` |
-| `blocked` | Cannot proceed | Document blocker, do NOT complete task |
-
-**Retryable Errors:**
-
-Exit codes 7, 20, 21, 22, 60-63 support retry with exponential backoff.
-
-#### Anti-Patterns
-
-| Pattern | Problem | Solution |
-|---------|---------|----------|
-| Returning content | Bloats orchestrator context | Write to file, return summary |
-| Pretty-printed JSON | Multiple lines in manifest | Single-line JSON only |
-| Skipping start | Protocol violation | Always `cleo start` first |
-| Loading skills via `@` | Cannot resolve | Skills injected by orchestrator |
-
-## Agent Structure
-
-Agents in this package follow a standardized structure:
-
-```
-agents/
-├── <agent-name>/
-│   ├── AGENT.md          # Main agent definition
-│   ├── protocols/        # Protocol-specific docs
-│   ├── templates/        # Output templates
-│   └── examples/         # Example outputs
-```
-
-## Using Agents
-
-### From Skills
-
-Skills can spawn agents using the orchestration API:
-
-```typescript
-import { orchestration } from '@cleocode/core';
-
-await orchestration.spawn({
-  agent: 'cleo-subagent',
-  taskId: 'T1234',
-  context: {
-    skill: 'ct-research-agent',
-    topic: 'authentication patterns'
-  }
-});
-```
-
-### From CLI
-
-Spawn agents directly from the command line:
+### Meta-agent-driven install (synthesized personas)
 
 ```bash
-# Spawn a research agent
-cleo orchestrate spawn --agent cleo-subagent --task T1234 --skill ct-research-agent
-
-# Spawn with context
-cleo orchestrate spawn --agent cleo-subagent --task T1234 --context '{"topic":"API design"}'
+cleo init --install-seed-agents
 ```
 
-### From MCP
+Per [ADR-055 D034](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md),
+the same command invokes `agent-architect` behind the scenes. The meta-agent:
 
-Use the MCP server to spawn agents:
+1. Reads `.cleo/project-context.json`.
+2. Loads the four generic templates from `packages/agents/seed-agents/`.
+3. Synthesizes project-customized personas (e.g., `myproject-lead.cant`,
+   `myproject-code-worker.cant`) in `.cleo/cant/agents/`.
+4. Falls back to the static copy if the dispatcher is unavailable (offline, CI
+   without LLM access, explicit `--skip-agent-synthesis`).
 
-```json
-{
-  "domain": "orchestrate",
-  "operation": "spawn",
-  "params": {
-    "agent": "cleo-subagent",
-    "taskId": "T1234",
-    "context": {
-      "skill": "ct-implementation"
-    }
-  }
-}
-```
+See `docs/meta-agents.md` for the full meta-agent developer guide and the
+architect's contract.
 
-## Creating Custom Agents
+## Tier Precedence (Resolver Chain)
 
-To create a custom agent that extends the base protocol:
+Agent resolution at spawn time walks four tiers in order (per T899):
 
-1. **Create agent directory**:
-   ```bash
-   mkdir -p agents/my-custom-agent
-   ```
+1. **project** — `{projectRoot}/.cleo/cant/agents/{agentId}.cant`
+2. **global** — `~/.local/share/cleo/cant/agents/{agentId}.cant`
+3. **packaged** — `packages/agents/seed-agents/{agentId}.cant` (the files this
+   package ships)
+4. **fallback** — seed file on disk with no registry row, synthesized envelope
+   with `canSpawn=false`
 
-2. **Create AGENT.md**:
-   ```markdown
-   ---
-   name: my-custom-agent
-   description: |
-     Custom agent for specialized tasks. Extends cleo-subagent base protocol.
-   model: sonnet
-   allowed_tools:
-     - Read
-     - Write
-     - Bash
-   ---
-   
-   # My Custom Agent
-   
-   Extends [cleo-subagent](./cleo-subagent/AGENT.md).
-   
-   ## Additional Constraints
-   
-   | ID | Rule | Enforcement |
-   |----|------|-------------|
-   | CUST-001 | **MUST** validate output format | Required |
-   
-   ## Specialization
-   
-   This agent specializes in [your domain].
-   
-   ## Usage
-   
-   ```bash
-   cleo orchestrate spawn --agent my-custom-agent --task T1234
-   ```
-   ```
+The `DEPRECATED_ALIASES` table (readonly, frozen) transparently rewrites old
+IDs before the tier walk — it currently contains
+`cleoos-opus-orchestrator → cleo-prime` (T889 identity consolidation).
 
-3. **Register the agent**:
-   ```typescript
-   import { agents } from '@cleocode/core';
-   
-   agents.register({
-     name: 'my-custom-agent',
-     path: './agents/my-custom-agent',
-     baseProtocol: 'cleo-subagent'
-   });
-   ```
+## Contract Guarantees
 
-## Agent Protocols
+- **Atomic install** — `packages/core/src/store/agent-install.ts` wraps the
+  `.cant` copy, `agents` row upsert, and `agent_skills` junction rewrite in a
+  single `BEGIN IMMEDIATE TRANSACTION`. On any failure the file is unlinked if
+  this call created it and the DB rolls back.
+- **Idempotent seed install** — `packages/core/src/agents/seed-install.ts`
+  compares `.seed-version` against the bundled `package.json` version and
+  returns early when they match.
+- **Doctor drift reporting** — `packages/core/src/store/agent-doctor.ts` emits
+  D-001…D-010 codes for orphan files, SHA mismatch, legacy paths, missing
+  skills, and legacy JSON registries. Default reconcile repairs D-002 and D-003;
+  all others are opt-in.
 
-### Base Protocol
+## See Also
 
-All agents extend the `cleo-subagent` base protocol which provides:
-
-- **Constraint System**: RFC 2119 (MUST, SHOULD, MAY) rules
-- **Lifecycle Management**: LOOM phases (Spawn, Execute, Output, Return)
-- **Output Standards**: File-based outputs with manifest tracking
-- **Error Handling**: Standardized status classification
-- **Token System**: Template variables for dynamic content
-
-### Protocol Inheritance
-
-```
-cleo-subagent (base)
-    │
-    ├── research-subagent
-    │       └── Extends with research-specific constraints
-    │
-    ├── implementation-subagent
-    │       └── Extends with coding-specific constraints
-    │
-    └── validation-subagent
-            └── Extends with compliance-specific constraints
-```
-
-### Protocol Compliance
-
-Agents are validated for protocol compliance:
-
-```typescript
-import { compliance } from '@cleocode/core';
-
-// Validate agent definition
-const result = await compliance.validateAgent({
-  agentPath: './agents/my-agent',
-  baseProtocol: 'cleo-subagent'
-});
-
-if (result.valid) {
-  console.log('Agent is protocol compliant ✓');
-} else {
-  console.log('Compliance issues:', result.issues);
-}
-```
-
-## Integration with Skills
-
-Agents work closely with skills:
-
-- **Skills provide**: Capabilities, instructions, constraints
-- **Agents provide**: Execution context, protocol compliance, output handling
-
-Example workflow:
-
-```
-1. Orchestrator identifies need for research
-2. Loads ct-research-agent skill
-3. Spawns cleo-subagent with research skill injected
-4. Agent follows LOOM phases
-5. Research skill guides information gathering
-6. Agent writes output, appends to manifest
-7. Returns summary to orchestrator
-```
-
-## Dependencies
-
-This package has no runtime dependencies. It contains only:
-- Agent protocol definitions (markdown)
-- Template files
-- Example outputs
+- [ADR-055 — Agents Architecture + Meta-Agents](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md)
+- [Meta-Agent Developer Guide](../../docs/meta-agents.md)
+- [Package boundary contract](../../AGENTS.md) — canonical layering for every
+  CLEO package
+- R1–R4 research artifacts under `.cleo/agent-outputs/T-AGENTS-PRE-WAVE/`
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT — see [LICENSE](../../LICENSE).
