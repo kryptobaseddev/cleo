@@ -18,7 +18,7 @@ input:
   output_dir: "string — directory for findings (default: .cleo/agent-outputs/)"
 output:
   findings_path: "string — path to the research output markdown file"
-  manifest_entry: "object — 3–7 key findings for MANIFEST.jsonl"
+  manifest_entry: "object — 3–7 key findings for pipeline_manifest via cleo manifest append"
   confidence_levels: "object — per-finding confidence 0.0–1.0"
   sources: "string[] — cited URLs or file paths"
 ---
@@ -45,7 +45,7 @@ output:
 #   RSCH-001: MUST NOT implement code or make changes to codebase
 #   RSCH-002: MUST document all sources with citations
 #   RSCH-003: MUST write findings to claudedocs/agent-outputs/
-#   RSCH-004: MUST append entry to MANIFEST.jsonl
+#   RSCH-004: MUST append entry via `cleo manifest append`
 #   RSCH-005: MUST return only completion message (no content in response)
 #   RSCH-006: MUST include 3-7 key findings in manifest entry
 #   RSCH-007: MUST set agent_type: "research" in manifest

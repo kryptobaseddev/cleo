@@ -125,7 +125,7 @@ Context injection for compliance validation tasks spawned via cleo-subagent. Pro
 
 1. MUST write validation report to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Validation complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Validation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return validation content in response
 
 ### Manifest Entry Format

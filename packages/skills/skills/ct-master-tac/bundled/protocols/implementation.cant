@@ -19,7 +19,7 @@ input:
 output:
   files_changed: "string[] — list of modified/created files"
   tests_added: "string[] — new test files or test names"
-  manifest_entry: "object — implementation summary for MANIFEST.jsonl"
+  manifest_entry: "object — implementation summary for pipeline_manifest via cleo manifest append"
 ---
 
 # Implementation Protocol

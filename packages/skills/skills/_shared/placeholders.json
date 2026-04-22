@@ -71,9 +71,9 @@
     {
       "token": "MANIFEST_PATH",
       "type": "path",
-      "example": ".cleo/agent-outputs/MANIFEST.jsonl",
-      "description": "Path to MANIFEST.jsonl file",
-      "default": ".cleo/agent-outputs/MANIFEST.jsonl"
+      "example": "pipeline_manifest (use cleo manifest append)",
+      "description": "Manifest CLI: use `cleo manifest append`",
+      "default": "pipeline_manifest (use cleo manifest append)"
     }
   ],
   "taskCommands": {
@@ -182,7 +182,7 @@
     ]
   },
   "manifest": {
-    "_comment": "Tokens used when constructing MANIFEST.jsonl entries",
+    "_comment": "Tokens used when constructing pipeline_manifest entries (via cleo manifest append)",
     "tokens": [
       {
         "token": "MANIFEST_ID",

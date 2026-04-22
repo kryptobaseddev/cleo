@@ -15,7 +15,7 @@ Orchestrator (Tier 0)
     ├─ Spawns Agent A with task instructions
     │   └─ A completes → writes output file + manifest entry
     │
-    ├─ Reads MANIFEST.jsonl → extracts key_findings (3-7 items)
+    ├─ Reads pipeline_manifest → extracts key_findings (3-7 items)
     │   └─ Does NOT read full output file
     │   └─ Does NOT use TaskOutput tool
     │

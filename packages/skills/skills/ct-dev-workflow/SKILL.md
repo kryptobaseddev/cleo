@@ -328,7 +328,7 @@ cleo session end --note "Completed X, Y, Z"
 
 1. MUST write workflow summary to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Workflow complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Workflow complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return full commit/release details in response
 
 ---

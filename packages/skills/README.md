@@ -400,7 +400,7 @@ cleo skills apply-profile backend-developer --task T1234
 
 Common patterns and utilities in `skills/_shared/`:
 
-- `manifest-operations.md` - Working with MANIFEST.jsonl
+- `manifest-operations.md` - Working with pipeline_manifest via cleo manifest CLI
 - `subagent-protocol-base.md` - Base subagent protocols
 - `skill-chaining-patterns.md` - Chaining best practices
 - `testing-framework-config.md` - Test configuration

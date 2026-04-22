@@ -169,7 +169,7 @@ When tokens are not explicitly configured, assume CLEO defaults:
 | `{{TASK_FIND_CMD}}` | `cleo find` |
 | `{{TASK_ADD_CMD}}` | `cleo add` |
 | `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
-| `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` |
+
 
 ---
 

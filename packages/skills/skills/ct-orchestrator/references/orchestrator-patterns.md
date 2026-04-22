@@ -98,7 +98,7 @@ cleo phase advance  # Move to testing phase
 
 ```bash
 # 1. Subagent completes implementation
-# Returns: "Implementation complete. See MANIFEST.jsonl for summary."
+# Returns: "Implementation complete. Manifest appended to pipeline_manifest."
 
 # 2. Orchestrator verifies output
 cleo research show <research-id>
