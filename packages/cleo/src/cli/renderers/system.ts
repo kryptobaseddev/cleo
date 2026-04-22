@@ -278,11 +278,47 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
 }
 
 /**
+ * Build a terminal-only blocker indicator suffix for a tree node.
+ *
+ * - Blocked by N open dependencies: red circled-times with count `⊗(N)`.
+ * - Ready (no open deps, status pending/active): green filled circle `●`.
+ * - Otherwise (done, cancelled, archived, or no dep data): empty string.
+ *
+ * This suffix is only appended in human (non-quiet) mode so that JSON and
+ * markdown output modes remain unaffected.
+ *
+ * @param blockedBy - Open dependency IDs blocking the task (may be undefined
+ *                    when the node comes from a legacy data source that predates
+ *                    T1199).
+ * @param ready     - Whether the task is immediately actionable.
+ */
+function blockerIndicator(blockedBy: string[] | undefined, ready: boolean | undefined): string {
+  if (blockedBy !== undefined && blockedBy.length > 0) {
+    return ` ${RED}⊗(${blockedBy.length})${NC}`;
+  }
+  if (ready === true) {
+    return ` ${GREEN}●${NC}`;
+  }
+  return '';
+}
+
+/**
  * Recursively render tree nodes with ASCII connectors.
  *
  * In quiet mode the status symbol and title are omitted but tree connectors
  * are preserved so that the hierarchy structure remains visible and IDs remain
  * script-extractable (each line ends with the task ID).
+ *
+ * In human mode (non-quiet), each node receives:
+ * - Priority color applied to the title text (critical=red, high=yellow,
+ *   medium=default, low=dim) via the existing `priorityColor` helper.
+ * - A blocker indicator suffix next to the status glyph:
+ *   - Blocked by N open deps → red "⊗(N)"
+ *   - Ready (no open deps, pending/active) → green "●"
+ *   - Otherwise (done, cancelled, archived) → no indicator
+ *
+ * JSON and markdown output modes are unaffected — this function is only
+ * invoked for human terminal rendering.
  *
  * @param nodes  - Sibling nodes to render at this level.
  * @param prefix - Accumulated prefix string from parent levels.
@@ -311,7 +347,19 @@ function renderTreeNodes(
       // each line so it remains easily extractable with `awk '{print $NF}'`.
       lines.push(`${prefix}${connector}${id}`);
     } else {
-      lines.push(`${prefix}${connector}${sSym} ${BOLD}${id}${NC} ${title}`);
+      // Priority color applied to the title (T1200).
+      const priority = node['priority'] as string | undefined;
+      const pCol = priorityColor(priority ?? '');
+      const pReset = pCol ? NC : '';
+
+      // Blocker indicator appended after the status glyph (T1200).
+      const blockedBy = node['blockedBy'] as string[] | undefined;
+      const ready = node['ready'] as boolean | undefined;
+      const indicator = blockerIndicator(blockedBy, ready);
+
+      lines.push(
+        `${prefix}${connector}${sSym}${indicator} ${BOLD}${id}${NC} ${pCol}${title}${pReset}`,
+      );
     }
 
     const children = node['children'] as Array<Record<string, unknown>> | undefined;
