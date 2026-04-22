@@ -4,6 +4,115 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.112] — 2026-04-22
+
+Two-part release: T1187 tree / dependency / blocker visualization overhaul
+shipped in full, plus the T1096 MANIFEST.jsonl deprecation finally reaches
+zero agent-facing references.
+
+### Added
+
+#### T1187 — Tree, Dependency & Blocker Visualization Overhaul (6 waves + E2E)
+
+- **`@cleocode/core/formatters`** — new SDK subpath exports `formatTree` and
+  `formatWaves` with four output modes (`rich`, `json`, `markdown`, `quiet`)
+  and injectable `colorize` so Studio, VS Code extensions, and the API server
+  can reuse the CLI's tree rendering.
+- **`FlatTreeNode` enrichment** — `priority`, `depends`, `blockedBy`, `ready`
+  are now populated by `buildTreeNode` from a single taskMap walk (no
+  per-node DB queries). Backward-compatible with consumers that only read
+  `id` / `title` / `status` / `type` / `children`.
+- **Priority colors + blocker indicators** — rich-mode output colorizes tasks
+  by priority (critical=red, high=yellow) and annotates status glyph with
+  open-deps count (`⊗(3)`) or ready dot (`●`). JSON + markdown unchanged.
+- **`renderWaves` 4-mode API** — `cleo deps waves` and `cleo orchestrate
+  waves` now produce proper wave visualization instead of raw key-value or
+  "No tree data." (regression fixed: T1194, T1195).
+- **Within-wave sort** — tasks sort by priority DESC then open-dep count ASC
+  then id ASC inside each wave; wave status correctly transitions
+  pending → in_progress → completed (T1197 dead-code fix, T1202 hardening).
+- **`--with-deps` flag** on `cleo tree` — inlines the dependency chain below
+  each task with deps, respecting all four formatter modes (T1205).
+- **`--blockers` flag** on `cleo tree` — renders transitive blocker chains
+  and highlights leaf blockers for blocked tasks using
+  `coreTaskBlockers` / `getTransitiveBlockers` / `getLeafBlockers` which were
+  previously computed but unused (T1206).
+- **Quiet mode tree connectors** — `cleo tree --quiet` now preserves tree
+  structure with connectors while keeping output script-parseable (T1198).
+- **E2E integration test** — `packages/cleo/src/cli/renderers/__tests__/
+  tree-visualization.e2e.test.ts` exercises the full stack against a real
+  SQLite tasks DB across 10 describe blocks (54 tests), including 5 explicit
+  regression assertions for each Wave 1 bug (T1207).
+
+### Changed
+
+#### T1187 / T1096 — MANIFEST.jsonl purge (zero agent-facing references)
+
+ADR-027 §6.2 retired the flat-file `MANIFEST.jsonl` sink because concurrent
+appends under parallel-wave orchestration lost entries (L-cee27c8a,
+2026-04-15). T1096 approved the unified `cleo manifest` CLI dispatching to
+the `pipeline_manifest` SQLite table. The execution gap was that the
+**spawn-prompt composer** and dozens of **compiled agent docs / skills /
+protocols** still instructed every subagent to `echo >> MANIFEST.jsonl` —
+so every parallel worker hit the race the ADR was supposed to prevent.
+
+This release closes the gap:
+
+- **`packages/core/src/orchestration/spawn-prompt.ts`** — the authoritative
+  composer for every `cleo orchestrate spawn` prompt:
+  - `buildReturnFormatBlock` — emits
+    `{type} complete. Manifest appended to pipeline_manifest.` instead of
+    the legacy "See MANIFEST.jsonl for summary." strings.
+  - NEW `buildManifestProtocolBlock` — renders the exact `cleo manifest
+    append` shorthand + rich-JSON commands every subagent needs, with
+    `TASK_ID` / `TYPE` pre-filled per protocol phase.
+  - `buildFilePathsBlock` — drops the `Manifest (JSONL)` row; adds a
+    deprecation footer pointing at the Manifest Protocol section.
+  - `manifestPath` local variable and `MANIFEST_PATH` token retired.
+- **`packages/agents/cleo-subagent/AGENT.md`** — section list and
+  anti-patterns table point at `cleo manifest append`.
+- **`packages/adapters/src/providers/claude-code/commands/orchestrator.md`**
+  and **`.claude/commands/orchestrator.md`** — `/orchestrator` slash-command
+  guardrails now read via `cleo manifest show <id>` / `cleo manifest list`.
+- **`packages/skills/skills/*`** — 31 skill files across ct-cleo,
+  ct-dev-workflow, ct-documentor, ct-orchestrator, ct-epic-architect,
+  ct-master-tac converted.
+- **`packages/core/src/validation/protocols/*`** — 5 markdown + 4 `.cant`
+  protocol docs updated.
+- **`packages/cleo/src/cli/commands/research.ts`**, `dispatch/registry.ts`,
+  **`packages/contracts/src/operations/orchestrate.ts`**,
+  **`packages/caamp/providers/hook-mappings.json`** +
+  **`crates/cant-core/src/generated/events.rs`** — event description updates.
+
+**Preserved** (migration-internal / historical record only):
+- `packages/core/src/memory/pipeline-manifest-sqlite.ts` (the SQLite
+  ingester that reads legacy `.jsonl` files to backfill the new table).
+- `packages/core/src/migration/agent-outputs.ts` (the one-shot migration
+  CLI).
+- `docs/adr/ADR-027-*.md`, `docs/specs/T1096-manifest-unification-spec.md`
+  (immutable historical records).
+
+Verification: after this release, `grep -rn "MANIFEST.jsonl"` returns zero
+hits in the agent-facing surface — no code path and no document instructs a
+subagent to write to any flat-file manifest.
+
+### Fixed
+
+- `packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts` — assertion
+  updated for the new `taskTree` 3-arg signature (`projectRoot`, `taskId`,
+  `withBlockers?`) introduced by T1206.
+- `build.mjs` — `SUBPATH_DIRS` registers the new `formatters` subpath so
+  the auto-scanner emits the `@cleocode/core/formatters` entry point on
+  fresh checkouts.
+
+### Commits
+
+15 T1187 cherry-picks from `task/T1207` (T1194-T1207), 7 MANIFEST.jsonl
+purge commits (spawn-prompt + critical docs, skills, validation protocols,
+core code, cleo/caamp/contracts, docs/, biome-format, final cleanup).
+
+---
+
 ## [2026.4.111] — 2026-04-22
 
 Systemic hotfix for three regressions shipped in v2026.4.110 — filed as **D035**
