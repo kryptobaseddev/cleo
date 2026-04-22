@@ -47,7 +47,12 @@ import {
   renderStop,
   renderTree,
   renderVersion,
+  renderWaves,
 } from './system.js';
+
+export type { RenderWavesMode, RenderWavesOptions } from './system.js';
+export { renderWaves };
+
 // Task renderers
 import {
   renderAdd,
