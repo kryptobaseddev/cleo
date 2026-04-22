@@ -97,6 +97,9 @@ const renderers: Record<string, HumanRenderer> = {
   tree: renderTree,
   depends: renderTree,
   deps: renderTree,
+  // Orchestration — `cleo orchestrate waves` emits { waves, epicId, ... }
+  // which renderTree handles via its data.waves branch (T1194/T1195).
+  orchestrate: renderTree,
   session: renderSession,
   version: renderVersion,
 };
