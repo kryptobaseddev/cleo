@@ -349,59 +349,6 @@ const adaptersBuildOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// T759: Migration sync — keep packages/cleo/migrations/ in sync with
-// packages/core/migrations/ so the CLI bundle always ships complete migrations.
-// ---------------------------------------------------------------------------
-
-/**
- * Sync migration folders from @cleocode/core to @cleocode/cleo.
- *
- * The CLI bundle (packages/cleo/dist/cli/index.js) resolves migrations relative
- * to the @cleocode/cleo package root. Without this sync, only the initial
- * migration is present and subsequent schema changes (agent field, graph schema,
- * tier columns, etc.) never run, causing "no such column" errors at runtime.
- *
- * T759: root cause — brain_page_edges missing `provenance` column because T528
- * migration was absent from packages/cleo/migrations/drizzle-brain/.
- *
- * T1166 extension: signaldock retired GLOBAL_EMBEDDED_MIGRATIONS in favour of
- * the standard drizzle runner, so drizzle-signaldock/ must now be synced too.
- * T1176 baselined telemetry's snapshot chain — drizzle-telemetry/ joins the
- * sync set so the CLI bundle ships all 5 DB migration folders.
- */
-async function syncMigrationsToCleoPackage() {
-  const coreMigsBase = resolve(__dirname, 'packages/core/migrations');
-  const cleoMigsBase = resolve(__dirname, 'packages/cleo/migrations');
-  const sets = [
-    'drizzle-brain',
-    'drizzle-tasks',
-    'drizzle-nexus',
-    'drizzle-signaldock',
-    'drizzle-telemetry',
-  ];
-
-  for (const set of sets) {
-    const src = join(coreMigsBase, set);
-    const dst = join(cleoMigsBase, set);
-    if (!existsSync(src)) continue;
-
-    const srcDirs = readdirSync(src, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-
-    for (const dir of srcDirs) {
-      const srcDir = join(src, dir);
-      const dstDir = join(dst, dir);
-      if (!existsSync(dstDir)) {
-        await cp(srcDir, dstDir, { recursive: true });
-        console.log(`  [migrations] synced ${set}/${dir}`);
-      }
-    }
-  }
-  console.log('Migration sync complete (packages/cleo/migrations/ up to date).');
-}
-
-// ---------------------------------------------------------------------------
 // Auto-sync guard: assert every concrete non-wildcard subpath export in
 // packages/core/package.json has a matching entry in coreBuildOptions.
 //
@@ -593,13 +540,6 @@ async function build() {
     cwd: __dirname,
   });
   console.log('  -> packages/adapters/dist/*.d.ts');
-
-  // T759: Sync all DB migrations from @cleocode/core to @cleocode/cleo.
-  // The CLI bundle resolves migrations relative to the @cleocode/cleo package
-  // directory (packages/cleo/migrations/). Without this sync, only the initial
-  // migration is present in @cleocode/cleo, causing E_BRAIN_OBSERVE on fresh
-  // installs (brain_page_edges missing the `provenance` column that T528 adds).
-  await syncMigrationsToCleoPackage();
 
   // T910/T935: playbooks standalone build for external consumers. The cleo
   // bundle inlines playbooks source, but @cleocode/playbooks is also published
