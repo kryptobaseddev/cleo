@@ -109,10 +109,12 @@ export function checkManifestEntry(entry: ManifestEntry | null): ManifestIntegri
 // Return Format Checking
 // ============================================================================
 
-const RETURN_PATTERN = /Research complete\. See MANIFEST\.jsonl/;
+const RETURN_PATTERN =
+  /^(Research|Implementation|Validation|Testing|Specification|Consensus|Decomposition|Contribution|Release|Documentation|Artifact publish|Provenance|Workflow) (complete|completed|partial|blocked)\. Manifest appended to pipeline_manifest\.$/;
 
 /**
  * Check if a response matches the expected return format.
+ * ADR-027: manifest is pipeline_manifest (SQLite table), not the retired flat-file.
  * @task T4524
  */
 export function checkReturnFormat(response: string): boolean {

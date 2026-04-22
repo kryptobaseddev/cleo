@@ -20,7 +20,7 @@ output:
   release_tag: "string — git tag created (e.g. v2026.4.5)"
   changelog_path: "string — path to updated CHANGELOG file"
   artifacts_published: "boolean — true when artifact phase ran"
-  release_manifest: "object — release summary for MANIFEST.jsonl"
+  release_manifest: "object — release summary for pipeline_manifest via cleo manifest append"
 ---
 
 # Release Protocol

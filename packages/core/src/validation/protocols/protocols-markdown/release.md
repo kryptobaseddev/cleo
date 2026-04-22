@@ -760,7 +760,7 @@ cleo research add \
 
 **Return Message**:
 ```
-Release complete. See MANIFEST.jsonl for summary.
+Release complete. Manifest appended to pipeline_manifest.
 ```
 
 ---

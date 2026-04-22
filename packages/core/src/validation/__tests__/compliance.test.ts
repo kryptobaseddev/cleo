@@ -47,7 +47,7 @@ describe('checkManifestEntry', () => {
 
 describe('checkReturnFormat', () => {
   it('matches valid return format', () => {
-    expect(checkReturnFormat('Research complete. See MANIFEST.jsonl for summary.')).toBe(true);
+    expect(checkReturnFormat('Research complete. Manifest appended to pipeline_manifest.')).toBe(true);
   });
 
   it('rejects invalid format', () => {
@@ -69,7 +69,7 @@ describe('scoreSubagentCompliance', () => {
       'agent-1',
       entry,
       true,
-      'Research complete. See MANIFEST.jsonl for summary.',
+      'Research complete. Manifest appended to pipeline_manifest.',
     );
     expect(result.compliance.compliancePassRate).toBe(1.0);
     expect(result.compliance.violationCount).toBe(0);
@@ -81,7 +81,7 @@ describe('scoreSubagentCompliance', () => {
       'agent-1',
       null,
       true,
-      'Research complete. See MANIFEST.jsonl for summary.',
+      'Research complete. Manifest appended to pipeline_manifest.',
     );
     expect(result.compliance.violationCount).toBeGreaterThan(0);
     expect(result.compliance.manifestIntegrity).toBe('missing');

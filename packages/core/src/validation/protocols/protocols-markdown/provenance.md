@@ -565,7 +565,7 @@ cleo research add \
  9. Write output file
 10. Append manifest entry
 11. Complete task (cleo complete T####)
-12. Return: "Provenance complete. See MANIFEST.jsonl for summary."
+12. Return: "Provenance complete. Manifest appended to pipeline_manifest."
 ```
 
 ---
@@ -590,7 +590,7 @@ cleo research add \
 
 **Return Message**:
 ```
-Provenance complete. See MANIFEST.jsonl for summary.
+Provenance complete. Manifest appended to pipeline_manifest.
 ```
 
 ---

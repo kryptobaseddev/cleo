@@ -86,8 +86,6 @@ const VALID_TYPES = [
   'Release',
 ];
 const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter((s) => s !== 'archived');
-const VALID_DETAILS = ['summary', 'details', 'blocker details'];
-
 /**
  * Map from protocol type identifiers to the expected message type prefix.
  * When a protocolType is provided, the return message must use the matching type.
@@ -106,7 +104,7 @@ const PROTOCOL_TYPE_MAP: Record<string, string> = {
 
 /**
  * Check if return message follows protocol format.
- * Expected: "<Type> <status>. See MANIFEST.jsonl for <detail>."
+ * Expected: "<Type> <status>. Manifest appended to pipeline_manifest."
  *
  * When protocolType is provided, the message type must match the protocol
  * (e.g., a 'research' protocol must produce a "Research ..." message).
@@ -115,7 +113,6 @@ const PROTOCOL_TYPE_MAP: Record<string, string> = {
  */
 export function checkReturnMessageFormat(message: string, protocolType?: string): boolean {
   const statusPattern = VALID_STATUSES_MSG.join('|');
-  const detailPattern = VALID_DETAILS.join('|');
 
   // If protocolType is given, constrain the type to the matching prefix
   let typePattern: string;
@@ -132,7 +129,7 @@ export function checkReturnMessageFormat(message: string, protocolType?: string)
   }
 
   const regex = new RegExp(
-    `^(${typePattern}) (${statusPattern})\\. See MANIFEST\\.jsonl for (${detailPattern})\\.$`,
+    `^(${typePattern}) (${statusPattern})\\. Manifest appended to pipeline_manifest\\.$`,
   );
   return regex.test(message);
 }

@@ -527,7 +527,7 @@ Release Protocol                    Artifact Publish Protocol
 12. Write output file
 13. Append manifest entry
 14. Complete task (cleo complete T####)
-15. Return: "Artifact publish complete. See MANIFEST.jsonl for summary."
+15. Return: "Artifact publish complete. Manifest appended to pipeline_manifest."
 ```
 
 ---
@@ -575,7 +575,7 @@ cleo research add \
 
 **Return Message**:
 ```
-Artifact publish complete. See MANIFEST.jsonl for summary.
+Artifact publish complete. Manifest appended to pipeline_manifest.
 ```
 
 ---
