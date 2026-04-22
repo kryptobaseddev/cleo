@@ -1,9 +1,0 @@
-{
-  "version": "7",
-  "dialect": "sqlite",
-  "id": "assignee-column-20260324",
-  "prevIds": [
-    "t060-pipeline-stage-binding-20260321"
-  ],
-  "ddl": []
-}
