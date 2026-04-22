@@ -233,7 +233,8 @@ describe('buildSpawnPrompt — return format contract', () => {
     });
     expect(result.prompt).toContain('## Manifest Protocol');
     expect(result.prompt).toContain('cleo manifest append');
-    expect(result.prompt).not.toContain('MANIFEST.jsonl');
+    // ADR-027: flat-file manifest sink was retired; verify it's not referenced in generated prompts
+    expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));
   });
 });
 
@@ -271,7 +272,8 @@ describe('buildSpawnPrompt — file path resolution', () => {
     expect(result.prompt).toContain('/abs/proj/.cleo/rcasd/T9000');
     expect(result.prompt).toContain('/abs/proj/.cleo/test-runs');
     // ADR-027 / T1096: no flat-file manifest path is rendered.
-    expect(result.prompt).not.toContain('MANIFEST.jsonl');
+    // ADR-027: flat-file manifest sink was retired; verify it's not referenced in generated prompts
+    expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));
   });
 });
 

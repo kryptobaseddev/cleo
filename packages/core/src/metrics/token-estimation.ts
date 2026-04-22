@@ -143,7 +143,7 @@ export async function trackManifestQuery(
   await logTokenEvent(
     'manifest_query',
     tokens,
-    `MANIFEST.jsonl:${queryType}`,
+    `pipeline_manifest:${queryType}`,
     taskId,
     { query_type: queryType, result_count: resultCount },
     cwd,

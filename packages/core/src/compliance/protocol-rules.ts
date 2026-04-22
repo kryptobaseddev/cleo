@@ -124,8 +124,8 @@ const RESEARCH_RULES: ProtocolRule[] = [
   {
     id: 'RSCH-004',
     level: 'MUST',
-    message: 'Must append entry to MANIFEST.jsonl',
-    fix: 'Append manifest entry with correct format',
+    message: 'Must append entry via `cleo manifest append` (writes to pipeline_manifest table per ADR-027)',
+    fix: 'Run: cleo manifest append \'{"id":"...","task_id":"T###","type":"...","status":"complete","output":"...","summary":"...","key_findings":["..."]}\'',
     validate: (entry) => {
       return hasField(entry, 'id') && hasField(entry, 'file') && hasField(entry, 'date');
     },

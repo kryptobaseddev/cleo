@@ -185,15 +185,16 @@ export function validateSkills(skillDirs: string[]): SkillValidationResult[] {
  * @task T4517
  */
 export function validateReturnMessage(message: string): { valid: boolean; error?: string } {
+  // ADR-027: manifest is pipeline_manifest (SQLite). Return messages no longer
+  // reference the flat-file — they say "Manifest appended to pipeline_manifest."
   const validPatterns = [
-    /^Research complete\. See MANIFEST\.jsonl for summary\.$/,
-    /^Epic created\. See MANIFEST\.jsonl for summary\.$/,
-    /^Tests complete\. See MANIFEST\.jsonl for summary\.$/,
-    /^Documentation complete\. See MANIFEST\.jsonl for summary\.$/,
-    /^Task complete\. See MANIFEST\.jsonl for summary\.$/,
-    /^\[.+\] complete\. See MANIFEST\.jsonl for summary\.$/,
-    /^\[.+\] partial\. See MANIFEST\.jsonl for details\.$/,
-    /^\[.+\] blocked\. See MANIFEST\.jsonl for blocker details\.$/,
+    /^Research complete\. Manifest appended to pipeline_manifest\.$/,
+    /^Epic created\. Manifest appended to pipeline_manifest\.$/,
+    /^Tests complete\. Manifest appended to pipeline_manifest\.$/,
+    /^Documentation complete\. Manifest appended to pipeline_manifest\.$/,
+    /^Task complete\. Manifest appended to pipeline_manifest\.$/,
+    /^\[.+\] (complete|completed|partial|blocked)\. Manifest appended to pipeline_manifest\.$/,
+    /^.+ (complete|completed|partial|blocked)\. Manifest appended to pipeline_manifest\.$/,
   ];
 
   const trimmed = message.trim();

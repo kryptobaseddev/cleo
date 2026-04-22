@@ -101,7 +101,7 @@
 
   "agentOutputs": {
     "directory": ".cleo/agent-outputs",
-    "manifestFile": "MANIFEST.jsonl"
+    "manifestFile": "legacy-manifest.jsonl"
   },
 
   "retention": {

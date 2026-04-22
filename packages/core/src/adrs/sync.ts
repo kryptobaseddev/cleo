@@ -2,14 +2,18 @@
  * ADR DB Sync (ADR-017)
  *
  * Syncs ADR markdown frontmatter into the architecture_decisions DB table
- * AND regenerates .cleo/adrs/MANIFEST.jsonl in one pass.
+ * AND regenerates .cleo/adrs/adr-index.jsonl in one pass.
  *
  * Single command: ct adr sync (or admin.adr.sync)
  * - Updates architecture_decisions + adr_task_links in SQLite (runtime search)
- * - Rewrites MANIFEST.jsonl (portable export, includes archive/ ADRs)
+ * - Rewrites adr-index.jsonl (portable ADR export, includes archive/ ADRs)
+ *
+ * NOTE: This file writes .cleo/adrs/adr-index.jsonl — the ADR portability export.
+ * This is DISTINCT from the agent pipeline_manifest (ADR-027). The pipeline_manifest
+ * for agent outputs lives in tasks.db and is accessed via `cleo manifest` CLI.
  *
  * @task T4792
- * @task T4942 — MANIFEST generation folded in so one command keeps both in sync
+ * @task T4942 — ADR index generation folded in so one command keeps both in sync
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -64,7 +68,7 @@ function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> 
 
 /**
  * Sync all ADR markdown files into the architecture_decisions table
- * AND regenerate MANIFEST.jsonl in one pass.
+ * AND regenerate the ADR index (adr-index.jsonl) in one pass.
  */
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
@@ -197,7 +201,7 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
     }
   }
 
-  // --- MANIFEST.jsonl (all ADRs including archive/) ---
+  // --- ADR index (adr-index.jsonl — all ADRs including archive/) ---
   for (const { relPath } of allFiles) {
     try {
       const filePath = join(adrsDir, relPath);
@@ -240,8 +244,10 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
     }
   }
 
+  // Write the ADR portability index — NOT the agent pipeline_manifest (ADR-027).
+  // The agent pipeline_manifest lives in tasks.db and is accessed via `cleo manifest` CLI.
   writeFileSync(
-    join(adrsDir, 'MANIFEST.jsonl'),
+    join(adrsDir, 'adr-index.jsonl'),
     manifestEntries.map((e) => JSON.stringify(e)).join('\n') + '\n',
     'utf-8',
   );

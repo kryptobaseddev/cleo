@@ -466,7 +466,8 @@ export async function archiveResearch(cwd?: string): Promise<{
 // === MANIFEST OPERATIONS ===
 
 /**
- * Read manifest entries from MANIFEST.jsonl.
+ * Read manifest entries from the legacy agent-outputs flat-file (deprecated).
+ * @deprecated Use `cleo manifest list` — reads from pipeline_manifest SQLite table per ADR-027.
  *
  * @param cwd - Optional working directory for path resolution
  * @returns Array of parsed ManifestEntry records from the JSONL file
@@ -507,7 +508,8 @@ export async function readManifest(cwd?: string): Promise<ManifestEntry[]> {
  * @param cwd - Optional working directory for path resolution
  *
  * @remarks
- * Appends a single JSON line to the MANIFEST.jsonl file.
+ * Appends a single JSON line to the legacy agent-outputs flat-file (deprecated).
+ * @deprecated Use `cleo manifest append` — writes to pipeline_manifest SQLite table per ADR-027.
  *
  * @example
  * ```typescript
@@ -932,7 +934,8 @@ export async function manifestStats(
  *
  * @remarks
  * Appends the taskId to the entry's linked_tasks array if not already present.
- * Rewrites the entire MANIFEST.jsonl file after modification.
+ * Rewrites the entire legacy agent-outputs flat-file after modification (deprecated).
+ * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
  *
  * @example
  * ```typescript
@@ -1023,7 +1026,8 @@ export async function appendExtendedManifest(
  *
  * @remarks
  * Moves entries with a date before the threshold to MANIFEST.archive.jsonl
- * and rewrites the main MANIFEST.jsonl with the remaining entries.
+ * and rewrites the main legacy agent-outputs flat-file with the remaining entries.
+ * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
  *
  * @example
  * ```typescript
@@ -1315,7 +1319,8 @@ export async function readProtocolInjection(
 }
 
 /**
- * Compact MANIFEST.jsonl by removing duplicate/stale entries.
+ * Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
+ * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
  *
  * @param cwd - Optional working directory for path resolution
  * @returns Compaction summary with counts of removed entries

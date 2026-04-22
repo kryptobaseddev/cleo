@@ -25,7 +25,7 @@ export interface ContextEstimation {
 }
 
 /**
- * Count manifest entries from MANIFEST.jsonl.
+ * Count manifest entries from pipeline_manifest (via cleo manifest CLI; ADR-027).
  *
  * @param projectRoot - The project root directory
  * @returns Number of manifest entries

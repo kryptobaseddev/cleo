@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/research-manifest.schema.json",
   "title": "Agent Output Manifest Entry",
-  "description": "Schema for MANIFEST.jsonl entries tracking outputs from all agent types (research, implementation, validation, documentation) in the Orchestrator Protocol",
+  "description": "DEPRECATED (ADR-027): Schema for legacy flat-file manifest entries. New agent outputs go to pipeline_manifest (tasks.db) via `cleo manifest append`. Retained as archive for migration reference.",
   "type": "object",
   "required": [
     "id",
