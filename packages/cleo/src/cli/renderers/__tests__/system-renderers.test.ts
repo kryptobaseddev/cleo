@@ -89,14 +89,16 @@ describe('renderTree — waves branch (T1194)', () => {
     expect(output).not.toContain('No tree data.');
   });
 
-  it('quiet mode emits only task IDs (one per line)', () => {
+  it('quiet mode emits <waveNumber>\\t<taskId> per line (T1201)', () => {
+    // T1201 upgraded quiet mode to include the wave number for script-extractability.
+    // Format: "<waveNumber>\t<taskId>" — one line per task across all waves.
     const data = { waves: sampleWaves };
     const output = renderTree(data, true);
     const lines = output.split('\n').filter(Boolean);
-    expect(lines).toContain('T001');
-    expect(lines).toContain('T002');
-    expect(lines).toContain('T003');
-    expect(lines).toContain('T004');
+    expect(lines).toContain('1\tT001');
+    expect(lines).toContain('1\tT002');
+    expect(lines).toContain('2\tT003');
+    expect(lines).toContain('3\tT004');
   });
 
   it('quiet mode emits no ANSI decorations', () => {
@@ -127,14 +129,15 @@ describe('renderTree — waves branch (T1194)', () => {
     expect(output).toContain('T011');
   });
 
-  it('quiet mode handles string task entries', () => {
+  it('quiet mode handles string task entries (T1201 format)', () => {
+    // T1201: quiet mode now emits "<waveNumber>\t<taskId>" for string tasks too.
     const data = {
       waves: [{ waveNumber: 1, status: 'pending', tasks: ['T010', 'T011'] }],
     };
     const output = renderTree(data, true);
     const lines = output.split('\n').filter(Boolean);
-    expect(lines).toContain('T010');
-    expect(lines).toContain('T011');
+    expect(lines).toContain('1\tT010');
+    expect(lines).toContain('1\tT011');
   });
 });
 
@@ -256,9 +259,7 @@ describe('renderTreeNodes quiet mode — connectors preserved (T1198)', () => {
           id: 'T001',
           title: 'Root',
           status: 'pending',
-          children: [
-            { id: 'T002', title: 'Child', status: 'pending', children: [] },
-          ],
+          children: [{ id: 'T002', title: 'Child', status: 'pending', children: [] }],
         },
       ],
     };
