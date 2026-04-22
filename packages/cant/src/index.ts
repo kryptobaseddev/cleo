@@ -82,6 +82,7 @@ export type {
 // Migration engine
 export { migrateMarkdown, serializeCantDocument, showDiff, showSummary } from './migrate/index';
 export type {
+  AgentProfile,
   NativeDiagnostic,
   NativeParseDocumentResult,
   NativeParseError,
@@ -98,9 +99,12 @@ export {
   cantParseDocumentNative,
   cantParseNative,
   cantValidateDocumentNative,
+  extractAgentProfilesTyped,
+  extractAgentSkills,
   initWasm,
   isNativeAvailable,
   isWasmAvailable,
+  validateAgentCantPath,
 } from './native-loader';
 export type { ParsedCANTMessage } from './parse';
 // Parser

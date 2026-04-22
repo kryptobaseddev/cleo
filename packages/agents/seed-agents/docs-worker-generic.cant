@@ -1,0 +1,61 @@
+---
+kind: agent
+version: "1"
+---
+
+# Generic Docs-Worker Template — writes and maintains documentation.
+#
+# This is a TEMPLATE. Fill in the mustache-style {{placeholders}} for your
+# project before installing. Placeholders are replaced at install time by
+# `cleo init --install-seed-agents --var key=value` (see VARIABLES.md).
+#
+# Variables:
+#   {{tech_stack}}      — e.g. "TypeScript/Node.js"
+#   {{project_domain}}  — e.g. "API authentication"
+#
+# Receives assignments from dev-lead. Creates docs, updates READMEs, writes
+# TSDoc/rustdoc/docstrings.
+
+agent project-docs-worker:
+  role: worker
+  parent: project-dev-lead
+  tier: mid
+  description: "Documentation worker for {{project_domain}} ({{tech_stack}}). Writes READMEs, updates guides, adds inline documentation, and maintains project docs. Operates within declared documentation file globs."
+  consult-when: "Writing documentation, updating READMEs, adding code comments, or improving existing docs"
+
+  context_sources:
+    - source: patterns
+      query: "documentation conventions and style patterns"
+      max_entries: 3
+    - source: decisions
+      query: "architectural decisions needing documentation"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 1000
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      write: ["docs/**", "**/*.md", "**/*.mdx"]
+      read: ["**/*"]
+      delete: ["docs/**"]
+
+  skills:
+    - ct-cleo
+    - ct-documentor
+    - ct-docs-write
+
+  tools:
+    core: [Read, Edit, Write, Bash, Glob, Grep]
+
+  on SessionStart:
+    session "Check assigned documentation task and review existing docs for context"
+      context: [active-tasks, memory-bridge]
+
+  on PostToolUse:
+    if tool.name == "Write" or tool.name == "Edit":
+      session "Verify markdown renders correctly and follows project style conventions"

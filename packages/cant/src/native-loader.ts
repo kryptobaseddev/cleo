@@ -12,7 +12,7 @@
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 /** Shape of a parsed CANT message returned by the native binding. */
 export interface NativeParseResult {
@@ -220,12 +220,133 @@ export function cantValidateDocumentNative(content: string): NativeValidateResul
 }
 
 /**
+ * A single agent profile extracted from a `.cant` document.
+ *
+ * @remarks
+ * Mirrors the subset of fields the Rust-side `cant_extract_agent_profiles`
+ * function emits (see R1-AGENT-ARCHITECTURE-AUDIT.md §1.7). Fields are
+ * optional because older `.cant` documents may omit them; resolver code
+ * MUST handle `undefined` per-field.
+ */
+export interface AgentProfile {
+  /** Agent business id (kebab-case), e.g. `"cleo-prime"`. */
+  agentId?: string;
+  /** Declared role, e.g. `"orchestrator"`, `"lead"`, `"worker"`. */
+  role?: string;
+  /** Declared parent agent id, if any. */
+  parent?: string;
+  /** Skill slugs declared on the agent (cached here; SSoT is `agent_skills`). */
+  skills?: string[];
+  /** Free-form fields the native binding did not typify. */
+  [extra: string]: unknown;
+}
+
+/**
  * Extract agent profiles from a `.cant` document via the native addon.
  *
  * @param content - The raw `.cant` file content.
+ *
+ * @remarks
+ * The native binding returns a loose `unknown[]`. Callers that need typed
+ * access should prefer {@link extractAgentProfilesTyped}, which validates
+ * the shape and returns `AgentProfile[]`.
  */
 export function cantExtractAgentProfilesNative(content: string): unknown[] {
   return requireNative().cantExtractAgentProfiles(content);
+}
+
+/**
+ * Typed wrapper around {@link cantExtractAgentProfilesNative}. Returns a
+ * best-effort `AgentProfile[]` by shallow-validating each entry.
+ *
+ * @param content - The raw `.cant` file content.
+ *
+ * @remarks
+ * Implements R1-AGENT-ARCHITECTURE-AUDIT Recommendation 3 by consolidating
+ * agent-profile / skill extraction into a single well-typed surface so
+ * downstream packages (`agent-install.ts`, `agent-doctor.ts`) do not have
+ * to re-implement `.cant` field parsing.
+ */
+export function extractAgentProfilesTyped(content: string): AgentProfile[] {
+  const raw = cantExtractAgentProfilesNative(content);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is AgentProfile => {
+    return typeof entry === 'object' && entry !== null;
+  });
+}
+
+/**
+ * Extract the `skills: [...]` list from a `.cant` agent document.
+ *
+ * @param content - The raw `.cant` file content.
+ *
+ * @returns Deduplicated, trimmed skill slug list (empty array if none).
+ *
+ * @remarks
+ * Consolidates skill-parsing logic previously duplicated in
+ * `packages/core/src/store/agent-install.ts` and
+ * `packages/core/src/store/agent-doctor.ts` (R1 Recommendation 3). Both
+ * modules now delegate to this helper so they stay in lock-step.
+ */
+export function extractAgentSkills(content: string): string[] {
+  const profiles = extractAgentProfilesTyped(content);
+  const skills = new Set<string>();
+  for (const profile of profiles) {
+    if (Array.isArray(profile.skills)) {
+      for (const skill of profile.skills) {
+        if (typeof skill === 'string') {
+          const trimmed = skill.trim();
+          if (trimmed.length > 0) skills.add(trimmed);
+        }
+      }
+    }
+  }
+  return [...skills];
+}
+
+/**
+ * Validate that a `.cant` file path stays within a declared root directory.
+ *
+ * @param cantPath - Absolute path to the `.cant` file from the registry row.
+ * @param rootDir - Absolute root directory that the path MUST live inside
+ *   (typically the project root or the global CANT agents dir).
+ *
+ * @returns `true` when `cantPath` is a descendant of `rootDir`; `false`
+ *   otherwise. Also returns `false` for relative paths.
+ *
+ * @remarks
+ * Implements R1-AGENT-ARCHITECTURE-AUDIT Recommendation 4. A malicious or
+ * corrupted `agents.cant_path` row could point to `../../../etc/passwd`
+ * or a symlink outside the project. Callers (agent resolver, doctor)
+ * MUST gate any `readFileSync(cantPath)` on a successful
+ * `validateAgentCantPath()` check.
+ *
+ * @example
+ * ```ts
+ * import { validateAgentCantPath } from '@cleocode/cant';
+ *
+ * const cantPath = row.cant_path;
+ * if (!validateAgentCantPath(cantPath, projectRoot)) {
+ *   throw new Error(`cant_path outside project root: ${cantPath}`);
+ * }
+ * ```
+ */
+export function validateAgentCantPath(cantPath: string, rootDir: string): boolean {
+  if (typeof cantPath !== 'string' || cantPath.length === 0) return false;
+  if (typeof rootDir !== 'string' || rootDir.length === 0) return false;
+  if (!isAbsolute(cantPath) || !isAbsolute(rootDir)) return false;
+
+  const resolvedRoot = resolve(rootDir);
+  const resolvedPath = resolve(cantPath);
+  const rel = relative(resolvedRoot, resolvedPath);
+
+  // `relative()` returns a path that starts with `..` when the target is
+  // outside the root. An absolute return value (Windows drive change) is
+  // also outside. Empty string means the path IS the root — reject that.
+  if (rel.length === 0) return false;
+  if (rel.startsWith('..')) return false;
+  if (isAbsolute(rel)) return false;
+  return true;
 }
 
 /**

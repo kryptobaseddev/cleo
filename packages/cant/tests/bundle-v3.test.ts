@@ -29,8 +29,16 @@ import {
 const THIS_DIR =
   typeof __dirname !== 'undefined' ? __dirname : dirname(fileURLToPath(import.meta.url));
 
-/** Canonical CLEO agent seed directory (SSoT for v1/v2 agent definitions). */
-const SEED_DIR = resolve(THIS_DIR, '..', '..', 'agents', 'seed-agents');
+/**
+ * Canonical CLEO-persona directory (SSoT for v1/v2 agent definitions).
+ *
+ * Post-T1237: the cleo-historian/dev/prime personas are project-specific
+ * and live under `.cleo/cant/agents/` (project tier per T889). The v1/v2
+ * fixture coverage is driven from there because the generic templates in
+ * `packages/agents/seed-agents/` carry `{{placeholder}}` variables that
+ * would fail type checks before substitution.
+ */
+const SEED_DIR = resolve(THIS_DIR, '..', '..', '..', '.cleo', 'cant', 'agents');
 
 /** `cant-core` fixture directory — contains the v3 exemplar `jit-backend-dev.cant`. */
 const FIXTURES_DIR = resolve(

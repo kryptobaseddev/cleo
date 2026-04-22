@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MIT",
   "files": [
+    "cleo-subagent.cant",
     "cleo-subagent/",
     "seed-agents/",
     "README.md"

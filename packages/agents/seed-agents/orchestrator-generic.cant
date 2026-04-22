@@ -1,0 +1,59 @@
+---
+kind: agent
+version: "1"
+---
+
+# Generic Orchestrator Template — coordinates a project team.
+#
+# This is a TEMPLATE. Fill in the mustache-style {{placeholders}} for your
+# project before installing. Placeholders are replaced at install time by
+# `cleo init --install-seed-agents --var key=value` (see VARIABLES.md below).
+#
+# Variables (all REQUIRED unless marked OPTIONAL):
+#   {{tech_stack}}      — e.g. "TypeScript/Node.js", "Rust/Cargo", "Python/uv"
+#   {{project_domain}}  — e.g. "API authentication", "document processing"
+#   {{team_size}}       — OPTIONAL. e.g. "1-3 developers" (affects context budget)
+#
+# Routes tasks to the dev-lead and synthesises results for the operator.
+
+agent project-orchestrator:
+  role: orchestrator
+  tier: high
+  description: "Starter team orchestrator for {{project_domain}} ({{tech_stack}}). Reads task context, classifies work, dispatches to the dev-lead, and synthesises results. Does not execute code — coordinates."
+  consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when the dev-lead reports a blocking ambiguity"
+
+  context_sources:
+    - source: decisions
+      query: "recent architectural and project decisions"
+      max_entries: 5
+    - source: patterns
+      query: "project conventions and established patterns"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 2000
+    on_load:
+      validate: true
+
+  permissions:
+    tasks: read, write
+    session: read, write
+    memory: read, write
+
+  skills:
+    - ct-cleo
+    - ct-task-executor
+
+  tools:
+    core: [Read, Grep, Glob]
+    dispatch: [dispatch_worker, report_to_user]
+
+  on SessionStart:
+    session "Read active tasks and recent decisions to build situational awareness"
+      context: [active-tasks, memory-bridge, recent-decisions]
+
+  on TaskCompleted:
+    if **the completed task unblocks downstream work**:
+      session "Reassess task queue and dispatch next work to dev-lead"

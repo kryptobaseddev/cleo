@@ -1,66 +1,86 @@
-# CleoOS Seed Agents
+# Seed Agent Templates
 
-Canonical `.cant` agent personas bundled with `@cleocode/agents`. These six
-seeds form the default CleoOS team — orchestrators, developers, lore keepers,
-and subsystem leads — and are installed into a project's `.cleo/agents/`
-directory on demand by `cleo init --install-seed-agents`.
+Generic `.cant` agent templates bundled with `@cleocode/agents`. These are
+**project-agnostic starting points** for building your own team — they carry
+mustache-style `{{placeholder}}` variables that get substituted at install
+time with values appropriate to your project.
 
-Operators are encouraged to fork, edit, or delete any of these files. They are
-the *starting* personas, not a fixed contract. Re-running `cleo init` never
-overwrites a seed that already exists in the project.
+Operators are encouraged to fork, edit, or delete any of these files. They
+are the *starting* personas, not a fixed contract. Re-running `cleo init`
+never overwrites a seed that already exists in the project.
 
-## Bundled personas
+## Bundled templates
 
-### `cleo-prime.cant`
-The supreme orchestrator persona. Holds the role of `specialist` under the
-legacy `cleoos-opus-orchestrator` parent and represents the canonical
-"prime" voice of the CleoOS team. Ships as a bare scaffold so each project can
-fill in its own tone, prompt, and enforcement rules.
+### `orchestrator-generic.cant`
 
-### `cleo-dev.cant`
-General-purpose development agent. Builds features, fixes bugs, writes tests,
-and runs `/simplify` to keep code quality high. Doesn't own a specific
-domain — it goes where the work is. Read first, build second, verify always.
+Top-level team orchestrator. Classifies tasks, dispatches to the dev-lead,
+synthesises results. Coordinates — does not execute code itself.
 
-### `cleo-historian.cant`
-Canon guardian and lore keeper. Holds the team accountable to CLEO naming
-conventions, architectural decisions, and the broader ecosystem vocabulary.
-Pushes back on terminology drift and unverified claims. Direct, authoritative,
-firm — never lets things slide.
+### `dev-lead-generic.cant`
 
-### `cleo-rust-lead.cant`
-Project lead for the Rust crate ecosystem (cant-core, cant-napi, cant-lsp,
-cant-runtime). Ship-oriented, intolerant of idle agents or unfinished stubs.
-Owns crate architecture and unblocks downstream agents on Rust questions.
+Development lead. Decomposes tasks into concrete implementation steps,
+reviews worker output, and decides technical approach. Dispatches to
+code-worker and docs-worker. **MUST NOT** hold Edit/Write/Bash tools
+(TEAM-002 / ULTRAPLAN 10.3) — review-only authority.
 
-### `cleo-db-lead.cant`
-Database lead for the CleoCode and SignalDock ecosystems. Schema authority,
-type safety enforcer, single-source-of-truth guardian. Watches Drizzle and
-Diesel schema files and flags type/build hygiene after edits.
+### `code-worker-generic.cant`
 
-### `cleoos-opus-orchestrator.cant`
-Legacy "Sovereign of the Circle" orchestrator persona kept for reference and
-back-compat. Coordinates across projects, manages agent lifecycle, and
-escalates stale agents. New deployments should prefer `cleo-prime` as the
-canonical orchestrator entry point.
+General-purpose code worker. Reads requirements from the dev-lead, writes
+code, runs tests, and validates changes. Operates within declared file
+permission globs.
+
+### `docs-worker-generic.cant`
+
+Documentation worker. Writes READMEs, updates guides, adds inline
+documentation. Operates within declared documentation file globs.
+
+## Template variables
+
+Each template uses `{{placeholder}}` mustache syntax with dot notation for
+nested paths. Placeholders are substituted at install time.
+
+| Variable | Required | Example | Used by |
+|----------|----------|---------|---------|
+| `{{tech_stack}}` | yes | `"TypeScript/Node.js"`, `"Rust/Cargo"` | orchestrator, dev-lead, code-worker, docs-worker |
+| `{{project_domain}}` | yes | `"API authentication"`, `"document processing"` | orchestrator, dev-lead, code-worker, docs-worker |
+| `{{test_command}}` | yes | `"pnpm run test"`, `"cargo test"` | code-worker |
+| `{{build_command}}` | yes | `"pnpm run build"`, `"cargo build"` | code-worker |
+| `{{repo_structure}}` | optional | `["src/**","packages/**"]` | code-worker (write/delete globs) |
+| `{{team_size}}` | optional | `"1-3 developers"` | orchestrator (context budget) |
 
 ## Installation
 
 Seeds are NOT installed by default. To opt in during project init:
 
 ```bash
-cleo init --install-seed-agents
+cleo init --install-seed-agents \
+  --var tech_stack="TypeScript/Node.js" \
+  --var project_domain="API gateway" \
+  --var test_command="pnpm run test" \
+  --var build_command="pnpm run build"
 ```
 
-This copies any seed file that does not already exist in `.cleo/agents/`. The
-flag is idempotent and safe to run on already-initialised projects.
+This copies any seed template that does not already exist in
+`.cleo/cant/agents/`, substituting the declared variables. The flag is
+idempotent and safe to run on already-initialised projects.
 
 ## Validation
 
-All six seeds validate clean against the CANT 42-rule type and grammar suite:
+All four templates validate clean against the CANT 42-rule type and grammar
+suite *after* variable substitution:
 
 ```bash
 for f in seed-agents/*.cant; do cleo cant validate "$f"; done
 ```
 
-Each must return `valid: true` with `errorCount: 0`.
+Each must return `valid: true` with `errorCount: 0` once placeholders are
+filled.
+
+## Project-specific personas
+
+Cleo's own project-specific personas (cleo-prime, cleo-dev, cleo-historian,
+cleo-rust-lead, cleo-db-lead, cleoos-opus-orchestrator) are **NOT** shipped
+here. They live in the cleocode repo's `.cleo/cant/agents/` for dogfood and
+are not generic templates. See
+[R3-CONTENT-AUDIT](../../../.cleo/agent-outputs/T-AGENTS-PRE-WAVE/R3-CONTENT-AUDIT.md)
+for the classification rationale.
