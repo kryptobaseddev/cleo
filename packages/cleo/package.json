@@ -62,7 +62,6 @@
   },
   "files": [
     "dist",
-    "migrations",
     "completions",
     "bin",
     "scripts",
