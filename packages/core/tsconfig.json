@@ -25,7 +25,8 @@
     { "path": "../contracts" },
     { "path": "../lafs" },
     { "path": "../caamp" },
-    { "path": "../nexus" }
+    { "path": "../nexus" },
+    { "path": "../worktree-backend" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"]

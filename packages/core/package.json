@@ -238,6 +238,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
+    "@cleocode/worktree-backend": "workspace:*",
     "@cleocode/skills": "workspace:*",
     "@huggingface/transformers": "^4.0.1",
     "ai": "^6.0.162",

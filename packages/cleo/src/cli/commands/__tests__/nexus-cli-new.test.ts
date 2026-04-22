@@ -159,6 +159,10 @@ describe('nexus impact — CLI --why flag', () => {
 
 describe('nexus.top-entries — dispatch handler', () => {
   it('empty nexus returns empty entries with a note (no crash)', async () => {
+    // Initialize nexus.db so getNexusNativeDb() returns a live connection.
+    // Without this call the handler sees an uninitialized DB and returns
+    // E_DB_UNAVAILABLE, which is the correct error for a truly missing DB.
+    await getNexusDb();
     const handler = new NexusHandler();
     const result = await handler.query('top-entries', { limit: 5 });
     expect(result.success).toBe(true);
@@ -305,6 +309,8 @@ describe('nexus.top-entries — dispatch handler', () => {
   });
 
   it('defaults limit to 20 when not provided', async () => {
+    // Initialize nexus.db so the handler has a live connection.
+    await getNexusDb();
     const handler = new NexusHandler();
     const result = await handler.query('top-entries', {});
     expect(result.success).toBe(true);

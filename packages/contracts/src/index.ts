@@ -491,6 +491,22 @@ export type {
   SubstitutionSource,
   VariableResolver,
 } from './operations/variable-substitution.js';
+// === Worktree Backend SDK Types (T1161) ===
+// Re-exported at top level so @cleocode/worktree-backend and callers can
+// import without the `ops.` namespace hop.
+export type {
+  CreateWorktreeOptions,
+  CreateWorktreeResult,
+  DestroyWorktreeOptions,
+  DestroyWorktreeResult,
+  ListWorktreesOptions,
+  PruneWorktreesOptions,
+  PruneWorktreesResult,
+  WorktreeHook,
+  WorktreeHookResult,
+  WorktreeIncludePattern,
+  WorktreeListEntry,
+} from './operations/worktree.js';
 // === Orchestration Hierarchy ===
 export {
   type AgentHierarchy,
