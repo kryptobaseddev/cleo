@@ -6,7 +6,6 @@
   "license": "MIT",
   "files": [
     "cleo-subagent.cant",
-    "cleo-subagent/",
     "seed-agents/",
     "starter-bundle/",
     "meta/",

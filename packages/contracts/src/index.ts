@@ -499,6 +499,14 @@ export {
   type OrchestrationHierarchyAPI,
   OrchestrationLevel,
 } from './orchestration-hierarchy.js';
+// === Peer Identity (T1210 — SDK-first CANT persona contract) ===
+export {
+  assertPeerIdentity,
+  filterPeerIdentities,
+  isPeerIdentity,
+  type PeerIdentity,
+  type PeerKind,
+} from './peer.js';
 // === Playbook DSL Types (T889 / T904 / W4-6) ===
 export type {
   PlaybookAgenticNode,
