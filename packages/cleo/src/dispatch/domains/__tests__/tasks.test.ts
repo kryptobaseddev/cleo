@@ -330,7 +330,7 @@ describe('TasksHandler', () => {
       const result = await handler.query('tree', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskTree).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskTree).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
     });
 
     it('blockers - delegates to taskBlockers', async () => {
