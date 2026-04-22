@@ -32,10 +32,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Monorepo-relative seed-agent — works locally and in CI. */
+/**
+ * Monorepo-relative cleo-historian.cant path — works locally and in CI.
+ *
+ * Post-T1237: cleo-historian is a project-specific persona, not a generic
+ * seed template. It lives under the cleocode repo's `.cleo/cant/agents/`
+ * (project tier per T889).
+ */
 const SEED_HISTORIAN_SOURCE = resolve(
   __dirname,
-  '../../../../agents/seed-agents/cleo-historian.cant',
+  '../../../../../.cleo/cant/agents/cleo-historian.cant',
 );
 
 /** Minimal .cant whose `name` matches the filename base. */
@@ -326,8 +332,9 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     const db = env.openDb();
     try {
       // Install the canonical target, then look up via the deprecated alias.
+      // Post-T1237: cleo-prime lives under `.cleo/cant/agents/` (project tier).
       installAgentFromCant(db, {
-        cantSource: resolve(__dirname, '../../../../agents/seed-agents/cleo-prime.cant'),
+        cantSource: resolve(__dirname, '../../../../../.cleo/cant/agents/cleo-prime.cant'),
         targetTier: 'global',
         installedFrom: 'seed',
         globalCantDir: env.globalCantDir,

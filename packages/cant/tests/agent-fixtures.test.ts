@@ -2,13 +2,19 @@
  * Fixture validation tests for canonical CLEO `.cant` agent files.
  *
  * These tests do not exercise any TypeScript runtime code path — they
- * only verify that the canonical `.cant` files in `packages/agents/seed-agents/`
- * conform to the CANT grammar (PascalCase event names, two-space indentation,
- * discretion `**...**` delimiters, no tabs, etc.) so the Rust parser can
- * ingest them via napi-rs without surprises.
+ * only verify that the canonical CLEO project-tier `.cant` files in
+ * `.cleo/cant/agents/` conform to the CANT grammar (PascalCase event
+ * names, two-space indentation, discretion `**...**` delimiters, no
+ * tabs, etc.) so the Rust parser can ingest them via napi-rs without
+ * surprises.
  *
- * The SSoT for agent definitions is `packages/agents/seed-agents/`.
- * Tests MUST reference that directory — never a local copy inside this package.
+ * Post-T1237: the SSoT for the CLEO-project-specific personas is
+ * the repo's `.cleo/cant/agents/` directory (project tier per T889).
+ * `packages/agents/seed-agents/` now ships only generic, variable-driven
+ * templates — not cleo-specific personas.
+ *
+ * Tests MUST reference `.cleo/cant/agents/` — never a local copy inside
+ * this package.
  *
  * Originally lived under `packages/core/src/cant/__tests__/` alongside
  * the now-deleted parallel core cant namespace. Moved here when the
@@ -16,7 +22,7 @@
  * running and continue to guard the canonical agent files.
  *
  * @see docs/specs/CANT-DSL-SPEC.md Section 2 (Grammar)
- * @see ../../agents/seed-agents/cleo-historian.cant
+ * @see ../../../.cleo/cant/agents/cleo-historian.cant
  */
 
 import { readFileSync } from 'node:fs';
@@ -27,8 +33,8 @@ import { describe, expect, it } from 'vitest';
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 
 describe('CLEO canonical .cant agent fixtures', () => {
-  /** Resolves to `packages/agents/seed-agents/` — the SSoT for agent definitions. */
-  const AGENTS_DIR = resolve(THIS_DIR, '..', '..', 'agents', 'seed-agents');
+  /** Resolves to `.cleo/cant/agents/` — the SSoT for project-tier cleo personas. */
+  const AGENTS_DIR = resolve(THIS_DIR, '..', '..', '..', '.cleo', 'cant', 'agents');
 
   // BLOCKED: cant-napi does not yet export parse_document (only Layer 1
   // cant_parse). Once cant-napi extends parse_document, remove the .skip

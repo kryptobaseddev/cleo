@@ -58,11 +58,15 @@ describe('W2-5 installSeedAgentsGlobally (global seed-agents bootstrap)', () => 
     expect(existsSync(targetDir)).toBe(true);
 
     const copied = readdirSync(targetDir).filter((f) => f.endsWith('.cant'));
-    // Seed bundle ships 6+ personas (cleo-prime, cleo-dev, cleo-historian,
-    // cleo-rust-lead, cleo-db-lead, cleoos-opus-orchestrator, cleo-subagent).
-    expect(copied.length).toBeGreaterThanOrEqual(6);
-    expect(copied).toContain('cleo-prime.cant');
-    expect(copied).toContain('cleo-dev.cant');
+    // Post-T1237 seed bundle ships 4 generic templates (orchestrator-generic,
+    // dev-lead-generic, code-worker-generic, docs-worker-generic). The
+    // cleo-specific personas (cleo-prime/dev/historian/…) live in the
+    // cleocode repo's `.cleo/cant/agents/` and are NOT shipped as seeds.
+    expect(copied.length).toBeGreaterThanOrEqual(4);
+    expect(copied).toContain('orchestrator-generic.cant');
+    expect(copied).toContain('dev-lead-generic.cant');
+    expect(copied).toContain('code-worker-generic.cant');
+    expect(copied).toContain('docs-worker-generic.cant');
 
     // Should have recorded a "created" entry, not a warning.
     expect(ctx.created.some((c) => c.startsWith('seed-agents (global):'))).toBe(true);
