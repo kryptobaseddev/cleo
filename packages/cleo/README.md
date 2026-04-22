@@ -16,9 +16,32 @@ The CLI is a thin wrapper — all business logic lives in [@cleocode/core](../co
 
 ### Global Installation (Recommended)
 
+**Important**: As of v2026.4.109, `@cleocode/core` is now a peer dependency. Both packages must be installed:
+
 ```bash
-npm install -g @cleocode/cleo
+npm install -g @cleocode/cleo @cleocode/core
 ```
+
+To upgrade from a pre-v2026.4.109 installation, run:
+
+```bash
+npm install -g @cleocode/core
+```
+
+The postinstall hook in `@cleocode/cleo` will detect and warn if `@cleocode/core` is missing.
+
+### Local Installation
+
+For local project-level installs, use the same two-package approach:
+
+```bash
+npm install @cleocode/cleo @cleocode/core
+```
+
+### Workspace / pnpm Monorepo
+
+If your project uses pnpm workspaces, dependency resolution is automatic via the workspace protocol.
+No additional installation steps are needed.
 
 ### Batteries-Included (CleoOS)
 
@@ -27,12 +50,15 @@ npm install -g @cleocode/cleo-os
 ```
 
 This installs `cleo`, `ct`, and `cleoos` binaries with CANT bridge and TUI extensions.
+CleoOS automatically includes `@cleocode/core` via its dependencies.
 
 ### Using npx (No Installation)
 
 ```bash
 npx @cleocode/cleo <command>
 ```
+
+Note: `npx` does not install global packages and is best for one-off commands.
 
 ## Quick Start
 

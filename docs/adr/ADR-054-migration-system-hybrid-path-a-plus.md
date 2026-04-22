@@ -363,6 +363,24 @@ in the project; (3) signaldock cannot be brought into scope without an epic-scal
 
 ---
 
+## Appendix: Wave 3 Completion (v2026.4.109)
+
+Hybrid Path A+ was validated and shipped in Wave 2A (v2026.4.108). Wave 3
+(v2026.4.109) completed the bundle externalization playbook, moving `@cleocode/core`
+to an external peer dependency and eliminating the 55-file migration sync debt:
+
+- **T1177** (e47c11941): ESM-native module resolution for 5 migration folders
+- **T1178** (fd3ff9b03): Externalize @cleocode/core from cleo bundle
+- **T1179** (5e6dfd854): Postinstall check for missing @cleocode/core
+- **T1180** (1a9738cf9): Remove syncMigrationsToCleoPackage()
+- **T1181** (996dc9cdd): @cleocode/core as peerDependency
+- **T1182** (158717cde): Delete packages/cleo/migrations/
+- **T1185** (3ec738ddd): cleo-os startup migration-verify check
+
+Bundle size: 6.64 MB → 1.89 MB (-71.6%). Tarball: 1.3 MB → 1.2 MB (-92 KB).
+
+---
+
 ## References
 
 - **RECOMMENDATION.md** — T1156 synthesis; primary decision source
