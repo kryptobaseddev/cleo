@@ -1838,33 +1838,59 @@ export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
 }
 
 /**
- * Resolve the source location of CLEOOS-IDENTITY.md from the cleo-os starter bundle.
+ * Resolve the source location of CLEOOS-IDENTITY.md from the starter bundle.
  *
- * Search order:
- * 1. Monorepo development: `packages/cleo-os/starter-bundle/CLEOOS-IDENTITY.md`
- * 2. Installed package: `node_modules/@cleocode/cleo-os/starter-bundle/CLEOOS-IDENTITY.md`
+ * Per D035 (v2026.4.111) the starter-bundle lives in `@cleocode/agents/`
+ * rather than `@cleocode/cleo-os/`. Delegates to the core SDK helper
+ * {@link resolveStarterBundleIdentityFile} so the path is resolved via the
+ * module graph rather than hardcoded. A monorepo-specific probe at
+ * `packages/agents/starter-bundle/` is retained as a pre-helper fast path for
+ * in-workspace development.
  *
  * @returns Absolute path to the source identity file, or null if not found.
  * @internal Used by ensureGlobalIdentity.
  */
 function resolveIdentitySourcePath(): string | null {
-  // Prefer monorepo source (development)
+  // Prefer monorepo source (development).
   const monorepoPath = join(
     process.cwd(),
     'packages',
-    'cleo-os',
+    'agents',
     'starter-bundle',
     'CLEOOS-IDENTITY.md',
   );
   if (existsSync(monorepoPath)) return monorepoPath;
 
-  // Fall back to installed package via require resolution
+  // Fall back to the SDK helper which walks both workspace and installed
+  // layouts via the @cleocode/agents package graph.
   try {
-    const require = createRequire(import.meta.url);
-    const pkgJson = require.resolve('@cleocode/cleo-os/package.json');
-    const pkgDir = pkgJson.replace(/\/package\.json$/, '');
-    const installedPath = join(pkgDir, 'starter-bundle', 'CLEOOS-IDENTITY.md');
-    if (existsSync(installedPath)) return installedPath;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- match upstream helper use
+    const req = createRequire(import.meta.url);
+    const helpersPath = req.resolve('./agents/resolveStarterBundle.js');
+    // Use require() explicitly so the sync import is retained at this call site.
+    // We can't use dynamic import here because the scaffold path is sync-hot.
+    const mod = req(helpersPath) as {
+      resolveStarterBundleIdentityFile?: () => string | null;
+    };
+    if (typeof mod.resolveStarterBundleIdentityFile === 'function') {
+      const p = mod.resolveStarterBundleIdentityFile();
+      if (p && existsSync(p)) return p;
+    }
+  } catch {
+    // ignore — fall through to legacy probe
+  }
+
+  // Final installed-package probe (defensive — both old and new layouts).
+  try {
+    const req = createRequire(import.meta.url);
+    try {
+      const agentsPkgJson = req.resolve('@cleocode/agents/package.json');
+      const pkgDir = agentsPkgJson.replace(/\/package\.json$/, '');
+      const installedPath = join(pkgDir, 'starter-bundle', 'CLEOOS-IDENTITY.md');
+      if (existsSync(installedPath)) return installedPath;
+    } catch {
+      // not installed — fall through
+    }
   } catch {
     // Not installed — fall through
   }

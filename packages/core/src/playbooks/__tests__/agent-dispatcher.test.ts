@@ -172,7 +172,16 @@ describe('CoreAgentDispatcher (T1239)', () => {
   it('returns failure when no tier resolves the agent', async () => {
     const db = env.openDb();
     try {
-      const dispatcher = new CoreAgentDispatcher({ db, metaDir: env.metaDir });
+      // Pin the universal-base to a missing path so the 5th-tier fallback
+      // (added in T1241) also misses and the dispatcher reports failure in
+      // the pre-T1241 shape. In normal operation the tier would rescue
+      // every classifier miss with a synthetic envelope.
+      const missingUniversalBase = join(env.base, 'no-such-universal-base.cant');
+      const dispatcher = new CoreAgentDispatcher({
+        db,
+        metaDir: env.metaDir,
+        universalBasePath: missingUniversalBase,
+      });
       const result = await dispatcher.dispatch(makeContext('definitely-not-here'));
       expect(result.status).toBe('failure');
       expect(result.error).toContain('not found');
@@ -202,10 +211,19 @@ describe('CoreAgentDispatcher (T1239)', () => {
     }
   });
 
-  it('resolve() returns null without throwing on a miss', async () => {
+  it('resolve() returns null without throwing on a miss (T1241 universal disabled)', async () => {
     const db = env.openDb();
     try {
-      const dispatcher = new CoreAgentDispatcher({ db, metaDir: env.metaDir });
+      // Post-T1241 the resolver always lands on the universal-base envelope
+      // when every prior tier misses. Disable it here by pinning an
+      // unreachable path so the dispatcher's null-return contract is
+      // exercised for the error-path callers (e.g. cleo agent doctor).
+      const missingUniversalBase = join(env.base, 'no-such-universal-base.cant');
+      const dispatcher = new CoreAgentDispatcher({
+        db,
+        metaDir: env.metaDir,
+        universalBasePath: missingUniversalBase,
+      });
       expect(dispatcher.resolve('also-missing')).toBeNull();
     } finally {
       db.close();
