@@ -48,3 +48,4 @@
 {"id":"ADR-051","file":".cleo/adrs/ADR-051-programmatic-gate-integrity.md","title":"ADR-051 — Programmatic Gate Integrity: Evidence-Based Verify + Removal of Silent Bypass","status":"ACCEPTED","date":"2026-04-17"}
 {"id":"ADR-052","file":".cleo/adrs/ADR-052-caamp-keeps-commander.md","title":"ADR-052 — caamp Retains commander: Monorepo CLI Framework Divergence Accepted","status":"ACCEPTED","date":"2026-04-17"}
 {"id":"ADR-053","file":".cleo/adrs/ADR-053-project-agnostic-release-pipeline.md","title":"ADR-053: Project-Agnostic Release Pipeline (T820)","status":"Accepted","date":"2026-04-17"}
+{"id":"ADR-054","file":".cleo/adrs/ADR-054-manifest-unification.md","title":"ADR-054: Manifest/RCASD Architecture Unification","status":"unknown","date":""}
