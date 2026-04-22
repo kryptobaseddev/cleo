@@ -175,7 +175,9 @@ export const depsCommand = defineCommand({
  * Kept as a separate export so that index.ts can wire it to `cleo tree`.
  *
  * Flags:
- * - `--with-deps` — inline each task's dependency chain below the task line.
+ * - `--with-deps`  — inline each task's direct dependency chain below the task line.
+ * - `--blockers`   — render transitive blocker chain + leaf blockers for every
+ *                    blocked task in the tree.
  */
 export const treeCommand = defineCommand({
   meta: { name: 'tree', description: 'Task hierarchy tree visualization' },
@@ -190,15 +192,20 @@ export const treeCommand = defineCommand({
       description: 'Inline dependency chain below each task that has deps',
       default: false,
     },
+    blockers: {
+      type: 'boolean',
+      description: 'Render transitive blocker chain and leaf blockers below each blocked task',
+      default: false,
+    },
   },
   async run({ args }) {
-    // Store the flag in the tree context so renderTree can read it.
-    setTreeContext({ withDeps: args.withDeps });
+    // Store flags in the tree context so renderTree can read them.
+    setTreeContext({ withDeps: args.withDeps, withBlockers: args.blockers });
     await dispatchFromCli(
       'query',
       'tasks',
       'tree',
-      { taskId: args.rootId },
+      { taskId: args.rootId, withBlockers: args.blockers },
       { command: 'tree', operation: 'tasks.tree' },
     );
   },
