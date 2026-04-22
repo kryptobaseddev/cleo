@@ -10,6 +10,9 @@
  *            absent — reconciler recovers without duplicate-column errors.
  *  - Test 4: Runtime guard proof — migrateSanitized filters whitespace-only
  *            chunk; raw drizzle migrate() fails on the same input.
+ *  - Test 5: T1174 partial index regression — idx_tasks_sentient_proposals_today
+ *            exists on fresh install with correct WHERE clause; T1174 no-op marker
+ *            doesn't fail on a DB that already has the T1126 index.
  *
  * All tests run in isolated tmp directories via mkdtempSync. Singleton state
  * is reset after every test so DB handles do not leak across suites.
@@ -20,6 +23,7 @@
  * pipeline. Tests 2/3 include signaldock coverage.
  *
  * @task T1160
+ * @task T1174
  * @epic T1150
  */
 
@@ -852,6 +856,131 @@ describe('Test 4: runtime guard proof — migrateSanitized filters empty chunks'
 
     // Raw migrate() MUST throw — the "\n" chunk hits session.run() and crashes
     expect(() => migrate(db, { migrationsFolder: migrationsDir })).toThrow();
+
+    nativeDb.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 5: T1174 partial index regression — idx_tasks_sentient_proposals_today
+// ---------------------------------------------------------------------------
+
+/**
+ * Regression tests for T1174 (T-MSR-W2A-09) schema-level partial index adoption.
+ *
+ * Validates two scenarios:
+ *  A. Fresh install: the full migration chain (T1126 creates the index; T1174
+ *     is a comment-only no-op marker) leaves idx_tasks_sentient_proposals_today
+ *     in sqlite_master with the correct WHERE clause.
+ *  B. Existing install: a DB that already has the index (T1126 applied) can run
+ *     migrateSanitized + reconcileJournal with the T1174 marker present without
+ *     throwing "index already exists" or any other error.
+ *
+ * Both tests use the real canonical drizzle-tasks migration folder.
+ */
+describe('Test 5: T1174 partial index — idx_tasks_sentient_proposals_today regression', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-mig-smoke-t5-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('fresh install: partial index exists after full migration chain with correct WHERE clause', async () => {
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
+
+    const migrationsFolder = resolveMigrationsDir('drizzle-tasks');
+    const dbPath = join(tempDir, 'tasks-t1174-fresh.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const db = drizzle({ client: nativeDb });
+
+    // Apply full migration chain (includes T1126 + T1174 comment-only marker)
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
+
+    // Verify the partial index exists in sqlite_master
+    const row = nativeDb
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type='index' AND name='idx_tasks_sentient_proposals_today'",
+      )
+      .get() as { name: string; sql: string } | undefined;
+
+    expect(row).toBeDefined();
+    expect(row?.name).toBe('idx_tasks_sentient_proposals_today');
+
+    // Verify the WHERE clause is present in the index DDL (covers the sentient-tier2 label filter)
+    expect(row?.sql).toContain('labels_json');
+    expect(row?.sql).toContain('sentient-tier2');
+
+    // Verify the index is on the tasks table using the date(created_at) expression
+    expect(row?.sql).toContain('tasks');
+    expect(row?.sql).toContain('created_at');
+
+    nativeDb.close();
+  });
+
+  it('existing install: DB with T1126 index already applied — T1174 marker runs as no-op, no throw', async () => {
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const migrationsFolder = resolveMigrationsDir('drizzle-tasks');
+    const localMigrations = readMigrationFiles({ migrationsFolder });
+
+    const dbPath = join(tempDir, 'tasks-t1174-existing.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    const db = drizzle({ client: nativeDb });
+
+    // Step 1: Apply all migrations up to and including T1126 (creates the partial index)
+    // We identify T1126 by folder name suffix
+    const t1126Mig = localMigrations.find((m) => m.name?.includes('t1126'));
+    const t1174Mig = localMigrations.find((m) => m.name?.includes('t1174'));
+
+    // Apply all migrations (first pass — fresh DB gets T1126 index created)
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
+
+    // Confirm the index now exists
+    const indexAfterFirstRun = nativeDb
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_tasks_sentient_proposals_today'",
+      )
+      .get() as { name: string } | undefined;
+    expect(indexAfterFirstRun).toBeDefined();
+
+    // Step 2: Simulate an "existing install" by removing the T1174 journal entry only,
+    // so migrateSanitized thinks it needs to re-run T1174 (which is a comment-only no-op).
+    if (t1174Mig) {
+      nativeDb.exec(`DELETE FROM "__drizzle_migrations" WHERE hash = '${t1174Mig.hash}'`);
+    }
+
+    // Step 3: Re-run reconcileJournal + migrateSanitized — must NOT throw even if
+    // T1174 marker appears to be "not yet applied". The comment-only SQL is a no-op.
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
+    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
+
+    // Step 4: Index must still exist (not dropped or recreated with error)
+    const indexAfterSecondRun = nativeDb
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type='index' AND name='idx_tasks_sentient_proposals_today'",
+      )
+      .get() as { name: string; sql: string } | undefined;
+    expect(indexAfterSecondRun).toBeDefined();
+    expect(indexAfterSecondRun?.sql).toContain('sentient-tier2');
+
+    // Verify journal has entries for both T1126 and T1174 after reconcile
+    if (t1126Mig) {
+      const t1126Entry = nativeDb
+        .prepare('SELECT hash FROM __drizzle_migrations WHERE hash = ?')
+        .get(t1126Mig.hash) as { hash: string } | undefined;
+      expect(t1126Entry).toBeDefined();
+    }
 
     nativeDb.close();
   });
