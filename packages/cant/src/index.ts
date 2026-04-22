@@ -104,8 +104,12 @@ export {
   initWasm,
   isNativeAvailable,
   isWasmAvailable,
+  // T1210 — PeerIdentity SDK surface
+  loadSeedAgentIdentities,
+  SEED_PERSONA_IDS,
   validateAgentCantPath,
 } from './native-loader';
+export type { SeedPersonaId } from './native-loader';
 export type { ParsedCANTMessage } from './parse';
 // Parser
 export { initCantParser, parseCANTMessage } from './parse';
