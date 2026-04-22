@@ -16,6 +16,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPlatformPaths } from '@cleocode/core/system/platform-paths.js';
 import { renderDoctorReport, runDoctor } from './commands/doctor.js';
+import {
+  renderFatalDriftError,
+  renderWarnDrift,
+  verifyMigrations,
+} from './health/verify-migrations.js';
 import { AgentRegistry } from './registry/agent-registry.js';
 import { ProviderMatrix } from './registry/provider-matrix.js';
 
@@ -227,6 +232,21 @@ async function main(): Promise<void> {
   // These surface the CleoOS-specific harness layer without a Pi startup.
   if (await handleDiagnosticsFlags(userArgs)) {
     return;
+  }
+
+  // Migration verify pre-check — fail-fast if DBs are in a drift state that
+  // the runtime reconciler cannot safely auto-fix before workers are spawned.
+  // Skip the check when CLEO_SKIP_MIGRATION_CHECK=1 is set (useful in CI
+  // environments where the DB is freshly initialised by the test harness).
+  if (process.env['CLEO_SKIP_MIGRATION_CHECK'] !== '1') {
+    const migrateResult = await verifyMigrations();
+    if (!migrateResult.ok) {
+      process.stderr.write(renderFatalDriftError(migrateResult));
+      process.exit(2);
+    }
+    if (migrateResult.severity === 'warn' && migrateResult.drift.length > 0) {
+      process.stdout.write(renderWarnDrift(migrateResult));
+    }
   }
 
   // Dynamically import Pi — it's a peerDependency, may not be installed
