@@ -87,6 +87,12 @@ export default defineConfig({
       '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
+      // T1187-followup / v2026.4.113: specific subpath alias for
+      // buildManifestEntryFromShorthand (CLI → core SDK delegation).
+      '@cleocode/core/memory/manifest-builder.js': new URL(
+        './packages/core/src/memory/manifest-builder.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/store/nexus-sqlite': new URL(
         './packages/core/src/store/nexus-sqlite.ts',
         import.meta.url,
