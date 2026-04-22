@@ -138,7 +138,8 @@ describe('validateReturnMessage', () => {
       validateReturnMessage('[Research] complete. Manifest appended to pipeline_manifest.').valid,
     ).toBe(true);
     expect(
-      validateReturnMessage('[Implementation] partial. Manifest appended to pipeline_manifest.').valid,
+      validateReturnMessage('[Implementation] partial. Manifest appended to pipeline_manifest.')
+        .valid,
     ).toBe(true);
     expect(
       validateReturnMessage('[Release] blocked. Manifest appended to pipeline_manifest.').valid,

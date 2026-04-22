@@ -61,7 +61,7 @@ export async function buildPrompt(
 
   const outputDir = getAgentOutputsDir(cwd);
   // MANIFEST_PATH token retired (ADR-027) — pipeline_manifest is the canonical store
-  const manifestPath = `${outputDir}/legacy-manifest.jsonl`;  // kept for token compat only
+  const manifestPath = `${outputDir}/legacy-manifest.jsonl`; // kept for token compat only
 
   // Get epic info
   let epicId = '';
