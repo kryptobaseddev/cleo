@@ -35,6 +35,7 @@
     "db:studio": "drizzle-kit studio --config drizzle/tasks.config.ts",
     "db:studio:brain": "drizzle-kit studio --config drizzle/brain.config.ts",
     "db:studio:nexus": "drizzle-kit studio --config drizzle/nexus.config.ts",
+    "test:install-scenarios": "node scripts/wave3-install-scenarios.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "version:bump": "node scripts/version-all.mjs",
     "cleo:dev": "node --disable-warning=ExperimentalWarning packages/cleo/dist/cli/index.js"
