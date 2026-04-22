@@ -14,13 +14,13 @@
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateSanitized } from './migration-manager.js';
 import * as nexusSchema from './nexus-schema.js';
+import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
 
 /** Database file name within ~/.cleo/ directory. */
@@ -74,29 +74,15 @@ export function getNexusDbPath(): string {
 }
 
 /**
- * Resolve the path to the drizzle-nexus migrations folder.
+ * Resolve the absolute path to the drizzle-nexus migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
  *
- * Walks upward from this module's location searching for a
- * `migrations/drizzle-nexus` directory. Works across layouts:
- *  - src/store (dev via tsx) → finds packages/core/migrations/drizzle-nexus
- *  - dist/store (tsc emit)   → finds packages/core/migrations/drizzle-nexus
- *  - dist/nexus/api-extractors → walks up to packages/core/migrations/drizzle-nexus
- *  - node_modules/@cleocode/core/dist/... → walks up to nearest package root
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
  */
 export function resolveNexusMigrationsFolder(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  let current = dirname(__filename);
-  const root = '/';
-
-  for (let depth = 0; depth < 8 && current !== root; depth++) {
-    const candidate = join(current, 'migrations', 'drizzle-nexus');
-    if (existsSync(candidate)) return candidate;
-    current = dirname(current);
-  }
-
-  // Fallback: the source-layout assumption (legacy behavior)
-  const fallback = join(dirname(__filename), '..', '..', 'migrations', 'drizzle-nexus');
-  return fallback;
+  return resolveCorePackageMigrationsFolder('drizzle-nexus');
 }
 
 /**

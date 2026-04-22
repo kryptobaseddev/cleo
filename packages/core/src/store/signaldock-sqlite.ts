@@ -23,12 +23,12 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as signaldockSchema from './signaldock-schema.js';
 import { openNativeDatabase } from './sqlite.js';
 
@@ -119,31 +119,18 @@ export function getSignaldockDbPath(cwd?: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the path to the drizzle-signaldock migrations folder.
+ * Resolve the absolute path to the drizzle-signaldock migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
  *
- * Walks upward from this module's location searching for a
- * `migrations/drizzle-signaldock` directory. Works across layouts:
- *  - src/store (dev via tsx) → finds packages/core/migrations/drizzle-signaldock
- *  - dist/store (tsc emit)   → finds packages/core/migrations/drizzle-signaldock
- *  - node_modules/@cleocode/core/dist/... → walks up to nearest package root
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
  *
  * @task T1166
  * @epic T1150
  */
 export function resolveSignaldockMigrationsFolder(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  let current = dirname(__filename);
-  const root = '/';
-
-  for (let depth = 0; depth < 8 && current !== root; depth++) {
-    const candidate = join(current, 'migrations', 'drizzle-signaldock');
-    if (existsSync(candidate)) return candidate;
-    current = dirname(current);
-  }
-
-  // Fallback: the source-layout assumption (legacy behavior)
-  const fallback = join(dirname(__filename), '..', '..', 'migrations', 'drizzle-signaldock');
-  return fallback;
+  return resolveCorePackageMigrationsFolder('drizzle-signaldock');
 }
 
 // ---------------------------------------------------------------------------

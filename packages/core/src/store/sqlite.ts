@@ -29,7 +29,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 };
 
 import { dirname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
@@ -42,6 +41,7 @@ import {
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
 import * as schema from './tasks-schema.js';
 
@@ -388,20 +388,15 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
 }
 
 /**
- * Resolve the path to the drizzle migrations folder.
- * Works from both src/ (dev via tsx) and dist/ (compiled via esbuild bundle).
+ * Resolve the absolute path to the drizzle-tasks migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
  *
- * - Source layout: __dirname = src/store/ → need ../../migrations/drizzle-tasks
- * - Bundled layout: __dirname = dist/     → need ../migrations/drizzle-tasks
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
  */
 export function resolveMigrationsFolder(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  // When esbuild bundles into dist/index.js, __dirname is dist/ (1 level deep).
-  // When running from source via tsx, __dirname is src/store/ (2 levels deep).
-  const isBundled = __dirname.endsWith('/dist') || __dirname.endsWith('\\dist');
-  const pkgRoot = isBundled ? join(__dirname, '..') : join(__dirname, '..', '..');
-  return join(pkgRoot, 'migrations', 'drizzle-tasks');
+  return resolveCorePackageMigrationsFolder('drizzle-tasks');
 }
 
 /**

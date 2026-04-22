@@ -11,11 +11,11 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from '../store/migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
 import { openNativeDatabase } from '../store/sqlite.js';
 import * as telemetrySchema from './schema.js';
 
@@ -40,17 +40,15 @@ export function getTelemetryDbPath(): string {
 }
 
 /**
- * Resolve the drizzle-telemetry migrations folder.
- * Handles both src/ (dev via tsx) and dist/ (bundled) layouts.
+ * Resolve the absolute path to the drizzle-telemetry migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
+ *
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
  */
 export function resolveTelemetryMigrationsFolder(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dir = dirname(__filename);
-  // src/telemetry/ → ../../migrations/drizzle-telemetry
-  // dist/          → ../migrations/drizzle-telemetry
-  const isBundled = __dir.endsWith('/dist') || __dir.endsWith('\\dist');
-  const pkgRoot = isBundled ? join(__dir, '..') : join(__dir, '..', '..');
-  return join(pkgRoot, 'migrations', 'drizzle-telemetry');
+  return resolveCorePackageMigrationsFolder('drizzle-telemetry');
 }
 
 /**
