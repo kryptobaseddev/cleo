@@ -60,6 +60,7 @@ const SUBPATH_DIRS = [
   'docs',
   'orchestration',
   'verification',
+  'formatters',
 ];
 
 /**
