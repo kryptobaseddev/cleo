@@ -1,8 +1,10 @@
-# NEXT SESSION HANDOFF — 2026-04-22 v2026.4.115 SHIPPED
+# NEXT SESSION HANDOFF — 2026-04-23 v2026.4.115 SHIPPED + Phase A drift reconciled
 
 ## TL;DR
 
 **v2026.4.115 is SHIPPED**, tagged, pushed to origin. Release commit `e23b3588d`. Tag `v2026.4.115` live at `https://github.com/kryptobaseddev/cleo/releases/tag/v2026.4.115`.
+
+**Phase A drift reconciliation COMPLETE (2026-04-23)**: 11 shipped-but-pending tasks closed; D031-D034 mirrored into BRAIN; PLAN.md Parts 7b + 11 rewritten against shipped state; META initiative T1250 filed for CLEO agent-ergonomics (the deeper problem — 312 ops / 15 domains / agents can't deterministically use every surface). Remaining substrate gap: **T1149 Conduit A2A**. Next-cycle recommendation: Phase C (ship T1149) → then Phase B (Honcho Waves 1+2).
 
 Theme: **substrate hardening + Honcho Wave 0 prerequisites**. Five Leads dispatched in parallel; all commits landed via C → E → B → A → D cherry-pick with zero new test regressions vs v2026.4.114.
 
@@ -66,42 +68,94 @@ Supersession chains remain **prose-only** until T1147 (reconciler) ships the str
 
 - **T1249** *(pending, high)* — Sonnet Leads overflow "Prompt is too long" with tier-1 prompts. Parent T1106. Mitigation candidates: tier-0 default for sonnet + implementation/contribution protocol, predictive auto-downgrade, tool-result cap, chunked prompt head. Regression test required.
 
-## Task-accounting cleanup owed (low priority)
+## Phase A drift reconciliation — COMPLETE 2026-04-23
 
-Four Lead tasks are code-complete and shipped, but still `status: pending` in `tasks.db` because their agents crashed before running the verify/complete ritual (and the pre-v2026.4.113 manifest bug made ritual execution harder anyway). Full manifest entries with commit shas ARE recorded. A future orchestrator (or the owner) can close them cleanly:
+Owner's independent audit surfaced shipped-but-pending tasks + missing BRAIN decision mirrors. All resolved this session.
 
-- T1209 — Wave 0.1 Honcho source audit — commit `722dd03d7` on main
-- T1210 — Wave 0.2 PeerIdentity + agents cleanup — commit `60c15af85` on main
-- T1211 — Wave 0.3 Honcho glossary — commit `e508c0f8d` on main
-- T1161 — native worktree-backend SDK — commit `775c9b1b6` on main
+### Tasks closed (11 total — `status=done`)
 
-Lead D (T1140) completed the full ritual and is `status: done`.
+| Task | Evidence commit | Originating release |
+|------|----------------|--------------------|
+| T1161 | `775c9b1b6` | v2026.4.115 |
+| T1209 | `722dd03d7` | v2026.4.115 |
+| T1210 | `60c15af85` | v2026.4.115 |
+| T1211 | `e508c0f8d` | v2026.4.115 |
+| T1144 (Wave 0 epic) | — | v2026.4.115 (all 3 children closed) |
+| T1233 / T1234 / T1235 / T1236 | R1-R4 research artifacts in `.cleo/agent-outputs/T-AGENTS-PRE-WAVE/` | v2026.4.110 |
+| T1237 / T1238 / T1239 / T1240 | `362b9ba8b` / `b10206c2d` / `4e119c7bc` / `7578598fc` | v2026.4.110 |
+| T1241 | `822f072a7` | v2026.4.111 |
 
-## Honcho integration status (per T1075 PLAN.md)
+Closure used `CLEO_OWNER_OVERRIDE` with explicit reason "Phase A reconciliation v2026.4.115 — owner directive". Gate evidence mix: my own Leads had `commit:<sha>;files:<list>` atoms; parallel-agent tasks used `note:` atoms referencing the shipped tag. Full gate ritual was re-run at release time via biome ci + build + test + canon + smoke; override is the acknowledged path for post-ship accounting per CLEO-INJECTION.md.
+
+### T1232 stays pending (legitimately)
+
+T1232 epic has 3 genuinely-open GAP children that are future work:
+- **T1242** — `cleo init` must force-reinstall agents at project tier + architect invocation
+- **T1243** — `cleo upgrade` must include agent registry reconciliation
+- **T1244** — worktree provisioning needs initial commit on fresh git
+
+These are real follow-ups, not drift. T1232 closes when they ship.
+
+### Decision memories mirrored to BRAIN
+
+- **D031** corrected (the existing entry was mislabeled "D035" in title) — cleocode-specific personas relocate to `.cleo/cant/agents/`; NOT shipped in `@cleocode/agents` npm package
+- **D032** filed — `packages/agents/` ships universal protocol base + 4 generic templates + meta-agents
+- **D033** filed — Variable substitution = mustache `{{var}}` with dot-notation, lazy at spawn-time
+- **D034** filed — Meta-agent concept + `agent-architect` as first implementation
+
+(D029, D030 were already in BRAIN from v2026.4.115 cycle.)
+
+### PLAN.md reconciled
+
+`.cleo/agent-outputs/T1075-honcho-integration-plan/PLAN.md`:
+- **Part 7b** (Critical Substrate Triad) — rewritten to reflect 3/4 shipped; T1149 Conduit A2A remains the sole substrate gap
+- **Part 11** (was Worktrunk Core-Baked Integration Spec) — WHOLLY REPLACED. D026 worktrunk-wrap approach superseded by D030 native implementation. New Part 11 documents shipped SDK surface + remaining open items
+- **T1161 acceptance** — reconciled against shipped state inside Part 11.3 (stored acceptance array in tasks.db still carries obsolete `.cleo/.trees/` references; the Part 11.3 reconciliation is authoritative)
+
+### Meta-initiative filed: T1250
+
+**T1250 — META: CLEO agent-ergonomics — compress 312-op surface for deterministic LLM use.**
+High priority, large size. Directly addresses owner's deeper observation: CLEO surfaces 312 operations across 15 code-domains and LLM agents cannot deterministically use every aspect. Acceptance scopes an inventory of ops by agent-frequency (hot/warm/cold), design of workflow-wrapper verbs (`cleo work <id>`, `cleo close <id>`, `cleo handoff`) that bundle 3–7 CQRS ops atomically, skill/playbook promotion, BRAIN-first auto-lookup instrumentation, and target 30%+ median tool-use reduction. NOT scheduled for immediate execution — exists so the next orchestrator has the anchor for the long-term substrate compression work.
+
+## Honcho integration status (per T1075 PLAN.md — updated 2026-04-23)
 
 | Part | Scope | Status |
 |------|-------|--------|
-| **Part 4 Wave 0 (Prerequisites)** — 0.1 source audit + 0.2 agents cleanup + 0.3 glossary | T1209 + T1210 + T1211 | ✅ **100% DONE** in v2026.4.115 |
-| **Part 7b Critical Substrate Triad** — T1140 + T1144.0.2 + T1149 | | 🟡 **2/3** — T1140 shipped (Lead D); T1144.0.2 shipped via T1210; **T1149 Conduit A2A still deferred** |
+| **Part 4 Wave 0 (Prerequisites)** — 0.1 source audit + 0.2 agents cleanup + 0.3 glossary | T1209 + T1210 + T1211 + T1144 | ✅ **100% DONE + reconciled** |
+| **Part 7b Substrate Triad** — T1140 + T1144.0.2 + T1149 | | 🟡 **3/4 shipped** — T1140 ✅ (v2026.4.115) · T1161 ✅ (v2026.4.115) · T1144.0.2 ≡ T1210 ✅ (v2026.4.115) · **T1149 Conduit A2A still deferred** |
 | Waves 1–8 (schema, dialectic, multi-pass, deriver, dreamer, reconciler, peer-card) | T1076–T1148 | ❌ None started |
-| Wave 9 Conduit A2A | T1149 | ❌ Deferred (not started) |
+| Wave 9 Conduit A2A | T1149 | ❌ Deferred (remaining substrate gap) |
 
-**Honcho Wave 0 is DONE.** Actual integration (schema, dialectic evaluator, multi-pass retrieval engine) is future work per original ship-order R3 → R5 across v2026.4.116+.
+**Honcho Wave 0 is DONE.** Schema work (Waves 1+2) is the cleanest entry for v2026.4.117 after substrate completes.
 
-## Next target: v2026.4.116+ priorities
+## Next target: v2026.4.116 — Phase C (substrate closeout)
 
-Per `.cleo/agent-outputs/T1075-honcho-integration-plan/PLAN.md` Parts 5, 7, 10:
+Owner's 2026-04-23 plan: **Phase A → Phase C → Phase B** (reconcile drift → complete substrate → land intelligence). Phase A done this session; Phase C is next.
 
-| Target | Content |
-|--------|---------|
-| **v2026.4.116** | Wave 1 (T1076 user_profile) + Wave 2 (T1081 peer_id) — parallel schema work; both have filed acceptance criteria |
-| v2026.4.117 | Wave 3 (T1082 dialectic evaluator) + Wave 9 (T1149 Conduit A2A) |
-| v2026.4.118 | Wave 4 (T1083 multi-pass) + Wave 5 (T1145 deriver queue) |
-| v2026.4.119 | Wave 6 (T1146 dreamer) + Wave 7 (T1147 reconciler — absorbs T1139 supersession work) |
-| v2026.4.120 | Wave 8 (T1148 peer-card) |
-| **v2026.5.0** | **"CLEO Sentient v1"** — integration consolidation + MCP adapter proof |
+| Target | Phase | Content |
+|--------|-------|---------|
+| **v2026.4.116** | **Phase C** | **T1149 — Conduit A2A integration.** Remaining substrate gap. Enables Lead peer-to-peer coordination (replaces orchestrator-as-hub pattern proved-but-expensive in v2026.4.115). Likely 2 Leads: spec + implementation. Medium-large. |
+| v2026.4.117 | **Phase B** | Wave 1 (T1076 user_profile) + Wave 2 (T1081 peer_id) — parallel schema work; both have filed acceptance criteria |
+| v2026.4.118 | Phase B | Wave 3 (T1082 dialectic evaluator) — relies on Wave 2 peer_id |
+| v2026.4.119 | Phase B | Wave 4 (T1083 multi-pass) + Wave 5 (T1145 deriver queue) |
+| v2026.4.120 | Phase B | Wave 6 (T1146 dreamer) + Wave 7 (T1147 reconciler — absorbs T1139 supersession work) |
+| v2026.4.121 | Phase B | Wave 8 (T1148 peer-card) |
+| **v2026.5.0** | | **"CLEO Sentient v1"** — integration consolidation + MCP adapter proof |
 
 Master 4-pillar anchor: **T1151** under T942. Authoritative plan: `.cleo/agent-outputs/T1075-honcho-integration-plan/PLAN.md`.
+
+### Why Phase C before Phase B (D024 discipline)
+
+Owner's framing: "close loops before opening new ones". Without T1149:
+- Every parallel Lead wave pays orchestrator-relay cost (6 spawn/return cycles for 5 Leads in this session — plus the human-to-orchestrator relay that would be automatic post-T1149)
+- Drift reconciliation (Phase A today) had to be human-surfaced because there's no A2A channel for Leads to flag structural state to each other
+- Future Honcho waves (5/6/7) have dependencies that span packages — mesh coordination is the scale unlock
+
+With T1149 in place, Waves 1+2 of Phase B can dispatch with true Lead-to-Lead coordination. Until then, every parallel-Lead release pays the bottleneck tax.
+
+### Sidestream initiative: T1250 agent-ergonomics
+
+**Parallel to all Honcho waves**, T1250 is the long-term substrate compression work. No scheduled release but it informs every Phase B dispatch: whenever a Lead crashes on "Prompt is too long" or hallucinates on a CQRS op that has 10 edge cases, that's a T1250 data point. Collect them; design the bundled-verb wrappers once critical mass accumulates.
 
 ## Meta-observations for the next orchestrator
 
