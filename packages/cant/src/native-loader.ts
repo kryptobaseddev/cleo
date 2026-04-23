@@ -404,41 +404,6 @@ export const SEED_PERSONA_IDS = [
 export type SeedPersonaId = (typeof SEED_PERSONA_IDS)[number];
 
 /**
- * Classifier-produced CLEO dogfood persona IDs that live in this repo's
- * project-tier `.cleo/cant/agents/` directory and are NOT shipped in the
- * `@cleocode/agents` package (per ADR-055 D031).
- *
- * The T891 classifier in `packages/core/src/orchestration/classify.ts` can
- * emit any of these IDs for a task. Per ADR-055 D035, resolution flows
- * through the 5-tier resolver: when no project/global/packaged row exists
- * and no filesystem fallback is found, the `universal` tier synthesises an
- * envelope from `cleo-subagent.cant` so the orchestrator never hits
- * `E_AGENT_NOT_FOUND`.
- *
- * Exported so the regression test in `seed-persona-registry.test.ts` can
- * verify every classifier output remains routable — either because the
- * dogfood `.cant` file is present in `.cleo/cant/agents/` or because the
- * universal-tier fallback catches it.
- *
- * `cleoos-opus-orchestrator` is also present as a `DEPRECATED_ALIASES` entry
- * in `packages/core/src/store/agent-resolver.ts` (remaps to `cleo-prime`) for
- * backward compatibility with stale session records.
- *
- * @task T1257
- */
-export const CLEOCODE_DOGFOOD_PERSONAS = [
-  'cleo-prime',
-  'cleo-dev',
-  'cleo-rust-lead',
-  'cleo-db-lead',
-  'cleo-historian',
-  'cleoos-opus-orchestrator',
-] as const;
-
-/** Type-safe union of the CLEO dogfood persona IDs produced by the classifier. */
-export type CleocodeDogfoodPersonaId = (typeof CLEOCODE_DOGFOOD_PERSONAS)[number];
-
-/**
  * Discover the `packages/agents/` root by walking up from the compiled
  * `native-loader.js` / source `native-loader.ts` file.
  *

@@ -88,19 +88,17 @@ export const AGENT_UNIVERSAL_BASE_ID = 'cleo-subagent';
 /**
  * Deprecated agent IDs that should be rewritten to their replacement.
  *
- * Registering a deprecated ID transparently routes resolution to the current
- * canonical agentId. Used during the T889 identity consolidation sweep where
- * `cleoos-opus-orchestrator` was folded back into `cleo-prime`.
+ * Reserved as an extension point for future clean-forward migrations. Empty
+ * by default — CLEO does not ship backward-compatibility aliases for agent
+ * IDs. Agent renames must be propagated to every call site before release.
  *
  * When an alias is applied, `ResolvedAgent.aliasApplied` is set to `true`
  * and `aliasTarget` is populated with the effective canonical id so callers
  * can emit a deprecation warning at the UI layer.
  *
- * @task T889 / W2-4
+ * @task T889 / W2-4 · T1257 (emptied per clean-forward directive)
  */
-export const DEPRECATED_ALIASES: Readonly<Record<string, string>> = Object.freeze({
-  'cleoos-opus-orchestrator': 'cleo-prime',
-});
+export const DEPRECATED_ALIASES: Readonly<Record<string, string>> = Object.freeze({});
 
 // ---------------------------------------------------------------------------
 // Error contract
