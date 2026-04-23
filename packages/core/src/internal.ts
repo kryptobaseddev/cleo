@@ -1233,6 +1233,14 @@ export {
 export { getBackupDir, getCleoHome, getConfigPath, getTaskPath } from './paths.js';
 // Scaffold (additional)
 export { ensureContributorMcp, ensureGlobalTemplates, ensureProjectContext } from './scaffold.js';
+// Worktree dispatch — SDK-first wrapper for orchestrate.spawn (T1140 / ADR-055)
+export {
+  listProjectWorktrees,
+  pruneWorktreesForProject,
+  spawnWorktree,
+  teardownWorktree,
+  warmupWorktreeBackend,
+} from './sentient/worktree-dispatch.js';
 // Sequence (additional)
 export { checkSequence, showSequence } from './sequence/index.js';
 // Sessions — grading

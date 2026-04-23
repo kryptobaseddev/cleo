@@ -222,6 +222,11 @@ const spawnCommand = defineCommand({
       description:
         'Protocol tier: 0 (minimal), 1 (standard), 2 (full), or auto (default — inferred from role+size+labels via T892 heuristics)',
     },
+    'no-worktree': {
+      type: 'boolean',
+      description:
+        'Skip worktree provisioning for this spawn. The opt-out is logged to the audit log (T1140).',
+    },
   },
   async run({ args }) {
     // T892: --tier accepts auto|0|1|2. 'auto' (and undefined) are forwarded
@@ -242,6 +247,7 @@ const spawnCommand = defineCommand({
         taskId: args.taskId,
         protocolType: args.protocol,
         tier,
+        noWorktree: args['no-worktree'] === true,
       },
       { command: 'orchestrate' },
     );
