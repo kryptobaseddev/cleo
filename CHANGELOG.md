@@ -4,6 +4,120 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.116] — 2026-04-23
+
+Phase C substrate closeout — **Wave 9 CONDUIT Agent-to-Agent (A2A) integration shipped**.
+With T1149 landed, the 4-item substrate triad is now 4/4 complete
+(T1140 + T1161 worktree-by-default shipped v2026.4.115; T1144.0.2 ≡ T1210
+agents cleanup shipped v2026.4.115; T1149 CONDUIT A2A shipped here). Leads
+can now coordinate peer-to-peer via topic-scoped pub/sub instead of
+routing every message through the orchestrator-as-hub.
+
+Dispatched as two serial Leads under Phase C per owner's A → C → B plan:
+- **Lead A1 (T1251)** — haiku + tier-0 + research. Produced
+  `CONDUIT-AUDIT.md` (10-file surface map + 7 A2A gaps identified) and
+  `CONDUIT-A2A-DESIGN.md` (envelope spec + topic naming + lifecycle +
+  failure modes + DLQ + spawn-prompt hook). 40 tool uses / 5 min.
+- **Lead B1 (T1252)** — sonnet + tier-0 + implementation. Shipped entire
+  implementation in one commit per A1's design. 117 tool uses / 20 min.
+  Tier-0 mitigation (T1249) held up cleanly — second sonnet success in a
+  row after Lead D in v2026.4.115.
+
+### Added
+
+- **`ConduitMessage` envelope extended backward-compatibly** (T1252) —
+  new optional fields: `kind: 'message' | 'request' | 'notify' | 'subscribe'`
+  (defaults to `'message'`), `fromPeerId?: string`, `toPeerId?: string | null`,
+  `payload?: Record<string, unknown>`. Location:
+  `packages/contracts/src/conduit.ts`. Existing consumers unchanged.
+
+- **4 new A2A SQLite tables in `conduit.db`** (T1252) — `topics`,
+  `topic_subscriptions`, `topic_messages`, `topic_message_acks`. Added to
+  `CONDUIT_SCHEMA_SQL` in `packages/core/src/store/conduit-sqlite.ts`;
+  schema version bumped to `2026.4.23`; migration record written on
+  `ensureConduitDb`.
+
+- **5 new topic methods on `LocalTransport`** (T1252) — `subscribeTopic`,
+  `publishToTopic`, `onTopic`, `unsubscribeTopic`, `pollTopic`. In-process
+  handler map + cross-process poll timer for topic delivery.
+  `parseTopicName()` helper extracts `{epicId, waveId}` from topic strings.
+
+- **4 new topic methods on `ConduitClient`** (T1252) — delegating wrappers
+  over transport methods with clear `E_TRANSPORT_MISSING_TOPIC_SUPPORT`
+  error if transport lacks topic capabilities.
+
+- **3 new CLI dispatch operations** (T1252) — `conduit subscribe`,
+  `conduit publish`, `conduit listen`. Wired through
+  `packages/cleo/src/dispatch/domains/conduit.ts` and registered in the
+  dispatch registry.
+
+- **`## CONDUIT Subscription` section in spawn prompts** (T1252) —
+  injected into tier-1/tier-2 worker spawn prompts after
+  `## Stage-Specific Guidance`, mirroring the pattern established by
+  Lead D's `## Worktree Setup` (T1140 in v2026.4.115). Provides wave
+  topic + coordination topic names plus a TypeScript SDK usage snippet
+  for subagent code.
+
+- **22 new A2A tests** (T1252) covering all 4 topic methods unit-level,
+  plus an **E2E two-agent wave-coordination test** that spawns two
+  concurrent subagents, exchanges messages via conduit, and completes a
+  coordinated task — satisfies acceptance atom 5 of parent T1149
+  literally.
+
+- **Topic-naming convention** — wave-scoped `epic-<epicId>.wave-<waveId>`
+  (ephemeral, destroyed after wave) and orchestration meta-topic
+  `epic-<epicId>.coordination` (persistent for epic lifetime). Documented
+  in `CONDUIT-A2A-DESIGN.md` with a semantics table (phase → topic →
+  publisher → subscribers).
+
+- **Retry + DLQ semantics** — 6-attempt exponential backoff
+  (1s / 4s / 16s / 64s / 256s / total ~341s) with dead-letter routing.
+  LocalTransport stub; full DLQ integration coordinates with T1147
+  (reconciler, deferred to Honcho Wave 7).
+
+- **Design artifacts** at
+  `.cleo/agent-outputs/T1075-honcho-integration-plan/`:
+  `CONDUIT-AUDIT.md` (27 KB, 3284 words) +
+  `CONDUIT-A2A-DESIGN.md` (32 KB, 3881 words). Cross-references
+  Lead A1's analysis from BRAIN memory; authoritative scope for
+  future A2A extensions.
+
+### Changed
+
+- **Substrate triad complete** — 4/4 of `PLAN.md` Part 7b shipped.
+  T1149 was the last gap; mesh-style Lead coordination is now available
+  for future parallel-wave releases.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1841 files)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — **11,123 pass / +22 new tests from T1252** / 1
+  pre-existing tmpdir flake (unrelated) / 0 new failures vs v2026.4.115
+- `cleo check canon` — 0 violations
+- `cleo admin smoke --provider claude-code` — PASS (16 hooks declared)
+
+### Meta-observations
+
+- **Tier-0 sonnet stability confirmed again** (T1252 at 117 uses + Lead D
+  in .115 at 157 uses — both clean). Tier-1 remains the overflow
+  attractor (T1161 crashed at 173 uses, T1210 at 112). **Default sonnet
+  Leads on implementation/contribution protocols to tier-0 until T1249
+  ships a structural fix.**
+- **Lifecycle gate silently blocks child `cleo complete`** when parent
+  epic is still at `research` stage. Lead A1 hit this in-flight — they
+  thought they completed T1251; task record stayed pending. Orchestrator
+  closed it post-hoc. This is a T1250 data point: the gate discipline is
+  right, but the failure mode should surface clearly to the agent, not
+  be silently swallowed. File as follow-up under T1106 or T1250.
+- **Honcho Wave 9 was additive, not greenfield.** A1's audit confirmed
+  ~12 conduit files already shipped across `packages/core/src/conduit/`,
+  `packages/contracts/`, `packages/cleo-os/`, `packages/adapters/`. The
+  implementation work was 4 new SDK methods + 4 new tables + 3 new CLI
+  ops + one spawn-prompt section. Phase B Honcho waves (T1076+,
+  T1081+) likely follow the same pattern: extend existing CLEO substrate
+  rather than port Honcho end-to-end.
+
 ## [2026.4.115] — 2026-04-22
 
 Substrate hardening release — native worktree-backend SDK, worktree-by-default
