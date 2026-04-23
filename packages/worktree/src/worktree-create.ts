@@ -1,5 +1,5 @@
 /**
- * Worktree creation operation for @cleocode/worktree-backend.
+ * Worktree creation operation for @cleocode/worktree.
  *
  * Creates a git worktree at the canonical XDG path per D029:
  *   `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`

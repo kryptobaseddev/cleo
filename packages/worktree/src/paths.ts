@@ -1,5 +1,5 @@
 /**
- * XDG-compliant worktree path resolution for @cleocode/worktree-backend.
+ * XDG-compliant worktree path resolution for @cleocode/worktree.
  *
  * Canonical layout per D029:
  *   Linux:   ~/.local/share/cleo/worktrees/<projectHash>/<taskId>/

@@ -482,12 +482,12 @@ async function build() {
   // WORKTREE-BACKEND depends on @cleocode/contracts only — build after contracts
   // so that core and cant can import from it. Built before nexus/cant to
   // establish dist/ for workspace symlink resolution in subsequent packages.
-  console.log('Building @cleocode/worktree-backend...');
-  execFileSync('pnpm', ['--filter', '@cleocode/worktree-backend', 'run', 'build'], {
+  console.log('Building @cleocode/worktree...');
+  execFileSync('pnpm', ['--filter', '@cleocode/worktree', 'run', 'build'], {
     stdio: 'inherit',
     cwd: __dirname,
   });
-  console.log('  -> packages/worktree-backend/dist/');
+  console.log('  -> packages/worktree/dist/');
 
   // NEXUS depends on @cleocode/contracts — must build before core because
   // core's type declaration emit (tsc --emitDeclarationOnly) needs nexus's

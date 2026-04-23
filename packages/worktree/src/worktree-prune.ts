@@ -1,5 +1,5 @@
 /**
- * Worktree prune operation for @cleocode/worktree-backend.
+ * Worktree prune operation for @cleocode/worktree.
  *
  * Removes orphaned worktrees: worktree directories whose task ID is NOT in
  * the provided `preserveTaskIds` set, and optionally runs `git worktree prune`
