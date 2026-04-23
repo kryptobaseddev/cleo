@@ -5,7 +5,7 @@
  * branch-protection system:
  *
  * - L1: Git worktree isolation per spawned agent
- * - L2: cleo-git-shim binary on PATH for harness-agnostic enforcement
+ * - L2: git-shim binary on PATH for harness-agnostic enforcement
  * - L3: Filesystem hardening via chmod (+ optional chattr on Linux)
  * - L4: Owner-override HMAC session authentication with TTY + rate-limit gates
  *
@@ -98,7 +98,7 @@ export interface WorktreeCleanupResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Environment variables read by the cleo-git-shim binary.
+ * Environment variables read by the git-shim binary.
  *
  * @task T1118
  * @task T1121
