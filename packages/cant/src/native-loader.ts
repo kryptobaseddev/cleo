@@ -369,27 +369,74 @@ export function cantExecutePipelineNative(
 // ============================================================================
 
 /**
- * Canonical IDs of the 7 CLEO seed personas.
+ * Canonical IDs of the ship-surface personas surfaced by
+ * {@link loadSeedAgentIdentities} — the universal protocol base plus the four
+ * generic role templates that `@cleocode/agents` publishes.
  *
- * Kept in declaration order: orchestrator first, then leads, then universal base.
- * Used by the regression test and as documentation for the expected registry
- * contents. Any persona on this list MUST be resolvable from the canonical
- * seed-agents path (either `seed-agents/<id>.cant` or `cleo-subagent.cant`).
+ * Per ADR-055 D032, the package ships exactly five loadable personas at this
+ * surface (plus `meta/agent-architect.cant`, the meta-agent, which the loader
+ * does not currently walk — tracked as follow-up for a loader extension).
  *
- * @task T1210
+ * Note: filenames under `seed-agents/` carry a `-generic` suffix
+ * (`orchestrator-generic.cant` etc.), but the agent IDs DECLARED inside each
+ * template (via `agent <name>:`) are `project-*`. This list reflects the
+ * declared agent IDs the loader surfaces, not the filename stems.
+ *
+ * Declaration order: universal base first, then the four generic role
+ * templates. Used by the regression test and as documentation of the expected
+ * registry contents. Any persona on this list MUST be resolvable from the
+ * canonical seed-agents path (either `cleo-subagent.cant` at package root or
+ * `seed-agents/<filename>.cant`).
+ *
+ * @task T1257
+ * @see {@link CLEOCODE_DOGFOOD_PERSONAS} for classifier-produced IDs that live
+ *      in this repo's `.cleo/cant/agents/` and are NOT shipped.
  */
 export const SEED_PERSONA_IDS = [
+  'cleo-subagent',
+  'project-orchestrator',
+  'project-dev-lead',
+  'project-code-worker',
+  'project-docs-worker',
+] as const;
+
+/** Type-safe union of the ship-surface persona IDs. */
+export type SeedPersonaId = (typeof SEED_PERSONA_IDS)[number];
+
+/**
+ * Classifier-produced CLEO dogfood persona IDs that live in this repo's
+ * project-tier `.cleo/cant/agents/` directory and are NOT shipped in the
+ * `@cleocode/agents` package (per ADR-055 D031).
+ *
+ * The T891 classifier in `packages/core/src/orchestration/classify.ts` can
+ * emit any of these IDs for a task. Per ADR-055 D035, resolution flows
+ * through the 5-tier resolver: when no project/global/packaged row exists
+ * and no filesystem fallback is found, the `universal` tier synthesises an
+ * envelope from `cleo-subagent.cant` so the orchestrator never hits
+ * `E_AGENT_NOT_FOUND`.
+ *
+ * Exported so the regression test in `seed-persona-registry.test.ts` can
+ * verify every classifier output remains routable — either because the
+ * dogfood `.cant` file is present in `.cleo/cant/agents/` or because the
+ * universal-tier fallback catches it.
+ *
+ * `cleoos-opus-orchestrator` is also present as a `DEPRECATED_ALIASES` entry
+ * in `packages/core/src/store/agent-resolver.ts` (remaps to `cleo-prime`) for
+ * backward compatibility with stale session records.
+ *
+ * @task T1257
+ */
+export const CLEOCODE_DOGFOOD_PERSONAS = [
   'cleo-prime',
   'cleo-dev',
+  'cleo-rust-lead',
   'cleo-db-lead',
   'cleo-historian',
-  'cleo-rust-lead',
-  'cleo-subagent',
   'cleoos-opus-orchestrator',
 ] as const;
 
-/** Type-safe union of the 7 canonical seed persona IDs. */
-export type SeedPersonaId = (typeof SEED_PERSONA_IDS)[number];
+/** Type-safe union of the CLEO dogfood persona IDs produced by the classifier. */
+export type CleocodeDogfoodPersonaId = (typeof CLEOCODE_DOGFOOD_PERSONAS)[number];
 
 /**
  * Discover the `packages/agents/` root by walking up from the compiled
