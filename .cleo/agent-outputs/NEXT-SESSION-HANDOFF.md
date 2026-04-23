@@ -1,10 +1,18 @@
-# NEXT SESSION HANDOFF — 2026-04-23 v2026.4.115 SHIPPED + Phase A drift reconciled
+# NEXT SESSION HANDOFF — 2026-04-23 v2026.4.116 SHIPPED (Phase C complete)
 
 ## TL;DR
 
-**v2026.4.115 is SHIPPED**, tagged, pushed to origin. Release commit `e23b3588d`. Tag `v2026.4.115` live at `https://github.com/kryptobaseddev/cleo/releases/tag/v2026.4.115`.
+**v2026.4.116 is SHIPPED**, tagged, pushed to origin. Release commit `9f981baea`. Tag `v2026.4.116` live at `https://github.com/kryptobaseddev/cleo/releases/tag/v2026.4.116`.
 
-**Phase A drift reconciliation COMPLETE (2026-04-23)**: 11 shipped-but-pending tasks closed; D031-D034 mirrored into BRAIN; PLAN.md Parts 7b + 11 rewritten against shipped state; META initiative T1250 filed for CLEO agent-ergonomics (the deeper problem — 312 ops / 15 domains / agents can't deterministically use every surface). Remaining substrate gap: **T1149 Conduit A2A**. Next-cycle recommendation: Phase C (ship T1149) → then Phase B (Honcho Waves 1+2).
+**Substrate triad is now 4/4 COMPLETE.** T1149 CONDUIT A2A shipped via two serial Leads:
+- **T1251** (Lead A1, haiku + tier-0) — `CONDUIT-AUDIT.md` + `CONDUIT-A2A-DESIGN.md` (60KB design artifacts)
+- **T1252** (Lead B1, sonnet + tier-0) — envelope extension + 4 a2a tables + 9 topic methods + 3 CLI ops + spawn-prompt section + 22 new tests incl. E2E two-agent coordination
+
+Phase C closed. **Next cycle: Phase B starts — Honcho Waves 1+2 parallel** (T1076 user_profile + T1081 peer_id schema work). Mesh-style Lead coordination available from v2026.4.116 forward.
+
+### Prior state (v2026.4.115 SHIPPED + Phase A drift reconciled — 2026-04-23 earlier)
+
+Release commit `e23b3588d`. 11 shipped-but-pending tasks closed via owner override; D031-D034 mirrored into BRAIN; PLAN.md Parts 7b + 11 rewritten against shipped state; META initiative T1250 filed for CLEO agent-ergonomics (the deeper problem — 312 ops / 15 domains / agents can't deterministically use every surface).
 
 Theme: **substrate hardening + Honcho Wave 0 prerequisites**. Five Leads dispatched in parallel; all commits landed via C → E → B → A → D cherry-pick with zero new test regressions vs v2026.4.114.
 
@@ -117,25 +125,25 @@ These are real follow-ups, not drift. T1232 closes when they ship.
 **T1250 — META: CLEO agent-ergonomics — compress 312-op surface for deterministic LLM use.**
 High priority, large size. Directly addresses owner's deeper observation: CLEO surfaces 312 operations across 15 code-domains and LLM agents cannot deterministically use every aspect. Acceptance scopes an inventory of ops by agent-frequency (hot/warm/cold), design of workflow-wrapper verbs (`cleo work <id>`, `cleo close <id>`, `cleo handoff`) that bundle 3–7 CQRS ops atomically, skill/playbook promotion, BRAIN-first auto-lookup instrumentation, and target 30%+ median tool-use reduction. NOT scheduled for immediate execution — exists so the next orchestrator has the anchor for the long-term substrate compression work.
 
-## Honcho integration status (per T1075 PLAN.md — updated 2026-04-23)
+## Honcho integration status (per T1075 PLAN.md — updated 2026-04-23 post-v2026.4.116)
 
 | Part | Scope | Status |
 |------|-------|--------|
-| **Part 4 Wave 0 (Prerequisites)** — 0.1 source audit + 0.2 agents cleanup + 0.3 glossary | T1209 + T1210 + T1211 + T1144 | ✅ **100% DONE + reconciled** |
-| **Part 7b Substrate Triad** — T1140 + T1144.0.2 + T1149 | | 🟡 **3/4 shipped** — T1140 ✅ (v2026.4.115) · T1161 ✅ (v2026.4.115) · T1144.0.2 ≡ T1210 ✅ (v2026.4.115) · **T1149 Conduit A2A still deferred** |
-| Waves 1–8 (schema, dialectic, multi-pass, deriver, dreamer, reconciler, peer-card) | T1076–T1148 | ❌ None started |
-| Wave 9 Conduit A2A | T1149 | ❌ Deferred (remaining substrate gap) |
+| **Part 4 Wave 0 (Prerequisites)** — 0.1 source audit + 0.2 agents cleanup + 0.3 glossary | T1209 + T1210 + T1211 + T1144 | ✅ DONE (v2026.4.115) |
+| **Part 7b Substrate Triad** — T1140 + T1161 + T1144.0.2 + T1149 | | ✅ **4/4 shipped** — T1140 ✅ (.115) · T1161 ✅ (.115) · T1144.0.2 ≡ T1210 ✅ (.115) · **T1149 ✅ (.116)** |
+| Wave 9 Conduit A2A | T1149 + T1251 + T1252 | ✅ DONE (v2026.4.116) |
+| Waves 1–8 (schema, dialectic, multi-pass, deriver, dreamer, reconciler, peer-card) | T1076–T1148 | ❌ None started — **next up** |
 
-**Honcho Wave 0 is DONE.** Schema work (Waves 1+2) is the cleanest entry for v2026.4.117 after substrate completes.
+**Honcho Wave 0 + substrate triad + Wave 9 all DONE.** Waves 1+2 are the cleanest next entry — schema work is mechanically independent and both have filed acceptance criteria. With Wave 9 A2A landed, these can dispatch as true mesh Leads (not orchestrator-relay pattern used in .115/.116).
 
-## Next target: v2026.4.116 — Phase C (substrate closeout)
+## Next target: v2026.4.117 — Phase B start (Honcho Waves 1+2 parallel)
 
-Owner's 2026-04-23 plan: **Phase A → Phase C → Phase B** (reconcile drift → complete substrate → land intelligence). Phase A done this session; Phase C is next.
+Owner's 2026-04-23 plan: **Phase A → Phase C → Phase B** (reconcile drift → complete substrate → land intelligence). **Phases A + C both done**; Phase B starts next cycle.
 
 | Target | Phase | Content |
 |--------|-------|---------|
-| **v2026.4.116** | **Phase C** | **T1149 — Conduit A2A integration.** Remaining substrate gap. Enables Lead peer-to-peer coordination (replaces orchestrator-as-hub pattern proved-but-expensive in v2026.4.115). Likely 2 Leads: spec + implementation. Medium-large. |
-| v2026.4.117 | **Phase B** | Wave 1 (T1076 user_profile) + Wave 2 (T1081 peer_id) — parallel schema work; both have filed acceptance criteria |
+| v2026.4.116 | Phase C ✅ | **T1149 CONDUIT A2A shipped** via T1251 (design) + T1252 (impl). 4/4 substrate triad complete. |
+| **v2026.4.117** | **Phase B start** | Wave 1 (T1076 user_profile NEXUS schema) + Wave 2 (T1081 peer_id memory isolation) — parallel schema work; both have filed acceptance criteria |
 | v2026.4.118 | Phase B | Wave 3 (T1082 dialectic evaluator) — relies on Wave 2 peer_id |
 | v2026.4.119 | Phase B | Wave 4 (T1083 multi-pass) + Wave 5 (T1145 deriver queue) |
 | v2026.4.120 | Phase B | Wave 6 (T1146 dreamer) + Wave 7 (T1147 reconciler — absorbs T1139 supersession work) |
@@ -144,18 +152,25 @@ Owner's 2026-04-23 plan: **Phase A → Phase C → Phase B** (reconcile drift �
 
 Master 4-pillar anchor: **T1151** under T942. Authoritative plan: `.cleo/agent-outputs/T1075-honcho-integration-plan/PLAN.md`.
 
-### Why Phase C before Phase B (D024 discipline)
+### Phase C outcome + what Phase B inherits
 
-Owner's framing: "close loops before opening new ones". Without T1149:
-- Every parallel Lead wave pays orchestrator-relay cost (6 spawn/return cycles for 5 Leads in this session — plus the human-to-orchestrator relay that would be automatic post-T1149)
-- Drift reconciliation (Phase A today) had to be human-surfaced because there's no A2A channel for Leads to flag structural state to each other
-- Future Honcho waves (5/6/7) have dependencies that span packages — mesh coordination is the scale unlock
+**Substrate investment returned:** T1149 CONDUIT A2A shipped means Phase B Leads can subscribe to wave topics and publish findings for sibling Leads to pick up — no more orchestrator-as-hub pattern from v2026.4.115. Specifically:
+- **Spawn-prompt auto-injects** `## CONDUIT Subscription` section into tier-1/tier-2 prompts — every Lead starts subscribed to its wave topic + orchestrator coordination topic
+- **Envelope extended backward-compat** — existing consumers unchanged; A2A is additive
+- **E2E two-agent wave-coordination test** proves the pattern works concurrent
+- **LocalTransport** is the default (D016 prior decision); HTTP/SSE transports available for distributed scenarios
 
-With T1149 in place, Waves 1+2 of Phase B can dispatch with true Lead-to-Lead coordination. Until then, every parallel-Lead release pays the bottleneck tax.
+**How Phase B Lead dispatch should use A2A** (design notes for next orchestrator):
+- Dispatch Leads for T1076 + T1081 in parallel as usual
+- Prompt each Lead to `subscribeTopic('epic-T1075.wave-1')` and `subscribeTopic('epic-T1075.coordination')` at start
+- On completion, each Lead publishes `{kind: notify, event: 'wave-complete', findings}` — dependent Leads unblock on that signal
+- Orchestrator subscribes to `epic-T1075.coordination` — drift surfaces structurally, not via polling `cleo show`
 
 ### Sidestream initiative: T1250 agent-ergonomics
 
-**Parallel to all Honcho waves**, T1250 is the long-term substrate compression work. No scheduled release but it informs every Phase B dispatch: whenever a Lead crashes on "Prompt is too long" or hallucinates on a CQRS op that has 10 edge cases, that's a T1250 data point. Collect them; design the bundled-verb wrappers once critical mass accumulates.
+**Parallel to all Honcho waves**, T1250 is the long-term substrate compression work. No scheduled release but it informs every Phase B dispatch: whenever a Lead crashes on "Prompt is too long" or hallucinates on a CQRS op that has 10 edge cases, that's a T1250 data point. Phase C surfaced one more:
+
+- **Lifecycle gate silently swallows `cleo complete`** when parent epic is still at `research` stage. Lead A1 (T1251) hit this; their return message said "Research complete. Manifest appended" (truthful — ritual ran) but task state stayed `pending` because parent T1149 was still in `research`. Orchestrator closed it post-hoc via Phase A reconciliation pattern. This is exactly the class of friction T1250 targets: gate discipline is right, but the failure mode should surface to the agent, not be swallowed. File as follow-up.
 
 ## Meta-observations for the next orchestrator
 
