@@ -1,4 +1,4 @@
-# NEXT SESSION HANDOFF — 2026-04-23 v2026.4.121 SHIPPED CLEAN
+# NEXT SESSION HANDOFF — 2026-04-23 v2026.4.124 SHIPPED · 16/16 packages on npm
 
 ## TL;DR
 
@@ -147,3 +147,34 @@ for id in T1140 T1161 T1210 T1149; do cleo show $id 2>&1 | jq -r --arg id $id '.
 ## Context window for next session
 
 This release closed a major loop: the session opened with 5 aborted releases + honcho terminology leak + lazy type-safety. It closes with one clean release, npm published, CI green, terminology scrubbed, and type-safety properly structured. The pattern of "grep for terminology, run CI-equivalent locally, verify npm post-ship" is now canonical. Next session starts from a verified-clean baseline with Waves 5-8 as the remaining PSYCHE surface to ship before v2026.5.0 consolidation.
+
+---
+
+## Final session outcome — v2026.4.124 (appended 2026-04-23 evening)
+
+Post-v2026.4.121 ship, discovered:
+1. `@cleocode/worktree` and `@cleocode/git-shim` weren't in the Release workflow's publish list — 13 of 15 published at .121, those 2 stuck at .118
+2. Shell bug in `publish_pkg()` (GitHub Actions `bash -eo pipefail` aborted on first `pnpm publish` non-zero exit, making failure-handling branches unreachable)
+3. Both new packages missing `repository.url` field → npm 422 UnprocessableEntity on sigstore provenance validation
+4. `build.mjs` didn't build `@cleocode/git-shim` → CI tarball lacked `dist/shim.js` (the package `bin` entry)
+5. Directory `packages/cleo-git-shim/` didn't match npm name `@cleocode/git-shim` — legacy mismatch
+
+All resolved across v2026.4.122 → .123 → .124:
+- **v2026.4.122**: added both packages to version-bump loop + publish list (worktree shipped successfully here; git-shim still blocked by publish bug)
+- **v2026.4.123**: `git mv packages/cleo-git-shim → packages/git-shim` + shell bug fix + log-prefix rename + GitHub Releases body scrub (old v2026.4.115/.116 release notes had residual external-source references)
+- **v2026.4.124**: `repository` field added to both packages + `build.mjs` now builds `@cleocode/git-shim`
+
+**Both packages now publish cleanly on every future release.** Workflow validated end-to-end.
+
+### CI flake (not a regression)
+
+Shard 1/2 Vitest caught an uncaught exception after test cleanup: `ENOENT: no such file or directory, open '/tmp/cleo-sess-8maOdY/.cleo/logs/test.2026-04-23.1.log'`. The 333 test files all passed; the "failure" is from a background log-writer firing after its tmpdir was cleaned up. Has been flaking intermittently all session. File follow-up under T1250 agent-ergonomics or as a dedicated T1257 test-infra task.
+
+### State for next session
+
+- cleo at v2026.4.124 globally installable: `npm install -g @cleocode/cleo@2026.4.124`
+- All 16 `@cleocode/*` packages synced at 2026.4.124
+- PSYCHE Waves 0-4 + 9 shipped (memory substrate + peer isolation + dialectic observer + multi-pass retrieval + CONDUIT A2A)
+- Substrate triad 4/4 complete
+- Waves 5-8 open (deriver / dreamer / reconciler / sigil identity)
+- Internal planning docs (including the single point of translation) stay gitignored under `.cleo/agent-outputs/T1075-psyche-integration-plan/`
