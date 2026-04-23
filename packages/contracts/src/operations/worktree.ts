@@ -1,7 +1,7 @@
 /**
  * Worktree backend SDK operation types (T1161).
  *
- * Wire-format types for the `@cleocode/worktree-backend` SDK surface.
+ * Wire-format types for the `@cleocode/worktree` SDK surface.
  * Defines the contract for createWorktree, destroyWorktree, listWorktrees,
  * and pruneWorktrees operations with XDG path canon (D029) and declarative
  * hooks (D030 native lift of worktrunk missing features).

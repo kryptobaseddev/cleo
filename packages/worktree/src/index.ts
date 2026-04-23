@@ -1,5 +1,5 @@
 /**
- * @cleocode/worktree-backend — Native CLEO worktree backend SDK.
+ * @cleocode/worktree — Native CLEO worktree backend SDK.
  *
  * Formalizes the scattered worktree logic from:
  *   - `packages/cant/src/worktree.ts`

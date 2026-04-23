@@ -1,5 +1,5 @@
 /**
- * Worktree listing operations for @cleocode/worktree-backend.
+ * Worktree listing operations for @cleocode/worktree.
  *
  * `listWorktrees` and `listWorktreesByProjectRoot` scan the CLEO XDG worktrees
  * directory to return structured entries.

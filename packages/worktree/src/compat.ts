@@ -7,9 +7,9 @@
  *
  * @remarks
  * These adapters are deprecated and will be removed once all callers have
- * been migrated to `@cleocode/worktree-backend`.
+ * been migrated to `@cleocode/worktree`.
  *
- * @deprecated Use `@cleocode/worktree-backend` directly.
+ * @deprecated Use `@cleocode/worktree` directly.
  * @task T1161
  */
 
@@ -26,7 +26,7 @@ import { resolveWorktreeRootForHash } from './paths.js';
 /**
  * Request payload for creating a new git worktree (legacy API).
  *
- * @deprecated Use {@link CreateWorktreeOptions} from `@cleocode/worktree-backend`.
+ * @deprecated Use {@link CreateWorktreeOptions} from `@cleocode/worktree`.
  */
 export interface LegacyWorktreeRequest {
   /** The base ref to branch from (e.g. "main", "develop", a SHA). */
@@ -42,7 +42,7 @@ export interface LegacyWorktreeRequest {
 /**
  * Handle returned after worktree creation (legacy API).
  *
- * @deprecated Use {@link CreateWorktreeResult} from `@cleocode/worktree-backend`.
+ * @deprecated Use {@link CreateWorktreeResult} from `@cleocode/worktree`.
  */
 export interface LegacyWorktreeHandle {
   /** Absolute path to the worktree directory. */
@@ -76,7 +76,7 @@ export interface LegacyWorktreeConfig {
 /**
  * Result of a merge operation (legacy API).
  *
- * @deprecated Use {@link DestroyWorktreeResult} from `@cleocode/worktree-backend`.
+ * @deprecated Use {@link DestroyWorktreeResult} from `@cleocode/worktree`.
  */
 export interface LegacyMergeResult {
   /** Whether the merge succeeded. */
@@ -104,7 +104,7 @@ export interface LegacyWorktreeEntry {
 /**
  * Resolve the worktree root directory (legacy API).
  *
- * @deprecated Use `resolveWorktreeRoot` from `@cleocode/worktree-backend`.
+ * @deprecated Use `resolveWorktreeRoot` from `@cleocode/worktree`.
  * @param config - Legacy worktree config.
  * @returns Absolute path to the worktree root directory.
  */
@@ -117,9 +117,9 @@ export function legacyResolveWorktreeRoot(config: LegacyWorktreeConfig): string 
  *
  * Wraps the new native SDK but returns a {@link LegacyWorktreeHandle} for
  * backward compatibility. Callers should migrate to `createWorktree` from
- * `@cleocode/worktree-backend`.
+ * `@cleocode/worktree`.
  *
- * @deprecated Use `createWorktree` from `@cleocode/worktree-backend`.
+ * @deprecated Use `createWorktree` from `@cleocode/worktree`.
  * @param request - Legacy worktree request.
  * @param config - Legacy worktree config.
  * @returns A legacy handle with a cleanup function.
@@ -156,7 +156,7 @@ export function legacyCreateWorktree(
  * Merge a worktree's branch back into the current branch (legacy API).
  *
  * @deprecated Use `destroyWorktree` with `cherryPickFirst: true` from
- * `@cleocode/worktree-backend`.
+ * `@cleocode/worktree`.
  * @param handle - Legacy worktree handle.
  * @param config - Legacy worktree config.
  * @param options - Merge strategy options.
@@ -186,7 +186,7 @@ export function legacyMergeWorktree(
 /**
  * List active worktrees scoped to the current project (legacy API).
  *
- * @deprecated Use `listWorktrees` from `@cleocode/worktree-backend`.
+ * @deprecated Use `listWorktrees` from `@cleocode/worktree`.
  * @param config - Legacy worktree config.
  * @returns Array of legacy worktree entries.
  */

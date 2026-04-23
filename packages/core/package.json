@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.4.116",
+  "version": "2026.4.117",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -238,7 +238,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
-    "@cleocode/worktree-backend": "workspace:*",
+    "@cleocode/worktree": "workspace:*",
     "@cleocode/skills": "workspace:*",
     "@huggingface/transformers": "^4.0.1",
     "ai": "^6.0.162",

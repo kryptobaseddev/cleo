@@ -2,7 +2,7 @@
  * Worktree dispatch — unified native backend selector for the sentient loop.
  *
  * Provides a stable internal API surface for sentient tick + orchestrate.spawn
- * to invoke worktree operations. All dispatch routes through `@cleocode/worktree-backend`
+ * to invoke worktree operations. All dispatch routes through `@cleocode/worktree`
  * (native implementation — zero worktrunk dependency per D030).
  *
  * Usage from `cleo sentient tick`:
@@ -41,8 +41,8 @@ import type {
  *
  * @internal
  */
-async function backend(): Promise<typeof import('@cleocode/worktree-backend')> {
-  return import('@cleocode/worktree-backend');
+async function backend(): Promise<typeof import('@cleocode/worktree')> {
+  return import('@cleocode/worktree');
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ async function backend(): Promise<typeof import('@cleocode/worktree-backend')> {
  * Create a worktree for an agent task via the native backend.
  *
  * This is the canonical entry point for `orchestrate.spawn` to request a
- * worktree. It wraps `@cleocode/worktree-backend.createWorktree` with the
+ * worktree. It wraps `@cleocode/worktree.createWorktree` with the
  * uniform dispatch contract.
  *
  * @param projectRoot - Absolute path to the project root.
@@ -126,15 +126,14 @@ export function pruneWorktreesForProject(
 // ---------------------------------------------------------------------------
 // Synchronous shims for operations used from sync sentient tick context.
 //
-// worktree-backend exports sync operations (destroyWorktree, listWorktrees,
+// worktree exports sync operations (destroyWorktree, listWorktrees,
 // pruneWorktrees). We reference them via module-level cached imports so the
 // tick loop can call them synchronously after the first async warm-up.
 // ---------------------------------------------------------------------------
 
-let _destroyWorktreeCache: typeof import('@cleocode/worktree-backend').destroyWorktree | null =
-  null;
-let _listWorktreesCache: typeof import('@cleocode/worktree-backend').listWorktrees | null = null;
-let _pruneWorktreesCache: typeof import('@cleocode/worktree-backend').pruneWorktrees | null = null;
+let _destroyWorktreeCache: typeof import('@cleocode/worktree').destroyWorktree | null = null;
+let _listWorktreesCache: typeof import('@cleocode/worktree').listWorktrees | null = null;
+let _pruneWorktreesCache: typeof import('@cleocode/worktree').pruneWorktrees | null = null;
 
 /**
  * Synchronous wrapper for destroyWorktree.
@@ -174,7 +173,7 @@ function _syncListWorktrees(options: ListWorktreesOptions): WorktreeListEntry[] 
  * @internal
  */
 function _syncPruneWorktrees(
-  options: Parameters<typeof import('@cleocode/worktree-backend').pruneWorktrees>[0],
+  options: Parameters<typeof import('@cleocode/worktree').pruneWorktrees>[0],
 ): PruneWorktreesResult {
   if (!_pruneWorktreesCache) {
     return { removed: 0, removedPaths: [], errors: [], gitPruneRan: false };

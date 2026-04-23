@@ -1,5 +1,5 @@
 /**
- * Low-level git helpers for @cleocode/worktree-backend.
+ * Low-level git helpers for @cleocode/worktree.
  *
  * All git invocations use `execFileSync` / `execFile` with explicit arg
  * arrays (never shell interpolation) to prevent command injection.

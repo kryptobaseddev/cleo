@@ -1,5 +1,5 @@
 /**
- * Worktree destroy operation for @cleocode/worktree-backend.
+ * Worktree destroy operation for @cleocode/worktree.
  *
  * Removes the git worktree for a completed task. Optionally cherry-picks
  * commits from the task branch back to the orchestrator's current branch

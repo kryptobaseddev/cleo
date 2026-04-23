@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.117] — 2026-04-23
+
+Pre-first-npm-publish rename: **`@cleocode/worktree-backend` → `@cleocode/worktree`**.
+Package was introduced in v2026.4.115 but never published; renaming now is
+near-free (20 files touched, zero external consumers). After publish the
+rename would be expensive. Blast radius validated with GitNexus call-graph
+(`spawnWorktree` symbol's outgoing calls resolved cleanly at the new path
+`packages/worktree/src/worktree-create.ts`).
+
+### Changed
+
+- **Package renamed**: `@cleocode/worktree-backend` → `@cleocode/worktree`.
+  Directory moved via `git mv packages/worktree-backend packages/worktree`.
+  All 20 in-tree references (package manifests, tsconfig paths, imports in
+  `orchestrate-engine.ts` / `worktree-dispatch.ts` / contracts re-export,
+  log prefix in `worktree-include.ts`, code comment in
+  `worktree-dispatch.ts`) updated.
+- Historical references in the v2026.4.115 CHANGELOG entry retained
+  verbatim — that's what shipped under that tag; renaming historical
+  prose would make the log lie.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1841 files)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — 11,123 pass (identical to v2026.4.116; 1 pre-existing
+  tmpdir flake in `decisions.test.ts` unchanged; 0 new failures attributable
+  to the rename)
+- GitNexus call-graph validation — `spawnWorktree` resolves to
+  `packages/worktree/src/worktree-create.ts`; no stale edges to the old path
+
+### Meta-observation
+
+Applied gitnexus + cleo nexus for blast-radius validation (per CLAUDE.md +
+AGENTS.md 2026-04-23 instructions) as the correct tool choice for a rename,
+vs. grep which misses the call-graph dimension. Initial grep-and-sed pass
+was fast and correct for this small surface (20 files, all in-tree, no
+external consumers), but the lesson carries: for any cross-package
+refactor, gitnexus/cleo-nexus are the right first reach.
+
 ## [2026.4.116] — 2026-04-23
 
 Phase C substrate closeout — **Wave 9 CONDUIT Agent-to-Agent (A2A) integration shipped**.
