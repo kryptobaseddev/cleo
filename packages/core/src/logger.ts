@@ -13,8 +13,20 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import pino from 'pino';
 
+/**
+ * Minimal shape of the pino-roll transport return value. `pino.transport()`
+ * returns a writable stream that backs a worker thread; we only call
+ * `.end(callback?)` on it during shutdown to terminate the worker so
+ * pino-roll's rotation logic can't fire after the containing tmpdir is
+ * removed (Vitest uncaught-exception repro, test.YYYY-MM-DD.N.log ENOENT).
+ */
+interface TransportStream {
+  end: (callback?: () => void) => void;
+}
+
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
+let currentTransport: TransportStream | null = null;
 
 export interface LoggerConfig {
   level: string;
@@ -94,6 +106,7 @@ export function initLogger(
     base.projectHash = projectHash;
   }
 
+  currentTransport = transport as unknown as TransportStream;
   rootLogger = pino(
     {
       level: config.level,
@@ -156,14 +169,43 @@ export function getLogDir(): string | null {
  */
 export function closeLogger(): Promise<void> {
   return new Promise<void>((resolve) => {
-    if (rootLogger) {
-      rootLogger.flush(() => {
-        rootLogger = null;
-        currentLogDir = null;
-        resolve();
-      });
-    } else {
+    if (!rootLogger) {
       resolve();
+      return;
     }
+    const logger = rootLogger;
+    const transport = currentTransport;
+    // Flush pending writes through the pino-roll worker, then terminate the
+    // worker's writable stream. Without `.end()` the worker keeps its
+    // rotation timer alive and can try to open the next rotation file
+    // (e.g. `.1.log`) after the containing tmpdir has been rm'd, producing
+    // an ENOENT uncaught exception that Vitest surfaces even when every
+    // test passed. The end-callback is not guaranteed to fire (pino's
+    // transport worker may exit before acknowledging), so a short timeout
+    // fallback ensures closeLogger() always resolves promptly.
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      rootLogger = null;
+      currentLogDir = null;
+      currentTransport = null;
+      resolve();
+    };
+    logger.flush(() => {
+      if (transport && typeof transport.end === 'function') {
+        try {
+          transport.end(done);
+        } catch {
+          done();
+        }
+        // Fallback: resolve after a short delay if the end-callback
+        // never fires. 100ms is enough for the worker thread to
+        // finish flushing + terminate in the normal path.
+        setTimeout(done, 100);
+      } else {
+        done();
+      }
+    });
   });
 }

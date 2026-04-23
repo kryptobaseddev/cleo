@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.125] — 2026-04-23
+
+Fixes the CI shard-1/2 Vitest uncaught-exception flake that was producing `ENOENT: no such file or directory, open .../cleo-sess-*/.cleo/logs/test.YYYY-MM-DD.N.log` after test files completed. Root cause: `closeLogger()` flushed pino buffers but never terminated the pino-roll worker thread, so the worker's rotation timer could fire a file-open attempt after `afterEach` had already `rm -rf`'d the tmpdir. Vitest caught the async-context error and flagged it, even though every test file passed.
+
+### Fixed
+
+- **`packages/core/src/logger.ts` — `closeLogger()` now terminates the pino-roll worker stream** via `transport.end(callback)` after flush, with a 100ms timeout fallback (pino's end-callback is not guaranteed to fire when the worker thread exits before acknowledging). New module-scoped `currentTransport` ref holds the stream; cleared on close.
+- Eliminates the intermittent CI `Unhandled Errors` section that appeared even when `333 test files passed` — the uncaught exception was a post-`afterEach` write race inside the pino-roll worker, not a real test failure.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1849 files)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — **11,180 pass / 0 failures / 0 unhandled errors** (vs .124 which had 11,177 pass + 1 unhandled error in shard 1/2). Includes a targeted re-run of `packages/cleo/src/__tests__/core-parity.test.ts` confirming the specific reproducer is gone.
+
+
 ## [2026.4.124] — 2026-04-23
 
 Completes v2026.4.123 ship — fills two missing `package.json` fields so npm provenance validation accepts `@cleocode/worktree` and `@cleocode/git-shim`, and wires `@cleocode/git-shim` into the root build pipeline.
