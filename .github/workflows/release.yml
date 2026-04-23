@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/cleo-git-shim; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -426,41 +426,46 @@ jobs:
           }
 
           publish_pkg() {
-            local pkg="$1"
-            echo "--- Publishing @cleocode/$pkg ---"
-            if [[ ! -d "packages/$pkg" ]]; then
-              echo "SKIP: packages/$pkg does not exist"
+            # $1 = directory name under packages/
+            # $2 = npm name without @cleocode/ prefix (defaults to $1 when the
+            #      directory and npm name match; pass explicitly when they
+            #      differ, e.g. packages/cleo-git-shim → @cleocode/git-shim).
+            local pkg_dir="$1"
+            local npm_name="${2:-$1}"
+            echo "--- Publishing @cleocode/$npm_name (from packages/$pkg_dir) ---"
+            if [[ ! -d "packages/$pkg_dir" ]]; then
+              echo "SKIP: packages/$pkg_dir does not exist"
               return 0
             fi
-            if [[ "$pkg" == "adapters" ]] && [[ ! -d "packages/$pkg/dist" ]]; then
+            if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "packages/$pkg_dir/dist" ]]; then
               echo "SKIP: no dist (may be type-only)"
               return 0
             fi
-            if already_published "$pkg"; then
-              echo "✓ SKIP: @cleocode/$pkg@$VERSION already on npm (idempotent re-run)"
+            if already_published "$npm_name"; then
+              echo "✓ SKIP: @cleocode/$npm_name@$VERSION already on npm (idempotent re-run)"
               return 0
             fi
-            pushd "packages/$pkg" > /dev/null
+            pushd "packages/$pkg_dir" > /dev/null
             PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1)
             PUBLISH_EXIT=$?
             echo "$PUBLISH_OUTPUT"
             if [[ $PUBLISH_EXIT -eq 0 ]]; then
-              echo "✓ PUBLISHED: @cleocode/$pkg@$VERSION"
+              echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
             else
               # Re-check after failure: distinguish between version-conflict 403
               # (already published — safe to skip) vs real OIDC/permission errors.
-              if already_published "$pkg"; then
-                echo "✓ SKIP-RACE: @cleocode/$pkg@$VERSION was published concurrently or pre-exists"
+              if already_published "$npm_name"; then
+                echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
               elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
                 # 403 "cannot publish over" — version exists but registry cache missed our pre-check
-                echo "✓ SKIP-CONFLICT: @cleocode/$pkg@$VERSION already published (403 version conflict)"
+                echo "✓ SKIP-CONFLICT: @cleocode/$npm_name@$VERSION already published (403 version conflict)"
               elif echo "$PUBLISH_OUTPUT" | grep -qi "OIDC\|trusted publish\|403\|401\|Unauthorized\|Forbidden"; then
-                echo "✗ FAIL: @cleocode/$pkg publish failed — possible OIDC/permission error"
+                echo "✗ FAIL: @cleocode/$npm_name publish failed — possible OIDC/permission error"
                 echo "  Error detail: $(echo "$PUBLISH_OUTPUT" | grep -i 'OIDC\|403\|401\|error\|npm ERR' | head -5)"
-                FAILED_PKGS+=("$pkg")
+                FAILED_PKGS+=("$npm_name")
               else
-                echo "✗ FAIL: @cleocode/$pkg publish failed"
-                FAILED_PKGS+=("$pkg")
+                echo "✗ FAIL: @cleocode/$npm_name publish failed"
+                FAILED_PKGS+=("$npm_name")
               fi
             fi
             popd > /dev/null
@@ -473,6 +478,12 @@ jobs:
           # brain depends on contracts only; publishes alongside nexus (both are graph substrates).
           publish_pkg contracts
           publish_pkg lafs
+          # worktree + cleo-git-shim depend only on contracts — publish early
+          # so packages/core (which consumes @cleocode/worktree) can resolve
+          # them at install time on npm. cleo-git-shim's directory name doesn't
+          # match its npm name (historical — @cleocode/git-shim).
+          publish_pkg worktree
+          publish_pkg cleo-git-shim git-shim
           publish_pkg core
           publish_pkg caamp
           publish_pkg cant
