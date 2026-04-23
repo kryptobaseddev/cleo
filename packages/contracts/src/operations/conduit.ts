@@ -187,3 +187,113 @@ export interface ConduitSendResult {
   /** ISO 8601 send timestamp. */
   sentAt: string;
 }
+
+// ============================================================================
+// A2A Topic Operations (T1252 — Wave 9 Agent-to-Agent coordination)
+// ============================================================================
+
+// --------------------------------------------------------------------------
+// conduit.subscribe → register agent subscription to a named topic
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `conduit.subscribe`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitSubscribeParams {
+  /** Topic name to subscribe to, e.g. `"epic-T1149.wave-2"`. */
+  topicName: string;
+  /** Send as this agent. Omit to use the active agent from the registry. */
+  agentId?: string;
+  /** Optional message kind / event filter. */
+  filter?: { kind?: string[]; event?: string[] };
+}
+
+/**
+ * Result of `conduit.subscribe`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitSubscribeResult {
+  /** The agent id that was subscribed. */
+  agentId: string;
+  /** Topic name subscribed to. */
+  topicName: string;
+  /** Human-readable status message. */
+  message: string;
+}
+
+// --------------------------------------------------------------------------
+// conduit.publish → broadcast a message to a topic
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `conduit.publish`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitPublishParams {
+  /** Target topic name. */
+  topicName: string;
+  /** Message content (human-readable). */
+  content: string;
+  /** Message kind (default `"message"`). */
+  kind?: 'message' | 'request' | 'notify' | 'subscribe';
+  /** Optional structured payload (JSON-serializable). */
+  payload?: Record<string, unknown>;
+  /** Publish as this agent. Omit to use the active agent from the registry. */
+  agentId?: string;
+}
+
+/**
+ * Result of `conduit.publish`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitPublishResult {
+  /** Assigned message id. */
+  messageId: string;
+  /** Publisher agent id. */
+  from: string;
+  /** Topic the message was published to. */
+  topicName: string;
+  /** Transport backing this call. */
+  transport: ConduitTransportKind;
+  /** ISO 8601 publish timestamp. */
+  publishedAt: string;
+}
+
+// --------------------------------------------------------------------------
+// conduit.listen → one-shot poll for topic messages
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `conduit.listen`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitListenParams {
+  /** Topic name to poll. */
+  topicName: string;
+  /** Listen as this agent. Omit to use the active agent from the registry. */
+  agentId?: string;
+  /** Maximum messages to return (default 50). */
+  limit?: number;
+  /** Only return messages created after this ISO 8601 timestamp. */
+  since?: string;
+}
+
+/**
+ * Result of `conduit.listen`.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitListenResult {
+  /** Topic that was polled. */
+  topicName: string;
+  /** Messages received (may be empty). */
+  messages: ConduitInboxMessage[];
+  /** Duration of the listen call in milliseconds. */
+  listenedForMs: number;
+}

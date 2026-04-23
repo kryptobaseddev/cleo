@@ -15,6 +15,8 @@ import type {
   ConduitSendOptions,
   ConduitSendResult,
   ConduitState,
+  ConduitTopicPublishOptions,
+  ConduitTopicSubscribeOptions,
   ConduitUnsubscribe,
   Transport,
 } from '@cleocode/contracts';
@@ -118,6 +120,90 @@ export class ConduitClient implements Conduit {
     } catch {
       return false;
     }
+  }
+
+  // ── A2A Topic Pub-Sub (T1252) ────────────────────────────────────────────
+
+  /**
+   * Subscribe this agent to a named topic for broadcast messages.
+   *
+   * Delegates to the underlying transport's `subscribeTopic()` method.
+   * Only `LocalTransport` supports topic operations in this release;
+   * calling this on transports that lack the method throws.
+   *
+   * @param topicName - Topic name, e.g. `"epic-T1149.wave-2"`.
+   * @param options   - Optional subscription filter.
+   * @throws When the underlying transport does not support topic subscriptions.
+   * @task T1252
+   */
+  async subscribeTopic(topicName: string, options?: ConduitTopicSubscribeOptions): Promise<void> {
+    if (!this.transport.subscribeTopic) {
+      throw new Error(
+        'ConduitClient.subscribeTopic: underlying transport does not support topic subscriptions. Use LocalTransport.',
+      );
+    }
+    await this.transport.subscribeTopic(topicName, options);
+  }
+
+  /**
+   * Publish a message to a named topic (broadcast to all subscribers).
+   *
+   * @param topicName - Target topic name.
+   * @param content   - Human-readable message content.
+   * @param options   - Message kind and optional structured payload.
+   * @returns Send result with the assigned message ID.
+   * @throws When the underlying transport does not support topic publishing.
+   * @task T1252
+   */
+  async publishToTopic(
+    topicName: string,
+    content: string,
+    options?: ConduitTopicPublishOptions,
+  ): Promise<ConduitSendResult> {
+    if (!this.transport.publishToTopic) {
+      throw new Error(
+        'ConduitClient.publishToTopic: underlying transport does not support topic publishing. Use LocalTransport.',
+      );
+    }
+    const result = await this.transport.publishToTopic(topicName, content, options);
+    return {
+      messageId: result.messageId,
+      deliveredAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Register a real-time handler for messages on a named topic.
+   *
+   * @param topicName - Topic name to watch.
+   * @param handler   - Callback invoked for each message.
+   * @returns Unsubscribe function that stops delivery to this handler.
+   * @throws When the underlying transport does not support topic handlers.
+   * @task T1252
+   */
+  onTopic(topicName: string, handler: (message: ConduitMessage) => void): ConduitUnsubscribe {
+    if (!this.transport.onTopic) {
+      throw new Error(
+        'ConduitClient.onTopic: underlying transport does not support topic handlers. Use LocalTransport.',
+      );
+    }
+    return this.transport.onTopic(topicName, handler);
+  }
+
+  /**
+   * Unsubscribe this agent from a named topic.
+   *
+   * @param topicName - Topic name to leave.
+   * @throws When the underlying transport does not support topic unsubscription.
+   * @task T1252
+   */
+  async unsubscribeTopic(topicName: string): Promise<void> {
+    if (!this.transport.unsubscribeTopic) {
+      throw new Error(
+        'ConduitClient.unsubscribeTopic: underlying transport does not support topic unsubscription. Use LocalTransport.',
+      );
+    }
+    await this.transport.unsubscribeTopic(topicName);
   }
 
   /** Disconnect the transport and reset state to disconnected. */

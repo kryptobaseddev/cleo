@@ -42,7 +42,7 @@ const { DatabaseSync } = _require('node:sqlite') as {
 export const CONDUIT_DB_FILENAME = 'conduit.db';
 
 /** Schema version for conduit.db — updated when DDL changes. */
-export const CONDUIT_SCHEMA_VERSION = '2026.4.12';
+export const CONDUIT_SCHEMA_VERSION = '2026.4.23';
 
 // ---------------------------------------------------------------------------
 // Singleton state
@@ -280,6 +280,59 @@ CREATE INDEX IF NOT EXISTS idx_project_agent_refs_enabled
     ON project_agent_refs(enabled) WHERE enabled = 1;
 
 -- -------------------------------------------------------------------------
+-- A2A Topics (T1252 — Wave 9 Agent-to-Agent coordination pub-sub).
+-- Topics are named channels that agents can publish to / subscribe from.
+-- Topic names follow "<epicId>.<waveId>" or "<epicId>.coordination".
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS topics (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    epic_id TEXT NOT NULL,
+    wave_id INTEGER,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_topics_epic ON topics(epic_id);
+
+-- -------------------------------------------------------------------------
+-- A2A Topic subscriptions — links an agent_id to a topic_id.
+-- Created by subscribeTopic(); removed by unsubscribeTopic().
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS topic_subscriptions (
+    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL,
+    subscribed_at INTEGER NOT NULL,
+    PRIMARY KEY (topic_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_agent ON topic_subscriptions(agent_id);
+
+-- -------------------------------------------------------------------------
+-- A2A Topic messages — broadcast messages published to a topic.
+-- payload is stored as JSON text.
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS topic_messages (
+    id TEXT PRIMARY KEY,
+    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    from_agent_id TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'message',
+    content TEXT NOT NULL,
+    payload TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_topic_messages_topic_created ON topic_messages(topic_id, created_at);
+
+-- -------------------------------------------------------------------------
+-- A2A Topic message ACKs — per-subscriber delivery tracking.
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS topic_message_acks (
+    message_id TEXT NOT NULL REFERENCES topic_messages(id) ON DELETE CASCADE,
+    subscriber_agent_id TEXT NOT NULL,
+    delivered_at INTEGER,
+    read_at INTEGER,
+    PRIMARY KEY (message_id, subscriber_agent_id)
+);
+
+-- -------------------------------------------------------------------------
 -- Schema tracking tables (mirrors _signaldock_meta / _signaldock_migrations).
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS _conduit_meta (
@@ -404,6 +457,10 @@ export function ensureConduitDb(projectRoot: string): {
     `INSERT OR IGNORE INTO _conduit_migrations (name, applied_at)
      VALUES (?, strftime('%s', 'now'))`,
   ).run('2026-04-12-000000_initial_conduit');
+  db.prepare(
+    `INSERT OR IGNORE INTO _conduit_migrations (name, applied_at)
+     VALUES (?, strftime('%s', 'now'))`,
+  ).run('2026-04-23-000000_t1252_a2a_topics');
 
   _conduitNativeDb = db;
   _conduitDbPath = dbPath;

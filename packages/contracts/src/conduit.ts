@@ -35,6 +35,76 @@ export interface ConduitMessage {
   timestamp: string;
   /** Optional structured metadata. */
   metadata?: Record<string, unknown>;
+  /**
+   * Message semantics for A2A (Agent-to-Agent) coordination.
+   *
+   * - `message` — default, backward-compat direct message
+   * - `request` — sender expects a response; receiver should reply
+   * - `notify`  — informational broadcast; no response expected
+   * - `subscribe` — sender subscribes to a topic
+   *
+   * @default `"message"` for backward compatibility
+   * @see T1252 CONDUIT A2A
+   */
+  kind?: 'message' | 'request' | 'notify' | 'subscribe';
+  /**
+   * Sender peer identity — stable peer ID from PeerIdentity.peerId.
+   * Populated for A2A topic messages; absent on legacy direct messages.
+   *
+   * @see T1252 CONDUIT A2A
+   */
+  fromPeerId?: string;
+  /**
+   * Recipient peer identity — agent peerId for direct messages, `null` for
+   * topic broadcasts (one-to-many).
+   *
+   * @see T1252 CONDUIT A2A
+   */
+  toPeerId?: string | null;
+  /**
+   * Structured payload accompanying the message.
+   *
+   * JSON-serializable object; stored as TEXT in the database.
+   * Used for structured A2A coordination data (findings, events, etc.).
+   *
+   * @see T1252 CONDUIT A2A
+   */
+  payload?: Record<string, unknown>;
+}
+
+/**
+ * A2A (Agent-to-Agent) topic subscription options.
+ *
+ * Passed to `subscribeTopic()` to filter messages by kind or event.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitTopicSubscribeOptions {
+  /**
+   * Filter messages by kind. When absent, all kinds are delivered.
+   * @example `['notify', 'request']`
+   */
+  filter?: {
+    /** Accept only these message kinds. */
+    kind?: Array<'message' | 'request' | 'notify' | 'subscribe'>;
+    /** Accept only messages whose `payload.event` is in this list. */
+    event?: string[];
+  };
+}
+
+/**
+ * Options for publishing a message to a topic.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitTopicPublishOptions {
+  /**
+   * Message kind.
+   * @default `"message"`
+   */
+  kind?: 'message' | 'request' | 'notify' | 'subscribe';
+  /** Structured payload to attach to the message. */
+  payload?: Record<string, unknown>;
 }
 
 /** Options for sending a message. */
@@ -122,6 +192,57 @@ export interface Conduit {
 
   /** List currently online agents (optional — may not be supported by all implementations). */
   listOnline?(): Promise<string[]>;
+
+  // --- A2A Topic Pub-Sub (T1252) ---
+
+  /**
+   * Subscribe this agent to a named topic for broadcast messages.
+   *
+   * Creates the topic in conduit.db if it does not yet exist (idempotent).
+   * The agent will receive messages published to this topic via `onTopic()`.
+   *
+   * @param topicName - Topic name, e.g. `"epic-T1149.wave-2"` or `"epic-T1149.coordination"`.
+   * @param options   - Optional subscription filter (kind, event).
+   * @throws When no local transport is available (LocalTransport required for topic ops).
+   * @see T1252 CONDUIT A2A
+   */
+  subscribeTopic?(topicName: string, options?: ConduitTopicSubscribeOptions): Promise<void>;
+
+  /**
+   * Publish a message to a topic (broadcast to all current subscribers).
+   *
+   * @param topicName - Target topic name.
+   * @param content   - Human-readable message content.
+   * @param options   - Message kind and optional structured payload.
+   * @returns Send result with the assigned message ID.
+   * @see T1252 CONDUIT A2A
+   */
+  publishToTopic?(
+    topicName: string,
+    content: string,
+    options?: ConduitTopicPublishOptions,
+  ): Promise<ConduitSendResult>;
+
+  /**
+   * Register a real-time handler for messages on a named topic.
+   *
+   * @param topicName - Topic name to watch.
+   * @param handler   - Callback invoked for each message (includes A2A fields).
+   * @returns Unsubscribe function that stops delivery to this handler.
+   * @see T1252 CONDUIT A2A
+   */
+  onTopic?(topicName: string, handler: (message: ConduitMessage) => void): ConduitUnsubscribe;
+
+  /**
+   * Unsubscribe this agent from a named topic.
+   *
+   * Removes the subscription record from conduit.db. The agent will no longer
+   * receive messages published to the topic.
+   *
+   * @param topicName - Topic name to leave.
+   * @see T1252 CONDUIT A2A
+   */
+  unsubscribeTopic?(topicName: string): Promise<void>;
 
   // --- Connection lifecycle ---
 
