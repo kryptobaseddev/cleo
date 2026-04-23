@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/worktree",
-  "version": "2026.4.123",
+  "version": "2026.4.124",
   "private": false,
   "type": "module",
   "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
@@ -42,5 +42,10 @@
     "@types/node": "^24.3.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/worktree"
   }
 }
