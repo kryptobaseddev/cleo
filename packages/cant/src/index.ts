@@ -83,7 +83,6 @@ export type {
 export { migrateMarkdown, serializeCantDocument, showDiff, showSummary } from './migrate/index';
 export type {
   AgentProfile,
-  CleocodeDogfoodPersonaId,
   NativeDiagnostic,
   NativeParseDocumentResult,
   NativeParseError,
@@ -95,8 +94,6 @@ export type {
 } from './native-loader';
 // Native loader (replaces wasm-loader)
 export {
-  // T1257 — CLEO dogfood personas (classifier output; NOT shipped)
-  CLEOCODE_DOGFOOD_PERSONAS,
   cantClassifyDirectiveNative,
   cantExecutePipelineNative,
   cantExtractAgentProfilesNative,

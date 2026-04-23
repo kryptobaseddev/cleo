@@ -7,7 +7,7 @@
  * - Packaged-tier resolution wins over fallback synthesis
  * - Fallback-tier synthesis from bundled `seed-agents/<id>.cant`
  * - `AgentNotFoundError` raised when every tier misses
- * - `DEPRECATED_ALIASES` remap (`cleoos-opus-orchestrator` → `cleo-prime`)
+ * - `DEPRECATED_ALIASES` table is empty (T1257 clean-forward policy — no back-compat)
  * - Orphan-row cascade: cant_path missing → next tier
  * - `preferTier` override reorders lookup sequence
  * - `getAgentSkills` returns empty `[]` + correct slug list after attach
@@ -371,32 +371,9 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     }
   });
 
-  it('remaps DEPRECATED_ALIASES: cleoos-opus-orchestrator → cleo-prime', async () => {
-    const { installAgentFromCant } = await import('../agent-install.js');
-    const { resolveAgent, DEPRECATED_ALIASES } = await import('../agent-resolver.js');
-    const db = env.openDb();
-    try {
-      // Install the canonical target, then look up via the deprecated alias.
-      // Post-T1237: cleo-prime lives under `.cleo/cant/agents/` (project tier).
-      installAgentFromCant(db, {
-        cantSource: resolve(__dirname, '../../../../../.cleo/cant/agents/cleo-prime.cant'),
-        targetTier: 'global',
-        installedFrom: 'seed',
-        globalCantDir: env.globalCantDir,
-      });
-
-      expect(DEPRECATED_ALIASES['cleoos-opus-orchestrator']).toBe('cleo-prime');
-
-      const resolved = resolveAgent(db, 'cleoos-opus-orchestrator', {
-        projectRoot: env.projectRoot,
-      });
-      expect(resolved.agentId).toBe('cleo-prime');
-      expect(resolved.aliasApplied).toBe(true);
-      expect(resolved.aliasTarget).toBe('cleo-prime');
-      expect(resolved.tier).toBe('global');
-    } finally {
-      db.close();
-    }
+  it('DEPRECATED_ALIASES table is empty (clean-forward policy, T1257)', async () => {
+    const { DEPRECATED_ALIASES } = await import('../agent-resolver.js');
+    expect(Object.keys(DEPRECATED_ALIASES)).toHaveLength(0);
   });
 
   it('cascades past an orphan row (cant_path missing on disk) to the next tier', async () => {
