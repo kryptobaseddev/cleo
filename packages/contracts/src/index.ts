@@ -435,8 +435,49 @@ export type {
   WikiStateFile,
   WikiSymbolRow,
 } from './nexus-wiki-ops.js';
+// Dialectic Evaluator operation types (T1087 Wave 3)
+export type {
+  ApplyInsightsParams,
+  ApplyInsightsResult,
+  DialecticInsights,
+  DialecticTurn,
+  EvaluateDialecticParams,
+  EvaluateDialecticResult,
+} from './operations/dialectic.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
+// Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
+export type {
+  PassMask,
+  RetrievalActiveTask,
+  RetrievalBundle,
+  RetrievalDecision,
+  RetrievalLearning,
+  RetrievalObservation,
+  RetrievalPattern,
+  RetrievalRequest,
+  RetrievalTokenCounts,
+} from './operations/memory.js';
+// === NEXUS User Profile Types (T1076 PSYCHE Wave 1) ===
+// Re-exported at top level so @cleocode/core/nexus and CLI dispatch can
+// import without the `ops.` namespace hop.
+export type {
+  NexusProfileExportParams,
+  NexusProfileExportResult,
+  NexusProfileGetParams,
+  NexusProfileGetResult,
+  NexusProfileImportParams,
+  NexusProfileImportResult,
+  NexusProfileReinforceParams,
+  NexusProfileReinforceResult,
+  NexusProfileSupersedeParams,
+  NexusProfileSupersedeResult,
+  NexusProfileUpsertParams,
+  NexusProfileUpsertResult,
+  NexusProfileViewParams,
+  NexusProfileViewResult,
+  UserProfileTrait,
+} from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
 // ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)

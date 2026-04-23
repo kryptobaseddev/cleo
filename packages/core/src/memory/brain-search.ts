@@ -35,6 +35,27 @@ export interface BrainSearchOptions {
   limit?: number;
   /** Which tables to search. Default: all four. */
   tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
+  /**
+   * T1085: Peer ID filter for CANT agent memory isolation (PSYCHE Wave 2).
+   *
+   * When provided, search results are scoped to entries where:
+   *   `peer_id = peerId OR peer_id = 'global'`
+   *
+   * This ensures a peer always sees its own memories plus the global pool,
+   * but never sees another peer's private memories.
+   *
+   * When omitted (undefined), all entries are returned regardless of peer_id —
+   * preserving backward-compatible behavior for callers that predate Wave 2.
+   */
+  peerId?: string;
+  /**
+   * T1085: When true (default when peerId is provided), include entries with
+   * `peer_id = 'global'` in addition to `peer_id = peerId`.
+   *
+   * Set to false for strict per-peer isolation (no global pool bleed-through).
+   * Defaults to true — omitting this is equivalent to `includeGlobal: true`.
+   */
+  includeGlobal?: boolean;
 }
 
 /** Track whether FTS5 is available in the current SQLite build. */
@@ -296,6 +317,8 @@ export async function searchBrain(
 
   const limit = options?.limit ?? 10;
   const tables = options?.tables ?? ['decisions', 'patterns', 'learnings', 'observations'];
+  const peerId = options?.peerId;
+  const includeGlobal = options?.includeGlobal ?? true;
 
   const ftsAvailable = ensureFts5Tables(nativeDb);
 
@@ -306,10 +329,40 @@ export async function searchBrain(
       _fts5Initialized = true;
       rebuildFts5Index(nativeDb);
     }
-    return searchWithFts5(nativeDb, query, tables, limit);
+    return searchWithFts5(nativeDb, query, tables, limit, peerId, includeGlobal);
   }
 
-  return searchWithLike(nativeDb, query, tables, limit);
+  return searchWithLike(nativeDb, query, tables, limit, peerId, includeGlobal);
+}
+
+/**
+ * Build a SQL peer isolation clause and the corresponding bind parameters.
+ *
+ * When `peerId` is undefined the clause is empty string (no filter applied).
+ * When `peerId` is provided and `includeGlobal` is true (default), the clause
+ * is `AND (t.peer_id = ? OR t.peer_id = 'global')`.
+ * When `includeGlobal` is false, the clause is `AND t.peer_id = ?`.
+ *
+ * The `tableAlias` must match the alias used for the main table in the query.
+ *
+ * @internal
+ */
+function buildPeerClause(
+  tableAlias: string,
+  peerId: string | undefined,
+  includeGlobal: boolean,
+): { clause: string; params: string[] } {
+  if (!peerId) return { clause: '', params: [] };
+  if (includeGlobal) {
+    return {
+      clause: ` AND (${tableAlias}.peer_id = ? OR ${tableAlias}.peer_id = 'global')`,
+      params: [peerId],
+    };
+  }
+  return {
+    clause: ` AND ${tableAlias}.peer_id = ?`,
+    params: [peerId],
+  };
 }
 
 /**
@@ -320,6 +373,8 @@ function searchWithFts5(
   query: string,
   tables: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainSearchResult {
   const result: BrainSearchResult = {
     decisions: [],
@@ -332,6 +387,7 @@ function searchWithFts5(
   const safeQuery = escapeFts5Query(query);
 
   if (tables.includes('decisions')) {
+    const { clause, params } = buildPeerClause('d', peerId, includeGlobal);
     try {
       const rows = typedAll<BrainDecisionRow>(
         nativeDb.prepare(`
@@ -340,21 +396,24 @@ function searchWithFts5(
         JOIN brain_decisions d ON d.rowid = fts.rowid
         WHERE brain_decisions_fts MATCH ?
           AND (d.quality_score IS NULL OR d.quality_score >= ?)
+          ${clause}
         ORDER BY bm25(brain_decisions_fts)
         LIMIT ?
       `),
         safeQuery,
         QUALITY_SCORE_THRESHOLD,
+        ...params,
         limit,
       );
       result.decisions = rows;
     } catch {
       // FTS query failed, fall back to LIKE for this table
-      result.decisions = likeSearchDecisions(nativeDb, query, limit);
+      result.decisions = likeSearchDecisions(nativeDb, query, limit, peerId, includeGlobal);
     }
   }
 
   if (tables.includes('patterns')) {
+    const { clause, params } = buildPeerClause('p', peerId, includeGlobal);
     try {
       const rows = typedAll<BrainPatternRow>(
         nativeDb.prepare(`
@@ -363,20 +422,23 @@ function searchWithFts5(
         JOIN brain_patterns p ON p.rowid = fts.rowid
         WHERE brain_patterns_fts MATCH ?
           AND (p.quality_score IS NULL OR p.quality_score >= ?)
+          ${clause}
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
       `),
         safeQuery,
         QUALITY_SCORE_THRESHOLD,
+        ...params,
         limit,
       );
       result.patterns = rows;
     } catch {
-      result.patterns = likeSearchPatterns(nativeDb, query, limit);
+      result.patterns = likeSearchPatterns(nativeDb, query, limit, peerId, includeGlobal);
     }
   }
 
   if (tables.includes('learnings')) {
+    const { clause, params } = buildPeerClause('l', peerId, includeGlobal);
     try {
       const rows = typedAll<BrainLearningRow>(
         nativeDb.prepare(`
@@ -385,20 +447,23 @@ function searchWithFts5(
         JOIN brain_learnings l ON l.rowid = fts.rowid
         WHERE brain_learnings_fts MATCH ?
           AND (l.quality_score IS NULL OR l.quality_score >= ?)
+          ${clause}
         ORDER BY bm25(brain_learnings_fts)
         LIMIT ?
       `),
         safeQuery,
         QUALITY_SCORE_THRESHOLD,
+        ...params,
         limit,
       );
       result.learnings = rows;
     } catch {
-      result.learnings = likeSearchLearnings(nativeDb, query, limit);
+      result.learnings = likeSearchLearnings(nativeDb, query, limit, peerId, includeGlobal);
     }
   }
 
   if (tables.includes('observations')) {
+    const { clause, params } = buildPeerClause('o', peerId, includeGlobal);
     try {
       const rows = typedAll<BrainObservationRow>(
         nativeDb.prepare(`
@@ -407,16 +472,18 @@ function searchWithFts5(
         JOIN brain_observations o ON o.rowid = fts.rowid
         WHERE brain_observations_fts MATCH ?
           AND (o.quality_score IS NULL OR o.quality_score >= ?)
+          ${clause}
         ORDER BY bm25(brain_observations_fts)
         LIMIT ?
       `),
         safeQuery,
         QUALITY_SCORE_THRESHOLD,
+        ...params,
         limit,
       );
       result.observations = rows;
     } catch {
-      result.observations = likeSearchObservations(nativeDb, query, limit);
+      result.observations = likeSearchObservations(nativeDb, query, limit, peerId, includeGlobal);
     }
   }
 
@@ -431,6 +498,8 @@ function searchWithLike(
   query: string,
   tables: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainSearchResult {
   const result: BrainSearchResult = {
     decisions: [],
@@ -440,19 +509,19 @@ function searchWithLike(
   };
 
   if (tables.includes('decisions')) {
-    result.decisions = likeSearchDecisions(nativeDb, query, limit);
+    result.decisions = likeSearchDecisions(nativeDb, query, limit, peerId, includeGlobal);
   }
 
   if (tables.includes('patterns')) {
-    result.patterns = likeSearchPatterns(nativeDb, query, limit);
+    result.patterns = likeSearchPatterns(nativeDb, query, limit, peerId, includeGlobal);
   }
 
   if (tables.includes('learnings')) {
-    result.learnings = likeSearchLearnings(nativeDb, query, limit);
+    result.learnings = likeSearchLearnings(nativeDb, query, limit, peerId, includeGlobal);
   }
 
   if (tables.includes('observations')) {
-    result.observations = likeSearchObservations(nativeDb, query, limit);
+    result.observations = likeSearchObservations(nativeDb, query, limit, peerId, includeGlobal);
   }
 
   return result;
@@ -462,19 +531,24 @@ function likeSearchDecisions(
   nativeDb: DatabaseSync,
   query: string,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainDecisionRow[] {
   const likePattern = `%${query}%`;
+  const { clause, params } = buildPeerClause('brain_decisions', peerId, includeGlobal);
   return typedAll<BrainDecisionRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_decisions
     WHERE (decision LIKE ? OR rationale LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${clause}
     ORDER BY created_at DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
     QUALITY_SCORE_THRESHOLD,
+    ...params,
     limit,
   );
 }
@@ -483,19 +557,24 @@ function likeSearchPatterns(
   nativeDb: DatabaseSync,
   query: string,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainPatternRow[] {
   const likePattern = `%${query}%`;
+  const { clause, params } = buildPeerClause('brain_patterns', peerId, includeGlobal);
   return typedAll<BrainPatternRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_patterns
     WHERE (pattern LIKE ? OR context LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${clause}
     ORDER BY frequency DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
     QUALITY_SCORE_THRESHOLD,
+    ...params,
     limit,
   );
 }
@@ -504,19 +583,24 @@ function likeSearchLearnings(
   nativeDb: DatabaseSync,
   query: string,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainLearningRow[] {
   const likePattern = `%${query}%`;
+  const { clause, params } = buildPeerClause('brain_learnings', peerId, includeGlobal);
   return typedAll<BrainLearningRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_learnings
     WHERE (insight LIKE ? OR source LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${clause}
     ORDER BY confidence DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
     QUALITY_SCORE_THRESHOLD,
+    ...params,
     limit,
   );
 }
@@ -525,19 +609,24 @@ function likeSearchObservations(
   nativeDb: DatabaseSync,
   query: string,
   limit: number,
+  peerId?: string,
+  includeGlobal = true,
 ): BrainObservationRow[] {
   const likePattern = `%${query}%`;
+  const { clause, params } = buildPeerClause('brain_observations', peerId, includeGlobal);
   return typedAll<BrainObservationRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_observations
     WHERE (title LIKE ? OR narrative LIKE ?)
       AND (quality_score IS NULL OR quality_score >= ?)
+      ${clause}
     ORDER BY created_at DESC
     LIMIT ?
   `),
     likePattern,
     likePattern,
     QUALITY_SCORE_THRESHOLD,
+    ...params,
     limit,
   );
 }

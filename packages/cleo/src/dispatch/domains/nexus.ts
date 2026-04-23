@@ -35,6 +35,13 @@ import {
   nexusInitialize,
   nexusListProjects,
   nexusOrphans,
+  nexusProfileExport,
+  nexusProfileGet,
+  nexusProfileImport,
+  nexusProfileReinforce,
+  nexusProfileSupersede,
+  nexusProfileUpsert,
+  nexusProfileView,
   nexusReconcileProject,
   nexusRegisterProject,
   nexusResolve,
@@ -466,6 +473,30 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
+        // T1080 — user-profile query verbs
+        case 'profile.view': {
+          const minConfidence = params?.minConfidence as number | undefined;
+          const includeSuperseded = params?.includeSuperseded as boolean | undefined;
+          const result = await nexusProfileView(minConfidence, includeSuperseded);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
+        case 'profile.get': {
+          const traitKey = params?.traitKey as string | undefined;
+          if (!traitKey) {
+            return errorResult(
+              'query',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'traitKey is required',
+              startTime,
+            );
+          }
+          const result = await nexusProfileGet(traitKey);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -650,6 +681,69 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
+        // T1080 — user-profile mutate verbs
+        case 'profile.import': {
+          const path = params?.path as string | undefined;
+          const result = await nexusProfileImport(path);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'profile.export': {
+          const path = params?.path as string | undefined;
+          const result = await nexusProfileExport(path);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'profile.reinforce': {
+          const traitKey = params?.traitKey as string | undefined;
+          if (!traitKey) {
+            return errorResult(
+              'mutate',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'traitKey is required',
+              startTime,
+            );
+          }
+          const source = params?.source as string | undefined;
+          const result = await nexusProfileReinforce(traitKey, source);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'profile.upsert': {
+          const trait = params?.trait as import('@cleocode/contracts').UserProfileTrait | undefined;
+          if (!trait?.traitKey || !trait?.traitValue) {
+            return errorResult(
+              'mutate',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'trait.traitKey and trait.traitValue are required',
+              startTime,
+            );
+          }
+          const result = await nexusProfileUpsert(trait);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
+        case 'profile.supersede': {
+          const oldKey = params?.oldKey as string | undefined;
+          const newKey = params?.newKey as string | undefined;
+          if (!oldKey || !newKey) {
+            return errorResult(
+              'mutate',
+              'nexus',
+              operation,
+              'E_INVALID_INPUT',
+              'oldKey and newKey are required',
+              startTime,
+            );
+          }
+          const result = await nexusProfileSupersede(oldKey, newKey);
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'nexus', operation, startTime);
       }
@@ -702,6 +796,9 @@ export class NexusHandler implements DomainHandler {
         // T1117 — Contracts + ingestion bridges
         'contracts-show',
         'task-symbols',
+        // T1080 — user-profile query verbs
+        'profile.view',
+        'profile.get',
       ],
       mutate: [
         'share.snapshot.export',
@@ -717,6 +814,12 @@ export class NexusHandler implements DomainHandler {
         'contracts-sync',
         'contracts-link-tasks',
         'conduit-scan',
+        // T1080 — user-profile mutate verbs
+        'profile.import',
+        'profile.export',
+        'profile.reinforce',
+        'profile.upsert',
+        'profile.supersede',
       ],
     };
   }

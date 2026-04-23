@@ -11,6 +11,7 @@ export * from './issues.js';
 export * from './lifecycle.js';
 export * from './memory.js';
 export * from './nexus.js';
+export * from './nexus-user-profile.js';
 export * from './orchestrate.js';
 export * from './params.js';
 export * from './release.js';

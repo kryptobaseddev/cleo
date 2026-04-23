@@ -91,12 +91,12 @@ describe('conduit command group (T469)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. All 5 subcommands present
+  // 2. All subcommands present (5 base T469 + 3 topic T1254 = 8)
   // -------------------------------------------------------------------------
 
-  it('has exactly 5 subcommands', async () => {
+  it('has exactly 8 subcommands (5 base + 3 topic A2A verbs per T1254)', async () => {
     const subs = await getSubCommands();
-    expect(Object.keys(subs)).toHaveLength(5);
+    expect(Object.keys(subs)).toHaveLength(8);
   });
 
   it('has status subcommand', async () => {

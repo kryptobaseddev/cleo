@@ -1039,6 +1039,186 @@ export interface MemoryPromoteExplainResult {
 }
 
 // ============================================================================
+// Multi-Pass Retrieval Bundle (PSYCHE Wave 4 · T1090)
+// ============================================================================
+
+/**
+ * Controls which passes are executed in `buildRetrievalBundle`.
+ *
+ * When all fields are `true` (the default), all three passes run in parallel.
+ * Set individual passes to `false` to skip them for token-budget optimisation.
+ */
+export interface PassMask {
+  /** Cold pass: user-profile traits + peer instructions from NEXUS. */
+  cold: boolean;
+  /** Warm pass: peer-scoped learnings, patterns, and decisions from BRAIN. */
+  warm: boolean;
+  /** Hot pass: session narrative + recent observations + active tasks. */
+  hot: boolean;
+}
+
+/**
+ * Input to `buildRetrievalBundle`.
+ *
+ * All four fields are required; pass an empty string for `query` when no
+ * user-provided search term is available.
+ */
+export interface RetrievalRequest {
+  /** CANT peer identifier, e.g. `"cleo-prime"` or `"global"`. */
+  peerId: string;
+  /** Active session identifier. */
+  sessionId: string;
+  /** Optional user-query used to scope warm-pass memory search. */
+  query?: string;
+  /**
+   * Which passes to execute.  Defaults to `{ cold: true, warm: true, hot: true }`.
+   */
+  passMask?: PassMask;
+  /**
+   * Token budget for the bundle (default: 4000).
+   * Split 20 / 50 / 30 across cold / warm / hot.
+   * When total exceeds budget, hot pass is trimmed first.
+   */
+  tokenBudget?: number;
+}
+
+/**
+ * Compact task record returned by the hot pass.
+ *
+ * A narrow projection of the full `Task` type — only the fields needed for
+ * briefing context are included to keep token cost low.
+ */
+export interface RetrievalActiveTask {
+  /** Task identifier (e.g. `"T1090"`). */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** Current lifecycle status. */
+  status: string;
+}
+
+/**
+ * Compact observation record returned by the hot pass.
+ *
+ * A narrow projection of a `brain_observations` row — only the display fields.
+ */
+export interface RetrievalObservation {
+  /** Observation identifier (e.g. `"O-abc123"`). */
+  id: string;
+  /** Short display title. */
+  title: string;
+  /** Full narrative text. */
+  narrative: string;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Compact learning record returned by the warm pass.
+ */
+export interface RetrievalLearning {
+  /** Learning identifier (e.g. `"L-def456"`). */
+  id: string;
+  /** Insight text. */
+  insight: string;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Compact pattern record returned by the warm pass.
+ */
+export interface RetrievalPattern {
+  /** Pattern identifier (e.g. `"P-ghi789"`). */
+  id: string;
+  /** Pattern text. */
+  pattern: string;
+  /** ISO 8601 extraction timestamp. */
+  extractedAt: string;
+}
+
+/**
+ * Compact decision record returned by the warm pass.
+ */
+export interface RetrievalDecision {
+  /** Decision identifier (e.g. `"D-jkl012"`). */
+  id: string;
+  /** Decision statement. */
+  decision: string;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Token-budget accounting for the three retrieval passes.
+ */
+export interface RetrievalTokenCounts {
+  /** Estimated tokens consumed by the cold pass. */
+  cold: number;
+  /** Estimated tokens consumed by the warm pass. */
+  warm: number;
+  /** Estimated tokens consumed by the hot pass. */
+  hot: number;
+  /** Sum of cold + warm + hot. */
+  total: number;
+}
+
+/**
+ * Structured context bundle returned by `buildRetrievalBundle`.
+ *
+ * Three passes correspond to three temporal + topical distances:
+ *
+ * - **cold**: stable identity context (user profile + peer instructions)
+ * - **warm**: recent project memory scoped to this peer (learnings, patterns, decisions)
+ * - **hot**: live session state (narrative + recent observations + active tasks)
+ *
+ * @task T1090
+ * @epic T1083
+ */
+export interface RetrievalBundle {
+  /**
+   * Cold pass — identity + stable context.
+   *
+   * `userProfile` contains the user's known preferences and traits at
+   * >= 0.5 confidence.  `peerInstructions` is a brief instruction string
+   * derived from the peer's CANT definition (empty string when unavailable).
+   */
+  cold: {
+    userProfile: import('./nexus-user-profile.js').UserProfileTrait[];
+    peerInstructions: string;
+  };
+
+  /**
+   * Warm pass — peer-scoped project memory.
+   *
+   * All entries are filtered to `peer_id = peerId OR peer_id = 'global'`
+   * so each peer sees its own memory plus the shared global pool.
+   */
+  warm: {
+    peerLearnings: RetrievalLearning[];
+    peerPatterns: RetrievalPattern[];
+    decisions: RetrievalDecision[];
+  };
+
+  /**
+   * Hot pass — live session state.
+   *
+   * `sessionNarrative` is the rolling prose summary from `session_narrative`
+   * (empty string when no narrative has been recorded yet).
+   * `recentObservations` are the last N observations created in this session.
+   * `activeTasks` are tasks with status `active` or `in_progress`.
+   */
+  hot: {
+    sessionNarrative: string;
+    recentObservations: RetrievalObservation[];
+    activeTasks: RetrievalActiveTask[];
+  };
+
+  /** Per-pass and total token-budget accounting. */
+  tokenCounts: RetrievalTokenCounts;
+}
+
+// ============================================================================
 // Paginated result helper (for HTTP list surfaces that opt into LAFSPage)
 // ============================================================================
 

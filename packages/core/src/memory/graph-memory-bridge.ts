@@ -1092,6 +1092,180 @@ export async function listCodeLinks(projectRoot: string, limit = 100): Promise<C
 }
 
 // ---------------------------------------------------------------------------
+// queryMemoriesForContext — peer-scoped context retrieval (T1085 PSYCHE Wave 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for {@link queryMemoriesForContext}.
+ */
+export interface MemoriesForContextParams {
+  /**
+   * Peer ID filter for CANT agent memory isolation (T1085).
+   *
+   * When provided, only memory nodes belonging to this peer OR to the global
+   * pool (`peer_id = 'global'`) are returned (controlled by `includeGlobal`).
+   *
+   * When omitted, all memory nodes are returned (backward-compatible).
+   */
+  peerId?: string;
+  /**
+   * When true (default), include global-pool entries (`peer_id = 'global'`)
+   * alongside peer-specific entries. Set false for strict per-peer isolation.
+   */
+  includeGlobal?: boolean;
+  /** Maximum number of results. Defaults to 50. */
+  limit?: number;
+}
+
+/**
+ * A single memory node hit from {@link queryMemoriesForContext}.
+ */
+export interface MemoryContextHit {
+  /** Brain page node ID (`<type>:<source-id>`). */
+  nodeId: string;
+  /** Node type classification (e.g. `observation`, `decision`, `pattern`). */
+  nodeType: string;
+  /** Human-readable label. */
+  label: string;
+  /** Quality score [0..1]. */
+  qualityScore: number;
+  /**
+   * Peer ID that produced this entry.
+   * `"global"` = shared pool; a specific string = peer-owned.
+   */
+  peerId: string;
+}
+
+/**
+ * Retrieve brain memory nodes filtered by peer identity.
+ *
+ * This is the primary Wave 2 retrieval hook: it queries `brain_page_nodes`
+ * joining back to the underlying typed tables (brain_observations,
+ * brain_decisions, brain_patterns, brain_learnings) to apply the peer_id
+ * filter, then projects to {@link MemoryContextHit}.
+ *
+ * SQL pattern (per PLAN.md §5.2 T1085):
+ *   `WHERE peer_id = :peerId OR peer_id = 'global'`
+ *
+ * When `peerId` is omitted the peer filter is not applied (backward compat).
+ *
+ * @param projectRoot - Absolute path to project root (locates brain.db)
+ * @param params - Peer-scoping and limit parameters
+ * @returns Array of memory node hits, ordered by quality score descending
+ *
+ * @task T1085
+ * @epic T1081
+ */
+export async function queryMemoriesForContext(
+  projectRoot: string,
+  params: MemoriesForContextParams = {},
+): Promise<MemoryContextHit[]> {
+  const { peerId, includeGlobal = true, limit = 50 } = params;
+  const hits: MemoryContextHit[] = [];
+
+  try {
+    await getBrainDb(projectRoot);
+    const brainNative = getBrainNativeDb();
+    if (!brainNative) return hits;
+
+    // Build the peer filter clause.
+    // brain_page_nodes does not have peer_id — we join to the typed tables to filter.
+    // We UNION across the four typed tables so the filter is applied at source.
+    // Using LEFT JOIN n ON n.id = concat(type, ':', typed.id) is fragile —
+    // instead, select from typed tables directly and join nodes for the label.
+
+    type RawRow = {
+      node_id: string;
+      node_type: string;
+      label: string;
+      quality_score: number;
+      peer_id: string;
+    };
+
+    let peerClause = '';
+    const peerParams: string[] = [];
+    if (peerId) {
+      if (includeGlobal) {
+        peerClause = "AND (t.peer_id = ? OR t.peer_id = 'global')";
+        peerParams.push(peerId);
+      } else {
+        peerClause = 'AND t.peer_id = ?';
+        peerParams.push(peerId);
+      }
+    }
+
+    const halfLimit = Math.ceil(limit / 4);
+
+    // UNION across all four typed tables.
+    // Each sub-select returns node_id, node_type, label, quality_score, peer_id.
+    const unionSql = `
+      SELECT 'observation:' || t.id AS node_id,
+             'observation'           AS node_type,
+             t.title                 AS label,
+             COALESCE(t.quality_score, 0.5) AS quality_score,
+             t.peer_id
+      FROM brain_observations t
+      WHERE 1=1 ${peerClause}
+      LIMIT ${halfLimit}
+      UNION ALL
+      SELECT 'decision:' || t.id AS node_id,
+             'decision'          AS node_type,
+             t.decision          AS label,
+             COALESCE(t.quality_score, 0.5) AS quality_score,
+             t.peer_id
+      FROM brain_decisions t
+      WHERE 1=1 ${peerClause}
+      LIMIT ${halfLimit}
+      UNION ALL
+      SELECT 'pattern:' || t.id AS node_id,
+             'pattern'          AS node_type,
+             t.pattern          AS label,
+             COALESCE(t.quality_score, 0.5) AS quality_score,
+             t.peer_id
+      FROM brain_patterns t
+      WHERE 1=1 ${peerClause}
+      LIMIT ${halfLimit}
+      UNION ALL
+      SELECT 'learning:' || t.id AS node_id,
+             'learning'          AS node_type,
+             t.insight           AS label,
+             COALESCE(t.quality_score, 0.5) AS quality_score,
+             t.peer_id
+      FROM brain_learnings t
+      WHERE 1=1 ${peerClause}
+      LIMIT ${halfLimit}
+      ORDER BY quality_score DESC
+      LIMIT ?
+    `;
+
+    // Flatten params: each sub-select has the same peer params, plus the outer LIMIT.
+    const flatParams = [
+      ...peerParams, // observations
+      ...peerParams, // decisions
+      ...peerParams, // patterns
+      ...peerParams, // learnings
+      limit,
+    ];
+
+    const rows = typedAll<RawRow>(brainNative.prepare(unionSql), ...flatParams);
+
+    for (const row of rows) {
+      hits.push({
+        nodeId: row.node_id,
+        nodeType: row.node_type,
+        label: row.label.slice(0, 120),
+        qualityScore: row.quality_score,
+        peerId: row.peer_id,
+      });
+    }
+  } catch (err) {
+    console.warn('[graph-memory-bridge] queryMemoriesForContext failed:', err);
+  }
+
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // linkConduitMessagesToSymbols — conduit→nexus ingestion (T1071)
 // ---------------------------------------------------------------------------
 
