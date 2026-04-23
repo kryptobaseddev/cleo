@@ -26,7 +26,7 @@
     { "path": "../lafs" },
     { "path": "../caamp" },
     { "path": "../nexus" },
-    { "path": "../worktree-backend" }
+    { "path": "../worktree" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/*.test.ts"]

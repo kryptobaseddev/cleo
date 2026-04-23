@@ -1078,7 +1078,7 @@ export async function orchestrateSpawn(
       }
     } else {
       // Default: provision via the SDK dispatch layer (worktree-dispatch.ts).
-      // Routes through @cleocode/worktree-backend per D023 SDK-first contract.
+      // Routes through @cleocode/worktree per D023 SDK-first contract.
       try {
         const { spawnWorktree } = await import('@cleocode/core/internal');
         sdkWorktreeResult = await spawnWorktree(root, { taskId });

@@ -103,7 +103,7 @@ export function applyIncludePatterns(
     } catch {
       // Non-fatal: log and continue. Callers can inspect applied[] to see
       // which patterns succeeded.
-      process.stderr.write(`[worktree-backend] include-pattern symlink failed: ${entry.pattern}\n`);
+      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\n`);
     }
   }
 

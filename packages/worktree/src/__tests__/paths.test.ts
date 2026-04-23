@@ -1,5 +1,5 @@
 /**
- * Tests for @cleocode/worktree-backend path resolution utilities.
+ * Tests for @cleocode/worktree path resolution utilities.
  *
  * @task T1161
  */
