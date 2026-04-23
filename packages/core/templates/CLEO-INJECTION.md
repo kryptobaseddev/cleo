@@ -72,11 +72,33 @@ Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@
 | Initialize epic pipeline | `cleo orchestrate start <epicId>` (auto-inits LOOM research stage) |
 | Get parallel-safe wave | `cleo orchestrate ready --epic <id>` |
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
+| Spawn without worktree (opt-out) | `cleo orchestrate spawn <taskId> --no-worktree` |
 | Multi-agent IVTR loop | `cleo orchestrate ivtr <taskId> --start` |
 | View epic wave plan | `cleo orchestrate waves <epicId>` |
 | Grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
 | Deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
 | List awaiting HITL approvals | `cleo orchestrate pending` |
+
+## Worktree-by-Default (T1140 · ADR-055)
+
+Every `cleo orchestrate spawn` automatically provisions a git worktree for the
+agent under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (D029
+canonical layout via env-paths). The spawn prompt contains a
+`## Worktree Setup (REQUIRED)` section that:
+
+- Names the worktree path and branch (`task/<taskId>`).
+- States the context-isolation constraint: "authorized only within `<path>`".
+- Provides `FIRST ACTION: cd <path>` so the agent initializes its cwd.
+
+Agents MUST `cd` to the worktree path as their first action. All reads,
+writes, and git operations MUST occur inside the worktree boundary. A git shim
+on the PATH blocks forbidden operations (checkout, switch, force-push, etc.).
+
+The orchestrator cherry-picks commits from the worktree branch back to main
+after the agent completes — agents NEVER merge directly.
+
+To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass
+`--no-worktree`. The opt-out is always logged to the audit log.
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 

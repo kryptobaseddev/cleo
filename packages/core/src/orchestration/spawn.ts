@@ -140,6 +140,25 @@ export interface ComposeSpawnPayloadOptions {
    * @task T931 Thin-agent runtime enforcer
    */
   thinAgentEnforcement?: ThinAgentEnforcementMode;
+  /**
+   * Absolute path to the pre-provisioned worktree for this task.
+   *
+   * When provided, the spawn prompt includes a `## Worktree Setup (REQUIRED)`
+   * section that names the path and enforces the context-isolation boundary.
+   * Passed through verbatim to {@link buildSpawnPrompt}.
+   *
+   * @task T1140 — worktree-by-default spawn prompt
+   */
+  worktreePath?: string;
+  /**
+   * Git branch name for the worktree (e.g. `task/T1234`).
+   *
+   * Only meaningful when {@link worktreePath} is set.
+   * Defaults to `task/<taskId>` inside {@link buildSpawnPrompt}.
+   *
+   * @task T1140
+   */
+  worktreeBranch?: string;
 }
 
 /**
@@ -444,6 +463,8 @@ export async function composeSpawnPayload(
     sessionId: options.sessionId ?? null,
     harnessHint,
     skipCleoInjectionEmbed: !shouldEmbedInjection,
+    worktreePath: options.worktreePath,
+    worktreeBranch: options.worktreeBranch,
   });
 
   // 8. Assemble the traceability envelope. `dedupSavedChars` only counts
