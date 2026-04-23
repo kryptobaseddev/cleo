@@ -298,6 +298,29 @@ function runBrainMigrations(
     'brain',
   );
 
+  // T1084: PSYCHE Wave 2 — peer_id + peer_scope on all four brain memory tables.
+  // Drizzle migration 20260423000001_t1084-peer-id-memory-isolation handles fresh installs.
+  // ensureColumns here is the safety-net for installs where the migration journal was
+  // already partially applied or the journal reconciler skips DDL-only migrations.
+  // Both columns are NOT NULL with a DEFAULT so the ALTER is safe on non-empty tables.
+  const peerColumns = [
+    { name: 'peer_id', ddl: "text NOT NULL DEFAULT 'global'" },
+    { name: 'peer_scope', ddl: "text NOT NULL DEFAULT 'project'" },
+  ];
+  ensureColumns(nativeDb, 'brain_decisions', peerColumns, 'brain');
+  ensureColumns(nativeDb, 'brain_patterns', peerColumns, 'brain');
+  ensureColumns(nativeDb, 'brain_learnings', peerColumns, 'brain');
+  ensureColumns(nativeDb, 'brain_observations', peerColumns, 'brain');
+  // Companion indexes — idempotent CREATE INDEX IF NOT EXISTS.
+  for (const [table, idxName] of [
+    ['brain_decisions', 'idx_brain_decisions_peer_scope'],
+    ['brain_patterns', 'idx_brain_patterns_peer_scope'],
+    ['brain_learnings', 'idx_brain_learnings_peer_scope'],
+    ['brain_observations', 'idx_brain_observations_peer_scope'],
+  ] as const) {
+    nativeDb.exec(`CREATE INDEX IF NOT EXISTS ${idxName} ON ${table} (peer_id, peer_scope)`);
+  }
+
   // T1001: brain_promotion_log — typed promotion audit trail.
   // One row per observation evaluated (and promoted) by promoteObservationsToTyped().
   nativeDb.exec(

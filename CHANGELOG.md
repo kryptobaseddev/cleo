@@ -4,6 +4,161 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.121] — 2026-04-23
+
+**PSYCHE memory-substrate waves 1-4 + CONDUIT A2A completion** — consolidates
+five aborted local-only ship attempts (v2026.4.118–120 never published; CI
+rejected each) into one clean release after proper type-safety refactor,
+terminology scrub, and migration-snapshot regeneration.
+
+Prior local tags `v2026.4.118`, `v2026.4.119`, `v2026.4.120` are **deleted from
+origin** — their contents are incorporated here with all issues resolved.
+
+### Added
+
+#### Wave 1 — NEXUS User Identity (T1076)
+
+- **`user_profile` Drizzle table** at `packages/core/src/store/nexus-schema.ts`
+  with `traitKey` (PK), `traitValue`, `confidence`, `source`,
+  `derivedFromMessageId`, `firstObservedAt`, `lastReinforcedAt`,
+  `reinforcementCount`, `supersededBy` (forward-ref for the T1139 supersession
+  graph). Migration `20260423052640_t1077-add-user-profile-table` regenerated
+  clean via ADR-054 Hybrid Path A+.
+- **`packages/core/src/nexus/user-profile.ts`** — 5 SDK fns
+  (`getUserProfileTrait`, `upsertUserProfileTrait`, `reinforceTrait`,
+  `listUserProfile`, `supersedeTrait`) with unit tests.
+- **Contracts** at `packages/contracts/src/operations/nexus-user-profile.ts` —
+  `UserProfileTrait` + 7 Params/Result pairs. Top-level re-export.
+- **`importUserProfile` / `exportUserProfile`** added to
+  `packages/core/src/nexus/transfer.ts` — canonical JSON at
+  `~/.cleo/user_profile.json`. Conflict: higher-confidence + more-recent wins,
+  supersede link on loser.
+- **7 new CLI dispatch operations** — `nexus.profile.view`, `nexus.profile.get`
+  (query); `nexus.profile.import`, `nexus.profile.export`,
+  `nexus.profile.reinforce`, `nexus.profile.upsert`, `nexus.profile.supersede`
+  (mutate).
+
+#### Wave 2 — CANT Peer Memory Isolation (T1081)
+
+- **`peer_id` + `peer_scope` columns** on 6 brain_* tables
+  (`brain_observations`, `brain_learnings`, `brain_patterns`,
+  `brain_decisions`, `brain_observations_fts`, `brain_embeddings`).
+  Compound index `idx_peer_scope` on `(peer_id, peer_scope)`. Migration
+  with **staged backfill** (T1003 pattern) — existing rows default to
+  `peer_id='global'`, `peer_scope='project'`.
+- **`peerId` param threaded through retrieval** — `graph-memory-bridge.ts`
+  `queryMemoriesForContext`, `brain-retrieval.ts`, `brain-search.ts` (FTS5).
+  SQL: `WHERE peer_id = ? OR peer_id = 'global'`. Backward-compatible.
+- **`activePeerId` in session context** at
+  `packages/cleo/src/dispatch/context/session-context.ts` — resolved from the
+  currently-loaded CANT agent via `packages/cant/src/native-loader.ts`.
+- **`memory-peer-isolation.test.ts`** — peer A writes, peer B retrieves,
+  peer B sees nothing; peer A sees own + global.
+
+#### Wave 3 — Dialectic Evaluator + Session Narrative (T1082)
+
+- **`packages/core/src/memory/dialectic-evaluator.ts`** —
+  `evaluateDialectic(turn): Promise<DialecticInsights>` +
+  `applyInsights(insights, nexusDb, brainDb)`. Routes global traits →
+  `upsertUserProfileTrait` (Wave 1), peer insights → peer-scoped
+  `storeObservation` (Wave 2), narrative deltas → `session-narrative.ts`.
+- **`packages/core/src/memory/session-narrative.ts`** —
+  `getSessionNarrative`, `appendNarrativeDelta`, `detectPivot`. Drizzle
+  `sessionNarrative` table in brain.db with migration
+  `20260423000002_t1089-add-session-narrative-table`.
+- **CQRS dispatcher dialectic hook** — fires `evaluateDialectic` via
+  `setImmediate` after domain handler returns when
+  `result.dialecticEligible === true`. Non-blocking; rate-limited via
+  `brain_rate_limit` (T1008 pattern, 1/10s per session default).
+- **Contracts** at `packages/contracts/src/operations/dialectic.ts`.
+
+#### Wave 4 — Multi-Pass Context Engine (T1083)
+
+- **`packages/core/src/memory/brain-retrieval.ts`** multi-pass API:
+  `fetchIdentity(peerId, nexusDb)` (cold, 20% budget),
+  `fetchPeerMemory(peerId, query?)` (warm, 50%),
+  `fetchSessionState(sessionId, projectRoot)` (hot, 30%),
+  `buildRetrievalBundle(req)` (composes with token-accounting; trims hot first
+  on over-budget).
+- **`packages/core/src/sessions/briefing.ts`** — replaces static recent-
+  decisions injection with `buildRetrievalBundle`-backed bundle. Backward-
+  compatible; adds `bundle` field.
+- **`psyche-wave4.test.ts`** — E2E integration test. Seeds 5 profile traits,
+  3 peers × 20 observations, rolling narrative. Verifies peer A vs peer B
+  isolation, cold-pass global, hot-pass session-scoped, token-budget respected.
+
+#### Wave 9 — CONDUIT A2A Integration (T1149 + T1251 + T1252 + T1253 + T1254)
+
+- **`ConduitMessage` envelope extended backward-compatibly** —
+  `kind: 'message' | 'request' | 'notify' | 'subscribe'` (default `'message'`),
+  `fromPeerId?`, `toPeerId?`, `payload?`.
+- **4 new SQLite tables**: `topics`, `topic_subscriptions`, `topic_messages`,
+  `topic_message_acks` (schema version bumped to `2026.4.23`).
+- **9 new topic methods** — `subscribeTopic`, `publishToTopic`, `onTopic`,
+  `unsubscribeTopic`, `pollTopic` on `LocalTransport`; 4 delegating wrappers
+  on `ConduitClient`.
+- **`## CONDUIT Subscription` section in tier-1/2 spawn prompts** —
+  `ConduitSubscriptionConfig` now threaded through
+  `packages/cleo/src/dispatch/engines/orchestrate-engine.ts` into
+  `composeSpawnPayload` (closes T1253). Derives wave topic
+  `epic-<epicId>.wave-<id>` and coordination topic `epic-<epicId>.coordination`
+  from `task.parentId`.
+- **3 new CLI subcommands** at `packages/cleo/src/cli/commands/conduit.ts`:
+  `cleo conduit publish`, `cleo conduit subscribe`, `cleo conduit listen`
+  (closes T1254). Subcommand count 5 → 8.
+- **22 new A2A tests** including E2E two-subagent wave-coordination scenario
+  (satisfies T1149 acceptance atom 5 literally).
+- **Design artifacts** at
+  `.cleo/agent-outputs/T1075-psyche-integration-plan/` —
+  `CONDUIT-AUDIT.md` (10-file surface map, 7 A2A gaps) +
+  `CONDUIT-A2A-DESIGN.md` (envelope spec, topic naming, lifecycle, DLQ,
+  spawn-prompt hook).
+
+### Changed
+
+- **Operation count** advanced 310 → 317 (+7 Wave 1 profile ops).
+- **CLEO-INJECTION template size threshold** bumped 250 → 280 lines (T1252
+  added CONDUIT Subscription guidance).
+- **Drizzle `NodeSQLiteDatabase<…>` `fetchPeerMemory` signature** — removed
+  the unused `brainDb` param. Warm-pass reads via `getBrainNativeDb()`
+  internally. Callers updated.
+- **Raw-row interfaces** (`RawLearning`, `RawPattern`, `RawDecision`,
+  `RawObs`) now `extends Record<string, unknown>` so the
+  `Record<string, SQLOutputValue>[]` → `RawT[]` coercion is a single safe
+  cast per call site (no `as unknown as X[]` double-casts). Documented at
+  each call site why the narrowing is safe (SELECT column list matches
+  interface projection).
+
+### Fixed
+
+- **Migration snapshot malformation** — `20260423052640_t1077-add-user-profile-table/snapshot.json`
+  was missing column entity entries (Drizzle-kit `check` rejected it).
+  Regenerated via `pnpm db:generate:nexus`; all 5 Drizzle configs now pass.
+- **TypeScript strict-mode violations post-implementation** —
+  `packages/core/src/memory/brain-retrieval.ts` had unused `brainDb` param
+  and unused `WARM_BUDGET_FRACTION` const; both removed (signature fix +
+  constant retired with explanatory comment).
+
+### Substrate follow-ups filed
+
+- **T1249** — Sonnet tier-0 overflow mitigation. Acceptance gained evidence
+  from 3 crashes this session (T1161, T1076, T1081). Options: structural
+  fix (predictive tier-downgrade, chunked prompts) OR canonicalize the
+  rescue-commit pattern.
+- **T1250** — META: CLEO agent-ergonomics. 312-op surface compression for
+  deterministic LLM use. High priority, ongoing sidestream.
+- **T1255 / T1256** — PSYCHE taxonomy scaffolding (umbrella rename,
+  direct-port strategy, TypeScript port target, internal single-point-of-
+  translation doc).
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1849 files)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — **11,177 pass / 0 failures** / 13 skipped / 33 todo
+- `cleo check canon` — 0 violations
+- `pnpm run db:check` — all 5 configs pass
+
 ## [2026.4.117] — 2026-04-23
 
 Pre-first-npm-publish rename: **`@cleocode/worktree-backend` → `@cleocode/worktree`**.
@@ -113,10 +268,10 @@ Dispatched as two serial Leads under Phase C per owner's A → C → B plan:
 - **Retry + DLQ semantics** — 6-attempt exponential backoff
   (1s / 4s / 16s / 64s / 256s / total ~341s) with dead-letter routing.
   LocalTransport stub; full DLQ integration coordinates with T1147
-  (reconciler, deferred to Honcho Wave 7).
+  (reconciler, deferred to PSYCHE Wave 7).
 
 - **Design artifacts** at
-  `.cleo/agent-outputs/T1075-honcho-integration-plan/`:
+  `.cleo/agent-outputs/T1075-psyche-integration-plan/`:
   `CONDUIT-AUDIT.md` (27 KB, 3284 words) +
   `CONDUIT-A2A-DESIGN.md` (32 KB, 3881 words). Cross-references
   Lead A1's analysis from BRAIN memory; authoritative scope for
@@ -150,18 +305,18 @@ Dispatched as two serial Leads under Phase C per owner's A → C → B plan:
   closed it post-hoc. This is a T1250 data point: the gate discipline is
   right, but the failure mode should surface clearly to the agent, not
   be silently swallowed. File as follow-up under T1106 or T1250.
-- **Honcho Wave 9 was additive, not greenfield.** A1's audit confirmed
+- **PSYCHE Wave 9 was additive, not greenfield.** A1's audit confirmed
   ~12 conduit files already shipped across `packages/core/src/conduit/`,
   `packages/contracts/`, `packages/cleo-os/`, `packages/adapters/`. The
   implementation work was 4 new SDK methods + 4 new tables + 3 new CLI
-  ops + one spawn-prompt section. Phase B Honcho waves (T1076+,
+  ops + one spawn-prompt section. Phase B PSYCHE waves (T1076+,
   T1081+) likely follow the same pattern: extend existing CLEO substrate
-  rather than port Honcho end-to-end.
+  rather than port PSYCHE end-to-end.
 
 ## [2026.4.115] — 2026-04-22
 
 Substrate hardening release — native worktree-backend SDK, worktree-by-default
-spawn prompts, agent registry hardening, and Honcho Wave 0 integration
+spawn prompts, agent registry hardening, and PSYCHE Wave 0 integration
 prerequisites. Five Leads dispatched in parallel (T1161 + T1210 + T1209 +
 T1211 + T1140); all commits landed via C → E → B → A → D cherry-pick order
 with zero new test regressions vs the v2026.4.114 baseline.
@@ -202,14 +357,15 @@ with zero new test regressions vs the v2026.4.114 baseline.
   prompt token map (T1140) — stage-guidance templates can now reference the
   active worktree.
 
-- **Honcho Wave 0 integration prerequisites** — research artifacts under
-  `.cleo/agent-outputs/T1075-honcho-integration-plan/`:
-  - `HONCHO-SOURCE-NOTES.md` (T1209) — per-file audit of `/mnt/projects/honcho/src/`
+- **PSYCHE Wave 0 integration prerequisites** — research artifacts under
+  `.cleo/agent-outputs/T1075-psyche-integration-plan/`:
+  - `PSYCHE-SOURCE-NOTES.md` (T1209) — per-file audit of upstream psyche-lineage source
     with explicit CLEO target-file mapping
-  - `GLOSSARY.md` (T1211) — 7-entry Honcho↔CLEO terminology map:
+  - `GLOSSARY.md` (T1211) — 8-entry PSYCHE↔CLEO terminology map:
     `workspace ≡ project`, `peer ≡ CANT agent`, `session ≡ session`,
     `representation ≡ theory-of-mind`, `collection ≡ brain_observations grouping`,
-    `document ≡ brain_learnings`, `message ≡ session turn`
+    `document ≡ brain_learnings`, `message ≡ session turn`,
+    `peer_card ≡ sigil`
 
 - **7-persona regression test** at `packages/cant/tests/seed-persona-registry.test.ts`
   (T1210) — guards against `E_AGENT_NOT_FOUND` regression for `cleo-prime`,

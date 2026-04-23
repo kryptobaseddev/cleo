@@ -997,6 +997,9 @@ describe('NexusHandler', () => {
         // T1117 — Contracts + ingestion bridges
         'contracts-show',
         'task-symbols',
+        // T1076 PSYCHE Wave 1 — NEXUS user_profile query ops
+        'profile.view',
+        'profile.get',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',
@@ -1012,6 +1015,12 @@ describe('NexusHandler', () => {
         'contracts-sync',
         'contracts-link-tasks',
         'conduit-scan',
+        // T1076 PSYCHE Wave 1 — NEXUS user_profile mutate ops
+        'profile.import',
+        'profile.export',
+        'profile.reinforce',
+        'profile.upsert',
+        'profile.supersede',
       ]);
     });
   });

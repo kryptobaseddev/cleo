@@ -22,10 +22,15 @@ import {
   nexusDiscoverRelated as discoverRelated,
   executeTransfer,
   exportSnapshot,
+  exportUserProfile,
   formatAugmentResults,
   getDefaultSnapshotPath,
+  getNexusDb,
   getSharingStatus,
+  getUserProfileTrait,
   importSnapshot,
+  importUserProfile,
+  listUserProfile,
   type NexusPermissionLevel,
   nexusDeps,
   nexusGetProject,
@@ -41,11 +46,14 @@ import {
   previewTransfer,
   nexusReadRegistry as readRegistry,
   readSnapshot,
+  reinforceTrait,
   resolveTask,
   searchAcrossProjects,
   setPermission,
+  supersedeTrait,
   type TransferParams,
   type TransferResult,
+  upsertUserProfileTrait,
   validateSyntax,
   writeSnapshot,
 } from '@cleocode/core/internal';
@@ -1029,6 +1037,161 @@ export async function nexusTaskSymbols(
       ) => Promise<import('@cleocode/contracts').SymbolReference[]>
     )(taskId, projectRoot);
     return engineSuccess({ taskId, count: symbols.length, symbols });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// T1080 — User-profile CLI verbs (profile.view, profile.get, profile.import,
+//          profile.export, profile.reinforce, profile.upsert, profile.supersede)
+// ---------------------------------------------------------------------------
+
+import type {
+  NexusProfileExportResult,
+  NexusProfileGetResult,
+  NexusProfileImportResult,
+  NexusProfileReinforceResult,
+  NexusProfileSupersedeResult,
+  NexusProfileUpsertResult,
+  NexusProfileViewResult,
+  UserProfileTrait,
+} from '@cleocode/contracts';
+
+/**
+ * List all user-profile traits, optionally filtered by minimum confidence.
+ *
+ * @param minConfidence - Minimum confidence threshold (0.0–1.0).  Default 0.0.
+ * @param includeSuperseded - Include superseded traits.  Default false.
+ * @task T1080
+ */
+export async function nexusProfileView(
+  minConfidence?: number,
+  includeSuperseded?: boolean,
+): Promise<EngineResult<NexusProfileViewResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const traits = await listUserProfile(nexusDb, { minConfidence, includeSuperseded });
+    return engineSuccess({ traits, count: traits.length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Fetch a single user-profile trait by key.
+ *
+ * @param traitKey - Trait key to look up (required).
+ * @task T1080
+ */
+export async function nexusProfileGet(
+  traitKey: string,
+): Promise<EngineResult<NexusProfileGetResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const trait = await getUserProfileTrait(nexusDb, traitKey);
+    return engineSuccess({ trait });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Import user-profile traits from a portable JSON file.
+ *
+ * @param path - Absolute path to the JSON file.  Defaults to
+ *               `~/.cleo/user_profile.json`.
+ * @task T1080
+ */
+export async function nexusProfileImport(
+  path?: string,
+): Promise<EngineResult<NexusProfileImportResult>> {
+  try {
+    const result = await importUserProfile(path);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Export user-profile traits to a portable JSON file.
+ *
+ * @param path - Absolute output path.  Defaults to `~/.cleo/user_profile.json`.
+ * @task T1080
+ */
+export async function nexusProfileExport(
+  path?: string,
+): Promise<EngineResult<NexusProfileExportResult>> {
+  try {
+    const result = await exportUserProfile(path);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Reinforce an existing user-profile trait (increment count + boost confidence).
+ *
+ * @param traitKey - Key of the trait to reinforce.
+ * @param source   - Source for this reinforcement.  Defaults to "manual".
+ * @task T1080
+ */
+export async function nexusProfileReinforce(
+  traitKey: string,
+  source?: string,
+): Promise<EngineResult<NexusProfileReinforceResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    await reinforceTrait(nexusDb, traitKey, source ?? 'manual');
+    const updated = await getUserProfileTrait(nexusDb, traitKey);
+    if (!updated) {
+      return engineError('E_NOT_FOUND', `Trait not found: ${traitKey}`);
+    }
+    return engineSuccess({
+      reinforcementCount: updated.reinforcementCount,
+      confidence: updated.confidence,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Create or update a user-profile trait.
+ *
+ * @param trait - Trait to upsert (required).
+ * @task T1080
+ */
+export async function nexusProfileUpsert(
+  trait: UserProfileTrait,
+): Promise<EngineResult<NexusProfileUpsertResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const existing = await getUserProfileTrait(nexusDb, trait.traitKey);
+    await upsertUserProfileTrait(nexusDb, trait);
+    return engineSuccess({ created: existing === null });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Mark a trait as superseded by another.
+ *
+ * @param oldKey - Trait key being deprecated.
+ * @param newKey - Trait key that replaces it.
+ * @task T1080
+ */
+export async function nexusProfileSupersede(
+  oldKey: string,
+  newKey: string,
+): Promise<EngineResult<NexusProfileSupersedeResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    await supersedeTrait(nexusDb, oldKey, newKey);
+    return engineSuccess({ oldKey, newKey });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }

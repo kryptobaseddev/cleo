@@ -35,6 +35,7 @@ import {
   orchestrationAnalyzeDependencies as analyzeDependencies,
   analyzeEpic,
   buildBrainState,
+  type ConduitSubscriptionConfig,
   composeSpawnPayload,
   computeEpicStatus,
   computeOverallStatus,
@@ -941,6 +942,14 @@ async function composeSpawnForTask(
     worktreePath?: string;
     /** Branch name for the worktree (T1140). */
     worktreeBranch?: string;
+    /**
+     * CONDUIT A2A subscription configuration derived from the task's parent
+     * epic. When present the spawn prompt gains a `## CONDUIT Subscription`
+     * section (tier 1+). Omit for tier-0 or top-level tasks.
+     *
+     * @task T1253
+     */
+    conduitSubscription?: ConduitSubscriptionConfig;
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getAccessor(root);
@@ -974,6 +983,7 @@ async function composeSpawnForTask(
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
+      conduitSubscription: options.conduitSubscription,
     });
   } finally {
     db.close();
@@ -1048,6 +1058,36 @@ export async function orchestrateSpawn(
       activeSessionId = null;
     }
 
+    // T1253 — Derive CONDUIT subscription config from the task's parent epic.
+    //
+    // For tier-1+ spawns, the spawn prompt gains a `## CONDUIT Subscription`
+    // section so the subagent knows which wave and coordination topics to use.
+    // Derivation is best-effort: failures are silently swallowed so spawn is
+    // never blocked by a CONDUIT config read error.
+    //
+    // Topic naming convention (per T1252 spec):
+    //   wave topic  : "epic-<epicId>.wave-<taskId>"   (taskId as waveId proxy)
+    //   coord topic : "epic-<epicId>.coordination"
+    //
+    // For top-level tasks (no parentId) the section is omitted entirely.
+    let conduitSubscription: ConduitSubscriptionConfig | undefined;
+    const effectiveTierForConduit = tier ?? 1; // default before composeSpawnForTask resolves it
+    if (effectiveTierForConduit >= 1) {
+      try {
+        const taskRecord = await accessor.loadSingleTask(taskId);
+        if (taskRecord?.parentId) {
+          const epicId = taskRecord.parentId;
+          conduitSubscription = {
+            epicId,
+            waveId: Number.parseInt(taskId.replace(/\D/g, '').slice(-4) || '1', 10),
+            peerId: `cleo-agent-${taskId.toLowerCase()}`,
+          };
+        }
+      } catch {
+        // Best-effort: CONDUIT config derivation must never block spawn.
+      }
+    }
+
     // T1140 — Worktree provisioning (SDK-first per D023 / ADR-055).
     //
     // Worktrees are created by default for every spawn. The `--no-worktree`
@@ -1100,12 +1140,16 @@ export async function orchestrateSpawn(
     // T1140: worktreePath and worktreeBranch are passed through so the
     // composer can emit the `## Worktree Setup (REQUIRED)` section in the
     // prompt body (replacing the old preamble prepend pattern from T1118).
+    //
+    // T1253: conduitSubscription derived above from task.parentId is threaded
+    // through so the `## CONDUIT Subscription` section appears on tier-1+ prompts.
     const payload = await composeSpawnForTask(taskId, root, {
       tier,
       sessionId: activeSessionId,
       protocol: protocolType,
       worktreePath,
       worktreeBranch,
+      conduitSubscription,
     });
 
     // Surface atomicity violations as a first-class error envelope so callers

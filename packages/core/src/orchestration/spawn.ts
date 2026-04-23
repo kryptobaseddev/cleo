@@ -39,7 +39,12 @@ import {
 } from './classify.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
 import { autoDispatch } from './index.js';
-import { buildSpawnPrompt, type SpawnProtocolPhase, type SpawnTier } from './spawn-prompt.js';
+import {
+  buildSpawnPrompt,
+  type ConduitSubscriptionConfig,
+  type SpawnProtocolPhase,
+  type SpawnTier,
+} from './spawn-prompt.js';
 import {
   enforceThinAgent,
   type ThinAgentEnforcementMode,
@@ -159,6 +164,17 @@ export interface ComposeSpawnPayloadOptions {
    * @task T1140
    */
   worktreeBranch?: string;
+  /**
+   * CONDUIT A2A subscription configuration.
+   *
+   * When provided, a `## CONDUIT Subscription` section is injected into
+   * tier-1 and tier-2 prompts. Omitted for tier-0 prompts and when not set.
+   * Passed through verbatim to {@link buildSpawnPrompt}.
+   *
+   * @task T1252 CONDUIT A2A
+   * @task T1253 wire orchestrate-engine
+   */
+  conduitSubscription?: ConduitSubscriptionConfig;
 }
 
 /**
@@ -465,6 +481,7 @@ export async function composeSpawnPayload(
     skipCleoInjectionEmbed: !shouldEmbedInjection,
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
+    conduitSubscription: options.conduitSubscription,
   });
 
   // 8. Assemble the traceability envelope. `dedupSavedChars` only counts

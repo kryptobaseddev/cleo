@@ -221,6 +221,30 @@ export const brainDecisions = sqliteTable(
      * Null on legacy rows (pre-T726).
      */
     contentHash: text('content_hash'),
+
+    // T1084: PSYCHE Wave 2 — CANT peer memory isolation
+
+    /**
+     * Peer identity for memory isolation (T1084 PSYCHE Wave 2).
+     *
+     * Identifies which CANT agent produced this entry.
+     * `"global"` = shared across all peers (default for legacy rows + unscoped writes).
+     * A non-global value means only that peer (and global queries) can see this entry.
+     *
+     * Staged backfill via T1003 pattern sets existing rows to `'global'`.
+     * Writers: `storeDecision()` passes the active `peerId` from session context.
+     */
+    peerId: text('peer_id').notNull().default('global'),
+
+    /**
+     * Peer scope for memory isolation (T1084 PSYCHE Wave 2).
+     *
+     * Determines the visibility radius:
+     * - `"global"` — visible to all peers in this project (equivalent to current behavior).
+     * - `"project"` — scoped to the current project; the default for peer-written entries.
+     * - `"peer"` — strict per-peer isolation; only the owning peer can retrieve.
+     */
+    peerScope: text('peer_scope').notNull().default('project'),
   },
   (table) => [
     index('idx_brain_decisions_type').on(table.type),
@@ -238,6 +262,8 @@ export const brainDecisions = sqliteTable(
     // T726 indexes
     index('idx_brain_decisions_tier_promoted_at').on(table.tierPromotedAt),
     index('idx_brain_decisions_content_hash').on(table.contentHash),
+    // T1084: peer isolation index
+    index('idx_brain_decisions_peer_scope').on(table.peerId, table.peerScope),
   ],
 );
 
@@ -328,6 +354,21 @@ export const brainPatterns = sqliteTable(
      * Null on legacy rows (pre-T726).
      */
     contentHash: text('content_hash'),
+
+    // T1084: PSYCHE Wave 2 — CANT peer memory isolation
+
+    /**
+     * Peer identity for memory isolation (T1084 PSYCHE Wave 2).
+     * `"global"` = shared across all peers (default for legacy rows).
+     * @see brainDecisions.peerId for full documentation.
+     */
+    peerId: text('peer_id').notNull().default('global'),
+
+    /**
+     * Peer scope for memory isolation (T1084 PSYCHE Wave 2).
+     * @see brainDecisions.peerScope for full documentation.
+     */
+    peerScope: text('peer_scope').notNull().default('project'),
   },
   (table) => [
     index('idx_brain_patterns_type').on(table.type),
@@ -343,6 +384,8 @@ export const brainPatterns = sqliteTable(
     // T726 indexes
     index('idx_brain_patterns_tier_promoted_at').on(table.tierPromotedAt),
     index('idx_brain_patterns_content_hash').on(table.contentHash),
+    // T1084: peer isolation index
+    index('idx_brain_patterns_peer_scope').on(table.peerId, table.peerScope),
   ],
 );
 
@@ -429,6 +472,21 @@ export const brainLearnings = sqliteTable(
      * Null on legacy rows (pre-T726).
      */
     contentHash: text('content_hash'),
+
+    // T1084: PSYCHE Wave 2 — CANT peer memory isolation
+
+    /**
+     * Peer identity for memory isolation (T1084 PSYCHE Wave 2).
+     * `"global"` = shared across all peers (default for legacy rows).
+     * @see brainDecisions.peerId for full documentation.
+     */
+    peerId: text('peer_id').notNull().default('global'),
+
+    /**
+     * Peer scope for memory isolation (T1084 PSYCHE Wave 2).
+     * @see brainDecisions.peerScope for full documentation.
+     */
+    peerScope: text('peer_scope').notNull().default('project'),
   },
   (table) => [
     index('idx_brain_learnings_confidence').on(table.confidence),
@@ -444,6 +502,8 @@ export const brainLearnings = sqliteTable(
     // T726 indexes
     index('idx_brain_learnings_tier_promoted_at').on(table.tierPromotedAt),
     index('idx_brain_learnings_content_hash').on(table.contentHash),
+    // T1084: peer isolation index
+    index('idx_brain_learnings_peer_scope').on(table.peerId, table.peerScope),
   ],
 );
 
@@ -562,6 +622,21 @@ export const brainObservations = sqliteTable(
      * @task T1001
      */
     stabilityScore: real('stability_score').default(0.5),
+
+    // T1084: PSYCHE Wave 2 — CANT peer memory isolation
+
+    /**
+     * Peer identity for memory isolation (T1084 PSYCHE Wave 2).
+     * `"global"` = shared across all peers (default for legacy rows).
+     * @see brainDecisions.peerId for full documentation.
+     */
+    peerId: text('peer_id').notNull().default('global'),
+
+    /**
+     * Peer scope for memory isolation (T1084 PSYCHE Wave 2).
+     * @see brainDecisions.peerScope for full documentation.
+     */
+    peerScope: text('peer_scope').notNull().default('project'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -588,6 +663,8 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_tier_promoted_at').on(table.tierPromotedAt),
     // T1001 indexes
     index('idx_brain_observations_stability_score').on(table.stabilityScore),
+    // T1084: peer isolation index
+    index('idx_brain_observations_peer_scope').on(table.peerId, table.peerScope),
   ],
 );
 
@@ -1517,6 +1594,64 @@ export const brainBackfillRuns = sqliteTable(
     index('idx_backfill_runs_created_at').on(table.createdAt),
   ],
 );
+
+// ============================================================================
+// T1089 — Session Narrative (PSYCHE Wave 3)
+// ============================================================================
+
+/**
+ * Rolling session narrative table.
+ *
+ * Stores a compact prose summary of what has happened in each CLEO session,
+ * updated incrementally by the Dialectic Evaluator's `appendNarrativeDelta()`.
+ *
+ * PSYCHE reference: `upstream psyche-lineage · deriver/deriver.py`
+ * (session state derivation — PSYCHE maintains a rolling representation of
+ * what a session "is about" to inform future retrieval and sigil generation).
+ *
+ * @task T1089
+ * @epic T1082
+ */
+export const sessionNarrative = sqliteTable('session_narrative', {
+  /**
+   * CLEO session identifier (e.g. `ses_20260422131135_5149eb`).
+   * Matches the `session_id` field used throughout the sessions subsystem.
+   */
+  sessionId: text('session_id').primaryKey(),
+
+  /**
+   * Rolling prose summary of the session, updated by `appendNarrativeDelta()`.
+   * Maximum length is enforced at the application layer: 2000 characters.
+   * When the limit is exceeded, oldest content is trimmed from the left.
+   */
+  narrative: text('narrative').notNull().default(''),
+
+  /**
+   * Number of dialectic turns that have contributed to this narrative.
+   * Incremented by one on each `appendNarrativeDelta()` call.
+   */
+  turnCount: integer('turn_count').notNull().default(0),
+
+  /**
+   * Unix epoch milliseconds when the narrative was last updated.
+   * Set to `Date.now()` on every `appendNarrativeDelta()` call.
+   */
+  lastUpdatedAt: integer('last_updated_at').notNull().default(0),
+
+  /**
+   * Number of detected topic pivots in this session.
+   *
+   * Incremented when `detectPivot()` returns true for an incoming delta.
+   * A pivot indicates a significant shift in conversation topic, useful for
+   * future multi-pass retrieval to weight recent narrative higher.
+   */
+  pivotCount: integer('pivot_count').notNull().default(0),
+});
+
+/** Row type for session_narrative SELECT queries. */
+export type SessionNarrativeRow = typeof sessionNarrative.$inferSelect;
+/** Row type for session_narrative INSERT operations. */
+export type NewSessionNarrativeRow = typeof sessionNarrative.$inferInsert;
 
 // === TYPE EXPORTS ===
 
