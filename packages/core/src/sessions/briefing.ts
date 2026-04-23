@@ -17,7 +17,7 @@
  * @epic T4914
  */
 
-import type { Task, TaskWorkState } from '@cleocode/contracts';
+import type { RetrievalBundle, Task, TaskWorkState } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -103,6 +103,22 @@ export interface SessionBriefing {
   warnings?: string[];
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
   memoryContext?: SessionMemoryContext;
+  /**
+   * PSYCHE Wave 4 multi-pass retrieval bundle.
+   *
+   * Contains cold (user profile), warm (peer memory), and hot (session state)
+   * context assembled by `buildRetrievalBundle` from `brain-retrieval.ts`.
+   * Present when the active session and peer ID are resolvable; omitted
+   * (undefined) when retrieval fails or is disabled.
+   *
+   * Consumers may use `bundle` instead of — or in addition to — `memoryContext`
+   * for richer structured context. The existing `memoryContext` field is preserved
+   * for backward compatibility.
+   *
+   * @task T1091
+   * @epic T1083
+   */
+  bundle?: RetrievalBundle;
 }
 
 /**
@@ -193,6 +209,34 @@ export async function computeBriefing(
     // Brain memory not available -- proceed without
   }
 
+  // 9. PSYCHE Wave 4 multi-pass retrieval bundle (optional, best-effort — T1091)
+  let bundle: RetrievalBundle | undefined;
+  try {
+    const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
+
+    // Resolve active session ID and peer ID from session state.
+    // Peer ID defaults to 'global' when no CANT agent is active.
+    const activeSessionObj = await accessor.getActiveSession();
+    const activeSessionId = activeSessionObj?.id ?? '';
+    const activePeerId =
+      ((activeSessionObj as Record<string, unknown> | null)?.['activePeerId'] as
+        | string
+        | undefined) ?? 'global';
+
+    if (activeSessionId) {
+      bundle = await buildRetrievalBundle(
+        {
+          peerId: activePeerId,
+          sessionId: activeSessionId,
+          passMask: { cold: true, warm: true, hot: true },
+        },
+        projectRoot,
+      );
+    }
+  } catch {
+    // Retrieval bundle not available -- proceed without
+  }
+
   // Compute warnings
   const warnings: string[] = [];
   if (currentTaskInfo?.blockedBy?.length) {
@@ -211,6 +255,7 @@ export async function computeBriefing(
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
     ...(memoryContext && { memoryContext }),
+    ...(bundle && { bundle }),
   };
 }
 

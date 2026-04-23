@@ -426,6 +426,7 @@ export type {
 } from './orchestration/spawn.js';
 // Canonical spawn payload composer (T889 / T891 / T932 — single-path spawn).
 export { composeSpawnPayload } from './orchestration/spawn.js';
+export type { ConduitSubscriptionConfig } from './orchestration/spawn-prompt.js';
 export {
   computeEpicStatus,
   computeOverallStatus,
@@ -1214,12 +1215,30 @@ export {
 } from './nexus/nexus-bridge.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
-// Nexus — transfer
-export { executeTransfer, previewTransfer } from './nexus/transfer.js';
+export type {
+  ExportUserProfileResult,
+  ImportUserProfileResult,
+} from './nexus/transfer.js';
+// Nexus — transfer + user-profile import/export (T1079)
+export {
+  executeTransfer,
+  exportUserProfile,
+  getDefaultUserProfilePath,
+  importUserProfile,
+  previewTransfer,
+} from './nexus/transfer.js';
 export type {
   TransferParams,
   TransferResult,
 } from './nexus/transfer-types.js';
+// Nexus — user-profile CRUD SDK (T1078)
+export {
+  getUserProfileTrait,
+  listUserProfile,
+  reinforceTrait,
+  supersedeTrait,
+  upsertUserProfileTrait,
+} from './nexus/user-profile.js';
 export type { DependencyAnalysis } from './orchestration/analyze.js';
 export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
 export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';

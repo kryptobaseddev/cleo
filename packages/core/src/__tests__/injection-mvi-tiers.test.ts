@@ -129,9 +129,9 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 250 lines (token-optimized; v2.6.0 adds Spawn Prompt Contents section — ~230 lines)', () => {
+    it('is under 280 lines (token-optimized; v2026.4.116 T1252 adds CONDUIT Subscription guidance — currently ~268 lines)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(250);
+      expect(lines).toBeLessThanOrEqual(280);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {

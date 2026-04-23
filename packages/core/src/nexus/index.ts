@@ -107,8 +107,18 @@ export {
   linkTaskToSymbols,
   runGitLogTaskLinker,
 } from './tasks-bridge.js';
-// Transfer - cross-project task transfer
-export { executeTransfer, previewTransfer } from './transfer.js';
+export type {
+  ExportUserProfileResult,
+  ImportUserProfileResult,
+} from './transfer.js';
+// Transfer - cross-project task transfer + user-profile import/export (T1079)
+export {
+  executeTransfer,
+  exportUserProfile,
+  getDefaultUserProfilePath,
+  importUserProfile,
+  previewTransfer,
+} from './transfer.js';
 export type {
   ImportFromPackageOptions,
   ImportFromPackageResult,
@@ -121,6 +131,14 @@ export type {
   TransferResult,
   TransferScope,
 } from './transfer-types.js';
+// User-profile CRUD SDK (T1078)
+export {
+  getUserProfileTrait,
+  listUserProfile,
+  reinforceTrait,
+  supersedeTrait,
+  upsertUserProfileTrait,
+} from './user-profile.js';
 export type {
   ParsedDirective,
   ProjectACL,

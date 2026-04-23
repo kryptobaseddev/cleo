@@ -4801,6 +4801,167 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1080 — nexus.profile — user identity / preference profile (PSYCHE Wave 1)
+  // ---------------------------------------------------------------------------
+
+  // Query operations
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'profile.view',
+    description:
+      'nexus.profile.view (query) — list all user-profile traits, optionally filtered by minimum confidence',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'minConfidence',
+        type: 'number',
+        required: false,
+        description: 'Minimum confidence threshold in [0.0, 1.0]. Defaults to 0.0.',
+      },
+      {
+        name: 'includeSuperseded',
+        type: 'boolean',
+        required: false,
+        description: 'Include superseded (deprecated) traits. Defaults to false.',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'profile.get',
+    description: 'nexus.profile.get (query) — fetch a single user-profile trait by key',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['traitKey'],
+    params: [
+      {
+        name: 'traitKey',
+        type: 'string',
+        required: true,
+        description: 'Trait key to retrieve (e.g. "prefers-zero-deps")',
+        cli: { positional: true },
+      },
+    ],
+  },
+
+  // Mutate operations
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'profile.import',
+    description:
+      'nexus.profile.import (mutate) — import user-profile traits from a portable JSON file (default: ~/.cleo/user_profile.json)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'path',
+        type: 'string',
+        required: false,
+        description: 'Absolute path to the JSON file. Defaults to ~/.cleo/user_profile.json.',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'profile.export',
+    description:
+      'nexus.profile.export (mutate) — export user-profile traits to a portable JSON file (default: ~/.cleo/user_profile.json)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'path',
+        type: 'string',
+        required: false,
+        description: 'Absolute output path. Defaults to ~/.cleo/user_profile.json.',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'profile.reinforce',
+    description:
+      'nexus.profile.reinforce (mutate) — increment reinforcement count and boost confidence for a user-profile trait',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['traitKey'],
+    params: [
+      {
+        name: 'traitKey',
+        type: 'string',
+        required: true,
+        description: 'Key of the trait to reinforce',
+        cli: { positional: true },
+      },
+      {
+        name: 'source',
+        type: 'string',
+        required: false,
+        description: 'Source identifier for this reinforcement event. Defaults to "manual".',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'profile.upsert',
+    description:
+      'nexus.profile.upsert (mutate) — create or update a user-profile trait in nexus.db',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['trait'],
+    params: [
+      {
+        name: 'trait',
+        type: 'string',
+        required: true,
+        description:
+          'UserProfileTrait JSON object with traitKey, traitValue, confidence, source (accepted as JSON string at CLI boundary; parsed in dispatch handler)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'profile.supersede',
+    description:
+      'nexus.profile.supersede (mutate) — mark a user-profile trait as superseded by another (T1139 supersession prep)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['oldKey', 'newKey'],
+    params: [
+      {
+        name: 'oldKey',
+        type: 'string',
+        required: true,
+        description: 'Trait key being deprecated',
+      },
+      {
+        name: 'newKey',
+        type: 'string',
+        required: true,
+        description: 'Trait key that replaces the old one',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 

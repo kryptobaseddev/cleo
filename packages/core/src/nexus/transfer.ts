@@ -4,11 +4,20 @@
  * Provides executeTransfer() and previewTransfer() for moving/copying
  * tasks between registered NEXUS projects with full provenance tracking.
  *
+ * Also provides importUserProfile() and exportUserProfile() for portable
+ * user-profile JSON exchange (PSYCHE Wave 1 — T1079).
+ *
  * @task T046, T049, T050, T051, T052, T053
+ * @task T1079
  * @epic T4540
+ * @epic T1076
  */
 
 import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, resolve } from 'node:path';
+import type { UserProfileTrait } from '@cleocode/contracts';
 import { importFromPackage } from '../admin/import-tasks.js';
 import { getLogger } from '../logger.js';
 import { createLink } from '../reconciliation/link-store.js';
@@ -16,6 +25,7 @@ import { getAccessor } from '../store/data-accessor.js';
 import { exportSingle, exportSubtree } from '../store/export.js';
 import { BrainDataAccessor } from '../store/memory-accessor.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
+import { getNexusDb } from '../store/nexus-sqlite.js';
 import { requirePermission } from './permissions.js';
 import { nexusGetProject } from './registry.js';
 import type {
@@ -24,8 +34,178 @@ import type {
   TransferParams,
   TransferResult,
 } from './transfer-types.js';
+import {
+  getUserProfileTrait,
+  listUserProfile,
+  supersedeTrait,
+  upsertUserProfileTrait,
+} from './user-profile.js';
 
 const log = getLogger('nexus:transfer');
+
+// ---------------------------------------------------------------------------
+// User-profile portable JSON schema
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON envelope for portable user-profile exports.
+ *
+ * Written to `~/.cleo/user_profile.json` by default.  The `$schema` field
+ * is advisory — no runtime validation is performed against it.
+ */
+interface UserProfileJson {
+  /** Advisory JSON Schema URL. */
+  $schema: 'https://cleocode.dev/schemas/user-profile/v1.json';
+  /** ISO 8601 timestamp when this file was exported. */
+  exportedAt: string;
+  /** All non-superseded traits at export time. */
+  traits: UserProfileTrait[];
+}
+
+/** Default path for the portable user-profile JSON file. */
+export function getDefaultUserProfilePath(): string {
+  const cleoHome = process.env['CLEO_HOME'] ?? `${homedir()}/.local/share/cleo`;
+  return resolve(cleoHome, 'user_profile.json');
+}
+
+// ---------------------------------------------------------------------------
+// T1079 — importUserProfile
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of importing a user-profile JSON file.
+ */
+export interface ImportUserProfileResult {
+  /** Number of traits successfully upserted. */
+  imported: number;
+  /** Number of traits skipped (incoming had lower confidence). */
+  skipped: number;
+  /** Number of traits where the incoming entry superseded the existing one. */
+  superseded: number;
+}
+
+/**
+ * Import a portable user-profile JSON file into nexus.db.
+ *
+ * Conflict resolution per PLAN.md §T1079:
+ *   - Higher confidence wins.
+ *   - On equal confidence, more-recent `lastReinforcedAt` wins.
+ *   - The loser is linked to the winner via `supersedeTrait` (T1139 prep).
+ *
+ * @param path - Absolute path to the JSON file.  Defaults to
+ *               `~/.cleo/user_profile.json` (via `getDefaultUserProfilePath()`).
+ * @returns Import result counts.
+ */
+export async function importUserProfile(path?: string): Promise<ImportUserProfileResult> {
+  const filePath = path ?? getDefaultUserProfilePath();
+  const raw = await readFile(filePath, 'utf8');
+  const json = JSON.parse(raw) as Partial<UserProfileJson>;
+
+  const traits: UserProfileTrait[] = Array.isArray(json.traits) ? json.traits : [];
+
+  const nexusDb = await getNexusDb();
+
+  let imported = 0;
+  let skipped = 0;
+  let superseded = 0;
+
+  for (const incoming of traits) {
+    if (!incoming.traitKey || !incoming.traitValue) continue;
+
+    const existing = await getUserProfileTrait(nexusDb, incoming.traitKey);
+
+    if (!existing) {
+      // Brand-new trait — upsert directly.
+      await upsertUserProfileTrait(nexusDb, {
+        ...incoming,
+        source: incoming.source || 'import:user_profile.json',
+        firstObservedAt: incoming.firstObservedAt || new Date().toISOString(),
+        lastReinforcedAt: incoming.lastReinforcedAt || new Date().toISOString(),
+        reinforcementCount: incoming.reinforcementCount ?? 1,
+        supersededBy: null,
+        derivedFromMessageId: incoming.derivedFromMessageId ?? null,
+      });
+      imported++;
+      continue;
+    }
+
+    // Conflict resolution: higher confidence wins; tiebreak on recency.
+    const existingDate = new Date(existing.lastReinforcedAt).getTime();
+    const incomingDate = new Date(incoming.lastReinforcedAt || 0).getTime();
+
+    const incomingWins =
+      incoming.confidence > existing.confidence ||
+      (incoming.confidence === existing.confidence && incomingDate > existingDate);
+
+    if (incomingWins) {
+      // Mark existing as superseded by incoming key (same key — self-supersede
+      // means the imported data replaces the local data).
+      await supersedeTrait(nexusDb, existing.traitKey, incoming.traitKey);
+      await upsertUserProfileTrait(nexusDb, {
+        ...incoming,
+        source: incoming.source || 'import:user_profile.json',
+        firstObservedAt: existing.firstObservedAt, // preserve original observation
+        lastReinforcedAt: incoming.lastReinforcedAt || new Date().toISOString(),
+        reinforcementCount: incoming.reinforcementCount ?? existing.reinforcementCount,
+        supersededBy: null,
+        derivedFromMessageId: incoming.derivedFromMessageId ?? null,
+      });
+      superseded++;
+    } else {
+      // Existing wins — skip the incoming entry.
+      skipped++;
+    }
+  }
+
+  log.info({ path: filePath, imported, skipped, superseded }, 'user-profile import complete');
+
+  return { imported, skipped, superseded };
+}
+
+// ---------------------------------------------------------------------------
+// T1079 — exportUserProfile
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of exporting user-profile traits to JSON.
+ */
+export interface ExportUserProfileResult {
+  /** Absolute path the JSON file was written to. */
+  path: string;
+  /** Number of traits written. */
+  count: number;
+}
+
+/**
+ * Export the current user-profile traits to a portable JSON file.
+ *
+ * Only non-superseded traits (those with `supersededBy IS NULL`) are
+ * included.  The output is a `UserProfileJson` envelope containing a
+ * `$schema` URL and an `exportedAt` timestamp.
+ *
+ * @param path - Absolute output path.  Defaults to
+ *               `~/.cleo/user_profile.json` (via `getDefaultUserProfilePath()`).
+ * @returns Export result with path and count.
+ */
+export async function exportUserProfile(path?: string): Promise<ExportUserProfileResult> {
+  const filePath = path ?? getDefaultUserProfilePath();
+  const nexusDb = await getNexusDb();
+
+  const traits = await listUserProfile(nexusDb, { includeSuperseded: false });
+
+  const envelope: UserProfileJson = {
+    $schema: 'https://cleocode.dev/schemas/user-profile/v1.json',
+    exportedAt: new Date().toISOString(),
+    traits,
+  };
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(envelope, null, 2) + '\n', 'utf8');
+
+  log.info({ path: filePath, count: traits.length }, 'user-profile export complete');
+
+  return { path: filePath, count: traits.length };
+}
 
 /**
  * Preview a transfer without writing any data.

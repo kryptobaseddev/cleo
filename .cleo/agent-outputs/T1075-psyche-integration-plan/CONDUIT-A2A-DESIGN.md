@@ -200,7 +200,7 @@ Format:
 Examples:
   epic-T1149.wave-1     — Wave 1 Leads + workers publish/subscribe findings
   epic-T1149.wave-9     — Wave 9 (A2A coordination) Leads exchange A2A envelopes
-  epic-T1075.wave-0     — Wave 0 (prerequisites) Honcho integration audit
+  epic-T1075.wave-0     — Wave 0 (prerequisites) PSYCHE integration audit
 
 Semantics:
   - All agents spawned in a wave subscribe to their wave topic at startup
@@ -218,7 +218,7 @@ Centralized coordination topic for orchestrator signals:
 
 Examples:
   epic-T1149.coordination    — Orchestrator publishes wave-complete + next-wave signals
-  epic-T1075.coordination    — Honcho integration orchestrator broadcast
+  epic-T1075.coordination    — PSYCHE integration orchestrator broadcast
 
 Semantics:
   - Orchestrator publishes to this topic only (not bidirectional)

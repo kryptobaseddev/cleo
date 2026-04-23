@@ -2,12 +2,14 @@
  * Drizzle ORM schema for CLEO nexus.db (SQLite via node:sqlite + sqlite-proxy).
  *
  * Tables: project_registry, nexus_audit_log, nexus_schema_meta,
- *         nexus_nodes, nexus_relations
+ *         nexus_nodes, nexus_relations, user_profile
  * Stores cross-project registry and audit infrastructure for the Nexus domain,
- * plus the code intelligence graph layer (nodes + directed edges).
+ * plus the code intelligence graph layer (nodes + directed edges), plus the
+ * global user identity / preference profile (PSYCHE Wave 1 — T1077).
  *
  * @task T5365
  * @task T529
+ * @task T1077
  */
 
 import { sql } from 'drizzle-orm';
@@ -429,6 +431,82 @@ export const nexusContracts = sqliteTable(
   ],
 );
 
+// === USER_PROFILE TABLE ===
+
+/**
+ * Global user identity / preference profile for CLEO.
+ *
+ * Each row records a single trait about the user: a preference, a behaviour
+ * pattern, or any other stable attribute derived from interaction history via
+ * the PSYCHE Dialectic Evaluator (Wave 3).  The table lives in nexus.db so
+ * that it is global (user-scoped) rather than per-project.
+ *
+ * Design decisions:
+ * - `traitKey` is the PK — traits are upserted by key, not duplicated.
+ * - `confidence` (0.0–1.0) follows a Bayesian decay/reinforce model: each
+ *   observation that re-confirms the trait increments reinforcementCount and
+ *   may push confidence toward 1.0; contradicting observations trigger a new
+ *   upsert with lower confidence.
+ * - `supersededBy` links deprecated traits to their replacement so downstream
+ *   code can follow the supersession chain (T1139).
+ * - `derivedFromMessageId` is a soft FK to a future session_messages table
+ *   (Wave 5 — T1145).  It is nullable until that table exists.
+ *
+ * PSYCHE reference: `upstream psyche-lineage · models.py` (User + metadata).
+ *
+ * @task T1077
+ * @epic T1076
+ */
+export const userProfile = sqliteTable(
+  'user_profile',
+  {
+    /** Stable semantic key for the trait, e.g. "prefers-zero-deps". Primary key. */
+    traitKey: text('trait_key').primaryKey(),
+
+    /** JSON-encoded value for the trait (string, number, boolean, or object). */
+    traitValue: text('trait_value').notNull(),
+
+    /** Bayesian confidence in range [0.0, 1.0]. */
+    confidence: real('confidence').notNull(),
+
+    /**
+     * Origin of this trait.  Convention:
+     *   "dialectic:<sessionId>"  — derived by the Dialectic Evaluator (Wave 3)
+     *   "import:user_profile.json" — loaded from a portable profile export
+     *   "manual"                 — set directly via CLI reinforce command
+     */
+    source: text('source').notNull(),
+
+    /**
+     * Soft FK to a future session_messages.id.
+     * Null until Wave 5 (T1145) ships the session_messages table.
+     */
+    derivedFromMessageId: text('derived_from_message_id'),
+
+    /** Unix-epoch milliseconds when this trait was first recorded. */
+    firstObservedAt: integer('first_observed_at', { mode: 'timestamp' }).notNull(),
+
+    /** Unix-epoch milliseconds of the most recent reinforcement event. */
+    lastReinforcedAt: integer('last_reinforced_at', { mode: 'timestamp' }).notNull(),
+
+    /** Number of times this trait has been confirmed/reinforced (starts at 1). */
+    reinforcementCount: integer('reinforcement_count').notNull().default(1),
+
+    /**
+     * traitKey of the trait that supersedes this one.
+     * Non-null once `supersedeTrait(old, new)` is called.
+     * Links into the T1139 supersession graph.
+     */
+    supersededBy: text('superseded_by'),
+  },
+  (table) => [
+    index('idx_user_profile_confidence').on(table.confidence),
+    index('idx_user_profile_source').on(table.source),
+    index('idx_user_profile_last_reinforced').on(table.lastReinforcedAt),
+    index('idx_user_profile_superseded').on(table.supersededBy),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type ProjectRegistryRow = typeof projectRegistry.$inferSelect;
@@ -443,3 +521,5 @@ export type NexusRelationRow = typeof nexusRelations.$inferSelect;
 export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;
 export type NexusContractRow = typeof nexusContracts.$inferSelect;
 export type NewNexusContractRow = typeof nexusContracts.$inferInsert;
+export type UserProfileRow = typeof userProfile.$inferSelect;
+export type NewUserProfileRow = typeof userProfile.$inferInsert;

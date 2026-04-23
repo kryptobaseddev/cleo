@@ -1506,6 +1506,8 @@ export * from './brain-retrieval.js';
 export * from './brain-search.js';
 // === BRAIN Memory modules (brain.db backed) ===
 export * from './decisions.js';
+// === T1087 PSYCHE Wave 3: Dialectic Evaluator + Session Narrative ===
+export * from './dialectic-evaluator.js';
 // === T626-M1: Canonical edge-type constants ===
 export * from './edge-types.js';
 // === T549 Wave 2: Extraction Gate ===
@@ -1518,3 +1520,4 @@ export * from './manifest-ingestion.js';
 export * from './patterns.js';
 // === BRAIN Quality Feedback Loop (T555) ===
 export * from './quality-feedback.js';
+export * from './session-narrative.js';
