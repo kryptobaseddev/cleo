@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.124] — 2026-04-23
+
+Completes v2026.4.123 ship — fills two missing `package.json` fields so npm provenance validation accepts `@cleocode/worktree` and `@cleocode/git-shim`, and wires `@cleocode/git-shim` into the root build pipeline.
+
+### Fixed
+
+- **`repository` field added** to `packages/worktree/package.json` and `packages/git-shim/package.json`. Without it, `npm publish --provenance` returned HTTP 422 Unprocessable Entity with `Failed to validate repository information: package.json: "repository.url" is "", expected to match "https://github.com/kryptobaseddev/cleo" from provenance`. Added in the canonical shape used by all other workspace packages (`type: git` + repo URL + directory).
+- **`build.mjs` now builds `@cleocode/git-shim`**. Previously only `@cleocode/worktree` was explicitly chained; git-shim built fine locally via its own `tsc -b` but the CI root `pnpm run build` skipped it, so the tarball lacked `dist/shim.js` (the package `bin` entry). Added after the worktree build step (both depend only on `@cleocode/contracts`, same profile).
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1849 files)
+- `pnpm run build` — full dep graph green, now including git-shim
+- 14 of 16 packages already at 2026.4.123 on npm; this bump syncs all 16 to 2026.4.124 and completes the cycle
+
+
 ## [2026.4.123] — 2026-04-23
 
 Directory rename + Release workflow shell-bug fix. Enables v2026.4.122 patch intent (publishing `@cleocode/worktree` and `@cleocode/git-shim` alongside the rest of the tree) to actually work on CI.

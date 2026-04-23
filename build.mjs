@@ -479,8 +479,8 @@ async function build() {
   });
   console.log('  -> packages/contracts/dist/');
 
-  // WORKTREE-BACKEND depends on @cleocode/contracts only — build after contracts
-  // so that core and cant can import from it. Built before nexus/cant to
+  // WORKTREE depends on @cleocode/contracts only — build after contracts so
+  // that core and cant can import from it. Built before nexus/cant to
   // establish dist/ for workspace symlink resolution in subsequent packages.
   console.log('Building @cleocode/worktree...');
   execFileSync('pnpm', ['--filter', '@cleocode/worktree', 'run', 'build'], {
@@ -488,6 +488,16 @@ async function build() {
     cwd: __dirname,
   });
   console.log('  -> packages/worktree/dist/');
+
+  // GIT-SHIM depends on @cleocode/contracts only — similar profile to worktree.
+  // Its `bin` entry points at dist/shim.js, so this build MUST run before
+  // publish or npm emits "No bin file found" warnings + tarball is broken.
+  console.log('Building @cleocode/git-shim...');
+  execFileSync('pnpm', ['--filter', '@cleocode/git-shim', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  console.log('  -> packages/git-shim/dist/');
 
   // NEXUS depends on @cleocode/contracts — must build before core because
   // core's type declaration emit (tsc --emitDeclarationOnly) needs nexus's
