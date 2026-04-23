@@ -2,16 +2,20 @@
  * Conduit Domain Handler — Agent messaging via dispatch.
  *
  * Replaces standalone clawmsgr scripts with dispatch-native operations:
- *   conduit.status  (query)  — connection status + unread count
- *   conduit.peek    (query)  — one-shot poll for messages
- *   conduit.start   (mutate) — start continuous polling
- *   conduit.stop    (mutate) — stop polling
- *   conduit.send    (mutate) — send a message
+ *   conduit.status    (query)  — connection status + unread count
+ *   conduit.peek      (query)  — one-shot poll for messages
+ *   conduit.listen    (query)  — one-shot poll for topic messages (A2A, T1252)
+ *   conduit.start     (mutate) — start continuous polling
+ *   conduit.stop      (mutate) — stop polling
+ *   conduit.send      (mutate) — send a message
+ *   conduit.subscribe (mutate) — subscribe agent to a topic (A2A, T1252)
+ *   conduit.publish   (mutate) — publish message to a topic (A2A, T1252)
  *
  * All operations use AgentRegistryAccessor for credentials and
  * @cleocode/runtime AgentPoller for polling lifecycle.
  *
  * @task T183
+ * @task T1252
  */
 
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -35,6 +39,16 @@ export class ConduitHandler implements DomainHandler {
           const result = await this.peek(
             params?.agentId as string | undefined,
             params?.limit as number | undefined,
+          );
+          return wrapResult(result, 'query', 'conduit', operation, startTime);
+        }
+        case 'listen': {
+          // A2A topic listen — one-shot poll for topic messages (T1252)
+          const result = await this.listenTopic(
+            params?.topicName as string,
+            params?.agentId as string | undefined,
+            params?.limit as number | undefined,
+            params?.since as string | undefined,
           );
           return wrapResult(result, 'query', 'conduit', operation, startTime);
         }
@@ -78,6 +92,26 @@ export class ConduitHandler implements DomainHandler {
           );
           return wrapResult(result, 'mutate', 'conduit', operation, startTime);
         }
+        case 'subscribe': {
+          // A2A topic subscribe (T1252)
+          const result = await this.subscribeTopic(
+            params?.topicName as string,
+            params?.agentId as string | undefined,
+            params?.filter as { kind?: string[]; event?: string[] } | undefined,
+          );
+          return wrapResult(result, 'mutate', 'conduit', operation, startTime);
+        }
+        case 'publish': {
+          // A2A topic publish (T1252)
+          const result = await this.publishToTopic(
+            params?.topicName as string,
+            params?.content as string,
+            params?.kind as 'message' | 'request' | 'notify' | 'subscribe' | undefined,
+            params?.payload as Record<string, unknown> | undefined,
+            params?.agentId as string | undefined,
+          );
+          return wrapResult(result, 'mutate', 'conduit', operation, startTime);
+        }
         default:
           return unsupportedOp('mutate', 'conduit', operation, startTime);
       }
@@ -95,8 +129,8 @@ export class ConduitHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'peek'],
-      mutate: ['start', 'stop', 'send'],
+      query: ['status', 'peek', 'listen'],
+      mutate: ['start', 'stop', 'send', 'subscribe', 'publish'],
     };
   }
 
@@ -349,6 +383,180 @@ export class ConduitHandler implements DomainHandler {
         message: 'Polling stopped.',
       },
     };
+  }
+
+  // ── A2A Topic Operations (T1252) ────────────────────────────────────────
+
+  /**
+   * Subscribe agent to a named topic.
+   *
+   * Uses `LocalTransport` exclusively — topic operations require conduit.db.
+   *
+   * @param topicName - Topic name, e.g. `"epic-T1149.wave-2"`.
+   * @param agentId   - Agent id (defaults to active agent).
+   * @param _filter   - Reserved for future filter support.
+   * @task T1252
+   */
+  private async subscribeTopic(
+    topicName: string,
+    agentId?: string,
+    _filter?: { kind?: string[]; event?: string[] },
+  ) {
+    if (!topicName) {
+      return {
+        success: false,
+        error: { code: 'E_ARGS', message: 'Must specify "topicName"' },
+      };
+    }
+    const credential = await this.resolveCredential(agentId);
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (!LocalTransport.isAvailable(process.cwd())) {
+      return {
+        success: false,
+        error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
+      };
+    }
+    const transport = new LocalTransport();
+    await transport.connect({
+      agentId: credential.agentId,
+      apiKey: credential.apiKey,
+      apiBaseUrl: credential.apiBaseUrl,
+    });
+    try {
+      await transport.subscribeTopic(topicName);
+      return {
+        success: true,
+        data: {
+          agentId: credential.agentId,
+          topicName,
+          message: `Subscribed to topic: ${topicName}`,
+        },
+      };
+    } finally {
+      await transport.disconnect();
+    }
+  }
+
+  /**
+   * Publish a message to a named topic.
+   *
+   * Uses `LocalTransport` exclusively — topic operations require conduit.db.
+   *
+   * @param topicName - Target topic name.
+   * @param content   - Message content (required).
+   * @param kind      - Message kind (default `"message"`).
+   * @param payload   - Optional structured payload.
+   * @param agentId   - Publisher agent id (defaults to active agent).
+   * @task T1252
+   */
+  private async publishToTopic(
+    topicName: string,
+    content: string,
+    kind?: 'message' | 'request' | 'notify' | 'subscribe',
+    payload?: Record<string, unknown>,
+    agentId?: string,
+  ) {
+    if (!topicName) {
+      return {
+        success: false,
+        error: { code: 'E_ARGS', message: 'Must specify "topicName"' },
+      };
+    }
+    if (!content) {
+      return {
+        success: false,
+        error: { code: 'E_ARGS', message: 'Must specify "content"' },
+      };
+    }
+    const credential = await this.resolveCredential(agentId);
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (!LocalTransport.isAvailable(process.cwd())) {
+      return {
+        success: false,
+        error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
+      };
+    }
+    const transport = new LocalTransport();
+    await transport.connect({
+      agentId: credential.agentId,
+      apiKey: credential.apiKey,
+      apiBaseUrl: credential.apiBaseUrl,
+    });
+    try {
+      const result = await transport.publishToTopic(topicName, content, { kind, payload });
+      return {
+        success: true,
+        data: {
+          messageId: result.messageId,
+          from: credential.agentId,
+          topicName,
+          transport: 'local' as const,
+          publishedAt: new Date().toISOString(),
+        },
+      };
+    } finally {
+      await transport.disconnect();
+    }
+  }
+
+  /**
+   * One-shot poll for topic messages.
+   *
+   * Returns messages published to the topic (ordered oldest-first).
+   * Uses `LocalTransport` exclusively — topic operations require conduit.db.
+   *
+   * @param topicName - Topic name to poll.
+   * @param agentId   - Agent id (defaults to active agent).
+   * @param limit     - Maximum messages to return (default 50).
+   * @param since     - Return only messages after this ISO 8601 timestamp.
+   * @task T1252
+   */
+  private async listenTopic(topicName: string, agentId?: string, limit?: number, since?: string) {
+    if (!topicName) {
+      return {
+        success: false,
+        error: { code: 'E_ARGS', message: 'Must specify "topicName"' },
+      };
+    }
+    const startMs = Date.now();
+    const credential = await this.resolveCredential(agentId);
+    const { LocalTransport } = await import('@cleocode/core/conduit');
+    if (!LocalTransport.isAvailable(process.cwd())) {
+      return {
+        success: false,
+        error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
+      };
+    }
+    const transport = new LocalTransport();
+    await transport.connect({
+      agentId: credential.agentId,
+      apiKey: credential.apiKey,
+      apiBaseUrl: credential.apiBaseUrl,
+    });
+    try {
+      // Convert ISO since to unix timestamp for pollTopic
+      const sinceUnix = since ? Math.floor(new Date(since).getTime() / 1000) : 0;
+      const messages = await transport.pollTopic(topicName, {
+        limit: limit ?? 50,
+        since: sinceUnix,
+      });
+      return {
+        success: true,
+        data: {
+          topicName,
+          messages: messages.map((m) => ({
+            id: m.id,
+            from: m.from,
+            content: m.content,
+            conversationId: m.threadId,
+            timestamp: m.timestamp,
+          })),
+          listenedForMs: Date.now() - startMs,
+        },
+      };
+    } finally {
+      await transport.disconnect();
+    }
   }
 
   /** Send a message to an agent or conversation. Uses LocalTransport when conduit.db is available. */
