@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/worktree-backend",
-  "version": "2026.4.115",
+  "version": "2026.4.116",
   "private": false,
   "type": "module",
   "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
