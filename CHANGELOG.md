@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.122] — 2026-04-23
+
+Release-workflow patch — adds `@cleocode/worktree` and `@cleocode/git-shim` to the Release workflow publish list. Both packages existed in the tree but were absent from `.github/workflows/release.yml` hardcoded package enumeration, so every release since their introduction published 13 of 15 packages. Verified gap after v2026.4.121: `npm view @cleocode/worktree version` returned `2026.4.118` (stuck) and `@cleocode/git-shim` returned 404.
+
+### Fixed
+
+- **Release workflow version-bump loop** now includes `packages/worktree` and `packages/cleo-git-shim`.
+- **Release workflow publish call list** now invokes `publish_pkg worktree` + `publish_pkg cleo-git-shim git-shim` after `contracts`/`lafs` and before `core` (core imports `@cleocode/worktree`; dependency must resolve on npm first).
+- **`publish_pkg()` helper** extended with optional second arg for npm-name override — directory `packages/cleo-git-shim/` publishes as `@cleocode/git-shim`, not `@cleocode/cleo-git-shim`. Backward-compat: omit second arg to keep the legacy directory=npm-name convention.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1849 files)
+- No source-code changes; workflow-only patch
+
+
 ## [2026.4.121] — 2026-04-23
 
 **PSYCHE memory-substrate waves 1-4 + CONDUIT A2A completion** — consolidates
