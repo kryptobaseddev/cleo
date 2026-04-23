@@ -4,6 +4,123 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.115] — 2026-04-22
+
+Substrate hardening release — native worktree-backend SDK, worktree-by-default
+spawn prompts, agent registry hardening, and Honcho Wave 0 integration
+prerequisites. Five Leads dispatched in parallel (T1161 + T1210 + T1209 +
+T1211 + T1140); all commits landed via C → E → B → A → D cherry-pick order
+with zero new test regressions vs the v2026.4.114 baseline.
+
+### Added
+
+- **`packages/worktree-backend/`** (T1161 / D030) — new peer-to-core package
+  consolidating previously scattered worktree logic (`packages/cant/src/worktree.ts`,
+  `packages/cleo-git-shim/`, `packages/core/src/spawn/branch-lock.ts`,
+  `packages/core/src/sentient/baseline.ts` / `merge.ts`, classify routing) into
+  a unified SDK: `createWorktree`, `destroyWorktree`, `listWorktrees`,
+  `pruneWorktrees`. Ships with declarative hooks framework
+  (`post-create` / `post-start`) and `.cleo/worktree-include` glob-pattern
+  env/config propagation. All paths via `env-paths` + `platform-paths.ts`
+  per D026 — zero hardcoded paths. Deprecation-safe re-export shim from
+  `packages/cant/src/worktree.ts` keeps existing callers working.
+
+- **`packages/contracts/src/peer.ts`** (T1210) — `PeerIdentity` type:
+  `{ peerId, peerKind, cantFile?, displayName, description }`. Runtime-validated;
+  single source of truth for agent registry + dispatch.
+
+- **`packages/contracts/src/operations/worktree.ts`** (T1161) — Params/Result
+  types for the worktree-backend SDK surface.
+
+- **`packages/core/src/sentient/worktree-dispatch.ts`** (T1161) — runtime
+  backend selector + SDK thin wrapper for spawn-prompt consumption.
+
+- **`## Worktree Setup (REQUIRED)` section in spawn prompts** (T1140) — every
+  worker-tier spawn prompt now emits an explicit, named worktree block
+  including the context-isolation string `authorized only within <path>`
+  and a `FIRST ACTION cd …` directive. Routed through `spawnWorktree()` in
+  `worktree-dispatch.ts` (SDK-first per D023) instead of inline logic.
+
+- **`--no-worktree` CLI flag** on `cleo orchestrate spawn` (T1140) — explicit
+  opt-out, logged to `audit_log` so the choice is always traceable.
+
+- **`{{ WORKTREE_PATH }}` and `{{ WORKTREE_BRANCH }}` tokens** in the spawn
+  prompt token map (T1140) — stage-guidance templates can now reference the
+  active worktree.
+
+- **Honcho Wave 0 integration prerequisites** — research artifacts under
+  `.cleo/agent-outputs/T1075-honcho-integration-plan/`:
+  - `HONCHO-SOURCE-NOTES.md` (T1209) — per-file audit of `/mnt/projects/honcho/src/`
+    with explicit CLEO target-file mapping
+  - `GLOSSARY.md` (T1211) — 7-entry Honcho↔CLEO terminology map:
+    `workspace ≡ project`, `peer ≡ CANT agent`, `session ≡ session`,
+    `representation ≡ theory-of-mind`, `collection ≡ brain_observations grouping`,
+    `document ≡ brain_learnings`, `message ≡ session turn`
+
+- **7-persona regression test** at `packages/cant/tests/seed-persona-registry.test.ts`
+  (T1210) — guards against `E_AGENT_NOT_FOUND` regression for `cleo-prime`,
+  `cleo-dev`, `cleo-db-lead`, `cleo-historian`, `cleo-rust-lead`, `cleo-subagent`,
+  `cleoos-opus-orchestrator`.
+
+- **5 new spawn-prompt tests** (T1140) — verify `## Worktree Setup` section
+  presence, `--no-worktree` audit logging, SDK routing, token substitution.
+
+### Changed
+
+- **Worktree canonical path = `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`**
+  via `env-paths` (D029) — supersedes `.cleo/.trees/<slug>/` (D025) and the
+  original sibling `/mnt/projects/cleocode.<slug>` layout (D022). Rationale:
+  D026 "never hardcode paths" directive is satisfied natively by `env-paths`,
+  which also provides cross-platform + cross-project-move resilience.
+
+- **Implementation strategy for T1161**: native CLEO code (D030) — zero
+  worktrunk dependency. Supersedes D026 worktrunk-wrap proposal. Lifts
+  worktrunk's two missing features (declarative hooks, include-file glob) as
+  native additions rather than vendoring the Rust binary.
+
+- **`packages/agents/` deduplicated** (T1210) — `cleo-subagent` consolidated
+  to a single canonical path under `seed-agents/`. `AGENT.md` documentation
+  folded into the `.cant` file rather than living as a separate doc.
+
+- **`cleo orchestrate spawn` worktree provisioning now goes through the SDK**
+  (T1140) — previously inline via `createAgentWorktree` from `branch-lock.ts`;
+  now routed through `spawnWorktree()` in `worktree-dispatch.ts`. Enables
+  future spawn-time lifecycle hooks + baseline-validator gating without
+  re-threading the flow.
+
+- **`CLEO-INJECTION.md` — new Worktree-by-Default section** (T1140)
+  documenting D029 canonical path layout, context-isolation contract, and
+  the `--no-worktree` opt-out.
+
+### Removed
+
+- **`packages/agents/cleo-subagent/AGENT.md`** and
+  **`packages/agents/cleo-subagent/cleo-subagent.cant`** (T1210) — duplicate
+  of the canonical `packages/agents/seed-agents/` entry. Removes the
+  long-standing ambiguity that was blocking peer_id SSoT work.
+
+### Substrate follow-up filed (not shipped this cycle)
+
+- **T1249** — *Sonnet Leads overflow "Prompt is too long" with tier-1 spawn
+  prompts on medium/large work.* This cycle's two sonnet Leads both crashed
+  with harness context overflow: T1161 at 173 tool uses / 18.4 min
+  (uncommitted — required orchestrator rescue-commit), T1210 at 112 tool uses /
+  9.4 min (committed before crash). The haiku Leads (C, E) and the final
+  tier-0 sonnet Lead (D — 157 uses / 19.7 min) all completed cleanly.
+  Pattern + mitigation captured as memory observation `O-moape4js-0`; rescue
+  protocol captured as `O-moape5sc-0`.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — clean (1840 files, 0 errors)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — 11,101 passed / 1 pre-existing flake (tmpdir cleanup race
+  in `decisions.test.ts` — unrelated to release scope) / 13 skipped / 33 todo
+  across 662 test files; +5 new tests vs v2026.4.114 baseline
+- `cleo check canon` — 0 violations, 4/4 doc assertions green
+- `cleo admin smoke --provider claude-code` — PASS (adapter loaded, all 4 DBs
+  local, 16 hooks declared, spawn implementation: yes)
+
 ## [2026.4.114] — 2026-04-22
 
 CLI output cleanliness + search ergonomics hotfix. Every issue surfaced
