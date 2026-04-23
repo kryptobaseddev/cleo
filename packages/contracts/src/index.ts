@@ -176,6 +176,8 @@ export type {
   ConduitSendResult,
   ConduitState,
   ConduitStateChange,
+  ConduitTopicPublishOptions,
+  ConduitTopicSubscribeOptions,
   ConduitUnsubscribe,
 } from './conduit.js';
 // === Configuration Types ===

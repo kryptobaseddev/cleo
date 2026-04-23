@@ -138,6 +138,23 @@ export const ALL_SPAWN_PROTOCOL_PHASES: readonly SpawnProtocolPhase[] = [
 ] as const;
 
 /**
+ * CONDUIT subscription configuration injected into tier-1 / tier-2 spawn prompts.
+ *
+ * When present, the spawn prompt includes a `## CONDUIT Subscription` section
+ * that names the wave topic and coordination topic the agent should subscribe to.
+ *
+ * @see T1252 CONDUIT A2A
+ */
+export interface ConduitSubscriptionConfig {
+  /** Parent epic ID, e.g. `"T1149"`. */
+  epicId: string;
+  /** Wave number (integer), e.g. `2`. */
+  waveId: number;
+  /** Spawned agent peer ID, e.g. `"cleo-lead-2"`. */
+  peerId: string;
+}
+
+/**
  * Input to {@link buildSpawnPrompt}.
  *
  * Absolute paths (rcasd dir, test-runs dir, output dir) are resolved by the
@@ -202,6 +219,17 @@ export interface BuildSpawnPromptInput {
    * @task T1140
    */
   worktreeBranch?: string;
+  /**
+   * CONDUIT A2A subscription configuration.
+   *
+   * When provided, a `## CONDUIT Subscription` section is injected into
+   * tier-1 and tier-2 prompts, giving the spawned agent its wave topic and
+   * coordination topic. Omitted for tier-0 prompts (minimal content) and
+   * when not set.
+   *
+   * @task T1252 CONDUIT A2A
+   */
+  conduitSubscription?: ConduitSubscriptionConfig;
 }
 
 /**
@@ -908,6 +936,96 @@ function buildTier2SkillExcerpts(projectRoot: string): string {
   return parts.join('\n');
 }
 
+/**
+ * Build the `## CONDUIT Subscription` section for A2A wave coordination.
+ *
+ * Injected into tier-1 / tier-2 spawn prompts when the orchestrator
+ * has configured a wave topic and coordination topic for the task.
+ *
+ * Follows the pattern established by `buildWorktreeSetupBlock` (T1140):
+ * - Names the concrete topic strings so the agent can subscribe immediately.
+ * - Provides an SDK usage example (TypeScript).
+ *
+ * @param config - CONDUIT subscription configuration from the orchestrator.
+ * @returns Markdown section ready to concatenate into the spawn prompt.
+ *
+ * @task T1252 CONDUIT A2A
+ */
+function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): string {
+  const { epicId, waveId, peerId } = config;
+  const waveTopic = `epic-${epicId}.wave-${waveId}`;
+  const coordTopic = `epic-${epicId}.coordination`;
+
+  return [
+    '## CONDUIT Subscription (A2A Wave Coordination · T1252)',
+    '',
+    `> Your peer identity: \`${peerId}\``,
+    `> Your wave topic: \`${waveTopic}\``,
+    `> Coordination topic: \`${coordTopic}\``,
+    '',
+    'Subscribe to both topics at startup so you receive wave-completion signals and orchestrator broadcasts.',
+    '',
+    '### Topics',
+    '',
+    `**Wave Topic** — \`${waveTopic}\``,
+    '- Role: Leads in your wave exchange findings and block/unblock signals.',
+    '- Action: Subscribe at spawn; publish findings when work completes.',
+    '',
+    `**Coordination Topic** — \`${coordTopic}\``,
+    '- Role: Orchestrator publishes wave-complete and abort signals.',
+    '- Action: Subscribe at spawn; listen for teardown signals.',
+    '',
+    '### SDK Usage (TypeScript)',
+    '',
+    '```ts',
+    "import { createConduit } from '@cleocode/core';",
+    '',
+    `const conduit = await createConduit(registry, '${peerId}');`,
+    'await conduit.connect();',
+    '',
+    '// Subscribe to your wave topic and the coordination topic',
+    `await conduit.subscribeTopic('${waveTopic}');`,
+    `await conduit.subscribeTopic('${coordTopic}');`,
+    '',
+    '// Listen for peer findings',
+    `conduit.onTopic('${waveTopic}', (msg) => {`,
+    "  if (msg.kind === 'notify' && msg.payload?.event === 'work-complete') {",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional code example in a string
+    '    console.log(`Peer completed: ${msg.fromPeerId}`);',
+    '  }',
+    '});',
+    '',
+    '// Listen for orchestrator signals',
+    `conduit.onTopic('${coordTopic}', (msg) => {`,
+    "  if (msg.kind === 'notify' && msg.payload?.event === 'teardown') {",
+    '    // Wave teardown — safe to disconnect',
+    '    void conduit.disconnect();',
+    '  }',
+    '});',
+    '',
+    '// When your work is done, publish findings',
+    `await conduit.publishToTopic('${waveTopic}', 'Work complete', {`,
+    "  kind: 'notify',",
+    '  payload: {',
+    "    event: 'work-complete',",
+    `    peerId: '${peerId}',`,
+    '    findings: { /* structured output */ },',
+    '    completedAt: new Date().toISOString()',
+    '  }',
+    '});',
+    '```',
+    '',
+    '### CLI Equivalents',
+    '',
+    '```bash',
+    `cleo conduit subscribe --topicName "${waveTopic}"`,
+    `cleo conduit subscribe --topicName "${coordTopic}"`,
+    `cleo conduit publish --topicName "${waveTopic}" --content "Work complete" --kind notify`,
+    `cleo conduit listen --topicName "${waveTopic}"`,
+    '```',
+  ].join('\n');
+}
+
 /** Build the anti-pattern reference. */
 function buildAntiPatternBlock(): string {
   return [
@@ -1008,6 +1126,11 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Omitted when --no-worktree was passed or worktree creation failed.
   if (worktreePath) {
     authoredSections.push(buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId));
+  }
+  // CONDUIT Subscription (T1252) — only emitted for tier 1/2 when the
+  // orchestrator has configured A2A wave coordination for this task.
+  if (tier >= 1 && input.conduitSubscription) {
+    authoredSections.push(buildConduitSubscriptionBlock(input.conduitSubscription));
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));

@@ -12,7 +12,12 @@
  */
 
 import type { TransportConfig } from './agent-registry.js';
-import type { ConduitMessage } from './conduit.js';
+import type {
+  ConduitMessage,
+  ConduitTopicPublishOptions,
+  ConduitTopicSubscribeOptions,
+  ConduitUnsubscribe,
+} from './conduit.js';
 
 // ============================================================================
 // Transport connection config
@@ -61,6 +66,58 @@ export interface Transport {
 
   /** Subscribe to real-time events (SSE/WebSocket). Returns unsubscribe. */
   subscribe?(handler: (message: ConduitMessage) => void): () => void;
+
+  // ── A2A Topic Operations (T1252 — optional, LocalTransport only) ─────────
+
+  /**
+   * Subscribe agent to a named topic.
+   *
+   * Optional — only implemented by `LocalTransport`. Cloud transports
+   * (HttpTransport, SseTransport) do not yet support topic operations.
+   *
+   * @param topicName - Topic name, e.g. `"epic-T1149.wave-2"`.
+   * @param options   - Subscription filter options.
+   * @task T1252
+   */
+  subscribeTopic?(topicName: string, options?: ConduitTopicSubscribeOptions): Promise<void>;
+
+  /**
+   * Publish a message to a named topic.
+   *
+   * Optional — only implemented by `LocalTransport`.
+   *
+   * @param topicName - Target topic name.
+   * @param content   - Message content.
+   * @param options   - Kind and optional payload.
+   * @task T1252
+   */
+  publishToTopic?(
+    topicName: string,
+    content: string,
+    options?: ConduitTopicPublishOptions,
+  ): Promise<{ messageId: string }>;
+
+  /**
+   * Register a real-time handler for topic messages.
+   *
+   * Optional — only implemented by `LocalTransport`.
+   *
+   * @param topicName - Topic name to watch.
+   * @param handler   - Handler invoked for each new message.
+   * @returns Unsubscribe function.
+   * @task T1252
+   */
+  onTopic?(topicName: string, handler: (message: ConduitMessage) => void): ConduitUnsubscribe;
+
+  /**
+   * Unsubscribe agent from a named topic.
+   *
+   * Optional — only implemented by `LocalTransport`.
+   *
+   * @param topicName - Topic name to leave.
+   * @task T1252
+   */
+  unsubscribeTopic?(topicName: string): Promise<void>;
 }
 
 // ============================================================================

@@ -51,6 +51,11 @@ const EXPECTED_TABLES = [
   'message_pins',
   'messages',
   'project_agent_refs',
+  // A2A topic tables (T1252)
+  'topic_message_acks',
+  'topic_messages',
+  'topic_subscriptions',
+  'topics',
 ];
 
 // ---------------------------------------------------------------------------
