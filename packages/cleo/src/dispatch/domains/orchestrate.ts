@@ -350,7 +350,14 @@ export class OrchestrateHandler implements DomainHandler {
           }
           const protocolType = params?.protocolType as string | undefined;
           const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateSpawn(taskId, protocolType, projectRoot, tier);
+          const noWorktree = params?.noWorktree as boolean | undefined;
+          const result = await orchestrateSpawn(
+            taskId,
+            protocolType,
+            projectRoot,
+            tier,
+            noWorktree,
+          );
           return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 

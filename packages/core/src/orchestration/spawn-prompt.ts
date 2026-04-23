@@ -180,6 +180,28 @@ export interface BuildSpawnPromptInput {
    * @task T889 / T893 / W3-2
    */
   skipCleoInjectionEmbed?: boolean;
+  /**
+   * Absolute path to the pre-provisioned worktree for this task.
+   *
+   * When provided, a `## Worktree Setup (REQUIRED)` section is emitted in
+   * the prompt body that names the worktree path, the branch, and the
+   * context-isolation constraint. When absent (e.g. `--no-worktree` was
+   * passed at spawn time), the section is omitted entirely.
+   *
+   * The path is also injected as `{{ worktreePath }}` into the token map so
+   * stage-guidance templates can reference it without hard-coding.
+   *
+   * @task T1140 — worktree-by-default spawn prompt
+   */
+  worktreePath?: string;
+  /**
+   * Git branch name for the worktree (e.g. `task/T1234`).
+   *
+   * Only used when {@link worktreePath} is set. Defaults to `task/<taskId>`.
+   *
+   * @task T1140
+   */
+  worktreeBranch?: string;
 }
 
 /**
@@ -301,6 +323,55 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
 // ============================================================================
 // Section builders
 // ============================================================================
+
+/**
+ * Build the `## Worktree Setup (REQUIRED)` section for worker-tier prompts.
+ *
+ * Emitted when the orchestrate engine has pre-provisioned a git worktree for
+ * the task (worktree-by-default per T1140 / ADR-055). The section:
+ *
+ * - Names the worktree absolute path and branch.
+ * - States the context-isolation constraint so the agent knows it is
+ *   authorized only within the worktree boundary.
+ * - Provides the `FIRST ACTION` directive so the agent initializes its cwd.
+ *
+ * When `--no-worktree` is passed at spawn time this function is not called
+ * and the section is absent. Agents that encounter a prompt without this
+ * section may still run on the primary worktree (backward compat).
+ *
+ * @param worktreePath   - Absolute path to the provisioned worktree.
+ * @param worktreeBranch - Branch name (e.g. `task/T1234`).
+ * @param taskId         - Task ID for context-isolation text.
+ *
+ * @task T1140 — worktree-by-default spawn prompt
+ */
+function buildWorktreeSetupBlock(
+  worktreePath: string,
+  worktreeBranch: string,
+  taskId: string,
+): string {
+  return [
+    '## Worktree Setup (REQUIRED)',
+    '',
+    `> You are authorized only within \`${worktreePath}\`.`,
+    '> All reads, writes, and git operations MUST occur inside this boundary.',
+    '',
+    `- **Worktree path**: \`${worktreePath}\``,
+    `- **Branch**: \`${worktreeBranch}\``,
+    `- **Task**: \`${taskId}\``,
+    '',
+    `**FIRST ACTION**: \`cd ${worktreePath}\``,
+    '',
+    'You MUST NOT run any of these git commands (a shim on your PATH will exit 77 if you try):',
+    '',
+    '```',
+    'git checkout, git switch, git branch -b/-D, git reset --hard,',
+    'git worktree add/remove, git rebase, git stash pop, git push --force',
+    '```',
+    '',
+    'All commits MUST land on YOUR branch only. Cherry-pick to main is handled by the orchestrator.',
+  ].join('\n');
+}
 
 /** Build the header block — identity banner + tier + protocol. Kept short so
  * the Task section lands in the first 500 chars of the prompt (W3-4 hoist).
@@ -882,6 +953,11 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   const rcasdDir = join(input.projectRoot, '.cleo', 'rcasd', taskId);
   const testRunsDir = join(input.projectRoot, '.cleo', 'test-runs');
 
+  // Worktree path — injected as a token so stage-guidance templates can
+  // reference {{ worktreePath }} without hard-coding the directory layout.
+  const worktreePath = input.worktreePath ?? '';
+  const worktreeBranch = input.worktreeBranch ?? `task/${taskId}`;
+
   const tokens: Record<string, string> = {
     TASK_ID: taskId,
     DATE: date,
@@ -894,6 +970,8 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     PROTOCOL: protocol,
     TIER: String(tier),
     TOPIC_SLUG: slugify(input.task.title),
+    WORKTREE_PATH: worktreePath,
+    WORKTREE_BRANCH: worktreeBranch,
   };
 
   // ── Section assembly ──────────────────────────────────────────────────
@@ -916,15 +994,21 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // 2. Task Identity       — id, title, description, size, AC
   // 3. Return Format       — contract the subagent must honor on exit
   // 4. Session Linkage     — orchestrator session id
-  // 5. File Paths          — absolute paths
-  // 6. Stage Guidance      — phase-specific directives
-  // 7. Evidence Gate       — ADR-051 ritual
-  // 8. Quality Gates       — biome / build / test
+  // 5. Worktree Setup      — pre-provisioned path + context-isolation (T1140)
+  // 6. File Paths          — absolute paths
+  // 7. Stage Guidance      — phase-specific directives
+  // 8. Evidence Gate       — ADR-051 ritual
+  // 9. Quality Gates       — biome / build / test
   authoredSections.push(buildHeader(input.task, protocol, tier));
   authoredSections.push(buildTaskIdentity(input.task));
   authoredSections.push(buildReturnFormatBlock(protocol));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(buildSessionBlock(input.sessionId));
+  // Worktree Setup (T1140) — only emitted when the engine provisioned one.
+  // Omitted when --no-worktree was passed or worktree creation failed.
+  if (worktreePath) {
+    authoredSections.push(buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId));
+  }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));

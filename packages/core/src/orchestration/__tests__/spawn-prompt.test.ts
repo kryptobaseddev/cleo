@@ -366,3 +366,76 @@ describe('buildSpawnPrompt — token resolution', () => {
     expect(result.tokens['TIER']).toBe(String(DEFAULT_SPAWN_TIER));
   });
 });
+
+// ---------------------------------------------------------------------------
+// T1140 — Worktree Setup section
+// ---------------------------------------------------------------------------
+
+describe('buildSpawnPrompt — worktree setup section (T1140)', () => {
+  it('emits Worktree Setup section when worktreePath is provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: '/home/user/.local/share/cleo/worktrees/abc123/T9000',
+      worktreeBranch: 'task/T9000',
+      tier: 0,
+    });
+    expect(result.prompt).toContain('## Worktree Setup (REQUIRED)');
+    expect(result.prompt).toContain('/home/user/.local/share/cleo/worktrees/abc123/T9000');
+    expect(result.prompt).toContain('task/T9000');
+    expect(result.prompt).toContain('authorized only within');
+    expect(result.prompt).toContain('FIRST ACTION');
+  });
+
+  it('omits Worktree Setup section when worktreePath is not provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      tier: 0,
+    });
+    expect(result.prompt).not.toContain('## Worktree Setup (REQUIRED)');
+  });
+
+  it('uses default branch name task/<taskId> when worktreeBranch is not set', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: '/tmp/worktrees/T9000',
+      tier: 0,
+    });
+    expect(result.prompt).toContain('task/T9000');
+  });
+
+  it('injects WORKTREE_PATH and WORKTREE_BRANCH into the token map', () => {
+    const path = '/home/user/.local/share/cleo/worktrees/abc123/T9000';
+    const branch = 'task/T9000';
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: path,
+      worktreeBranch: branch,
+      tier: 0,
+    });
+    expect(result.tokens['WORKTREE_PATH']).toBe(path);
+    expect(result.tokens['WORKTREE_BRANCH']).toBe(branch);
+  });
+
+  it('worktree section appears after Session Linkage and before File Paths', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: '/tmp/worktrees/T9000',
+      tier: 0,
+    });
+    const sessionIdx = result.prompt.indexOf('## Session Linkage');
+    const worktreeIdx = result.prompt.indexOf('## Worktree Setup (REQUIRED)');
+    const filePathsIdx = result.prompt.indexOf('## File Paths');
+    expect(sessionIdx).toBeLessThan(worktreeIdx);
+    expect(worktreeIdx).toBeLessThan(filePathsIdx);
+  });
+});

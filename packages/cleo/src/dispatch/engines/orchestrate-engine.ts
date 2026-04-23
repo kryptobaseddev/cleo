@@ -937,6 +937,10 @@ async function composeSpawnForTask(
     role?: AgentSpawnCapability;
     protocol?: string;
     skipAtomicityCheck?: boolean;
+    /** Pre-provisioned worktree path — emits Worktree Setup section (T1140). */
+    worktreePath?: string;
+    /** Branch name for the worktree (T1140). */
+    worktreeBranch?: string;
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getAccessor(root);
@@ -968,6 +972,8 @@ async function composeSpawnForTask(
       role: inferredRole,
       protocol: options.protocol,
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
+      worktreePath: options.worktreePath,
+      worktreeBranch: options.worktreeBranch,
     });
   } finally {
     db.close();
@@ -1002,6 +1008,7 @@ export async function orchestrateSpawn(
   protocolType?: string,
   projectRoot?: string,
   tier?: 0 | 1 | 2,
+  noWorktree?: boolean,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1041,14 +1048,64 @@ export async function orchestrateSpawn(
       activeSessionId = null;
     }
 
+    // T1140 — Worktree provisioning (SDK-first per D023 / ADR-055).
+    //
+    // Worktrees are created by default for every spawn. The `--no-worktree`
+    // flag opts out and logs an audit entry so the choice is traceable.
+    //
+    // When provisioning fails (non-git repo, git not installed, etc.) we
+    // degrade gracefully — spawn continues without isolation, same as T1118.
+    let sdkWorktreeResult: import('@cleocode/contracts').CreateWorktreeResult | null = null;
+    let worktreePath: string | undefined;
+    let worktreeBranch: string | undefined;
+
+    if (noWorktree) {
+      // Explicit opt-out — log to audit so it's always traceable.
+      getLogger('engine:orchestrate').info(
+        { taskId },
+        'T1140 --no-worktree: worktree provisioning skipped (audit logged)',
+      );
+      try {
+        const accessor = await getAccessor(root);
+        await accessor.appendLog({
+          action: 'orchestrate.spawn.no-worktree',
+          taskId,
+          actor: 'orchestrate-engine',
+          details: { reason: '--no-worktree flag set by caller', taskId },
+        });
+      } catch {
+        // Audit log is best-effort — never block spawn.
+      }
+    } else {
+      // Default: provision via the SDK dispatch layer (worktree-dispatch.ts).
+      // Routes through @cleocode/worktree-backend per D023 SDK-first contract.
+      try {
+        const { spawnWorktree } = await import('@cleocode/core/internal');
+        sdkWorktreeResult = await spawnWorktree(root, { taskId });
+        worktreePath = sdkWorktreeResult.path;
+        worktreeBranch = sdkWorktreeResult.branch;
+      } catch (wtErr) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: wtErr },
+          `T1140 worktree creation failed for ${taskId} — spawning without isolation: ${wtErr instanceof Error ? wtErr.message : String(wtErr)}`,
+        );
+      }
+    }
+
     // Route every spawn through the canonical composer (T932). Atomicity,
     // harness-hint dedup, resolved-agent metadata, and traceability meta are
     // all populated here — prepareSpawn/buildSpawnPrompt are NOT called
     // directly from this path anymore.
+    //
+    // T1140: worktreePath and worktreeBranch are passed through so the
+    // composer can emit the `## Worktree Setup (REQUIRED)` section in the
+    // prompt body (replacing the old preamble prepend pattern from T1118).
     const payload = await composeSpawnForTask(taskId, root, {
       tier,
       sessionId: activeSessionId,
       protocol: protocolType,
+      worktreePath,
+      worktreeBranch,
     });
 
     // Surface atomicity violations as a first-class error envelope so callers
@@ -1069,28 +1126,31 @@ export async function orchestrateSpawn(
       );
     }
 
-    // T1118 L1+L2 — Create a git worktree for this task and build the spawn env.
-    // Non-fatal: if worktree creation fails (e.g. not a git repo, git not installed),
-    // we degrade gracefully and emit a warning so spawn continues without isolation.
-    let worktreeResult: import('@cleocode/contracts').WorktreeSpawnResult | null = null;
-    try {
-      const { buildWorktreeSpawnResult, createAgentWorktree, ensureGitShimDir } = await import(
-        '@cleocode/core/internal'
-      );
-      const worktree = createAgentWorktree(taskId, root);
-      const shimDir = ensureGitShimDir(root);
-      worktreeResult = buildWorktreeSpawnResult(worktree, shimDir);
-    } catch (wtErr) {
-      getLogger('engine:orchestrate').warn(
-        { taskId, err: wtErr },
-        `T1118 worktree creation failed for ${taskId} — spawning without isolation: ${wtErr instanceof Error ? wtErr.message : String(wtErr)}`,
-      );
-    }
+    // T1140: The worktree section is now emitted by buildSpawnPrompt (inside
+    // composeSpawnForTask above) as `## Worktree Setup (REQUIRED)`. The prompt
+    // is used as-is — no legacy preamble prepend needed for SDK results.
+    const finalPrompt = payload.prompt;
 
-    // Prepend the branch-isolation preamble to the spawn prompt when worktree was created.
-    const finalPrompt = worktreeResult
-      ? `${worktreeResult.preamble}\n${payload.prompt}`
-      : payload.prompt;
+    // Build a WorktreeSpawnResult-compatible envelope from the SDK result so
+    // harness adapters that read worktree/worktreeEnv/worktreeCwd continue to
+    // work without modification (backward-compat shim).
+    const worktreeAdapterResult: import('@cleocode/contracts').WorktreeSpawnResult | null =
+      sdkWorktreeResult
+        ? {
+            worktree: {
+              path: sdkWorktreeResult.path,
+              branch: sdkWorktreeResult.branch,
+              taskId: sdkWorktreeResult.taskId,
+              baseRef: sdkWorktreeResult.baseRef,
+              projectHash: sdkWorktreeResult.projectHash,
+              createdAt: sdkWorktreeResult.createdAt,
+              locked: sdkWorktreeResult.locked,
+            },
+            envVars: sdkWorktreeResult.envVars,
+            cwd: sdkWorktreeResult.path,
+            preamble: sdkWorktreeResult.preamble,
+          }
+        : null;
 
     // Return shape: `prompt` at the top level is the primary payload every
     // caller should consume. `atomicity` + `meta` surface the T932 composer
@@ -1106,10 +1166,10 @@ export async function orchestrateSpawn(
         harnessHint: payload.harnessHint,
         atomicity: payload.atomicity,
         meta: payload.meta,
-        // T1118 L1+L2 — worktree binding for harness adapters.
-        worktree: worktreeResult?.worktree ?? null,
-        worktreeEnv: worktreeResult?.envVars ?? null,
-        worktreeCwd: worktreeResult?.cwd ?? null,
+        // T1118 L1+L2 / T1140 — worktree binding for harness adapters.
+        worktree: worktreeAdapterResult?.worktree ?? null,
+        worktreeEnv: worktreeAdapterResult?.envVars ?? null,
+        worktreeCwd: worktreeAdapterResult?.cwd ?? null,
         spawnContext: {
           taskId: payload.taskId,
           protocol: payload.meta.protocol,
