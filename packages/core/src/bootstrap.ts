@@ -444,8 +444,9 @@ async function installAgentDefinitionGlobally(ctx: BootstrapContext): Promise<vo
  * Without this step, a fresh `npm install -g @cleocode/cleo` leaves the
  * global CANT agents directory empty, and `cleo orchestrate spawn` has no
  * personas to resolve against. The post-install hook calls this step so the
- * canonical personas (cleo-prime, cleo-dev, cleo-historian, cleo-rust-lead,
- * cleo-db-lead, cleoos-opus-orchestrator) are available immediately.
+ * ship-surface personas (per ADR-055 D032: `cleo-subagent` universal base
+ * plus the four generic role templates under `seed-agents/`) are available
+ * immediately.
  *
  * Seed-dir resolution is delegated to {@link resolveSeedAgentsDir} in
  * `init.ts` so both the project-scoped `cleo init --install-seed-agents` path

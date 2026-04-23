@@ -72,13 +72,14 @@ export interface InitOptions {
   /** Run codebase analysis and store findings to brain.db. */
   mapCodebase?: boolean;
   /**
-   * Install canonical CleoOS seed agents (cleo-prime, cleo-dev, cleo-historian,
-   * cleo-rust-lead, cleo-db-lead, cleoos-opus-orchestrator) into the project's
-   * `.cleo/agents/` directory. Default: false (operator opts in).
+   * Install the canonical ship-surface seed agents into the project's
+   * `.cleo/cant/agents/` directory. Default: false (operator opts in).
    *
-   * The seeds ship with `@cleocode/agents` under `seed-agents/`. Existing
-   * project files are never overwritten — operators are free to delete or
-   * fork any seed.
+   * Per ADR-055 D032, `@cleocode/agents` ships the universal protocol base
+   * (`cleo-subagent.cant`) plus four generic `{{var}}` role templates under
+   * `seed-agents/` (orchestrator-generic, dev-lead-generic,
+   * code-worker-generic, docs-worker-generic). Existing project files are
+   * never overwritten — operators are free to delete or fork any seed.
    */
   installSeedAgents?: boolean;
 }

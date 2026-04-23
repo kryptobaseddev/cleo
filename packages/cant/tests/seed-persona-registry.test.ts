@@ -1,36 +1,41 @@
 /**
- * Regression tests — T1210 · seed persona registry hardening.
+ * Regression tests — T1210 (structure) · T1257 (SEED_PERSONA_IDS reconciliation
+ * with ADR-055 ship surface).
  *
  * Verifies that:
  *  1. The `packages/agents/` layout is canonical (no duplicate subdirectory).
  *  2. `loadSeedAgentIdentities()` returns valid `PeerIdentity[]` from the
  *     `packages/agents/seed-agents/` generic templates + universal base.
  *  3. `cleo-subagent` (universal base) is always present and resolvable.
- *  4. All 7 CLEO project-tier seed personas exist in `.cleo/cant/agents/` —
- *     these are the agents the classifier routes tasks to and that
- *     `cleo orchestrate spawn` resolves. This is the regression guard against
- *     E_AGENT_NOT_FOUND for known personas.
- *  5. An unknown persona ID is NOT present (structured absence, not an error).
- *  6. `isPeerIdentity` / `assertPeerIdentity` validators from `@cleocode/contracts`
+ *  4. `SEED_PERSONA_IDS` matches the ADR-055 D032 ship surface (five loadable
+ *     personas: universal base + four generic role templates).
+ *  5. `CLEOCODE_DOGFOOD_PERSONAS` — the six classifier-produced IDs that live
+ *     in this repo's `.cleo/cant/agents/` — all remain resolvable. Per ADR-055
+ *     D031 these are NOT shipped; per D035 the universal tier catches misses
+ *     so the orchestrator never hits `E_AGENT_NOT_FOUND` even on a bare
+ *     install.
+ *  6. An unknown persona ID is NOT present (structured absence, not an error).
+ *  7. `isPeerIdentity` / `assertPeerIdentity` validators from `@cleocode/contracts`
  *     work correctly on well-formed and malformed records.
  *
- * Architecture (ADR-055 / T1237):
- *  - `packages/agents/seed-agents/` — generic `{{variable}}` templates (not
- *    project-specific). The 4 generic templates ship here.
- *  - `packages/agents/cleo-subagent.cant` — universal protocol base (one file
- *    at root, no subdirectory).
- *  - `.cleo/cant/agents/` — project-tier CLEO-specific personas (cleo-prime,
- *    cleo-dev, cleo-db-lead, cleo-historian, cleo-rust-lead, cleo-subagent [via
- *    resolver], cleoos-opus-orchestrator). These are the 7 personas the
- *    classifier routes to.
+ * Architecture (ADR-055 D031–D035):
+ *  - `packages/agents/cleo-subagent.cant` — universal protocol base (at root).
+ *  - `packages/agents/seed-agents/` — four generic `{{var}}` role templates
+ *    (orchestrator-generic, dev-lead-generic, code-worker-generic,
+ *    docs-worker-generic). These SHIP in `@cleocode/agents`.
+ *  - `packages/agents/meta/agent-architect.cant` — ships per D034 but is NOT
+ *    currently walked by `loadSeedAgentIdentities()`; tracked separately.
+ *  - `.cleo/cant/agents/` — CLEO team's project-tier dogfood personas
+ *    (cleo-prime, cleo-dev, cleo-db-lead, cleo-historian, cleo-rust-lead,
+ *    cleoos-opus-orchestrator). NOT shipped in the package.
  *
  * Post-T1210 contract:
  *  - ONE `cleo-subagent.cant` at `packages/agents/` root.
  *  - NO `packages/agents/cleo-subagent/` subdirectory.
  *  - NO standalone `AGENT.md` in seed-agents/ (content is in .cant).
  *
- * @task T1210
- * @epic T1144
+ * @task T1257
+ * @epic T1075
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -43,6 +48,7 @@ import {
 } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+  CLEOCODE_DOGFOOD_PERSONAS,
   loadSeedAgentIdentities,
   SEED_PERSONA_IDS,
 } from '../src/native-loader.js';
@@ -153,23 +159,22 @@ describe('loadSeedAgentIdentities()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. SEED_PERSONA_IDS constant
+// 3. SEED_PERSONA_IDS constant — ADR-055 D032 ship surface
 // ---------------------------------------------------------------------------
 
-describe('SEED_PERSONA_IDS constant', () => {
-  it('has exactly 7 entries', () => {
-    expect(SEED_PERSONA_IDS).toHaveLength(7);
+describe('SEED_PERSONA_IDS constant (ADR-055 D032 ship surface)', () => {
+  it('has exactly 5 entries (universal base + 4 generic templates)', () => {
+    expect(SEED_PERSONA_IDS).toHaveLength(5);
   });
 
-  it('contains all 7 expected persona IDs', () => {
+  it('contains the universal protocol base plus the 4 generic role templates', () => {
+    // Filenames carry -generic suffix; declared agent IDs are project-*.
     const expected = [
-      'cleo-prime',
-      'cleo-dev',
-      'cleo-db-lead',
-      'cleo-historian',
-      'cleo-rust-lead',
       'cleo-subagent',
-      'cleoos-opus-orchestrator',
+      'project-orchestrator',
+      'project-dev-lead',
+      'project-code-worker',
+      'project-docs-worker',
     ];
     for (const id of expected) {
       expect(
@@ -178,24 +183,41 @@ describe('SEED_PERSONA_IDS constant', () => {
       ).toBe(true);
     }
   });
+
+  it('does not include CLEO-specific dogfood personas (ADR-055 D031)', () => {
+    const shipped = SEED_PERSONA_IDS as readonly string[];
+    for (const dogfood of CLEOCODE_DOGFOOD_PERSONAS) {
+      expect(
+        shipped.includes(dogfood),
+        `SEED_PERSONA_IDS must not include dogfood persona '${dogfood}' (per ADR-055 D031)`,
+      ).toBe(false);
+    }
+  });
+
+  it('every SEED_PERSONA_IDS entry is returned by loadSeedAgentIdentities()', () => {
+    const loaded = loadSeedAgentIdentities(AGENTS_ROOT).map((p) => p.peerId);
+    for (const id of SEED_PERSONA_IDS) {
+      expect(
+        loaded.includes(id),
+        `Loader did not return '${id}'. Loaded: [${loaded.join(', ')}]`,
+      ).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 4. Project-tier personas — the 7 classifier targets
+// 4. CLEOCODE_DOGFOOD_PERSONAS — classifier output · E_AGENT_NOT_FOUND regression
 //
-// These personas live in .cleo/cant/agents/ (NOT in packages/agents/).
-// They are the regression guard against E_AGENT_NOT_FOUND from orchestration.
+// These IDs live in .cleo/cant/agents/ (this repo) and are produced by the
+// T891 classifier. Per ADR-055 D031 they are NOT shipped; per D035 the
+// universal tier catches any miss so orchestrate spawn never throws
+// E_AGENT_NOT_FOUND. This suite guards that property.
 // ---------------------------------------------------------------------------
 
-describe('project-tier personas (.cleo/cant/agents/) — E_AGENT_NOT_FOUND regression', () => {
-  const CLASSIFIER_PERSONAS = [
-    'cleo-prime',
-    'cleo-dev',
-    'cleo-db-lead',
-    'cleo-historian',
-    'cleo-rust-lead',
-    'cleoos-opus-orchestrator',
-  ] as const;
+describe('CLEOCODE_DOGFOOD_PERSONAS (.cleo/cant/agents/) — E_AGENT_NOT_FOUND regression', () => {
+  it('has exactly 6 entries (the classifier output set)', () => {
+    expect(CLEOCODE_DOGFOOD_PERSONAS).toHaveLength(6);
+  });
 
   it('.cleo/cant/agents/ directory exists', () => {
     expect(
@@ -204,34 +226,31 @@ describe('project-tier personas (.cleo/cant/agents/) — E_AGENT_NOT_FOUND regre
     ).toBe(true);
   });
 
-  for (const personaId of CLASSIFIER_PERSONAS) {
+  for (const personaId of CLEOCODE_DOGFOOD_PERSONAS) {
     it(`${personaId}.cant exists in project-tier agents dir`, () => {
       const cantFile = join(PROJECT_AGENTS_DIR, `${personaId}.cant`);
       expect(
         existsSync(cantFile),
-        `Persona ${personaId} missing: ${cantFile}. This will cause E_AGENT_NOT_FOUND in orchestrate spawn.`,
+        `Dogfood persona ${personaId} missing: ${cantFile}. The classifier can emit this ID; without the file, the resolver must fall through to the universal tier (ADR-055 D035).`,
       ).toBe(true);
     });
   }
 
-  it('cleo-subagent is resolvable via universal base in packages/agents/', () => {
-    // cleo-subagent resolves via the universal tier (packages/agents/cleo-subagent.cant)
-    // not via a project-tier file. Universal base guarantees it never 404s.
+  it('cleo-subagent (universal base) exists in packages/agents/', () => {
+    // The universal base is the D035 catch-all fallback for any classifier
+    // output that does not resolve at project/global/packaged/fallback tiers.
     expect(existsSync(UNIVERSAL_BASE)).toBe(true);
   });
 
-  it('no persona in SEED_PERSONA_IDS triggers E_AGENT_NOT_FOUND (structural check)', () => {
-    // All 6 classifier personas (excl. cleo-subagent) must have a project-tier file.
-    // cleo-subagent is covered by the universal base (above).
+  it('no dogfood persona is missing — structural guard against E_AGENT_NOT_FOUND', () => {
     const missing: string[] = [];
-    for (const id of SEED_PERSONA_IDS) {
-      if (id === 'cleo-subagent') continue; // covered by universal base
+    for (const id of CLEOCODE_DOGFOOD_PERSONAS) {
       const cantFile = join(PROJECT_AGENTS_DIR, `${id}.cant`);
       if (!existsSync(cantFile)) missing.push(id);
     }
     expect(
       missing,
-      `These personas are missing from .cleo/cant/agents/ and will produce E_AGENT_NOT_FOUND: ${missing.join(', ')}`,
+      `Dogfood personas missing from .cleo/cant/agents/ — if the universal-tier fallback also misses, orchestrate spawn will raise E_AGENT_NOT_FOUND for these: ${missing.join(', ')}`,
     ).toHaveLength(0);
   });
 });
