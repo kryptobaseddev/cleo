@@ -387,14 +387,14 @@ export function pruneOrphanedWorktrees(
 
 /** Minimal stub shim script content for when the package isn't installed. */
 const STUB_SHIM_CONTENT = `#!/usr/bin/env node
-// cleo-git-shim stub (install @cleocode/git-shim for the full binary)
+// git-shim stub (install @cleocode/git-shim for the full binary)
 import { spawnSync } from 'node:child_process';
 const RESTRICTED = new Set(['worker','lead','subagent']);
 const BLOCKED = new Set(['checkout','switch','rebase']);
 const role = process.env['CLEO_AGENT_ROLE'];
 const sub = process.argv[2];
 if (role && RESTRICTED.has(role) && sub && BLOCKED.has(sub) && !process.env['CLEO_ALLOW_BRANCH_OPS']) {
-  process.stderr.write('[cleo-git-shim] BLOCKED: ' + sub + ' is not allowed for role ' + role + '\\n');
+  process.stderr.write('[git-shim] BLOCKED: ' + sub + ' is not allowed for role ' + role + '\\n');
   process.exit(77);
 }
 const git = process.env['CLEO_REAL_GIT_PATH'] || '/usr/bin/git';

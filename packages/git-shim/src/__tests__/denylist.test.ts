@@ -1,5 +1,5 @@
 /**
- * Tests for the cleo-git-shim denylist (T1118 L2).
+ * Tests for the git-shim denylist (T1118 L2).
  *
  * Verifies:
  * - Blocked operations are correctly identified for restricted roles.

@@ -1,5 +1,5 @@
 /**
- * Branch-mutation denylist for the cleo-git-shim binary (T1118 L2).
+ * Branch-mutation denylist for the git-shim binary (T1118 L2).
  *
  * When CLEO_AGENT_ROLE is set to a restricted role (worker|lead|subagent),
  * any git invocation matching an entry in this list is rejected with exit 1
