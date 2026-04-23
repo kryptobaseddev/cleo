@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.123] — 2026-04-23
+
+Directory rename + Release workflow shell-bug fix. Enables v2026.4.122 patch intent (publishing `@cleocode/worktree` and `@cleocode/git-shim` alongside the rest of the tree) to actually work on CI.
+
+### Changed
+
+- **Directory rename** `packages/cleo-git-shim/` → `packages/git-shim/`. Removes the directory-vs-npm-name mismatch (npm package has always been `@cleocode/git-shim`; directory name was legacy). Simplifies Release workflow: `publish_pkg cleo-git-shim git-shim` → `publish_pkg git-shim` (clean convention restored — directory name == npm name).
+- **Log prefix updated** `[cleo-git-shim]` → `[git-shim]` across `packages/git-shim/src/shim.ts` (7 stderr emission sites). Matches the installable package name. Source comments in `packages/contracts/src/branch-lock.ts` + `packages/core/src/spawn/branch-lock.ts` also updated.
+
+### Fixed
+
+- **Release workflow shell bug** — `.github/workflows/release.yml` `publish_pkg()` helper. `PUBLISH_OUTPUT=$(pnpm publish ...)` ran inside bash `-eo pipefail` (GitHub Actions default), so any non-zero exit from `pnpm publish` aborted the whole step before `PUBLISH_EXIT=$?` could capture the code. All graceful-failure branches (SKIP-CONFLICT detection, OIDC error classification, FAILED_PKGS tracking) were unreachable on failure. Fixed by `PUBLISH_EXIT=0; ... || PUBLISH_EXIT=$?` — captures non-zero without aborting, restoring designed behavior. Symptom was v2026.4.122 Release workflow dying silently at `--- Publishing @cleocode/worktree ---` with nothing after.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1849 files)
+- `pnpm run build` — full dep graph green
+- `pnpm vitest run packages/git-shim/` — 38 tests pass (no-op rename; all deny-list checks still green)
+- Workflow validation: 15 of 15 `@cleocode/*` packages now enumerated in publish sequence
+
+
 ## [2026.4.122] — 2026-04-23
 
 Release-workflow patch — adds `@cleocode/worktree` and `@cleocode/git-shim` to the Release workflow publish list. Both packages existed in the tree but were absent from `.github/workflows/release.yml` hardcoded package enumeration, so every release since their introduction published 13 of 15 packages. Verified gap after v2026.4.121: `npm view @cleocode/worktree version` returned `2026.4.118` (stuck) and `@cleocode/git-shim` returned 404.
@@ -163,9 +184,9 @@ origin** — their contents are incorporated here with all issues resolved.
   rescue-commit pattern.
 - **T1250** — META: CLEO agent-ergonomics. 312-op surface compression for
   deterministic LLM use. High priority, ongoing sidestream.
-- **T1255 / T1256** — PSYCHE taxonomy scaffolding (umbrella rename,
-  direct-port strategy, TypeScript port target, internal single-point-of-
-  translation doc).
+- **T1255 / T1256** — PSYCHE roadmap planning + internal design docs
+  (workspace naming + TypeScript implementation target + planning-doc
+  lifecycle decisions).
 
 ### Quality gates
 
@@ -327,7 +348,7 @@ Dispatched as two serial Leads under Phase C per owner's A → C → B plan:
   implementation work was 4 new SDK methods + 4 new tables + 3 new CLI
   ops + one spawn-prompt section. Phase B PSYCHE waves (T1076+,
   T1081+) likely follow the same pattern: extend existing CLEO substrate
-  rather than port PSYCHE end-to-end.
+  incrementally.
 
 ## [2026.4.115] — 2026-04-22
 
@@ -373,15 +394,11 @@ with zero new test regressions vs the v2026.4.114 baseline.
   prompt token map (T1140) — stage-guidance templates can now reference the
   active worktree.
 
-- **PSYCHE Wave 0 integration prerequisites** — research artifacts under
-  `.cleo/agent-outputs/T1075-psyche-integration-plan/`:
-  - `PSYCHE-SOURCE-NOTES.md` (T1209) — per-file audit of upstream psyche-lineage source
-    with explicit CLEO target-file mapping
-  - `GLOSSARY.md` (T1211) — 8-entry PSYCHE↔CLEO terminology map:
-    `workspace ≡ project`, `peer ≡ CANT agent`, `session ≡ session`,
-    `representation ≡ theory-of-mind`, `collection ≡ brain_observations grouping`,
-    `document ≡ brain_learnings`, `message ≡ session turn`,
-    `peer_card ≡ sigil`
+- **PSYCHE Wave 0 prerequisite planning docs** (T1209 + T1211) —
+  internal design artifacts under
+  `.cleo/agent-outputs/T1075-psyche-integration-plan/` (gitignored; local
+  only). These are planning scratchpads for the PSYCHE memory-substrate
+  roadmap; they do not ship in npm tarballs.
 
 - **7-persona regression test** at `packages/cant/tests/seed-persona-registry.test.ts`
   (T1210) — guards against `E_AGENT_NOT_FOUND` regression for `cleo-prime`,

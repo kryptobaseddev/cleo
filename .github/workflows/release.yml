@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/cleo-git-shim; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -446,8 +446,14 @@ jobs:
               return 0
             fi
             pushd "packages/$pkg_dir" > /dev/null
-            PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1)
-            PUBLISH_EXIT=$?
+            # GitHub Actions runs with `bash -eo pipefail`; if pnpm publish
+            # exits non-zero inside a `$(...)` substitution, the whole step
+            # aborts and the graceful-failure branches below become
+            # unreachable. `|| PUBLISH_EXIT=$?` catches the non-zero code so
+            # we can classify (SKIP-CONFLICT / OIDC error / real failure)
+            # and track via FAILED_PKGS instead of dying mid-publish.
+            PUBLISH_EXIT=0
+            PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
             echo "$PUBLISH_OUTPUT"
             if [[ $PUBLISH_EXIT -eq 0 ]]; then
               echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
@@ -478,12 +484,11 @@ jobs:
           # brain depends on contracts only; publishes alongside nexus (both are graph substrates).
           publish_pkg contracts
           publish_pkg lafs
-          # worktree + cleo-git-shim depend only on contracts — publish early
-          # so packages/core (which consumes @cleocode/worktree) can resolve
-          # them at install time on npm. cleo-git-shim's directory name doesn't
-          # match its npm name (historical — @cleocode/git-shim).
+          # worktree + git-shim depend only on contracts — publish early so
+          # packages/core (which consumes @cleocode/worktree) can resolve them
+          # at install time on npm.
           publish_pkg worktree
-          publish_pkg cleo-git-shim git-shim
+          publish_pkg git-shim
           publish_pkg core
           publish_pkg caamp
           publish_pkg cant

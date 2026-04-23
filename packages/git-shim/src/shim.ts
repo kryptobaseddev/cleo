@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * cleo-git-shim — harness-agnostic git branch-mutation fence (T1118 L2).
+ * git-shim — harness-agnostic git branch-mutation fence (T1118 L2).
  *
  * Usage: place this binary on PATH BEFORE real git, and export:
  *   CLEO_AGENT_ROLE=worker   (or lead|subagent)
@@ -99,8 +99,8 @@ function emitBlockedError(code: string, message: string, context: Record<string,
   );
   // Also emit a plain-text line so human readers can understand without parsing.
   process.stderr.write(
-    `[cleo-git-shim] BLOCKED: ${message}\n` +
-      `[cleo-git-shim] Set CLEO_ALLOW_BRANCH_OPS=1 to bypass (audited).\n`,
+    `[git-shim] BLOCKED: ${message}\n` +
+      `[git-shim] Set CLEO_ALLOW_BRANCH_OPS=1 to bypass (audited).\n`,
   );
 }
 
@@ -118,7 +118,7 @@ function main(): void {
   if (!subcommand) {
     const realGit = resolveRealGit();
     if (!realGit) {
-      process.stderr.write('[cleo-git-shim] ERROR: real git binary not found\n');
+      process.stderr.write('[git-shim] ERROR: real git binary not found\n');
       process.exit(1);
     }
     const result = spawnSync(realGit, argv, { stdio: 'inherit' });
@@ -132,7 +132,7 @@ function main(): void {
   if (!role) {
     const realGit = resolveRealGit();
     if (!realGit) {
-      process.stderr.write('[cleo-git-shim] ERROR: real git binary not found\n');
+      process.stderr.write('[git-shim] ERROR: real git binary not found\n');
       process.exit(1);
     }
     const result = spawnSync(realGit, argv, { stdio: 'inherit' });
@@ -165,7 +165,7 @@ function main(): void {
   if (denied && allowBranchOps) {
     // Escape hatch used — log an audit warning.
     process.stderr.write(
-      `[cleo-git-shim] WARNING: CLEO_ALLOW_BRANCH_OPS=1 bypassed block for ` +
+      `[git-shim] WARNING: CLEO_ALLOW_BRANCH_OPS=1 bypassed block for ` +
         `'git ${subcommand}' (role=${role}). This bypass is audited.\n`,
     );
   }
@@ -173,7 +173,7 @@ function main(): void {
   // Pass through to real git.
   const realGit = resolveRealGit();
   if (!realGit) {
-    process.stderr.write('[cleo-git-shim] ERROR: real git binary not found on PATH\n');
+    process.stderr.write('[git-shim] ERROR: real git binary not found on PATH\n');
     process.exit(1);
   }
 
