@@ -707,6 +707,13 @@ export async function taskUpdate(
  * May trigger auto-completion of parent tasks and unblocking of dependent
  * tasks. Maps core exit codes to engine error codes for structured error reporting.
  *
+ * After a successful completion, `modified_by` and `session_id` are written back
+ * to the task row via `updateTaskFields` so every completed task carries auditable
+ * provenance (T1222 / CLEO-VALID-27). `modified_by` is sourced from the
+ * `CLEO_AGENT_ID` environment variable (falls back to `"cleo"`). `session_id` is
+ * sourced from the currently-active session returned by `getActiveSession`, falling
+ * back to the `CLEO_SESSION_ID` environment variable, and finally `null`.
+ *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to complete
  * @param notes - Optional completion notes
@@ -716,6 +723,8 @@ export async function taskUpdate(
  * ```typescript
  * const result = await taskComplete('/project', 'T42', 'All tests passing');
  * ```
+ *
+ * @task T1222
  */
 export async function taskComplete(
   projectRoot: string,
@@ -731,6 +740,29 @@ export async function taskComplete(
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreCompleteTask({ taskId, notes }, projectRoot, accessor);
+
+    // T1222 / CLEO-VALID-27: stamp modified_by + session_id on every successful
+    // completion so the audit trail is complete. Best-effort — a failure here must
+    // not roll back the completion that already landed in the DB.
+    try {
+      const agentId = process.env['CLEO_AGENT_ID'] ?? 'cleo';
+      let sessionId: string | null =
+        typeof process.env['CLEO_SESSION_ID'] === 'string' &&
+        process.env['CLEO_SESSION_ID'].length > 0
+          ? process.env['CLEO_SESSION_ID']
+          : null;
+
+      // Prefer the live session record over the env fallback.
+      const activeSession = await getActiveSession(projectRoot);
+      if (activeSession?.id) {
+        sessionId = activeSession.id;
+      }
+
+      await accessor.updateTaskFields(taskId, { modifiedBy: agentId, sessionId });
+    } catch {
+      // Provenance write failure is non-fatal; the task is already completed.
+    }
+
     return {
       success: true,
       data: {
@@ -965,6 +997,33 @@ export async function taskCompleteStrict(
             );
           }
         }
+      }
+    }
+
+    // 4. T1222 / CLEO-VALID-26: verify verification_json is not NULL before
+    // delegating. Only applies in strict mode — advisory/off modes let core's
+    // completeTask surface its own VERIFICATION_INIT_FAILED error. Epics are
+    // exempted (auto-completed, no verify step required).
+    if (lifecycleMode === 'strict') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task && task.type !== 'epic' && !task.verification) {
+        return engineError<{
+          task: TaskRecord;
+          autoCompleted?: string[];
+          unblockedTasks?: Array<{ id: string; title: string }>;
+        }>(
+          'E_EVIDENCE_MISSING',
+          `Task ${taskId} has no verification record (verification_json IS NULL). ` +
+            `Run 'cleo verify' with programmatic evidence before completing. See ADR-051.`,
+          {
+            details: { taskId, verificationStatus: 'null' },
+            fix:
+              `Initialize and populate verification gates: ` +
+              `'cleo verify ${taskId} --gate implemented --evidence "commit:<sha>;files:<list>"' ` +
+              `and other required gates, then retry 'cleo complete ${taskId}'.`,
+          },
+        );
       }
     }
 
