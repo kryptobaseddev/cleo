@@ -1,0 +1,45 @@
+{
+  "name": "@cleocode/mcp-adapter",
+  "version": "2026.4.133",
+  "description": "External-only MCP adapter stub exposing CLEO sentient operations as MCP tools. Does NOT wire into internal CLEO dispatch — external tools only.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    }
+  },
+  "bin": {
+    "cleo-mcp-server": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "cleo",
+    "mcp",
+    "model-context-protocol",
+    "sentient",
+    "adapter"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cleocode/cleocode.git",
+    "directory": "packages/mcp-adapter"
+  },
+  "license": "MIT"
+}

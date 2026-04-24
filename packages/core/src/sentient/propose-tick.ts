@@ -130,6 +130,49 @@ async function killSwitchActive(statePath: string): Promise<boolean> {
   return state.killSwitch === true;
 }
 
+/**
+ * T1148 W8-8 — Dispatch-time brain health reflex (T1151 Sentient Self-Healing).
+ *
+ * Checks the brain corpus for noise markers before the Tier-2 proposer reads
+ * from BRAIN to generate proposals.  If unhealthy, triggers the reconciler
+ * sweep asynchronously (fire-and-forget) so future propose ticks run against
+ * a progressively cleaner corpus.
+ *
+ * This is intentionally NON-BLOCKING — the propose tick continues regardless.
+ * The M7 hard gate (assertMemoryClean in setTier2Enabled) remains the entry
+ * condition; this reflex is ongoing health maintenance post-activation.
+ *
+ * Kill-switch is respected: no reconciler trigger if killSwitch is active.
+ *
+ * @param projectRoot - Absolute project root for DB resolution.
+ * @param statePath   - Path to sentient-state.json for kill-switch check.
+ */
+async function checkBrainHealthReflex(projectRoot: string, statePath: string): Promise<void> {
+  try {
+    // Respect kill-switch — do not trigger reconciler if killed.
+    const killed = await killSwitchActive(statePath);
+    if (killed) return;
+
+    const { scanBrainNoise } = await import('../memory/brain-doctor.js');
+    const result = await scanBrainNoise(projectRoot);
+
+    if (!result.isClean) {
+      // Async fire-and-forget — do NOT await; never throw into the propose tick.
+      void import('../memory/brain-reconciler.js')
+        .then(({ triggerReconcilerSweep }) =>
+          triggerReconcilerSweep(projectRoot).catch(() => {
+            /* non-fatal */
+          }),
+        )
+        .catch(() => {
+          /* non-fatal */
+        });
+    }
+  } catch {
+    // Health-reflex errors are non-fatal; the propose tick must continue.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -170,6 +213,12 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
       detail: 'tier2Enabled=false; enable via cleo sentient propose enable',
     };
   }
+
+  // T1148 W8-8 (T1151 dispatch-time reflex): before reading BRAIN for proposals,
+  // check corpus health and asynchronously trigger reconciler if dirty.
+  // This is a NON-BLOCKING health maintenance pass — the propose tick continues
+  // regardless; the M7 gate (setTier2Enabled) is the hard entry gate.
+  await checkBrainHealthReflex(projectRoot, statePath);
 
   // Resolve DB handles
   let brainDb: import('node:sqlite').DatabaseSync | null;

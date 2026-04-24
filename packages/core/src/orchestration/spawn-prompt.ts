@@ -1086,6 +1086,17 @@ function buildPsycheMemoryBlock(bundle: import('@cleocode/contracts').RetrievalB
     }
   }
 
+  // -- Cold: sigil card (Wave 8 T1148) --
+  if (bundle.cold.sigilCard) {
+    const s = bundle.cold.sigilCard;
+    lines.push('');
+    lines.push('### Active Peer Sigil');
+    if (s.displayName) lines.push(`- **Name**: ${s.displayName}`);
+    if (s.role) lines.push(`- **Role**: ${s.role}`);
+    if (s.cantFile) lines.push(`- **CANT file**: ${s.cantFile}`);
+    if (s.capabilityFlags) lines.push(`- **Capabilities**: ${s.capabilityFlags}`);
+  }
+
   if (bundle.cold.peerInstructions) {
     lines.push('');
     lines.push('### Peer Instructions');
@@ -1144,6 +1155,7 @@ function buildPsycheMemoryBlock(bundle: import('@cleocode/contracts').RetrievalB
   const hasContent =
     bundle.cold.userProfile.length > 0 ||
     bundle.cold.peerInstructions ||
+    bundle.cold.sigilCard !== undefined ||
     bundle.warm.decisions.length > 0 ||
     bundle.warm.peerPatterns.length > 0 ||
     bundle.warm.peerLearnings.length > 0 ||

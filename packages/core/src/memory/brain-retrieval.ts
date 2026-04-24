@@ -1616,14 +1616,16 @@ function estimateTokens(text: string): number {
  * Cold pass — fetch user-profile traits and peer instructions from NEXUS.
  *
  * Calls `listUserProfile({ minConfidence: 0.5 })` from Wave 1 (T1078).
- * `peerInstructions` is currently a placeholder string derived from the
- * peer ID; Wave 8 (T1148) will replace it with actual CANT sigil data.
+ * `peerInstructions` is populated from the sigil's `systemPromptFragment`
+ * when a sigil exists for `peerId` (Wave 8 — T1148).  Falls back to an empty
+ * string when no sigil is found or when the sigil has no fragment set.
  *
- * @param peerId   - CANT peer identifier (used to derive instructions).
+ * @param peerId   - CANT peer identifier (used to look up the sigil).
  * @param nexusDb  - Drizzle nexus database handle.
- * @returns Cold-pass bundle slice: userProfile traits + peerInstructions.
+ * @returns Cold-pass bundle slice: userProfile traits + peerInstructions + sigilCard.
  *
  * @task T1090
+ * @task T1148
  */
 export async function fetchIdentity(
   peerId: string,
@@ -1633,16 +1635,21 @@ export async function fetchIdentity(
 ): Promise<{
   userProfile: import('@cleocode/contracts').UserProfileTrait[];
   peerInstructions: string;
+  sigilCard: import('../nexus/sigil.js').SigilCard | null;
 }> {
   const { listUserProfile } = await import('../nexus/user-profile.js');
-  const userProfile = await listUserProfile(nexusDb, { minConfidence: 0.5 });
+  const { getSigil } = await import('../nexus/sigil.js');
 
-  // Wave 8 (T1148) will enrich this from the sigils table; for now we
-  // derive a minimal instruction string from the peer ID so callers always
-  // receive a well-typed string.
-  const peerInstructions = peerId !== 'global' ? `Active peer: ${peerId}` : '';
+  const [userProfile, sigilCard] = await Promise.all([
+    listUserProfile(nexusDb, { minConfidence: 0.5 }),
+    // Graceful fallback: if sigil lookup fails for any reason, continue without it.
+    getSigil(nexusDb, peerId).catch(() => null),
+  ]);
 
-  return { userProfile, peerInstructions };
+  // Prefer sigil's system-prompt fragment; fall back to empty string.
+  const peerInstructions = sigilCard?.systemPromptFragment ?? '';
+
+  return { userProfile, peerInstructions, sigilCard };
 }
 
 /**
@@ -1955,10 +1962,10 @@ export async function buildRetrievalBundle(
             const nexusDb = await getNexusDb();
             return await fetchIdentity(peerId, nexusDb);
           } catch {
-            return { userProfile: [], peerInstructions: '' };
+            return { userProfile: [], peerInstructions: '', sigilCard: null };
           }
         })()
-      : Promise.resolve({ userProfile: [], peerInstructions: '' }),
+      : Promise.resolve({ userProfile: [], peerInstructions: '', sigilCard: null }),
 
     mask.warm
       ? (async () => {
@@ -2112,6 +2119,7 @@ export async function buildRetrievalBundle(
     cold: {
       userProfile: trimmedProfile,
       peerInstructions: coldResult.peerInstructions,
+      sigilCard: coldResult.sigilCard ?? null,
     },
     warm: {
       peerLearnings: filteredWarmResult.peerLearnings,

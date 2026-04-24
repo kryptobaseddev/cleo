@@ -2,14 +2,16 @@
  * Drizzle ORM schema for CLEO nexus.db (SQLite via node:sqlite + sqlite-proxy).
  *
  * Tables: project_registry, nexus_audit_log, nexus_schema_meta,
- *         nexus_nodes, nexus_relations, user_profile
+ *         nexus_nodes, nexus_relations, user_profile, sigils
  * Stores cross-project registry and audit infrastructure for the Nexus domain,
  * plus the code intelligence graph layer (nodes + directed edges), plus the
- * global user identity / preference profile (PSYCHE Wave 1 — T1077).
+ * global user identity / preference profile (PSYCHE Wave 1 — T1077), plus the
+ * peer-card sigil identity layer (PSYCHE Wave 8 — T1148).
  *
  * @task T5365
  * @task T529
  * @task T1077
+ * @task T1148
  */
 
 import { sql } from 'drizzle-orm';
@@ -507,6 +509,79 @@ export const userProfile = sqliteTable(
   ],
 );
 
+// === SIGILS TABLE (PSYCHE Wave 8 — T1148) ===
+
+/**
+ * Peer-card sigil identity layer for CANT agents.
+ *
+ * Each row represents a CANT agent's structured identity as seen by BRAIN —
+ * the "sigil" encodes display name, role, CANT file path, behavioral
+ * constraints (system-prompt fragment), and capability flags.
+ *
+ * Sigils are keyed by `peerId` (the canonical peer identifier that appears on
+ * all brain tables via the `peer_id` column introduced in Wave 2).  A single
+ * peer may have at most one sigil record; use `upsertSigil` to update.
+ *
+ * PSYCHE reference: `upstream psyche-lineage · crud/peer_card.py`
+ *
+ * @task T1148
+ * @epic T1075
+ */
+export const sigils = sqliteTable(
+  'sigils',
+  {
+    /**
+     * Stable primary key — matches `peer_id` on brain tables (Wave 2).
+     * Convention: "global" for the default/unnamed agent.
+     */
+    peerId: text('peer_id').primaryKey(),
+
+    /**
+     * Absolute or relative path to the CANT agent file (.cant) that defines
+     * this peer's behaviour.  Null when no CANT file has been associated yet.
+     */
+    cantFile: text('cant_file'),
+
+    /**
+     * Human-readable display name for the peer, e.g. "cleo-prime".
+     */
+    displayName: text('display_name').notNull().default(''),
+
+    /**
+     * Short role description, e.g. "orchestrator", "researcher", "coder".
+     */
+    role: text('role').notNull().default(''),
+
+    /**
+     * System-prompt fragment injected into spawn payloads when this peer is
+     * the active agent.  May contain behavioral constraints, capability notes,
+     * or persona descriptions.  Null means no fragment to inject.
+     */
+    systemPromptFragment: text('system_prompt_fragment'),
+
+    /**
+     * JSON-encoded capability flags object, e.g.
+     * `{"tier":1,"spawnRights":true,"thinAgentMode":false}`.
+     * Null until flags are explicitly set.
+     */
+    capabilityFlags: text('capability_flags'),
+
+    /** Unix-epoch milliseconds when this sigil was first created. */
+    createdAt: integer('created_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+
+    /** Unix-epoch milliseconds when this sigil was last updated. */
+    updatedAt: integer('updated_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index('idx_sigils_display_name').on(table.displayName),
+    index('idx_sigils_role').on(table.role),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type ProjectRegistryRow = typeof projectRegistry.$inferSelect;
@@ -523,3 +598,5 @@ export type NexusContractRow = typeof nexusContracts.$inferSelect;
 export type NewNexusContractRow = typeof nexusContracts.$inferInsert;
 export type UserProfileRow = typeof userProfile.$inferSelect;
 export type NewUserProfileRow = typeof userProfile.$inferInsert;
+export type SigilRow = typeof sigils.$inferSelect;
+export type NewSigilRow = typeof sigils.$inferInsert;
