@@ -225,6 +225,26 @@ export async function startSession(
       /* Hooks are best-effort */
     });
 
+  // T1263: Append session_start journal entry (best-effort)
+  import('./session-journal.js')
+    .then(async ({ appendSessionJournalEntry }) => {
+      const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+      const agentIdentifier =
+        options.agent ?? process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
+      await appendSessionJournalEntry(cwd ?? process.cwd(), {
+        schemaVersion: SESSION_JOURNAL_SCHEMA_VERSION,
+        timestamp: new Date().toISOString(),
+        sessionId: session.id,
+        eventType: 'session_start',
+        agentIdentifier,
+        providerId: session.providerId ?? undefined,
+        scope: options.scope,
+      });
+    })
+    .catch(() => {
+      /* Journal write is best-effort — never block session start */
+    });
+
   // Attach _next progressive disclosure directives
   Object.assign(session, { _next: sessionStartNext() });
 

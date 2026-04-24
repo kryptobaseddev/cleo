@@ -740,6 +740,14 @@ export async function sessionGc(
       }
     }
 
+    // T1263: Apply session journal retention policy (best-effort)
+    try {
+      const { rotateSessionJournals } = await import('@cleocode/core/sessions/session-journal.js');
+      await rotateSessionJournals(projectRoot);
+    } catch {
+      // Rotation is best-effort — never block session GC
+    }
+
     return { success: true, data: { orphaned, removed } };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');

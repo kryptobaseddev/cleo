@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.130] — 2026-04-24
+
+PSYCHE E6 session-journal substrate + T1262 CLI/hook absorption (T1263). Adds `.cleo/session-journals/YYYY-MM-DD.jsonl` append-only JSONL log written at session start and end. Session-end hook (priority 2, synchronous await) embeds `scanBrainNoise` doctor summary in each `session_end` entry. Retention policy: hot 7d verbatim, warm 8-30d (session_end only), archive 31-90d deleted, purge >90d deleted. `cleo init` surfaces up to 5 recent journal entries in `sessionContext.recentJournals` for meta-agent consumption. Journal directory excluded from git via `.cleo/.gitignore`. 17 new tests.
+
+### Added
+
+- **`packages/contracts/src/session-journal.ts`** (T1263-C4): `SessionJournalEntry` type, `sessionJournalEntrySchema` Zod schema, `SESSION_JOURNAL_SCHEMA_VERSION = '1.0'`, `SessionJournalDoctorSummary` and `SessionJournalDebriefSummary` sub-types. Exported from `@cleocode/contracts`.
+- **`packages/core/src/sessions/session-journal.ts`** (T1263-C1): `getSessionJournalPath()`, `appendSessionJournalEntry()` (mkdir recursive + O_APPEND), `readRecentJournals()`, `rotateSessionJournals()`, `RotateSessionJournalsOptions`.
+- **`handleSessionEndJournal`** in `session-hooks.ts` (T1263-C2): Registered at priority 2 (last in pipeline). Uses `await` (not `setImmediate`) to guarantee write before process exit. Embeds `scanBrainNoise` result as `doctorSummary` (T1262 absorption).
+- **Session-start journal entry** in `sessions/index.ts` `startSession()` (T1263-C3): Best-effort `session_start` entry with `agentIdentifier`, `providerId`, `scope`.
+- **`InitResult.sessionContext`** in `init.ts` (T1263-C5): `readRecentJournals(projRoot, 20, 5)` appended at end of `initProject()`, returned as `sessionContext.recentJournals`.
+- **`rotateSessionJournals` wired into `sessionGc()`** in `session-engine.ts` (T1263-C6): Applies retention policy on every GC run.
+- **`session-journals/`** excluded in `.cleo/.gitignore` template and `CLEO_GITIGNORE_FALLBACK` constant.
+- **17 new tests** in `packages/core/src/sessions/__tests__/session-journal.test.ts` (T1263-C7): Full lifecycle, doctor-noise, retention policy, malformed-line resilience.
+
+### Changed
+
+- **`session-hooks.ts`**: Added `handleSessionEndJournal` export; registered at priority 2.
+- **`hooks/handlers/index.ts`**: Exports `handleSessionEndJournal`.
+
 ## [2026.4.129] — 2026-04-24
 
 PSYCHE E4 governed execution pipelines + DSL contract enforcement (T1261). Adds `requires/ensures` runtime contract validation at every node boundary in the playbook state machine, `error_handlers` DSL wiring for `contract_violation` events, `context_files` thin-agent boundary on agentic nodes, `cleo playbook validate <file>` CLI, contract-violation audit trail at `.cleo/audit/contract-violations.jsonl`, STRICT cutover migration tool, and M5 hot-path call-site verification. All three starter playbooks (rcasd, ivtr, release) validate exit 0. LOOM substrate unaffected.
