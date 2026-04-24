@@ -8,6 +8,7 @@
  * @epic T4454
  */
 
+import { getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -22,6 +23,11 @@ import { cliOutput } from '../renderers/index.js';
  *
  * T944 additions: `--role` (intent axis) and `--scope` (granularity axis).
  * `--kind` is accepted as a backward-compatible alias for `--role`.
+ *
+ * T1329: In strict mode, if no explicit `--parent` is provided and the task
+ * type is not 'epic', the command attempts to infer `--parent` from the active
+ * session's current task (`session.taskWork.taskId`). This reduces friction for
+ * creating subtasks under the active focus task.
  */
 export const addCommand = defineCommand({
   meta: {
@@ -202,6 +208,27 @@ export const addCommand = defineCommand({
     if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
+
+    // T1329: Strict-mode parent inference from active session's current task
+    // Infer --parent from session.taskWork.taskId when:
+    // - No explicit --parent provided
+    // - Type is not 'epic' (epics are root-level)
+    // - Active session exists with current task set
+    if (!params['parent'] && params['type'] !== 'epic') {
+      try {
+        const projectRoot = getProjectRoot();
+        const { getActiveSession } = await import('../../dispatch/engines/session-engine.js');
+        const session = await getActiveSession(projectRoot);
+        if (session?.taskWork?.taskId) {
+          params['parent'] = session.taskWork.taskId;
+          process.stderr.write(
+            `[cleo add] inferred --parent from current task: ${session.taskWork.taskId}\n`,
+          );
+        }
+      } catch {
+        // Session lookup is non-fatal — proceed without inference
+      }
+    }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 
