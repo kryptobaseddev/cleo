@@ -417,7 +417,13 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          return wrapResult(result, 'query', 'memory', operation, startTime);
+          return wrapResult(
+            { success: true, data: result },
+            'query',
+            'memory',
+            operation,
+            startTime,
+          );
         }
 
         // T791 — LLM extraction backend status
