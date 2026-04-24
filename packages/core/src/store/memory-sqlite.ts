@@ -461,9 +461,7 @@ function runBrainMigrations(
   nativeDb.exec(
     `CREATE INDEX IF NOT EXISTS idx_brain_trees_parent ON brain_memory_trees (parent_id)`,
   );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees (depth)`,
-  );
+  nativeDb.exec(`CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees (depth)`);
 }
 
 /**
