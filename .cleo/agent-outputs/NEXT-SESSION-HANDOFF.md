@@ -1,8 +1,8 @@
-# NEXT SESSION HANDOFF — 2026-04-24 v2026.4.131 SHIPPED · 15/16 packages on npm · T1145+T1146 W5+W6 done · Next: .132 T1147 W7 reconciler
+# NEXT SESSION HANDOFF — 2026-04-24 v2026.4.132 SHIPPED · 15/16 packages on npm · T1147 W7 done · Next: .133 T1148 W8 + T1151 Sentient v1
 
 ## TL;DR (v2026.4.129 — current)
 
-**v2026.4.129 is SHIPPED** — CI green, Release workflow green, npm publish green. All 17 `@cleocode/*` packages synced at 2026.4.129. Commits `c1dc49078` (feat) + `3c62c7bdf` (fix). Globally installable: `npm install -g @cleocode/cleo@2026.4.129`.
+**v2026.4.132 is SHIPPED** — CI green, Release workflow green, npm publish green. 15/16 `@cleocode/*` packages synced at 2026.4.132 (@cleocode/studio is SvelteKit, not published). Commits `b6924c6d8` (feat T1147 W7), `740ef2322` (release), `75cf6c8e8` (CLI sweep fix). Globally installable: `npm install -g @cleocode/cleo@2026.4.132`.
 
 **Campaign spine status:**
 - .126 T1258 E1: SHIPPED
@@ -10,9 +10,9 @@
 - .128 T1260 E3: SHIPPED
 - .129 T1261 E4: SHIPPED
 - .130 T1263 E6: SHIPPED (session-journal)
-- .131 T1145+T1146 W5+W6: **SHIPPED** (this slot)
-- .132 T1147 W7: PENDING (reconciler + 2440 sweep)
-- .133 T1148 W8 + Sentient v1: PENDING
+- .131 T1145+T1146 W5+W6: SHIPPED (deriver + dreamer)
+- .132 T1147 W7: **SHIPPED** (reconciler + 2440 sweep + shadow-write envelope)
+- .133 T1148 W8 + Sentient v1: PENDING — NEXT SLOT
 
 **v2026.4.129 shipped (this session):**
 - T1261 PSYCHE E4 governed pipelines: 5 workers done (T1283-T1287)
