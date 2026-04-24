@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.132] — 2026-04-24
+
+T1147 Wave 7 — Reconciler Extension + 2440-entry BRAIN Noise Sweep + Shadow-Write Envelope. W7-1 adds `brain-reconciler.ts` extending `runConsolidation` with T1139 auto-supersession (sets `invalid_at` on `contradicts` edge weight > 0.8). W7-2 adds `brain_v2_candidate` staging table (Drizzle migration `20260424000005`) + `noise-sweep-2440` kind on `brain_backfill_runs`. W7-3 adds `brain-noise-detector.ts` with `detectNoiseCandidates()` scanning all 4 brain tables (quality_score < 0.3, verified=false, invalid_at IS NULL), 100-entry stratified auto-validation sample JSON. W7-4 adds `brain-sweep-executor.ts` with `executeSweep()`: toggles killSwitch gate (Option A self-healing), PRAGMA busy_timeout=10000, bulk UPDATE `provenance_class` to `noise-purged`/`swept-clean`. W7-6 wires `cleo memory sweep --dry-run | --approve | --status`; `cleo memory doctor --assert-clean` now checks for pending `brain_v2_candidate` rows (M7 gate). W7-8 adds 6 E2E tests.
+
+### Added
+
+- **`packages/core/src/memory/brain-reconciler.ts`** (T1147 W7-1): `runReconciler()` + `countSupersessionCandidates()`.
+- **`packages/core/src/memory/brain-noise-detector.ts`** (T1147 W7-3): `detectNoiseCandidates()` + `sampleNoiseCandidates()`.
+- **`packages/core/src/memory/brain-sweep-executor.ts`** (T1147 W7-4): `executeSweep()` + `rollbackSweep()`.
+- **`packages/core/migrations/drizzle-brain/20260424000005_t1147-add-brain-v2-candidate/`** (T1147 W7-2).
+- **6 E2E tests** in `packages/core/src/memory/__tests__/brain-sweep-e2e.test.ts` (T1147 W7-8).
+
+### Changed
+
+- **`packages/core/src/store/memory-schema.ts`**: `brainV2Candidate` table + `noise-sweep-2440` kind.
+- **`packages/cleo/src/dispatch/domains/memory.ts`**: `sweep` case + `doctor --assert-clean` M7 gate.
+- **`packages/cleo/src/dispatch/registry.ts`**: `memory.sweep` descriptor.
+- **`packages/cleo/src/dispatch/__tests__/parity.test.ts`**: queryCount → 190, total → 320.
+
 ## [2026.4.131] — 2026-04-24
 
 T1145 Wave 5 Deriver Queue + T1146 Wave 6 Dreamer Upgrade (combined slot .131). Wave 5 adds a durable SQLite-WAL background derivation queue (`deriver_queue` table) with claim/complete/fail/stale-recovery semantics, integrated into the sentient tick and brain maintenance. Derived observations carry `level='inductive'` and `provenanceClass='deriver-synthesized'` (M6 gate). Wave 6 upgrades the Dreamer with Bayesian surprisal scoring (`computeSurprisalScore`), RPTree hierarchical clustering (`brain_memory_trees` table), and 6 consolidation specialists (Deduction, Induction, UserPreference, Decision, CodePattern, TaskOutcome). All specialists degrade silently when no LLM backend is available. `runSleepConsolidation` extended with Steps 5-7 (surprisal → tree → specialists). 39 new tests.
