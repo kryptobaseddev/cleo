@@ -838,27 +838,59 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`Starter bundle deploy: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // T283: Optional install of canonical CleoOS seed agent personas
+  // T283 / T1272: Optional install of canonical CleoOS seed agent personas.
+  // E2 (T1259): invokes agent-architect meta-agent first; falls back to static copy.
   if (opts.installSeedAgents) {
     try {
-      const seedDir = await resolveSeedAgentsDir();
-      if (seedDir && existsSync(seedDir)) {
-        const targetDir = join(projRoot, '.cleo', 'agents');
-        await mkdir(targetDir, { recursive: true });
-        const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
-        let installed = 0;
-        for (const seed of seeds) {
-          const dst = join(targetDir, seed);
-          if (!existsSync(dst)) {
-            await copyFile(join(seedDir, seed), dst);
-            installed++;
-          }
-        }
-        if (installed > 0) {
-          created.push(`seed-agents: ${installed} canonical .cant personas installed`);
-        }
+      const targetDir = join(projRoot, '.cleo', 'agents');
+      await mkdir(targetDir, { recursive: true });
+
+      // Attempt meta-agent invocation (ADR-055 D034 — agent-architect synthesizes
+      // project-specific agents from templates + context).
+      const { invokeAgentArchitect } = await import('./agents/invoke-meta-agent.js');
+      let bundleVersion = '0.0.0';
+      try {
+        const { createRequire } = await import('node:module');
+        const req = createRequire(import.meta.url);
+        const agentsPkg = req('@cleocode/agents/package.json') as { version?: string };
+        bundleVersion = agentsPkg.version ?? '0.0.0';
+      } catch {
+        // agents package not resolvable — use fallback version
+      }
+
+      const metaResult = await invokeAgentArchitect(projRoot, targetDir, bundleVersion);
+
+      if (metaResult.invoked && metaResult.outputs && metaResult.outputs.length > 0) {
+        created.push(
+          `seed-agents: agent-architect synthesized ${metaResult.outputs.length} custom agents`,
+        );
       } else {
-        warnings.push('seed-agents install: bundled seed-agents/ directory not found');
+        // Fallback: static copy from seed-agents/ directory
+        if (!metaResult.invoked) {
+          warnings.push(
+            `agent-architect unavailable (${metaResult.reason ?? 'unknown'}), falling back to static seed copy`,
+          );
+        }
+
+        const seedDir = await resolveSeedAgentsDir();
+        if (seedDir && existsSync(seedDir)) {
+          const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
+          let installed = 0;
+          for (const seed of seeds) {
+            const dst = join(targetDir, seed);
+            if (!existsSync(dst)) {
+              await copyFile(join(seedDir, seed), dst);
+              installed++;
+            }
+          }
+          if (installed > 0) {
+            created.push(
+              `seed-agents: ${installed} canonical .cant personas installed (static copy)`,
+            );
+          }
+        } else {
+          warnings.push('seed-agents install: bundled seed-agents/ directory not found');
+        }
       }
     } catch (err) {
       warnings.push(

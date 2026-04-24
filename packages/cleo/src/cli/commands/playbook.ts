@@ -96,6 +96,61 @@ const resumeCommand = defineCommand({
   },
 });
 
+/**
+ * cleo playbook create — scaffold a new user-authored playbook.
+ *
+ * Dispatches to the `playbook.create` operation which invokes playbook-architect
+ * (if available) or scaffolds a static .cantbook template into the project's
+ * `.cleo/cant/playbooks/` directory.
+ *
+ * @task T1275 v2026.4.127 T1259 E2 cleo playbook create CLI verb
+ */
+const createCommand = defineCommand({
+  meta: {
+    name: 'create',
+    description: 'Scaffold a new .cantbook playbook (invokes playbook-architect meta-agent)',
+  },
+  args: {
+    name: {
+      type: 'positional',
+      description: 'Playbook name (kebab-case, e.g. "feature-ship")',
+      required: true,
+    },
+    description: {
+      type: 'string',
+      description: 'Plain-text description of what the playbook should do',
+    },
+    stages: {
+      type: 'string',
+      description: 'Comma-separated list of stage names to scaffold (auto-inferred if omitted)',
+    },
+    'output-dir': {
+      type: 'string',
+      description: 'Output directory for the .cantbook file (defaults to .cleo/cant/playbooks/)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview what would be created without writing files',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'playbook',
+      'create',
+      {
+        name: args.name,
+        description: args.description,
+        stages: args.stages,
+        outputDir: args['output-dir'],
+        dryRun: args['dry-run'],
+      },
+      { command: 'playbook' },
+    );
+  },
+});
+
 /** cleo playbook list — enumerate playbook runs with optional status filter. */
 const listCommand = defineCommand({
   meta: {
@@ -148,13 +203,14 @@ const listCommand = defineCommand({
 export const playbookCommand = defineCommand({
   meta: {
     name: 'playbook',
-    description: 'Playbook runtime operations (run, status, resume, list)',
+    description: 'Playbook runtime operations (run, status, resume, list, create)',
   },
   subCommands: {
     run: runCommand,
     status: statusCommand,
     resume: resumeCommand,
     list: listCommand,
+    create: createCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
