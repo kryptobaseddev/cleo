@@ -1,4 +1,4 @@
-# NEXT SESSION HANDOFF — 2026-04-24 v2026.4.129 SHIPPED · 17/17 packages on npm · T1261 PSYCHE E4 done · Next: .130 T1263 E6 session-journal
+# NEXT SESSION HANDOFF — 2026-04-24 v2026.4.131 SHIPPED · 15/16 packages on npm · T1145+T1146 W5+W6 done · Next: .132 T1147 W7 reconciler
 
 ## TL;DR (v2026.4.129 — current)
 
@@ -8,10 +8,10 @@
 - .126 T1258 E1: SHIPPED
 - .127 T1259 E2: SHIPPED
 - .128 T1260 E3: SHIPPED
-- .129 T1261 E4: **SHIPPED** (this slot)
-- .130 T1263 E6: PENDING (session-journal)
-- .131 T1145+T1146 W5+W6: PENDING
-- .132 T1147 W7: PENDING
+- .129 T1261 E4: SHIPPED
+- .130 T1263 E6: SHIPPED (session-journal)
+- .131 T1145+T1146 W5+W6: **SHIPPED** (this slot)
+- .132 T1147 W7: PENDING (reconciler + 2440 sweep)
 - .133 T1148 W8 + Sentient v1: PENDING
 
 **v2026.4.129 shipped (this session):**
