@@ -117,6 +117,8 @@ describe('checkAtomicity — worker role', () => {
     expect(result.code).toBe('E_ATOMICITY_VIOLATION');
     expect(result.message).toContain(`${MAX_WORKER_FILES + 1} files`);
     expect(result.message).toContain(`max ${MAX_WORKER_FILES}`);
+    expect(result.message).not.toContain('promote to lead');
+    expect(result.message).toContain('Split into subtasks');
   });
 
   it('rejects worker with 10 files and suggests split count in fix hint', () => {
@@ -131,7 +133,11 @@ describe('checkAtomicity — worker role', () => {
     // 10 files / 3 per worker = 4 subtasks (ceil)
     const expectedSplits = Math.ceil(10 / MAX_WORKER_FILES);
     expect(result.fixHint).toContain(`${expectedSplits} subtasks`);
-    expect(result.fixHint).toContain('cleo add --parent T305');
+    expect(result.fixHint).toContain('cleo add');
+    expect(result.fixHint).toContain('--parent T305');
+    expect(result.fixHint).toContain('--files');
+    expect(result.fixHint).toContain('--acceptance');
+    expect(result.fixHint).not.toContain('promote to lead');
     expect(result.meta).toEqual({ fileCount: 10, hasScope: true });
   });
 
