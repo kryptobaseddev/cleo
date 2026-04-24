@@ -1,7 +1,7 @@
 /**
  * Public LLM entrypoint: `cleoLlmCall`.
  *
- * Ported from Honcho src/llm/api.py (366 LOC). Orchestrates:
+ * Ported from PSYCHE src/llm/api.py (366 LOC). Orchestrates:
  * - Runtime config resolution from ModelConfig.
  * - Per-attempt planning (primary vs fallback selection).
  * - Retry with exponential backoff via p-retry.

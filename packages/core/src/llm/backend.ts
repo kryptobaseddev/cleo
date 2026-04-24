@@ -1,7 +1,7 @@
 /**
  * Transport-agnostic interface for LLM providers.
  *
- * Ported from Honcho src/llm/backend.py. Credentials are baked into the
+ * Ported from PSYCHE src/llm/backend.py. Credentials are baked into the
  * underlying SDK client at backend construction time (see registry.ts),
  * so these method signatures deliberately do not accept api_key / api_base.
  *

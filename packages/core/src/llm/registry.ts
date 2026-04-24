@@ -1,7 +1,7 @@
 /**
  * Single owner of provider runtime objects: clients, backends, history adapters.
  *
- * Ported from Honcho src/llm/registry.py (185 LOC). Consolidates all provider
+ * Ported from PSYCHE src/llm/registry.py (185 LOC). Consolidates all provider
  * SDK wiring. Tests can patch CLIENTS for mock injection.
  *
  * @task T1392 (T1386-W6)

@@ -1,7 +1,7 @@
 /**
  * Provider-native message history adapters.
  *
- * Ported from Honcho src/llm/history_adapters.py. Each adapter knows how to
+ * Ported from PSYCHE src/llm/history_adapters.py. Each adapter knows how to
  * format assistant tool-call messages and tool-result messages in the native
  * shape expected by its provider SDK.
  *

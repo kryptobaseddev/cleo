@@ -1,7 +1,7 @@
 /**
  * Conversation-shaping helpers: token counting + tool-aware truncation.
  *
- * Ported from Honcho src/llm/conversation.py. Uses js-tiktoken for token
+ * Ported from PSYCHE src/llm/conversation.py. Uses js-tiktoken for token
  * estimation (already a dep of packages/core).
  *
  * @task T1394 (T1386-W8)

@@ -1,7 +1,7 @@
 /**
  * In-memory Gemini cached-content handle store.
  *
- * Ported from Honcho src/llm/caching.py. Uses LRU eviction up to
+ * Ported from PSYCHE src/llm/caching.py. Uses LRU eviction up to
  * MAX_ENTRIES. `build_cache_key` uses deterministic JSON + sha256.
  *
  * @task T1393 (T1386-W7)
