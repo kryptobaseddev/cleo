@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.128] — 2026-04-24
+
+PSYCHE E3 spawn wiring + provenanceClass M6 gate (T1260). Wires `composeSpawnPayload` → `buildRetrievalBundle` so tier-1/2 spawn prompts include a `## PSYCHE-MEMORY` section carrying user profile, peer memory, and session narrative. Adds `provenanceClass` column to all 4 brain tables (M6 refusal gate: entries with `'unswept-pre-T1151'` refused until T1147 W7 sweep ships in .132). Registers `buildRetrievalBundle` as M4 named injection primitive. Flips `spawn-retrieval-parity.test.ts` from `it.fails` (M1 red, .127) to 6 green integration tests (M1 gate satisfied).
+
+### Added
+
+- **`packages/core/migrations/drizzle-brain/20260424000001_t1260-provenance-class/`** (T1278): Drizzle migration adding `provenance_class TEXT DEFAULT 'unswept-pre-T1151'` to `brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_observations`. `ensureColumns` band-aid in `memory-sqlite.ts` as safety-net for test environments.
+- **`provenanceClass?` on `RetrievalLearning`, `RetrievalPattern`, `RetrievalDecision`, `RetrievalObservation`** (T1278): Contract types in `@cleocode/contracts` carry provenance class from DB.
+- **`buildPsycheMemoryBlock()`** in `spawn-prompt.ts` (T1282): New block builder for `## PSYCHE-MEMORY` section emitted in tier-1/2 prompts between CONDUIT and File Paths. Shows user profile, peer memory slices, session narrative; emits empty-bundle notice when all entries refused.
+- **`peerId?` option on `ComposeSpawnPayloadOptions`** (T1282): Caller can specify CANT peer id for scoped memory retrieval; defaults to `'global'`.
+- **`retrievalBundle?` field on `SpawnPayload`** (T1282): Carries the `RetrievalBundle` assembled at compose time; undefined when sessionId absent.
+- **`buildRetrievalBundle` exported from `@cleocode/core`** (T1281): M4 injection primitive — reusable by hooks, CANT, CONDUIT, and Sentient proposer.
+- **`spawn-retrieval-parity.test.ts` GREEN** (T1281): 6 passing integration tests verifying M1 structural parity between briefing-path and spawn-path bundles.
+
+### Changed
+
+- **`fetchPeerMemory()`** (T1279): SQL queries now `SELECT provenance_class` for learnings, patterns, decisions; mapped to `provenanceClass` in returned objects.
+- **`fetchSessionState()`** (T1279): SQL query for observations now `SELECT provenance_class`; mapped to `provenanceClass` in returned objects.
+- **`buildRetrievalBundle()`** (T1280): M6 refusal gate added — filters out entries with `provenanceClass='unswept-pre-T1151'` before bundle assembly; logs `refusedCount` as warning. Callers degrade gracefully on empty bundle.
+- **`composeSpawnPayload()`** (T1282): Step 6c added — calls `buildRetrievalBundle` for tier>=1 when `sessionId` is present; passes `retrievalBundle` to `buildSpawnPrompt`.
+
+### Gate Status
+
+- **M1** (spawn-retrieval-parity): GREEN. `it.fails()` promoted to 6 full integration assertions.
+- **M4** (injection primitive): `buildRetrievalBundle` exported from `@cleocode/core` index.
+- **M6** (provenanceClass refusal gate): ACTIVE. All legacy entries default to `'unswept-pre-T1151'` — warm/hot bundles empty until T1147 W7 sweep (.132).
+
 ## [2026.4.127] — 2026-04-24
 
 PSYCHE E2 seed-install meta-agent wiring (T1259). Wires `cleo init --install-seed-agents` to invoke `agent-architect` meta-agent instead of static copy. Adds `cleo agent mint <spec.cant>` CLI verb, `cleo playbook create <name>`, `resolveMetaAgentsDir()` SDK helper, `playbook-architect.cant` meta-agent, and M1 spawn-retrieval-parity red test scaffold (flips green in E3/.128). Fixes F1 (agent.ts scaffold parent residual) and F2 (agent-architect.cant parent → canonical name). F6 decision: @cleocode/agents-starter via subset export, no new 17th package.
