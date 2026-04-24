@@ -2679,6 +2679,48 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T1147 W7 — BRAIN noise sweep (shadow-write envelope, self-healing gate)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'sweep',
+    description:
+      'memory.sweep (query/mutate) — T1147 W7 BRAIN noise sweep. ' +
+      'dry-run: detect noise candidates and write sample JSON to agent-outputs. ' +
+      'approve <runId>: apply sweep to live brain tables (sets killSwitch during tx). ' +
+      'status: list all noise-sweep-2440 runs. ' +
+      'rollback <runId>: discard a staged run without applying changes.',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dry-run',
+        type: 'boolean',
+        required: false,
+        description: 'Detect noise candidates without staging DB writes.',
+      },
+      {
+        name: 'approve',
+        type: 'string',
+        required: false,
+        description: 'Run ID to approve and apply to live tables.',
+      },
+      {
+        name: 'status',
+        type: 'boolean',
+        required: false,
+        description: 'List recent noise-sweep-2440 runs.',
+      },
+      {
+        name: 'rollback',
+        type: 'string',
+        required: false,
+        description: 'Run ID to roll back without applying changes.',
+      },
+    ],
+  },
   // T791 — LLM extraction backend status
   {
     gateway: 'query',
