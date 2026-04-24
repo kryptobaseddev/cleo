@@ -561,6 +561,7 @@ export {
 } from './peer.js';
 // === Playbook DSL Types (T889 / T904 / W4-6) ===
 export type {
+  ContractViolationRecord,
   PlaybookAgenticNode,
   PlaybookApproval,
   PlaybookApprovalNode,

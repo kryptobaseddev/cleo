@@ -23,7 +23,7 @@
  * Consumers can use this to assert dependency alignment at runtime
  * (e.g. ensuring the `@cleocode/playbooks` runtime matches CLEO core).
  */
-export const PLAYBOOKS_PACKAGE_VERSION: string = '2026.4.85';
+export const PLAYBOOKS_PACKAGE_VERSION: string = '2026.4.129';
 
 export {
   approveGate,
@@ -36,6 +36,15 @@ export {
   getPlaybookSecret,
   rejectGate,
 } from './approval.js';
+// PSYCHE E4 migration tool (T1261) — STRICT cutover validator + migrator
+export {
+  type MigratePlaybookFileResult,
+  migratePlaybook,
+  migratePlaybookFile,
+  type NodeComplianceEntry,
+  type PlaybookComplianceReport,
+  validatePlaybookCompliance,
+} from './migrate-e4.js';
 // W4-7: .cantbook YAML parser → PlaybookDefinition
 export {
   type ParsePlaybookResult,

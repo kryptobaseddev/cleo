@@ -110,15 +110,63 @@ function makeRecordingDispatcher(
 
 /**
  * Default "always succeed" handler that echoes the node id into the context
- * via `{<nodeId>_done: true}`. Enough for the happy-path assertions.
+ * via `{<nodeId>_done: true}`, plus enough fields to satisfy the ivtr/rcasd
+ * `requires` contracts so the E4 contract enforcement (T1261) doesn't fire.
+ *
+ * Fields added per-node follow the starter playbook schemas:
+ *   - implement → diff (validate.requires.fields includes 'diff')
+ *   - validate  → passed (test.requires.fields includes 'passed')
+ *   - research  → summary, risks (consensus.requires.fields)
+ *   - consensus → decision (architecture.requires.fields)
+ *   - architecture → patterns, adrs (specification.requires.fields)
+ *   - specification → acceptance, requirements (decomposition.requires.fields)
+ *   - version_bump → versionBumped (changelog.requires.fields)
+ *   - changelog → changelogUpdated (approval edge.contract.ensures)
  */
 function alwaysSucceed(input: AgentDispatchInput): AgentDispatchResult {
+  const extraFields: Record<string, unknown> = {};
+  switch (input.nodeId) {
+    case 'implement':
+      extraFields.diff = `diff-${input.runId}`;
+      break;
+    case 'validate':
+      extraFields.passed = true;
+      break;
+    case 'research':
+      extraFields.summary = 'research summary';
+      extraFields.risks = [];
+      break;
+    case 'consensus':
+      extraFields.decision = 'consensus decision';
+      break;
+    case 'architecture':
+      extraFields.patterns = [];
+      extraFields.adrs = [];
+      break;
+    case 'specification':
+      extraFields.acceptance = [];
+      extraFields.requirements = [];
+      break;
+    case 'version_bump':
+      extraFields.versionBumped = true;
+      break;
+    case 'changelog':
+      extraFields.changelogUpdated = true;
+      extraFields.published = false;
+      break;
+    case 'publish':
+      extraFields.published = true;
+      break;
+    default:
+      break;
+  }
   return {
     status: 'success',
     output: {
       [`${input.nodeId}_done`]: true,
       lastNode: input.nodeId,
       lastAgent: input.agentId,
+      ...extraFields,
     },
   };
 }

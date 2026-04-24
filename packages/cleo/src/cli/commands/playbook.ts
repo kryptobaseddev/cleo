@@ -193,6 +193,52 @@ const listCommand = defineCommand({
 });
 
 /**
+ * cleo playbook validate — parse and validate a .cantbook file without executing it.
+ *
+ * Accepts either a file path (`--file <path>`) or a playbook name
+ * (`<name>` positional, resolved through the standard search path).
+ *
+ * Exits 0 on success; exits 70 ({@link PlaybookParseError.exitCode}) on parse
+ * failure so CI scripts can assert playbook validity as a gate.
+ *
+ * @example
+ * ```
+ * cleo playbook validate packages/playbooks/starter/rcasd.cantbook
+ * cleo playbook validate rcasd
+ * ```
+ *
+ * @task T1261 PSYCHE E4
+ */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description:
+      'Parse and validate a .cantbook file — exit 0 on success, exit 70 on parse error (T1261)',
+  },
+  args: {
+    file: {
+      type: 'positional',
+      description: 'Path to .cantbook file OR playbook name to resolve via search path',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    // Dispatch as a query using the file path. The handler auto-detects whether
+    // the argument looks like a path (contains / or \\ or ends with .cantbook)
+    // and falls back to name resolution otherwise.
+    const isPath =
+      args.file.includes('/') || args.file.includes('\\') || args.file.endsWith('.cantbook');
+    await dispatchFromCli(
+      'query',
+      'playbook',
+      'validate',
+      isPath ? { file: args.file } : { name: args.file },
+      { command: 'playbook' },
+    );
+  },
+});
+
+/**
  * Root `cleo playbook` command group.
  *
  * Delegates to the `playbook` dispatch domain for every subcommand; shows the
@@ -203,7 +249,7 @@ const listCommand = defineCommand({
 export const playbookCommand = defineCommand({
   meta: {
     name: 'playbook',
-    description: 'Playbook runtime operations (run, status, resume, list, create)',
+    description: 'Playbook runtime operations (run, status, resume, list, create, validate)',
   },
   subCommands: {
     run: runCommand,
@@ -211,6 +257,7 @@ export const playbookCommand = defineCommand({
     resume: resumeCommand,
     list: listCommand,
     create: createCommand,
+    validate: validateCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
