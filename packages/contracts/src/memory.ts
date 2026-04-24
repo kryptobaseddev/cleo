@@ -5,6 +5,54 @@
  * @task T5240
  */
 
+// ============================================================================
+// Dispatch Trace
+// ============================================================================
+
+/**
+ * Telemetry record emitted at the agent-resolver decision point for every
+ * successful resolution.
+ *
+ * Persisted to BRAIN via `verifyAndStore` with `memoryType='procedural'` and
+ * `sourceConfidence='speculative'` (tier-2 training candidate). The record
+ * is never written for resolutions that throw `AgentNotFoundError` — only
+ * successful (including universal-fallback) resolutions are traced.
+ *
+ * Fields map 1-to-1 with `ResolvedAgent` metadata so operators can correlate
+ * classifier output with registry outcomes across sessions.
+ *
+ * @task T1325
+ */
+export interface DispatchTrace {
+  /** Task ID that triggered the resolution (passed through from the caller). */
+  taskId: string;
+  /** Agent ID that was predicted / requested by the classifier. */
+  predictedAgentId: string;
+  /**
+   * Caller-supplied confidence score for the agent prediction (0.0–1.0).
+   * Set to 0 when no classifier confidence is available (e.g. direct spawn).
+   */
+  confidence: number;
+  /** Human-readable reason for the resolution outcome (tier hit, fallback path, etc.). */
+  reason: string;
+  /** `true` when the agent row was found in a registry tier (project/global/packaged). */
+  registryHit: boolean;
+  /**
+   * `true` when the universal-base fallback (tier 5) was engaged because every
+   * prior tier missed. Correlates with `ResolvedAgent.resolverWarning` being set.
+   */
+  fallbackUsed: boolean;
+  /**
+   * Structured warning message copied from `ResolvedAgent.resolverWarning` when
+   * the universal-base fallback was engaged.
+   *
+   * `undefined` when `fallbackUsed` is `false`.
+   */
+  resolverWarning?: string;
+  /** ISO 8601 timestamp at which the resolution completed. */
+  resolvedAt: string;
+}
+
 export interface MemoryBridgeConfig {
   /** Maximum number of recent observations to include in the bridge. */
   maxObservations: number;
