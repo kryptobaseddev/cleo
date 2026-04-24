@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -501,6 +501,11 @@ jobs:
           publish_pkg playbooks
           publish_pkg cleo
           publish_pkg cleo-os
+          # mcp-adapter is the external-only MCP bridge — depends on `cleo`
+          # only via subprocess at runtime (not via npm/workspace deps), so it
+          # can publish independently. Position last so any failure here does
+          # not block the spine packages above. (T1148 W8-9 / external bridge)
+          publish_pkg mcp-adapter
 
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
