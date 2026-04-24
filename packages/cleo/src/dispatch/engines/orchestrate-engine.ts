@@ -1979,6 +1979,13 @@ export async function orchestratePlan(
           if (resolved) {
             persona = resolved.agentId;
             orchLevel = resolved.orchLevel;
+            if (resolved.resolverWarning) {
+              warnings.push({
+                taskId: task.id,
+                code: 'agent_fallback_universal_base',
+                message: resolved.resolverWarning,
+              });
+            }
           } else {
             persona = 'cleo-subagent';
             // Try to resolve the fallback too so we pick up its orchLevel

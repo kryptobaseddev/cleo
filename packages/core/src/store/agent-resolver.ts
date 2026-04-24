@@ -550,11 +550,10 @@ function tryResolveUniversalBase(
 
   const bytes = readFileSync(basePath);
   const hash = createHash('sha256').update(bytes).digest('hex');
-  console.warn(
-    `[agent-resolver] WARN: agent '${agentId}' not found in project/global/packaged/fallback tiers — ` +
-      `falling back to universal base '${AGENT_UNIVERSAL_BASE_ID}' at '${basePath}'. ` +
-      `Run 'cleo agent install --global <path>' to register a concrete persona.`,
-  );
+  const resolverWarning =
+    `[agent-resolver] agent '${agentId}' not found in project/global/packaged/fallback tiers — ` +
+    `falling back to universal base '${AGENT_UNIVERSAL_BASE_ID}' at '${basePath}'. ` +
+    `Run 'cleo agent install --global <path>' to register a concrete persona.`;
   return {
     agentId,
     tier: 'universal',
@@ -567,6 +566,7 @@ function tryResolveUniversalBase(
     source: 'universal',
     aliasApplied: true,
     aliasTarget: AGENT_UNIVERSAL_BASE_ID,
+    resolverWarning,
   };
 }
 

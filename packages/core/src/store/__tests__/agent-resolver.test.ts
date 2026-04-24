@@ -532,6 +532,40 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     }
   });
 
+  it('T1324 — tryResolveUniversalBase sets resolverWarning and never calls console.warn', async () => {
+    const { resolveAgent } = await import('../agent-resolver.js');
+    const db = env.openDb();
+    // Spy on console.warn BEFORE the call — must not be invoked.
+    const warnSpy = vi.spyOn(console, 'warn');
+    try {
+      const universalBasePath = join(env.cleoHome, 'universal-base-warn-test.cant');
+      writeFileSync(
+        universalBasePath,
+        '---\nkind: agent\nversion: 1\n---\n\nagent cleo-subagent:\n  role: worker\n  prompt: "Universal base."\n  skills: []\n',
+        'utf-8',
+      );
+
+      const resolved = resolveAgent(db, 'ghost-agent-for-warn-test', {
+        projectRoot: env.projectRoot,
+        packagedSeedDir: env.packagedSeedDir,
+        universalBasePath,
+      });
+
+      // Structured warning is set on the envelope.
+      expect(resolved.resolverWarning).toBeTypeOf('string');
+      expect(resolved.resolverWarning).toContain('ghost-agent-for-warn-test');
+      expect(resolved.resolverWarning).toContain('cleo-subagent');
+      // console.warn must NOT have been called — diagnostic goes through
+      // the structured PlanWarning channel, not stderr/stdout.
+      expect(warnSpy).not.toHaveBeenCalled();
+      // Sanity: we still got the universal tier envelope.
+      expect(resolved.tier).toBe('universal');
+    } finally {
+      db.close();
+      warnSpy.mockRestore();
+    }
+  });
+
   it('resolveAgentsBatch mixes successes and AgentNotFoundError in result map', async () => {
     const { installAgentFromCant } = await import('../agent-install.js');
     const { resolveAgentsBatch, AgentNotFoundError } = await import('../agent-resolver.js');
