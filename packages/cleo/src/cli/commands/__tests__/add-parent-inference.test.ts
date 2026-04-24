@@ -37,10 +37,10 @@ vi.mock('@cleocode/core', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-// Mock getActiveSession — will be overridden per test
-const mockGetActiveSession = vi.fn();
+// Mock taskCurrentGet — will be overridden per test
+const mockTaskCurrentGet = vi.fn();
 vi.mock('../../../dispatch/engines/session-engine.js', () => ({
-  getActiveSession: (...args: unknown[]) => mockGetActiveSession(...args),
+  taskCurrentGet: (...args: unknown[]) => mockTaskCurrentGet(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -66,13 +66,14 @@ describe('cleo add --parent inference (T1329)', () => {
   beforeEach(() => {
     mockDispatchRaw.mockClear();
     mockHandleRawError.mockClear();
-    mockGetActiveSession.mockClear();
+    mockTaskCurrentGet.mockClear();
   });
 
   it('infers --parent from session.taskWork.taskId when present', async () => {
-    // Mock session with active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: { taskId: 'T999', setAt: new Date().toISOString() },
+    // Mock taskCurrentGet returning the active current task
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: 'T999', currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
@@ -92,15 +93,16 @@ describe('cleo add --parent inference (T1329)', () => {
       'add',
       expect.objectContaining({
         title: 'New task',
-        parent: 'T999', // inferred from session
+        parent: 'T999', // inferred from current task
       }),
     );
   });
 
   it('does NOT infer when no current task in session', async () => {
-    // Mock session without active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: null,
+    // Mock taskCurrentGet returning no current task
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: null, currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
@@ -129,9 +131,10 @@ describe('cleo add --parent inference (T1329)', () => {
   });
 
   it('respects explicit --parent override (no inference)', async () => {
-    // Mock session with active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: { taskId: 'T999', setAt: new Date().toISOString() },
+    // Mock taskCurrentGet returning an active task (inference would pick T999)
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: 'T999', currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
@@ -158,9 +161,10 @@ describe('cleo add --parent inference (T1329)', () => {
   });
 
   it('exempts epics from parent inference', async () => {
-    // Mock session with active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: { taskId: 'T999', setAt: new Date().toISOString() },
+    // Mock taskCurrentGet — should never be called for epics
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: 'T999', currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
@@ -191,8 +195,8 @@ describe('cleo add --parent inference (T1329)', () => {
   });
 
   it('handles session lookup failure gracefully (non-fatal)', async () => {
-    // Mock session lookup failure
-    mockGetActiveSession.mockRejectedValue(new Error('Session not found'));
+    // Mock taskCurrentGet failure
+    mockTaskCurrentGet.mockRejectedValue(new Error('Session not found'));
 
     mockDispatchRaw.mockResolvedValue({
       success: true,
@@ -211,9 +215,10 @@ describe('cleo add --parent inference (T1329)', () => {
   });
 
   it('logs inference notice to stderr when inferred', async () => {
-    // Mock session with active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: { taskId: 'T999', setAt: new Date().toISOString() },
+    // Mock taskCurrentGet returning the active current task
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: 'T999', currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
@@ -238,9 +243,10 @@ describe('cleo add --parent inference (T1329)', () => {
   });
 
   it('does NOT log inference notice when explicit --parent provided', async () => {
-    // Mock session with active task
-    mockGetActiveSession.mockResolvedValue({
-      taskWork: { taskId: 'T999', setAt: new Date().toISOString() },
+    // Mock taskCurrentGet returning an active task (should not fire due to explicit parent)
+    mockTaskCurrentGet.mockResolvedValue({
+      success: true,
+      data: { currentTask: 'T999', currentPhase: null },
     });
 
     mockDispatchRaw.mockResolvedValue({
