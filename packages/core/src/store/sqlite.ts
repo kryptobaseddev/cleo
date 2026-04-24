@@ -16,44 +16,6 @@
  */
 
 import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
-import { createRequire } from 'node:module';
-// underscore-import: node:sqlite type alias is required for createRequire interop.
-// Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
-// Use createRequire as the runtime loader; keep type-only import for annotations.
-import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-
-const _require = createRequire(import.meta.url);
-type DatabaseSync = _DatabaseSyncType;
-
-/**
- * Lazy-loaded node:sqlite DatabaseSync constructor.
- * Moved from module-scope destructuring to function-scope to break a TDZ
- * circular-import cycle: agent-resolver → dispatch-trace → extraction-gate
- * → graph-auto-populate → memory-sqlite → sqlite.ts (T1325/T1331).
- *
- * The module-scope `const { DatabaseSync } = _require(...)` was executed
- * before the module finished initializing when Vitest eagerly traced the
- * dynamic `import('../memory/dispatch-trace.js')` in agent-resolver.ts,
- * causing a TDZ ReferenceError. Deferring the require() call to first use
- * avoids the re-entrant initialization.
- */
-let _DatabaseSyncCtor:
-  | (new (
-      ...args: ConstructorParameters<typeof _DatabaseSyncType>
-    ) => DatabaseSync)
-  | null = null;
-function getDbSyncConstructor(): new (
-  ...args: ConstructorParameters<typeof _DatabaseSyncType>
-) => DatabaseSync {
-  if (_DatabaseSyncCtor === null) {
-    const mod = _require('node:sqlite') as {
-      DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
-    };
-    _DatabaseSyncCtor = mod.DatabaseSync;
-  }
-  return _DatabaseSyncCtor;
-}
-
 import { dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -69,6 +31,11 @@ import {
 } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
+// node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
+// TDZ circular-import failures in the agent-resolver → dispatch-trace →
+// extraction-gate → graph-auto-populate → memory-sqlite → sqlite.ts cycle
+// (T1325/T1331). See sqlite-native.ts for detailed explanation.
+import { type DatabaseSync, getDbSyncConstructor } from './sqlite-native.js';
 import * as schema from './tasks-schema.js';
 
 /**
