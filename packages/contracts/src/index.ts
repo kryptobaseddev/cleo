@@ -112,6 +112,12 @@ export {
   localFileAttachmentSchema,
   urlAttachmentSchema,
 } from './attachment-schema.js';
+// === Audit Lineage Reconstruction Types (T1322) ===
+export type {
+  CommitEntry,
+  ReconstructResult,
+  ReleaseTagEntry,
+} from './audit.js';
 // === Backup Manifest Types ===
 export type {
   BackupDatabaseEntry,
@@ -553,7 +559,6 @@ export type {
   WorktreeIncludePattern,
   WorktreeListEntry,
 } from './operations/worktree.js';
-
 // === Peer Identity (T1210 — SDK-first CANT persona contract) ===
 export {
   assertPeerIdentity,
@@ -781,10 +786,4 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
-// === Audit Lineage Reconstruction Types (T1322) ===
-export type {
-  CommitEntry,
-  ReconstructResult,
-  ReleaseTagEntry,
-} from './audit.js';
 // === WASM SDK (Rust crate bindings) ===
