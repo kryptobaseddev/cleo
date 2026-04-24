@@ -15,8 +15,7 @@
  */
 
 import type { CommitEntry } from '@cleocode/contracts';
-import { reconstructLineage } from '@cleocode/core/audit/reconstruct.js';
-import { getProjectRoot } from '@cleocode/core/internal';
+import { getProjectRoot, reconstructLineage } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 
 /**
