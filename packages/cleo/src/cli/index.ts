@@ -49,6 +49,7 @@ import { type CommandDef, defineCommand, runMain } from 'citty';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
+import { didYouMean } from './lib/did-you-mean.js';
 import { resolveFormat } from './middleware/output-format.js';
 
 function getPackageVersion(): string {
@@ -454,4 +455,46 @@ const aliasMap = buildAliasMap(subCommands);
 
 // Use custom grouped help renderer for root --help; sub-commands use citty's default
 const customShowUsage = createCustomShowUsage(CLI_VERSION, subCommands, aliasMap);
+
+// Check for unknown command before running main
+{
+  const rawArgs = process.argv.slice(2);
+  const firstArg = rawArgs[0];
+
+  // Only check if:
+  // 1. There is a first argument
+  // 2. It doesn't start with '-' (not a flag)
+  // 3. It's not a help request
+  // 4. It's not a version request
+  if (
+    firstArg &&
+    !firstArg.startsWith('-') &&
+    firstArg !== '--help' &&
+    firstArg !== '-h' &&
+    firstArg !== '--version' &&
+    firstArg !== '-V'
+  ) {
+    const availableCommands = Object.keys(subCommands);
+
+    // If the command is not in the list, handle it with did-you-mean
+    if (!availableCommands.includes(firstArg)) {
+      const suggestions = didYouMean(firstArg, availableCommands, 3);
+
+      // Print error to stderr
+      process.stderr.write(`Unknown command ${firstArg}\n`);
+
+      // Print suggestions if found
+      if (suggestions.length > 0) {
+        process.stderr.write('\nDid you mean one of:\n');
+        for (const suggestion of suggestions) {
+          process.stderr.write(`  cleo ${suggestion}\n`);
+        }
+      }
+
+      // Exit with code 127 (standard bash "command not found")
+      process.exit(127);
+    }
+  }
+}
+
 runMain(main, { showUsage: customShowUsage });
