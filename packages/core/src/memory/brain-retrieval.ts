@@ -1689,14 +1689,16 @@ export async function fetchPeerMemory(
     id: string;
     insight: string;
     created_at: string;
+    provenance_class: string | null;
   }
 
   // Both query-on and query-off currently use the same recent-10 fallback.
   // The `query` branch is kept for future FTS-scoped narrowing (T1090 followup).
-  const learningSqlWithPeer = `SELECT id, insight, created_at FROM brain_learnings
+  // T1260 PSYCHE E3: SELECT provenance_class AS provenance_class for M6 refusal gate.
+  const learningSqlWithPeer = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
              WHERE (peer_id = ? OR peer_id = 'global')
              ORDER BY created_at DESC LIMIT 10`;
-  const learningSqlGlobal = `SELECT id, insight, created_at FROM brain_learnings
+  const learningSqlGlobal = `SELECT id, insight, created_at, provenance_class FROM brain_learnings
              WHERE peer_id = 'global'
              ORDER BY created_at DESC LIMIT 10`;
   const learningSqlLegacy =
@@ -1726,12 +1728,14 @@ export async function fetchPeerMemory(
     id: string;
     pattern: string;
     extracted_at: string;
+    provenance_class: string | null;
   }
 
-  const patternSqlWithPeer = `SELECT id, pattern, extracted_at FROM brain_patterns
+  // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
+  const patternSqlWithPeer = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
            WHERE (peer_id = ? OR peer_id = 'global')
            ORDER BY extracted_at DESC LIMIT 10`;
-  const patternSqlGlobal = `SELECT id, pattern, extracted_at FROM brain_patterns
+  const patternSqlGlobal = `SELECT id, pattern, extracted_at, provenance_class FROM brain_patterns
            WHERE peer_id = 'global'
            ORDER BY extracted_at DESC LIMIT 10`;
   const patternSqlLegacy =
@@ -1755,12 +1759,14 @@ export async function fetchPeerMemory(
     id: string;
     decision: string;
     created_at: string;
+    provenance_class: string | null;
   }
 
-  const decisionSqlWithPeer = `SELECT id, decision, created_at FROM brain_decisions
+  // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
+  const decisionSqlWithPeer = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
            WHERE (peer_id = ? OR peer_id = 'global')
            ORDER BY created_at DESC LIMIT 10`;
-  const decisionSqlGlobal = `SELECT id, decision, created_at FROM brain_decisions
+  const decisionSqlGlobal = `SELECT id, decision, created_at, provenance_class FROM brain_decisions
            WHERE peer_id = 'global'
            ORDER BY created_at DESC LIMIT 10`;
   const decisionSqlLegacy =
@@ -1784,16 +1790,19 @@ export async function fetchPeerMemory(
       id: r.id,
       insight: r.insight,
       createdAt: r.created_at,
+      provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
     })),
     peerPatterns: patternRows.map((r) => ({
       id: r.id,
       pattern: r.pattern,
       extractedAt: r.extracted_at,
+      provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
     })),
     decisions: decisionRows.map((r) => ({
       id: r.id,
       decision: r.decision,
       createdAt: r.created_at,
+      provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
     })),
   };
 }
@@ -1839,6 +1848,7 @@ export async function fetchSessionState(
     title: string;
     narrative: string | null;
     created_at: string;
+    provenance_class: string | null;
   }
 
   let recentObservations: import('@cleocode/contracts').RetrievalObservation[] = [];
@@ -1846,7 +1856,7 @@ export async function fetchSessionState(
     try {
       const obsRows = nativeDb
         .prepare(
-          `SELECT id, title, narrative, created_at
+          `SELECT id, title, narrative, created_at, provenance_class
            FROM brain_observations
            WHERE source_session_id = ?
            ORDER BY created_at DESC LIMIT 10`,
@@ -1857,6 +1867,7 @@ export async function fetchSessionState(
         title: r.title,
         narrative: r.narrative ?? '',
         createdAt: r.created_at,
+        provenanceClass: r.provenance_class ?? 'unswept-pre-T1151',
       }));
     } catch {
       recentObservations = [];
@@ -1968,6 +1979,68 @@ export async function buildRetrievalBundle(
       : Promise.resolve({ sessionNarrative: '', recentObservations: [], activeTasks: [] }),
   ]);
 
+  // -- M6 refusal gate (T1260 PSYCHE E3) --
+  //
+  // Entries with provenanceClass='unswept-pre-T1151' are refused to prevent
+  // Sentient v1 reading unswept legacy memory. This gate is active until the
+  // T1147 W7 sweep (.132) stamps entries as 'swept-clean'.
+  //
+  // NOTE (Risk 5): With the default 'unswept-pre-T1151' on all legacy rows,
+  // this gate will refuse ALL warm entries and hot observations for existing
+  // BRAIN data until .132 ships. This is correct per Council. Callers MUST NOT
+  // crash on an empty bundle — they should degrade gracefully.
+  const REFUSED_CLASS = 'unswept-pre-T1151';
+
+  const refusedWarmLearnings = warmResult.peerLearnings.filter(
+    (e) => e.provenanceClass === REFUSED_CLASS,
+  );
+  const acceptedWarmLearnings = warmResult.peerLearnings.filter(
+    (e) => e.provenanceClass !== REFUSED_CLASS,
+  );
+  const refusedWarmPatterns = warmResult.peerPatterns.filter(
+    (e) => e.provenanceClass === REFUSED_CLASS,
+  );
+  const acceptedWarmPatterns = warmResult.peerPatterns.filter(
+    (e) => e.provenanceClass !== REFUSED_CLASS,
+  );
+  const refusedWarmDecisions = warmResult.decisions.filter(
+    (e) => e.provenanceClass === REFUSED_CLASS,
+  );
+  const acceptedWarmDecisions = warmResult.decisions.filter(
+    (e) => e.provenanceClass !== REFUSED_CLASS,
+  );
+  const refusedHotObservations = hotResult.recentObservations.filter(
+    (e) => e.provenanceClass === REFUSED_CLASS,
+  );
+  const acceptedHotObservations = hotResult.recentObservations.filter(
+    (e) => e.provenanceClass !== REFUSED_CLASS,
+  );
+
+  const refusedCount =
+    refusedWarmLearnings.length +
+    refusedWarmPatterns.length +
+    refusedWarmDecisions.length +
+    refusedHotObservations.length;
+
+  if (refusedCount > 0) {
+    // Emit a warning so callers can detect the empty-bundle-until-sweep state.
+    // Do NOT crash — callers must degrade gracefully on empty bundle.
+    console.warn(
+      `[buildRetrievalBundle] M6 refusal gate: refused ${refusedCount} entries ` +
+        `with provenanceClass='unswept-pre-T1151'. ` +
+        `Run T1147 W7 sweep (.132) to promote entries to 'swept-clean'. ` +
+        `Bundle may be empty until sweep completes.`,
+    );
+  }
+
+  // Replace warm+hot results with filtered (accepted-only) versions.
+  const filteredWarmResult = {
+    peerLearnings: acceptedWarmLearnings,
+    peerPatterns: acceptedWarmPatterns,
+    decisions: acceptedWarmDecisions,
+  };
+  const filteredHotObservations = acceptedHotObservations;
+
   // -- Token accounting --
   let coldTokens = 0;
   for (const trait of coldResult.userProfile) {
@@ -1976,16 +2049,16 @@ export async function buildRetrievalBundle(
   coldTokens += estimateTokens(coldResult.peerInstructions);
 
   let warmTokens = 0;
-  for (const l of warmResult.peerLearnings) warmTokens += estimateTokens(l.insight);
-  for (const p of warmResult.peerPatterns) warmTokens += estimateTokens(p.pattern);
-  for (const d of warmResult.decisions) warmTokens += estimateTokens(d.decision);
+  for (const l of filteredWarmResult.peerLearnings) warmTokens += estimateTokens(l.insight);
+  for (const p of filteredWarmResult.peerPatterns) warmTokens += estimateTokens(p.pattern);
+  for (const d of filteredWarmResult.decisions) warmTokens += estimateTokens(d.decision);
 
   let hotTokens = estimateTokens(hotResult.sessionNarrative);
-  for (const o of hotResult.recentObservations) hotTokens += estimateTokens(o.narrative || o.title);
+  for (const o of filteredHotObservations) hotTokens += estimateTokens(o.narrative || o.title);
   for (const t of hotResult.activeTasks) hotTokens += estimateTokens(`${t.id} ${t.title}`);
 
   // -- Budget enforcement: trim hot first when over-budget --
-  let trimmedObservations = hotResult.recentObservations;
+  let trimmedObservations = filteredHotObservations;
   let trimmedTasks = hotResult.activeTasks;
 
   const totalRaw = coldTokens + warmTokens + hotTokens;
@@ -1997,7 +2070,7 @@ export async function buildRetrievalBundle(
     // Trim observations first (most volatile content)
     let usedHot = estimateTokens(hotResult.sessionNarrative);
     trimmedObservations = [];
-    for (const obs of hotResult.recentObservations) {
+    for (const obs of filteredHotObservations) {
       const cost = estimateTokens(obs.narrative || obs.title);
       if (usedHot + cost <= effectiveHotBudget) {
         trimmedObservations.push(obs);
@@ -2041,9 +2114,9 @@ export async function buildRetrievalBundle(
       peerInstructions: coldResult.peerInstructions,
     },
     warm: {
-      peerLearnings: warmResult.peerLearnings,
-      peerPatterns: warmResult.peerPatterns,
-      decisions: warmResult.decisions,
+      peerLearnings: filteredWarmResult.peerLearnings,
+      peerPatterns: filteredWarmResult.peerPatterns,
+      decisions: filteredWarmResult.decisions,
     },
     hot: {
       sessionNarrative: hotResult.sessionNarrative,

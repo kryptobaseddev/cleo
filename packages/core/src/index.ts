@@ -312,6 +312,7 @@ export type {
 } from './memory/brain-retrieval.js';
 // Memory
 export {
+  buildRetrievalBundle,
   fetchBrainEntries,
   observeBrain,
   populateEmbeddings,

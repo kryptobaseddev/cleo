@@ -222,6 +222,19 @@ export const brainDecisions = sqliteTable(
      */
     contentHash: text('content_hash'),
 
+    // T1260: PSYCHE E3 — provenanceClass sweep gate (M6)
+
+    /**
+     * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+     *
+     * - `'unswept-pre-T1151'` — default for legacy rows; refused by buildRetrievalBundle
+     *   until the T1147 W7 sweep (.132) stamps entries as clean.
+     * - `'swept-clean'`       — row has passed the T1147 reconciler sweep.
+     * - `'deriver-synthesized'` — row was created by the T1145 deriver (W5).
+     * - `'owner-verified'`    — row was manually promoted via `cleo memory verify`.
+     */
+    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
     /**
@@ -355,6 +368,17 @@ export const brainPatterns = sqliteTable(
      */
     contentHash: text('content_hash'),
 
+    // T1260: PSYCHE E3 — provenanceClass sweep gate (M6)
+
+    /**
+     * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+     * - `'unswept-pre-T1151'` — default; refused by buildRetrievalBundle until W7 sweep.
+     * - `'swept-clean'` — passed T1147 reconciler sweep.
+     * - `'deriver-synthesized'` — created by T1145 deriver.
+     * - `'owner-verified'` — manually promoted via `cleo memory verify`.
+     */
+    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
     /**
@@ -472,6 +496,17 @@ export const brainLearnings = sqliteTable(
      * Null on legacy rows (pre-T726).
      */
     contentHash: text('content_hash'),
+
+    // T1260: PSYCHE E3 — provenanceClass sweep gate (M6)
+
+    /**
+     * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+     * - `'unswept-pre-T1151'` — default; refused by buildRetrievalBundle until W7 sweep.
+     * - `'swept-clean'` — passed T1147 reconciler sweep.
+     * - `'deriver-synthesized'` — created by T1145 deriver.
+     * - `'owner-verified'` — manually promoted via `cleo memory verify`.
+     */
+    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
@@ -622,6 +657,17 @@ export const brainObservations = sqliteTable(
      * @task T1001
      */
     stabilityScore: real('stability_score').default(0.5),
+
+    // T1260: PSYCHE E3 — provenanceClass sweep gate (M6)
+
+    /**
+     * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+     * - `'unswept-pre-T1151'` — default; refused by buildRetrievalBundle until W7 sweep.
+     * - `'swept-clean'` — passed T1147 reconciler sweep.
+     * - `'deriver-synthesized'` — created by T1145 deriver.
+     * - `'owner-verified'` — manually promoted via `cleo memory verify`.
+     */
+    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
