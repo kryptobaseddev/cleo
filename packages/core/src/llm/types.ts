@@ -1,7 +1,7 @@
 /**
  * Public response/stream/iteration types for the CLEO LLM API.
  *
- * Ported from Honcho src/llm/types.py — all public shapes used by
+ * Ported from PSYCHE src/llm/types.py — all public shapes used by
  * callers of `cleoLlmCall()`. Langfuse decorators removed; provider
  * client union adapted for TypeScript SDK packages.
  *
@@ -142,7 +142,7 @@ export class StreamingResponseWithMetadata implements AsyncIterable<LLMStreamChu
 // Re-export zod for structured output schemas
 export type {
   /** @deprecated Use LLMCallResponse<T> */
-  LLMCallResponse as HonchoLLMCallResponse,
-  LLMStreamChunk as HonchoLLMCallStreamChunk,
+  LLMCallResponse as PsycheLLMCallResponse,
+  LLMStreamChunk as PsycheLLMCallStreamChunk,
   z,
 };

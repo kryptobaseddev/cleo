@@ -4,11 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.141] — 2026-04-24 — terminology scrub (ADR-055 D032)
+
+### Headline
+
+Fix-forward terminology scrub: rename `Honcho` → `PSYCHE` across the CLEO ship surface to comply with ADR-055 D032 (upstream source-project name MUST NOT appear in CLEO ship surface — CHANGELOG, package metadata, source files, dist files, public type names). v2026.4.140 leaked `Honcho` in 17 TSDoc headers, the v2026.4.140 CHANGELOG entry, the contracts TSDoc header, and 2 public type aliases (`HonchoLLMCallResponse`, `HonchoLLMCallStreamChunk`). Both type aliases were already `@deprecated`-flagged and had no in-tree consumers.
+
+### Renames
+
+- **CHANGELOG.md** — v2026.4.140 entry prose: `Honcho's production-grade LLM abstraction` → `PSYCHE's production-grade LLM abstraction`.
+- **packages/contracts/src/operations/llm.ts** — TSDoc header: `Honcho's llm/ layer` → `PSYCHE's llm/ layer`.
+- **packages/core/src/llm/** (16 files) — TSDoc `Ported from Honcho src/llm/X.py` → `Ported from PSYCHE src/llm/X.py` across `api.ts`, `backend.ts`, `caching.ts`, `conversation.ts`, `credentials.ts`, `executor.ts`, `history-adapters.ts`, `registry.ts`, `request-builder.ts`, `runtime.ts`, `structured-output.ts` (3 occurrences), `tool-loop.ts`, `types.ts`, `backends/anthropic.ts`, `backends/openai.ts`, `backends/gemini.ts`.
+- **packages/core/src/llm/types.ts** — public type aliases renamed: `HonchoLLMCallResponse` → `PsycheLLMCallResponse`, `HonchoLLMCallStreamChunk` → `PsycheLLMCallStreamChunk` (PascalCase, both retain `@deprecated` annotation).
+
+### Behavior
+
+No behavior change. Pure rename of TSDoc prose + 2 deprecated public type aliases. `dist/` regenerated as part of the release build pipeline.
+
+### Why fix-forward
+
+v2026.4.140 was already published to npm (`@cleocode/core@2026.4.140`, `@cleocode/contracts@2026.4.140`) when the leak was identified. Per project policy (never delete + recreate published tags), this is shipped as a patch.
+
+---
+
 ## [2026.4.140] — 2026-04-24 — T1386 PSYCHE LLM Layer Port (real implementation)
 
 ### Headline
 
-Port Honcho's production-grade LLM abstraction (`src/llm/`, 3851 LOC Python) to `packages/core/src/llm/` as TypeScript. Ships `cleoLlmCall()` as the new unified LLM entrypoint with Anthropic, OpenAI, and Gemini backends, tool-loop orchestration, structured output with 3-tier JSON repair fallback, prompt caching, and 52 new unit tests. T1256 was retroactively closed — this is the actual port. 15 child tasks (T1387-T1401) decomposition executed per T1386 explorer map. 4 new npm deps: openai, @google/generative-ai, p-retry, jsonrepair. Orthogonal to existing llm-backend-resolver.ts (Vercel AI SDK path stays).
+Port PSYCHE's production-grade LLM abstraction (`src/llm/`, 3851 LOC Python) to `packages/core/src/llm/` as TypeScript. Ships `cleoLlmCall()` as the new unified LLM entrypoint with Anthropic, OpenAI, and Gemini backends, tool-loop orchestration, structured output with 3-tier JSON repair fallback, prompt caching, and 52 new unit tests. T1256 was retroactively closed — this is the actual port. 15 child tasks (T1387-T1401) decomposition executed per T1386 explorer map. 4 new npm deps: openai, @google/generative-ai, p-retry, jsonrepair. Orthogonal to existing llm-backend-resolver.ts (Vercel AI SDK path stays).
 
 ---
 

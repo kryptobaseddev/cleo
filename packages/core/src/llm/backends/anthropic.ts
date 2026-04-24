@@ -1,7 +1,7 @@
 /**
  * Anthropic provider backend.
  *
- * Ported from Honcho src/llm/backends/anthropic.py (347 LOC).
+ * Ported from PSYCHE src/llm/backends/anthropic.py (347 LOC).
  *
  * CRITICAL INVARIANT (R2): Claude 4-class models reject assistant-prefill.
  * `_supportsAssistantPrefill` returns false for claude-opus-4*, claude-sonnet-4*,

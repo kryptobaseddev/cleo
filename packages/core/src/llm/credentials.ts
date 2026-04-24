@@ -1,7 +1,7 @@
 /**
  * Credential resolution for the CLEO LLM layer.
  *
- * Ported from Honcho src/llm/credentials.py. Resolves API keys for each
+ * Ported from PSYCHE src/llm/credentials.py. Resolves API keys for each
  * provider transport from environment variables. Imports the existing
  * anthropic-key-resolver for compatibility with the existing extraction pipeline.
  *

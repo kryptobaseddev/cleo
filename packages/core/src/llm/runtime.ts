@@ -1,7 +1,7 @@
 /**
  * Runtime config planning and retry/fallback selection.
  *
- * Ported from Honcho src/llm/runtime.py (236 LOC).
+ * Ported from PSYCHE src/llm/runtime.py (236 LOC).
  *
  * Owns:
  * - Resolution of ModelConfig (no ConfiguredModelSettings in CLEO — direct ModelConfig)

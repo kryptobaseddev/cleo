@@ -1,13 +1,13 @@
 /**
  * Structured output validation and repair.
  *
- * Ported from Honcho src/llm/structured_output.py. Implements a 3-tier
+ * Ported from PSYCHE src/llm/structured_output.py. Implements a 3-tier
  * fallback pipeline:
  *   Tier 1: validateStructuredOutput — direct schema parse
  *   Tier 2: jsonrepair → JSON.parse → schema.parse
  *   Tier 3: policy-driven: 'repair_then_empty' | 'raise' | 'repair_then_raise'
  *
- * The PromptRepresentation special-case from Honcho is replaced by the
+ * The PromptRepresentation special-case from PSYCHE is replaced by the
  * generic `repairHook?` option for any pre-validation transforms.
  *
  * @task T1396 (T1386-W10)
@@ -53,7 +53,7 @@ export function validateStructuredOutput<T>(content: unknown, schema: z.ZodType<
  * Repair malformed / truncated JSON and validate against the schema.
  *
  * Optional `repairHook` allows callers to pre-process the repaired data
- * before schema validation (replaces Honcho's PromptRepresentation special-case).
+ * before schema validation (replaces PSYCHE's PromptRepresentation special-case).
  */
 export function repairResponseModelJson<T>(
   rawContent: string,

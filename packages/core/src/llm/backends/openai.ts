@@ -1,7 +1,7 @@
 /**
  * OpenAI provider backend.
  *
- * Ported from Honcho src/llm/backends/openai.py (427 LOC).
+ * Ported from PSYCHE src/llm/backends/openai.py (427 LOC).
  *
  * Key distinctions from classic OpenAI:
  * - o-series and gpt-5 use max_completion_tokens instead of max_tokens

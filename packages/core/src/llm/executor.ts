@@ -1,7 +1,7 @@
 /**
  * Single-call executor: the inner LLM-call path without tool-loop orchestration.
  *
- * Ported from Honcho src/llm/executor.py (226 LOC). Handles one backend call
+ * Ported from PSYCHE src/llm/executor.py (226 LOC). Handles one backend call
  * (complete or stream), building the effective ModelConfig and delegating to
  * request-builder. Result/stream chunk types are bridged to public shapes here.
  *
