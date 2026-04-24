@@ -36,7 +36,11 @@ export { handleFileChange } from './file-hooks.js';
 export { handleTaskStartIntelligence } from './intelligence-hooks.js';
 export { handleSystemNotification } from './notification-hooks.js';
 // Re-export handler functions for explicit use
-export { handleSessionEnd, handleSessionStart } from './session-hooks.js';
+export {
+  handleSessionEnd,
+  handleSessionEndJournal,
+  handleSessionStart,
+} from './session-hooks.js';
 export { handleToolComplete, handleToolStart } from './task-hooks.js';
 export { handleWatchdogStart, handleWatchdogStop } from './watchdog-hooks.js';
 export { handleWorkPromptSubmit, handleWorkResponseComplete } from './work-capture-hooks.js';

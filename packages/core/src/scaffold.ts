@@ -137,6 +137,10 @@ sync/
 metrics/
 .backups/
 backups/
+
+# Session journals — T1263 PSYCHE E6 (sensitive session data — task IDs, notes, agent IDs)
+# Retain locally for meta-agent training; never commit to project git.
+session-journals/
 `;
 
 // ── Pure helpers ─────────────────────────────────────────────────────

@@ -20,6 +20,10 @@
  * T732: Write `transcript_pending_extraction` tombstone on session end (priority 3).
  *       Runs after reflector so it is the last scheduled operation. Records the
  *       session JSONL path so `cleo transcript scan --pending` can list queued work.
+ * T1263: Append session journal entry at priority 2 (last in pipeline).
+ *        Absorbs T1262 session-end hook: calls scanBrainNoise and embeds
+ *        doctorSummary in each session_end journal entry.
+ *        MUST use `await` (not setImmediate) — process exits after this hook.
  */
 
 import { hooks } from '../registry.js';
@@ -245,6 +249,69 @@ export async function handleSessionEndTranscriptSchedule(
   });
 }
 
+/**
+ * Handle SessionEnd — append a session journal entry to `.cleo/session-journals/`.
+ *
+ * T1263 PSYCHE E6: Writes a `session_end` JSONL entry capturing session metadata
+ * and the compact result of `scanBrainNoise` (T1262 absorption).
+ *
+ * **MUST use synchronous `await`** — this hook runs at priority 2, immediately
+ * before process.exit. Using `setImmediate` here would silently drop the write.
+ *
+ * Runs at priority 2 — the last synchronous hook in the session-end pipeline,
+ * ensuring all prior work (backup, consolidation, observer, reflector, transcript)
+ * has been scheduled before the journal entry is written.
+ */
+export async function handleSessionEndJournal(
+  projectRoot: string,
+  payload: SessionEndPayload,
+): Promise<void> {
+  try {
+    const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+    const { appendSessionJournalEntry } = await import('../../sessions/session-journal.js');
+
+    // Run brain-noise scan (T1262 absorption) — best-effort
+    let doctorSummary:
+      | {
+          isClean: boolean;
+          findingsCount: number;
+          patterns: string[];
+          totalScanned: number;
+        }
+      | undefined;
+    try {
+      const { scanBrainNoise } = await import('../../memory/brain-doctor.js');
+      const scanResult = await scanBrainNoise(projectRoot);
+      doctorSummary = {
+        isClean: scanResult.isClean,
+        findingsCount: scanResult.findings.length,
+        patterns: scanResult.findings.map((f) => f.pattern),
+        totalScanned: scanResult.totalScanned,
+      };
+    } catch {
+      // scanBrainNoise failures must never block journal write
+    }
+
+    // Detect agent identifier from environment
+    const agentIdentifier =
+      process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
+
+    await appendSessionJournalEntry(projectRoot, {
+      schemaVersion: SESSION_JOURNAL_SCHEMA_VERSION,
+      timestamp: new Date().toISOString(),
+      sessionId: payload.sessionId,
+      eventType: 'session_end',
+      agentIdentifier,
+      providerId: payload.providerId,
+      duration: payload.duration,
+      tasksCompleted: payload.tasksCompleted,
+      ...(doctorSummary !== undefined ? { doctorSummary } : {}),
+    });
+  } catch {
+    // Journal write must never block session end — silently swallow
+  }
+}
+
 // Register handlers on module load
 hooks.register({
   id: 'brain-session-start',
@@ -308,4 +375,14 @@ hooks.register({
   event: 'SessionEnd',
   handler: handleSessionEndTranscriptSchedule,
   priority: 3,
+});
+
+// Priority 2 — T1263: append session journal entry LAST in the pipeline.
+// MUST use await (not setImmediate) — process exits after this hook fires.
+// Absorbs T1262 session-end doctor integration: embeds scanBrainNoise result.
+hooks.register({
+  id: 'journal-session-end',
+  event: 'SessionEnd',
+  handler: handleSessionEndJournal,
+  priority: 2,
 });
