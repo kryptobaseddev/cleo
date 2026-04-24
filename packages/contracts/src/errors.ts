@@ -106,6 +106,56 @@ export class LifecycleScopeDeniedError extends Error {
 }
 
 /**
+ * Thrown when the task classifier emits an agent ID that is not present in
+ * the registry vocabulary it was configured with.
+ *
+ * The classifier's output space MUST be a strict subset of the registered
+ * agent IDs (Council 2026-04-24 FP atomic truth #3). This error is raised
+ * at classification time — before any spawn attempt — so that broken routing
+ * is caught as early as possible and callers receive a fix-hint listing the
+ * currently valid agent IDs.
+ *
+ * @remarks
+ * Carry `exitCode` aligned with {@link ExitCode.SPAWN_VALIDATION_FAILED} (63)
+ * because the failure occurs in the pre-spawn validation chain and callers
+ * mapping exit codes to envelope errors already handle 63 for spawn failures.
+ *
+ * @example
+ * ```typescript
+ * throw new ClassifierUnregisteredAgentError(
+ *   'project-dev-lead',
+ *   ['project-orchestrator', 'project-code-worker', 'cleo-subagent'],
+ * );
+ * ```
+ *
+ * @task T1326
+ * @epic T1323
+ */
+export class ClassifierUnregisteredAgentError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_CLASSIFIER_UNREGISTERED_AGENT';
+  /** Numeric exit code aligned with {@link ExitCode.SPAWN_VALIDATION_FAILED} (63). */
+  readonly exitCode: ExitCode = ExitCode.SPAWN_VALIDATION_FAILED;
+
+  /**
+   * @param emittedAgentId  - The agent ID the classifier tried to emit.
+   * @param registeredIds   - The set of valid, registry-backed agent IDs.
+   */
+  constructor(
+    public readonly emittedAgentId: string,
+    public readonly registeredIds: readonly string[],
+  ) {
+    super(
+      `E_CLASSIFIER_UNREGISTERED_AGENT: classifier emitted '${emittedAgentId}' which is not in ` +
+        `the registered agent vocabulary. ` +
+        `Valid agent IDs: [${registeredIds.join(', ')}]. ` +
+        `Add this agent to the registry or remove it from the classifier rules.`,
+    );
+    this.name = 'ClassifierUnregisteredAgentError';
+  }
+}
+
+/**
  * Normalize any thrown value into a standardized error object.
  *
  * Handles:
