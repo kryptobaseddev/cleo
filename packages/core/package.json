@@ -121,6 +121,11 @@
       "import": "./dist/sentient/*.js",
       "require": "./dist/sentient/*.js"
     },
+    "./audit/*": {
+      "types": "./dist/audit/*.d.ts",
+      "import": "./dist/audit/*.js",
+      "require": "./dist/audit/*.js"
+    },
     "./gc/*": {
       "types": "./dist/gc/*.d.ts",
       "import": "./dist/gc/*.js",
@@ -170,6 +175,11 @@
       "types": "./dist/docs/*.d.ts",
       "import": "./dist/docs/*.js",
       "require": "./dist/docs/*.js"
+    },
+    "./audit/*.js": {
+      "types": "./dist/audit/*.d.ts",
+      "import": "./dist/audit/*.js",
+      "require": "./dist/audit/*.js"
     },
     "./gc/*.js": {
       "types": "./dist/gc/*.d.ts",

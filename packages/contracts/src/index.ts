@@ -779,4 +779,10 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
+// === Audit Lineage Reconstruction Types (T1322) ===
+export type {
+  CommitEntry,
+  ReconstructResult,
+  ReleaseTagEntry,
+} from './audit.js';
 // === WASM SDK (Rust crate bindings) ===
