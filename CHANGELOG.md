@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.127] — 2026-04-24
+
+PSYCHE E2 seed-install meta-agent wiring (T1259). Wires `cleo init --install-seed-agents` to invoke `agent-architect` meta-agent instead of static copy. Adds `cleo agent mint <spec.cant>` CLI verb, `cleo playbook create <name>`, `resolveMetaAgentsDir()` SDK helper, `playbook-architect.cant` meta-agent, and M1 spawn-retrieval-parity red test scaffold (flips green in E3/.128). Fixes F1 (agent.ts scaffold parent residual) and F2 (agent-architect.cant parent → canonical name). F6 decision: @cleocode/agents-starter via subset export, no new 17th package.
+
+### Added
+
+- **`packages/core/src/agents/invoke-meta-agent.ts`** (T1272/T1273): `invokeMetaAgent()` + `invokeAgentArchitect()` shim; threads `project-context.json` + `user_profile` into agent-architect spawn call; subprocess via `cleo orchestrate spawn --no-worktree`, graceful static-copy fallback when meta-agent unavailable.
+- **`packages/core/src/agents/resolveStarterBundle.ts` — `resolveMetaAgentsDir()`** (T1271): New SDK helper resolving `@cleocode/agents/meta/` via require.resolve + relative walk; returns null on miss; exported from `@cleocode/core/agents`.
+- **`packages/agents/meta/playbook-architect.cant`** (T1274): New meta-agent for synthesizing project-specific `.cantbook` playbooks from workflow descriptions + project context.
+- **`cleo playbook create <name>`** (T1275): New CLI subcommand dispatching `playbook.create` operation via canonical dispatch layer.
+- **`cleo agent mint <spec.cant>`** (T1276): New CLI subcommand invoking `agent-architect` meta-agent to synthesize project-specific agents from a `.cant` spec file; writes outputs to `.cleo/cant/agents/`.
+- **`packages/core/src/orchestration/__tests__/spawn-retrieval-parity.test.ts`** (T1259-W7): M1 AcceptanceGate red scaffold using `it.fails()`; documents `composeSpawnPayload → buildRetrievalBundle` gap for T1260 E3.
+
+### Changed
+
+- **`packages/core/src/init.ts` — `initProject({ installSeedAgents: true })`** (T1272): Now invokes `agent-architect` first; falls back to static seed copy only when meta-agent unavailable (ADR-055 D034 stub completion).
+- **`packages/agents/meta/agent-architect.cant`** (F2 fix): `parent: cleo-prime` → `parent: project-orchestrator` (canonical E1 name).
+- **`packages/cleo/src/cli/commands/agent.ts`** (F1 fix): `.cant` scaffold template at line 129 corrected `parent: cleoos-opus-orchestrator` → `parent: project-orchestrator`.
+
+### Gate Status
+
+- **M1** (spawn-retrieval-parity): EXPECTED RED at E2. `it.fails()` in test scaffold. Flips green when T1260 E3 wires `composeSpawnPayload → buildRetrievalBundle`.
+- **F6**: @cleocode/agents-starter implemented as subset export from `@cleocode/agents` (no new 17th package, no release.yml changes required).
+
 ## [2026.4.126] — 2026-04-24
 
 PSYCHE E1 canonical agent naming refactor (T1258) + T1107 Living Brain dispatch wire verification + T1262 memory-doctor detector (parallel). Eliminates all cleocode-hardcoded dogfood persona names from the ship surface per ADR-055 D032 clean-forward.
