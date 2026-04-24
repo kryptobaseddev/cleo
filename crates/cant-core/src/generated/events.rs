@@ -115,7 +115,7 @@ pub enum CanonicalEvent {
     MemoryObserved,
     /// `MemoryPatternStored` — `memory` category. A pattern has been stored via memory.pattern.store.
     MemoryPatternStored,
-    /// `PipelineManifestAppended` — `pipeline` category. A manifest entry has been appended to pipeline_manifest (SQLite table per ADR-027).
+    /// `PipelineManifestAppended` — `pipeline` category. A manifest entry has been appended to `pipeline_manifest` (`SQLite` table per ADR-027).
     PipelineManifestAppended,
     /// `PipelineStageCompleted` — `pipeline` category. A LOOM lifecycle gate has passed validation.
     PipelineStageCompleted,
@@ -387,7 +387,7 @@ impl CanonicalEvent {
             }
             Self::MemoryPatternStored => "A pattern has been stored via memory.pattern.store",
             Self::PipelineManifestAppended => {
-                "A manifest entry has been appended to pipeline_manifest (SQLite table per ADR-027)"
+                "A manifest entry has been appended to `pipeline_manifest` (`SQLite` table per ADR-027)"
             }
             Self::PipelineStageCompleted => "A LOOM lifecycle gate has passed validation",
             Self::SessionEnded => "A CLEO session has ended via session.end",
