@@ -2780,6 +2780,71 @@ const tierCommand = defineCommand({
   },
 });
 
+/**
+ * cleo memory sweep — T1147 W7 BRAIN noise sweep (shadow-write envelope).
+ *
+ * `--dry-run`           Detect noise candidates without staging DB writes.
+ * `--approve <runId>`   Apply a staged sweep to live tables (with killSwitch gate).
+ * `--status`            List recent noise-sweep-2440 runs.
+ * `--rollback <runId>`  Discard a staged run without applying changes.
+ */
+const sweepCommand = defineCommand({
+  meta: {
+    name: 'sweep',
+    description:
+      'T1147 W7 BRAIN noise sweep. --dry-run: detect noise candidates. ' +
+      '--approve <runId>: apply to live tables. --status: list runs. ' +
+      '--rollback <runId>: discard staged run.',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'Detect noise candidates without staging DB writes.',
+    },
+    approve: {
+      type: 'string',
+      description: 'Run ID to approve and apply to live tables.',
+    },
+    status: {
+      type: 'boolean',
+      description: 'List recent noise-sweep-2440 runs.',
+    },
+    rollback: {
+      type: 'string',
+      description: 'Run ID to roll back without applying changes.',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run({
+    args,
+  }: {
+    args: {
+      'dry-run'?: boolean;
+      approve?: string;
+      status?: boolean;
+      rollback?: string;
+      json?: boolean;
+    };
+  }) {
+    const gateway = args.approve || args.rollback ? 'mutate' : 'query';
+    await dispatchFromCli(
+      gateway,
+      'memory',
+      'sweep',
+      {
+        'dry-run': args['dry-run'],
+        approve: args.approve,
+        status: args.status,
+        rollback: args.rollback,
+      },
+      { command: 'memory-sweep', operation: 'memory.sweep' },
+    );
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Root export
 // ---------------------------------------------------------------------------
@@ -2833,6 +2898,8 @@ export const memoryCommand = defineCommand({
     recent: recentCommand,
     diary: diaryCommand,
     watch: watchCommand,
+    // T1147 W7 — BRAIN noise sweep
+    sweep: sweepCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
