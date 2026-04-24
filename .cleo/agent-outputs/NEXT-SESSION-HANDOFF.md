@@ -188,18 +188,18 @@ pnpm --filter @cleocode/core exec vitest run src/memory/__tests__/brain-sweep-e2
 # Release workflow handles npm publish across all 16 @cleocode/* packages.
 ```
 
-## Next session priorities
+## Next session priorities (all target April — v2026.4.x, NOT v2026.5.0)
 
-1. **Ship v2026.4.139** with the T1402 rename + verification-council fix-forward.
-2. **Fix `cleo memory sweep --rollback` dispatch** — currently returns E_INVALID_OPERATION (wiring gap). Follow-up task.
-3. **Owner review of 2 persisted noise-sweep runs** — 68 candidates staged/rolled-back; decide whether to re-run + approve (purges 50 decisions + 10 obs + 8 patterns) or leave BRAIN as-is.
-4. **T1386 PSYCHE LLM Layer Port IMPLEMENTATION** — T1256 continuation; 3851 LOC Honcho port work is the largest outstanding item.
-5. **T1403/T1404 pumps** — implement the Release workflow extension + epic-evidence enforcement to prevent v2026.4.133-class gaps on future releases.
-6. **Sentient v1 dogfood** — M7 gate operational + doctor returns clean on 1005-entry BRAIN; safe to enable Tier-2 on a real install and observe proposal quality.
-7. **MCP adapter dogfood** — `@cleocode/mcp-adapter@2026.4.138` is published; test `.mcp.json` wiring end-to-end.
-8. **Sigil population** — upsert sigils for existing CANT agents (orchestrator, dev-lead, etc.) so spawn prompts get enriched peer cards.
+Owner directive: keep shipping within the v2026.4.x calendar window. Do NOT attempt to ship v2026.5.0 without a full council + RCASD planning session.
 
-Do NOT attempt to ship v2026.5.0 without a full council + RCASD planning session.
+1. **v2026.4.139 ship verification** — confirm CI green + Release green + npm publish succeeded for the T1402 rename release. `npm view @cleocode/cleo@2026.4.139 version` must resolve. Fresh-install smoke test: `npm install -g @cleocode/cleo@2026.4.139 && cleo memory doctor --json`.
+2. **T1386 PSYCHE LLM Layer Port IMPLEMENTATION** (target: v2026.4.140+) — T1256 continuation; 3851 LOC Honcho src/llm port is the largest outstanding item. npm deps already landed in v2026.4.138 (openai/google-generative-ai/p-retry/jsonrepair). Source scaffolding already exists locally at `packages/core/src/llm/` but is not yet committed; build breaks on it until completed.
+3. **Fix `cleo memory sweep --rollback` dispatch gap** (target: v2026.4.140 patch) — currently returns `E_INVALID_OPERATION: Unknown operation: mutate:memory.sweep`. Gateway not wired in dispatch. File follow-up task.
+4. **Owner review of 2 persisted noise-sweep runs** — 68 candidates staged then rolled-back this session; decide whether to re-run + approve (purges 50 decisions + 10 obs + 8 patterns from live BRAIN) or leave as-is.
+5. **T1403/T1404 pumps** — implement Release-workflow post-deploy-execute stage + epic-evidence enforcement to prevent v2026.4.133-class gaps on future releases.
+6. **Sentient v1 dogfood** — M7 gate operational + doctor returns clean on 1005-entry BRAIN; safe to `cleo sentient propose enable` on a real install and observe proposal quality.
+7. **MCP adapter dogfood** — `@cleocode/mcp-adapter@2026.4.138` is published; test `.mcp.json` wiring end-to-end with Claude Code / Cursor / Claude Desktop.
+8. **Sigil population** — upsert sigils for existing CANT agents (orchestrator, dev-lead, code-worker, docs-worker, security-worker) so spawn prompts get enriched peer cards.
 
 ---
 
