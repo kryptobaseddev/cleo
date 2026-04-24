@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cant",
-  "version": "2026.4.126",
+  "version": "2026.4.127",
   "description": "CANT protocol parser and runtime for CLEO — wraps cant-core via napi-rs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
