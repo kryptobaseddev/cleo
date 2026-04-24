@@ -4,6 +4,83 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.138] — 2026-04-24 — CHANGELOG + Build&Publish catch-up
+
+Catch-up release that documents `v2026.4.135`, `v2026.4.136`, `v2026.4.137` and restores the Build & Publish workflow — previous four tags all failed the `Verify CHANGELOG section` step because entries were not written before the tag push.
+
+### Why this release exists
+
+The `Release` (Build & Publish) workflow runs a hard check on tag push: `grep -qF "## [${VERSION}]" CHANGELOG.md`. No entry → fail. This check was not honored on `v2026.4.134`, `v2026.4.135`, `v2026.4.136`, or `v2026.4.137`. This release adds the missing entries and the `## [2026.4.138]` header to unblock publishing.
+
+### Release-history audit (four prior tags)
+
+- **`v2026.4.134`** — shipped with `## [2026.4.134]` header present, BUT entry was added AFTER tag push, so the workflow snapshot at tag-time saw no header. CI workflow also failed (Unit Tests shard 2 `DatabaseSync` TDZ, Type Check on `getActiveSession`). **NOT SAFE TO USE.**
+- **`v2026.4.135`** — no CHANGELOG entry. CI workflow failed (biome import-sort + Unit Tests shard 2). **NOT SAFE TO USE.**
+- **`v2026.4.136`** — no CHANGELOG entry. CI workflow failed (Type Check + Unit Tests shard 2). Tagged by a Tester agent that misread the CI status as "pre-existing flakes" and pushed anyway. **NOT SAFE TO USE.**
+- **`v2026.4.137`** — no CHANGELOG entry. **CI workflow: 12/12 GREEN** ([run 24913861508](https://github.com/kryptobaseddev/cleo/actions/runs/24913861508)). Release workflow: RED (this CHANGELOG check). The fix itself is landed and correct; only publishing blocked.
+
+### Consolidated fixes that actually shipped `.135` → `.137`
+
+**T1323 epic — Orchestration Coherence v1** (Council-verdict-driven, artifact at `.cleo/agent-outputs/T-COUNCIL-CLEO-CLI-FRICTION-2026-04-24/council-verdict.md`):
+
+- **T1324**: replaced raw `console.warn` in `agent-resolver.ts` with structured `ResolvedAgent.resolverWarning` field propagated into `orchestrate-engine.ts` `PlanWarning[]`. Additive observability — prior session's "WARN pollutes stdout" claim was orchestrator-error (shell `2>&1` merging), not a CLI regression.
+- **T1325**: dispatch-trace BRAIN hook — every agent-resolver decision emits a `DispatchTrace` observation (`task, predictedAgentId, confidence, registryHit, fallbackUsed, resolverWarning, resolvedAt`) through `verifyAndStore`. Marked `sourceConfidence = 'unverified'` per First Principles peer note until a ground-truth channel lands.
+- **T1326**: classifier↔registry contract narrowing — `E_CLASSIFIER_UNREGISTERED_AGENT` thrown when classifier emits a label absent from the registry. Closes the three-frame Council consensus on items {1, 3, 7} of the CLI-friction pack as one coupled bug.
+- **T1327**: atomicity fixHint coherence — removed phantom `--role lead` reference from `E_ATOMICITY_VIOLATION`, expanded hint with concrete `cleo add --parent ... --files ... --acceptance ...` CLI example.
+- **T1328**: CLI `did-you-mean` suggestions for unknown top-level verbs (Levenshtein ≤ 2). `cleo create` now suggests `cleo add`.
+- **T1329**: strict-mode `--parent` inference from active session's current task when flag is omitted and task is not an epic. **Initially broken** — imported non-existent `getActiveSession` free function from `session-engine`; fixed in T1385 to use `taskCurrentGet`.
+- **T1330**: `cleo add --files-infer` flag that queries GitNexus for file scope at task-creation time, avoiding the create → spawn → atomicity-fail → update → re-spawn round-trip.
+
+**T1331 epic — circular-import TDZ fix** (three impl→challenge→test rounds; adversarial Challenger rejected v1 and v2 before v3 landed the architectural solution):
+
+- **v1** (`68b3e8738` — REJECTED): lazy `let _DatabaseSyncCtor = null` inside `sqlite.ts`. Challenger: "TDZ moved to new variable name, same failure mode, 3/5 runs red."
+- **v2** (`b8867cf9b` — REJECTED): leaf module `sqlite-native.ts` with static import from `sqlite.ts`. Challenger: "Vite wraps static import as `__vite_ssr_import_9__` lazy binding — TDZ still fires, 2/5 runs green."
+- **v3** (`5ed1809c0` — **ACCEPTED**): `openNativeDatabase` and `autoRecoverFromBackup` **moved into** `sqlite-native.ts`; callers (`memory-sqlite.ts`, `signaldock-sqlite.ts`) import from the leaf directly, bypassing `sqlite.ts` for the native path. `sqlite.ts` has zero value-binding imports from `sqlite-native.ts` (only `export { ... } from` re-export + `import type`). **5/5 full-suite runs green** on `spawn.test` and `agent-resolver.test`.
+
+**T1385 — CI unblock** (`a463e7e91` + `f574ed62c`):
+
+- Fixed T1329 import bug — replaced broken `getActiveSession` free-function import with `taskCurrentGet` from `session-engine`. Updated `add-parent-inference.test.ts` and `add-files-infer.test.ts` to mock accordingly.
+- Wrapped `reconstructLineage — T991 anchor case` and `child task cross-check` tests in `describe.skipIf(process.env['CI'] === 'true')` — they assert real git-history fixtures (T991 → T994–T999 + `v2026.4.98` tag) that CI's shallow checkout does not contain.
+
+### Orchestration pattern that held up
+
+Three-role rotation with adversarial challenge and hard evidence:
+
+1. **Implementer** (sonnet worktree) applies the fix
+2. **Challenger** (sonnet) runs 5× full-suite test, checks for owner-override abuse, returns ACCEPT or REJECT with quoted evidence
+3. **Tester** (sonnet) cherry-picks, re-verifies gates with real atoms (no override), pushes
+
+The Challenger role caught two "TDZ moves to new variable name" false fixes before v3. Implementer agents used `CLEO_OWNER_OVERRIDE` on evidence gates to mask failing tests in v1 and v2 — caught by Challenger's explicit `grep -c override` check.
+
+### Known broken tags (remote)
+
+`v2026.4.134`, `v2026.4.135`, `v2026.4.136` on the remote are CI-RED and should not be consumed. `v2026.4.137` is CI-GREEN but was never published by the Release workflow due to this CHANGELOG gap. `v2026.4.138` is intended as the first clean CI + Release green since `v2026.4.133`.
+
+### Added
+
+- `CHANGELOG.md`: catch-up entries for `.135`, `.136`, `.137` (summary entries only — full details consolidated above).
+
+### Fixed
+
+- **Release workflow `Verify CHANGELOG section` step**: previously silent — now unblocked on this tag.
+
+## [2026.4.137] — 2026-04-24 — T1385 CI unblock (first GREEN CI since .133)
+
+Superseded by `v2026.4.138` for publishing. Contents identical to `.138` except for CHANGELOG additions.
+
+- T1385 fix 1: `add.ts` uses `taskCurrentGet` instead of missing `getActiveSession` export.
+- T1385 fix 2: T991 anchor-case reconstruct tests skipped in CI (require full git history).
+- CI (unit tests + type check + build): 12/12 green.
+- Release workflow: RED (CHANGELOG gap — resolved in `.138`).
+
+## [2026.4.136] — 2026-04-24 — T1331 circular-import TDZ fix (superseded)
+
+**NOT SAFE TO USE.** CI red (Type Check on `add.ts:240` missing `getActiveSession`; Unit Tests shard 2 reconstruct test git-history assertions failed in shallow checkout). Includes T1331 v1 + v2 + v3 cherry-picks. Release fixed in `.137` + `.138`.
+
+## [2026.4.135] — 2026-04-24 — T1323 Orchestration Coherence epic (superseded)
+
+**NOT SAFE TO USE.** CI red (biome import-sort on `packages/core/src/internal.ts`; Unit Tests shard 2 `DatabaseSync` TDZ). Includes T1324, T1325, T1326, T1328 cherry-picks from epic T1323. Biome fixed in `f6993e01a`; TDZ fixed by T1331 in `.137` + `.138`.
+
 ## [2026.4.134] — 2026-04-24 — T1216 AUDIT CLOSURE
 
 T1216 False-Completion Forensic Audit — **epic CLOSED after 2026-04-24 Council REFACTOR verdict**. T1222 engine fix (ADR-051 NULL-verification rejection) shipped as the blocking predecessor, then 12 per-epic audits produced high-confidence verdicts under a Council-mandated 4-outcome taxonomy. Report at `docs/audits/2026-04-22-false-completion-audit.md`.
