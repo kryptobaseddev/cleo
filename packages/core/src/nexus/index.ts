@@ -103,6 +103,13 @@ export {
 export type { SigilCard, SigilInput } from './sigil.js';
 // Sigil (peer-card identity) SDK (T1148 Wave 8)
 export { getSigil, listSigils, upsertSigil } from './sigil.js';
+// Sigil sync — populate sigils table from canonical CANT agents (T1386)
+export type { CanonicalCantFiles, SigilSyncResult } from './sigil-sync.js';
+export {
+  parseSigilFromCant,
+  resolveCanonicalCantFiles,
+  syncCanonicalSigils,
+} from './sigil-sync.js';
 // Tasks Bridge - git-log sweeper linking task IDs to nexus symbols
 export {
   getSymbolsForTask,

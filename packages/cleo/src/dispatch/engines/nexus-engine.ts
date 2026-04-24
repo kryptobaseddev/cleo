@@ -30,6 +30,7 @@ import {
   getUserProfileTrait,
   importSnapshot,
   importUserProfile,
+  listSigils,
   listUserProfile,
   type NexusPermissionLevel,
   nexusDeps,
@@ -48,9 +49,12 @@ import {
   readSnapshot,
   reinforceTrait,
   resolveTask,
+  type SigilCard,
+  type SigilSyncResult,
   searchAcrossProjects,
   setPermission,
   supersedeTrait,
+  syncCanonicalSigils,
   type TransferParams,
   type TransferResult,
   upsertUserProfileTrait,
@@ -1192,6 +1196,52 @@ export async function nexusProfileSupersede(
     const nexusDb = await getNexusDb();
     await supersedeTrait(nexusDb, oldKey, newKey);
     return engineSuccess({ oldKey, newKey });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sigil operations (T1148 Wave 8 + T1386 sync)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result wire shape for `nexus sigil list`.
+ */
+export interface NexusSigilListResult {
+  /** Array of sigil records, ordered by displayName ascending. */
+  sigils: SigilCard[];
+  /** Total count of sigils returned. */
+  count: number;
+}
+
+/**
+ * List every sigil currently stored in nexus.db, optionally filtered by role.
+ *
+ * @param role - Optional role filter (e.g. "orchestrator", "lead", "worker",
+ *               "specialist", "subagent").
+ * @task T1386
+ */
+export async function nexusSigilList(role?: string): Promise<EngineResult<NexusSigilListResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const sigils = await listSigils(nexusDb, role ? { role } : undefined);
+    return engineSuccess({ sigils, count: sigils.length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Populate the sigils table with one row per canonical CANT agent shipped
+ * with `@cleocode/agents`.  Idempotent — repeated runs upsert the same rows.
+ *
+ * @task T1386
+ */
+export async function nexusSigilSync(): Promise<EngineResult<SigilSyncResult>> {
+  try {
+    const result = await syncCanonicalSigils();
+    return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }

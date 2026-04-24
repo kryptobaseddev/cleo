@@ -90,6 +90,12 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   // so spawn/orchestrate can resolve personas on fresh installs.
   await installSeedAgentsGlobally(ctx);
 
+  // Step 5c (T1386): Populate the nexus.db sigils table from the canonical
+  // CANT agents we just installed.  Without this step, `fetchIdentity()` and
+  // `cleo orchestrate spawn` see an empty sigils table and fall back to
+  // null peer cards — defeating Wave 8's enriched-spawn promise.
+  await syncCanonicalSigilsStep(ctx);
+
   // Step 6: Install provider adapters
   await installProviderAdapters(ctx, options?.packageRoot);
 
@@ -509,6 +515,52 @@ export async function installSeedAgentsGlobally(ctx: BootstrapContext): Promise<
   } catch (err) {
     ctx.warnings.push(
       `seed-agents (global) install failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+// ── Step 5c (T1386): Canonical sigil population ──────────────────────
+
+/**
+ * Populate the nexus.db `sigils` table with one row per canonical CANT agent.
+ *
+ * Runs after seed-agents installation so the `sigils` rows reference the
+ * just-installed .cant files.  Idempotent — re-running the bootstrap will
+ * upsert in place.  Failures are reported as warnings rather than aborting
+ * the bootstrap, because a missing sigils table is recoverable: callers can
+ * always run `cleo nexus sigil sync` later.
+ *
+ * Skipped during dry-run because the sync touches the live nexus.db.
+ *
+ * @param ctx - Bootstrap context for recording created/warnings entries.
+ *
+ * @task T1386
+ * @epic T1148
+ */
+export async function syncCanonicalSigilsStep(ctx: BootstrapContext): Promise<void> {
+  if (ctx.isDryRun) {
+    ctx.created.push('sigils (global): would sync canonical CANT agent sigils');
+    return;
+  }
+
+  try {
+    const { syncCanonicalSigils } = await import('./nexus/sigil-sync.js');
+    const result = await syncCanonicalSigils();
+
+    if (result.count > 0) {
+      ctx.created.push(
+        `sigils: ${result.count} canonical sigils synced (${result.peerIds.join(', ')})`,
+      );
+    } else {
+      ctx.warnings.push('sigils: no canonical .cant files resolvable; sigils table left untouched');
+    }
+
+    for (const w of result.warnings) {
+      ctx.warnings.push(`sigils: ${w}`);
+    }
+  } catch (err) {
+    ctx.warnings.push(
+      `sigils (global) sync failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
