@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
-// by openNativeDatabase() in sqlite.ts.
+// by openNativeDatabase() in sqlite-native.ts.
 import type { DatabaseSync } from 'node:sqlite';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
@@ -27,7 +27,10 @@ import {
   tableExists,
 } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
-import { openNativeDatabase } from './sqlite.js';
+// Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
+// avoid any static import from sqlite.ts that could re-enter the circular chain
+// agent-resolver → ... → memory-sqlite → sqlite.ts (T1325/T1331 v3).
+import { openNativeDatabase } from './sqlite-native.js';
 
 const _require = createRequire(import.meta.url);
 

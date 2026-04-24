@@ -22,6 +22,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
   ensureColumns,
@@ -31,96 +32,23 @@ import {
 } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
+
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
 // TDZ circular-import failures in the agent-resolver → dispatch-trace →
 // extraction-gate → graph-auto-populate → memory-sqlite → sqlite.ts cycle
-// (T1325/T1331). See sqlite-native.ts for detailed explanation.
-import { type DatabaseSync, getDbSyncConstructor } from './sqlite-native.js';
+// (T1325/T1331). See sqlite-native.ts for the full explanation.
+//
+// v3 (T1331): sqlite.ts has ZERO value-binding imports from sqlite-native.ts.
+// openNativeDatabase now lives in sqlite-native.ts and is re-exported here for
+// backwards compatibility. Re-exports are live-binding getters in Vite SSR —
+// they cannot create TDZ bindings during module initialization.
+export { type DatabaseSync, openNativeDatabase } from './sqlite-native.js';
+
+// Type-only import for internal use (annotations on _nativeDb, runMigrations, etc.).
+// Type-only imports are erased at compile time and produce no Vite SSR binding.
+import type { DatabaseSync } from './sqlite-native.js';
+
 import * as schema from './tasks-schema.js';
-
-/**
- * Open a node:sqlite DatabaseSync with CLEO standard pragmas.
- *
- * CRITICAL: WAL mode is verified, not just requested. If another process holds
- * an EXCLUSIVE lock in DELETE mode, PRAGMA journal_mode=WAL silently returns
- * 'delete'. This caused data loss (T5173) when concurrent processes opened
- * the same database — writes were silently dropped under lock contention.
- */
-export function openNativeDatabase(
-  path: string,
-  options?: {
-    readonly?: boolean;
-    timeout?: number;
-    enableWal?: boolean;
-    allowExtension?: boolean;
-  },
-): DatabaseSync {
-  const DatabaseSyncCtor = getDbSyncConstructor();
-  const db = new DatabaseSyncCtor(path, {
-    enableForeignKeyConstraints: true,
-    readOnly: options?.readonly ?? false,
-    timeout: options?.timeout ?? 5000,
-    allowExtension: options?.allowExtension ?? false,
-  });
-
-  // Set busy_timeout FIRST so WAL pragma can wait for locks
-  db.exec('PRAGMA busy_timeout=5000');
-
-  // Enable WAL for concurrent multi-process access (ADR-006, ADR-010)
-  if (options?.enableWal !== false) {
-    const MAX_WAL_RETRIES = 3;
-    const RETRY_DELAY_MS = 200;
-    let walSet = false;
-
-    for (let attempt = 1; attempt <= MAX_WAL_RETRIES; attempt++) {
-      db.exec('PRAGMA journal_mode=WAL');
-
-      // CRITICAL: Verify WAL was actually set — the PRAGMA returns the mode
-      // that was applied, which may be 'delete' if another connection holds a lock
-      const result = db.prepare('PRAGMA journal_mode').get() as Record<string, unknown> | undefined;
-      const currentMode = (result?.journal_mode as string)?.toLowerCase?.() ?? 'unknown';
-
-      if (currentMode === 'wal') {
-        walSet = true;
-        break;
-      }
-
-      // WAL not set — another connection likely holds an EXCLUSIVE lock
-      if (attempt < MAX_WAL_RETRIES) {
-        // Sync sleep via Atomics for retry delay (node:sqlite is sync-only)
-        const buf = new SharedArrayBuffer(4);
-        Atomics.wait(new Int32Array(buf), 0, 0, RETRY_DELAY_MS * attempt);
-      }
-    }
-
-    if (!walSet) {
-      // Verify one final time
-      const finalResult = db.prepare('PRAGMA journal_mode').get() as
-        | Record<string, unknown>
-        | undefined;
-      const finalMode = (finalResult?.journal_mode as string)?.toLowerCase?.() ?? 'unknown';
-
-      if (finalMode !== 'wal') {
-        db.close();
-        throw new Error(
-          `CRITICAL: Failed to set WAL journal mode after ${MAX_WAL_RETRIES} attempts. ` +
-            `Database is in '${finalMode}' mode. Another process likely holds an EXCLUSIVE lock ` +
-            `on ${path}. Refusing to open — concurrent writes in DELETE mode cause data loss. ` +
-            `Kill other cleo processes and retry. (T5173)`,
-        );
-      }
-    }
-  }
-
-  // FK enforcement enabled in production. Disabled in vitest where test
-  // fixtures insert data without full referential integrity (orphan refs).
-  // VITEST env var is auto-set by vitest — no config needed.
-  if (!process.env.VITEST) {
-    db.exec('PRAGMA foreign_keys=ON');
-  }
-
-  return db;
-}
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -173,6 +101,9 @@ async function autoRecoverFromBackup(
   dbPath: string,
   cwd: string | undefined,
 ): Promise<void> {
+  // Lazy import openNativeDatabase at runtime to avoid any static-import
+  // binding on sqlite-native.ts at module-init time.
+  const { openNativeDatabase } = await import('./sqlite-native.js');
   const log = getLogger('sqlite');
 
   try {
@@ -194,9 +125,9 @@ async function autoRecoverFromBackup(
     // Check the newest backup for task count
     const newestBackup = backups[0]!;
 
-    // Open backup read-only to verify it has data
-    const DatabaseSyncCtor = getDbSyncConstructor();
-    const backupDb = new DatabaseSyncCtor(newestBackup.path, { readOnly: true });
+    // Open backup read-only to verify it has data.
+    // Use openNativeDatabase (from sqlite-native.ts) — safe at runtime (no TDZ risk).
+    const backupDb = openNativeDatabase(newestBackup.path, { readonly: true, enableWal: false });
     let backupTaskCount = 0;
     try {
       const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
@@ -293,7 +224,10 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     // Ensure directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 
-    // Open file-backed SQLite via node:sqlite with WAL mode
+    // Open file-backed SQLite via node:sqlite with WAL mode.
+    // openNativeDatabase is re-exported from sqlite-native.ts — the actual
+    // function lives there (zero CLEO imports) so the cycle cannot TDZ it.
+    const { openNativeDatabase } = await import('./sqlite-native.js');
     const nativeDb = openNativeDatabase(dbPath);
     _nativeDb = nativeDb;
 
@@ -401,13 +335,6 @@ export function resolveMigrationsFolder(): string {
 
 /** Re-export isSqliteBusy for external consumers. */
 export { isSqliteBusy } from './migration-manager.js';
-
-/**
- * Required columns that MUST exist on the tasks table.
- * Only TEXT columns with no constraints are safe for ALTER TABLE ADD in SQLite.
- * @see https://github.com/anthropics/cleo/issues/63
- */
-import type { RequiredColumn } from './migration-manager.js';
 
 const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [
   { name: 'pipeline_stage', ddl: 'text' },

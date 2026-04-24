@@ -30,7 +30,10 @@ import { getCleoHome } from '../paths.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as signaldockSchema from './signaldock-schema.js';
-import { openNativeDatabase } from './sqlite.js';
+// Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
+// avoid any static import from sqlite.ts that could re-enter the circular chain
+// agent-resolver → ... → memory-sqlite → sqlite.ts (T1325/T1331 v3).
+import { openNativeDatabase } from './sqlite-native.js';
 
 /**
  * Database file name within the global cleo home directory.
