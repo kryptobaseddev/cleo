@@ -366,6 +366,7 @@ export type {
   BridgeLearning,
   BridgeObservation,
   BridgePattern,
+  DispatchTrace,
   MemoryBridgeConfig,
   MemoryBridgeContent,
   SessionSummary,

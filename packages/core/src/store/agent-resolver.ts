@@ -275,6 +275,31 @@ export function resolveAgent(
         resolved.aliasApplied = true;
         resolved.aliasTarget = aliasTarget;
       }
+
+      // T1325: emit dispatch-trace BRAIN observation (fire-and-forget).
+      // Called after resolverWarning is set (T1324) so the full envelope is
+      // available. Uses dynamic import to avoid hoisting side-effects on the
+      // node:sqlite interop block above (keeps the resolver synchronous-safe in
+      // Vitest). Errors are swallowed to preserve the synchronous return path.
+      const projectRoot = options.projectRoot ?? process.cwd();
+      const fallbackUsed = resolved.tier === AGENT_TIER_UNIVERSAL;
+      import('../memory/dispatch-trace.js')
+        .then(({ emitDispatchTrace }) =>
+          emitDispatchTrace(projectRoot, {
+            taskId: '',
+            predictedAgentId: agentId,
+            confidence: 0,
+            reason: fallbackUsed
+              ? `universal-base fallback engaged after tiers: ${triedTiers.slice(0, -1).join(', ')}`
+              : `resolved at tier '${resolved.tier}'`,
+            registryHit: !fallbackUsed && resolved.tier !== 'fallback',
+            fallbackUsed,
+            resolverWarning: resolved.resolverWarning,
+            resolvedAt: new Date().toISOString(),
+          }),
+        )
+        .catch(() => undefined);
+
       return resolved;
     }
   }
