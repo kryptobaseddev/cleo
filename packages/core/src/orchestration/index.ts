@@ -30,11 +30,12 @@ export type {
   AtomicityResult,
 } from './atomicity.js';
 export { AtomicityViolationError, checkAtomicity, MAX_WORKER_FILES } from './atomicity.js';
-export type { ClassifyResult } from './classify.js';
+export type { ClassifyOptions, ClassifyResult } from './classify.js';
 export {
   CLASSIFY_CONFIDENCE_FLOOR,
   CLASSIFY_FALLBACK_AGENT_ID,
   classifyTask,
+  getRegisteredAgentIds,
 } from './classify.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';

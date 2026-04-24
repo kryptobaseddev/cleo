@@ -31,6 +31,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { ClassifierUnregisteredAgentError } from '@cleocode/contracts';
 
 // ============================================================================
 // Types
@@ -224,6 +225,70 @@ const CLASSIFIER_RULES: readonly ClassifierRule[] = [
 ];
 
 // ============================================================================
+// Registry vocabulary
+// ============================================================================
+
+/**
+ * Returns the set of agent IDs that the classifier is allowed to emit.
+ *
+ * This is derived directly from {@link CLASSIFIER_RULES} plus the
+ * {@link CLASSIFY_FALLBACK_AGENT_ID} so that the vocabulary and the rules
+ * are always in sync. Any rule added to `CLASSIFIER_RULES` automatically
+ * expands this set.
+ *
+ * Callers that validate classifier output against a live DB registry can
+ * compare this set against `AgentRegistryAPI.list()` before dispatching.
+ *
+ * @returns Readonly array of valid agent IDs (unique, order matches rule order).
+ *
+ * @example
+ * ```typescript
+ * const valid = getRegisteredAgentIds();
+ * // ['project-orchestrator', 'project-security-worker', 'project-docs-worker',
+ * //  'project-dev-lead', 'project-code-worker', 'cleo-subagent']
+ * ```
+ *
+ * @task T1326
+ * @epic T1323
+ */
+export function getRegisteredAgentIds(): readonly string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const rule of CLASSIFIER_RULES) {
+    if (!seen.has(rule.agentId)) {
+      seen.add(rule.agentId);
+      ids.push(rule.agentId);
+    }
+  }
+  // Fallback is always valid — it resolves via the packaged/fallback tier.
+  if (!seen.has(CLASSIFY_FALLBACK_AGENT_ID)) {
+    ids.push(CLASSIFY_FALLBACK_AGENT_ID);
+  }
+  return ids;
+}
+
+/**
+ * Options for {@link classifyTask}.
+ *
+ * @task T1326
+ * @epic T1323
+ */
+export interface ClassifyOptions {
+  /**
+   * Override the set of valid agent IDs used for output validation.
+   *
+   * When provided, the classifier throws {@link ClassifierUnregisteredAgentError}
+   * if its result is not in this set. When omitted, the classifier validates
+   * against {@link getRegisteredAgentIds()} — the built-in rule vocabulary.
+   *
+   * Pass the live registry IDs (`AgentRegistryAPI.list()` → `.map(a => a.agentId)`)
+   * here to enforce that the classifier can only route to agents that are
+   * currently attached and enabled in the project.
+   */
+  allowedAgentIds?: readonly string[];
+}
+
+// ============================================================================
 // Internal helpers
 // ============================================================================
 
@@ -303,8 +368,18 @@ function scoreRule(rule: ClassifierRule, task: Task): number {
  * (0.5) is replaced by the generic `cleo-subagent` fallback with
  * `usedFallback: true` so callers can emit a warning.
  *
+ * **Registry validation**: after scoring, the resolved agent ID is checked
+ * against `opts.allowedAgentIds` (when provided) or the built-in vocabulary
+ * from {@link getRegisteredAgentIds()}. If the emitted ID is not present,
+ * {@link ClassifierUnregisteredAgentError} is thrown with a fix-hint listing
+ * valid IDs. This ensures the classifier output space is always a strict subset
+ * of the registry input space (Council 2026-04-24 FP atomic truth #3).
+ *
  * @param task - Full task record (at minimum: id, title, type, labels).
+ * @param opts - Optional classification options (registry override for validation).
  * @returns Classification result with agentId, role, confidence, and reason.
+ * @throws {@link ClassifierUnregisteredAgentError} when the resolved agent ID
+ *   is absent from the allowed vocabulary.
  *
  * @example
  * ```typescript
@@ -319,10 +394,17 @@ function scoreRule(rule: ClassifierRule, task: Task): number {
  * });
  * ```
  *
+ * @example Registry-constrained classification (live DB agents only):
+ * ```typescript
+ * const liveIds = (await registry.list()).map(a => a.agentId);
+ * const result = classifyTask(task, { allowedAgentIds: liveIds });
+ * ```
+ *
  * @task T891
  * @task T1258 E1 canonical naming refactor
+ * @task T1326 classifier↔registry contract
  */
-export function classifyTask(task: Task): ClassifyResult {
+export function classifyTask(task: Task, opts?: ClassifyOptions): ClassifyResult {
   let bestScore = 0;
   let bestRule: ClassifierRule | null = null;
 
@@ -334,8 +416,15 @@ export function classifyTask(task: Task): ClassifyResult {
     }
   }
 
+  // Resolve the allowed vocabulary: caller-supplied override or built-in set.
+  const allowedIds: readonly string[] = opts?.allowedAgentIds ?? getRegisteredAgentIds();
+
   // Below-floor: demote to generic fallback.
   if (bestScore < CLASSIFY_CONFIDENCE_FLOOR || bestRule === null) {
+    // Validate the fallback itself against the allowed vocabulary.
+    if (!allowedIds.includes(CLASSIFY_FALLBACK_AGENT_ID)) {
+      throw new ClassifierUnregisteredAgentError(CLASSIFY_FALLBACK_AGENT_ID, allowedIds);
+    }
     return {
       agentId: CLASSIFY_FALLBACK_AGENT_ID,
       role: 'worker',
@@ -346,6 +435,11 @@ export function classifyTask(task: Task): ClassifyResult {
         `classifyTask(${task.id}): confidence ${bestScore.toFixed(2)} < floor ${CLASSIFY_CONFIDENCE_FLOOR}. ` +
         'Routing to cleo-subagent. Consider adding persona labels or keywords to the task.',
     };
+  }
+
+  // Validate the resolved persona against the allowed vocabulary.
+  if (!allowedIds.includes(bestRule.agentId)) {
+    throw new ClassifierUnregisteredAgentError(bestRule.agentId, allowedIds);
   }
 
   const lowerTitle = (task.title ?? '').toLowerCase();
