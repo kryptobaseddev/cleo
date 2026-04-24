@@ -157,7 +157,7 @@
     "PipelineManifestAppended": {
       "category": "pipeline",
       "source": "domain",
-      "description": "A manifest entry has been appended to pipeline_manifest (SQLite table per ADR-027)",
+      "description": "A manifest entry has been appended to `pipeline_manifest` (`SQLite` table per ADR-027)",
       "canBlock": false
     },
     "SessionStarted": {
