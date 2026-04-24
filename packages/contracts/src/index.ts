@@ -621,6 +621,18 @@ export type {
 } from './session.js';
 // === Session Types ===
 export { SessionView } from './session.js';
+export type {
+  SessionJournalDebriefSummary,
+  SessionJournalDoctorSummary,
+  SessionJournalEntry,
+} from './session-journal.js';
+// === Session Journal Types (T1263 PSYCHE E6) ===
+export {
+  SESSION_JOURNAL_SCHEMA_VERSION,
+  sessionJournalDebriefSummarySchema,
+  sessionJournalDoctorSummarySchema,
+  sessionJournalEntrySchema,
+} from './session-journal.js';
 export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
 // === CLEO Spawn Types (distinct from adapter spawn) ===
 export type {

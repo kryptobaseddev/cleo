@@ -108,6 +108,17 @@ export interface InitResult {
    * and a copy-pasteable command.
    */
   nextSteps?: Array<{ action: string; command: string }>;
+  /**
+   * T1263 PSYCHE E6 — Recent session journal context for meta-agent consumption.
+   *
+   * Contains up to 5 most recent journal entries so the meta-agent (agent-architect)
+   * can pick up prior session context at `cleo init` time without loading brain.db.
+   * Absent when no journals exist or when `readRecentJournals` fails (best-effort).
+   */
+  sessionContext?: {
+    /** Most recent session journal entries, newest first. */
+    recentJournals: import('@cleocode/contracts').SessionJournalEntry[];
+  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -962,6 +973,18 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
           },
         ];
 
+  // T1263 PSYCHE E6: Read recent session journals for meta-agent context (best-effort)
+  let sessionContext: InitResult['sessionContext'];
+  try {
+    const { readRecentJournals } = await import('./sessions/session-journal.js');
+    const recentJournals = await readRecentJournals(projRoot, 20, 5);
+    if (recentJournals.length > 0) {
+      sessionContext = { recentJournals };
+    }
+  } catch {
+    // Journal reading is best-effort — never block init
+  }
+
   return {
     initialized: true,
     directory: cleoDir,
@@ -977,6 +1000,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
         }
       : undefined,
     nextSteps,
+    ...(sessionContext !== undefined ? { sessionContext } : {}),
   };
 }
 
