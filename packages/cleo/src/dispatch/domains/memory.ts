@@ -405,21 +405,176 @@ export class MemoryHandler implements DomainHandler {
           const { scanBrainNoise } = await import('@cleocode/core/memory/brain-doctor.js');
           const result = await scanBrainNoise(projectRoot);
           const assertClean = params?.['assert-clean'] as boolean | undefined;
-          if (assertClean && !result.isClean) {
-            return errorResult(
+          if (assertClean) {
+            // T1147 W7: also check for pending brain_v2_candidate rows (staged sweep not approved).
+            let pendingCandidates = 0;
+            try {
+              const { getBrainNativeDb: _getDoctorNativeDb } = await import(
+                '@cleocode/core/store/memory-sqlite.js'
+              );
+              const doctorNativeDb = _getDoctorNativeDb();
+              if (doctorNativeDb) {
+                // Check if brain_v2_candidate table exists before querying
+                const tableExists = doctorNativeDb
+                  .prepare(
+                    `SELECT name FROM sqlite_master WHERE type='table' AND name='brain_v2_candidate'`,
+                  )
+                  .get() as { name: string } | undefined;
+                if (tableExists) {
+                  const countRow = doctorNativeDb
+                    .prepare(
+                      `SELECT COUNT(*) AS cnt FROM brain_v2_candidate WHERE validation_status = 'pending'`,
+                    )
+                    .get() as { cnt: number };
+                  pendingCandidates = countRow?.cnt ?? 0;
+                }
+              }
+            } catch {
+              /* non-fatal */
+            }
+
+            if (!result.isClean) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_BRAIN_NOISE_DETECTED',
+                `Brain noise detected: ${result.findings.length} pattern(s) across ${result.totalScanned} entries. ` +
+                  result.findings.map((f) => `${f.pattern}(${f.count})`).join(', ') +
+                  '. Run `cleo memory doctor` for details. Fix noise before enabling Sentient v1 (M7 gate).',
+                startTime,
+              );
+            }
+            if (pendingCandidates > 0) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_SWEEP_PENDING',
+                `Staged sweep has ${pendingCandidates} pending brain_v2_candidate rows. ` +
+                  'Run `cleo memory sweep --status` to review, then `cleo memory sweep --approve <runId>` to apply.',
+                startTime,
+              );
+            }
+          } else if (!result.isClean) {
+            // Non-assert mode: still surface noise findings without failing.
+          }
+          return wrapResult(
+            { success: true, data: { ...result, pendingCandidates: 0 } },
+            'query',
+            'memory',
+            operation,
+            startTime,
+          );
+        }
+
+        // T1147 W7 — BRAIN noise sweep (shadow-write envelope, self-healing gate)
+        case 'sweep': {
+          const dryRun = params?.['dry-run'] === true || params?.dryRun === true;
+          const approveRunId = params?.approve as string | undefined;
+          const statusQuery = params?.status === true;
+          const rollbackRunId = params?.rollback as string | undefined;
+
+          if (statusQuery) {
+            // List all noise-sweep-2440 runs in brain_backfill_runs
+            const { getBrainDb: _getBrainDb2, getBrainNativeDb: _getNativeDb2 } = await import(
+              '@cleocode/core/store/memory-sqlite.js'
+            );
+            const sweepDb = await _getBrainDb2(projectRoot);
+            const nativeDb2 = _getNativeDb2();
+            if (!nativeDb2) {
+              return errorResult(
+                'query',
+                'memory',
+                operation,
+                'E_DB_UNAVAILABLE',
+                'brain.db not available',
+                startTime,
+              );
+            }
+            const rows = nativeDb2
+              .prepare(
+                `SELECT id, status, rows_affected, created_at, approved_at, approved_by
+                 FROM brain_backfill_runs
+                 WHERE kind = 'noise-sweep-2440'
+                 ORDER BY created_at DESC
+                 LIMIT 20`,
+              )
+              .all() as Array<{
+              id: string;
+              status: string;
+              rows_affected: number;
+              created_at: string;
+              approved_at: string | null;
+              approved_by: string | null;
+            }>;
+            void sweepDb;
+            return wrapResult(
+              { success: true, data: { runs: rows } },
               'query',
               'memory',
               operation,
-              'E_BRAIN_NOISE_DETECTED',
-              `Brain noise detected: ${result.findings.length} pattern(s) across ${result.totalScanned} entries. ` +
-                result.findings.map((f) => `${f.pattern}(${f.count})`).join(', ') +
-                '. Run `cleo memory doctor` for details. Fix noise before enabling Sentient v1 (M7 gate).',
               startTime,
             );
           }
+
+          if (approveRunId) {
+            // Apply sweep
+            const { executeSweep } = await import('@cleocode/core/memory/brain-sweep-executor.js');
+            const result = await executeSweep({
+              projectRoot,
+              runId: approveRunId,
+              approvedBy: 'cleo-cli',
+            });
+            if (!result.success) {
+              return errorResult(
+                'mutate',
+                'memory',
+                operation,
+                'E_SWEEP_FAILED',
+                result.errorMessage ?? 'Sweep failed',
+                startTime,
+              );
+            }
+            return wrapResult(
+              { success: true, data: result },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          }
+
+          if (rollbackRunId) {
+            const { rollbackSweep } = await import('@cleocode/core/memory/brain-sweep-executor.js');
+            const rolled = await rollbackSweep(projectRoot, rollbackRunId);
+            if (!rolled) {
+              return errorResult(
+                'mutate',
+                'memory',
+                operation,
+                'E_SWEEP_ROLLBACK_FAILED',
+                `Run '${rollbackRunId}' not found or not in staged status`,
+                startTime,
+              );
+            }
+            return wrapResult(
+              { success: true, data: { rolledBack: rollbackRunId } },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          }
+
+          // Default: dry-run or full detect
+          const { detectNoiseCandidates } = await import(
+            '@cleocode/core/memory/brain-noise-detector.js'
+          );
+          const detectResult = await detectNoiseCandidates(projectRoot, { dryRun });
           return wrapResult(
-            { success: true, data: result },
-            'query',
+            { success: true, data: detectResult },
+            dryRun ? 'query' : 'mutate',
             'memory',
             operation,
             startTime,
@@ -1773,8 +1928,10 @@ export class MemoryHandler implements DomainHandler {
         'code.links',
         'code.memories-for-code',
         'code.for-memory',
-        // T1262 — brain noise detector (E1-parallel, read-only)
+        // T1262 — brain noise detector (E1-parallel, read-only) + assert-clean gate
         'doctor',
+        // T1147 W7 — sweep status query (dry-run mode)
+        'sweep',
         // T791 — LLM extraction backend status
         'llm-status',
         // T792 — pending verification queue
