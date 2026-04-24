@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.126] — 2026-04-24
+
+PSYCHE E1 canonical agent naming refactor (T1258) + T1107 Living Brain dispatch wire verification + T1262 memory-doctor detector (parallel). Eliminates all cleocode-hardcoded dogfood persona names from the ship surface per ADR-055 D032 clean-forward.
+
+### Changed
+
+- **`packages/core/src/orchestration/classify.ts` — canonical role names** (T1258 E1): CLASSIFIER_RULES now emits `project-orchestrator`, `project-dev-lead`, `project-code-worker`, `project-docs-worker`, `project-security-worker` instead of the old `cleo-prime`, `cleo-dev`, `cleo-rust-lead`, `cleo-db-lead`, `cleo-historian` dogfood IDs. Security-worker rule added as new canonical role.
+- **`packages/agents/seed-agents/` — canonical filenames** (T1258 E1): Four seed files renamed to remove `-generic` suffix (`orchestrator.cant`, `dev-lead.cant`, `code-worker.cant`, `docs-worker.cant`). `security-worker.cant` added as fifth canonical seed template.
+- **`packages/cant/src/native-loader.ts` — SEED_PERSONA_IDS** updated to 6 entries (was 5): added `project-security-worker`.
+- **`packages/cleo/src/dispatch/domains/memory.ts` — `memory.verify` migration shim** (T1258 E1): Now accepts `project-orchestrator` as canonical identity and `cleo-prime` as legacy alias. Error messages updated to reference canonical name.
+
+### Added
+
+- **`packages/core/src/memory/brain-doctor.ts` — read-only brain noise detector** (T1262, E1-parallel per council verdict): `scanBrainNoise(projectRoot)` scans `.cleo/brain.db` for 6 noise patterns (duplicate-content, missing-type, missing-provenance, orphan-edge, low-confidence, stale-unverified) with no writes. Prerequisite for M7 assert-clean gate at Sentient v1 activation (T1148 W8).
+- **`cleo memory doctor` CLI command** (T1262): New `memory.doctor` query operation in dispatch registry and MemoryHandler. Supports `--assert-clean` flag (exit non-zero when noise detected — M7 gate).
+
+### Removed
+
+- **`packages/core/src/orchestration/hierarchy.ts`** — deleted (3-file surgery per T1258 E1 AC#2): No runtime consumers beyond the two barrel re-exports. Barrel re-export at `packages/core/src/orchestration/index.ts:53` removed. Contract file `packages/contracts/src/orchestration-hierarchy.ts` and its barrel at `packages/contracts/src/index.ts:560` removed.
+
+### Closed
+
+- **T1255** (PSYCHE rename task record) — closed with evidence referencing v2026.4.121 ship (work done in prior release). M3 cleanup.
+- **T1249** (tier-0 overflow) — parentId updated to T1258 per M3 council reconciliation.
+
+### Quality gates
+
+- `pnpm biome ci .` strict — 0 errors (1848 files)
+- `pnpm run build` — full dep graph green
+- `pnpm run test` — **11,169 pass / 0 failures** (666 test files)
+
 ## [2026.4.125] — 2026-04-23
 
 Fixes the CI shard-1/2 Vitest uncaught-exception flake that was producing `ENOENT: no such file or directory, open .../cleo-sess-*/.cleo/logs/test.YYYY-MM-DD.N.log` after test files completed. Root cause: `closeLogger()` flushed pino buffers but never terminated the pino-roll worker thread, so the worker's rotation timer could fire a file-open attempt after `afterEach` had already `rm -rf`'d the tmpdir. Vitest caught the async-context error and flagged it, even though every test file passed.

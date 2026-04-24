@@ -7,15 +7,15 @@
  *  2. `loadSeedAgentIdentities()` returns valid `PeerIdentity[]` from the
  *     `packages/agents/seed-agents/` generic templates + universal base.
  *  3. `cleo-subagent` (universal base) is always present and resolvable.
- *  4. `SEED_PERSONA_IDS` matches the ADR-055 D032 ship surface (five loadable
- *     personas: universal base + four generic role templates).
+ *  4. `SEED_PERSONA_IDS` matches the ADR-055 D032 ship surface (six loadable
+ *     personas: universal base + five canonical role templates per T1258 E1).
  *  5. An unknown persona ID is NOT present (structured absence, not an error).
  *  6. `isPeerIdentity` / `assertPeerIdentity` validators from `@cleocode/contracts`
  *     work correctly on well-formed and malformed records.
  *
  * Architecture (ADR-055 D031–D035):
  *  - `packages/agents/cleo-subagent.cant` — universal protocol base (at root).
- *  - `packages/agents/seed-agents/` — four generic `{{var}}` role templates.
+ *  - `packages/agents/seed-agents/` — five canonical role templates (T1258 E1).
  *    These SHIP in `@cleocode/agents` as the canonical ship surface.
  *  - `packages/agents/meta/agent-architect.cant` — ships per D034 but is NOT
  *    currently walked by `loadSeedAgentIdentities()`; tracked separately.
@@ -149,18 +149,19 @@ describe('loadSeedAgentIdentities()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SEED_PERSONA_IDS constant (ADR-055 D032 ship surface)', () => {
-  it('has exactly 5 entries (universal base + 4 generic templates)', () => {
-    expect(SEED_PERSONA_IDS).toHaveLength(5);
+  it('has exactly 6 entries (universal base + 5 canonical role templates per T1258 E1)', () => {
+    expect(SEED_PERSONA_IDS).toHaveLength(6);
   });
 
-  it('contains the universal protocol base plus the 4 generic role templates', () => {
-    // Filenames carry -generic suffix; declared agent IDs are project-*.
+  it('contains the universal protocol base plus the 5 canonical role templates', () => {
+    // T1258 E1: filenames no longer carry -generic suffix; security-worker.cant added.
     const expected = [
       'cleo-subagent',
       'project-orchestrator',
       'project-dev-lead',
       'project-code-worker',
       'project-docs-worker',
+      'project-security-worker',
     ];
     for (const id of expected) {
       expect(

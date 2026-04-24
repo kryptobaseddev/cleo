@@ -156,9 +156,10 @@ describe('Parity Group 1: Registry completeness', () => {
     // T1117: nexus.contracts-show + nexus.task-symbols (query) + nexus.contracts-sync + nexus.contracts-link-tasks + nexus.conduit-scan (mutate) — +2 query / +3 mutate / +5 total.
     // T1137: orchestrate.worktree.complete + orchestrate.worktree.cleanup (mutate) — +2 mutate / +2 total.
     // T1076 PSYCHE Wave 1 (v2026.4.118): nexus.profile.view + nexus.profile.get (query) + nexus.profile.import + nexus.profile.export + nexus.profile.reinforce + nexus.profile.upsert + nexus.profile.supersede (mutate) — +2 query / +5 mutate / +7 total.
-    expect(queryCount).toBe(187);
+    // T1262 E1-parallel (v2026.4.126): memory.doctor (query) — +1 query / +1 total.
+    expect(queryCount).toBe(188);
     expect(mutateCount).toBe(130);
-    expect(OPERATIONS.length).toBe(317);
+    expect(OPERATIONS.length).toBe(318);
   });
 
   it('all operations have valid gateway values', () => {

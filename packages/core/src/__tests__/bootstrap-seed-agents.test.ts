@@ -58,15 +58,16 @@ describe('W2-5 installSeedAgentsGlobally (global seed-agents bootstrap)', () => 
     expect(existsSync(targetDir)).toBe(true);
 
     const copied = readdirSync(targetDir).filter((f) => f.endsWith('.cant'));
-    // Post-T1237 seed bundle ships 4 generic templates (orchestrator-generic,
-    // dev-lead-generic, code-worker-generic, docs-worker-generic). The
-    // cleo-specific personas (cleo-prime/dev/historian/…) live in the
+    // Post-T1258 E1 seed bundle ships 5 canonical role templates. The -generic
+    // suffix was removed and security-worker.cant was added per ADR-055 D032
+    // canonical naming refactor. The cleo-specific dogfood personas live in the
     // cleocode repo's `.cleo/cant/agents/` and are NOT shipped as seeds.
-    expect(copied.length).toBeGreaterThanOrEqual(4);
-    expect(copied).toContain('orchestrator-generic.cant');
-    expect(copied).toContain('dev-lead-generic.cant');
-    expect(copied).toContain('code-worker-generic.cant');
-    expect(copied).toContain('docs-worker-generic.cant');
+    expect(copied.length).toBeGreaterThanOrEqual(5);
+    expect(copied).toContain('orchestrator.cant');
+    expect(copied).toContain('dev-lead.cant');
+    expect(copied).toContain('code-worker.cant');
+    expect(copied).toContain('docs-worker.cant');
+    expect(copied).toContain('security-worker.cant');
 
     // Should have recorded a "created" entry, not a warning.
     expect(ctx.created.some((c) => c.startsWith('seed-agents (global):'))).toBe(true);

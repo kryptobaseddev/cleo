@@ -922,14 +922,18 @@ export interface MemoryCodeAutoLinkResult {
 }
 
 // --------------------------------------------------------------------------
-// memory.verify → ground-truth promote (owner / cleo-prime only)
+// memory.verify → ground-truth promote (owner / project-orchestrator only)
+// T1258 E1: 'cleo-prime' accepted as legacy migration alias — see dispatch handler comment
 // --------------------------------------------------------------------------
 
 /** Parameters for `memory.verify`. */
 export interface MemoryVerifyParams {
   /** Memory entry id to promote to verified=1. */
   id: string;
-  /** Caller identity (`cleo-prime` or `owner`). Omit for terminal invocation. */
+  /**
+   * Caller identity (`project-orchestrator` or `owner`). Omit for terminal invocation.
+   * Legacy alias `cleo-prime` accepted per T1258 E1 migration shim.
+   */
   agent?: string;
 }
 /** Result of `memory.verify`. */
