@@ -143,10 +143,23 @@ describe('MemoryHandler: mutate verify', () => {
     const result = await handler.mutate('verify', { id: 'O-abc-0', agent: 'worker-rogue' });
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_FORBIDDEN');
-    expect(result.error?.message).toContain('cleo-prime');
+    // T1258 E1: error message uses canonical 'project-orchestrator' identity
+    expect(result.error?.message).toContain('project-orchestrator');
   });
 
-  it('allows cleo-prime agent identity', async () => {
+  it('allows project-orchestrator canonical agent identity (T1258 E1)', async () => {
+    const runFn = vi.fn(() => ({ changes: 1 }));
+    mockGetBrainNativeDb.mockReturnValue(
+      makeNativeDb({ row: { id: 'O-abc-0', verified: 0 }, runFn }),
+    );
+
+    const result = await handler.mutate('verify', { id: 'O-abc-0', agent: 'project-orchestrator' });
+    expect(result.success).toBe(true);
+    expect((result.data as { verified: boolean }).verified).toBe(true);
+    expect(runFn).toHaveBeenCalled();
+  });
+
+  it('allows cleo-prime legacy agent identity (T1258 E1 migration shim)', async () => {
     const runFn = vi.fn(() => ({ changes: 1 }));
     mockGetBrainNativeDb.mockReturnValue(
       makeNativeDb({ row: { id: 'O-abc-0', verified: 0 }, runFn }),

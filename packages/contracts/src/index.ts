@@ -550,14 +550,7 @@ export type {
   WorktreeIncludePattern,
   WorktreeListEntry,
 } from './operations/worktree.js';
-// === Orchestration Hierarchy ===
-export {
-  type AgentHierarchy,
-  type AgentHierarchyEntry,
-  type EscalationChain,
-  type OrchestrationHierarchyAPI,
-  OrchestrationLevel,
-} from './orchestration-hierarchy.js';
+
 // === Peer Identity (T1210 — SDK-first CANT persona contract) ===
 export {
   assertPeerIdentity,

@@ -50,7 +50,7 @@ export {
   persistHarnessProfile,
   resolveHarnessHint,
 } from './harness-hint.js';
-export { OrchestrationHierarchyImpl } from './hierarchy.js';
+
 export type {
   ComposeSpawnPayloadOptions,
   SpawnPayload,
