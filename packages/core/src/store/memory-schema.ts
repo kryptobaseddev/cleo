@@ -1988,7 +1988,7 @@ export type BrainMemoryTreeInsert = typeof brainMemoryTrees.$inferInsert;
  * One row per candidate entry to sweep. Anchored to a `brain_backfill_runs`
  * row (`sweep_run_id`) of kind `noise-sweep-2440`. The workflow is:
  *
- * 1. W7-3 detector populates `brain_v2_candidate` + a `brain_backfill_runs`
+ * 1. W7-3 detector populates `brain_observations_staging` + a `brain_backfill_runs`
  *    row (`status: 'staged'`).
  * 2. Autonomous 100-entry stratified validation writes sample JSON.
  * 3. `cleo memory sweep --approve <runId>` calls W7-4 executor, which opens
@@ -2002,13 +2002,16 @@ export type BrainMemoryTreeInsert = typeof brainMemoryTrees.$inferInsert;
  * - `reclassify`  — adjust `quality_score` and mark `swept-clean`
  * - `promote`     — raise tier + `swept-clean`
  *
+ * History: renamed from `brain_v2_candidate` (T1402) — the prior name read
+ * like a schema version, but the intent was "staging rows awaiting validation."
+ *
  * @task T1147
  * @epic T1075
  */
-export const brainV2Candidate = sqliteTable(
-  'brain_v2_candidate',
+export const brainObservationsStaging = sqliteTable(
+  'brain_observations_staging',
   {
-    /** Unique candidate identifier. Format: `bvc-<timestamp36>-<rand>`. */
+    /** Unique candidate identifier. Format: `bos-<timestamp36>-<rand>`. */
     id: text('id').primaryKey(),
 
     /**
@@ -2070,23 +2073,28 @@ export const brainV2Candidate = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
-    index('idx_bvc_sweep_run').on(table.sweepRunId),
-    index('idx_bvc_source').on(table.sourceTable, table.sourceId),
-    index('idx_bvc_status').on(table.validationStatus),
+    index('idx_bos_sweep_run').on(table.sweepRunId),
+    index('idx_bos_source').on(table.sourceTable, table.sourceId),
+    index('idx_bos_status').on(table.validationStatus),
   ],
 );
 
-/** Row type for brain_v2_candidate SELECT queries. */
-export type BrainV2CandidateRow = typeof brainV2Candidate.$inferSelect;
-/** Row type for brain_v2_candidate INSERT operations. */
-export type NewBrainV2CandidateRow = typeof brainV2Candidate.$inferInsert;
+/** Row type for brain_observations_staging SELECT queries. */
+export type BrainObservationsStagingRow = typeof brainObservationsStaging.$inferSelect;
+/** Row type for brain_observations_staging INSERT operations. */
+export type NewBrainObservationsStagingRow = typeof brainObservationsStaging.$inferInsert;
 
-/** Valid action values for brain_v2_candidate.action. */
-export const BRAIN_V2_CANDIDATE_ACTIONS = ['purge', 'keep', 'reclassify', 'promote'] as const;
+/** Valid action values for brain_observations_staging.action. */
+export const BRAIN_OBSERVATIONS_STAGING_ACTIONS = [
+  'purge',
+  'keep',
+  'reclassify',
+  'promote',
+] as const;
 /** Discriminated union of all candidate actions. */
-export type BrainV2CandidateAction = (typeof BRAIN_V2_CANDIDATE_ACTIONS)[number];
+export type BrainObservationsStagingAction = (typeof BRAIN_OBSERVATIONS_STAGING_ACTIONS)[number];
 
-/** Valid validation_status values for brain_v2_candidate. */
-export const BRAIN_V2_CANDIDATE_STATUSES = ['pending', 'applied', 'skipped'] as const;
+/** Valid validation_status values for brain_observations_staging. */
+export const BRAIN_OBSERVATIONS_STAGING_STATUSES = ['pending', 'applied', 'skipped'] as const;
 /** Discriminated union of all candidate validation statuses. */
-export type BrainV2CandidateStatus = (typeof BRAIN_V2_CANDIDATE_STATUSES)[number];
+export type BrainObservationsStagingStatus = (typeof BRAIN_OBSERVATIONS_STAGING_STATUSES)[number];

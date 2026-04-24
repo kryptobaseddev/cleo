@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.139] — 2026-04-24 — T1402 rename + verification-council fix-forward
+
+### Headline
+
+Rename BRAIN sweep staging table from the misleading `brain_v2_candidate` to the correct `brain_observations_staging`. "v2" read like a schema version number but was intended as "the cleaned v2 of each row awaiting validation." Owner flagged the name during `T-COUNCIL-VERIFICATION-2026-04-24` audit.
+
+### T1402 — rename `brain_v2_candidate` → `brain_observations_staging`
+
+- **New migration** `packages/core/migrations/drizzle-brain/20260424000006_t1402-rename-staging-table/migration.sql` — atomic `ALTER TABLE RENAME` (SQLite 3.25+) + drop/recreate indexes as `idx_bos_*`. Applies cleanly whether the table has 0 rows (typical) or in-flight staging rows (preserved).
+- **Source renames (5 files):**
+  - `packages/core/src/store/memory-schema.ts` — `brainV2Candidate` → `brainObservationsStaging`; `BrainV2CandidateRow` → `BrainObservationsStagingRow`; `BRAIN_V2_CANDIDATE_ACTIONS/STATUSES` → `BRAIN_OBSERVATIONS_STAGING_ACTIONS/STATUSES`; candidate ID prefix `bvc-` → `bos-`.
+  - `packages/core/src/memory/brain-noise-detector.ts` — imports + usages + TSDoc + candidate ID generator.
+  - `packages/core/src/memory/brain-sweep-executor.ts` — imports + usages + TSDoc + SQL literal for cutover UPDATE.
+  - `packages/cleo/src/dispatch/domains/memory.ts` — doctor `--assert-clean` staging-table query uses legacy-compat fallback so installs on v2026.4.133-.138 keep working until the migration runs.
+  - `packages/core/src/memory/__tests__/brain-sweep-e2e.test.ts` — all 6 integration tests updated against the new table name.
+- **Evidence:** `brain-sweep-e2e.test.ts` 6/6 green; scoped tsc on rename-affected files clean.
+
+### Verification-council fix-forward
+
+- Two `brain_backfill_runs` rows of `kind='noise-sweep-2440'` persisted on the development BRAIN (`status='rolled-back'`, 68 candidates each) — satisfies Chairman Condition 3 from `T-COUNCIL-VERIFICATION-2026-04-24` ("persisted run-log receipt"). Sweep infrastructure proven end-to-end against live data; DB cutover deferred pending owner approval (50 of 68 candidates are decisions).
+
+### Follow-up tasks filed
+
+- **T1403** (epic/high) — Close post-deploy execution gap.
+- **T1404** (epic/high) — Close parent-closure-without-atom.
+- **T1262** — cancelled; scope structurally resolved.
+
+### Known caveats
+
+- `cleo memory sweep --rollback <runId>` in v2026.4.138 returns `E_INVALID_OPERATION` — dispatch gateway not wired. Direct-SQL workaround used for this release; proper fix is a separate follow-up.
+
 ## [2026.4.138] — 2026-04-24 — CHANGELOG + Build&Publish catch-up
 
 Catch-up release that documents `v2026.4.135`, `v2026.4.136`, `v2026.4.137` and restores the Build & Publish workflow — previous four tags all failed the `Verify CHANGELOG section` step because entries were not written before the tag push.

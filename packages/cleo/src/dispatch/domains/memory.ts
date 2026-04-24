@@ -406,7 +406,8 @@ export class MemoryHandler implements DomainHandler {
           const result = await scanBrainNoise(projectRoot);
           const assertClean = params?.['assert-clean'] as boolean | undefined;
           if (assertClean) {
-            // T1147 W7: also check for pending brain_v2_candidate rows (staged sweep not approved).
+            // T1147 W7: also check for pending brain_observations_staging rows (staged sweep not approved).
+            // Legacy-DB compatibility: falls back to 'brain_v2_candidate' if the pre-T1402 name is still live.
             let pendingCandidates = 0;
             try {
               const { getBrainNativeDb: _getDoctorNativeDb } = await import(
@@ -414,16 +415,16 @@ export class MemoryHandler implements DomainHandler {
               );
               const doctorNativeDb = _getDoctorNativeDb();
               if (doctorNativeDb) {
-                // Check if brain_v2_candidate table exists before querying
-                const tableExists = doctorNativeDb
+                // Resolve staging-table name: prefer canonical, fall back to legacy.
+                const stagingTableRow = doctorNativeDb
                   .prepare(
-                    `SELECT name FROM sqlite_master WHERE type='table' AND name='brain_v2_candidate'`,
+                    `SELECT name FROM sqlite_master WHERE type='table' AND name IN ('brain_observations_staging', 'brain_v2_candidate') ORDER BY CASE name WHEN 'brain_observations_staging' THEN 0 ELSE 1 END LIMIT 1`,
                   )
                   .get() as { name: string } | undefined;
-                if (tableExists) {
+                if (stagingTableRow?.name) {
                   const countRow = doctorNativeDb
                     .prepare(
-                      `SELECT COUNT(*) AS cnt FROM brain_v2_candidate WHERE validation_status = 'pending'`,
+                      `SELECT COUNT(*) AS cnt FROM ${stagingTableRow.name} WHERE validation_status = 'pending'`,
                     )
                     .get() as { cnt: number };
                   pendingCandidates = countRow?.cnt ?? 0;
@@ -451,7 +452,7 @@ export class MemoryHandler implements DomainHandler {
                 'memory',
                 operation,
                 'E_SWEEP_PENDING',
-                `Staged sweep has ${pendingCandidates} pending brain_v2_candidate rows. ` +
+                `Staged sweep has ${pendingCandidates} pending brain_observations_staging rows. ` +
                   'Run `cleo memory sweep --status` to review, then `cleo memory sweep --approve <runId>` to apply.',
                 startTime,
               );

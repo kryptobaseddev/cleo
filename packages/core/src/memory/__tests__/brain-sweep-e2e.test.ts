@@ -4,12 +4,12 @@
  * Verifies the full shadow-write envelope workflow:
  * 1. Insert 20 low-quality brain_observations (quality_score < 0.3, verified=false).
  * 2. Run `detectNoiseCandidates` in dry-run mode: assert candidate count >= 20.
- * 3. Run `detectNoiseCandidates` (staging mode): assert brain_v2_candidate rows created.
+ * 3. Run `detectNoiseCandidates` (staging mode): assert brain_observations_staging rows created.
  * 4. Run `executeSweep` (approve): assert:
  *    a. purged rows have `invalid_at` set in brain_observations.
  *    b. provenance_class = 'noise-purged' on purged rows.
  *    c. brain_backfill_runs.status = 'approved'.
- *    d. brain_v2_candidate rows have validation_status = 'applied'.
+ *    d. brain_observations_staging rows have validation_status = 'applied'.
  * 5. Verify `buildRetrievalBundle` no longer returns purged entries
  *    (unswept-pre-T1151 filter or invalid_at guard).
  *
@@ -83,7 +83,7 @@ describe('T1147 Brain sweep E2E', () => {
     expect(existsSync(result.sampleFilePath)).toBe(true);
   });
 
-  it('SWEEP-2: detectNoiseCandidates staging mode creates brain_backfill_runs + brain_v2_candidate rows', async () => {
+  it('SWEEP-2: detectNoiseCandidates staging mode creates brain_backfill_runs + brain_observations_staging rows', async () => {
     await insertLowQualityObservations(20);
 
     const { detectNoiseCandidates } = await import('../brain-noise-detector.js');
@@ -106,10 +106,10 @@ describe('T1147 Brain sweep E2E', () => {
     expect(runRow!.kind).toBe('noise-sweep-2440');
     expect(runRow!.rows_affected).toBeGreaterThanOrEqual(20);
 
-    // brain_v2_candidate rows exist
+    // brain_observations_staging rows exist
     const candidateCount = (
       nativeDb!
-        .prepare(`SELECT COUNT(*) AS cnt FROM brain_v2_candidate WHERE sweep_run_id = ?`)
+        .prepare(`SELECT COUNT(*) AS cnt FROM brain_observations_staging WHERE sweep_run_id = ?`)
         .get(result.runId) as { cnt: number }
     ).cnt;
     expect(candidateCount).toBeGreaterThanOrEqual(20);
@@ -151,11 +151,11 @@ describe('T1147 Brain sweep E2E', () => {
     expect(runRow?.status).toBe('approved');
     expect(runRow?.approved_by).toBe('test-runner');
 
-    // brain_v2_candidate rows should be 'applied'
+    // brain_observations_staging rows should be 'applied'
     const pendingCount = (
       nativeDb!
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM brain_v2_candidate WHERE sweep_run_id = ? AND validation_status = 'pending'`,
+          `SELECT COUNT(*) AS cnt FROM brain_observations_staging WHERE sweep_run_id = ? AND validation_status = 'pending'`,
         )
         .get(detectResult.runId) as { cnt: number }
     ).cnt;
@@ -187,7 +187,7 @@ describe('T1147 Brain sweep E2E', () => {
     }
   });
 
-  it('SWEEP-5: doctor --assert-clean detects pending brain_v2_candidate rows', async () => {
+  it('SWEEP-5: doctor --assert-clean detects pending brain_observations_staging rows', async () => {
     await insertLowQualityObservations(5);
 
     const { detectNoiseCandidates } = await import('../brain-noise-detector.js');
@@ -198,7 +198,7 @@ describe('T1147 Brain sweep E2E', () => {
     const pendingCount = (
       nativeDb!
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM brain_v2_candidate WHERE validation_status = 'pending'`,
+          `SELECT COUNT(*) AS cnt FROM brain_observations_staging WHERE validation_status = 'pending'`,
         )
         .get() as { cnt: number }
     ).cnt;
