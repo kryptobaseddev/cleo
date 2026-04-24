@@ -126,7 +126,7 @@ agent ${agentId}:
   house: none
   allegiance: canon
   role: ${role}
-  parent: cleoos-opus-orchestrator
+  parent: project-orchestrator
   description: "${displayName}"
 
   tone:
@@ -2689,6 +2689,140 @@ const createCommand = defineCommand({
  * @task T889 / T901 / W2-7
  * @epic T889
  */
+/**
+ * cleo agent mint — invoke agent-architect meta-agent to synthesize a project-specific
+ * agent from a .cant spec file and project context.
+ *
+ * Semantic distinction from `cleo agent create`:
+ *   - `create` — static scaffold from role templates (no AI synthesis)
+ *   - `mint`   — meta-agent-driven synthesis from a spec file + project context (AC8)
+ *
+ * @task T1276 v2026.4.127 T1259 E2 cleo agent mint CLI verb
+ */
+const mintCommand = defineCommand({
+  meta: {
+    name: 'mint',
+    description:
+      'Synthesize a project-specific agent from a .cant spec using agent-architect meta-agent',
+  },
+  args: {
+    spec: {
+      type: 'positional',
+      description: 'Path to the .cant spec file describing the agent to synthesize',
+      required: true,
+    },
+    'output-dir': {
+      type: 'string',
+      description: 'Directory to write synthesized .cant files (defaults to .cleo/cant/agents/)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview invocation tokens without invoking agent-architect',
+      default: false,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit result as LAFS JSON envelope',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    try {
+      const { existsSync, readFileSync, mkdirSync } = await import('node:fs');
+      const { resolve, join } = await import('node:path');
+
+      const specPath = resolve(args.spec);
+      if (!existsSync(specPath)) {
+        const errEnv = {
+          success: false,
+          error: { code: 'E_NOT_FOUND', message: `spec file not found: ${specPath}` },
+          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
+        };
+        if (args.json) {
+          process.stdout.write(JSON.stringify(errEnv, null, 2) + '\n');
+        } else {
+          process.stderr.write(`error: spec file not found: ${specPath}\n`);
+        }
+        process.exitCode = 4;
+        return;
+      }
+
+      const specContent = readFileSync(specPath, 'utf-8');
+      const projectRoot = process.cwd();
+      const outputDir = args['output-dir']
+        ? resolve(args['output-dir'])
+        : join(projectRoot, '.cleo', 'cant', 'agents');
+      mkdirSync(outputDir, { recursive: true });
+
+      if (args['dry-run']) {
+        const preview = {
+          success: true,
+          data: {
+            dryRun: true,
+            agentName: 'agent-architect',
+            specPath,
+            outputDir,
+            projectRoot,
+            message: 'Dry-run: would invoke agent-architect with the above tokens',
+          },
+          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
+        };
+        process.stdout.write(JSON.stringify(preview, null, 2) + '\n');
+        return;
+      }
+
+      const { invokeMetaAgent } = await import('@cleocode/core/agents/invoke-meta-agent');
+      const result = await invokeMetaAgent({
+        agentName: 'agent-architect',
+        projectRoot,
+        tokens: {
+          CANT_AGENTS_DIR: outputDir,
+          // Pass spec content as PROJECT_CONTEXT to let agent-architect read it
+          PROJECT_CONTEXT: specContent,
+        },
+      });
+
+      if (result.invoked) {
+        const envelope = {
+          success: true,
+          data: {
+            invoked: true,
+            outputs: result.outputs ?? [],
+            outputDir,
+            message: `agent-architect synthesized ${result.outputs?.length ?? 0} agent(s)`,
+          },
+          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
+        };
+        if (args.json) {
+          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else {
+          process.stdout.write(`minted ${result.outputs?.length ?? 0} agent(s) to ${outputDir}\n`);
+          for (const out of result.outputs ?? []) {
+            process.stdout.write(`  + ${out}\n`);
+          }
+        }
+      } else {
+        const fallbackMsg = `agent-architect unavailable: ${result.reason ?? 'unknown'}. Run 'cleo agent create' for static scaffolding.`;
+        const envelope = {
+          success: false,
+          error: { code: 'E_META_AGENT_UNAVAILABLE', message: fallbackMsg },
+          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
+        };
+        if (args.json) {
+          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+        } else {
+          process.stderr.write(`warn: ${fallbackMsg}\n`);
+        }
+        process.exitCode = 1;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`error: agent mint failed: ${message}\n`);
+      process.exitCode = 1;
+    }
+  },
+});
+
 const doctorCommand = defineCommand({
   meta: {
     name: 'doctor',
@@ -2843,6 +2977,7 @@ export const agentCommand = defineCommand({
     install: installCommand,
     pack: packCommand,
     create: createCommand,
+    mint: mintCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

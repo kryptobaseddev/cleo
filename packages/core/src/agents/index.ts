@@ -68,6 +68,14 @@ export {
   recordHeartbeat,
   STALE_THRESHOLD_MS,
 } from './health-monitor.js';
+// Meta-agent invocation shim (T1272 / T1273 — ADR-055 D034 agent-architect)
+export {
+  type InvokeMetaAgentOptions,
+  invokeAgentArchitect,
+  invokeMetaAgent,
+  type MetaAgentResult,
+  type MetaAgentTokens,
+} from './invoke-meta-agent.js';
 // Registry (CRUD, heartbeat, health, errors)
 // Note: registry.checkAgentHealth (thresholdMs, cwd) -> AgentInstanceRow[] is exported
 // as findStaleAgentRows to avoid conflict with health-monitor.checkAgentHealth (T039).
@@ -92,6 +100,7 @@ export {
 } from './registry.js';
 // Starter-bundle SDK helpers (T1241 / D035)
 export {
+  resolveMetaAgentsDir,
   resolveStarterBundle,
   resolveStarterBundleAgentsDir,
   resolveStarterBundleIdentityFile,

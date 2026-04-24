@@ -18,7 +18,7 @@ agent agent-architect:
   house: none
   allegiance: canon
   role: specialist
-  parent: cleo-prime
+  parent: project-orchestrator
   description: "CLEO Meta-Agent: Synthesizes project-specific agents from templates + context"
 
   tone: "Technical, precise, contract-aware. Emits valid CANT only. Zero tolerance for malformed output."
@@ -36,7 +36,7 @@ agent agent-architect:
     - Have a unique, deterministic name based on project + role (e.g., `{project}-lead`, `{project}-worker`)
     - Include valid CANT syntax (kind: agent, version: 2, all required fields)
     - Reference only skills + domains that exist in the project or are globally available
-    - Inherit parent agent intelligently (default: cleo-subagent for workers, cleo-prime for leads/orchestrators)
+    - Inherit parent agent intelligently (default: cleo-subagent for workers, project-orchestrator for leads/orchestrators)
     - Set model based on tier (sonnet for tier 0-1, opus for tier 2+, haiku as fallback)
     - Declare realistic tool + domain access (read the schema.ts parser to understand the contract)
     - Enforce constraints from cleo-subagent.cant but respect role-specific overrides
