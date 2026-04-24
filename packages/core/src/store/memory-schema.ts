@@ -1622,6 +1622,7 @@ export const brainBackfillRuns = sqliteTable(
      * - `observation-promotion` — promoting brain_observations to typed entries
      * - `transcript-ingest`     — ingesting Claude JSONL session transcripts
      * - `graph-backfill`        — populating brain_page_nodes/edges from typed tables
+     * - `noise-sweep-2440`      — T1147 W7: shadow-write BRAIN noise sweep (2440-entry estimate)
      * - `custom`                — ad-hoc runs initiated by the owner
      */
     kind: text('kind').notNull(),
@@ -1976,3 +1977,116 @@ export const brainMemoryTrees = sqliteTable(
 export type BrainMemoryTreeRow = typeof brainMemoryTrees.$inferSelect;
 /** Row type for brain_memory_trees INSERT operations. */
 export type BrainMemoryTreeInsert = typeof brainMemoryTrees.$inferInsert;
+
+// ============================================================================
+// T1147 — Wave 7: Shadow-write envelope staging table
+// ============================================================================
+
+/**
+ * Shadow-write staging table for the T1147 BRAIN noise sweep.
+ *
+ * One row per candidate entry to sweep. Anchored to a `brain_backfill_runs`
+ * row (`sweep_run_id`) of kind `noise-sweep-2440`. The workflow is:
+ *
+ * 1. W7-3 detector populates `brain_v2_candidate` + a `brain_backfill_runs`
+ *    row (`status: 'staged'`).
+ * 2. Autonomous 100-entry stratified validation writes sample JSON.
+ * 3. `cleo memory sweep --approve <runId>` calls W7-4 executor, which opens
+ *    a cutover tx: applies actions to live tables, updates `brain_backfill_runs`
+ *    to `approved`, removes `pending` candidates.
+ * 4. Reject: `brain_backfill_runs` → `rolled-back`; candidates discarded.
+ *
+ * `action` values:
+ * - `purge`       — set `invalid_at = now()`, `provenance_class = 'noise-purged'`
+ * - `keep`        — set `provenance_class = 'swept-clean'` (no structural change)
+ * - `reclassify`  — adjust `quality_score` and mark `swept-clean`
+ * - `promote`     — raise tier + `swept-clean`
+ *
+ * @task T1147
+ * @epic T1075
+ */
+export const brainV2Candidate = sqliteTable(
+  'brain_v2_candidate',
+  {
+    /** Unique candidate identifier. Format: `bvc-<timestamp36>-<rand>`. */
+    id: text('id').primaryKey(),
+
+    /**
+     * The live brain table this candidate targets.
+     * One of: `brain_observations`, `brain_learnings`, `brain_decisions`,
+     * `brain_patterns`.
+     */
+    sourceTable: text('source_table').notNull(),
+
+    /** Primary key in the source table for the targeted row. */
+    sourceId: text('source_id').notNull(),
+
+    /**
+     * FK to `brain_backfill_runs.id`.
+     * The sweep run that produced this candidate.
+     */
+    sweepRunId: text('sweep_run_id').notNull(),
+
+    /**
+     * Planned action for this entry during the cutover transaction.
+     *
+     * - `purge`      — mark `invalid_at`, set `provenance_class='noise-purged'`
+     * - `keep`       — set `provenance_class='swept-clean'`, no other changes
+     * - `reclassify` — update `quality_score` + mark `swept-clean`
+     * - `promote`    — raise memory tier + mark `swept-clean`
+     */
+    action: text('action').notNull(),
+
+    /**
+     * Replacement `quality_score` to write on `reclassify`/`promote`.
+     * Null when action is `purge` or `keep`.
+     */
+    newQualityScore: real('new_quality_score'),
+
+    /**
+     * ISO 8601 `invalid_at` value to write for `purge` actions.
+     * Null for non-purge actions.
+     */
+    newInvalidAt: text('new_invalid_at'),
+
+    /**
+     * `provenance_class` value to write during cutover.
+     *
+     * - `swept-clean`    — for `keep` / `reclassify` / `promote` actions
+     * - `noise-purged`   — for `purge` actions
+     */
+    newProvenanceClass: text('new_provenance_class'),
+
+    /**
+     * Status of this candidate within the sweep workflow.
+     *
+     * - `pending`  — awaiting approval
+     * - `applied`  — cutover tx committed this row's action to the live table
+     * - `skipped`  — cutover tx skipped this row (e.g. already superseded)
+     */
+    validationStatus: text('validation_status').notNull().default('pending'),
+
+    /** ISO 8601 timestamp when this candidate was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_bvc_sweep_run').on(table.sweepRunId),
+    index('idx_bvc_source').on(table.sourceTable, table.sourceId),
+    index('idx_bvc_status').on(table.validationStatus),
+  ],
+);
+
+/** Row type for brain_v2_candidate SELECT queries. */
+export type BrainV2CandidateRow = typeof brainV2Candidate.$inferSelect;
+/** Row type for brain_v2_candidate INSERT operations. */
+export type NewBrainV2CandidateRow = typeof brainV2Candidate.$inferInsert;
+
+/** Valid action values for brain_v2_candidate.action. */
+export const BRAIN_V2_CANDIDATE_ACTIONS = ['purge', 'keep', 'reclassify', 'promote'] as const;
+/** Discriminated union of all candidate actions. */
+export type BrainV2CandidateAction = (typeof BRAIN_V2_CANDIDATE_ACTIONS)[number];
+
+/** Valid validation_status values for brain_v2_candidate. */
+export const BRAIN_V2_CANDIDATE_STATUSES = ['pending', 'applied', 'skipped'] as const;
+/** Discriminated union of all candidate validation statuses. */
+export type BrainV2CandidateStatus = (typeof BRAIN_V2_CANDIDATE_STATUSES)[number];
