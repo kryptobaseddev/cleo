@@ -683,6 +683,44 @@ export const brainObservations = sqliteTable(
      * @see brainDecisions.peerScope for full documentation.
      */
     peerScope: text('peer_scope').notNull().default('project'),
+
+    // T1145 Wave 5: Deriver lineage + level columns
+
+    /**
+     * JSON array of ancestor brain_observations.id values that this entry
+     * was derived from. Null for directly-observed entries.
+     *
+     * @task T1145
+     */
+    sourceIds: text('source_ids'),
+
+    /**
+     * How many times this observation has been derived/synthesized from.
+     * Default 1 = created once (not yet re-derived).
+     *
+     * @task T1145
+     */
+    timesDerived: integer('times_derived').default(1),
+
+    /**
+     * Cognitive derivation level:
+     * - `explicit`   — directly observed event (default)
+     * - `inductive`  — synthesized by the deriver from a group of observations
+     *
+     * In-app CHECK enforced at write time; no SQLite CHECK constraint (Lesson 3).
+     *
+     * @task T1145
+     */
+    level: text('level').default('explicit'),
+
+    /**
+     * FK reference to brain_memory_trees.id — which leaf cluster contains
+     * this observation after the last dream cycle.
+     * Null until the first dream cycle assigns tree membership.
+     *
+     * @task T1146
+     */
+    treeId: integer('tree_id'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -711,6 +749,10 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_stability_score').on(table.stabilityScore),
     // T1084: peer isolation index
     index('idx_brain_observations_peer_scope').on(table.peerId, table.peerScope),
+    // T1145: derivation level index
+    index('idx_brain_observations_level').on(table.level),
+    // T1146: tree membership index
+    index('idx_brain_observations_tree_id').on(table.treeId),
   ],
 );
 
@@ -1756,3 +1798,181 @@ export const BRAIN_BACKFILL_RUN_STATUSES = ['staged', 'approved', 'rolled-back']
 export type BrainBackfillRunStatus = (typeof BRAIN_BACKFILL_RUN_STATUSES)[number];
 
 // BrainNodeType and BrainEdgeType are declared alongside their enum arrays above.
+
+// ============================================================================
+// DERIVER QUEUE — durable background derivation work items (T1145 Wave 5)
+// ============================================================================
+
+/**
+ * Valid item types for the deriver queue.
+ * - `observation`  — derive an inductive synthesis from a set of observations
+ * - `session`      — summarize a session into session_narrative
+ * - `narrative`    — update an existing narrative with new observations
+ * - `embedding`    — compute/backfill embeddings for an observation
+ */
+export const DERIVER_QUEUE_ITEM_TYPES = [
+  'observation',
+  'session',
+  'narrative',
+  'embedding',
+] as const;
+/** Discriminated union of deriver queue item types. */
+export type DeriverQueueItemType = (typeof DERIVER_QUEUE_ITEM_TYPES)[number];
+
+/**
+ * Valid status values for deriver_queue.status.
+ * - `pending`     — waiting to be claimed by a worker
+ * - `in_progress` — claimed by a worker, being processed
+ * - `done`        — successfully processed
+ * - `failed`      — permanently failed (moved to DLQ semantics)
+ */
+export const DERIVER_QUEUE_STATUSES = ['pending', 'in_progress', 'done', 'failed'] as const;
+/** Discriminated union of deriver queue status values. */
+export type DeriverQueueStatus = (typeof DERIVER_QUEUE_STATUSES)[number];
+
+/**
+ * Durable background derivation work queue.
+ *
+ * Implements a SQLite-WAL-backed producer/consumer queue using the
+ * "status column + ORDER BY created_at" pattern (analogous to PostgreSQL
+ * `FOR UPDATE SKIP LOCKED`). Workers claim items via exclusive transactions
+ * and complete/fail them atomically.
+ *
+ * Stale items (claimed_at older than threshold) are re-queued to `pending`
+ * during maintenance passes.
+ *
+ * @task T1145
+ * @epic T1145
+ */
+export const deriverQueue = sqliteTable(
+  'deriver_queue',
+  {
+    /** Unique work item identifier. Format: `dq-<timestamp36>-<rand>`. */
+    id: text('id').primaryKey(),
+
+    /**
+     * The type of derivation work to perform.
+     * Drives which deriver function processes this item.
+     */
+    itemType: text('item_type', { enum: DERIVER_QUEUE_ITEM_TYPES }).notNull(),
+
+    /** Source item ID (e.g. brain_observations.id, session id, etc.). */
+    itemId: text('item_id').notNull(),
+
+    /**
+     * Priority for ordering within the same status bucket.
+     * Higher = more important. Default 0.
+     */
+    priority: integer('priority').notNull().default(0),
+
+    /**
+     * Current processing status.
+     * State machine: pending → in_progress → done | failed
+     */
+    status: text('status', { enum: DERIVER_QUEUE_STATUSES }).notNull().default('pending'),
+
+    /**
+     * ISO 8601 timestamp when this item was claimed by a worker.
+     * Null when status is `pending` or after re-queue.
+     * Used for stale-claim detection.
+     */
+    claimedAt: text('claimed_at'),
+
+    /**
+     * Worker identifier that claimed this item.
+     * Format: `worker-<pid>-<timestamp>` or test override string.
+     */
+    claimedBy: text('claimed_by'),
+
+    /** Error message when status = `failed`. */
+    errorMsg: text('error_msg'),
+
+    /**
+     * Number of times this item has been retried.
+     * After max retries the item moves to `failed` (DLQ semantics).
+     */
+    retryCount: integer('retry_count').notNull().default(0),
+
+    /** ISO 8601 timestamp when the item was enqueued. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    /** ISO 8601 timestamp when the item was successfully completed. Null until done. */
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    // Primary claim query: pending items ordered by priority desc, created_at asc
+    index('idx_deriver_queue_status_priority').on(table.status, table.priority, table.createdAt),
+    // Dedup check: one pending/in_progress item per (itemType, itemId)
+    index('idx_deriver_queue_item').on(table.itemType, table.itemId),
+    // Stale-claim recovery: find in_progress items with old claimed_at
+    index('idx_deriver_queue_claimed_at').on(table.claimedAt),
+  ],
+);
+
+/** Row type for deriver_queue SELECT queries. */
+export type DeriverQueueRow = typeof deriverQueue.$inferSelect;
+/** Row type for deriver_queue INSERT operations. */
+export type DeriverQueueInsert = typeof deriverQueue.$inferInsert;
+
+// ============================================================================
+// BRAIN MEMORY TREES — hierarchical RPTree clustering (T1146 Wave 6)
+// ============================================================================
+
+/**
+ * Hierarchical Random Projection Tree nodes for consolidated memory.
+ *
+ * Each row represents a node in the RPTree. Leaf nodes contain groups of
+ * semantically-similar observations (leaf_ids). Internal nodes group leaves.
+ * Trees are rebuilt each dream cycle (full truncate + repopulate).
+ *
+ * brain_observations.tree_id references the leaf node containing that
+ * observation after the last dream cycle.
+ *
+ * @task T1146
+ * @epic T1146
+ */
+export const brainMemoryTrees = sqliteTable(
+  'brain_memory_trees',
+  {
+    /** Auto-incrementing row id. Used as FK in brain_observations.tree_id. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * Depth of this node in the RPTree.
+     * 0 = root, 1 = first-level partition, etc.
+     */
+    depth: integer('depth').notNull().default(0),
+
+    /**
+     * JSON array of brain_observations.id values in this leaf cluster.
+     * Empty array `[]` for internal (non-leaf) nodes.
+     */
+    leafIds: text('leaf_ids').notNull().default('[]'),
+
+    /**
+     * Serialized float32 centroid of this node's embedding cluster.
+     * Null when not computed (e.g. no embeddings available).
+     */
+    centroid: text('centroid'), // JSON-encoded float array
+
+    /**
+     * Parent node id. Null for the root node.
+     */
+    parentId: integer('parent_id'),
+
+    /** ISO 8601 timestamp when this tree node was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+
+    /** ISO 8601 timestamp when this tree node was last updated. */
+    updatedAt: text('updated_at'),
+  },
+  (table) => [
+    index('idx_brain_trees_parent').on(table.parentId),
+    index('idx_brain_trees_depth').on(table.depth),
+  ],
+);
+
+/** Row type for brain_memory_trees SELECT queries. */
+export type BrainMemoryTreeRow = typeof brainMemoryTrees.$inferSelect;
+/** Row type for brain_memory_trees INSERT operations. */
+export type BrainMemoryTreeInsert = typeof brainMemoryTrees.$inferInsert;

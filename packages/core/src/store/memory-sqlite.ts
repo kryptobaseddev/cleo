@@ -392,6 +392,78 @@ function runBrainMigrations(
     `CREATE INDEX IF NOT EXISTS idx_backfill_runs_created_at
       ON brain_backfill_runs (created_at)`,
   );
+
+  // T1145: Wave 5 Deriver Queue — deriver lineage + level columns on brain_observations.
+  // Drizzle migration 20260424000003_t1145-extend-brain-observations handles fresh installs.
+  // ensureColumns here is the safety-net for test DBs and existing installs where the
+  // journal reconciler may skip the ALTER TABLE migration.
+  ensureColumns(
+    nativeDb,
+    'brain_observations',
+    [
+      { name: 'source_ids', ddl: 'text' },
+      { name: 'times_derived', ddl: 'integer DEFAULT 1' },
+      { name: 'level', ddl: "text DEFAULT 'explicit'" },
+      { name: 'tree_id', ddl: 'integer' },
+    ],
+    'brain',
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_observations_level ON brain_observations (level)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_observations_tree_id ON brain_observations (tree_id)`,
+  );
+
+  // T1145: deriver_queue — durable background derivation work queue.
+  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS deriver_queue (
+      id            TEXT PRIMARY KEY,
+      item_type     TEXT NOT NULL,
+      item_id       TEXT NOT NULL,
+      priority      INTEGER NOT NULL DEFAULT 0,
+      status        TEXT NOT NULL DEFAULT 'pending',
+      claimed_at    TEXT,
+      claimed_by    TEXT,
+      error_msg     TEXT,
+      retry_count   INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at  TEXT
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_status_priority
+      ON deriver_queue (status, priority DESC, created_at ASC)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_item
+      ON deriver_queue (item_type, item_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_claimed_at
+      ON deriver_queue (claimed_at)`,
+  );
+
+  // T1146: brain_memory_trees — hierarchical RPTree clustering (W6 Dreamer Upgrade).
+  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_memory_trees (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      depth       INTEGER NOT NULL DEFAULT 0,
+      leaf_ids    TEXT NOT NULL DEFAULT '[]',
+      centroid    TEXT,
+      parent_id   INTEGER REFERENCES brain_memory_trees(id) ON DELETE CASCADE,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_trees_parent ON brain_memory_trees (parent_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees (depth)`,
+  );
 }
 
 /**
