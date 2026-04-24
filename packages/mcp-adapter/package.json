@@ -16,7 +16,7 @@
     }
   },
   "bin": {
-    "cleo-mcp-server": "./dist/cli.js"
+    "cleo-mcp-server": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -38,7 +38,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kryptobaseddev/cleo",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
     "directory": "packages/mcp-adapter"
   },
   "license": "MIT",
