@@ -518,6 +518,23 @@ export async function sessionStart(
       ...(previousHandoff && { previousHandoff }),
     };
 
+    // T1263: Append session_start journal entry (best-effort, fire-and-forget)
+    import('@cleocode/core/sessions/session-journal.js')
+      .then(async ({ appendSessionJournalEntry }) => {
+        const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+        await appendSessionJournalEntry(projectRoot, {
+          schemaVersion: SESSION_JOURNAL_SCHEMA_VERSION,
+          timestamp: new Date().toISOString(),
+          sessionId,
+          eventType: 'session_start',
+          agentIdentifier: agentIdentifier ?? undefined,
+          scope: params.scope,
+        });
+      })
+      .catch(() => {
+        /* Journal write is best-effort — never block session start */
+      });
+
     return { success: true, data: enrichedSession as Session };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -607,6 +624,56 @@ export async function sessionEnd(
       }
     } catch {
       // Summarization must never block session end
+    }
+
+    // T1263: Append session_end journal entry (best-effort, synchronous await — last operation)
+    try {
+      const { appendSessionJournalEntry } = await import(
+        '@cleocode/core/sessions/session-journal.js'
+      );
+      const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+
+      // Run brain-noise scan (T1262 absorption) — best-effort
+      let doctorSummary:
+        | {
+            isClean: boolean;
+            findingsCount: number;
+            patterns: string[];
+            totalScanned: number;
+          }
+        | undefined;
+      try {
+        const { scanBrainNoise } = await import('@cleocode/core/memory/brain-doctor.js');
+        const scanResult = await scanBrainNoise(projectRoot);
+        doctorSummary = {
+          isClean: scanResult.isClean,
+          findingsCount: scanResult.findings.length,
+          patterns: scanResult.findings.map((f) => f.pattern),
+          totalScanned: scanResult.totalScanned,
+        };
+      } catch {
+        // brain scan is best-effort
+      }
+
+      const agentIdentifier =
+        process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
+      const duration = Math.floor(
+        (Date.now() - new Date(activeSession.startedAt).getTime()) / 1000,
+      );
+
+      await appendSessionJournalEntry(projectRoot, {
+        schemaVersion: SESSION_JOURNAL_SCHEMA_VERSION,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        eventType: 'session_end',
+        agentIdentifier,
+        providerId: activeSession.providerId ?? undefined,
+        duration,
+        tasksCompleted: activeSession.tasksCompleted ?? [],
+        ...(doctorSummary !== undefined ? { doctorSummary } : {}),
+      });
+    } catch {
+      // Journal write is best-effort — never block session end
     }
 
     return {
