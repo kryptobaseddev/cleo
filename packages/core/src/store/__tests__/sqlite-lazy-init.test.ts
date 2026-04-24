@@ -1,20 +1,26 @@
 /**
- * Tests for the leaf-module DatabaseSync fix in sqlite-native.ts (T1325/T1331 v2).
+ * Tests for the leaf-module DatabaseSync fix in sqlite-native.ts (T1325/T1331 v3).
  *
- * Architecture:
- *   sqlite-native.ts — leaf module, zero CLEO imports, owns the _ctor cache.
- *   sqlite.ts        — imports getDbSyncConstructor from sqlite-native.js.
+ * Architecture (v3):
+ *   sqlite-native.ts — leaf module, zero CLEO imports, owns the _ctor cache AND
+ *                      openNativeDatabase().
+ *   sqlite.ts        — ZERO value-binding imports from sqlite-native.ts. Only a
+ *                      re-export declaration and type-only import (both TDZ-safe).
+ *                      Uses dynamic imports of sqlite-native.ts inside async
+ *                      functions (getDb, autoRecoverFromBackup) — runtime only.
  *
- * The v1 fix put `let _DatabaseSyncCtor = null` in sqlite.ts itself. When
- * Vitest eagerly traces the dynamic `import('../memory/dispatch-trace.js')` in
- * agent-resolver.ts, that trace re-enters sqlite.ts before its module scope
- * finishes executing. The `let` declaration is hoisted (TDZ) but the
- * initializer has not run, so any access to `_DatabaseSyncCtor` throws
- * `Cannot access '_DatabaseSyncCtor' before initialization`.
- *
- * The v2 fix moves the cache into sqlite-native.ts which has zero CLEO imports.
- * The cycle cannot re-enter sqlite-native.ts because nothing in the cycle
- * imports it (sqlite.ts → sqlite-native.ts is a terminal edge, not a back-edge).
+ * History:
+ *   v1: `let _DatabaseSyncCtor = null` lived in sqlite.ts. When Vitest eagerly
+ *       traces the dynamic `import('../memory/dispatch-trace.js')` in
+ *       agent-resolver.ts, it re-entered sqlite.ts before its module scope
+ *       finished executing. The `let` is in TDZ → ReferenceError.
+ *   v2: Moved the cache into sqlite-native.ts. Still had a static
+ *       `import { getDbSyncConstructor }` in sqlite.ts → Vite SSR transforms
+ *       it to `const __vite_ssr_import_N__ = await import(...)`. Re-entrant
+ *       access before that await resolved → TDZ on `__vite_ssr_import_N__`.
+ *   v3: sqlite.ts has NO value-binding imports from sqlite-native.ts.
+ *       openNativeDatabase moved to sqlite-native.ts. Re-export declarations
+ *       are live-binding getters (not `const`) → cannot TDZ.
  *
  * @task T1331
  * @epic T1323
@@ -25,7 +31,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-describe('sqlite-native.ts leaf module (T1331 v2)', () => {
+describe('sqlite-native.ts leaf module (T1331 v3)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -64,6 +70,41 @@ describe('sqlite-native.ts leaf module (T1331 v2)', () => {
     const second = getDbSyncConstructor();
     // Same reference — memoization working
     expect(first).toBe(second);
+  });
+});
+
+describe('sqlite.ts v3: no static value-binding import from sqlite-native.ts (T1331)', () => {
+  it('sqlite.ts module source has no static value-binding import from sqlite-native.ts', async () => {
+    // This test reads the compiled source of sqlite.ts and asserts that there is
+    // no `import { ... } from './sqlite-native.js'` (value-binding) at module scope.
+    // Only `import type` and `export { ... } from` (re-export) are permitted.
+    //
+    // Why: Vite SSR transforms `import { foo } from './bar.js'` into
+    //   `const __vite_ssr_import_N__ = await import('./bar.js')`
+    // If sqlite.ts is re-entered during that await, the const binding is in TDZ.
+    // Re-exports (`export { foo } from './bar.js'`) become live-binding getters,
+    // not const bindings, so they cannot TDZ. (T1331 v3)
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    const sqliteSrc = readFileSync(join(thisDir, '../sqlite.ts'), 'utf8');
+
+    // Must NOT have a value-binding import from sqlite-native
+    const valueImportPattern = /^import\s*\{[^}]*\}\s*from\s*['"]\.\/sqlite-native\.js['"]/m;
+    expect(
+      valueImportPattern.test(sqliteSrc),
+      'sqlite.ts must NOT have a static value-binding import from sqlite-native.ts — ' +
+        'use import type or dynamic import inside async functions only (T1331 v3)',
+    ).toBe(false);
+
+    // MUST have a type-only import (for internal type annotations) — type-only is TDZ-safe
+    const typeOnlyImportPattern =
+      /^import\s+type\s*\{[^}]*DatabaseSync[^}]*\}\s*from\s*['"]\.\/sqlite-native\.js['"]/m;
+    expect(
+      typeOnlyImportPattern.test(sqliteSrc),
+      'sqlite.ts should have an import type for DatabaseSync from sqlite-native.ts',
+    ).toBe(true);
   });
 });
 
