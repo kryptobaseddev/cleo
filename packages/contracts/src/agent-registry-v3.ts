@@ -130,6 +130,17 @@ export interface ResolvedAgent {
   aliasApplied: boolean;
   /** When `aliasApplied` is true, the terminal canonical agentId the alias pointed at. */
   aliasTarget?: string;
+  /**
+   * Structured warning message set when the resolver fell back to the universal
+   * base tier because the requested agent was not found in any registry tier.
+   *
+   * Callers MUST surface this via the `PlanWarning[]` channel rather than
+   * writing directly to stderr/stdout. `console.warn` is never called when
+   * this field is populated.
+   *
+   * @task T1324
+   */
+  resolverWarning?: string;
 }
 
 // ============================================================================
