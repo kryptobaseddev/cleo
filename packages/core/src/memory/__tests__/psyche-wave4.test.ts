@@ -228,8 +228,11 @@ describe('fetchIdentity', () => {
     const { fetchIdentity } = await import('../brain-retrieval.js');
 
     const result = await fetchIdentity('cleo-subagent', nexusDb);
+    // Wave 8 (T1148): peerInstructions comes from sigil.systemPromptFragment.
+    // When no sigil is registered for a peer, peerInstructions is empty string.
+    // Sigil-populated peerInstructions are tested in sigil.test.ts.
     expect(typeof result.peerInstructions).toBe('string');
-    expect(result.peerInstructions).toContain('cleo-subagent');
+    expect(result.sigilCard).toBeNull();
   });
 
   it('returns empty peerInstructions for global peer', async () => {

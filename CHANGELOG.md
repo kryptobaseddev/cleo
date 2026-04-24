@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.133] — 2026-04-24 — APRIL TERMINUS
+
+T1148 Wave 8 Sigil/Peer-Card Identity Layer + T1151 Sentient v1 Dispatch-Time Reflex + M7 Entry Gate + MCP Adapter Proof. **April terminus: 8-slot PSYCHE spine complete (.126→.133).** W8-1 adds `sigils` table to `nexus.db` (Drizzle migration `20260424140538_t1148-add-sigils-table`). W8-2 adds sigil SDK (`getSigil`, `upsertSigil`, `listSigils`). W8-3 enriches `fetchIdentity()` with real sigil lookup. W8-4 updates `RetrievalBundle` contract with `sigilCard`. W8-7 wires M7 gate — `cleo sentient propose enable` returns `E_M7_GATE_FAILED` if brain corpus is dirty. W8-8 (T1151) inserts dispatch-time health reflex in `safeRunProposeTick()` — fire-and-forget reconciler trigger. W8-9: new `@cleocode/mcp-adapter` package, external MCP stdio server with 3 sentient tools. W8-10: sigil card in spawn prompts via PSYCHE-MEMORY block. W8-11: hierarchy.ts confirmed deleted.
+
+### Added
+
+- **`packages/core/src/store/nexus-schema.ts`**: `sigils` table + type exports (T1148 W8-1).
+- **`packages/core/migrations/drizzle-nexus/20260424140538_t1148-add-sigils-table/`**: Drizzle migration (T1148 W8-1).
+- **`packages/core/src/nexus/sigil.ts`**: `getSigil()`, `upsertSigil()`, `listSigils()` (T1148 W8-2).
+- **`packages/contracts/src/operations/memory.ts`**: `SigilCard` interface + `sigilCard` on `RetrievalBundle.cold` (T1148 W8-4).
+- **`packages/mcp-adapter/`**: New `@cleocode/mcp-adapter` — external MCP stub with 3 sentient tools (T1148 W8-9).
+- **`packages/core/src/memory/brain-reconciler.ts`**: `triggerReconcilerSweep()` (T1148 W8-8).
+
+### Changed
+
+- **`packages/core/src/memory/brain-retrieval.ts`**: `fetchIdentity()` returns `sigilCard` + `peerInstructions` from sigil (T1148 W8-3).
+- **`packages/cleo/src/dispatch/domains/sentient.ts`**: M7 gate in `setTier2Enabled()` (T1148 W8-7).
+- **`packages/core/src/sentient/propose-tick.ts`**: Dispatch-time health reflex + `triggerReconcilerSweep()` (T1151 W8-8).
+- **`packages/core/src/orchestration/spawn-prompt.ts`**: Sigil card section in PSYCHE-MEMORY block (T1148 W8-10).
+
 ## [2026.4.132] — 2026-04-24
 
 T1147 Wave 7 — Reconciler Extension + 2440-entry BRAIN Noise Sweep + Shadow-Write Envelope. W7-1 adds `brain-reconciler.ts` extending `runConsolidation` with T1139 auto-supersession (sets `invalid_at` on `contradicts` edge weight > 0.8). W7-2 adds `brain_v2_candidate` staging table (Drizzle migration `20260424000005`) + `noise-sweep-2440` kind on `brain_backfill_runs`. W7-3 adds `brain-noise-detector.ts` with `detectNoiseCandidates()` scanning all 4 brain tables (quality_score < 0.3, verified=false, invalid_at IS NULL), 100-entry stratified auto-validation sample JSON. W7-4 adds `brain-sweep-executor.ts` with `executeSweep()`: toggles killSwitch gate (Option A self-healing), PRAGMA busy_timeout=10000, bulk UPDATE `provenance_class` to `noise-purged`/`swept-clean`. W7-6 wires `cleo memory sweep --dry-run | --approve | --status`; `cleo memory doctor --assert-clean` now checks for pending `brain_v2_candidate` rows (M7 gate). W7-8 adds 6 E2E tests.

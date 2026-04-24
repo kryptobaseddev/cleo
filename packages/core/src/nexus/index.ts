@@ -100,6 +100,9 @@ export {
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
+export type { SigilCard, SigilInput } from './sigil.js';
+// Sigil (peer-card identity) SDK (T1148 Wave 8)
+export { getSigil, listSigils, upsertSigil } from './sigil.js';
 // Tasks Bridge - git-log sweeper linking task IDs to nexus symbols
 export {
   getSymbolsForTask,

@@ -457,6 +457,7 @@ export type {
   RetrievalPattern,
   RetrievalRequest,
   RetrievalTokenCounts,
+  SigilCard,
 } from './operations/memory.js';
 // === NEXUS User Profile Types (T1076 PSYCHE Wave 1) ===
 // Re-exported at top level so @cleocode/core/nexus and CLI dispatch can
